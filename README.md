@@ -115,6 +115,8 @@ Business-model rules:
 - [`docs/v1-production-deployment.md`](docs/v1-production-deployment.md) — release and launch plan
 - [`docs/github-bootstrap.md`](docs/github-bootstrap.md) — local repo and GitHub bootstrap steps
 - [`docs/macos-handoff.md`](docs/macos-handoff.md) — Mac-side startup checklist, current scaffold state, and first validation steps
+- [`docs/basic-chart-creation-flow.md`](docs/basic-chart-creation-flow.md) — explicit step-by-step behavior for the most basic chart authoring flow
+- [`docs/architecture-reset-proposal.md`](docs/architecture-reset-proposal.md) — side-by-side comparison of the current build path and the proposed editor architecture reset
 
 ## Prototype success criteria
 
