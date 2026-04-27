@@ -256,7 +256,7 @@ struct LeadSheetNotationRenderer {
 
     private func drawPitchedNote(_ noteLayout: LeadSheetNoteLayout) {
         drawNotationSymbol(
-            NotationNoteheadGlyph.pitched(noteLayout.headStyle).symbol,
+            noteLayout.noteheadSymbol ?? NotationNoteheadGlyph.pitched(noteLayout.headStyle).symbol,
             centeredAt: noteLayout.noteheadFrame.center,
             staffSpace: noteLayout.staffSpace
         )
@@ -266,7 +266,7 @@ struct LeadSheetNotationRenderer {
 
     private func drawSlashNote(_ noteLayout: LeadSheetNoteLayout) {
         drawNotationSymbol(
-            NotationNoteheadGlyph.slash(noteLayout.headStyle).symbol,
+            noteLayout.noteheadSymbol ?? NotationNoteheadGlyph.slash(noteLayout.headStyle).symbol,
             centeredAt: noteLayout.noteheadFrame.center,
             staffSpace: noteLayout.staffSpace
         )
@@ -308,10 +308,8 @@ struct LeadSheetNotationRenderer {
 
     private func drawFlag(from stemEnd: CGPoint, stemGoesUp: Bool, staffSpace: CGFloat) {
         let flag: NotationGlyphCatalog.Symbol = stemGoesUp ? .flag8thUp : .flag8thDown
-        let flagCenter = stemGoesUp
-            ? CGPoint(x: stemEnd.x + 5, y: stemEnd.y + 7)
-            : CGPoint(x: stemEnd.x + 5, y: stemEnd.y - 7)
-        drawNotationSymbol(flag, centeredAt: flagCenter, staffSpace: staffSpace)
+        let stemAnchorName = stemGoesUp ? "stemUpNW" : "stemDownSW"
+        drawNotationSymbol(flag, anchoredAt: stemEnd, anchorName: stemAnchorName, staffSpace: staffSpace)
     }
 
     private func drawSharedNoteAdornment(for noteLayout: LeadSheetNoteLayout) {
@@ -357,12 +355,56 @@ struct LeadSheetNotationRenderer {
         guard let glyph = NotationGlyphCatalog.glyph(for: symbol) else {
             return
         }
+        let metrics = style.glyphMetrics(for: symbol)
+        let fontSize = style.notationGlyphPointSize(
+            for: symbol,
+            staffSpace: staffSpace,
+            metrics: metrics
+        )
+
+        if let centerAnchor = metrics?.boundingBox?.center,
+           drawNotationGlyphPath(
+            glyph,
+            anchoredAt: center,
+            smuflAnchor: centerAnchor,
+            fontSize: fontSize
+           ) {
+            return
+        }
 
         drawNotationGlyph(
             glyph,
             centeredAt: center,
-            fontSize: NotationGlyphCatalog.pointSize(for: symbol, staffSpace: staffSpace) * style.glyphScale
+            fontSize: fontSize
         )
+    }
+
+    private func drawNotationSymbol(
+        _ symbol: NotationGlyphCatalog.Symbol,
+        anchoredAt anchorPoint: CGPoint,
+        anchorName: String,
+        staffSpace: CGFloat
+    ) {
+        guard let glyph = NotationGlyphCatalog.glyph(for: symbol) else {
+            return
+        }
+        let metrics = style.glyphMetrics(for: symbol)
+        let fontSize = style.notationGlyphPointSize(
+            for: symbol,
+            staffSpace: staffSpace,
+            metrics: metrics
+        )
+
+        guard let anchor = metrics?.anchor(named: anchorName),
+              drawNotationGlyphPath(
+                glyph,
+                anchoredAt: anchorPoint,
+                smuflAnchor: anchor,
+                fontSize: fontSize
+              ) else {
+            drawNotationSymbol(symbol, centeredAt: anchorPoint, staffSpace: staffSpace)
+            return
+        }
     }
 
     private func drawNotationGlyph(
@@ -392,6 +434,43 @@ struct LeadSheetNotationRenderer {
             y: center.y - glyphSize.height / 2
         )
         (glyph as NSString).draw(at: origin, withAttributes: attributes)
+    }
+
+    @discardableResult
+    private func drawNotationGlyphPath(
+        _ glyph: String,
+        anchoredAt anchorPoint: CGPoint,
+        smuflAnchor: SmuflPoint,
+        fontSize: CGFloat
+    ) -> Bool {
+        let font = style.notationGlyphFont(size: fontSize, requiring: glyph) as CTFont
+        let characters = Array(glyph.utf16)
+        guard characters.count == 1 else {
+            return false
+        }
+
+        var character = characters[0]
+        var cgGlyph = CGGlyph()
+        guard CTFontGetGlyphsForCharacters(font, &character, &cgGlyph, 1),
+              let glyphPath = CTFontCreatePathForGlyph(font, cgGlyph, nil),
+              let context = UIGraphicsGetCurrentContext() else {
+            return false
+        }
+
+        let smuflScale = fontSize / 4
+        let glyphOrigin = CGPoint(
+            x: anchorPoint.x - CGFloat(smuflAnchor.x) * smuflScale,
+            y: anchorPoint.y + CGFloat(smuflAnchor.y) * smuflScale
+        )
+
+        context.saveGState()
+        context.translateBy(x: glyphOrigin.x, y: glyphOrigin.y)
+        context.scaleBy(x: 1, y: -1)
+        context.addPath(glyphPath)
+        context.setFillColor(style.inkColor.cgColor)
+        context.fillPath()
+        context.restoreGState()
+        return true
     }
 
     private func normalizedText(_ text: String?) -> String? {
@@ -455,14 +534,7 @@ private struct LeadSheetNotationStyle {
     }
 
     var glyphScale: CGFloat {
-        switch engravingPreset {
-        case .compact:
-            return 0.94
-        case .balanced, .wide:
-            return 1
-        case .bold:
-            return 1.12
-        }
+        CGFloat(engravingPreset.glyphScale)
     }
 
     var inkColor: UIColor {
@@ -532,6 +604,22 @@ private struct LeadSheetNotationStyle {
         }
 
         return selectedFont ?? bravuraFont ?? UIFont.systemFont(ofSize: size)
+    }
+
+    func glyphMetrics(for symbol: NotationGlyphCatalog.Symbol) -> SmuflGlyphMetrics? {
+        SmuflFontMetadataStore.metrics(for: symbol, in: notationFont)
+    }
+
+    func notationGlyphPointSize(
+        for symbol: NotationGlyphCatalog.Symbol,
+        staffSpace: CGFloat,
+        metrics: SmuflGlyphMetrics?
+    ) -> CGFloat {
+        if metrics?.boundingBox != nil {
+            return max(1, staffSpace * 4 * glyphScale)
+        }
+
+        return NotationGlyphCatalog.pointSize(for: symbol, staffSpace: staffSpace) * glyphScale
     }
 
     private func markerFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {

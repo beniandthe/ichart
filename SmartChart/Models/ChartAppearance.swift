@@ -114,7 +114,38 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
         }
     }
 
+    var smuflMetadataDirectoryName: String {
+        switch self {
+        case .bravura:
+            return "Bravura"
+        case .petaluma:
+            return "Petaluma"
+        case .leland:
+            return "Leland"
+        case .finaleMaestro:
+            return "Finale Maestro"
+        case .finaleJazz:
+            return "Finale Jazz"
+        case .finaleBroadway:
+            return "Finale Broadway"
+        case .finaleEngraver:
+            return "Finale Engraver"
+        case .finaleAsh:
+            return "Finale Ash"
+        case .finaleLegacy:
+            return "Finale Legacy"
+        }
+    }
+
+    var smuflMetadataFileName: String {
+        "\(smuflMetadataDirectoryName).json"
+    }
+
     var smuflEngravingDefaults: SmuflEngravingDefaults {
+        SmuflFontMetadataStore.metadata(for: self)?.engravingDefaults ?? fallbackSmuflEngravingDefaults
+    }
+
+    private var fallbackSmuflEngravingDefaults: SmuflEngravingDefaults {
         switch self {
         case .bravura, .petaluma:
             return SmuflEngravingDefaults(
@@ -206,6 +237,17 @@ enum EngravingPreset: String, Codable, CaseIterable, Hashable, Identifiable {
             return "More horizontal room for handwriting and rhythms."
         case .bold:
             return "Heavier staff, barlines, stems, and glyphs."
+        }
+    }
+
+    var glyphScale: Double {
+        switch self {
+        case .compact:
+            return 0.94
+        case .balanced, .wide:
+            return 1
+        case .bold:
+            return 1.12
         }
     }
 }

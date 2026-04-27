@@ -32,7 +32,11 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let firstNote = try XCTUnwrap(firstMeasure.noteLayouts.first)
 
         XCTAssertLessThan(firstChord.frame.maxY, firstMeasure.staffFrame.minY)
-        XCTAssertTrue(firstMeasure.staffFrame.contains(firstNote.noteheadFrame))
+        XCTAssertTrue(
+            firstMeasure.staffFrame.insetBy(dx: 0, dy: -firstNote.staffSpace).contains(
+                CGPoint(x: firstNote.noteheadFrame.midX, y: firstNote.noteheadFrame.midY)
+            )
+        )
         XCTAssertNotNil(firstNote.stemStart)
         XCTAssertNotNil(firstNote.stemEnd)
     }
@@ -379,6 +383,132 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.noteLayouts[1].flagStyle, .single)
         XCTAssertNil(firstMeasure.noteLayouts[2].beamEndPoint)
         XCTAssertEqual(firstMeasure.noteLayouts[2].flagStyle, .single)
+    }
+
+    func testLeadSheetLayoutUsesSmuflNoteheadBoundsAndStemAnchors() throws {
+        var chart = makeBlankLeadSheet()
+        chart.setNotationFont(.petaluma)
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.eighth, .eighth, .quarter, .half],
+            for: firstMeasureID
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstNote = try XCTUnwrap(layout.systems.first?.measures.first?.noteLayouts.first)
+        let symbol = try XCTUnwrap(firstNote.noteheadSymbol)
+        let metrics = try XCTUnwrap(SmuflFontMetadataStore.metrics(for: symbol, in: chart.notationFont))
+        let boundingBox = try XCTUnwrap(metrics.boundingBox)
+        let stemAnchor = try XCTUnwrap(metrics.anchor(named: "stemDownNW"))
+        let stemStart = try XCTUnwrap(firstNote.stemStart)
+        let smuflScale = firstNote.staffSpace * CGFloat(chart.engravingPreset.glyphScale)
+        let boxCenter = boundingBox.center
+
+        XCTAssertEqual(symbol, .slashNotehead)
+        XCTAssertEqual(firstNote.noteheadFrame.width, CGFloat(boundingBox.width) * smuflScale, accuracy: 0.001)
+        XCTAssertEqual(firstNote.noteheadFrame.height, CGFloat(boundingBox.height) * smuflScale, accuracy: 0.001)
+        XCTAssertEqual(
+            stemStart.x,
+            firstNote.noteheadFrame.midX + CGFloat(stemAnchor.x - boxCenter.x) * smuflScale,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            stemStart.y,
+            firstNote.noteheadFrame.midY - CGFloat(stemAnchor.y - boxCenter.y) * smuflScale,
+            accuracy: 0.001
+        )
+    }
+
+    func testLeadSheetLayoutTurnsEditedBeamedEighthIntoCleanStandaloneEighth() throws {
+        var chart = makeBlankLeadSheet()
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.eighth, .eighth, .quarter, .half],
+            for: firstMeasureID
+        )
+
+        let result = chart.replaceMeasureRhythmValue(.eighthRest, at: 0, in: firstMeasureID)
+        XCTAssertEqual(result, .applied)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let noteLayouts = try XCTUnwrap(layout.systems.first?.measures.first?.noteLayouts)
+
+        XCTAssertEqual(noteLayouts.map(\.symbolStyle), [.eighthRest, .slash, .slash, .slash])
+        XCTAssertNil(noteLayouts[0].stemStart)
+        XCTAssertNil(noteLayouts[0].stemEnd)
+        XCTAssertNil(noteLayouts[0].beamEndPoint)
+        XCTAssertNil(noteLayouts[1].beamEndPoint)
+        XCTAssertEqual(noteLayouts[1].flagStyle, .single)
+    }
+
+    func testLeadSheetLayoutResolvesLassoSelectionToSingleNote() throws {
+        var chart = makeBlankLeadSheet()
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.quarter, .quarter, .quarter, .quarter],
+            for: firstMeasureID
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstNote = try XCTUnwrap(layout.systems.first?.measures.first?.noteLayouts.first)
+        let lassoFrame = firstNote.noteheadFrame.insetBy(dx: -18, dy: -18)
+        let selection = try XCTUnwrap(layout.noteSelection(in: lassoFrame))
+
+        XCTAssertEqual(selection.measureID, firstMeasureID)
+        XCTAssertEqual(selection.noteIndex, 0)
+    }
+
+    func testLeadSheetLayoutSelectsIndividualNoteInsideBeamedEighthPair() throws {
+        var chart = makeBlankLeadSheet()
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.eighth, .eighth, .quarter, .half],
+            for: firstMeasureID
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let noteLayouts = try XCTUnwrap(layout.systems.first?.measures.first?.noteLayouts)
+        let firstBeamedNote = noteLayouts[0]
+        let secondBeamedNote = noteLayouts[1]
+
+        XCTAssertNotNil(firstBeamedNote.beamEndPoint)
+        XCTAssertNil(secondBeamedNote.beamEndPoint)
+        XCTAssertLessThan(firstBeamedNote.selectionFrame.maxX, secondBeamedNote.noteheadFrame.minX)
+
+        let lassoFrame = secondBeamedNote.noteheadFrame.insetBy(dx: -18, dy: -18)
+        let selection = try XCTUnwrap(layout.noteSelection(in: lassoFrame))
+
+        XCTAssertEqual(selection.measureID, firstMeasureID)
+        XCTAssertEqual(selection.noteIndex, 1)
+    }
+
+    func testLeadSheetLayoutDoesNotSelectNoteFromGreyAreaLasso() throws {
+        var chart = makeBlankLeadSheet()
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.quarter, .quarter, .quarter, .quarter],
+            for: firstMeasureID
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let outsidePaperLasso = CGRect(x: 10, y: 10, width: 40, height: 40)
+
+        XCTAssertNil(layout.noteSelection(in: outsidePaperLasso))
     }
 
     private func makeBlankLeadSheet() -> Chart {

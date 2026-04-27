@@ -194,6 +194,53 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func replaceMeasureRhythmValue(
+        _ rhythmValue: RhythmValue,
+        at noteIndex: Int,
+        in measureID: UUID
+    ) -> MeasureRhythmReplacementResult {
+        guard RhythmValue.singularEditPalette.contains(rhythmValue) else {
+            return .unsupportedRhythmValue
+        }
+
+        guard let location = measureLocation(id: measureID) else {
+            return .missingMeasure
+        }
+
+        var measure = systems[location.systemIndex].measures[location.measureIndex]
+        guard var values = measure.rhythmMap?.values else {
+            return .missingRhythmMap
+        }
+
+        guard values.indices.contains(noteIndex) else {
+            return .invalidNoteIndex
+        }
+
+        values[noteIndex] = rhythmValue
+        let replacementMap = MeasureRhythmMap(values: values)
+        let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
+        let replacementStatus = replacementMap.status(for: meter)
+
+        guard case .exact = replacementStatus else {
+            return .invalidMeterFit(replacementStatus)
+        }
+
+        guard replacementMap.resolvedSlots(for: meter) != nil else {
+            return .invalidMeterFit(.invalidSubdivision)
+        }
+
+        guard measure.rhythmMap != replacementMap else {
+            return .unchanged
+        }
+
+        measure.rhythmMap = replacementMap
+        measure.clearInvalidRhythmSlotAssignments(defaultMeter: defaultMeter)
+        systems[location.systemIndex].measures[location.measureIndex] = measure
+        updatedAt = .now
+        return .applied
+    }
+
+    @discardableResult
     mutating func clearMeasureRhythmicNotation(
         for measureID: UUID,
         clearRhythmMap: Bool
@@ -637,6 +684,25 @@ extension Chart {
             }
 
             roadmapObjects[roadmapObjectIndex].anchorSystemID = resolvedSystemID
+        }
+    }
+}
+
+enum MeasureRhythmReplacementResult: Hashable {
+    case applied
+    case unchanged
+    case missingMeasure
+    case missingRhythmMap
+    case invalidNoteIndex
+    case unsupportedRhythmValue
+    case invalidMeterFit(MeasureRhythmMapStatus)
+
+    var didApply: Bool {
+        switch self {
+        case .applied, .unchanged:
+            return true
+        case .missingMeasure, .missingRhythmMap, .invalidNoteIndex, .unsupportedRhythmValue, .invalidMeterFit:
+            return false
         }
     }
 }

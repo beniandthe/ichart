@@ -24,6 +24,11 @@ struct EditorView: View {
     @State private var showingRhythmicNotationError = false
     @State private var pendingRhythmicNotationConfirmation: PendingRhythmicNotationConfirmation?
     @State private var selectedMeasureID: UUID?
+    @State private var selectedNoteSelection: LeadSheetNoteSelection?
+    @State private var isNoteEditMenuPresented = false
+    @State private var noteEditMenuStage: NoteEditMenuStage = .actions
+    @State private var noteEditErrorMessage = ""
+    @State private var showingNoteEditError = false
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var freeHandReturnMode: EditorCanvasMode = .browse
@@ -63,6 +68,7 @@ struct EditorView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button(chart.hasCompletedInitialSetup ? "Page Setup" : "Setup") {
                     selectedMeasureID = nil
+                    selectedNoteSelection = nil
                     pendingTimeSignatureSourceMeasureID = nil
                     pendingTimeSignaturePlacement = nil
                     freeHandReturnMode = .browse
@@ -73,6 +79,7 @@ struct EditorView: View {
 
                 Button {
                     selectedMeasureID = nil
+                    selectedNoteSelection = nil
                     pendingTimeSignatureSourceMeasureID = nil
                     pendingTimeSignaturePlacement = nil
                     freeHandReturnMode = .browse
@@ -187,6 +194,26 @@ struct EditorView: View {
         } message: {
             Text(rhythmicNotationErrorMessage)
         }
+        .alert("Rhythm Edit", isPresented: $showingNoteEditError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(noteEditErrorMessage)
+        }
+        .onChange(of: selectedNoteSelection) { selection in
+            if selection == nil {
+                isNoteEditMenuPresented = false
+                noteEditMenuStage = .actions
+            } else if canvasMode == .noteEdit {
+                noteEditMenuStage = .actions
+                isNoteEditMenuPresented = true
+            }
+        }
+        .onChange(of: canvasMode) { mode in
+            if mode != .noteEdit {
+                isNoteEditMenuPresented = false
+                noteEditMenuStage = .actions
+            }
+        }
         .task {
             if chart.staffStyle != .fiveLine {
                 chart.staffStyle = .fiveLine
@@ -203,6 +230,7 @@ struct EditorView: View {
             HStack(spacing: 10) {
                 Button {
                     selectedMeasureID = nil
+                    selectedNoteSelection = nil
                     pendingTimeSignatureSourceMeasureID = nil
                     pendingTimeSignaturePlacement = nil
                     freeHandReturnMode = .browse
@@ -250,7 +278,33 @@ struct EditorView: View {
                 .buttonStyle(.plain)
 
                 Button {
+                    handleEditTabTapped()
+                } label: {
+                    EditorMenuTabLabel(
+                        title: "Edit",
+                        systemImage: "lasso",
+                        isSelected: canvasMode == .noteEdit
+                    )
+                }
+                .disabled(canvasMode.locksDocumentActions && canvasMode != .noteEdit)
+                .buttonStyle(.plain)
+                .popover(
+                    isPresented: $isNoteEditMenuPresented,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .top
+                ) {
+                    NoteEditPopoverView(
+                        stage: $noteEditMenuStage,
+                        notationFont: chart.notationFont,
+                        selectedRhythmValue: selectedRhythmValue,
+                        onSelectRhythm: handleSelectedNoteRhythmReplacement
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
+
+                Button {
                     selectedMeasureID = nil
+                    selectedNoteSelection = nil
                     pendingTimeSignatureSourceMeasureID = nil
                     pendingTimeSignaturePlacement = nil
                     toggleFreeHandMode()
@@ -261,7 +315,10 @@ struct EditorView: View {
                         isSelected: canvasMode == .freeHand
                     )
                 }
-                .disabled(!chart.hasCompletedInitialSetup && canvasMode != .freeHand)
+                .disabled(
+                    (canvasMode.locksDocumentActions && canvasMode != .freeHand)
+                        || (!chart.hasCompletedInitialSetup && canvasMode != .freeHand)
+                )
                 .buttonStyle(.plain)
 
                 EditorMenuTabLabel(title: "Jazz", systemImage: "music.quarternote.3", isSelected: true)
@@ -304,6 +361,7 @@ struct EditorView: View {
 
                 Button {
                     selectedMeasureID = nil
+                    selectedNoteSelection = nil
                     pendingTimeSignatureSourceMeasureID = nil
                     pendingTimeSignaturePlacement = nil
                     freeHandReturnMode = .browse
@@ -319,6 +377,7 @@ struct EditorView: View {
                     ForEach(TranspositionView.allCases, id: \.self) { view in
                         Button {
                             selectedMeasureID = nil
+                            selectedNoteSelection = nil
                             pendingTimeSignatureSourceMeasureID = nil
                             pendingTimeSignaturePlacement = nil
                             freeHandReturnMode = .browse
@@ -349,10 +408,12 @@ struct EditorView: View {
         LeadSheetCanvasHostView(
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
+            selectedNoteSelection: $selectedNoteSelection,
             interactionMode: canvasMode,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onRhythmicNotationProposal: handleRhythmicNotationProposal,
-            onRhythmicNotationValidationError: handleRhythmicNotationValidationError
+            onRhythmicNotationValidationError: handleRhythmicNotationValidationError,
+            onNoteSelectionChanged: handleNoteSelectionChanged
         )
     }
 
@@ -399,6 +460,7 @@ struct EditorView: View {
 
         let targetMeasureID = resolvedMeasureActionTargetID()
         selectedMeasureID = nil
+        selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         freeHandReturnMode = .browse
@@ -424,6 +486,7 @@ struct EditorView: View {
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        selectedNoteSelection = nil
         freeHandReturnMode = .browse
         canvasMode = .timeSignatureEdit
     }
@@ -436,6 +499,7 @@ struct EditorView: View {
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        selectedNoteSelection = nil
         freeHandReturnMode = .browse
 
         if canvasMode == .rhythmicNotationEdit {
@@ -453,6 +517,7 @@ struct EditorView: View {
 
     private func presentAppearancePanel(_ panel: ChartAppearancePanel) {
         selectedMeasureID = nil
+        selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         freeHandReturnMode = .browse
@@ -487,8 +552,28 @@ struct EditorView: View {
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        selectedNoteSelection = nil
         freeHandReturnMode = canvasMode
         canvasMode = .freeHand
+    }
+
+    private func handleEditTabTapped() {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+
+        selectedMeasureID = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        freeHandReturnMode = .browse
+
+        if canvasMode == .noteEdit {
+            selectedNoteSelection = nil
+            canvasMode = .browse
+        } else {
+            canvasMode = .noteEdit
+        }
     }
 
     private func handleTimeSignatureTargetRequested(_ measureID: UUID) {
@@ -497,6 +582,7 @@ struct EditorView: View {
             return
         }
 
+        selectedNoteSelection = nil
         selectedMeasureID = measureID
         pendingTimeSignaturePlacement = nil
         pendingTimeSignatureSourceMeasureID = measureID
@@ -509,6 +595,7 @@ struct EditorView: View {
     ) {
         let appliedMeasureID = chart.applyMeterChange(meter, after: sourceMeasureID, scope: scope)
         selectedMeasureID = sourceMeasureID
+        selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
 
@@ -533,6 +620,7 @@ struct EditorView: View {
         }
 
         selectedMeasureID = measureID
+        selectedNoteSelection = nil
         canvasMode = .rhythmicNotationEdit
         pendingRhythmicNotationConfirmation = PendingRhythmicNotationConfirmation(
             measureID: measureID,
@@ -559,6 +647,7 @@ struct EditorView: View {
 
         chart = updatedChart
         selectedMeasureID = confirmation.measureID
+        selectedNoteSelection = nil
         canvasMode = .rhythmicNotationEdit
         pendingRhythmicNotationConfirmation = nil
     }
@@ -574,8 +663,88 @@ struct EditorView: View {
 
         chart = updatedChart
         selectedMeasureID = confirmation.measureID
+        selectedNoteSelection = nil
         canvasMode = .rhythmicNotationEdit
         pendingRhythmicNotationConfirmation = nil
+    }
+
+    private func handleNoteSelectionChanged(_ selection: LeadSheetNoteSelection?) {
+        selectedNoteSelection = selection
+        if selection != nil {
+            selectedMeasureID = nil
+            noteEditMenuStage = .actions
+            isNoteEditMenuPresented = true
+        }
+    }
+
+    private var selectedRhythmValue: RhythmValue? {
+        guard let selectedNoteSelection,
+              let values = chart.measure(id: selectedNoteSelection.measureID)?.rhythmMap?.values,
+              values.indices.contains(selectedNoteSelection.noteIndex) else {
+            return nil
+        }
+
+        return values[selectedNoteSelection.noteIndex]
+    }
+
+    private func handleSelectedNoteRhythmReplacement(_ rhythmValue: RhythmValue) {
+        guard let selectedNoteSelection else {
+            noteEditErrorMessage = "Select a rhythm note first, then choose the replacement value."
+            showingNoteEditError = true
+            isNoteEditMenuPresented = false
+            return
+        }
+
+        var updatedChart = chart
+        let result = updatedChart.replaceMeasureRhythmValue(
+            rhythmValue,
+            at: selectedNoteSelection.noteIndex,
+            in: selectedNoteSelection.measureID
+        )
+
+        guard result.didApply else {
+            noteEditErrorMessage = noteEditFailureMessage(for: result)
+            showingNoteEditError = true
+            isNoteEditMenuPresented = false
+            return
+        }
+
+        chart = updatedChart
+        self.selectedNoteSelection = selectedNoteSelection
+        noteEditMenuStage = .actions
+        isNoteEditMenuPresented = false
+    }
+
+    private func noteEditFailureMessage(for result: MeasureRhythmReplacementResult) -> String {
+        switch result {
+        case .applied, .unchanged:
+            return "That rhythm is already selected."
+        case .missingMeasure:
+            return "That measure is no longer available."
+        case .missingRhythmMap:
+            return "That note is not part of an editable rhythm map yet."
+        case .invalidNoteIndex:
+            return "That rhythm note is no longer available."
+        case .unsupportedRhythmValue:
+            return "Choose a single rhythm or rest value."
+        case .invalidMeterFit(let status):
+            return "That replacement would make the measure \(noteEditStatusDescription(status)). Choose a value with the same duration for now, or adjust the surrounding rhythms first."
+        }
+    }
+
+    private func noteEditStatusDescription(_ status: MeasureRhythmMapStatus) -> String {
+        switch status {
+        case .empty:
+            return "empty"
+        case .exact:
+            return "fit"
+        case .underfilled(let beats):
+            return "short by \(formattedBeatCount(beats)) beats"
+        case .overflow(let beats):
+            return "over by \(formattedBeatCount(beats)) beats"
+        case .invalidSubdivision:
+            return "misaligned with the beat grid"
+        }
     }
 
     private var canvasHeight: CGFloat {
@@ -598,6 +767,14 @@ struct EditorView: View {
                 Image(systemName: "checkmark")
             }
         }
+    }
+
+    private func formattedBeatCount(_ value: Double) -> String {
+        if abs(value.rounded() - value) < 0.0001 {
+            return String(Int(value.rounded()))
+        }
+
+        return String(format: "%.1f", value)
     }
 }
 
@@ -641,6 +818,225 @@ private struct PendingRhythmicNotationConfirmation: Identifiable {
         values.reduce(0) { partialResult, value in
             partialResult + value.wholeNoteLength / meter.beatUnitWholeNoteLength
         }
+    }
+}
+
+private enum NoteEditMenuStage: Hashable {
+    case actions
+    case rhythm
+}
+
+private struct NoteEditPopoverView: View {
+    @Binding var stage: NoteEditMenuStage
+    let notationFont: NotationFontPreset
+    let selectedRhythmValue: RhythmValue?
+    let onSelectRhythm: (RhythmValue) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch stage {
+            case .actions:
+                actionMenu
+            case .rhythm:
+                rhythmMenu
+            }
+        }
+        .padding(14)
+        .frame(width: 310)
+    }
+
+    private var actionMenu: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Edit Note")
+                .font(.headline)
+
+            Button {
+                stage = .rhythm
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "music.note.list")
+                        .frame(width: 24)
+                    Text("Rhythm")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var rhythmMenu: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                stage = .actions
+            } label: {
+                Label("Edit Note", systemImage: "chevron.left")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(RhythmValue.singularEditPalette, id: \.self) { rhythmValue in
+                        Button {
+                            onSelectRhythm(rhythmValue)
+                        } label: {
+                            RhythmEditChoiceRow(
+                                value: rhythmValue,
+                                notationFont: notationFont,
+                                isSelected: selectedRhythmValue == rhythmValue
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 390)
+        }
+    }
+}
+
+private struct RhythmEditChoiceRow: View {
+    let value: RhythmValue
+    let notationFont: NotationFontPreset
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            RhythmValueGlyphPreview(value: value, notationFont: notationFont)
+                .frame(width: 48, height: 36)
+
+            Text(value.editMenuTitle)
+                .font(.subheadline.weight(.semibold))
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.blue)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(isSelected ? Color.blue.opacity(0.10) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
+    }
+}
+
+private struct RhythmValueGlyphPreview: View {
+    let value: RhythmValue
+    let notationFont: NotationFontPreset
+
+    var body: some View {
+        ZStack {
+            if let restSymbol {
+                glyphText(restSymbol, size: restPointSize)
+                    .offset(y: restYOffset)
+            } else {
+                glyphText(noteheadSymbol, size: 24)
+                    .offset(x: noteheadXOffset, y: 3)
+
+                if showsStem {
+                    Rectangle()
+                        .fill(Color.primary)
+                        .frame(width: 1.4, height: 25)
+                        .offset(x: 8, y: 8)
+                }
+
+                if value == .eighth {
+                    glyphText(NotationGlyphCatalog.flag8thDown, size: 21)
+                        .offset(x: 14, y: 14)
+                }
+
+                if value.isDottedEditValue {
+                    glyphText(NotationGlyphCatalog.augmentationDot, size: 13)
+                        .offset(x: 17, y: 3)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
+        .accessibilityLabel(value.editMenuTitle)
+    }
+
+    private var restSymbol: String? {
+        switch value {
+        case .wholeRest:
+            return NotationGlyphCatalog.wholeRest
+        case .halfRest:
+            return NotationGlyphCatalog.halfRest
+        case .quarterRest:
+            return NotationGlyphCatalog.quarterRest
+        case .eighthRest:
+            return NotationGlyphCatalog.eighthRest
+        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+            return nil
+        }
+    }
+
+    private var noteheadSymbol: String {
+        switch value {
+        case .whole:
+            return NotationGlyphCatalog.slashWholeNotehead
+        case .half, .dottedHalf:
+            return NotationGlyphCatalog.slashHalfNotehead
+        case .eighth, .quarter, .dottedQuarter:
+            return NotationGlyphCatalog.slashNotehead
+        case .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+            return NotationGlyphCatalog.slashNotehead
+        }
+    }
+
+    private var noteheadXOffset: CGFloat {
+        value.isDottedEditValue ? -6 : -8
+    }
+
+    private var showsStem: Bool {
+        switch value {
+        case .whole, .wholeRest, .halfRest, .quarterRest, .eighthRest, .tiedContinuation:
+            return false
+        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf:
+            return true
+        }
+    }
+
+    private var restPointSize: CGFloat {
+        switch value {
+        case .quarterRest:
+            return 29
+        case .eighthRest:
+            return 27
+        case .wholeRest, .halfRest:
+            return 24
+        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+            return 24
+        }
+    }
+
+    private var restYOffset: CGFloat {
+        switch value {
+        case .quarterRest:
+            return 0
+        case .eighthRest:
+            return 1
+        case .wholeRest:
+            return -3
+        case .halfRest:
+            return 2
+        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+            return 0
+        }
+    }
+
+    private func glyphText(_ glyph: String, size: CGFloat) -> Text {
+        Text(glyph)
+            .font(notationFont.notationPreviewFont(size: size))
     }
 }
 
@@ -821,6 +1217,42 @@ private struct FlowItem {
 }
 
 private extension RhythmValue {
+    var editMenuTitle: String {
+        switch self {
+        case .eighth:
+            return "Eighth Note"
+        case .eighthRest:
+            return "Eighth Rest"
+        case .quarter:
+            return "Quarter Note"
+        case .quarterRest:
+            return "Quarter Rest"
+        case .dottedQuarter:
+            return "Dotted Quarter"
+        case .half:
+            return "Half Note"
+        case .halfRest:
+            return "Half Rest"
+        case .dottedHalf:
+            return "Dotted Half"
+        case .whole:
+            return "Whole Note"
+        case .wholeRest:
+            return "Whole Rest"
+        case .tiedContinuation:
+            return "Tie"
+        }
+    }
+
+    var isDottedEditValue: Bool {
+        switch self {
+        case .dottedQuarter, .dottedHalf:
+            return true
+        case .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+            return false
+        }
+    }
+
     var debugConfirmationLabel: String {
         switch self {
         case .eighth:

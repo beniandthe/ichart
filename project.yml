@@ -17,6 +17,9 @@ settings:
     INFOPLIST_KEY_UILaunchScreen_Generation: true
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
     SUPPORTS_MACCATALYST: false
+  configs:
+    Debug:
+      ENABLE_TESTABILITY: true
 
 targets:
   SmartChart:
@@ -29,6 +32,10 @@ targets:
           - Resources
       - path: SmartChart/Resources
         buildPhase: resources
+      - path: ThirdParty/NotationFonts/SMuFL
+        buildPhase: resources
+        excludes:
+          - "**/metadata.json"
   SmartChartTests:
     type: bundle.unit-test
     platform: iOS
@@ -37,7 +44,18 @@ targets:
       base:
         PRODUCT_NAME: SmartChartTests
         PRODUCT_BUNDLE_IDENTIFIER: com.smartchart.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SmartChart.app/SmartChart"
+        BUNDLE_LOADER: "$(TEST_HOST)"
     sources:
       - path: SmartChartTests
     dependencies:
       - target: SmartChart
+
+schemes:
+  SmartChart:
+    build:
+      targets:
+        SmartChart: all
+    test:
+      targets:
+        - SmartChartTests

@@ -473,6 +473,21 @@ extension RhythmValue {
     static var sketchPalette: [RhythmValue] {
         [.eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole]
     }
+
+    static var singularEditPalette: [RhythmValue] {
+        [
+            .whole,
+            .dottedHalf,
+            .half,
+            .dottedQuarter,
+            .quarter,
+            .eighth,
+            .wholeRest,
+            .halfRest,
+            .quarterRest,
+            .eighthRest
+        ]
+    }
 }
 
 private extension Collection {

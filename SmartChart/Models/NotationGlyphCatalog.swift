@@ -79,6 +79,10 @@ enum NotationGlyphCatalog {
         }
     }
 
+    static func smuflGlyphName(for symbol: Symbol) -> String? {
+        symbol.smuflGlyphName
+    }
+
     static func pointSize(for symbol: Symbol, staffSpace: CGFloat) -> CGFloat {
         max(1, staffSpace * CGFloat(staffSpaceScale(for: symbol)))
     }
@@ -103,6 +107,47 @@ enum NotationGlyphCatalog {
             return 2.67
         case .eighthRest:
             return 2.48
+        }
+    }
+}
+
+extension NotationGlyphCatalog.Symbol {
+    var smuflGlyphName: String? {
+        switch self {
+        case .trebleClef:
+            return "gClef"
+        case .noteheadWhole:
+            return "noteheadWhole"
+        case .noteheadHalf:
+            return "noteheadHalf"
+        case .noteheadBlack:
+            return "noteheadBlack"
+        case .slashNotehead:
+            return "noteheadSlashVerticalEnds"
+        case .slashWholeNotehead:
+            return "noteheadSlashWhiteWhole"
+        case .slashHalfNotehead:
+            return "noteheadSlashWhiteHalf"
+        case .augmentationDot:
+            return "augmentationDot"
+        case .flag8thUp:
+            return "flag8thUp"
+        case .flag8thDown:
+            return "flag8thDown"
+        case .wholeRest:
+            return "restWhole"
+        case .halfRest:
+            return "restHalf"
+        case .quarterRest:
+            return "restQuarter"
+        case .eighthRest:
+            return "rest8th"
+        case let .timeSignatureDigit(value):
+            guard (0...9).contains(value) else {
+                return nil
+            }
+
+            return "timeSig\(value)"
         }
     }
 }

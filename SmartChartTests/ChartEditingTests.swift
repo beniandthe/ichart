@@ -160,6 +160,52 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(chart.measure(id: measureID)?.rhythmMap)
     }
 
+    func testReplaceMeasureRhythmValueUpdatesSelectedSlotWhenMeasureStillFits() throws {
+        var chart = Chart.draft(title: "New Chart")
+        chart.completeInitialSetup(
+            title: "Pocket Groove",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(
+            chart.setMeasureRhythmMap(
+                [.dottedQuarter, .eighth, .half],
+                drawingData: Data([1, 2, 3]),
+                for: measureID
+            )
+        )
+
+        let result = chart.replaceMeasureRhythmValue(.eighthRest, at: 1, in: measureID)
+
+        XCTAssertEqual(result, .applied)
+        XCTAssertEqual(chart.measure(id: measureID)?.rhythmMap?.values, [.dottedQuarter, .eighthRest, .half])
+        XCTAssertNil(chart.measure(id: measureID)?.rhythmMap?.drawingData)
+    }
+
+    func testReplaceMeasureRhythmValueRejectsChangesThatBreakMeterLength() throws {
+        var chart = Chart.draft(title: "New Chart")
+        chart.completeInitialSetup(
+            title: "Pocket Groove",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(
+            chart.setMeasureRhythmMap(
+                [.quarter, .quarter, .quarter, .quarter],
+                for: measureID
+            )
+        )
+
+        let result = chart.replaceMeasureRhythmValue(.half, at: 0, in: measureID)
+
+        XCTAssertEqual(result, .invalidMeterFit(.overflow(1)))
+        XCTAssertEqual(chart.measure(id: measureID)?.rhythmMap?.values, [.quarter, .quarter, .quarter, .quarter])
+    }
+
     func testSetMeasureManualLayoutWidthStoresClampedOverride() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(

@@ -77,6 +77,7 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
 
     var id: UUID
     var symbolStyle: SymbolStyle
+    var noteheadSymbol: NotationGlyphCatalog.Symbol?
     var noteheadFrame: CGRect
     var staffSpace: CGFloat
     var headStyle: HeadStyle
@@ -87,6 +88,26 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
     var dotFrame: CGRect?
     var tieFrame: CGRect?
     var beamEndPoint: CGPoint?
+}
+
+struct LeadSheetNoteSelection: Identifiable, Hashable {
+    var measureID: UUID
+    var noteIndex: Int
+
+    var id: String {
+        "\(measureID.uuidString)-\(noteIndex)"
+    }
+}
+
+struct LeadSheetSelectableNote: Identifiable, Hashable {
+    var selection: LeadSheetNoteSelection
+    var noteLayout: LeadSheetNoteLayout
+    var selectionFrame: CGRect
+    var selectionAnchor: CGPoint
+
+    var id: String {
+        selection.id
+    }
 }
 
 enum LeadSheetPageLayoutEngine {
@@ -478,6 +499,7 @@ enum LeadSheetPageLayoutEngine {
         }
         let noteLayouts = slashNoteLayouts(
             for: measure,
+            chart: chart,
             meter: meter,
             staffFrame: staffFrame,
             staffLineYPositions: staffLineYPositions
@@ -533,6 +555,95 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
+    private static func pitchedNoteheadSymbol(
+        for headStyle: LeadSheetNoteLayout.HeadStyle
+    ) -> NotationGlyphCatalog.Symbol {
+        switch headStyle {
+        case .whole:
+            return .noteheadWhole
+        case .half:
+            return .noteheadHalf
+        case .filled:
+            return .noteheadBlack
+        }
+    }
+
+    private static func slashNoteheadSymbol(
+        for headStyle: LeadSheetNoteLayout.HeadStyle
+    ) -> NotationGlyphCatalog.Symbol {
+        switch headStyle {
+        case .whole:
+            return .slashWholeNotehead
+        case .half:
+            return .slashHalfNotehead
+        case .filled:
+            return .slashNotehead
+        }
+    }
+
+    private static func noteheadFrame(
+        for symbol: NotationGlyphCatalog.Symbol,
+        centeredAt center: CGPoint,
+        staffSpace: CGFloat,
+        notationFont: NotationFontPreset,
+        engravingPreset: EngravingPreset,
+        fallbackSize: CGSize
+    ) -> CGRect {
+        guard let boundingBox = SmuflFontMetadataStore.metrics(
+            for: symbol,
+            in: notationFont
+        )?.boundingBox else {
+            return CGRect(
+                x: center.x - fallbackSize.width / 2,
+                y: center.y - fallbackSize.height / 2,
+                width: fallbackSize.width,
+                height: fallbackSize.height
+            )
+        }
+
+        let scale = smuflScale(staffSpace: staffSpace, engravingPreset: engravingPreset)
+        let centerPoint = boundingBox.center
+        let minX = center.x + CGFloat(boundingBox.southWest.x - centerPoint.x) * scale
+        let maxX = center.x + CGFloat(boundingBox.northEast.x - centerPoint.x) * scale
+        let minY = center.y - CGFloat(boundingBox.northEast.y - centerPoint.y) * scale
+        let maxY = center.y - CGFloat(boundingBox.southWest.y - centerPoint.y) * scale
+
+        return CGRect(
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
+        )
+    }
+
+    private static func stemAnchorPoint(
+        for symbol: NotationGlyphCatalog.Symbol,
+        centeredAt center: CGPoint,
+        staffSpace: CGFloat,
+        notationFont: NotationFontPreset,
+        engravingPreset: EngravingPreset,
+        stemGoesUp: Bool,
+        fallback: CGPoint
+    ) -> CGPoint {
+        let anchorName = stemGoesUp ? "stemUpSE" : "stemDownNW"
+        guard let metrics = SmuflFontMetadataStore.metrics(for: symbol, in: notationFont),
+              let boundingBox = metrics.boundingBox,
+              let anchor = metrics.anchor(named: anchorName) else {
+            return fallback
+        }
+
+        let scale = smuflScale(staffSpace: staffSpace, engravingPreset: engravingPreset)
+        let centerPoint = boundingBox.center
+        return CGPoint(
+            x: center.x + CGFloat(anchor.x - centerPoint.x) * scale,
+            y: center.y - CGFloat(anchor.y - centerPoint.y) * scale
+        )
+    }
+
+    private static func smuflScale(staffSpace: CGFloat, engravingPreset: EngravingPreset) -> CGFloat {
+        staffSpace * CGFloat(engravingPreset.glyphScale)
+    }
+
     private static func noteLayout(
         for placement: MeasureChordPlacement,
         chart: Chart,
@@ -557,14 +668,33 @@ enum LeadSheetPageLayoutEngine {
             max(staffFrame.minY + 5, unclampedCenterY),
             staffFrame.maxY - 5
         )
-        let noteheadFrame = CGRect(x: noteCenterX - 4.5, y: noteCenterY - 3.5, width: 9, height: 7)
         let headStyle = headStyle(for: event.duration)
+        let noteheadSymbol = pitchedNoteheadSymbol(for: headStyle)
+        let noteheadFrame = noteheadFrame(
+            for: noteheadSymbol,
+            centeredAt: CGPoint(x: noteCenterX, y: noteCenterY),
+            staffSpace: staffSpace,
+            notationFont: chart.notationFont,
+            engravingPreset: chart.engravingPreset,
+            fallbackSize: CGSize(width: 9, height: 7)
+        )
         let stemGoesUp = noteCenterY > staffMiddleY
         let stemLength: CGFloat = 28
-        let stemStart = headStyle == .whole ? nil : CGPoint(
+        let fallbackStemStart = CGPoint(
             x: stemGoesUp ? noteheadFrame.maxX - 0.5 : noteheadFrame.minX + 0.5,
             y: noteCenterY
         )
+        let stemStart = headStyle == .whole
+            ? nil
+            : stemAnchorPoint(
+                for: noteheadSymbol,
+                centeredAt: noteheadFrame.center,
+                staffSpace: staffSpace,
+                notationFont: chart.notationFont,
+                engravingPreset: chart.engravingPreset,
+                stemGoesUp: stemGoesUp,
+                fallback: fallbackStemStart
+            )
         let stemEnd = stemStart.map { startPoint in
             CGPoint(
                 x: startPoint.x,
@@ -594,6 +724,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetNoteLayout(
             id: UUID(uuidString: placement.chordEvent.id.uuidString) ?? UUID(),
             symbolStyle: .pitchedNote,
+            noteheadSymbol: noteheadSymbol,
             noteheadFrame: noteheadFrame,
             staffSpace: staffSpace,
             headStyle: headStyle,
@@ -609,6 +740,7 @@ enum LeadSheetPageLayoutEngine {
 
     private static func slashNoteLayouts(
         for measure: Measure,
+        chart: Chart,
         meter: Meter,
         staffFrame: CGRect,
         staffLineYPositions: [CGFloat]
@@ -643,16 +775,36 @@ enum LeadSheetPageLayoutEngine {
             case .tiedContinuation:
                 return quarterRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             default:
-                let noteheadFrame = CGRect(x: noteCenterX - 5, y: slashCenterY - 8, width: 10, height: 16)
                 let headStyle = headStyle(for: slot.duration)
+                let noteheadSymbol = slashNoteheadSymbol(for: headStyle)
+                let noteheadFrame = noteheadFrame(
+                    for: noteheadSymbol,
+                    centeredAt: CGPoint(x: noteCenterX, y: slashCenterY),
+                    staffSpace: staffSpace,
+                    notationFont: chart.notationFont,
+                    engravingPreset: chart.engravingPreset,
+                    fallbackSize: CGSize(width: 10, height: 16)
+                )
+                let fallbackStemStart = CGPoint(x: noteheadFrame.minX + 1, y: noteheadFrame.maxY - 2)
                 let stemStart = slot.duration == .whole
                     ? nil
-                    : CGPoint(x: noteheadFrame.minX + 1, y: noteheadFrame.maxY - 2)
+                    : stemAnchorPoint(
+                        for: noteheadSymbol,
+                        centeredAt: noteheadFrame.center,
+                        staffSpace: staffSpace,
+                        notationFont: chart.notationFont,
+                        engravingPreset: chart.engravingPreset,
+                        stemGoesUp: false,
+                        fallback: fallbackStemStart
+                    )
                 let stemEnd = stemStart.map { CGPoint(x: $0.x, y: stemBottomY) }
                 let beamEndPoint = beamEndPointForSlash(
                     at: index,
                     slots: slots,
+                    chart: chart,
                     meter: meter,
+                    slashCenterY: slashCenterY,
+                    staffSpace: staffSpace,
                     stemBottomY: stemBottomY,
                     staffFrame: staffFrame,
                     usableWidth: usableWidth
@@ -674,6 +826,7 @@ enum LeadSheetPageLayoutEngine {
                 return LeadSheetNoteLayout(
                     id: UUID(),
                     symbolStyle: .slash,
+                    noteheadSymbol: noteheadSymbol,
                     noteheadFrame: noteheadFrame,
                     staffSpace: staffSpace,
                     headStyle: headStyle,
@@ -692,7 +845,10 @@ enum LeadSheetPageLayoutEngine {
     private static func beamEndPointForSlash(
         at index: Int,
         slots: [MeasureRhythmSlot],
+        chart: Chart,
         meter: Meter,
+        slashCenterY: CGFloat,
+        staffSpace: CGFloat,
         stemBottomY: CGFloat,
         staffFrame: CGRect,
         usableWidth: CGFloat
@@ -718,7 +874,25 @@ enum LeadSheetPageLayoutEngine {
             staffFrame: staffFrame,
             usableWidth: usableWidth
         )
-        return CGPoint(x: nextCenterX - 4, y: stemBottomY)
+        let nextNoteheadSymbol = slashNoteheadSymbol(for: headStyle(for: slots[index + 1].duration))
+        let nextNoteheadFrame = noteheadFrame(
+            for: nextNoteheadSymbol,
+            centeredAt: CGPoint(x: nextCenterX, y: slashCenterY),
+            staffSpace: staffSpace,
+            notationFont: chart.notationFont,
+            engravingPreset: chart.engravingPreset,
+            fallbackSize: CGSize(width: 10, height: 16)
+        )
+        let nextStemStart = stemAnchorPoint(
+            for: nextNoteheadSymbol,
+            centeredAt: nextNoteheadFrame.center,
+            staffSpace: staffSpace,
+            notationFont: chart.notationFont,
+            engravingPreset: chart.engravingPreset,
+            stemGoesUp: false,
+            fallback: CGPoint(x: nextNoteheadFrame.minX + 1, y: nextNoteheadFrame.maxY - 2)
+        )
+        return CGPoint(x: nextStemStart.x, y: stemBottomY)
     }
 
     private static func slashAttackCenterX(
@@ -778,6 +952,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetNoteLayout(
             id: UUID(),
             symbolStyle: .wholeRest,
+            noteheadSymbol: nil,
             noteheadFrame: restFrame,
             staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
             headStyle: .whole,
@@ -804,6 +979,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetNoteLayout(
             id: UUID(),
             symbolStyle: .halfRest,
+            noteheadSymbol: nil,
             noteheadFrame: restFrame,
             staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
             headStyle: .half,
@@ -830,6 +1006,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetNoteLayout(
             id: UUID(),
             symbolStyle: .quarterRest,
+            noteheadSymbol: nil,
             noteheadFrame: restFrame,
             staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
             headStyle: .filled,
@@ -856,6 +1033,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetNoteLayout(
             id: UUID(),
             symbolStyle: .eighthRest,
+            noteheadSymbol: nil,
             noteheadFrame: restFrame,
             staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
             headStyle: .filled,
@@ -934,6 +1112,83 @@ enum LeadSheetPageLayoutEngine {
     }
 }
 
+extension LeadSheetPageLayout {
+    func selectableNotes() -> [LeadSheetSelectableNote] {
+        systems.flatMap { system in
+            system.measures.flatMap { measure in
+                guard let sourceMeasureID = measure.sourceMeasureID else {
+                    return [LeadSheetSelectableNote]()
+                }
+
+                return measure.noteLayouts.enumerated().map { noteIndex, noteLayout in
+                    LeadSheetSelectableNote(
+                        selection: LeadSheetNoteSelection(
+                            measureID: sourceMeasureID,
+                            noteIndex: noteIndex
+                        ),
+                        noteLayout: noteLayout,
+                        selectionFrame: noteLayout.selectionFrame,
+                        selectionAnchor: noteLayout.selectionAnchor
+                    )
+                }
+            }
+        }
+    }
+
+    func noteSelection(in lassoFrame: CGRect) -> LeadSheetNoteSelection? {
+        let normalizedLassoFrame = lassoFrame.standardized.insetBy(dx: -6, dy: -6)
+        guard normalizedLassoFrame.width >= 8,
+              normalizedLassoFrame.height >= 8 else {
+            return nil
+        }
+
+        let lassoCenter = CGPoint(
+            x: normalizedLassoFrame.midX,
+            y: normalizedLassoFrame.midY
+        )
+        let candidates = selectableNotes().compactMap { note -> (score: CGFloat, note: LeadSheetSelectableNote)? in
+            let containsAnchor = normalizedLassoFrame.contains(note.selectionAnchor)
+            let intersectsFrame = normalizedLassoFrame.intersects(note.selectionFrame)
+            guard containsAnchor || intersectsFrame else {
+                return nil
+            }
+
+            let dx = note.selectionAnchor.x - lassoCenter.x
+            let dy = note.selectionAnchor.y - lassoCenter.y
+            let anchorDistance = sqrt(dx * dx + dy * dy)
+            let intersectionPenalty: CGFloat = containsAnchor ? 0 : 1_000
+            return (intersectionPenalty + anchorDistance, note)
+        }
+
+        return candidates.min { $0.score < $1.score }?.note.selection
+    }
+}
+
+extension LeadSheetNoteLayout {
+    var selectionAnchor: CGPoint {
+        noteheadFrame.center
+    }
+
+    var selectionFrame: CGRect {
+        var frame = noteheadFrame.insetBy(dx: -8, dy: -8)
+
+        if let stemStart,
+           let stemEnd {
+            frame = frame.union(CGRect.lineFrame(from: stemStart, to: stemEnd).insetBy(dx: -8, dy: -8))
+        }
+
+        if let dotFrame {
+            frame = frame.union(dotFrame.insetBy(dx: -8, dy: -8))
+        }
+
+        if let tieFrame {
+            frame = frame.union(tieFrame.insetBy(dx: -4, dy: -4))
+        }
+
+        return frame
+    }
+}
+
 private struct PackedLeadSheetSystemPlan: Hashable {
     var id: UUID
     var leadingSignatureWidth: CGFloat
@@ -1000,5 +1255,20 @@ private extension EngravingPreset {
                 continuationSystemSignatureWidth: 18
             )
         }
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
+    }
+
+    static func lineFrame(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: max(1, abs(start.x - end.x)),
+            height: max(1, abs(start.y - end.y))
+        )
     }
 }

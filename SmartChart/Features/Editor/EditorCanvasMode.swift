@@ -5,11 +5,12 @@ enum EditorCanvasMode: Hashable {
     case measureEdit
     case timeSignatureEdit
     case rhythmicNotationEdit
+    case noteEdit
     case freeHand
 
     var freeHandTabTitle: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit:
+        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .noteEdit:
             return "Free-Hand"
         case .freeHand:
             return "Done"
@@ -18,7 +19,7 @@ enum EditorCanvasMode: Hashable {
 
     var freeHandTabSymbol: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit:
+        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .noteEdit:
             return "pencil.and.scribble"
         case .freeHand:
             return "pencil.slash"
@@ -37,12 +38,20 @@ enum EditorCanvasMode: Hashable {
         self == .rhythmicNotationEdit
     }
 
+    var showsNoteSelectionTargeting: Bool {
+        self == .noteEdit
+    }
+
     var locksDocumentActions: Bool {
-        self == .freeHand
+        self == .freeHand || self == .noteEdit
     }
 
     var allowsMeasureSelection: Bool {
-        self != .freeHand
+        self != .freeHand && self != .noteEdit
+    }
+
+    var allowsNoteSelection: Bool {
+        self == .noteEdit
     }
 
     var allowsDirectRhythmicNotationInk: Bool {
@@ -53,8 +62,12 @@ enum EditorCanvasMode: Hashable {
         self == .freeHand
     }
 
+    var allowsNoteSelectionInk: Bool {
+        self == .noteEdit
+    }
+
     var allowsAnyInkEditing: Bool {
-        allowsPageInkEditing || allowsDirectRhythmicNotationInk
+        allowsPageInkEditing || allowsDirectRhythmicNotationInk || allowsNoteSelectionInk
     }
 
     var disablesPageScroll: Bool {

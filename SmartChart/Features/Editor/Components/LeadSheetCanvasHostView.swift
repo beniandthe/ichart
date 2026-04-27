@@ -6,22 +6,33 @@ import UIKit
 struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var chart: Chart
     @Binding var selectedMeasureID: UUID?
+    @Binding var selectedNoteSelection: LeadSheetNoteSelection?
     let interactionMode: EditorCanvasMode
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)? = nil
     var onRhythmicNotationValidationError: ((String) -> Void)? = nil
+    var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(chart: $chart, selectedMeasureID: $selectedMeasureID)
+        Coordinator(
+            chart: $chart,
+            selectedMeasureID: $selectedMeasureID,
+            selectedNoteSelection: $selectedNoteSelection
+        )
     }
 
     func makeUIView(context: Context) -> LeadSheetCanvasUIKitView {
         let view = LeadSheetCanvasUIKitView()
         view.chart = chart
         view.selectedMeasureID = selectedMeasureID
+        view.selectedNoteSelection = selectedNoteSelection
         view.interactionMode = interactionMode
         view.onMeasureSelectionChanged = { measureID in
             context.coordinator.selectedMeasureID.wrappedValue = measureID
+        }
+        view.onNoteSelectionChanged = { selection in
+            context.coordinator.selectedNoteSelection.wrappedValue = selection
+            onNoteSelectionChanged?(selection)
         }
         view.onChartChanged = { updatedChart in
             context.coordinator.chart.wrappedValue = updatedChart
@@ -35,9 +46,14 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     func updateUIView(_ uiView: LeadSheetCanvasUIKitView, context: Context) {
         uiView.chart = chart
         uiView.selectedMeasureID = selectedMeasureID
+        uiView.selectedNoteSelection = selectedNoteSelection
         uiView.interactionMode = interactionMode
         uiView.onMeasureSelectionChanged = { measureID in
             context.coordinator.selectedMeasureID.wrappedValue = measureID
+        }
+        uiView.onNoteSelectionChanged = { selection in
+            context.coordinator.selectedNoteSelection.wrappedValue = selection
+            onNoteSelectionChanged?(selection)
         }
         uiView.onChartChanged = { updatedChart in
             context.coordinator.chart.wrappedValue = updatedChart
@@ -50,10 +66,16 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     final class Coordinator {
         var chart: Binding<Chart>
         var selectedMeasureID: Binding<UUID?>
+        var selectedNoteSelection: Binding<LeadSheetNoteSelection?>
 
-        init(chart: Binding<Chart>, selectedMeasureID: Binding<UUID?>) {
+        init(
+            chart: Binding<Chart>,
+            selectedMeasureID: Binding<UUID?>,
+            selectedNoteSelection: Binding<LeadSheetNoteSelection?>
+        ) {
             self.chart = chart
             self.selectedMeasureID = selectedMeasureID
+            self.selectedNoteSelection = selectedNoteSelection
         }
     }
 }
@@ -85,6 +107,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
         }
     }
+    var selectedNoteSelection: LeadSheetNoteSelection? {
+        didSet {
+            guard oldValue != selectedNoteSelection else {
+                return
+            }
+
+            setNeedsDisplay()
+        }
+    }
     var interactionMode: EditorCanvasMode = .browse {
         didSet {
             guard oldValue != interactionMode else {
@@ -93,6 +124,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if oldValue.allowsAnyInkEditing && !interactionMode.allowsAnyInkEditing {
                 persistActiveInkIfNeeded()
+            }
+
+            if oldValue.allowsNoteSelectionInk && !interactionMode.allowsNoteSelectionInk {
+                clearNoteSelectionInk()
             }
 
             updateInteractionMode()
@@ -105,10 +140,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)?
     var onRhythmicNotationValidationError: ((String) -> Void)?
+    var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
 
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = PKCanvasView()
     private lazy var selectionTapRecognizer = UITapGestureRecognizer(
+        target: self,
+        action: #selector(handleTap(_:))
+    )
+    private lazy var inkSelectionTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleTap(_:))
     )
@@ -183,6 +223,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.alwaysBounceHorizontal = false
         pageInkCanvasView.drawingPolicy = .anyInput
         pageInkCanvasView.tool = PKInkingTool(.pen, color: UIColor(white: 0.06, alpha: 1), width: 2.8)
+        inkSelectionTapRecognizer.delegate = self
+        inkSelectionTapRecognizer.cancelsTouchesInView = false
+        pageInkCanvasView.addGestureRecognizer(inkSelectionTapRecognizer)
         pageInkCanvasView.isHidden = true
         addSubview(pageInkCanvasView)
         updateInteractionMode()
@@ -239,7 +282,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 renderer.drawChord(chordLayout)
             }
 
-            for noteLayout in measure.noteLayouts {
+            for (noteIndex, noteLayout) in measure.noteLayouts.enumerated() {
+                if isSelectedNote(noteIndex: noteIndex, in: measure) {
+                    drawNoteSelection(noteLayout)
+                }
                 renderer.drawNote(noteLayout)
             }
 
@@ -266,6 +312,26 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         UIColor(red: 0.21, green: 0.43, blue: 0.83, alpha: 0.45).setStroke()
         selectionPath.lineWidth = 1.2
         selectionPath.stroke()
+    }
+
+    private func drawNoteSelection(_ noteLayout: LeadSheetNoteLayout) {
+        let selectionRect = noteLayout.selectionFrame.insetBy(dx: -3, dy: -3)
+        let selectionPath = UIBezierPath(roundedRect: selectionRect, cornerRadius: 9)
+        UIColor(red: 1.0, green: 0.85, blue: 0.18, alpha: 0.28).setFill()
+        selectionPath.fill()
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.84).setStroke()
+        selectionPath.lineWidth = 1.4
+        selectionPath.stroke()
+    }
+
+    private func isSelectedNote(noteIndex: Int, in measure: LeadSheetMeasureLayout) -> Bool {
+        guard let sourceMeasureID = measure.sourceMeasureID,
+              let selectedNoteSelection else {
+            return false
+        }
+
+        return selectedNoteSelection.measureID == sourceMeasureID
+            && selectedNoteSelection.noteIndex == noteIndex
     }
 
     private func drawMeasureResizeHandles(
@@ -408,6 +474,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        if interactionMode.allowsNoteSelection {
+            handleNoteSelectionTap(at: recognizer.location(in: self))
+            return
+        }
+
         guard interactionMode.allowsMeasureSelection else {
             return
         }
@@ -429,6 +500,30 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
            let tappedMeasureID {
             onTimeSignatureTargetRequested?(tappedMeasureID)
         }
+    }
+
+    private func handleNoteSelectionTap(at location: CGPoint) {
+        guard let pageLayout,
+              pageLayout.paperFrame.contains(location) else {
+            return
+        }
+
+        guard let lassoFrame = noteSelectionLassoFrame(ignoringTapAt: location) else {
+            return
+        }
+
+        let selection = pageLayout.noteSelection(in: lassoFrame)
+        selectedNoteSelection = selection
+        onNoteSelectionChanged?(selection)
+
+        if selection != nil {
+            selectedMeasureID = nil
+            onMeasureSelectionChanged?(nil)
+        }
+
+        clearNoteSelectionInk()
+        clearNoteSelectionInkAfterPencilKitSettles()
+        setNeedsDisplay()
     }
 
     @objc
@@ -532,6 +627,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                   updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
                 return
             }
+        case .noteSelection:
+            return
         }
 
         chart = updatedChart
@@ -650,9 +747,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func updateInteractionMode() {
-        selectionTapRecognizer.isEnabled = interactionMode.allowsMeasureSelection
+        selectionTapRecognizer.isEnabled = interactionMode.allowsMeasureSelection || interactionMode.allowsNoteSelection
+        inkSelectionTapRecognizer.isEnabled = interactionMode.allowsNoteSelection
         measureResizePanRecognizer.isEnabled = interactionMode.showsMeasureResizeHandles
         pageInkCanvasView.isUserInteractionEnabled = interactionMode.allowsAnyInkEditing
+        updateInkTool()
 
         if !interactionMode.showsMeasureResizeHandles {
             activeMeasureResizeDrag = nil
@@ -661,6 +760,39 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if !interactionMode.allowsAnyInkEditing {
             pageInkCanvasView.isHidden = true
             pageInkCanvasView.resignFirstResponder()
+        }
+    }
+
+    private func updateInkTool() {
+        if interactionMode.allowsNoteSelectionInk {
+            pageInkCanvasView.tool = PKInkingTool(
+                .pen,
+                color: UIColor(red: 0.12, green: 0.36, blue: 0.88, alpha: 0.9),
+                width: 2.4
+            )
+        } else {
+            pageInkCanvasView.tool = PKInkingTool(.pen, color: UIColor(white: 0.06, alpha: 1), width: 2.8)
+        }
+    }
+
+    private func clearNoteSelectionInk() {
+        guard !pageInkCanvasView.drawing.strokes.isEmpty else {
+            return
+        }
+
+        isSyncingInkCanvasFromModel = true
+        pageInkCanvasView.drawing = PKDrawing()
+        isSyncingInkCanvasFromModel = false
+    }
+
+    private func clearNoteSelectionInkAfterPencilKitSettles() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  interactionMode.allowsNoteSelectionInk else {
+                return
+            }
+
+            clearNoteSelectionInk()
         }
     }
 
@@ -676,6 +808,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 measureID: selectedMeasureID,
                 frame: targetMeasureLayout.writableFrame.insetBy(dx: 2, dy: 2)
             )
+        }
+
+        if interactionMode.allowsNoteSelectionInk,
+           let pageLayout {
+            return .noteSelection(frame: pageWritingFrame(for: pageLayout))
         }
 
         guard interactionMode.allowsPageInkEditing else {
@@ -695,7 +832,51 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return chart.pageHandwrittenNotationData
         case .rhythmicMeasure(let measureID, _):
             return chart.measure(id: measureID)?.handwrittenRhythmicNotationData
+        case .noteSelection:
+            return nil
         }
+    }
+
+    private func noteSelectionLassoFrame(ignoringTapAt tapLocation: CGPoint) -> CGRect? {
+        guard let activeInkScope = activeInkScope() else {
+            return nil
+        }
+
+        let tapLocationInInkScope = CGPoint(
+            x: tapLocation.x - activeInkScope.frame.minX,
+            y: tapLocation.y - activeInkScope.frame.minY
+        )
+        let lassoBounds = pageInkCanvasView.drawing.strokes.reduce(CGRect?.none) { partialResult, stroke in
+            let strokeBounds = stroke.renderBounds
+            guard !isIncidentalTapStroke(strokeBounds, near: tapLocationInInkScope) else {
+                return partialResult
+            }
+
+            return partialResult?.union(strokeBounds) ?? strokeBounds
+        }
+
+        guard let lassoBounds,
+              !lassoBounds.isNull,
+              lassoBounds.width >= 10,
+              lassoBounds.height >= 10 else {
+            return nil
+        }
+
+        return lassoBounds
+            .offsetBy(dx: activeInkScope.frame.minX, dy: activeInkScope.frame.minY)
+            .insetBy(dx: -4, dy: -4)
+    }
+
+    private func isIncidentalTapStroke(_ strokeBounds: CGRect, near tapLocation: CGPoint) -> Bool {
+        let maximumTapDotSize: CGFloat = 12
+        let tapSlop: CGFloat = 18
+        guard strokeBounds.width <= maximumTapDotSize,
+              strokeBounds.height <= maximumTapDotSize else {
+            return false
+        }
+
+        return interactionMode.allowsNoteSelection
+            || strokeBounds.insetBy(dx: -tapSlop, dy: -tapSlop).contains(tapLocation)
     }
 
     private func measureLayout(at location: CGPoint) -> LeadSheetMeasureLayout? {
@@ -711,6 +892,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === inkSelectionTapRecognizer || otherGestureRecognizer === inkSelectionTapRecognizer
     }
 }
 
@@ -728,10 +916,11 @@ private struct ActiveMeasureResizeDrag {
 private enum ActiveInkScope {
     case page(frame: CGRect)
     case rhythmicMeasure(measureID: UUID, frame: CGRect)
+    case noteSelection(frame: CGRect)
 
     var frame: CGRect {
         switch self {
-        case .page(let frame), .rhythmicMeasure(_, let frame):
+        case .page(let frame), .rhythmicMeasure(_, let frame), .noteSelection(let frame):
             return frame
         }
     }
