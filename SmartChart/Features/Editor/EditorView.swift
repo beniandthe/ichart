@@ -731,6 +731,7 @@ struct EditorView: View {
         targetFraction: Double?
     ) {
         guard canvasMode == .chordEntry,
+              pendingChordInkConfirmation == nil,
               let measure = chart.measure(id: measureID) else {
             return
         }
@@ -783,12 +784,12 @@ struct EditorView: View {
     ) -> ChordInkFixtureCopyResult {
         let trimmedCandidate = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let match = ChordRecognitionCompendium.match(trimmedCandidate) else {
-            return .failed("Unsupported chord. Use a supported target like C, Bb, F#, C-, C△7, Db7b9, or G/B.")
+            return .failed("Unsupported chord. Use a supported target like C, Bb, F#, C-, C△7, Db7(b9), or G/B.")
         }
 
         do {
             let fixtureJSON = try ChordInkFixtureExporter.fixtureJSONString(
-                expectedDisplayText: match.displayText,
+                expectedDisplayText: trimmedCandidate,
                 drawingData: confirmation.drawingData
             )
 
@@ -796,7 +797,7 @@ struct EditorView: View {
             UIPasteboard.general.string = fixtureJSON
             return .copied(
                 displayText: match.displayText,
-                fixtureName: ChordInkFixtureExporter.fixtureName(for: match.displayText)
+                fixtureName: ChordInkFixtureExporter.fixtureName(for: trimmedCandidate)
             )
             #else
             return .copied(displayText: fixtureJSON, fixtureName: "clipboard")
@@ -980,19 +981,11 @@ private struct PendingChordInkConfirmation: Identifiable {
     }
 
     var candidateTexts: [String] {
-        var seen = Set<String>()
-        return result.rawCandidates.filter { candidate in
-            guard !seen.contains(candidate) else {
-                return false
-            }
-
-            seen.insert(candidate)
-            return true
-        }
+        ChordRecognitionCompendium.userFacingCandidateTexts(from: result.rawCandidates)
     }
 
     var bestCandidateText: String? {
-        result.match?.rawInput ?? candidateTexts.first
+        result.match?.displayText ?? candidateTexts.first
     }
 }
 
@@ -1065,9 +1058,7 @@ private struct ChordInkConfirmationSheetView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])
-        .onAppear {
-            isManualEntryFocused = true
-        }
+        .interactiveDismissDisabled(true)
     }
 
     private var trimmedCandidateText: String {
@@ -1145,7 +1136,7 @@ private struct ChordInkConfirmationSheetView: View {
                 .font(.caption.weight(.semibold))
             }
 
-            TextField("Example: C, Bb, F#, C-, C△7, Db7b9, G/B", text: $manualCandidateText)
+            TextField("Example: C, Bb, F#, C-, C△7, Db7(b9), G/B", text: $manualCandidateText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
@@ -1178,7 +1169,7 @@ private struct ChordInkConfirmationSheetView: View {
             Button(role: .destructive) {
                 onClearAndRewrite()
             } label: {
-                Text("Clear & Next Sample")
+                Text("Clear Ink & Next Sample")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -1187,14 +1178,14 @@ private struct ChordInkConfirmationSheetView: View {
 
     private var chartActions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Actual chart actions")
+            Text("Actual chart actions, not for fixture passes")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             Button {
                 onAcceptCandidate(trimmedCandidateText)
             } label: {
-                Text("Use Chord")
+                Text("Render Chord To Chart")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)

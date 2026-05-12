@@ -150,6 +150,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let chordInkRecognizer = ChordInkRecognizer()
+    private let chordInkRecognitionIdleDelay: TimeInterval = 2.0
     private lazy var selectionTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleTap(_:))
@@ -917,7 +918,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             self?.recognizeChordInkIfNeeded()
         }
         pendingChordRecognitionWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + chordInkRecognitionIdleDelay, execute: workItem)
     }
 
     private func persistActiveInkIfNeeded() {

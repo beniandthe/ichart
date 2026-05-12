@@ -44,7 +44,7 @@ Recommended first targets:
 - `C`, `D`, `E`, `F`, `G`, `A`, `B`
 - `Bb`, `F#`, `Db`
 - `C-`, `Bb-`, `F#-`
-- `C△7`, `C-7`, `Db7b9`, `G/B`
+- `C△7`, `C-7`, `Db7(b9)`, `G/B`
 
 To watch a booted simulator pasteboard and import copied samples automatically:
 

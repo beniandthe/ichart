@@ -88,7 +88,7 @@ enum ChartSamples {
                     rhythmPlacement: .belowChord,
                     tieOut: false,
                     hitStyle: .accent,
-                    rawInput: "C7b9"
+                    rawInput: "C7(b9)"
                 )
             ],
             cueTextIDs: [grooveCueID],

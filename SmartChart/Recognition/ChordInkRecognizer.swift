@@ -18,7 +18,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         candidateComposer: ChordInkCandidateComposer = ChordInkCandidateComposer(),
         templates: [GestureTemplate] = ChordGlyphTemplateLibrary.initialTemplates,
         maxGlyphCandidatesPerCluster: Int = 5,
-        minimumAcceptedCandidateConfidence: Double = 3.75
+        minimumAcceptedCandidateConfidence: Double = 3.70
     ) {
         self.clusterer = clusterer
         self.glyphRecognizer = glyphRecognizer

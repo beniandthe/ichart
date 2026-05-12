@@ -55,7 +55,7 @@ struct ChordSymbol: Codable, Hashable {
     var displayText: String {
         let qualityText = displayQualityText
         let extensionText = extensions.joined()
-        let alterationText = alterations.joined()
+        let alterationText = alterations.map { "(\($0))" }.joined()
         let slashText = slashBass.map { "/\($0)" } ?? ""
 
         return "\(root.rawValue)\(accidental.rawValue)\(qualityText)\(extensionText)\(alterationText)\(slashText)"

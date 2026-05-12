@@ -51,6 +51,23 @@ enum ChordRecognitionCompendium {
         return nil
     }
 
+    static func userFacingCandidateTexts(from candidates: [String]) -> [String] {
+        var seen = Set<String>()
+        return candidates.compactMap { candidate in
+            guard let match = match(candidate) else {
+                return nil
+            }
+
+            let displayText = match.displayText
+            guard !seen.contains(displayText) else {
+                return nil
+            }
+
+            seen.insert(displayText)
+            return displayText
+        }
+    }
+
     fileprivate static func normalized(_ text: String) -> String {
         text
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -60,14 +77,23 @@ enum ChordRecognitionCompendium {
             .replacingOccurrences(of: "−", with: "-")
             .replacingOccurrences(of: "–", with: "-")
             .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "Δ", with: "△")
+            .replacingOccurrences(of: "∆", with: "△")
+            .replacingOccurrences(of: "º", with: "°")
+            .replacingOccurrences(of: "Ø", with: "ø")
+            .replacingOccurrences(of: "⌀", with: "ø")
             .replacingOccurrences(of: "FLAT", with: "b")
             .replacingOccurrences(of: "SHARP", with: "#")
             .filter { character in
                 character.isLetter
                     || character.isNumber
                     || character == "#"
+                    || character == "+"
                     || character == "-"
                     || character == "/"
+                    || character == "△"
+                    || character == "°"
+                    || character == "ø"
             }
             .uppercased()
     }
@@ -96,7 +122,14 @@ enum ChordRecognitionCompendium {
     }
 
     private static let entries: [ChordRecognitionEntry] = baseEntries.flatMap { entry in
-        [entry, entry.minorEntry]
+        [
+            entry,
+            entry.minorEntry,
+            entry.augmentedEntry,
+            entry.diminishedEntry,
+            entry.diminishedSeventhEntry,
+            entry.halfDiminishedSeventhEntry
+        ]
     }
 
     private static let baseEntries: [ChordRecognitionEntry] = [
@@ -143,6 +176,8 @@ private struct ChordRecognitionEntry: Hashable {
     var root: ChordRoot
     var accidental: Accidental
     var quality: String = ""
+    var extensions: [String] = []
+    var alterations: [String] = []
     var aliases: [String]
 
     var symbol: ChordSymbol {
@@ -150,8 +185,8 @@ private struct ChordRecognitionEntry: Hashable {
             root: root,
             accidental: accidental,
             quality: quality,
-            extensions: [],
-            alterations: [],
+            extensions: extensions,
+            alterations: alterations,
             slashBass: nil
         )
     }
@@ -166,6 +201,44 @@ private struct ChordRecognitionEntry: Hashable {
             accidental: accidental,
             quality: "-",
             aliases: minorAliases
+        )
+    }
+
+    var diminishedEntry: ChordRecognitionEntry {
+        ChordRecognitionEntry(
+            root: root,
+            accidental: accidental,
+            quality: "°",
+            aliases: diminishedAliases
+        )
+    }
+
+    var augmentedEntry: ChordRecognitionEntry {
+        ChordRecognitionEntry(
+            root: root,
+            accidental: accidental,
+            quality: "+",
+            aliases: augmentedAliases
+        )
+    }
+
+    var diminishedSeventhEntry: ChordRecognitionEntry {
+        ChordRecognitionEntry(
+            root: root,
+            accidental: accidental,
+            quality: "°",
+            extensions: ["7"],
+            aliases: diminishedSeventhAliases
+        )
+    }
+
+    var halfDiminishedSeventhEntry: ChordRecognitionEntry {
+        ChordRecognitionEntry(
+            root: root,
+            accidental: accidental,
+            quality: "ø",
+            extensions: ["7"],
+            aliases: halfDiminishedSeventhAliases
         )
     }
 
@@ -187,6 +260,94 @@ private struct ChordRecognitionEntry: Hashable {
             "\(base)m",
             "\(base)min",
             "\(base) minor"
+        ]
+    }
+
+    private var diminishedAliases: [String] {
+        let base = displayText
+        return aliases.flatMap { alias in
+            [
+                "\(alias)°",
+                "\(alias)º",
+                "\(alias)dim",
+                "\(alias)diminished",
+                "\(alias) diminished"
+            ]
+        } + [
+            "\(base)°",
+            "\(base)º",
+            "\(base)dim",
+            "\(base)diminished",
+            "\(base) diminished"
+        ]
+    }
+
+    private var augmentedAliases: [String] {
+        let base = displayText
+        return aliases.flatMap { alias in
+            [
+                "\(alias)+",
+                "\(alias)aug",
+                "\(alias)augmented",
+                "\(alias) augmented"
+            ]
+        } + [
+            "\(base)+",
+            "\(base)aug",
+            "\(base)augmented",
+            "\(base) augmented"
+        ]
+    }
+
+    private var diminishedSeventhAliases: [String] {
+        let base = displayText
+        return aliases.flatMap { alias in
+            [
+                "\(alias)°7",
+                "\(alias)º7",
+                "\(alias)dim7",
+                "\(alias)diminished7",
+                "\(alias) diminished7"
+            ]
+        } + [
+            "\(base)°7",
+            "\(base)º7",
+            "\(base)dim7",
+            "\(base)diminished7",
+            "\(base) diminished7"
+        ]
+    }
+
+    private var halfDiminishedSeventhAliases: [String] {
+        let base = displayText
+        return aliases.flatMap { alias in
+            [
+                "\(alias)ø",
+                "\(alias)ø7",
+                "\(alias)Ø",
+                "\(alias)Ø7",
+                "\(alias)half-dim7",
+                "\(alias)half dim7",
+                "\(alias)halfdim7",
+                "\(alias)half-diminished7",
+                "\(alias)half diminished7",
+                "\(alias)m7b5",
+                "\(alias)min7b5",
+                "\(alias)-7b5"
+            ]
+        } + [
+            "\(base)ø",
+            "\(base)ø7",
+            "\(base)Ø",
+            "\(base)Ø7",
+            "\(base)half-dim7",
+            "\(base)half dim7",
+            "\(base)halfdim7",
+            "\(base)half-diminished7",
+            "\(base)half diminished7",
+            "\(base)m7b5",
+            "\(base)min7b5",
+            "\(base)-7b5"
         ]
     }
 }
