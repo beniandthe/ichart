@@ -490,6 +490,58 @@ normal chart entry instead of data capture.
 The first real handwriting fixture set is now committed and covered by
 `InkFixtureCoverageTests`:
 
+### Consolidated chord-recognition v1 boundary
+
+Recognition v1 is now scoped to a constrained chord-chart vocabulary, validated
+through the parser/compendium instead of arbitrary OCR. The fixture corpus has
+been deduplicated so exact name-only duplicates do not inflate confidence:
+
+- fixture corpus: 645 distinct ink fixture payloads across 209 canonical
+  display texts
+- duplicate policy: exact duplicate payloads are rejected by coverage tests and
+  skipped by the fixture importer
+- source of truth: the compendium and parser remain the only authority for
+  accepted chord tokens; ink recognition only proposes ranked candidates
+
+Supported in v1:
+
+- roots and accidentals: natural roots plus `#` and `b`, including spellings
+  such as `Cb`, `E#`, and `B#` without enharmonic rewriting
+- major triads: root letter only, with unsupported written major aliases still
+  rejected for now
+- minor forms: written `-`, `m`, `min`, and `minor`, rendered through the
+  standardized jazz minor notation where appropriate
+- dominant extensions: `7`, `9`, `11`, and `13`
+- sixth chords: major `6` and minor `m6`
+- major-triangle extensions: `△7`, `△9`, and `△13`
+- minor extensions: `-7`, `-9`, `-11`, and `-13`
+- minor-major seventh: `-△7`
+- suspended forms: `sus`, `sus4`, and `7sus`
+- diminished forms: `°`, `°7`, and `ø7`, with parser aliases such as `dim`,
+  `dim7`, `m7b5`, and `-7b5`
+- augmented triads: `+`
+- altered dominants: `7(b9)`, `7(#9)`, `7(b5)`, `7(#5)`, `7(b13)`,
+  `7(#11)`, and shorthand `7alt`
+- slash chords: root plus slash bass such as `F/A`, `D/F#`, and `F#/A#`
+
+Deferred beyond v1:
+
+- full handwriting-to-text OCR
+- natural signs and broader accidental systems
+- major-eleventh symbols outside the suspended-chord path
+- compound/multiple simultaneous altered extensions beyond the current
+  one-alteration fixture families
+- add chords, `6/9`, polychords, cluster notation, and advanced voicing syntax
+- CoreML/HOMUS expansion unless the constrained template pipeline hits a clear
+  ceiling
+
+The next product step is not full end-to-end app validation yet. It is a
+focused chord-writing loop on a disposable test chart: create/open a clean test
+chart, write chord symbols above measures, show concise alternatives, accept or
+correct them, commit structured `ChordEvent` values to the chart, preserve raw
+ink for the confirmation cycle, and keep fixture copy tooling behind a
+debug/data-collection path.
+
 - natural roots: at least 4 captured samples each for `A`, `B`, `C`, `D`, `E`,
   `F`, and `G`
 - common accidentals: at least 3 captured samples each for `A#`, `Ab`, `Bb`,
@@ -728,6 +780,7 @@ Recognition should identify tokens. Beat placement, snapping, and page layout sh
 - [x] Add fixture export path for real iPad handwriting samples.
 - [x] Add fixture import path for real iPad handwriting samples.
 - [x] Add real iPad handwriting samples as fixtures.
+- [x] Keep fixture capture as a dev-only path and make normal chord confirmation render to the chart first.
 
 ## Success Criteria
 

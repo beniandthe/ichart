@@ -435,6 +435,34 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertFalse(candidates.map(\.text).contains("Cmaj7"))
     }
 
+    func testExplicitTriangleMajorQualityBeatsFlatAlteredLookalike() throws {
+        let candidates = composer.compose(glyphCandidates: [
+            [
+                glyph("B", confidence: 0.97),
+                glyph("D", confidence: 0.69),
+                glyph("F", confidence: 0.52)
+            ],
+            [
+                glyph("△", confidence: 1.00, source: .heuristic),
+                glyph("9", confidence: 1.00, source: .heuristic),
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("G", confidence: 0.97, source: .heuristic)
+            ],
+            [
+                glyph("7", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic),
+                glyph("3", confidence: 0.66)
+            ],
+            [glyph("#", confidence: 0.99, source: .heuristic)],
+            [glyph("1", confidence: 1.00, source: .heuristic)]
+        ])
+
+        XCTAssertEqual(
+            ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText,
+            "B△7(#11)"
+        )
+    }
+
     func testComposesMinorMajorSeventhFromDashTriangleQuality() throws {
         let naturalCandidates = composer.compose(glyphCandidates: [
             [glyph("C", confidence: 0.95)],
@@ -703,7 +731,11 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         )
     }
 
-    private func glyph(_ text: String, confidence: Double) -> GlyphCandidate {
-        GlyphCandidate(text: text, confidence: confidence, source: .template)
+    private func glyph(
+        _ text: String,
+        confidence: Double,
+        source: RecognitionSource = .template
+    ) -> GlyphCandidate {
+        GlyphCandidate(text: text, confidence: confidence, source: source)
     }
 }

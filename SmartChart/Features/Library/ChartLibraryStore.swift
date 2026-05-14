@@ -13,18 +13,21 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     private let repository: ChartRepository?
+    private let chordDiagnosticsResetter: (() -> Void)?
     private var persistenceEnabled = false
 
     init(
         charts: [Chart],
         entitlements: AppEntitlements = .free,
         selectedChartID: Chart.ID? = nil,
-        repository: ChartRepository? = nil
+        repository: ChartRepository? = nil,
+        chordDiagnosticsResetter: (() -> Void)? = nil
     ) {
         self.charts = charts
         self.entitlements = entitlements
         self.selectedChartID = Self.sanitizedSelection(selectedChartID, charts: charts)
         self.repository = repository
+        self.chordDiagnosticsResetter = chordDiagnosticsResetter
         persistenceEnabled = true
     }
 
@@ -75,6 +78,22 @@ final class ChartLibraryStore: ObservableObject {
         return true
     }
 
+    #if DEBUG || targetEnvironment(simulator)
+    @discardableResult
+    func createChordWritingTestChart() -> Chart.ID {
+        let testChartTitle = "Chord Writing Test Chart"
+        var testChart = Chart.blank(title: testChartTitle, key: .cMajor, measureCount: 8)
+        testChart.styleNote = "CHORD TEST LOOP"
+        chordDiagnosticsResetter?()
+
+        var updatedCharts = charts.filter { $0.title != testChartTitle }
+        updatedCharts.insert(testChart, at: 0)
+        charts = updatedCharts
+        selectedChartID = testChart.id
+        return testChart.id
+    }
+    #endif
+
     var snapshot: ChartLibrarySnapshot {
         ChartLibrarySnapshot(
             charts: charts,
@@ -85,7 +104,15 @@ final class ChartLibraryStore: ObservableObject {
 
     static func live(repository: ChartRepository = FileChartRepository.live()) -> ChartLibraryStore {
         let snapshot = (try? repository.loadSnapshot()) ?? .preview
-        return ChartLibraryStore(snapshot: snapshot, repository: repository)
+        return ChartLibraryStore(
+            charts: snapshot.charts,
+            entitlements: snapshot.entitlements,
+            selectedChartID: snapshot.selectedChartID,
+            repository: repository,
+            chordDiagnosticsResetter: {
+                try? ChordEntryDiagnosticsRecorder.live().reset()
+            }
+        )
     }
 
     static var preview: ChartLibraryStore {

@@ -12,6 +12,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)? = nil
     var onRhythmicNotationValidationError: ((String) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?) -> Void)? = nil
+    var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -42,6 +43,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onRhythmicNotationProposal = onRhythmicNotationProposal
         view.onRhythmicNotationValidationError = onRhythmicNotationValidationError
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        view.onChordCorrectionRequested = onChordCorrectionRequested
         return view
     }
 
@@ -64,6 +66,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         uiView.onRhythmicNotationProposal = onRhythmicNotationProposal
         uiView.onRhythmicNotationValidationError = onRhythmicNotationValidationError
         uiView.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        uiView.onChordCorrectionRequested = onChordCorrectionRequested
     }
 
     final class Coordinator {
@@ -144,13 +147,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)?
     var onRhythmicNotationValidationError: ((String) -> Void)?
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?) -> Void)?
+    var onChordCorrectionRequested: ((UUID) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
 
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let chordInkRecognizer = ChordInkRecognizer()
-    private let chordInkRecognitionIdleDelay: TimeInterval = 2.0
+    private let chordInkRecognitionIdleDelay: TimeInterval = 1.3
     private lazy var selectionTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleTap(_:))
@@ -644,6 +648,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         action: .move
                     )
                 }
+
+                if chordEditFrame(for: chordLayout).insetBy(dx: -8, dy: -8).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .review
+                    )
+                }
             }
         }
 
@@ -718,12 +730,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: chordEditHitOverlayView)
-        guard let hitTarget = chordEditHitTarget(at: location),
-              hitTarget.action == .delete else {
+        guard let hitTarget = chordEditHitTarget(at: location) else {
             return
         }
 
-        deleteChordEvent(hitTarget.chordID)
+        switch hitTarget.action {
+        case .delete:
+            deleteChordEvent(hitTarget.chordID)
+        case .move:
+            break
+        case .review:
+            onChordCorrectionRequested?(hitTarget.chordID)
+        }
     }
 
     private func handleChordEntryTap(at location: CGPoint) {
@@ -737,6 +755,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 deleteChordEvent(hitTarget.chordID)
             case .move:
                 break
+            case .review:
+                onChordCorrectionRequested?(hitTarget.chordID)
             }
             return
         }
@@ -1383,6 +1403,7 @@ private struct ChordEditHitTarget {
     enum Action {
         case delete
         case move
+        case review
     }
 
     var measureID: UUID

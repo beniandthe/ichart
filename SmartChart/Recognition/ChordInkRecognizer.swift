@@ -46,6 +46,18 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             clusters: clusters
         )
         let rawCandidates = chordCandidates.map(\.text)
+        let minimumScoredCandidateConfidence = minimumAcceptedCandidateConfidence
+            - ChordInkRecognitionPolicy.closeRaceConfidenceGap
+        let candidateScores = chordCandidates.prefix(8)
+            .filter { $0.confidence >= minimumScoredCandidateConfidence }
+            .map { candidate in
+                let match = ChordRecognitionCompendium.match(candidate.text)
+                return ChordInkCandidateScore(
+                    text: candidate.text,
+                    displayText: match?.displayText,
+                    confidence: candidate.confidence
+                )
+            }
         let acceptedCandidate = chordCandidates.lazy.compactMap { candidate -> (ChordRecognitionMatch, Double)? in
             guard let match = ChordRecognitionCompendium.match(candidate.text),
                   candidate.confidence >= minimumAcceptedCandidateConfidence else {
@@ -61,7 +73,8 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             rawCandidates: rawCandidates,
             glyphCandidates: contextualGlyphCandidateGroups,
             match: match,
-            confidence: acceptedConfidence
+            confidence: acceptedConfidence,
+            candidateScores: candidateScores
         )
     }
 

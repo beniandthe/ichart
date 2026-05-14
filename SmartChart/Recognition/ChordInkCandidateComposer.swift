@@ -646,6 +646,11 @@ struct ChordInkCandidateComposer {
             }
         }
 
+        if hasTriangleQuality(text),
+           glyphCandidates.contains(where: { $0.text == "△" && $0.confidence >= 0.60 }) {
+            score += 0.62
+        }
+
         if text.contains("7#11") || text.contains("7(#11)") {
             let hasStrongSharp = (dominantAlterationAccidentalConfidence("#", in: glyphCandidates) ?? 0) >= 0.65
             if hasExplicitSharpElevenNumberTail(in: glyphCandidates)
@@ -736,6 +741,15 @@ struct ChordInkCandidateComposer {
         return symbol.quality == "-"
             && symbol.extensions == ["6"]
             && symbol.alterations.isEmpty
+    }
+
+    private func hasTriangleQuality(_ text: String) -> Bool {
+        guard let symbol = try? ChordSymbolParser.parse(text) else {
+            return false
+        }
+
+        return symbol.quality.contains("△")
+            && symbol.alterations.contains("#11")
     }
 
     private func hasExplicitMinorSixthEvidence(

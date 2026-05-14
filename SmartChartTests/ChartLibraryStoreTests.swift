@@ -77,6 +77,40 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.charts.first?.hasCompletedInitialSetup, false)
     }
 
+    #if DEBUG
+    func testCreateChordWritingTestChartResetsDisposablePreparedChart() throws {
+        let existingTestChart = Chart.blank(title: "Chord Writing Test Chart", measureCount: 2)
+        let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
+            Chart.blank(title: "Chart \($0)")
+        } + [existingTestChart]
+        var didResetDiagnostics = false
+        let store = ChartLibraryStore(
+            charts: charts,
+            entitlements: .free,
+            chordDiagnosticsResetter: {
+                didResetDiagnostics = true
+            }
+        )
+
+        let chartID = store.createChordWritingTestChart()
+
+        let testChart = try XCTUnwrap(store.charts.first)
+        XCTAssertTrue(didResetDiagnostics)
+        XCTAssertEqual(testChart.id, chartID)
+        XCTAssertEqual(testChart.title, "Chord Writing Test Chart")
+        XCTAssertEqual(testChart.styleNote, "CHORD TEST LOOP")
+        XCTAssertTrue(testChart.hasCompletedInitialSetup)
+        XCTAssertEqual(testChart.measures.count, 8)
+        XCTAssertEqual(testChart.measures.last?.barlineAfter, .double)
+        XCTAssertTrue(testChart.measures.allSatisfy { $0.chordEvents.isEmpty })
+        XCTAssertEqual(store.selectedChartID, chartID)
+        XCTAssertEqual(
+            store.charts.filter { $0.title == "Chord Writing Test Chart" }.count,
+            1
+        )
+    }
+    #endif
+
     func testSetPlanPersistsEntitlementsSnapshot() {
         let repository = RecordingChartRepository()
         let store = ChartLibraryStore(

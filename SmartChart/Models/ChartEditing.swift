@@ -250,8 +250,25 @@ extension Chart {
         atFraction fraction: Double?,
         sourceInkData: Data? = nil
     ) -> Bool {
+        appendRecognizedChordEvent(
+            symbol,
+            rawInput: rawInput,
+            to: measureID,
+            atFraction: fraction,
+            sourceInkData: sourceInkData
+        ) != nil
+    }
+
+    @discardableResult
+    mutating func appendRecognizedChordEvent(
+        _ symbol: ChordSymbol,
+        rawInput: String?,
+        to measureID: UUID,
+        atFraction fraction: Double?,
+        sourceInkData: Data? = nil
+    ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
-            return false
+            return nil
         }
 
         var measure = systems[location.systemIndex].measures[location.measureIndex]
@@ -259,7 +276,7 @@ extension Chart {
             atFraction: fraction,
             defaultMeter: defaultMeter
         )
-        measure.appendChordEvent(
+        let chordEventID = measure.appendChordEvent(
             symbol: symbol,
             rawInput: rawInput,
             suggestion: suggestion,
@@ -268,7 +285,41 @@ extension Chart {
 
         systems[location.systemIndex].measures[location.measureIndex] = measure
         updatedAt = .now
+        return chordEventID
+    }
+
+    @discardableResult
+    mutating func replaceChordEvent(
+        _ chordEventID: UUID,
+        with symbol: ChordSymbol,
+        rawInput: String?
+    ) -> Bool {
+        guard let location = chordEventLocation(id: chordEventID) else {
+            return false
+        }
+
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .symbol = symbol
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .rawInput = rawInput
+        updatedAt = .now
         return true
+    }
+
+    func chordEvent(id chordEventID: UUID) -> ChordEvent? {
+        chordEventLocation(id: chordEventID).map {
+            systems[$0.systemIndex].measures[$0.measureIndex].chordEvents[$0.chordIndex]
+        }
+    }
+
+    func measureContainingChordEvent(id chordEventID: UUID) -> Measure? {
+        chordEventLocation(id: chordEventID).map {
+            systems[$0.systemIndex].measures[$0.measureIndex]
+        }
     }
 
     @discardableResult

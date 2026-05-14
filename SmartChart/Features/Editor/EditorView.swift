@@ -11,6 +11,7 @@ struct EditorView: View {
         Meter(numerator: 5, denominator: 4),
         Meter(numerator: 6, denominator: 4)
     ]
+    private static let showsChordFixtureCaptureTools = false
 
     @EnvironmentObject private var store: ChartLibraryStore
     @Binding var chart: Chart
@@ -33,6 +34,7 @@ struct EditorView: View {
     @State private var noteEditErrorMessage = ""
     @State private var showingNoteEditError = false
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
+    @State private var pendingChordCorrection: PendingChordCorrection?
     @State private var chordInkErrorMessage = ""
     @State private var showingChordInkError = false
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
@@ -41,9 +43,14 @@ struct EditorView: View {
     @State private var canvasMode: EditorCanvasMode = .browse
     private let exporter: any ChartExporting
 
-    init(chart: Binding<Chart>, exporter: any ChartExporting = PDFChartExporter.live()) {
+    init(
+        chart: Binding<Chart>,
+        exporter: any ChartExporting = PDFChartExporter.live(),
+        initialCanvasMode: EditorCanvasMode = .browse
+    ) {
         self._chart = chart
         self.exporter = exporter
+        _canvasMode = State(initialValue: initialCanvasMode)
     }
 
     var body: some View {
@@ -137,6 +144,7 @@ struct EditorView: View {
         .sheet(item: $pendingChordInkConfirmation) { confirmation in
             ChordInkConfirmationSheetView(
                 confirmation: confirmation,
+                showsFixtureCaptureTools: Self.showsChordFixtureCaptureTools,
                 onAcceptCandidate: { candidateText in
                     handleChordInkCandidateAccepted(candidateText, confirmation: confirmation)
                 },
@@ -148,6 +156,17 @@ struct EditorView: View {
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
+                }
+            )
+        }
+        .sheet(item: $pendingChordCorrection) { correction in
+            ChordCorrectionSheetView(
+                correction: correction,
+                onAcceptCandidate: { candidateText in
+                    handleChordCorrectionAccepted(candidateText, correction: correction)
+                },
+                onCancel: {
+                    pendingChordCorrection = nil
                 }
             )
         }
@@ -454,6 +473,7 @@ struct EditorView: View {
             onRhythmicNotationProposal: handleRhythmicNotationProposal,
             onRhythmicNotationValidationError: handleRhythmicNotationValidationError,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
+            onChordCorrectionRequested: handleChordCorrectionRequested,
             onNoteSelectionChanged: handleNoteSelectionChanged
         )
     }
@@ -738,18 +758,49 @@ struct EditorView: View {
 
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        pendingChordInkConfirmation = PendingChordInkConfirmation(
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let confirmation = PendingChordInkConfirmation(
             measureID: measureID,
             measureIndex: measure.index,
             result: result,
             drawingData: drawingData,
-            targetFraction: targetFraction
+            targetFraction: targetFraction,
+            decision: decision
         )
+
+        if decision.action == .autoRender,
+           let acceptedText = decision.acceptedText {
+            commitChordInkCandidate(
+                acceptedText,
+                confirmation: confirmation,
+                resolution: .autoRendered
+            )
+            return
+        }
+
+        pendingChordInkConfirmation = confirmation
     }
 
     private func handleChordInkCandidateAccepted(
         _ candidateText: String,
         confirmation: PendingChordInkConfirmation
+    ) {
+        let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolution: ChordEntryDiagnosticResolution = confirmation.candidateTexts.contains(trimmedCandidateText)
+            ? .confirmedSuggestion
+            : .manualCorrection
+
+        commitChordInkCandidate(
+            trimmedCandidateText,
+            confirmation: confirmation,
+            resolution: resolution
+        )
+    }
+
+    private func commitChordInkCandidate(
+        _ candidateText: String,
+        confirmation: PendingChordInkConfirmation,
+        resolution: ChordEntryDiagnosticResolution
     ) {
         guard let match = ChordRecognitionCompendium.match(candidateText) else {
             chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
@@ -758,7 +809,7 @@ struct EditorView: View {
         }
 
         var updatedChart = chart
-        guard updatedChart.appendRecognizedChord(
+        guard let chordEventID = updatedChart.appendRecognizedChordEvent(
             match.symbol,
             rawInput: candidateText,
             to: confirmation.measureID,
@@ -772,11 +823,154 @@ struct EditorView: View {
 
         _ = updatedChart.setPageHandwrittenChordDrawing(nil)
         chart = updatedChart
+
+        #if DEBUG || targetEnvironment(simulator)
+        recordChordEntryDiagnostic(
+            acceptedText: candidateText,
+            match: match,
+            confirmation: confirmation,
+            resolution: resolution,
+            chordEventID: chordEventID,
+            chartSnapshot: updatedChart
+        )
+        #endif
+
         selectedMeasureID = confirmation.measureID
         selectedNoteSelection = nil
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
     }
+
+    private func handleChordCorrectionRequested(_ chordEventID: UUID) {
+        guard canvasMode == .chordEntry,
+              pendingChordInkConfirmation == nil,
+              pendingChordCorrection == nil,
+              let chordEvent = chart.chordEvent(id: chordEventID),
+              let measure = chart.measureContainingChordEvent(id: chordEventID) else {
+            return
+        }
+
+        pendingChordCorrection = PendingChordCorrection(
+            chordEventID: chordEventID,
+            measureID: measure.id,
+            measureIndex: measure.index,
+            currentText: chordEvent.symbol.displayText,
+            rawInput: chordEvent.rawInput
+        )
+    }
+
+    private func handleChordCorrectionAccepted(
+        _ candidateText: String,
+        correction: PendingChordCorrection
+    ) {
+        let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = ChordRecognitionCompendium.match(trimmedCandidateText) else {
+            chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
+            showingChordInkError = true
+            return
+        }
+
+        var updatedChart = chart
+        guard updatedChart.replaceChordEvent(
+            correction.chordEventID,
+            with: match.symbol,
+            rawInput: trimmedCandidateText
+        ) else {
+            chordInkErrorMessage = "That chord is no longer available. Try writing it again."
+            showingChordInkError = true
+            return
+        }
+
+        chart = updatedChart
+
+        #if DEBUG || targetEnvironment(simulator)
+        recordChordCorrectionDiagnostic(
+            acceptedText: trimmedCandidateText,
+            match: match,
+            correction: correction,
+            chartSnapshot: updatedChart
+        )
+        #endif
+
+        selectedMeasureID = correction.measureID
+        selectedNoteSelection = nil
+        pendingChordCorrection = nil
+        canvasMode = .chordEntry
+    }
+
+    #if DEBUG || targetEnvironment(simulator)
+    private func recordChordEntryDiagnostic(
+        acceptedText: String,
+        match: ChordRecognitionMatch,
+        confirmation: PendingChordInkConfirmation,
+        resolution: ChordEntryDiagnosticResolution,
+        chordEventID: UUID,
+        chartSnapshot: Chart
+    ) {
+        let event = ChordEntryDiagnosticEvent(
+            timestamp: .now,
+            chartID: chartSnapshot.id,
+            chartTitle: chartSnapshot.title,
+            measureID: confirmation.measureID,
+            measureIndex: confirmation.measureIndex,
+            chordEventID: chordEventID,
+            resolution: resolution,
+            acceptedText: acceptedText,
+            previousRenderedDisplayText: nil,
+            renderedDisplayText: match.displayText,
+            bestCandidateText: confirmation.bestCandidateText,
+            suggestedCandidateTexts: confirmation.candidateTexts,
+            rawCandidates: confirmation.result.rawCandidates,
+            candidateScores: Array(confirmation.result.candidateScores.prefix(12)),
+            confidence: confirmation.result.confidence,
+            recognitionReason: confirmation.decision.reason,
+            wasCloseRace: confirmation.decision.isCloseRace,
+            confidenceGap: confirmation.decision.confidenceGap,
+            targetFraction: confirmation.targetFraction
+        )
+
+        do {
+            try ChordEntryDiagnosticsRecorder.live().append(event)
+        } catch {
+            print("SmartChart chord diagnostic error: \(error)")
+        }
+    }
+
+    private func recordChordCorrectionDiagnostic(
+        acceptedText: String,
+        match: ChordRecognitionMatch,
+        correction: PendingChordCorrection,
+        chartSnapshot: Chart
+    ) {
+        let event = ChordEntryDiagnosticEvent(
+            timestamp: .now,
+            chartID: chartSnapshot.id,
+            chartTitle: chartSnapshot.title,
+            measureID: correction.measureID,
+            measureIndex: correction.measureIndex,
+            chordEventID: correction.chordEventID,
+            resolution: .renderedChordCorrection,
+            acceptedText: acceptedText,
+            previousRenderedDisplayText: correction.currentText,
+            renderedDisplayText: match.displayText,
+            bestCandidateText: correction.currentText,
+            suggestedCandidateTexts: correction.candidateTexts,
+            rawCandidates: correction.candidateTexts,
+            candidateScores: [],
+            confidence: 0,
+            recognitionReason: "Rendered chord correction.",
+            wasCloseRace: false,
+            confidenceGap: nil,
+            targetFraction: nil
+        )
+
+        do {
+            try ChordEntryDiagnosticsRecorder.live().append(event)
+        } catch {
+            print("SmartChart chord diagnostic error: \(error)")
+        }
+    }
+    #endif
 
     private func handleChordInkFixtureCopyRequested(
         _ candidateText: String,
@@ -975,6 +1169,7 @@ private struct PendingChordInkConfirmation: Identifiable {
     let result: ChordInkRecognitionResult
     let drawingData: Data
     let targetFraction: Double?
+    let decision: ChordInkRecognitionDecision
 
     var displayMeasureNumber: Int {
         measureIndex + 1
@@ -986,6 +1181,36 @@ private struct PendingChordInkConfirmation: Identifiable {
 
     var bestCandidateText: String? {
         result.match?.displayText ?? candidateTexts.first
+    }
+}
+
+private struct PendingChordCorrection: Identifiable {
+    let id = UUID()
+    let chordEventID: UUID
+    let measureID: UUID
+    let measureIndex: Int
+    let currentText: String
+    let rawInput: String?
+
+    var displayMeasureNumber: Int {
+        measureIndex + 1
+    }
+
+    var candidateTexts: [String] {
+        var texts = [currentText]
+        if let rawInput {
+            texts.append(rawInput)
+        }
+
+        return texts.reduce(into: [String]()) { result, text in
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedText.isEmpty,
+                  !result.contains(trimmedText) else {
+                return
+            }
+
+            result.append(trimmedText)
+        }
     }
 }
 
@@ -1019,6 +1244,7 @@ private enum NoteEditMenuStage: Hashable {
 
 private struct ChordInkConfirmationSheetView: View {
     let confirmation: PendingChordInkConfirmation
+    let showsFixtureCaptureTools: Bool
     let onAcceptCandidate: (String) -> Void
     let onCopyFixtureJSON: (String) -> ChordInkFixtureCopyResult
     let onKeepInk: () -> Void
@@ -1029,12 +1255,14 @@ private struct ChordInkConfirmationSheetView: View {
 
     init(
         confirmation: PendingChordInkConfirmation,
+        showsFixtureCaptureTools: Bool = false,
         onAcceptCandidate: @escaping (String) -> Void,
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
         onKeepInk: @escaping () -> Void,
         onClearAndRewrite: @escaping () -> Void
     ) {
         self.confirmation = confirmation
+        self.showsFixtureCaptureTools = showsFixtureCaptureTools
         self.onAcceptCandidate = onAcceptCandidate
         self.onCopyFixtureJSON = onCopyFixtureJSON
         self.onKeepInk = onKeepInk
@@ -1049,12 +1277,14 @@ private struct ChordInkConfirmationSheetView: View {
                     header
                     candidateChips
                     manualEntry
-                    captureActions
                     chartActions
+                    if showsFixtureCaptureTools {
+                        captureActions
+                    }
                 }
                 .padding(20)
             }
-            .navigationTitle("Capture Chord Sample")
+            .navigationTitle("Confirm Chord")
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])
@@ -1070,17 +1300,24 @@ private struct ChordInkConfirmationSheetView: View {
             Text("Measure \(confirmation.displayMeasureNumber)")
                 .font(.title3.weight(.bold))
 
-            Text("Data pass: write one chord, set the exact form you wrote, copy the sample, then clear for the next one. Accepted aliases still store the canonical chart symbol.")
+            Text(confirmation.decision.reason)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let match = confirmation.result.match {
-                Text("Current read: \(match.displayText)")
+                Text("Best read: \(match.displayText)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.blue)
+
+                if confirmation.decision.isCloseRace,
+                   let competingCandidateText = confirmation.decision.competingCandidateText {
+                    Text("Also close: \(competingCandidateText)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
             } else {
-                Text("No reliable read yet. Your corrected label is the source of truth.")
+                Text("Type the intended chord below.")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.orange)
             }
@@ -1124,7 +1361,7 @@ private struct ChordInkConfirmationSheetView: View {
     private var manualEntry: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Intended chord")
+                Text("Chord")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -1150,6 +1387,10 @@ private struct ChordInkConfirmationSheetView: View {
 
     private var captureActions: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("Fixture capture")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
             Button {
                 fixtureCopyStatus = onCopyFixtureJSON(trimmedCandidateText)
             } label: {
@@ -1178,17 +1419,13 @@ private struct ChordInkConfirmationSheetView: View {
 
     private var chartActions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Actual chart actions, not for fixture passes")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
             Button {
                 onAcceptCandidate(trimmedCandidateText)
             } label: {
-                Text("Render Chord To Chart")
+                Text("Use This Chord")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .disabled(trimmedCandidateText.isEmpty)
 
             Button {
@@ -1198,7 +1435,123 @@ private struct ChordInkConfirmationSheetView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+
+            Button(role: .destructive) {
+                onClearAndRewrite()
+            } label: {
+                Text("Clear & Rewrite")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
+    }
+}
+
+private struct ChordCorrectionSheetView: View {
+    let correction: PendingChordCorrection
+    let onAcceptCandidate: (String) -> Void
+    let onCancel: () -> Void
+    @State private var candidateText: String
+    @FocusState private var isCandidateFocused: Bool
+
+    init(
+        correction: PendingChordCorrection,
+        onAcceptCandidate: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.correction = correction
+        self.onAcceptCandidate = onAcceptCandidate
+        self.onCancel = onCancel
+        _candidateText = State(initialValue: correction.rawInput ?? correction.currentText)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Measure \(correction.displayMeasureNumber)")
+                        .font(.title3.weight(.bold))
+
+                    Text("Correct this rendered chord without collecting a new handwriting sample.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Current: \(correction.currentText)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.blue)
+                }
+
+                if !correction.candidateTexts.isEmpty {
+                    FlowLayout(spacing: 8) {
+                        ForEach(correction.candidateTexts, id: \.self) { candidate in
+                            Button {
+                                candidateText = candidate
+                            } label: {
+                                Text(candidate)
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        Capsule()
+                                            .fill(candidate == trimmedCandidateText ? Color.blue.opacity(0.14) : Color(.secondarySystemBackground))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Chord")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Button("Edit") {
+                            isCandidateFocused = true
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+
+                    TextField("Example: C, Bb, F#, C-△7, Db7(b9), G/B", text: $candidateText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isCandidateFocused)
+                        .submitLabel(.done)
+                }
+
+                Button {
+                    onAcceptCandidate(trimmedCandidateText)
+                } label: {
+                    Text("Update Chord")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(trimmedCandidateText.isEmpty)
+
+                Button {
+                    onCancel()
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .navigationTitle("Correct Chord")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
+    }
+
+    private var trimmedCandidateText: String {
+        candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

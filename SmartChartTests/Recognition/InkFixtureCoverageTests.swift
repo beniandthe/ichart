@@ -2,6 +2,20 @@ import XCTest
 @testable import SmartChart
 
 final class InkFixtureCoverageTests: XCTestCase {
+    func testFixtureCorpusDoesNotContainExactDuplicateInkSamples() throws {
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
+        var seenFixturesByFingerprint: [InkFixture: String] = [:]
+
+        for fixture in fixtures {
+            let fingerprint = fixture.withoutName
+            if let existingName = seenFixturesByFingerprint[fingerprint] {
+                XCTFail("Exact duplicate fixture payload: \(existingName) and \(fixture.name)")
+            } else {
+                seenFixturesByFingerprint[fingerprint] = fixture.name
+            }
+        }
+    }
+
     func testCapturedFixtureCoverageProtectsRootFoundation() throws {
         let capturedFixtures = try InkFixtureLoader
             .loadAll(file: #filePath)
@@ -266,7 +280,7 @@ final class InkFixtureCoverageTests: XCTestCase {
             "F#7(b5)|F#7b5": 1,
             "Db7(b5)|Db7b5": 1,
             "G#7(b5)|G#7b5": 2,
-            "B#7(b5)|B#7b5": 2
+            "B#7(b5)|B#7b5": 1
         ]
 
         for (family, minimumCount) in expectations {
@@ -424,7 +438,7 @@ final class InkFixtureCoverageTests: XCTestCase {
 
         let expectations = [
             "C°|C°": 2,
-            "Bb°|Bb°": 2,
+            "Bb°|Bb°": 1,
             "F#°|F#°": 2,
             "Db°|Db°": 2,
             "G#°|G#°": 2,
@@ -585,11 +599,20 @@ final class InkFixtureCoverageTests: XCTestCase {
         let fixtureCounts = Dictionary(grouping: fixtures, by: \.expectedDisplayText)
             .mapValues(\.count)
 
-        for minorSixthChord in ["Cm6", "Bbm6", "F#m6", "Dbm6", "G#m6", "B#m6"] {
+        let minimums = [
+            "Cm6": 2,
+            "Bbm6": 2,
+            "F#m6": 2,
+            "Dbm6": 1,
+            "G#m6": 2,
+            "B#m6": 2
+        ]
+
+        for (minorSixthChord, minimumCount) in minimums {
             XCTAssertGreaterThanOrEqual(
                 fixtureCounts[minorSixthChord, default: 0],
-                2,
-                "Expected at least two real-writing fixtures for \(minorSixthChord)"
+                minimumCount,
+                "Expected at least \(minimumCount) distinct real-writing fixtures for \(minorSixthChord)"
             )
         }
     }
@@ -776,5 +799,11 @@ final class InkFixtureCoverageTests: XCTestCase {
 private extension InkFixture {
     var isCapturedFixture: Bool {
         name.localizedCaseInsensitiveContains("captured")
+    }
+
+    var withoutName: InkFixture {
+        var fixture = self
+        fixture.name = ""
+        return fixture
     }
 }

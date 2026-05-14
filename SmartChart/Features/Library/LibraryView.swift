@@ -2,7 +2,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
-    let onOpenChart: (Chart.ID) -> Void
+    let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
 
     var body: some View {
         ScrollView {
@@ -38,7 +38,7 @@ struct LibraryView: View {
                 guard store.createBlankChart(), let chartID = store.selectedChartID else {
                     return
                 }
-                onOpenChart(chartID)
+                onOpenChart(chartID, .browse)
             } label: {
                 Label("New Chart", systemImage: "square.and.pencil")
                     .frame(maxWidth: .infinity)
@@ -46,6 +46,22 @@ struct LibraryView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(!store.canCreateChart)
+
+            #if DEBUG || targetEnvironment(simulator)
+            Button {
+                let chartID = store.createChordWritingTestChart()
+                onOpenChart(chartID, .chordEntry)
+            } label: {
+                Label("Open Chord Test Chart", systemImage: "pencil.and.scribble")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+
+            Text("Debug build: opens a fresh disposable 8-measure chart for the chord-writing loop.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            #endif
 
             Text(store.canCreateChart ? store.chartCapacityText : store.upgradeSummaryText)
                 .font(.caption)
@@ -75,7 +91,7 @@ struct LibraryView: View {
                 LazyVStack(spacing: 14) {
                     ForEach(store.charts) { chart in
                         Button {
-                            onOpenChart(chart.id)
+                            onOpenChart(chart.id, .browse)
                         } label: {
                             HStack(alignment: .top, spacing: 16) {
                                 VStack(alignment: .leading, spacing: 8) {

@@ -231,6 +231,83 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testRecognizerReturnsCandidateScoresForAutoRenderDecisions() throws {
+        let result = recognizer.recognize(strokes: try shiftedTemplateStrokes("C", offsetX: 0))
+
+        XCTAssertEqual(result.match?.displayText, "C")
+        XCTAssertFalse(result.candidateScores.isEmpty)
+        XCTAssertEqual(result.candidateScores.first?.displayText, "C")
+        XCTAssertGreaterThan(result.candidateScores.first?.confidence ?? 0, 0)
+    }
+
+    func testResolutionPolicyAutoRendersDecisiveMatches() throws {
+        let result = recognitionResult(
+            matchText: "C",
+            confidence: 4.80,
+            scores: [
+                candidateScore("C", confidence: 4.80),
+                candidateScore("G", confidence: 4.10)
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.acceptedText, "C")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyPromptsForCloseRaces() throws {
+        let result = recognitionResult(
+            matchText: "C",
+            confidence: 4.80,
+            scores: [
+                candidateScore("C", confidence: 4.80),
+                candidateScore("G", confidence: 4.52)
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C")
+        XCTAssertTrue(decision.isCloseRace)
+        XCTAssertEqual(decision.competingCandidateText, "G")
+    }
+
+    func testResolutionPolicyPromptsForLowConfidenceMatches() throws {
+        let result = recognitionResult(
+            matchText: "C",
+            confidence: 4.00,
+            scores: [
+                candidateScore("C", confidence: 4.00),
+                candidateScore("G", confidence: 3.00)
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyPromptsWhenNoSupportedChordIsRead() {
+        let result = recognitionResult(
+            matchText: nil,
+            confidence: 0,
+            scores: [
+                ChordInkCandidateScore(text: "EGG", displayText: nil, confidence: 3.80)
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertNil(decision.acceptedText)
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
     func testSuccessCriteriaFixturesArePresent() throws {
         let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
         let displayTexts = Set(fixtures.map(\.expectedDisplayText))
@@ -265,6 +342,29 @@ final class ChordInkRecognizerTests: XCTestCase {
                 }
             )
         }
+    }
+
+    private func recognitionResult(
+        matchText: String?,
+        confidence: Double,
+        scores: [ChordInkCandidateScore]
+    ) -> ChordInkRecognitionResult {
+        ChordInkRecognitionResult(
+            rawCandidates: scores.map(\.text),
+            glyphCandidates: [],
+            match: matchText.flatMap(ChordRecognitionCompendium.match),
+            confidence: confidence,
+            candidateScores: scores
+        )
+    }
+
+    private func candidateScore(_ text: String, confidence: Double) -> ChordInkCandidateScore {
+        let match = ChordRecognitionCompendium.match(text)
+        return ChordInkCandidateScore(
+            text: text,
+            displayText: match?.displayText,
+            confidence: confidence
+        )
     }
 }
 

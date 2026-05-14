@@ -270,14 +270,15 @@ extension Measure {
         )
     }
 
+    @discardableResult
     mutating func appendChordEvent(
         symbol: ChordSymbol,
         rawInput: String?,
         defaultMeter: Meter,
         hitStyle: HitStyle = .none
-    ) {
+    ) -> UUID {
         let suggestion = suggestedChordInsertion(defaultMeter: defaultMeter)
-        appendChordEvent(
+        return appendChordEvent(
             symbol: symbol,
             rawInput: rawInput,
             suggestion: suggestion,
@@ -285,16 +286,18 @@ extension Measure {
         )
     }
 
+    @discardableResult
     mutating func appendChordEvent(
         symbol: ChordSymbol,
         rawInput: String?,
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
         sourceInkData: Data? = nil
-    ) {
+    ) -> UUID {
+        let chordEventID = UUID()
         chordEvents.append(
             ChordEvent(
-                id: UUID(),
+                id: chordEventID,
                 symbol: symbol,
                 startPosition: suggestion.startPosition,
                 duration: suggestion.duration,
@@ -306,6 +309,7 @@ extension Measure {
                 sourceInkData: sourceInkData
             )
         )
+        return chordEventID
     }
 
     private func nearestRhythmSlotIndex(
