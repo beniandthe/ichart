@@ -70,6 +70,38 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
+    func testChordLayoutsLeaveRoomForExtendedChordSymbolsAroundBeatAnchor() throws {
+        var chart = makeBlankLeadSheet()
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let symbol = try ChordSymbolParser.parse("Db7(#11)/F#")
+        XCTAssertTrue(
+            chart.appendRecognizedChord(
+                symbol,
+                rawInput: "Db7(#11)/F#",
+                to: measureID,
+                atFraction: 0.03
+            )
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
+        let usableWidth = firstMeasure.staffFrame.width - 16
+        let beatStep = usableWidth / 4
+        let beatAttackX = firstMeasure.staffFrame.minX + 8 + beatStep * 0.5
+
+        XCTAssertEqual(chordLayout.text, "Db7(#11)/F#")
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.width, 100)
+        XCTAssertLessThanOrEqual(chordLayout.frame.minX, beatAttackX)
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.maxX, beatAttackX)
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.minX, firstMeasure.chordBandFrame.minX)
+        XCTAssertLessThanOrEqual(chordLayout.frame.maxX, firstMeasure.chordBandFrame.maxX)
+    }
+
     func testChordLayoutsAlignWithRhythmAttackCentersWhenMeasureHasRhythmMap() throws {
         var chart = makeBlankLeadSheet()
         let measureID = try XCTUnwrap(chart.measures.first?.id)

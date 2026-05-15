@@ -197,6 +197,44 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testRecognizesMajorSixthInkFixtures() throws {
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
+            .filter { $0.expectedDisplayText.hasSuffix("6") && !$0.expectedDisplayText.hasSuffix("m6") }
+
+        XCTAssertFalse(fixtures.isEmpty)
+
+        for fixture in fixtures {
+            let result = recognizer.recognize(strokes: fixture.strokes)
+            let glyphSummary = result.glyphCandidates.map { group in
+                group.prefix(6).map { "\($0.text):\(String(format: "%.3f", $0.confidence))" }.joined(separator: ",")
+            }
+            let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(glyphSummary), scores: \(result.candidateScores.prefix(8))"
+
+            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, "\(fixture.name) \(debugSummary)")
+            XCTAssertGreaterThan(result.confidence, 0, fixture.name)
+        }
+    }
+
+    func testRecognizesDominantNinthInkFixtures() throws {
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
+            .filter { fixture in
+                fixture.expectedDisplayText.hasSuffix("9")
+                    && !fixture.expectedDisplayText.contains("△")
+                    && !fixture.expectedDisplayText.contains("-")
+                    && !fixture.expectedDisplayText.contains("(")
+            }
+
+        XCTAssertFalse(fixtures.isEmpty)
+
+        for fixture in fixtures {
+            let result = recognizer.recognize(strokes: fixture.strokes)
+            let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), scores: \(result.candidateScores.prefix(8))"
+
+            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, "\(fixture.name) \(debugSummary)")
+            XCTAssertGreaterThan(result.confidence, 0, fixture.name)
+        }
+    }
+
     func testRecognizesMinorMajorSeventhInkFixtures() throws {
         let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
             .filter { $0.expectedDisplayText.contains("-△7") }

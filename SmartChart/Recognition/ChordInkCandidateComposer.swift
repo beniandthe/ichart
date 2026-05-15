@@ -646,13 +646,19 @@ struct ChordInkCandidateComposer {
             }
         }
 
-        if isMajorSixthText(text),
-           hasLikelyRootFlatCollision(
-               in: glyphCandidates,
-               candidateColumns: candidateColumns,
-               totalClusterCount: totalClusterCount
-           ) {
-            score -= 0.35
+        if isMajorSixthText(text) {
+            if hasVeryStrongExplicitMajorSixthEvidence(
+                in: glyphCandidates,
+                candidateColumns: candidateColumns
+            ) {
+                score += 0.42
+            } else if hasLikelyRootFlatCollision(
+                in: glyphCandidates,
+                candidateColumns: candidateColumns,
+                totalClusterCount: totalClusterCount
+            ) {
+                score -= 0.35
+            }
         }
 
         if hasTriangleQuality(text),
@@ -785,6 +791,25 @@ struct ChordInkCandidateComposer {
 
         return flatConfidence >= 0.45
             && flatConfidence + 0.18 >= finalSixCandidate.confidence
+    }
+
+    private func hasVeryStrongExplicitMajorSixthEvidence(
+        in glyphCandidates: [GlyphCandidate],
+        candidateColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard let finalCandidate = glyphCandidates.last,
+              finalCandidate.text == "6",
+              finalCandidate.confidence >= 0.98 else {
+            return false
+        }
+
+        let finalColumn = candidateColumns.last ?? []
+        let finalNineConfidence = finalColumn
+            .filter { $0.text == "9" }
+            .map(\.confidence)
+            .max() ?? 0
+
+        return finalNineConfidence < 0.60
     }
 
     private func hasTriangleQuality(_ text: String) -> Bool {

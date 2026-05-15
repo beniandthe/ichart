@@ -83,22 +83,22 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         clusters: [InkCluster]
     ) -> [ChordInkCandidate] {
         let composedCandidates = candidateComposer.compose(glyphCandidates: glyphCandidateGroups)
-        guard let alteredCandidate = dominantAlteredCandidate(
-            from: glyphCandidateGroups,
-            clusters: clusters
-        ) else {
-            return composedCandidates
-        }
-
         var bestCandidatesByText = Dictionary(
             uniqueKeysWithValues: composedCandidates.map { ($0.text, $0) }
         )
-        if let currentBest = bestCandidatesByText[alteredCandidate.text],
-           currentBest.confidence >= alteredCandidate.confidence {
-            return composedCandidates
+
+        for semanticCandidate in [
+            dominantAlteredCandidate(from: glyphCandidateGroups, clusters: clusters),
+            majorSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters)
+        ].compactMap({ $0 }) {
+            if let currentBest = bestCandidatesByText[semanticCandidate.text],
+               currentBest.confidence >= semanticCandidate.confidence {
+                continue
+            }
+
+            bestCandidatesByText[semanticCandidate.text] = semanticCandidate
         }
 
-        bestCandidatesByText[alteredCandidate.text] = alteredCandidate
         return Array(bestCandidatesByText.values).sorted { lhs, rhs in
             if lhs.confidence != rhs.confidence {
                 return lhs.confidence > rhs.confidence
@@ -123,7 +123,10 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         var symbolText = rootCandidate.text
 
         if glyphCandidateGroups.indices.contains(index),
-           let accidentalCandidate = accidentalCandidate(in: glyphCandidateGroups[index]) {
+           let accidentalCandidate = accidentalCandidate(
+               in: glyphCandidateGroups[index],
+               minimumConfidence: 0.65
+           ) {
             glyphs.append(accidentalCandidate)
             symbolText.append(accidentalCandidate.text)
             index += 1
@@ -160,6 +163,81 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         )
     }
 
+    private func majorSharpElevenCandidate(
+        from glyphCandidateGroups: [[GlyphCandidate]],
+        clusters: [InkCluster]
+    ) -> ChordInkCandidate? {
+        guard glyphCandidateGroups.count == clusters.count,
+              clusters.count >= 4,
+              let rootCandidate = rootCandidate(in: glyphCandidateGroups[0]) else {
+            return nil
+        }
+
+        var glyphs = [rootCandidate]
+        var index = 1
+        var symbolText = rootCandidate.text
+
+        if glyphCandidateGroups.indices.contains(index),
+           let accidentalCandidate = accidentalCandidate(in: glyphCandidateGroups[index]) {
+            glyphs.append(accidentalCandidate)
+            symbolText.append(accidentalCandidate.text)
+            index += 1
+        }
+
+        guard glyphCandidateGroups.indices.contains(index),
+              let triangleCandidate = triangleMajorCandidate(
+                  in: glyphCandidateGroups[index],
+                  cluster: clusters[index]
+              ) else {
+            return nil
+        }
+
+        glyphs.append(triangleCandidate)
+        symbolText.append("△")
+        index += 1
+
+        if glyphCandidateGroups.indices.contains(index),
+           let sevenCandidate = sevenCandidate(in: glyphCandidateGroups[index]) {
+            glyphs.append(sevenCandidate)
+            symbolText.append("7")
+            index += 1
+        } else {
+            glyphs.append(GlyphCandidate(text: "7", confidence: 0.78, source: .composer))
+            symbolText.append("7")
+        }
+
+        guard let sharpIndex = glyphCandidateGroups[index...].firstIndex(where: { group in
+            group.contains { candidate in
+                candidate.text == "#" && candidate.confidence >= 0.55
+            }
+        }) else {
+            return nil
+        }
+
+        let sharpGroup = glyphCandidateGroups[sharpIndex]
+        let sharpConfidence = sharpGroup
+            .filter { $0.text == "#" }
+            .map(\.confidence)
+            .max() ?? 0
+        glyphs.append(GlyphCandidate(text: "#", confidence: sharpConfidence, source: .heuristic))
+
+        let tailGroups = Array(glyphCandidateGroups.dropFirst(sharpIndex + 1))
+        let tailClusters = Array(clusters.dropFirst(sharpIndex + 1))
+        guard hasSharpElevenTailEvidence(groups: tailGroups, clusters: tailClusters) else {
+            return nil
+        }
+
+        glyphs.append(GlyphCandidate(text: "1", confidence: 0.82, source: .composer))
+        glyphs.append(GlyphCandidate(text: "1", confidence: 0.82, source: .composer))
+        symbolText.append("#11")
+
+        return ChordInkCandidate(
+            text: symbolText,
+            confidence: 5.05,
+            glyphCandidates: glyphs
+        )
+    }
+
     private func rootCandidate(in group: [GlyphCandidate]) -> GlyphCandidate? {
         group
             .filter { candidate in
@@ -170,10 +248,13 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             }
     }
 
-    private func accidentalCandidate(in group: [GlyphCandidate]) -> GlyphCandidate? {
+    private func accidentalCandidate(
+        in group: [GlyphCandidate],
+        minimumConfidence: Double = 0.72
+    ) -> GlyphCandidate? {
         group
             .filter { candidate in
-                candidate.confidence >= 0.72 && (candidate.text == "#" || candidate.text == "b")
+                candidate.confidence >= minimumConfidence && (candidate.text == "#" || candidate.text == "b")
             }
             .max { lhs, rhs in
                 lhs.confidence < rhs.confidence
@@ -243,6 +324,14 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             || suffixGroups.last?.contains { candidate in
                 candidate.text == "l" && candidate.confidence >= 0.60
             } == true
+            || (hasExplicitSeven
+                && suffixGroups.count == 2
+                && suffixClusters.last.map { cluster in
+                    cluster.strokes.count >= 2
+                        && cluster.bounds.height >= 14
+                        && cluster.bounds.width >= 20
+                        && cluster.bounds.width <= 42
+                } == true)
             || suffixClusters.last.map { cluster in
                 cluster.strokes.count >= 2
                     && cluster.bounds.height >= 14
@@ -271,6 +360,72 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             && implicitSevenHasEnoughLiteralAltEvidence
             && !suffixLooksLikeLiteralAlteration
             && !firstSuffixIsExplicitSharpAlteration
+    }
+
+    private func triangleMajorCandidate(
+        in group: [GlyphCandidate],
+        cluster: InkCluster
+    ) -> GlyphCandidate? {
+        let hardDominantSevenEvidence = group.contains { candidate in
+            candidate.text == "7" && candidate.confidence >= 0.70
+        }
+        guard !hardDominantSevenEvidence else {
+            return nil
+        }
+
+        if let triangleCandidate = group
+            .filter({ $0.text == "△" && $0.confidence >= 0.60 })
+            .max(by: { lhs, rhs in lhs.confidence < rhs.confidence }) {
+            return triangleCandidate
+        }
+
+        let hardMinorEvidence = group.contains { candidate in
+            ["-", "m"].contains(candidate.text) && candidate.confidence >= 0.75
+        }
+        guard !hardMinorEvidence,
+              cluster.strokes.count >= 2,
+              cluster.bounds.width >= 22,
+              cluster.bounds.height >= 12,
+              cluster.bounds.width / max(cluster.bounds.height, 1) >= 1.20 else {
+            return nil
+        }
+
+        return GlyphCandidate(text: "△", confidence: 0.82, source: .heuristic)
+    }
+
+    private func hasSharpElevenTailEvidence(
+        groups: [[GlyphCandidate]],
+        clusters: [InkCluster]
+    ) -> Bool {
+        guard groups.count == clusters.count,
+              !groups.isEmpty else {
+            return false
+        }
+
+        let explicitOneCount = groups.reduce(0) { count, group in
+            count + (group.contains { candidate in
+                candidate.text == "1" && candidate.confidence >= 0.45
+            } ? 1 : 0)
+        }
+        if explicitOneCount >= 2 {
+            return true
+        }
+
+        guard groups.count == 1,
+              let group = groups.first,
+              let cluster = clusters.first else {
+            return false
+        }
+
+        let topCandidateTexts = Set(group.prefix(4).map(\.text))
+        return cluster.strokes.count >= 2
+            && cluster.bounds.height >= 14
+            && cluster.bounds.width >= 10
+            && cluster.bounds.width <= 24
+            && !topCandidateTexts.contains("9")
+            && (topCandidateTexts.contains("1")
+                || topCandidateTexts.contains("5")
+                || topCandidateTexts.contains("#"))
     }
 
     private func glyphCandidateGroupsWithSuspendedContext(

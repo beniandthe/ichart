@@ -532,7 +532,7 @@ enum LeadSheetPageLayoutEngine {
         staffFrame: CGRect
     ) -> LeadSheetChordLayout {
         let event = placement.chordEvent.transposed(for: chart.defaultTranspositionView)
-        let textWidth = max(24, CGFloat(max(2, event.symbol.displayText.count)) * 11)
+        let textWidth = estimatedChordTextWidth(for: event.symbol.displayText)
         let usableWidth = staffFrame.width - 16
         let attackCenterX = beatAttackCenterX(
             startPosition: placement.startPosition,
@@ -551,6 +551,32 @@ enum LeadSheetPageLayoutEngine {
             text: event.symbol.displayText,
             frame: CGRect(x: chordX, y: chordBandFrame.minY, width: textWidth, height: chordBandFrame.height)
         )
+    }
+
+    private static func estimatedChordTextWidth(for text: String) -> CGFloat {
+        let baseWidth = text.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        return max(28, baseWidth + 12)
+    }
+
+    private static func estimatedChordCharacterWidth(_ character: Character) -> CGFloat {
+        switch character {
+        case "i", "l", "I", "1":
+            return 5
+        case "m", "M", "w", "W":
+            return 15
+        case "#", "♯", "b", "♭", "7", "9", "5", "6", "3":
+            return 10
+        case "0"..."8":
+            return 9
+        case "-", "+", "°", "ø", "/", "(", ")":
+            return 7
+        case "△", "Δ":
+            return 13
+        default:
+            return 12
+        }
     }
 
     private static func slashNoteheadSymbol(

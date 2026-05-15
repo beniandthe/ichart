@@ -155,10 +155,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let chordInkRecognizer = ChordInkRecognizer()
-    private let chordInkSimpleIdleDelay: TimeInterval = 0.85
-    private let chordInkShortIdleDelay: TimeInterval = 1.0
-    private let chordInkStandardIdleDelay: TimeInterval = 1.15
-    private let chordInkComplexIdleDelay: TimeInterval = 1.3
+    private let chordInkIdleDelay: TimeInterval = 1.2
     private let chordInkRecognitionQueue = DispatchQueue(
         label: "com.smartchart.chord-ink-recognition",
         qos: .userInitiated
@@ -521,10 +518,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordEditFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
         CGRect(
-            x: chordLayout.frame.minX - 5,
-            y: chordLayout.frame.minY + 2,
-            width: chordLayout.frame.width + 10,
-            height: 23
+            x: chordLayout.frame.minX - 8,
+            y: chordLayout.frame.minY + 1,
+            width: chordLayout.frame.width + 18,
+            height: 25
         )
     }
 
@@ -1087,30 +1084,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
-    private func chordInkRecognitionIdleDelay(for drawing: PKDrawing) -> TimeInterval {
-        let strokeCount = drawing.strokes.count
-        guard strokeCount > 0 else {
-            return chordInkComplexIdleDelay
-        }
-
-        let bounds = inkRenderBounds(for: drawing)
-        guard !bounds.isNull else {
-            return chordInkComplexIdleDelay
-        }
-
-        if strokeCount == 1 {
-            return bounds.width <= 48 ? chordInkShortIdleDelay : chordInkStandardIdleDelay
-        }
-
-        if strokeCount <= 3, bounds.width <= 96 {
-            return chordInkSimpleIdleDelay
-        }
-
-        if strokeCount <= 5, bounds.width <= 150 {
-            return chordInkStandardIdleDelay
-        }
-
-        return chordInkComplexIdleDelay
+    private func chordInkRecognitionIdleDelay(for _: PKDrawing) -> TimeInterval {
+        chordInkIdleDelay
     }
 
     private func inkRenderBounds(for drawing: PKDrawing) -> CGRect {

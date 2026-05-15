@@ -1208,17 +1208,33 @@ private struct PendingChordInkConfirmation: Identifiable {
     let drawingData: Data
     let targetFraction: Double?
     let decision: ChordInkRecognitionDecision
+    let candidateTexts: [String]
+    let bestCandidateText: String?
+
+    init(
+        measureID: UUID,
+        measureIndex: Int,
+        result: ChordInkRecognitionResult,
+        drawingData: Data,
+        targetFraction: Double?,
+        decision: ChordInkRecognitionDecision
+    ) {
+        self.measureID = measureID
+        self.measureIndex = measureIndex
+        self.result = result
+        self.drawingData = drawingData
+        self.targetFraction = targetFraction
+        self.decision = decision
+
+        let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
+            from: result.rawCandidates
+        )
+        self.candidateTexts = userFacingCandidateTexts
+        self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first
+    }
 
     var displayMeasureNumber: Int {
         measureIndex + 1
-    }
-
-    var candidateTexts: [String] {
-        ChordRecognitionCompendium.userFacingCandidateTexts(from: result.rawCandidates)
-    }
-
-    var bestCandidateText: String? {
-        result.match?.displayText ?? candidateTexts.first
     }
 }
 
@@ -1417,8 +1433,11 @@ private struct ChordInkConfirmationSheetView: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($isManualEntryFocused)
                 .submitLabel(.done)
+                .animation(nil, value: manualCandidateText)
                 .onChange(of: manualCandidateText) { _, _ in
-                    fixtureCopyStatus = nil
+                    if fixtureCopyStatus != nil {
+                        fixtureCopyStatus = nil
+                    }
                 }
         }
     }
@@ -1560,6 +1579,7 @@ private struct ChordCorrectionSheetView: View {
                         .textFieldStyle(.roundedBorder)
                         .focused($isCandidateFocused)
                         .submitLabel(.done)
+                        .animation(nil, value: candidateText)
                 }
 
                 Button {

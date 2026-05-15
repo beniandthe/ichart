@@ -48,6 +48,23 @@ final class ChordEntryPassReplayTests: XCTestCase {
                         "scores=[\(scores)]"
                     ].joined(separator: " ")
                 )
+
+                if ProcessInfo.processInfo.environment["SMART_CHART_REPLAY_GLYPHS"] == "1" {
+                    let clusters = StrokeClusterer().cluster(strokes)
+                    for (index, group) in result.glyphCandidates.enumerated() {
+                        let glyphSummary = group
+                            .prefix(8)
+                            .map { candidate in
+                                "\(candidate.text):\(String(format: "%.3f", candidate.confidence))"
+                            }
+                            .joined(separator: ",")
+                        let cluster = clusters.indices.contains(index) ? clusters[index] : nil
+                        let bounds = cluster.map {
+                            " x=\(String(format: "%.1f", $0.bounds.minX))-\(String(format: "%.1f", $0.bounds.maxX)) y=\(String(format: "%.1f", $0.bounds.minY))-\(String(format: "%.1f", $0.bounds.maxY)) strokes=\($0.strokes.count)"
+                        } ?? ""
+                        print("  glyph[\(index)]\(bounds)=[\(glyphSummary)]")
+                    }
+                }
             }
         }
     }

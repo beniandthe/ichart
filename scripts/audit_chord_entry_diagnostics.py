@@ -160,6 +160,24 @@ def diagnostic_sort_key(event: dict[str, Any]) -> tuple[int, str, str]:
     )
 
 
+def latest_diagnostics_by_chord_event(
+    events: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    latest_by_id: dict[str, dict[str, Any]] = {}
+    superseded_count = 0
+
+    for event in sorted(events, key=diagnostic_sort_key):
+        chord_event_id = event.get("chordEventID")
+        if not chord_event_id:
+            continue
+
+        if chord_event_id in latest_by_id:
+            superseded_count += 1
+        latest_by_id[chord_event_id] = event
+
+    return list(latest_by_id.values()), superseded_count
+
+
 def short_text(text: Any, fallback: str = "?") -> str:
     if not isinstance(text, str) or not text:
         return fallback
@@ -282,32 +300,47 @@ def main() -> int:
         event for event in diagnostics
         if event.get("chartID") == chart_id
     ]
+    active_chart_diagnostics = [
+        event for event in chart_diagnostics
+        if event.get("chordEventID") in rendered_id_set
+    ]
+    latest_active_chart_diagnostics, superseded_active_count = latest_diagnostics_by_chord_event(
+        active_chart_diagnostics
+    )
     stale_title_diagnostics = [
         event for event in diagnostics
         if event.get("chartTitle") == chart_title and event.get("chartID") != chart_id
     ]
     logged_ids = []
-    for event in chart_diagnostics:
+    for event in latest_active_chart_diagnostics:
         chord_event_id = event.get("chordEventID")
         if chord_event_id and chord_event_id not in logged_ids:
             logged_ids.append(chord_event_id)
     logged_id_set = set(logged_ids)
     missing_ids = [event_id for event_id in rendered_ids if event_id not in logged_id_set]
-    stale_ids = [event_id for event_id in logged_ids if event_id not in rendered_id_set]
-    resolutions = Counter(event.get("resolution", "unknown") for event in chart_diagnostics)
+    stale_ids = [
+        event.get("chordEventID") for event in chart_diagnostics
+        if event.get("chordEventID") and event.get("chordEventID") not in rendered_id_set
+    ]
+    stale_ids = list(dict.fromkeys(stale_ids))
+    resolutions = Counter(event.get("resolution", "unknown") for event in latest_active_chart_diagnostics)
 
     print(f"App data: {app_data}")
     print(f"Chart: {chart_title} ({chart_id})")
     if not args.chart_id and matching_chart_count > 1:
         print(f"Matching charts with title: {matching_chart_count} (selected/newest chart audited)")
     print(f"Rendered chord events: {len(rendered_ids)}")
-    print(f"Diagnostic events for chart: {len(chart_diagnostics)}")
+    print(f"Diagnostic events for active chords: {len(latest_active_chart_diagnostics)}")
+    if superseded_active_count:
+        print(f"Superseded active diagnostic events: {superseded_active_count}")
+    if len(active_chart_diagnostics) != len(chart_diagnostics):
+        print(f"Superseded diagnostic events for chart: {len(chart_diagnostics) - len(active_chart_diagnostics)}")
     if stale_title_diagnostics:
         print(f"Stale diagnostics with same chart title: {len(stale_title_diagnostics)}")
     print("Resolution counts: " + (", ".join(f"{key}={value}" for key, value in sorted(resolutions.items())) or "none"))
 
     if args.details:
-        print_diagnostic_details(chart_diagnostics, args.scores)
+        print_diagnostic_details(latest_active_chart_diagnostics, args.scores)
 
     if missing_ids:
         print("\nMissing diagnostics:")
