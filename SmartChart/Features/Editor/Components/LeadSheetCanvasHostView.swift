@@ -155,7 +155,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let chordInkRecognizer = ChordInkRecognizer()
-    private let chordInkIdleDelay: TimeInterval = 1.2
+    private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
+    private let chordInkIdleDelay: TimeInterval = 0.65
+    private let chordInkContinuationGraceDelay: TimeInterval = 0.35
     private let chordInkRecognitionQueue = DispatchQueue(
         label: "com.smartchart.chord-ink-recognition",
         qos: .userInitiated
@@ -185,6 +187,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingChordRecognitionWorkItem: DispatchWorkItem?
     private var activeChordRecognitionRequestID: UUID?
     private var lastRecognizedChordDrawingData: Data?
+    private var chordInkContinuationGraceDrawingData: Data?
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
     private var activeChordMoveDrag: ActiveChordMoveDrag?
     private var isRestoringSelection = false
@@ -199,6 +202,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         var recognitionStartedAt: Date
         var recognitionFinishedAt: Date
         var strokeCount: Int
+        var ocrCandidateCount: Int
     }
 
     override init(frame: CGRect) {
@@ -331,7 +335,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for measure in system.measures {
-            if measure.sourceMeasureID == selectedMeasureID {
+            if interactionMode.allowsMeasureSelection,
+               measure.sourceMeasureID == selectedMeasureID {
                 drawMeasureSelection(measure)
             }
 
@@ -944,12 +949,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func scheduleChordInkRecognition() {
+        scheduleChordInkRecognition(after: chordInkRecognitionIdleDelay(for: pageInkCanvasView.drawing))
+    }
+
+    private func scheduleChordInkRecognition(after requestedDelay: TimeInterval) {
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
         pendingChordRecognitionWorkItem?.cancel()
 
         let requestID = UUID()
-        let requestedDelay = chordInkRecognitionIdleDelay(for: pageInkCanvasView.drawing)
         let scheduledAt = Date()
         activeChordRecognitionRequestID = requestID
         let workItem = DispatchWorkItem { [weak self] in
@@ -1026,17 +1034,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
         let strokes = PencilKitInkAdapter.inkStrokes(from: pageInkCanvasView.drawing)
-
-        var updatedChart = chart
-        if updatedChart.setPageHandwrittenChordDrawing(drawingData) {
-            chart = updatedChart
-            onChartChanged?(updatedChart)
-        }
+        let drawingForOCR = pageInkCanvasView.drawing
 
         let recognizer = chordInkRecognizer
+        let ocrCandidateProvider = chordOCRCandidateProvider
         chordInkRecognitionQueue.async { [weak self] in
             let recognitionStartedAt = Date()
-            let result = recognizer.recognize(strokes: strokes)
+            var result = recognizer.recognize(strokes: strokes)
+            let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
+            if ChordRecognitionTrustArbiter.shouldRequestOCR(
+                for: result,
+                primaryDecision: primaryDecision
+            ),
+               let ocrCandidateProvider,
+               let ocrImage = self?.chordOCRImage(for: drawingForOCR) {
+                result.ocrCandidates = ocrCandidateProvider.recognizeCandidates(in: ocrImage)
+            }
             let recognitionFinishedAt = Date()
             DispatchQueue.main.async { [weak self] in
                 self?.finishChordInkRecognition(
@@ -1049,7 +1062,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         requestedDelay: requestedDelay,
                         recognitionStartedAt: recognitionStartedAt,
                         recognitionFinishedAt: recognitionFinishedAt,
-                        strokeCount: strokes.count
+                        strokeCount: strokes.count,
+                        ocrCandidateCount: result.ocrCandidates?.count ?? 0
                     )
                 )
             }
@@ -1075,6 +1089,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if shouldGiveChordInkContinuationGrace(
+            result: result,
+            drawingData: drawingData,
+            timing: timing
+        ) {
+            chordInkContinuationGraceDrawingData = drawingData
+            scheduleChordInkRecognition(after: chordInkContinuationGraceDelay)
+            return
+        }
+
+        chordInkContinuationGraceDrawingData = nil
         lastRecognizedChordDrawingData = drawingData
         onChordInkRecognitionProposal?(
             target.measureID,
@@ -1082,6 +1107,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawingData,
             target.fraction
         )
+    }
+
+    private func shouldGiveChordInkContinuationGrace(
+        result: ChordInkRecognitionResult,
+        drawingData: Data,
+        timing: ChordInkRecognitionTiming
+    ) -> Bool {
+        guard chordInkContinuationGraceDrawingData != drawingData,
+              timing.requestedDelay <= chordInkIdleDelay + 0.01,
+              timing.strokeCount <= 3,
+              let symbol = result.match?.symbol,
+              symbol.quality.isEmpty,
+              symbol.extensions.isEmpty,
+              symbol.alterations.isEmpty,
+              symbol.slashBass == nil else {
+            return false
+        }
+
+        return true
     }
 
     private func chordInkRecognitionIdleDelay(for _: PKDrawing) -> TimeInterval {
@@ -1099,6 +1143,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
+    private func chordOCRImage(for drawing: PKDrawing) -> CGImage? {
+        let inkBounds = inkRenderBounds(for: drawing)
+        guard !inkBounds.isNull,
+              inkBounds.width > 1,
+              inkBounds.height > 1 else {
+            return nil
+        }
+
+        let cropBounds = inkBounds.insetBy(dx: -18, dy: -18)
+        let inkImage = drawing.image(from: cropBounds, scale: 3)
+        let rendererFormat = UIGraphicsImageRendererFormat.default()
+        rendererFormat.opaque = true
+        rendererFormat.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: inkImage.size, format: rendererFormat)
+        let image = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: inkImage.size))
+            inkImage.draw(in: CGRect(origin: .zero, size: inkImage.size))
+        }
+
+        return image.cgImage
+    }
+
     private func logChordInkRecognitionTiming(
         _ timing: ChordInkRecognitionTiming,
         result: ChordInkRecognitionResult
@@ -1110,13 +1177,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let bestRead = result.match?.displayText ?? "none"
         print(
             String(
-                format: "SmartChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms strokes=%d candidates=%d best=%@",
+                format: "SmartChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms strokes=%d candidates=%d ocr=%d best=%@",
                 timing.requestedDelay * 1_000,
                 idleMilliseconds,
                 recognitionMilliseconds,
                 totalMilliseconds,
                 timing.strokeCount,
                 result.rawCandidates.count,
+                timing.ocrCandidateCount,
                 bestRead
             )
         )

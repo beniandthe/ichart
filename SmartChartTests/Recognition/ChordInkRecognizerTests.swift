@@ -182,6 +182,27 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testRecognizesCompressedMinorEleventhTail() throws {
+        let strokes = try transformedTemplateStrokes("C", offsetX: 0, offsetY: 0, scale: 1)
+            + transformedTemplateStrokes("-", offsetX: -10, offsetY: 0, scale: 1)
+            + [
+                InkStroke(points: [
+                    InkPoint(x: 88, y: 16, timeOffset: nil),
+                    InkPoint(x: 88, y: 43, timeOffset: nil)
+                ]),
+                InkStroke(points: [
+                    InkPoint(x: 94, y: 17, timeOffset: nil),
+                    InkPoint(x: 94, y: 44, timeOffset: nil)
+                ])
+            ]
+
+        let result = recognizer.recognize(strokes: strokes)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) }), scores: \(result.candidateScores.prefix(8))"
+
+        XCTAssertEqual(result.match?.displayText, "C-11", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("C-11"), debugSummary)
+    }
+
     func testRecognizesMinorSixthInkFixtures() throws {
         let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
             .filter { $0.expectedDisplayText.hasSuffix("m6") }
@@ -213,6 +234,30 @@ final class ChordInkRecognizerTests: XCTestCase {
             XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, "\(fixture.name) \(debugSummary)")
             XCTAssertGreaterThan(result.confidence, 0, fixture.name)
         }
+    }
+
+    func testBodySizedFinalSixReadsAsMajorSixth() throws {
+        let strokes = try transformedTemplateStrokes("C", offsetX: 0, offsetY: 0, scale: 1)
+            + transformedTemplateStrokes("6", offsetX: -35, offsetY: 0, scale: 1)
+
+        let result = recognizer.recognize(strokes: strokes)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), scores: \(result.candidateScores.prefix(8))"
+
+        XCTAssertEqual(result.match?.displayText, "C6", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("C6"), debugSummary)
+    }
+
+    func testSmallHighFlatAfterRootDoesNotReadAsMajorSixth() throws {
+        let strokes = try transformedTemplateStrokes("C", offsetX: 0, offsetY: 0, scale: 1)
+            + transformedTemplateStrokes("b", offsetX: 24, offsetY: 4, scale: 0.46)
+
+        let result = recognizer.recognize(strokes: strokes)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), scores: \(result.candidateScores.prefix(8))"
+
+        XCTAssertEqual(result.match?.displayText, "Cb", debugSummary)
+        let flatScore = result.candidateScores.first { $0.displayText == "Cb" }?.confidence ?? 0
+        let sixthScore = result.candidateScores.first { $0.displayText == "C6" }?.confidence ?? 0
+        XCTAssertGreaterThan(flatScore, sixthScore, debugSummary)
     }
 
     func testRecognizesDominantNinthInkFixtures() throws {
@@ -301,7 +346,7 @@ final class ChordInkRecognizerTests: XCTestCase {
             confidence: 4.80,
             scores: [
                 candidateScore("C", confidence: 4.80),
-                candidateScore("G", confidence: 4.72)
+                candidateScore("G", confidence: 4.77)
             ]
         )
 
@@ -311,6 +356,23 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(decision.acceptedText, "C")
         XCTAssertTrue(decision.isCloseRace)
         XCTAssertEqual(decision.competingCandidateText, "G")
+    }
+
+    func testResolutionPolicyAutoRendersModerateLiveLoopMargins() throws {
+        let result = recognitionResult(
+            matchText: "Db-7",
+            confidence: 4.35,
+            scores: [
+                candidateScore("Db-7", confidence: 4.35),
+                candidateScore("Bb-7", confidence: 4.29)
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.acceptedText, "Db-7")
+        XCTAssertFalse(decision.isCloseRace)
     }
 
     func testResolutionPolicyPromptsForLowConfidenceMatches() throws {
@@ -462,6 +524,26 @@ final class ChordInkRecognizerTests: XCTestCase {
                     InkPoint(
                         x: point.x + offsetX,
                         y: point.y,
+                        timeOffset: point.timeOffset
+                    )
+                }
+            )
+        }
+    }
+
+    private func transformedTemplateStrokes(
+        _ text: String,
+        offsetX: Double,
+        offsetY: Double,
+        scale: Double
+    ) throws -> [InkStroke] {
+        let template = try XCTUnwrap(ChordGlyphTemplateLibrary.initialTemplates.first { $0.text == text })
+        return template.strokes.map { stroke in
+            InkStroke(
+                points: stroke.points.map { point in
+                    InkPoint(
+                        x: point.x * scale + offsetX,
+                        y: point.y * scale + offsetY,
                         timeOffset: point.timeOffset
                     )
                 }

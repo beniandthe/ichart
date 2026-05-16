@@ -147,6 +147,10 @@ struct ChordInkCandidateComposer {
             promoteCandidate("4", minimumConfidence: 0.84, fallbackConfidence: 0.72)
         }
 
+        if shouldExposeHalfDiminishedLookalikeCandidate(at: index, in: sortedColumns) {
+            promoteCandidate("ø", minimumConfidence: 0.82, fallbackConfidence: 0.76)
+        }
+
         if shouldExposeAlteredDominantNumberCandidate(at: index, in: sortedColumns) {
             let hasStrongCompetingAlterationNumber = column.contains { candidate in
                 candidate.confidence >= 0.60 && (candidate.text == "5" || candidate.text == "9")
@@ -335,6 +339,43 @@ struct ChordInkCandidateComposer {
         return suffixTexts == ["s", "u", "s"]
             && currentHasFour
             && (!currentHasStrongQualityConflict || currentHasContextualFour)
+    }
+
+    private func shouldExposeHalfDiminishedLookalikeCandidate(
+        at index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard index >= 1,
+              index + 1 < sortedColumns.count else {
+            return false
+        }
+
+        let hasRootBefore = sortedColumns[..<index].contains { column in
+            column.contains { candidate in
+                candidate.confidence >= 0.72 && "ABCDEFG".contains(candidate.text)
+            }
+        }
+        let hasSevenAfter = sortedColumns[(index + 1)...].prefix(2).contains { column in
+            column.contains { candidate in
+                candidate.text == "7" && candidate.confidence >= 0.45
+            }
+        }
+        let currentColumn = sortedColumns[index]
+        let currentLooksLikeRoundHalfDiminishedBody = currentColumn.contains { candidate in
+            candidate.confidence >= 0.42 && ["ø", "B", "D", "G", "O", "0", "3", "8"].contains(candidate.text)
+        }
+        let currentIsRootAccidental = currentColumn.contains { candidate in
+            candidate.confidence >= 0.70 && (candidate.text == "b" || candidate.text == "#")
+        }
+        let currentHasHardQualityConflict = currentColumn.contains { candidate in
+            candidate.confidence >= 0.75 && ["-", "m", "7", "9", "△", "+", "/"].contains(candidate.text)
+        }
+
+        return hasRootBefore
+            && hasSevenAfter
+            && currentLooksLikeRoundHalfDiminishedBody
+            && !currentIsRootAccidental
+            && !currentHasHardQualityConflict
     }
 
     private func hasStandaloneMinorOrDominantColumn(
@@ -610,6 +651,14 @@ struct ChordInkCandidateComposer {
             score -= 1.0
         }
 
+        if let rootConfidence = leadingRootConfidence(in: glyphCandidates) {
+            if rootConfidence < 0.60 {
+                score -= 0.70
+            } else if rootConfidence < 0.65 {
+                score -= 0.35
+            }
+        }
+
         if parsesAsChord(text) {
             score += 2.0
         } else {
@@ -641,6 +690,13 @@ struct ChordInkCandidateComposer {
                 score += 0.12
             }
 
+            if hasDashMinorNinthLookalikeEvidence(
+                in: glyphCandidates,
+                candidateColumns: candidateColumns
+            ) {
+                score -= 0.18
+            }
+
             if hasSuspendedColumnSuffixEvidence(in: candidateColumns) {
                 score -= 0.65
             }
@@ -666,6 +722,11 @@ struct ChordInkCandidateComposer {
             score += 0.62
         }
 
+        if hasAccidentalImmediatelyAfterRoot(text),
+           text.contains("9#5") || text.contains("9(#5)") {
+            score += 0.20
+        }
+
         if text.contains("7#11") || text.contains("7(#11)") {
             let hasStrongSharp = (dominantAlterationAccidentalConfidence("#", in: glyphCandidates) ?? 0) >= 0.65
             if hasExplicitSharpElevenNumberTail(in: glyphCandidates)
@@ -689,6 +750,15 @@ struct ChordInkCandidateComposer {
         if hasValidSlashBass(text),
            slashGlyphConfidence(in: glyphCandidates) >= 0.65 {
             score += 0.85
+            if hasLowercaseSlashBassRoot(text) {
+                score -= 0.30
+            }
+            if hasSuspendedLookalikeAtSlash(
+                in: glyphCandidates,
+                candidateColumns: candidateColumns
+            ) {
+                score -= 0.45
+            }
         } else if text.contains("/") {
             score -= 0.75
         }
@@ -721,6 +791,16 @@ struct ChordInkCandidateComposer {
         }
 
         return "ABCDEFG".contains(first)
+    }
+
+    private func leadingRootConfidence(in glyphCandidates: [GlyphCandidate]) -> Double? {
+        guard let firstCandidate = glyphCandidates.first,
+              firstCandidate.text.count == 1,
+              firstCandidate.text.first.map({ "ABCDEFG".contains($0) }) == true else {
+            return nil
+        }
+
+        return firstCandidate.confidence
     }
 
     private func parsesAsChord(_ text: String) -> Bool {
@@ -790,7 +870,7 @@ struct ChordInkCandidateComposer {
             .max() ?? 0
 
         return flatConfidence >= 0.45
-            && flatConfidence + 0.18 >= finalSixCandidate.confidence
+            && flatConfidence + 0.10 >= finalSixCandidate.confidence
     }
 
     private func hasVeryStrongExplicitMajorSixthEvidence(
@@ -842,6 +922,28 @@ struct ChordInkCandidateComposer {
 
         return strongSevenConfidence < 0.85
             || strongSevenConfidence <= finalSix.confidence + 0.15
+    }
+
+    private func hasDashMinorNinthLookalikeEvidence(
+        in glyphCandidates: [GlyphCandidate],
+        candidateColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard !glyphCandidates.contains(where: { candidate in
+                  candidate.text == "m" && candidate.confidence >= 0.75
+              }),
+              let finalSix = glyphCandidates.last,
+              finalSix.text == "6" else {
+            return false
+        }
+
+        let finalColumn = candidateColumns.last ?? []
+        let finalNineConfidence = finalColumn
+            .filter { $0.text == "9" }
+            .map(\.confidence)
+            .max() ?? 0
+
+        return finalNineConfidence >= 0.90
+            && finalNineConfidence + 0.04 >= finalSix.confidence
     }
 
     private func hasSuspendedColumnSuffixEvidence(in candidateColumns: [[GlyphCandidate]]) -> Bool {
@@ -965,11 +1067,38 @@ struct ChordInkCandidateComposer {
         return ChordPitch.parse(pieces[1]) != nil
     }
 
+    private func hasLowercaseSlashBassRoot(_ text: String) -> Bool {
+        guard let slashIndex = text.firstIndex(of: "/") else {
+            return false
+        }
+
+        let bassStart = text.index(after: slashIndex)
+        guard bassStart < text.endIndex else {
+            return false
+        }
+
+        return "abcdefg".contains(text[bassStart])
+    }
+
     private func slashGlyphConfidence(in glyphCandidates: [GlyphCandidate]) -> Double {
         glyphCandidates
             .filter { $0.text == "/" }
             .map(\.confidence)
             .max() ?? 0
+    }
+
+    private func hasSuspendedLookalikeAtSlash(
+        in glyphCandidates: [GlyphCandidate],
+        candidateColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard let slashIndex = glyphCandidates.firstIndex(where: { $0.text == "/" }),
+              candidateColumns.indices.contains(slashIndex) else {
+            return false
+        }
+
+        return candidateColumns[slashIndex].contains { candidate in
+            candidate.text == "s" && candidate.confidence >= 0.70
+        }
     }
 
     private func hasSuspendedSuffixEvidence(

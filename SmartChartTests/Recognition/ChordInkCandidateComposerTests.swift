@@ -121,6 +121,26 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         )
     }
 
+    func testDashMinorNinthDoesNotCloseTieWithMinorSixthLookalike() throws {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("C", confidence: 0.95)],
+            [glyph("-", confidence: 0.995)],
+            [
+                glyph("9", confidence: 0.999),
+                glyph("6", confidence: 0.995)
+            ]
+        ])
+
+        let minorNinthScore = try XCTUnwrap(candidates.first { $0.text == "C-9" }?.confidence)
+        let minorSixthScore = try XCTUnwrap(candidates.first { $0.text == "Cm6" }?.confidence)
+
+        XCTAssertEqual(candidates.first?.text, "C-9")
+        XCTAssertGreaterThan(
+            minorNinthScore - minorSixthScore,
+            ChordInkRecognitionPolicy.closeRaceConfidenceGap
+        )
+    }
+
     func testComposesDominantSeventhAfterRootAndAccidental() throws {
         let naturalCandidates = composer.compose(glyphCandidates: [
             [glyph("C", confidence: 0.95)],
@@ -223,6 +243,34 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "B6")
     }
 
+    func testNaturalSixthWinsWhenFinalColumnFavorsSixOverFlat() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("C", confidence: 0.95)],
+            [
+                glyph("C", confidence: 0.95),
+                glyph("6", confidence: 0.69),
+                glyph("b", confidence: 0.60),
+                glyph("5", confidence: 0.58)
+            ]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "C6")
+    }
+
+    func testWeakLeadingRootDoesNotCreateAcceptedFlatSeventhSuggestion() {
+        let candidates = composer.compose(glyphCandidates: [
+            [
+                glyph("5", confidence: 0.62),
+                glyph("D", confidence: 0.55),
+                glyph("B", confidence: 0.55)
+            ],
+            [glyph("b", confidence: 0.98)],
+            [glyph("7", confidence: 0.99)]
+        ])
+
+        XCTAssertLessThan(candidates.first?.confidence ?? 0, 3.70)
+    }
+
     func testNaturalThirteenthBeatsWeakAccidentalSeventhLookalike() throws {
         let candidates = composer.compose(glyphCandidates: [
             [glyph("C", confidence: 0.95)],
@@ -255,6 +303,28 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         ])
 
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Bb-7")
+    }
+
+    func testSuspendedSLookalikeSoftensSlashBassCandidate() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("C", confidence: 0.95)],
+            [
+                glyph("s", confidence: 0.76),
+                glyph("/", confidence: 0.72)
+            ],
+            [
+                glyph("D", confidence: 0.53),
+                glyph("9", confidence: 0.99)
+            ],
+            [
+                glyph("b", confidence: 0.98),
+                glyph("s", confidence: 0.55)
+            ]
+        ])
+
+        let slashCandidate = candidates.first { $0.text == "C/Db" }
+
+        XCTAssertLessThan(slashCandidate?.confidence ?? 0, 4.70)
     }
 
     func testComposesExtensionAlterationAndSlashBassCandidates() throws {
@@ -346,6 +416,45 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(try ChordSymbolParser.parse(parenthesizedDb7Sharp5Candidates[0].text).displayText, "Db7(#5)")
         XCTAssertEqual(slashCandidates.first?.text, "G/B")
         XCTAssertEqual(try ChordSymbolParser.parse(slashCandidates[0].text).displayText, "G/B")
+    }
+
+    func testComposesNinthSharpFiveAboveFlatThirteenLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("G", confidence: 0.95)],
+            [
+                glyph("7", confidence: 0.86),
+                glyph("b", confidence: 0.85)
+            ],
+            [
+                glyph("9", confidence: 0.88),
+                glyph("b", confidence: 0.82)
+            ],
+            [
+                glyph("1", confidence: 0.88),
+                glyph("#", confidence: 0.82)
+            ],
+            [
+                glyph("5", confidence: 0.88),
+                glyph("3", confidence: 0.72)
+            ]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Gb9(#5)")
+    }
+
+    func testPenalizesLowercaseSlashBassRootLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("A", confidence: 0.95)],
+            [glyph("#", confidence: 0.90)],
+            [glyph("/", confidence: 0.86)],
+            [
+                glyph("b", confidence: 0.91),
+                glyph("G", confidence: 0.90)
+            ],
+            [glyph("#", confidence: 0.86)]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "A#/G#")
     }
 
     func testComposesCompactSharpElevenWhenHandwrittenOnesMerge() throws {
@@ -548,6 +657,21 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             ChordRecognitionCompendium.match(candidates: halfDiminishedCandidates.map(\.text))?.displayText,
             "Cø7"
         )
+    }
+
+    func testComposesHalfDiminishedFromRoundLookalikeBeforeSeven() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("B", confidence: 0.95)],
+            [glyph("b", confidence: 0.90)],
+            [
+                glyph("B", confidence: 0.74),
+                glyph("G", confidence: 0.70),
+                glyph("3", confidence: 0.68)
+            ],
+            [glyph("7", confidence: 0.88)]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Bbø7")
     }
 
     func testComposesAugmentedSymbolAfterRootAndAccidental() throws {

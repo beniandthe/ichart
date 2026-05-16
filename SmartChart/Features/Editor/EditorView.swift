@@ -766,13 +766,15 @@ struct EditorView: View {
 
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
+        let decision = ChordRecognitionTrustArbiter.decision(for: result)
         let confirmation = PendingChordInkConfirmation(
             measureID: measureID,
             measureIndex: measure.index,
             result: result,
             drawingData: drawingData,
             targetFraction: targetFraction,
+            primaryDecision: primaryDecision,
             decision: decision
         )
 
@@ -934,7 +936,17 @@ struct EditorView: View {
             recognitionReason: confirmation.decision.reason,
             wasCloseRace: confirmation.decision.isCloseRace,
             confidenceGap: confirmation.decision.confidenceGap,
-            targetFraction: confirmation.targetFraction
+            targetFraction: confirmation.targetFraction,
+            ocrCandidates: confirmation.result.ocrCandidates,
+            ocrBestCandidateText: confirmation.decision.ocrBestCandidateText,
+            ocrRawTexts: confirmation.decision.ocrRawTexts,
+            recognitionTrustSource: confirmation.decision.trustSource,
+            recognitionAgreementLevel: confirmation.decision.agreementLevel,
+            primaryRecognitionAction: confirmation.primaryDecision.action,
+            primaryAcceptedText: confirmation.primaryDecision.acceptedText,
+            primaryRecognitionReason: confirmation.primaryDecision.reason,
+            primaryWasCloseRace: confirmation.primaryDecision.isCloseRace,
+            primaryConfidenceGap: confirmation.primaryDecision.confidenceGap
         )
 
         do {
@@ -1207,6 +1219,7 @@ private struct PendingChordInkConfirmation: Identifiable {
     let result: ChordInkRecognitionResult
     let drawingData: Data
     let targetFraction: Double?
+    let primaryDecision: ChordInkRecognitionDecision
     let decision: ChordInkRecognitionDecision
     let candidateTexts: [String]
     let bestCandidateText: String?
@@ -1217,6 +1230,7 @@ private struct PendingChordInkConfirmation: Identifiable {
         result: ChordInkRecognitionResult,
         drawingData: Data,
         targetFraction: Double?,
+        primaryDecision: ChordInkRecognitionDecision,
         decision: ChordInkRecognitionDecision
     ) {
         self.measureID = measureID
@@ -1224,10 +1238,12 @@ private struct PendingChordInkConfirmation: Identifiable {
         self.result = result
         self.drawingData = drawingData
         self.targetFraction = targetFraction
+        self.primaryDecision = primaryDecision
         self.decision = decision
 
+        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
         let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
-            from: result.rawCandidates
+            from: result.rawCandidates + ocrCandidateTexts
         )
         self.candidateTexts = userFacingCandidateTexts
         self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first

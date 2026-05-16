@@ -105,6 +105,7 @@ enum RecognitionSource: String, Codable, Hashable {
     case template
     case heuristic
     case composer
+    case ocr
 }
 
 struct GlyphCandidate: Hashable {
@@ -123,12 +124,95 @@ struct ChordInkCandidateScore: Codable, Hashable {
     }
 }
 
+enum ChordOCRCandidateSource: String, Codable, Hashable {
+    case appleVision
+    case testDouble
+}
+
+struct ChordOCRCandidate: Codable, Hashable {
+    var rawText: String
+    var displayText: String?
+    var confidence: Double
+    var source: ChordOCRCandidateSource
+
+    var isSupported: Bool {
+        displayText != nil
+    }
+
+    init(
+        rawText: String,
+        displayText: String? = nil,
+        confidence: Double,
+        source: ChordOCRCandidateSource
+    ) {
+        self.rawText = rawText
+        self.displayText = displayText
+        self.confidence = confidence
+        self.source = source
+    }
+
+    static func normalized(
+        rawText: String,
+        confidence: Double,
+        source: ChordOCRCandidateSource
+    ) -> ChordOCRCandidate {
+        let displayText = bestCompendiumMatch(for: rawText)?.displayText
+        return ChordOCRCandidate(
+            rawText: rawText,
+            displayText: displayText,
+            confidence: confidence,
+            source: source
+        )
+    }
+
+    private static func bestCompendiumMatch(for rawText: String) -> ChordRecognitionMatch? {
+        for candidate in normalizedCandidateTexts(from: rawText) {
+            if let match = ChordRecognitionCompendium.match(candidate) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private static func normalizedCandidateTexts(from rawText: String) -> [String] {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+
+        let compact = trimmed.filter { !$0.isWhitespace }
+        let musical = compact
+            .replacingOccurrences(of: "♯", with: "#")
+            .replacingOccurrences(of: "＃", with: "#")
+            .replacingOccurrences(of: "♭", with: "b")
+            .replacingOccurrences(of: "Δ", with: "△")
+            .replacingOccurrences(of: "∆", with: "△")
+            .replacingOccurrences(of: "−", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+
+        var candidates: [String] = []
+        for candidate in [trimmed, compact, musical] {
+            guard !candidate.isEmpty,
+                  !candidates.contains(candidate) else {
+                continue
+            }
+
+            candidates.append(candidate)
+        }
+
+        return candidates
+    }
+}
+
 struct ChordInkRecognitionResult: Hashable {
     var rawCandidates: [String]
     var glyphCandidates: [[GlyphCandidate]]
     var match: ChordRecognitionMatch?
     var confidence: Double
     var candidateScores: [ChordInkCandidateScore] = []
+    var ocrCandidates: [ChordOCRCandidate]? = nil
 }
 
 enum ChordInkRecognitionAction: String, Codable, Hashable {
@@ -143,11 +227,34 @@ struct ChordInkRecognitionDecision: Hashable {
     var isCloseRace: Bool
     var competingCandidateText: String?
     var confidenceGap: Double?
+    var trustSource: ChordRecognitionTrustSource = .primaryRecognizer
+    var agreementLevel: ChordRecognitionAgreementLevel = .ocrNotRequested
+    var ocrBestCandidateText: String?
+    var ocrRawTexts: [String] = []
+}
+
+enum ChordRecognitionTrustSource: String, Codable, Hashable {
+    case primaryRecognizer
+    case primaryWithOCRAgreement
+    case primaryWithOCRDisagreement
+    case ocrSupportedCandidate
+}
+
+enum ChordRecognitionAgreementLevel: String, Codable, Hashable {
+    case ocrNotRequested
+    case noOCREvidence
+    case ocrInvalid
+    case partialOCR
+    case agreesWithPrimary
+    case supportsRunnerUp
+    case disagreesWithPrimary
+    case ocrOnlySupported
 }
 
 enum ChordInkRecognitionPolicy {
     static let autoRenderMinimumConfidence = 3.95
-    static let closeRaceConfidenceGap = 0.10
+    static let closeRaceConfidenceGap = 0.04
+    private static let uncommonRootSpellingConfirmationGap = 0.08
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
         guard let match = result.match else {
@@ -180,6 +287,21 @@ enum ChordInkRecognitionPolicy {
         if let runnerUp = rankedScores.first(where: { $0.displayText != acceptedText }),
            let competingText = runnerUp.displayText {
             let gap = bestConfidence - runnerUp.confidence
+            if shouldConfirmUncommonSpellingWinner(
+                acceptedText: acceptedText,
+                competingText: competingText,
+                gap: gap
+            ) {
+                return ChordInkRecognitionDecision(
+                    action: .confirm,
+                    acceptedText: acceptedText,
+                    reason: "Close uncommon spelling. Choose the chord you meant, or type it in.",
+                    isCloseRace: true,
+                    competingCandidateText: competingText,
+                    confidenceGap: gap
+                )
+            }
+
             if gap <= closeRaceConfidenceGap {
                 if shouldAutoRenderCloseSpellingRace(
                     acceptedText: acceptedText,
@@ -217,7 +339,7 @@ enum ChordInkRecognitionPolicy {
         )
     }
 
-    private static func rankedSupportedScores(for result: ChordInkRecognitionResult) -> [ChordInkCandidateScore] {
+    static func rankedSupportedScores(for result: ChordInkRecognitionResult) -> [ChordInkCandidateScore] {
         var bestByDisplayText: [String: ChordInkCandidateScore] = [:]
 
         for score in result.candidateScores {
@@ -259,6 +381,16 @@ enum ChordInkRecognitionPolicy {
         gap >= 0.04
             && !hasUncommonRootSpelling(acceptedText)
             && hasUncommonRootSpelling(competingText)
+    }
+
+    private static func shouldConfirmUncommonSpellingWinner(
+        acceptedText: String,
+        competingText: String,
+        gap: Double
+    ) -> Bool {
+        gap <= uncommonRootSpellingConfirmationGap
+            && hasUncommonRootSpelling(acceptedText)
+            && !hasUncommonRootSpelling(competingText)
     }
 
     private static func hasUncommonRootSpelling(_ text: String) -> Bool {

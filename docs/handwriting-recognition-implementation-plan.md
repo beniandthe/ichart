@@ -54,6 +54,34 @@ PKDrawing
 
 Recognition should propose. The structured chart model should decide.
 
+## Pipeline 1 Trust Sidecar
+
+The first OCR integration should be a compendium-gated sidecar, not a replacement for the
+glyph/template recognizer.
+
+Preferred live flow:
+
+```text
+PKDrawing
+-> stroke groups / glyph candidates / chord-string candidates
+-> ChordRecognitionCompendium.match(candidates:)
+-> primary recognizer decision
+
+only for primary reads that would already require confirmation:
+ink crop
+-> OCR text candidates
+-> ChordRecognitionCompendium.match(candidates:)
+-> trust arbiter
+
+trust arbiter
+-> auto-render when primary is clear or primary and OCR agree
+-> confirmation when OCR supports a ranked runner-up or is the only valid source
+```
+
+Raw OCR text should never be rendered or shown as a candidate unless it normalizes through
+`ChordRecognitionCompendium`. Invalid OCR strings, partial reads such as a bare root letter,
+and OCR strings that do not match a ranked recognizer candidate are diagnostic-only evidence.
+
 ## Third-Party References
 
 ### Primary candidate: DollarGestureRecognizer
