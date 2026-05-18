@@ -716,6 +716,7 @@ struct ChordInkCandidateComposer {
         let averageGlyphConfidence = glyphCandidates
             .map(\.confidence)
             .reduce(0, +) / Double(max(glyphCandidates.count, 1))
+        let parsedSymbol = try? ChordSymbolParser.parse(text)
         var score = averageGlyphConfidence
 
         if startsWithRoot(text) {
@@ -732,7 +733,7 @@ struct ChordInkCandidateComposer {
             }
         }
 
-        if parsesAsChord(text) {
+        if parsedSymbol != nil {
             score += scoring.parsesAsChordBonus
         } else {
             score -= scoring.invalidChordPenalty
@@ -755,7 +756,7 @@ struct ChordInkCandidateComposer {
             score += scoring.dominantFlatThirteenBonus
         }
 
-        if isMinorSixthText(text) {
+        if isMinorSixthSymbol(parsedSymbol) {
             if hasExplicitMinorSixthEvidence(
                 in: glyphCandidates,
                 candidateColumns: candidateColumns
@@ -775,7 +776,7 @@ struct ChordInkCandidateComposer {
             }
         }
 
-        if isMajorSixthText(text) {
+        if isMajorSixthSymbol(parsedSymbol) {
             if hasVeryStrongExplicitMajorSixthEvidence(
                 in: glyphCandidates,
                 candidateColumns: candidateColumns
@@ -790,7 +791,7 @@ struct ChordInkCandidateComposer {
             }
         }
 
-        if hasTriangleQuality(text),
+        if hasTriangleQuality(parsedSymbol),
            glyphCandidates.contains(where: { $0.text == "△" && $0.confidence >= scoring.triangleQualityMinConfidence }) {
             score += scoring.triangleQualityBonus
         }
@@ -887,10 +888,6 @@ struct ChordInkCandidateComposer {
         return firstCandidate.confidence
     }
 
-    private func parsesAsChord(_ text: String) -> Bool {
-        (try? ChordSymbolParser.parse(text)) != nil
-    }
-
     private func hasAccidentalImmediatelyAfterRoot(_ text: String) -> Bool {
         guard text.count > 1 else {
             return false
@@ -912,8 +909,8 @@ struct ChordInkCandidateComposer {
         }
     }
 
-    private func isMinorSixthText(_ text: String) -> Bool {
-        guard let symbol = try? ChordSymbolParser.parse(text) else {
+    private func isMinorSixthSymbol(_ symbol: ChordSymbol?) -> Bool {
+        guard let symbol else {
             return false
         }
 
@@ -922,8 +919,8 @@ struct ChordInkCandidateComposer {
             && symbol.alterations.isEmpty
     }
 
-    private func isMajorSixthText(_ text: String) -> Bool {
-        guard let symbol = try? ChordSymbolParser.parse(text) else {
+    private func isMajorSixthSymbol(_ symbol: ChordSymbol?) -> Bool {
+        guard let symbol else {
             return false
         }
 
@@ -976,8 +973,8 @@ struct ChordInkCandidateComposer {
         return finalNineConfidence < 0.60
     }
 
-    private func hasTriangleQuality(_ text: String) -> Bool {
-        guard let symbol = try? ChordSymbolParser.parse(text) else {
+    private func hasTriangleQuality(_ symbol: ChordSymbol?) -> Bool {
+        guard let symbol else {
             return false
         }
 
