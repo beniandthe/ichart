@@ -236,6 +236,50 @@ def format_metrics(metrics: dict[str, Any] | None) -> str:
     )
 
 
+def format_symbol_ledger(ledger: dict[str, Any] | None) -> str:
+    if not ledger:
+        return ""
+
+    stable_symbols = ledger.get("stableSymbols") or []
+    running_prefixes = ledger.get("runningPrefixes") or []
+    final_candidate = ledger.get("finalCandidateDisplayText") or ledger.get("finalCandidateText") or "-"
+
+    stable_text_parts = []
+    reason_counts = Counter()
+    for symbol in stable_symbols:
+        candidates = symbol.get("candidates") or []
+        best = candidates[0].get("text") if candidates else "?"
+        stable_text_parts.append(best or "?")
+        reason = symbol.get("stabilityReason") or "?"
+        reason_counts[reason] += 1
+
+    supported_prefixes = [
+        prefix for prefix in running_prefixes
+        if prefix.get("supportedDisplayTexts")
+    ]
+    if supported_prefixes:
+        prefix_summary = "|".join(supported_prefixes[-1].get("supportedDisplayTexts")[:3])
+    elif running_prefixes:
+        final_prefix = running_prefixes[-1]
+        prefix_summary = final_prefix.get("displayText") or final_prefix.get("text")
+    else:
+        prefix_summary = "-"
+
+    reason_summary = ",".join(
+        f"{reason}:{count}" for reason, count in sorted(reason_counts.items())
+    ) or "-"
+
+    return (
+        " ledger=["
+        f"stable={len(stable_symbols)}, "
+        f"text={''.join(stable_text_parts) or '-'}, "
+        f"prefix={prefix_summary or '-'}, "
+        f"final={final_candidate}, "
+        f"reasons={reason_summary}"
+        "]"
+    )
+
+
 def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limit: int) -> None:
     if not chart_diagnostics:
         print("\nDiagnostic detail: none")
@@ -259,12 +303,13 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
         primary_accepted = short_text(event.get("primaryAcceptedText"), fallback="-")
         score_suffix = format_scores(event.get("candidateScores") or [], score_limit)
         metrics_suffix = format_metrics(event.get("recognitionMetrics"))
+        ledger_suffix = format_symbol_ledger(event.get("symbolLedger"))
         print(
             f"  {index:02d}. m{measure_label} {resolution}{close_marker}: "
             f"accepted={accepted} rendered={rendered} best={best} "
             f"confidence={confidence} gap={gap} trust={trust} "
             f"agreement={agreement} ocr={ocr} "
-            f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}"
+            f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}{ledger_suffix}"
         )
 
 
@@ -312,6 +357,7 @@ def fallback_diagnostic_event(
         "primaryWasCloseRace": None,
         "primaryConfidenceGap": None,
         "recognitionMetrics": None,
+        "symbolLedger": None,
     }
 
 

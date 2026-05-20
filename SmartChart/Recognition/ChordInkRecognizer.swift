@@ -8,6 +8,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
     var clusterer: StrokeClusterer
     var glyphRecognizer: GestureTemplateRecognizer
     var candidateComposer: ChordInkCandidateComposer
+    var symbolLedger: ChordInkSymbolLedger
     var templates: [GestureTemplate]
     var maxGlyphCandidatesPerCluster: Int
     var minimumAcceptedCandidateConfidence: Double
@@ -16,6 +17,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         clusterer: StrokeClusterer = StrokeClusterer(),
         glyphRecognizer: GestureTemplateRecognizer = GestureTemplateRecognizer(),
         candidateComposer: ChordInkCandidateComposer = ChordInkCandidateComposer(),
+        symbolLedger: ChordInkSymbolLedger = ChordInkSymbolLedger(),
         templates: [GestureTemplate] = ChordGlyphTemplateLibrary.initialTemplates,
         maxGlyphCandidatesPerCluster: Int = 8,
         minimumAcceptedCandidateConfidence: Double = 3.70
@@ -23,6 +25,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         self.clusterer = clusterer
         self.glyphRecognizer = glyphRecognizer
         self.candidateComposer = candidateComposer
+        self.symbolLedger = symbolLedger
         self.templates = templates
         self.maxGlyphCandidatesPerCluster = maxGlyphCandidatesPerCluster
         self.minimumAcceptedCandidateConfidence = minimumAcceptedCandidateConfidence
@@ -57,6 +60,11 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         )
         let chordCandidates = candidateResult.candidates
         let rawCandidates = chordCandidates.map(\.text)
+        let symbolLedgerSnapshot = symbolLedger.snapshot(
+            glyphCandidateGroups: contextualGlyphCandidateGroups,
+            clusters: clusters,
+            chordCandidates: chordCandidates
+        )
 
         let matchStart = Date()
         let minimumScoredCandidateConfidence = minimumAcceptedCandidateConfidence
@@ -108,6 +116,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             match: match,
             confidence: acceptedConfidence,
             candidateScores: candidateScores,
+            symbolLedger: symbolLedgerSnapshot,
             metrics: ChordInkRecognitionMetrics(
                 clusterMilliseconds: clusterMilliseconds,
                 glyphMilliseconds: glyphMilliseconds,

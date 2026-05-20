@@ -238,6 +238,7 @@ struct ChordInkRecognitionResult: Hashable {
     var confidence: Double
     var candidateScores: [ChordInkCandidateScore] = []
     var ocrCandidates: [ChordOCRCandidate]? = nil
+    var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 }
 
