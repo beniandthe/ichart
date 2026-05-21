@@ -74,8 +74,9 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         for fixture in fixtures {
             let result = recognizer.recognize(strokes: fixture.strokes)
+            let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) }), scores: \(result.candidateScores.prefix(8))"
 
-            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, fixture.name)
+            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, "\(fixture.name) \(debugSummary)")
             XCTAssertEqual(result.glyphCandidates.count, fixture.expectedClusterCount, fixture.name)
             XCTAssertGreaterThan(result.confidence, 0, fixture.name)
         }

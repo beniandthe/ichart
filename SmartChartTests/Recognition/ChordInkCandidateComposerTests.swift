@@ -418,6 +418,80 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(try ChordSymbolParser.parse(slashCandidates[0].text).displayText, "G/B")
     }
 
+    func testAlteredThirteenRequiresExplicitOneAndThreeEvidence() {
+        let parenthesizedFlatNineWithWrapperNoise = composer.compose(glyphCandidates: [
+            [glyph("D", confidence: 0.95)],
+            [glyph("b", confidence: 0.85)],
+            [glyph("7", confidence: 0.88)],
+            [
+                glyph("1", confidence: 0.996, source: .heuristic),
+                glyph("(", confidence: 0.86)
+            ],
+            [
+                glyph("+", confidence: 0.57),
+                glyph("B", confidence: 0.57)
+            ],
+            [
+                glyph("9", confidence: 0.999, source: .heuristic),
+                glyph("b", confidence: 0.98, source: .heuristic)
+            ],
+            [
+                glyph("1", confidence: 0.996, source: .heuristic),
+                glyph(")", confidence: 0.81)
+            ]
+        ])
+        let displayTexts = parenthesizedFlatNineWithWrapperNoise.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("Db7(b13)"))
+    }
+
+    func testExplicitAlteredThirteenStillComposesWhenOneAndThreeAreWritten() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("D", confidence: 0.95)],
+            [glyph("b", confidence: 0.85)],
+            [glyph("7", confidence: 0.88)],
+            [glyph("b", confidence: 0.82)],
+            [glyph("1", confidence: 0.88)],
+            [glyph("3", confidence: 0.72)]
+        ])
+
+        XCTAssertEqual(candidates.first?.text, "Db7b13")
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Db7(b13)")
+    }
+
+    func testSlashBassFlatCanRecoverFromFinalFlatLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("E", confidence: 0.98)],
+            [glyph("b", confidence: 0.98)],
+            [glyph("7", confidence: 0.98)],
+            [
+                glyph("/", confidence: 0.72),
+                glyph("1", confidence: 0.99)
+            ],
+            [glyph("B", confidence: 0.97)],
+            [
+                glyph("G", confidence: 0.97),
+                glyph("5", confidence: 0.62)
+            ]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Eb7/Bb")
+    }
+
+    func testPlainSlashBassDoesNotRequireTrailingFlatLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("E", confidence: 0.98)],
+            [glyph("b", confidence: 0.98)],
+            [glyph("7", confidence: 0.98)],
+            [glyph("/", confidence: 0.72)],
+            [glyph("B", confidence: 0.97)]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Eb7/B")
+    }
+
     func testComposesNinthSharpFiveAboveFlatThirteenLookalike() {
         let candidates = composer.compose(glyphCandidates: [
             [glyph("G", confidence: 0.95)],
@@ -1024,6 +1098,34 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText,
             "Bbø7"
         )
+    }
+
+    func testPlainFlatSlashBassWinsTinyRaceAgainstDiminishedLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("B", confidence: 0.95)],
+            [
+                glyph("°", confidence: 0.91),
+                glyph("b", confidence: 0.90)
+            ],
+            [glyph("/", confidence: 0.90)],
+            [glyph("D", confidence: 0.90)]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Bb/D")
+    }
+
+    func testClearDiminishedSlashBassStillWinsOverWeakFlatLookalike() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("B", confidence: 0.95)],
+            [
+                glyph("°", confidence: 0.97),
+                glyph("b", confidence: 0.68)
+            ],
+            [glyph("/", confidence: 0.90)],
+            [glyph("D", confidence: 0.90)]
+        ])
+
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "B°/D")
     }
 
     private func glyph(

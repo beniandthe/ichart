@@ -109,6 +109,9 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         let match = acceptedCandidate?.0
         let acceptedConfidence = acceptedCandidate?.1 ?? 0
         let matchMilliseconds = Self.elapsedMilliseconds(since: matchStart)
+        let symbolLedgerAssessment = symbolLedgerSnapshot.assessment(
+            primaryDisplayText: match?.displayText
+        )
 
         return ChordInkRecognitionResult(
             rawCandidates: rawCandidates,
@@ -117,6 +120,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             confidence: acceptedConfidence,
             candidateScores: candidateScores,
             symbolLedger: symbolLedgerSnapshot,
+            symbolLedgerAssessment: symbolLedgerAssessment,
             metrics: ChordInkRecognitionMetrics(
                 clusterMilliseconds: clusterMilliseconds,
                 glyphMilliseconds: glyphMilliseconds,

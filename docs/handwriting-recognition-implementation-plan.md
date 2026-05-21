@@ -600,6 +600,32 @@ simple settled ink can use a shorter idle delay, complex/wide multi-stroke
 symbols should keep the longer delay, and debug timing should show the idle,
 recognition, and total milliseconds before further responsiveness changes.
 
+### Symbol-ledger checkpoint
+
+The symbol-ledger sprint is a diagnostics checkpoint, not a new authority layer.
+It records stable left-to-right symbol evidence, running-prefix candidates, final
+candidate support, and primary-candidate agreement so live passes can be audited
+without adding another opaque scoring stack.
+
+Keep these boundaries in place:
+
+- ledger evidence may explain a recognition result, but it should not auto-render
+  a different answer on its own
+- raster/cache experiments remain deferred unless the diagnostic ledger proves a
+  specific, repeated gap that the current template pipeline cannot explain
+- pass-visible fixes should stay narrow and replayable; avoid broad scoring
+  rewrites from a single frustrating live pass
+- if the loop starts requiring repeated manual passes without clear diagnostic
+  signal, stop tuning and return to product/editor work
+
+Current checkpoint evidence:
+
+- full Swift suite is green with the symbol-ledger diagnostics in place
+- replay can validate archived chord-writing passes from `library-state.json`
+- `Db7(b9)` stays a flat-ninth case instead of inventing an unwritten `b13`
+- the known remaining hard cases are confirmation/backlog items, not blockers
+  for continuing app design
+
 - natural roots: at least 4 captured samples each for `A`, `B`, `C`, `D`, `E`,
   `F`, and `G`
 - common accidentals: at least 3 captured samples each for `A#`, `Ab`, `Bb`,

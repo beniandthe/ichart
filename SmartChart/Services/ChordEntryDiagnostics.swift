@@ -40,6 +40,8 @@ struct ChordEntryDiagnosticEvent: Codable, Equatable {
     var primaryConfidenceGap: Double? = nil
     var recognitionMetrics: ChordInkRecognitionMetrics? = nil
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
+    var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
+    var primarySymbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
 }
 
 struct ChordEntryDiagnosticsRecorder {

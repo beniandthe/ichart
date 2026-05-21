@@ -19,6 +19,16 @@ final class ChordInkSymbolLedgerTests: XCTestCase {
         XCTAssertTrue(ledger.runningPrefixes[1].supportedDisplayTexts.contains("C7"))
         XCTAssertEqual(ledger.finalCandidateText, result.rawCandidates.first)
         XCTAssertEqual(ledger.finalCandidateDisplayText, "C7")
+
+        let assessment = try XCTUnwrap(result.symbolLedgerAssessment)
+        XCTAssertEqual(assessment.agreement, .stableTextMatchesPrimary)
+        XCTAssertEqual(assessment.primaryDisplayText, "C7")
+        XCTAssertEqual(assessment.supportingSignals, [
+            "stableText",
+            "finalPrefix",
+            "supportedPrefix",
+            "finalCandidate"
+        ])
     }
 
     func testLedgerRunningPrefixesUseColumnCandidatesInsteadOfOnlyTopGlyphs() {
@@ -46,6 +56,72 @@ final class ChordInkSymbolLedgerTests: XCTestCase {
 
         XCTAssertEqual(snapshot.stableText, "Bb1D")
         XCTAssertTrue(snapshot.runningPrefixes.last?.supportedDisplayTexts.contains("Bb/D") == true)
+
+        let assessment = snapshot.assessment(primaryDisplayText: "Bb/D")
+        XCTAssertEqual(assessment.agreement, .supportedPrefixMatchesPrimary)
+        XCTAssertEqual(assessment.supportingSignals, ["supportedPrefix"])
+        XCTAssertFalse(assessment.competingDisplayTexts.contains("Bb/D"))
+        XCTAssertTrue(assessment.competingDisplayTexts.allSatisfy { $0 != "Bb/D" })
+    }
+
+    func testLedgerAssessmentReportsFinalCandidateSupportSeparately() {
+        let clusters = [
+            cluster(minX: 0, maxX: 20),
+            cluster(minX: 30, maxX: 42),
+            cluster(minX: 54, maxX: 66),
+            cluster(minX: 82, maxX: 104)
+        ]
+        let glyphs = [
+            [GlyphCandidate(text: "5", confidence: 1.00, source: .template)],
+            [GlyphCandidate(text: "9", confidence: 0.97, source: .template)],
+            [GlyphCandidate(text: "#", confidence: 0.92, source: .template)],
+            [GlyphCandidate(text: "3", confidence: 0.90, source: .template)]
+        ]
+
+        let snapshot = ChordInkSymbolLedger().snapshot(
+            glyphCandidateGroups: glyphs,
+            clusters: clusters,
+            chordCandidates: [
+                ChordInkCandidate(
+                    text: "A9#5",
+                    confidence: 4.5,
+                    glyphCandidates: []
+                )
+            ]
+        )
+
+        let assessment = snapshot.assessment(primaryDisplayText: "A9(#5)")
+        XCTAssertEqual(assessment.agreement, .finalCandidateMatchesPrimary)
+        XCTAssertEqual(assessment.finalCandidateDisplayText, "A9(#5)")
+        XCTAssertEqual(assessment.supportingSignals, ["finalCandidate"])
+    }
+
+    func testLedgerAssessmentReportsUnsupportedPrimaryWithoutTakingAuthority() {
+        let clusters = [
+            cluster(minX: 0, maxX: 20),
+            cluster(minX: 36, maxX: 50)
+        ]
+        let glyphs = [
+            [GlyphCandidate(text: "D", confidence: 0.95, source: .template)],
+            [GlyphCandidate(text: "7", confidence: 0.90, source: .template)]
+        ]
+
+        let snapshot = ChordInkSymbolLedger().snapshot(
+            glyphCandidateGroups: glyphs,
+            clusters: clusters,
+            chordCandidates: [
+                ChordInkCandidate(
+                    text: "D7",
+                    confidence: 4.2,
+                    glyphCandidates: []
+                )
+            ]
+        )
+
+        let assessment = snapshot.assessment(primaryDisplayText: "C7")
+        XCTAssertEqual(assessment.agreement, .primaryUnsupported)
+        XCTAssertEqual(assessment.supportCount, 0)
+        XCTAssertTrue(assessment.competingDisplayTexts.contains("D7"))
     }
 
     func testLedgerMarksSymbolsStableWhenNextInkIsClearlyToTheRight() {

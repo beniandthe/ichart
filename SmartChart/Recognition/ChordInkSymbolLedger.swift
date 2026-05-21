@@ -49,6 +49,143 @@ struct ChordInkSymbolLedgerSnapshot: Codable, Hashable {
     var stableText: String {
         stableSymbols.compactMap(\.bestText).joined()
     }
+
+    func assessment(primaryDisplayText: String?) -> ChordInkSymbolLedgerAssessment {
+        let finalPrefix = runningPrefixes.last
+        let finalPrefixDisplayText = finalPrefix?.displayText
+        let finalPrefixSupportedDisplayTexts = finalPrefix?.supportedDisplayTexts ?? []
+        let normalizedStableText = ChordRecognitionCompendium.match(stableText)?.displayText
+        let unresolvedOverlapCount = stableSymbols.filter {
+            $0.stabilityReason == .unresolvedOverlap
+        }.count
+
+        guard let primaryDisplayText else {
+            return ChordInkSymbolLedgerAssessment(
+                agreement: .noPrimaryCandidate,
+                primaryDisplayText: nil,
+                stableText: stableText,
+                normalizedStableText: normalizedStableText,
+                finalPrefixDisplayText: finalPrefixDisplayText,
+                finalPrefixSupportedDisplayTexts: finalPrefixSupportedDisplayTexts,
+                finalCandidateDisplayText: finalCandidateDisplayText,
+                supportCount: 0,
+                supportingSignals: [],
+                competingDisplayTexts: competingDisplayTexts(
+                    excluding: nil,
+                    normalizedStableText: normalizedStableText,
+                    finalPrefixDisplayText: finalPrefixDisplayText,
+                    finalPrefixSupportedDisplayTexts: finalPrefixSupportedDisplayTexts,
+                    finalCandidateDisplayText: finalCandidateDisplayText
+                ),
+                unresolvedOverlapCount: unresolvedOverlapCount
+            )
+        }
+
+        guard !stableSymbols.isEmpty || finalCandidateDisplayText != nil else {
+            return ChordInkSymbolLedgerAssessment(
+                agreement: .noLedgerEvidence,
+                primaryDisplayText: primaryDisplayText,
+                stableText: stableText,
+                normalizedStableText: normalizedStableText,
+                finalPrefixDisplayText: finalPrefixDisplayText,
+                finalPrefixSupportedDisplayTexts: finalPrefixSupportedDisplayTexts,
+                finalCandidateDisplayText: finalCandidateDisplayText,
+                supportCount: 0,
+                supportingSignals: [],
+                competingDisplayTexts: [],
+                unresolvedOverlapCount: unresolvedOverlapCount
+            )
+        }
+
+        var supportingSignals: [String] = []
+        if stableText == primaryDisplayText || normalizedStableText == primaryDisplayText {
+            supportingSignals.append("stableText")
+        }
+        if finalPrefixDisplayText == primaryDisplayText {
+            supportingSignals.append("finalPrefix")
+        }
+        if finalPrefixSupportedDisplayTexts.contains(primaryDisplayText) {
+            supportingSignals.append("supportedPrefix")
+        }
+        if finalCandidateDisplayText == primaryDisplayText {
+            supportingSignals.append("finalCandidate")
+        }
+
+        let agreement: ChordInkSymbolLedgerAgreement
+        if supportingSignals.contains("stableText") {
+            agreement = .stableTextMatchesPrimary
+        } else if supportingSignals.contains("finalPrefix")
+            || supportingSignals.contains("supportedPrefix") {
+            agreement = .supportedPrefixMatchesPrimary
+        } else if supportingSignals.contains("finalCandidate") {
+            agreement = .finalCandidateMatchesPrimary
+        } else {
+            agreement = .primaryUnsupported
+        }
+
+        return ChordInkSymbolLedgerAssessment(
+            agreement: agreement,
+            primaryDisplayText: primaryDisplayText,
+            stableText: stableText,
+            normalizedStableText: normalizedStableText,
+            finalPrefixDisplayText: finalPrefixDisplayText,
+            finalPrefixSupportedDisplayTexts: finalPrefixSupportedDisplayTexts,
+            finalCandidateDisplayText: finalCandidateDisplayText,
+            supportCount: supportingSignals.count,
+            supportingSignals: supportingSignals,
+            competingDisplayTexts: competingDisplayTexts(
+                excluding: primaryDisplayText,
+                normalizedStableText: normalizedStableText,
+                finalPrefixDisplayText: finalPrefixDisplayText,
+                finalPrefixSupportedDisplayTexts: finalPrefixSupportedDisplayTexts,
+                finalCandidateDisplayText: finalCandidateDisplayText
+            ),
+            unresolvedOverlapCount: unresolvedOverlapCount
+        )
+    }
+
+    private func competingDisplayTexts(
+        excluding primaryDisplayText: String?,
+        normalizedStableText: String?,
+        finalPrefixDisplayText: String?,
+        finalPrefixSupportedDisplayTexts: [String],
+        finalCandidateDisplayText: String?
+    ) -> [String] {
+        var displayTexts: [String] = []
+        for text in [normalizedStableText, finalPrefixDisplayText, finalCandidateDisplayText]
+            + finalPrefixSupportedDisplayTexts.map(Optional.some) {
+            guard let text,
+                  text != primaryDisplayText,
+                  !displayTexts.contains(text) else {
+                continue
+            }
+            displayTexts.append(text)
+        }
+        return Array(displayTexts.prefix(5))
+    }
+}
+
+enum ChordInkSymbolLedgerAgreement: String, Codable, Hashable {
+    case noPrimaryCandidate
+    case noLedgerEvidence
+    case stableTextMatchesPrimary
+    case supportedPrefixMatchesPrimary
+    case finalCandidateMatchesPrimary
+    case primaryUnsupported
+}
+
+struct ChordInkSymbolLedgerAssessment: Codable, Hashable {
+    var agreement: ChordInkSymbolLedgerAgreement
+    var primaryDisplayText: String?
+    var stableText: String
+    var normalizedStableText: String?
+    var finalPrefixDisplayText: String?
+    var finalPrefixSupportedDisplayTexts: [String]
+    var finalCandidateDisplayText: String?
+    var supportCount: Int
+    var supportingSignals: [String]
+    var competingDisplayTexts: [String]
+    var unresolvedOverlapCount: Int
 }
 
 struct ChordInkSymbolLedger {

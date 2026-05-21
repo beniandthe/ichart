@@ -280,6 +280,51 @@ def format_symbol_ledger(ledger: dict[str, Any] | None) -> str:
     )
 
 
+def format_symbol_ledger_assessment(assessment: dict[str, Any] | None) -> str:
+    if not assessment:
+        return ""
+
+    agreement = assessment.get("agreement") or "?"
+    support_count = assessment.get("supportCount")
+    support = support_count if isinstance(support_count, int) else "?"
+    signals = assessment.get("supportingSignals") or []
+    conflicts = assessment.get("competingDisplayTexts") or []
+    unresolved = assessment.get("unresolvedOverlapCount")
+    signal_summary = "|".join(signals[:4]) or "-"
+    conflict_summary = "|".join(conflicts[:3]) or "-"
+    unresolved_summary = unresolved if isinstance(unresolved, int) else "?"
+
+    return (
+        " ledgerAssessment=["
+        f"agreement={agreement}, "
+        f"support={support}, "
+        f"signals={signal_summary}, "
+        f"conflicts={conflict_summary}, "
+        f"unresolved={unresolved_summary}"
+        "]"
+    )
+
+
+def format_primary_symbol_ledger_assessment(assessment: dict[str, Any] | None) -> str:
+    if not assessment:
+        return ""
+
+    agreement = assessment.get("agreement") or "?"
+    primary = assessment.get("primaryDisplayText") or "-"
+    support_count = assessment.get("supportCount")
+    support = support_count if isinstance(support_count, int) else "?"
+    conflicts = assessment.get("competingDisplayTexts") or []
+    conflict_summary = "|".join(conflicts[:3]) or "-"
+    return (
+        " primaryLedgerAssessment=["
+        f"primary={primary}, "
+        f"agreement={agreement}, "
+        f"support={support}, "
+        f"conflicts={conflict_summary}"
+        "]"
+    )
+
+
 def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limit: int) -> None:
     if not chart_diagnostics:
         print("\nDiagnostic detail: none")
@@ -304,12 +349,19 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
         score_suffix = format_scores(event.get("candidateScores") or [], score_limit)
         metrics_suffix = format_metrics(event.get("recognitionMetrics"))
         ledger_suffix = format_symbol_ledger(event.get("symbolLedger"))
+        ledger_assessment_suffix = format_symbol_ledger_assessment(
+            event.get("symbolLedgerAssessment")
+        )
+        primary_ledger_assessment_suffix = format_primary_symbol_ledger_assessment(
+            event.get("primarySymbolLedgerAssessment")
+        )
         print(
             f"  {index:02d}. m{measure_label} {resolution}{close_marker}: "
             f"accepted={accepted} rendered={rendered} best={best} "
             f"confidence={confidence} gap={gap} trust={trust} "
             f"agreement={agreement} ocr={ocr} "
-            f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}{ledger_suffix}"
+            f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}"
+            f"{ledger_suffix}{ledger_assessment_suffix}{primary_ledger_assessment_suffix}"
         )
 
 
@@ -358,6 +410,8 @@ def fallback_diagnostic_event(
         "primaryConfidenceGap": None,
         "recognitionMetrics": None,
         "symbolLedger": None,
+        "symbolLedgerAssessment": None,
+        "primarySymbolLedgerAssessment": None,
     }
 
 

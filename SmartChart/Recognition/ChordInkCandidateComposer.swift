@@ -43,6 +43,7 @@ struct ChordInkCandidateComposerScoring: Hashable {
     var weakDominantSharpAlterationPenalty = 0.70
     var slashBassMinConfidence = 0.65
     var slashBassBonus = 0.85
+    var plainFlatRootSlashBassBonus = 0.06
     var lowercaseSlashBassPenalty = 0.30
     var suspendedSlashLookalikePenalty = 0.45
     var invalidSlashPenalty = 0.75
@@ -247,7 +248,7 @@ struct ChordInkCandidateComposer {
         }
 
         if shouldExposeAlteredDominantThirteenContinuationCandidate(at: index, in: sortedColumns) {
-            promoteCandidate("3", minimumConfidence: 0.84, fallbackConfidence: 0.58)
+            promoteCandidate("3", minimumConfidence: 0.84)
         }
 
         if shouldExposeCompactSharpElevenTailCandidate(at: index, in: sortedColumns) {
@@ -509,6 +510,9 @@ struct ChordInkCandidateComposer {
             return false
         }
 
+        let currentColumnCanCarryOne = sortedColumns[index].hasExplicitAlteredThirteenDigit("1")
+            || !sortedColumns[index].hasStrongWrapperEvidence
+        let nextColumnHasExplicitThree = sortedColumns[index + 1].hasExplicitAlteredThirteenDigit("3")
         let previousColumnLooksLikeAlteration = sortedColumns[index - 1].contains { candidate in
             candidate.confidence >= 0.45 && (candidate.text == "#" || candidate.text == "b")
         }
@@ -518,7 +522,10 @@ struct ChordInkCandidateComposer {
             }
         }
 
-        return previousColumnLooksLikeAlteration && hasDominantSevenBeforeAlteration
+        return currentColumnCanCarryOne
+            && nextColumnHasExplicitThree
+            && previousColumnLooksLikeAlteration
+            && hasDominantSevenBeforeAlteration
     }
 
     private func shouldExposeAlteredDominantThirteenContinuationCandidate(
@@ -529,6 +536,7 @@ struct ChordInkCandidateComposer {
             return false
         }
 
+        let currentColumnHasExplicitThree = sortedColumns[index].hasExplicitAlteredThirteenDigit("3")
         let previousColumnLooksLikeOne = sortedColumns[index - 1].contains { candidate in
             candidate.confidence >= 0.45 && candidate.text == "1"
         } || shouldExposeAlteredDominantThirteenStartCandidate(at: index - 1, in: sortedColumns)
@@ -545,7 +553,9 @@ struct ChordInkCandidateComposer {
             return columnLooksLikeAlteration && hasDominantSevenBeforeAlteration
         }
 
-        return previousColumnLooksLikeOne && hasAlterationAccidentalBeforePreviousColumn
+        return currentColumnHasExplicitThree
+            && previousColumnLooksLikeOne
+            && hasAlterationAccidentalBeforePreviousColumn
     }
 
     private func shouldExposeCompactSharpElevenTailCandidate(
@@ -609,6 +619,9 @@ struct ChordInkCandidateComposer {
                 expansions.append(compactSharpElevenVariant)
             }
             expansions.append(contentsOf: expandedAlteredExtensionTrailingWrapperVariants(for: variant))
+            if let slashBassFlatLookalikeVariant = expandedSlashBassFlatLookalikeVariant(for: variant) {
+                expansions.append(slashBassFlatLookalikeVariant)
+            }
             expansions.append(contentsOf: expandedSharpElevenWrapperVariants(for: variant))
             if let trailingWrapperVariant = expandedSharpElevenTrailingWrapperVariant(for: variant) {
                 expansions.append(trailingWrapperVariant)
@@ -706,6 +719,28 @@ struct ChordInkCandidateComposer {
 
             return String(text[..<range.upperBound])
         }
+    }
+
+    private func expandedSlashBassFlatLookalikeVariant(for text: String) -> String? {
+        guard let slashIndex = text.firstIndex(of: "/") else {
+            return nil
+        }
+
+        let suffixStart = text.index(after: slashIndex)
+        guard suffixStart < text.endIndex else {
+            return nil
+        }
+
+        let suffix = text[suffixStart...]
+        guard suffix.count == 2,
+              let bassRoot = suffix.first,
+              let flatLookalike = suffix.last,
+              "ABCDEFG".contains(bassRoot),
+              flatLookalike == "G" else {
+            return nil
+        }
+
+        return String(text[..<slashIndex]) + "/" + String(bassRoot) + "b"
     }
 
     private func glyphTextVariants(for text: String) -> [String] {
@@ -886,6 +921,10 @@ struct ChordInkCandidateComposer {
         if hasValidSlashBass(text),
            slashGlyphConfidence(in: glyphCandidates) >= scoring.slashBassMinConfidence {
             score += scoring.slashBassBonus
+            if isPlainFlatRootSlashBassSymbol(parsedSymbol),
+               hasRootAccidentalEvidence("b", in: glyphCandidates) {
+                score += scoring.plainFlatRootSlashBassBonus
+            }
             if hasLowercaseSlashBassRoot(text) {
                 score -= scoring.lowercaseSlashBassPenalty
             }
@@ -968,6 +1007,27 @@ struct ChordInkCandidateComposer {
         return symbol.quality == "-"
             && symbol.extensions == ["6"]
             && symbol.alterations.isEmpty
+    }
+
+    private func isPlainFlatRootSlashBassSymbol(_ symbol: ChordSymbol?) -> Bool {
+        guard let symbol else {
+            return false
+        }
+
+        return symbol.accidental == .flat
+            && symbol.quality.isEmpty
+            && symbol.extensions.isEmpty
+            && symbol.alterations.isEmpty
+            && symbol.slashBass != nil
+    }
+
+    private func hasRootAccidentalEvidence(_ text: String, in glyphCandidates: [GlyphCandidate]) -> Bool {
+        guard glyphCandidates.indices.contains(1) else {
+            return false
+        }
+
+        let candidate = glyphCandidates[1]
+        return candidate.text == text && candidate.confidence >= 0.45
     }
 
     private func isMajorSixthSymbol(_ symbol: ChordSymbol?) -> Bool {
@@ -1511,6 +1571,23 @@ private extension Array where Element == GlyphCandidate {
         }
 
         return hasSeven && !hasStrongRootOrAccidental
+    }
+
+    func hasExplicitAlteredThirteenDigit(_ text: String) -> Bool {
+        let hasDigit = contains { candidate in
+            candidate.text == text
+                && candidate.source != .composer
+                && candidate.confidence >= 0.45
+        }
+
+        return hasDigit && !hasStrongWrapperEvidence
+    }
+
+    var hasStrongWrapperEvidence: Bool {
+        contains { candidate in
+            ["(", ")"].contains(candidate.text)
+                && candidate.confidence >= 0.70
+        }
     }
 
     func hasSuspendedContextCandidate(_ text: String) -> Bool {
