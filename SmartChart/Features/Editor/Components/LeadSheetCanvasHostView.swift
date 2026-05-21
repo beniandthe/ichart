@@ -155,6 +155,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let chordInkRecognizer = ChordInkRecognizer()
+    private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
+        #if DEBUG || targetEnvironment(simulator)
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.arguments.contains("-SmartChartSymbolLedgerDiagnostics")
+            || processInfo.environment["SMART_CHART_SYMBOL_LEDGER_DIAGNOSTICS"] == "1" {
+            return .includingSymbolLedgerDiagnostics
+        }
+        #endif
+
+        return .live
+    }
     private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
     private let chordInkIdleDelay: TimeInterval = 1.2
     private let chordInkContinuationGraceDelay: TimeInterval = 1.2
@@ -1037,10 +1048,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let drawingForOCR = pageInkCanvasView.drawing
 
         let recognizer = chordInkRecognizer
+        let recognitionOptions = chordInkRecognitionOptions
         let ocrCandidateProvider = chordOCRCandidateProvider
         chordInkRecognitionQueue.async { [weak self] in
             let recognitionStartedAt = Date()
-            var result = recognizer.recognize(strokes: strokes)
+            var result = recognizer.recognize(
+                strokes: strokes,
+                options: recognitionOptions
+            )
             let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
             if ChordRecognitionTrustArbiter.shouldRequestOCR(
                 for: result,

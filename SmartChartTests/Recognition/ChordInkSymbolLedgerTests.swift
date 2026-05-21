@@ -2,12 +2,27 @@ import XCTest
 @testable import SmartChart
 
 final class ChordInkSymbolLedgerTests: XCTestCase {
-    func testLedgerRecordsStableSymbolsAndRunningPrefixesWithoutChangingRecognition() throws {
+    func testDefaultRecognitionSkipsSymbolLedgerDiagnostics() throws {
         let strokes = try templateStrokes("C", offsetX: 0)
             + templateStrokes("7", offsetX: 80)
         let recognizer = ChordInkRecognizer()
 
         let result = recognizer.recognize(strokes: strokes)
+
+        XCTAssertEqual(result.match?.displayText, "C7")
+        XCTAssertNil(result.symbolLedger)
+        XCTAssertNil(result.symbolLedgerAssessment)
+    }
+
+    func testLedgerRecordsStableSymbolsAndRunningPrefixesWithoutChangingRecognition() throws {
+        let strokes = try templateStrokes("C", offsetX: 0)
+            + templateStrokes("7", offsetX: 80)
+        let recognizer = ChordInkRecognizer()
+
+        let result = recognizer.recognize(
+            strokes: strokes,
+            options: .includingSymbolLedgerDiagnostics
+        )
         let ledger = try XCTUnwrap(result.symbolLedger)
 
         XCTAssertEqual(result.match?.displayText, "C7")

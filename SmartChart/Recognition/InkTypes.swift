@@ -231,6 +231,15 @@ struct ChordOCRCandidate: Codable, Hashable {
     }
 }
 
+struct ChordInkRecognitionOptions: Hashable {
+    var includesSymbolLedgerDiagnostics: Bool = false
+
+    static let live = ChordInkRecognitionOptions()
+    static let includingSymbolLedgerDiagnostics = ChordInkRecognitionOptions(
+        includesSymbolLedgerDiagnostics: true
+    )
+}
+
 struct ChordInkRecognitionResult: Hashable {
     var rawCandidates: [String]
     var glyphCandidates: [[GlyphCandidate]]

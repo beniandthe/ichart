@@ -1256,32 +1256,6 @@ private struct RootGlyphFeatures: Hashable {
     }
 }
 
-private extension InkBounds {
-    var recognitionMidX: Double {
-        minX + width / 2
-    }
-
-    var recognitionMidY: Double {
-        minY + height / 2
-    }
-
-    func horizontalGap(to other: InkBounds) -> Double {
-        if maxX < other.minX {
-            return other.minX - maxX
-        }
-
-        if other.maxX < minX {
-            return minX - other.maxX
-        }
-
-        return 0
-    }
-
-    func verticalOverlap(with other: InkBounds) -> Double {
-        max(0, min(maxY, other.maxY) - max(minY, other.minY))
-    }
-}
-
 private struct RootStrokeFeatures: Hashable {
     var points: [InkPoint]
     var bounds: InkBounds
