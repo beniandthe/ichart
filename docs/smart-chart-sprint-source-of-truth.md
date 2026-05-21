@@ -4,7 +4,7 @@ Status: active living sprint document
 Created: 2026-05-20
 Repo: `beniandthe/smart-chart`
 Active branch: `codex/symbol-ledger-recognition`
-Active baseline commit: Sprint 9 kickoff commit containing this entry; runtime checkpoint is `72cd12e Close sprint eight semantic contextualizer extraction`
+Active baseline commit: Sprint 10 kickoff commit containing this entry; runtime checkpoint is `72cd12e Close sprint eight semantic contextualizer extraction`
 Trusted checkpoint reference: `c60bb46 Polish altered chord recognition trust`
 
 ## Purpose
@@ -17,15 +17,16 @@ If this document conflicts with older recognition or architecture planning docs,
 
 ## Current Baseline
 
-The active app runtime implementation state is the latest Sprint 8 checkpoint. Sprint 9 is a doc/PR merge-readiness pass:
+The active app runtime implementation state is the latest Sprint 8 checkpoint. Sprint 10 resumes product/editor polish from that recovered baseline:
 
 - branch: `codex/symbol-ledger-recognition`
 - runtime checkpoint: `72cd12e Close sprint eight semantic contextualizer extraction`
-- previous checkpoint: `a738ed3 Close sprint seven text variant extraction`
-- implementation state: Sprint 8 semantic glyph-contextualizer extraction; Sprint 9 merge-readiness documentation and PR review prep
+- PR readiness checkpoint: `61caeb9 Open sprint nine merge readiness`
+- previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
+- implementation state: Sprint 8 semantic glyph-contextualizer extraction; Sprint 9 merge-readiness documentation and PR review prep; Sprint 10 product/editor polish audit
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
 - latest local verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint1` passed on 2026-05-21 with `310` tests, `1` skipped, `0` failures
-- latest GitHub verification: draft PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `72cd12e`
+- latest GitHub verification: PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `61caeb9`
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -42,7 +43,7 @@ Known drift after Sprint 8:
 - The old handwriting plan and current-architecture audit are explicitly marked historical/stale when they conflict with this file.
 - `646` ink fixtures remain default-on in the regression path; decoded fixture data is now cached inside the test loader to avoid repeated file-system churn.
 - Full critical/full fixture tiering is deferred unless CI runtime or local loop cost becomes a real blocker.
-- PR [#4](https://github.com/beniandthe/smart-chart/pull/4) is the active GitHub review surface; it was mergeable with all visible checks passing on Sprint 8 commit `72cd12e`.
+- PR [#4](https://github.com/beniandthe/smart-chart/pull/4) is the active GitHub review surface; it was mergeable with all visible checks passing on Sprint 9 commit `61caeb9`.
 - No tracked cache/raster/direct-ink detour files remain in the current tree; remaining bloat is inside the current recognition path.
 
 ## Product North Star
@@ -104,32 +105,35 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ## Active Sprint
 
-### Sprint 9: PR Merge Readiness
+### Sprint 10: Product/Editor Polish Audit
 
 Status: active.
 
-Goal: prepare PR [#4](https://github.com/beniandthe/smart-chart/pull/4) for an explicit merge/readiness decision now that the recovery cleanup stack is green.
+Goal: resume product work from the recovered recognition baseline by auditing the current app against `open -> write -> recognize -> snap -> fix -> export`, then choosing the smallest user-facing editor polish fix backed by current app evidence.
 
 Non-goals:
 
 - no recognition scoring changes
-- no fixture pruning
-- no editor or PencilKit behavior changes
-- no new sidecar authority
+- no new recognition architecture or sidecars
+- no fixture pruning or tiering unless validation cost becomes a real blocker
+- no broad visual redesign
+- no custom ink capture path that weakens native `PKCanvasView` feel
 
 Tasks:
 
-- Record Sprint 8 green CI evidence in this file.
-- Update PR [#4](https://github.com/beniandthe/smart-chart/pull/4) so reviewers see the recovered pipeline, sprint sequence, verification, and remaining risks.
-- Review the PR surface for merge blockers, including draft state, review requirement, large fixture corpus, and remaining recognition-file size.
-- Decide whether to mark the PR ready for review only after the user explicitly confirms.
+- Review `docs/core-design-document.md`, `docs/developer-mvp-spec.md`, this file, and the current editor implementation before changing code.
+- Build and launch the current app on the intended simulator before judging handwriting or editor behavior.
+- Audit the live product path: open/create chart, write chord ink, recognize, snap to structured chord event, correct/fix, and export/share.
+- Record exact breakpoints and choose one smallest polish fix from current evidence.
+- If editor/PencilKit code changes, regenerate the Xcode project and run the existing iOS simulator `SmartChart` scheme.
 
 Acceptance criteria:
 
-- PR [#4](https://github.com/beniandthe/smart-chart/pull/4) has a clear current summary and validation record.
-- The living source-of-truth identifies Sprint 9 as a merge-readiness pass, not another recognition-retuning sprint.
-- The branch stays behavior-preserving relative to Sprint 8 runtime code.
-- Any Sprint 9 doc/metadata push is rechecked before declaring final merge readiness.
+- Current app/editor state is captured in this file or a supporting audit note.
+- Any Sprint 10 code change is localized to the smallest user-facing product/editor issue found in the audit.
+- Native `PKCanvasView` writing feel is preserved.
+- Recognition behavior remains unchanged unless a tightly scoped product bug proves otherwise.
+- Sprint 10 closes with local test evidence, simulator evidence when relevant, and a next backlog decision.
 
 ## Completed Sprints Log
 
@@ -219,13 +223,22 @@ Append one entry here after each sprint completes. Each entry must include:
 - unresolved follow-up: `ChordInkSemanticCandidateComposer.swift` still owns many semantic candidate recipes and shared suffix-shape helpers; `StrokeClusterer.swift` and `StrokeClustererSupport.swift` remain large.
 - next sprint candidate: Sprint 9 is PR merge readiness.
 
+### Sprint 9: PR Merge Readiness
+
+- status: complete; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) was approved by the user to move out of draft
+- commit range: `61caeb9 Open sprint nine merge readiness` through the Sprint 10 kickoff commit containing this entry
+- summary: Recorded green Sprint 8/Sprint 9 CI evidence, refreshed the PR body with the recovered pipeline and sprint sequence, reviewed PR blockers, and kept Sprint 9 as documentation/metadata only. No recognition, editor, PencilKit, fixture, scoring, or sidecar behavior changed.
+- tests and evidence: PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `61caeb9`. `git diff --check` passed for the Sprint 10 kickoff doc update.
+- unresolved follow-up: recheck PR [#4](https://github.com/beniandthe/smart-chart/pull/4) after the Sprint 10 kickoff push. The PR is large and review-required; the main review risk remains size, especially the full ink fixture corpus and large recognition implementation files.
+- next sprint candidate: Sprint 10 is product/editor polish audit.
+
 ## Next Sprint Backlog
 
-Discuss and choose one item after Sprint 9 is complete:
+Discuss and choose one item after Sprint 10 is complete:
 
 - Split semantic candidate recipes into smaller behavior-preserving files only if the review surface still feels too large.
-- Return to product/editor polish once the architecture boundary is stable.
-- Mark PR [#4](https://github.com/beniandthe/smart-chart/pull/4) ready for review or merge after user confirmation.
+- Continue product/editor polish based on the Sprint 10 audit findings.
+- Merge PR [#4](https://github.com/beniandthe/smart-chart/pull/4) after review requirements and final checks are satisfied.
 - Revisit fixture tiering only if CI runtime or local loop cost becomes a real blocker.
 
 ## Retired Or Stale Docs
