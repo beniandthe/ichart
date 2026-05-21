@@ -18,6 +18,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
     var glyphRecognizer: GestureTemplateRecognizer
     var candidateComposer: ChordInkCandidateComposer
     var semanticCandidateComposer: ChordInkSemanticCandidateComposer
+    var semanticGlyphContextualizer: ChordInkSemanticGlyphContextualizer
     var symbolLedger: ChordInkSymbolLedger
     var templates: [GestureTemplate]
     var maxGlyphCandidatesPerCluster: Int
@@ -28,6 +29,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         glyphRecognizer: GestureTemplateRecognizer = GestureTemplateRecognizer(),
         candidateComposer: ChordInkCandidateComposer = ChordInkCandidateComposer(),
         semanticCandidateComposer: ChordInkSemanticCandidateComposer = ChordInkSemanticCandidateComposer(),
+        semanticGlyphContextualizer: ChordInkSemanticGlyphContextualizer = ChordInkSemanticGlyphContextualizer(),
         symbolLedger: ChordInkSymbolLedger = ChordInkSymbolLedger(),
         templates: [GestureTemplate] = ChordGlyphTemplateLibrary.initialTemplates,
         maxGlyphCandidatesPerCluster: Int = 8,
@@ -37,6 +39,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         self.glyphRecognizer = glyphRecognizer
         self.candidateComposer = candidateComposer
         self.semanticCandidateComposer = semanticCandidateComposer
+        self.semanticGlyphContextualizer = semanticGlyphContextualizer
         self.symbolLedger = symbolLedger
         self.templates = templates
         self.maxGlyphCandidatesPerCluster = maxGlyphCandidatesPerCluster
@@ -63,7 +66,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         let glyphMilliseconds = Self.elapsedMilliseconds(since: glyphStart)
 
         let contextStart = Date()
-        let contextualGlyphCandidateGroups = semanticCandidateComposer.contextualizedGlyphCandidateGroups(
+        let contextualGlyphCandidateGroups = semanticGlyphContextualizer.contextualizedGlyphCandidateGroups(
             glyphCandidateGroups,
             clusters: clusters
         )
