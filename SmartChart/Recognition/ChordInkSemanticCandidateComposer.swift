@@ -8,13 +8,24 @@ struct ChordInkRecognitionCandidateResult: Hashable {
     var semanticCandidateCount: Int
 }
 
-extension ChordInkCandidateComposer {
+struct ChordInkRecognitionCandidateComposer {
+    var baseComposer: ChordInkCandidateComposer
+    var semanticCandidateComposer: ChordInkSemanticCandidateComposer
+
+    init(
+        baseComposer: ChordInkCandidateComposer = ChordInkCandidateComposer(),
+        semanticCandidateComposer: ChordInkSemanticCandidateComposer = ChordInkSemanticCandidateComposer()
+    ) {
+        self.baseComposer = baseComposer
+        self.semanticCandidateComposer = semanticCandidateComposer
+    }
+
     func composeRecognitionCandidates(
         from glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster]
     ) -> ChordInkRecognitionCandidateResult {
         let composeStart = Date()
-        let compositionResult = composeDetailed(glyphCandidates: glyphCandidateGroups)
+        let compositionResult = baseComposer.composeDetailed(glyphCandidates: glyphCandidateGroups)
         let composeMilliseconds = Self.elapsedMilliseconds(since: composeStart)
         let composedCandidates = compositionResult.candidates
         var bestCandidatesByText = Dictionary(
@@ -22,18 +33,10 @@ extension ChordInkCandidateComposer {
         )
 
         let semanticStart = Date()
-        let semanticCandidates = [
-            diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
-            plainNinthAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
-            majorAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
-            dominantAlteredCandidate(from: glyphCandidateGroups, clusters: clusters),
-            dominantSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
-            majorSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
-            minorEleventhCandidate(from: glyphCandidateGroups, clusters: clusters),
-            majorSixthCandidate(from: glyphCandidateGroups, clusters: clusters),
-            suspendedSuffixCandidate(from: glyphCandidateGroups, clusters: clusters)
-        ].compactMap { $0 }
-
+        let semanticCandidates = semanticCandidateComposer.candidates(
+            from: glyphCandidateGroups,
+            clusters: clusters
+        )
         for semanticCandidate in semanticCandidates {
             if let currentBest = bestCandidatesByText[semanticCandidate.text],
                currentBest.confidence >= semanticCandidate.confidence {
@@ -62,6 +65,25 @@ extension ChordInkCandidateComposer {
 
     private static func elapsedMilliseconds(since start: Date) -> Double {
         Date().timeIntervalSince(start) * 1_000
+    }
+}
+
+struct ChordInkSemanticCandidateComposer {
+    func candidates(
+        from glyphCandidateGroups: [[GlyphCandidate]],
+        clusters: [InkCluster]
+    ) -> [ChordInkCandidate] {
+        [
+            diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
+            plainNinthAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
+            majorAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
+            dominantAlteredCandidate(from: glyphCandidateGroups, clusters: clusters),
+            dominantSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
+            majorSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
+            minorEleventhCandidate(from: glyphCandidateGroups, clusters: clusters),
+            majorSixthCandidate(from: glyphCandidateGroups, clusters: clusters),
+            suspendedSuffixCandidate(from: glyphCandidateGroups, clusters: clusters)
+        ].compactMap { $0 }
     }
 
     private func minorEleventhCandidate(

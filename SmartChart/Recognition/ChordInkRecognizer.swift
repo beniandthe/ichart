@@ -17,6 +17,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
     var clusterer: StrokeClusterer
     var glyphRecognizer: GestureTemplateRecognizer
     var candidateComposer: ChordInkCandidateComposer
+    var semanticCandidateComposer: ChordInkSemanticCandidateComposer
     var symbolLedger: ChordInkSymbolLedger
     var templates: [GestureTemplate]
     var maxGlyphCandidatesPerCluster: Int
@@ -26,6 +27,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         clusterer: StrokeClusterer = StrokeClusterer(),
         glyphRecognizer: GestureTemplateRecognizer = GestureTemplateRecognizer(),
         candidateComposer: ChordInkCandidateComposer = ChordInkCandidateComposer(),
+        semanticCandidateComposer: ChordInkSemanticCandidateComposer = ChordInkSemanticCandidateComposer(),
         symbolLedger: ChordInkSymbolLedger = ChordInkSymbolLedger(),
         templates: [GestureTemplate] = ChordGlyphTemplateLibrary.initialTemplates,
         maxGlyphCandidatesPerCluster: Int = 8,
@@ -34,6 +36,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         self.clusterer = clusterer
         self.glyphRecognizer = glyphRecognizer
         self.candidateComposer = candidateComposer
+        self.semanticCandidateComposer = semanticCandidateComposer
         self.symbolLedger = symbolLedger
         self.templates = templates
         self.maxGlyphCandidatesPerCluster = maxGlyphCandidatesPerCluster
@@ -60,13 +63,17 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         let glyphMilliseconds = Self.elapsedMilliseconds(since: glyphStart)
 
         let contextStart = Date()
-        let contextualGlyphCandidateGroups = candidateComposer.contextualizedGlyphCandidateGroups(
+        let contextualGlyphCandidateGroups = semanticCandidateComposer.contextualizedGlyphCandidateGroups(
             glyphCandidateGroups,
             clusters: clusters
         )
         let contextualGlyphMilliseconds = Self.elapsedMilliseconds(since: contextStart)
 
-        let candidateResult = candidateComposer.composeRecognitionCandidates(
+        let recognitionCandidateComposer = ChordInkRecognitionCandidateComposer(
+            baseComposer: candidateComposer,
+            semanticCandidateComposer: semanticCandidateComposer
+        )
+        let candidateResult = recognitionCandidateComposer.composeRecognitionCandidates(
             from: contextualGlyphCandidateGroups,
             clusters: clusters
         )
