@@ -28,6 +28,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
 - implementation state: recognition recovery, product/editor polish audit, PR review follow-through, and PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge are complete; Sprint 12 post-merge app audit active
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
+- Sprint 12 audit artifact: `docs/smart-chart-post-merge-app-audit-2026-05-23.md`
 - latest local verification: Sprint 10 closeout passed `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint10` on 2026-05-22 with `311` tests, `1` skipped, `0` failures; the iOS simulator `SmartChart` scheme passed on the explicit iOS 26.4 iPad Air 11-inch (M4) simulator with `352` tests, `1` skipped, `0` failures; live simulator audits covered open, chord mode, correction, export, PDF preview, and a synthetic-stroke chord confirmation/structured commit path
 - latest GitHub verification: PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the remaining review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
 
@@ -118,7 +119,7 @@ Goal: make sure the merged app, architecture, and future plan are aligned before
 
 Primary deliverable:
 
-- Create `docs/smart-chart-post-merge-app-audit-2026-05-23.md` from `main` as the written and visual audit artifact explaining the current app architecture, live user workflow, major systems, authority boundaries, bloat/dead-path risks, and future sprint options.
+- Create `docs/smart-chart-post-merge-app-audit-2026-05-23.md` from `main` as the written and visual audit artifact explaining the current app architecture, live user workflow, major systems, authority boundaries, bloat/dead-path risks, and future sprint options. The artifact exists and is currently draft-in-progress.
 
 Audit scope:
 
@@ -301,6 +302,7 @@ Discuss and choose one item after Sprint 12 is complete:
 Current authority:
 
 - `docs/smart-chart-sprint-source-of-truth.md`: active sprint execution and recovery plan.
+- `docs/smart-chart-post-merge-app-audit-2026-05-23.md`: Sprint 12 written and visual post-merge app/architecture audit.
 - `docs/core-design-document.md`: product intent and design rules.
 - `docs/developer-mvp-spec.md`: MVP scope, subordinate to the core design document.
 - `docs/repo-github-recognition-audit-2026-05-20.md`: evidence snapshot for the current recovery plan.
