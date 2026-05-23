@@ -299,15 +299,7 @@ private struct ChartPDFRenderer {
         )
         drawRhythmGrid(for: measure, meter: meter, in: gridRect)
 
-        if placements.isEmpty {
-            drawText(
-                "Tap the measure in the editor to add a hit.",
-                in: gridRect.insetBy(dx: 10, dy: 24),
-                font: chart.documentFont.pdfFont(size: 9, weight: .regular),
-                color: UIColor(white: 0.6, alpha: 1),
-                alignment: .center
-            )
-        } else {
+        if !placements.isEmpty {
             for (rowIndex, placement) in placements.enumerated() {
                 drawChordEvent(
                     placement,

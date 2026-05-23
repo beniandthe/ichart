@@ -110,16 +110,25 @@ Business-model rules:
 
 ## Source-of-truth docs
 
+Active authority:
+
+- [`docs/smart-chart-sprint-source-of-truth.md`](docs/smart-chart-sprint-source-of-truth.md) — active living sprint plan, recovery baseline, and current implementation authority
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/monetization-strategy.md`](docs/monetization-strategy.md) — launch tiering, feature gating, and entitlement rules
 - [`docs/technical-architecture.md`](docs/technical-architecture.md) — architecture and first implementation order
 - [`docs/implementation-milestones.md`](docs/implementation-milestones.md) — execution sequence for the prototype
+- [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan
 - [`docs/v1-production-deployment.md`](docs/v1-production-deployment.md) — release and launch plan
 - [`docs/github-bootstrap.md`](docs/github-bootstrap.md) — local repo and GitHub bootstrap steps
 - [`docs/macos-handoff.md`](docs/macos-handoff.md) — Mac-side startup checklist, current scaffold state, and first validation steps
 - [`docs/basic-chart-creation-flow.md`](docs/basic-chart-creation-flow.md) — explicit step-by-step behavior for the most basic chart authoring flow
-- [`docs/architecture-reset-proposal.md`](docs/architecture-reset-proposal.md) — side-by-side comparison of the current build path and the proposed editor architecture reset
+
+Historical context:
+
+- [`docs/handwriting-recognition-implementation-plan.md`](docs/handwriting-recognition-implementation-plan.md) — historical recognition architecture and pass notes, subordinate to the living sprint doc
+- [`docs/current-architecture-audit.md`](docs/current-architecture-audit.md) — historical editor-cleanup audit, stale for the current live recognition path
+- [`docs/architecture-reset-proposal.md`](docs/architecture-reset-proposal.md) — historical proposal for the editor architecture reset
 
 ## Local validation
 

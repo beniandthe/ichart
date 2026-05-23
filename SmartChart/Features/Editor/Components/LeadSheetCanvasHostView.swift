@@ -1,8 +1,8 @@
 #if canImport(UIKit)
+import Foundation
 import PencilKit
 import SwiftUI
 import UIKit
-import Vision
 
 struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var chart: Chart
@@ -12,10 +12,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)? = nil
     var onRhythmicNotationValidationError: ((String) -> Void)? = nil
-    var onChordRecognitionProposal: ((ChordRecognitionProposal) -> Void)? = nil
-    var onChordRecognitionError: ((String) -> Void)? = nil
+    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?) -> Void)? = nil
+    var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
-    var chordRecognitionRequiresConfirmation = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -44,9 +43,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onTimeSignatureTargetRequested = onTimeSignatureTargetRequested
         view.onRhythmicNotationProposal = onRhythmicNotationProposal
         view.onRhythmicNotationValidationError = onRhythmicNotationValidationError
-        view.onChordRecognitionProposal = onChordRecognitionProposal
-        view.onChordRecognitionError = onChordRecognitionError
-        view.chordRecognitionRequiresConfirmation = chordRecognitionRequiresConfirmation
+        view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        view.onChordCorrectionRequested = onChordCorrectionRequested
         return view
     }
 
@@ -68,9 +66,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         uiView.onTimeSignatureTargetRequested = onTimeSignatureTargetRequested
         uiView.onRhythmicNotationProposal = onRhythmicNotationProposal
         uiView.onRhythmicNotationValidationError = onRhythmicNotationValidationError
-        uiView.onChordRecognitionProposal = onChordRecognitionProposal
-        uiView.onChordRecognitionError = onChordRecognitionError
-        uiView.chordRecognitionRequiresConfirmation = chordRecognitionRequiresConfirmation
+        uiView.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        uiView.onChordCorrectionRequested = onChordCorrectionRequested
     }
 
     final class Coordinator {
@@ -150,14 +147,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
     var onRhythmicNotationProposal: ((UUID, [RhythmValue], Data) -> Void)?
     var onRhythmicNotationValidationError: ((String) -> Void)?
-    var onChordRecognitionProposal: ((ChordRecognitionProposal) -> Void)?
-    var onChordRecognitionError: ((String) -> Void)?
+    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?) -> Void)?
+    var onChordCorrectionRequested: ((UUID) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
-    var chordRecognitionRequiresConfirmation = false
 
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = PKCanvasView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
+    private let chordInkRecognizer = ChordInkRecognizer()
+    private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
+        #if DEBUG || targetEnvironment(simulator)
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.arguments.contains("-SmartChartSymbolLedgerDiagnostics")
+            || processInfo.environment["SMART_CHART_SYMBOL_LEDGER_DIAGNOSTICS"] == "1" {
+            return .includingSymbolLedgerDiagnostics
+        }
+        #endif
+
+        return .live
+    }
+    private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
+    private let chordInkIdleDelay: TimeInterval = 1.2
+    private let chordInkContinuationGraceDelay: TimeInterval = 1.2
+    private let chordInkRecognitionQueue = DispatchQueue(
+        label: "com.smartchart.chord-ink-recognition",
+        qos: .userInitiated
+    )
     private lazy var selectionTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleTap(_:))
@@ -180,14 +195,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     )
     private var isSyncingInkCanvasFromModel = false
     private var pendingInkPersistWorkItem: DispatchWorkItem?
-    private var pendingChordFinalizeWorkItem: DispatchWorkItem?
-    private var lastInkCanvasChangeTime: CFTimeInterval?
+    private var pendingChordRecognitionWorkItem: DispatchWorkItem?
+    private var activeChordRecognitionRequestID: UUID?
+    private var lastRecognizedChordDrawingData: Data?
+    private var chordInkContinuationGraceDrawingData: Data?
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
     private var activeChordMoveDrag: ActiveChordMoveDrag?
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
     private var notationRenderer: LeadSheetNotationRenderer {
         LeadSheetNotationRenderer(chart: chart)
+    }
+
+    private struct ChordInkRecognitionTiming {
+        var scheduledAt: Date
+        var requestedDelay: TimeInterval
+        var recognitionStartedAt: Date
+        var recognitionFinishedAt: Date
+        var strokeCount: Int
+        var ocrCandidateCount: Int
     }
 
     override init(frame: CGRect) {
@@ -320,7 +346,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for measure in system.measures {
-            if measure.sourceMeasureID == selectedMeasureID {
+            if interactionMode.allowsMeasureSelection,
+               measure.sourceMeasureID == selectedMeasureID {
                 drawMeasureSelection(measure)
             }
 
@@ -507,10 +534,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordEditFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
         CGRect(
-            x: chordLayout.frame.minX - 5,
-            y: chordLayout.frame.minY + 2,
-            width: chordLayout.frame.width + 10,
-            height: 23
+            x: chordLayout.frame.minX - 8,
+            y: chordLayout.frame.minY + 1,
+            width: chordLayout.frame.width + 18,
+            height: 25
         )
     }
 
@@ -651,6 +678,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         action: .move
                     )
                 }
+
+                if chordEditFrame(for: chordLayout).insetBy(dx: -8, dy: -8).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .review
+                    )
+                }
             }
         }
 
@@ -680,9 +715,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        lastInkCanvasChangeTime = CACurrentMediaTime()
-        pendingChordFinalizeWorkItem?.cancel()
-        pendingChordFinalizeWorkItem = nil
         schedulePersistActiveInk()
     }
 
@@ -728,12 +760,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: chordEditHitOverlayView)
-        guard let hitTarget = chordEditHitTarget(at: location),
-              hitTarget.action == .delete else {
+        guard let hitTarget = chordEditHitTarget(at: location) else {
             return
         }
 
-        deleteChordEvent(hitTarget.chordID)
+        switch hitTarget.action {
+        case .delete:
+            deleteChordEvent(hitTarget.chordID)
+        case .move:
+            break
+        case .review:
+            onChordCorrectionRequested?(hitTarget.chordID)
+        }
     }
 
     private func handleChordEntryTap(at location: CGPoint) {
@@ -747,17 +785,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 deleteChordEvent(hitTarget.chordID)
             case .move:
                 break
+            case .review:
+                onChordCorrectionRequested?(hitTarget.chordID)
             }
             return
         }
 
         if chordWritingBandContains(location, in: pageLayout) {
-            pendingChordFinalizeWorkItem?.cancel()
-            pendingChordFinalizeWorkItem = nil
             return
         }
-
-        scheduleOrFinalizeChordInkAfterGrace()
     }
 
     private func deleteChordEvent(_ chordID: UUID) {
@@ -841,8 +877,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            pendingChordFinalizeWorkItem?.cancel()
-            pendingChordFinalizeWorkItem = nil
             activeChordMoveDrag = ActiveChordMoveDrag(chordID: hitTarget.chordID)
         case .changed, .ended:
             guard let activeChordMoveDrag,
@@ -912,11 +946,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func schedulePersistActiveInk() {
-        guard !interactionMode.allowsChordInkEditing else {
-            pendingInkPersistWorkItem?.cancel()
-            pendingInkPersistWorkItem = nil
-            // Chord symbols are often built from multiple strokes. Persisting after
-            // every pen-up can resync the PKCanvas right as the next stroke begins.
+        if interactionMode.allowsChordInkEditing {
+            scheduleChordInkRecognition()
             return
         }
 
@@ -928,44 +959,35 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
     }
 
-    private func scheduleOrFinalizeChordInkAfterGrace() {
-        pendingChordFinalizeWorkItem?.cancel()
-        pendingChordFinalizeWorkItem = nil
-
-        let minimumQuietTimeAfterInk: CFTimeInterval = 0.16
-        let elapsedSinceInk = elapsedSinceLastChordInkChange()
-        guard elapsedSinceInk < minimumQuietTimeAfterInk else {
-            _ = finalizeChordInkIfNeeded()
-            return
-        }
-
-        let strokeCountSnapshot = pageInkCanvasView.drawing.strokes.count
-        let delay = minimumQuietTimeAfterInk - elapsedSinceInk
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self,
-                  interactionMode.allowsChordInkEditing,
-                  pageInkCanvasView.drawing.strokes.count == strokeCountSnapshot else {
-                return
-            }
-
-            _ = finalizeChordInkIfNeeded()
-        }
-        pendingChordFinalizeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    private func scheduleChordInkRecognition() {
+        scheduleChordInkRecognition(after: chordInkRecognitionIdleDelay(for: pageInkCanvasView.drawing))
     }
 
-    private func elapsedSinceLastChordInkChange() -> CFTimeInterval {
-        guard interactionMode.allowsChordInkEditing,
-              let lastInkCanvasChangeTime else {
-            return .greatestFiniteMagnitude
-        }
+    private func scheduleChordInkRecognition(after requestedDelay: TimeInterval) {
+        pendingInkPersistWorkItem?.cancel()
+        pendingInkPersistWorkItem = nil
+        pendingChordRecognitionWorkItem?.cancel()
 
-        return CACurrentMediaTime() - lastInkCanvasChangeTime
+        let requestID = UUID()
+        let scheduledAt = Date()
+        activeChordRecognitionRequestID = requestID
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.recognizeChordInkIfNeeded(
+                requestID: requestID,
+                scheduledAt: scheduledAt,
+                requestedDelay: requestedDelay
+            )
+        }
+        pendingChordRecognitionWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + requestedDelay, execute: workItem)
     }
 
     private func persistActiveInkIfNeeded() {
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
+        pendingChordRecognitionWorkItem?.cancel()
+        pendingChordRecognitionWorkItem = nil
+        activeChordRecognitionRequestID = nil
 
         guard let activeInkScope = activeInkScope() else {
             return
@@ -996,6 +1018,205 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         chart = updatedChart
         onChartChanged?(updatedChart)
+    }
+
+    private func recognizeChordInkIfNeeded(
+        requestID: UUID,
+        scheduledAt: Date,
+        requestedDelay: TimeInterval
+    ) {
+        pendingChordRecognitionWorkItem?.cancel()
+        pendingChordRecognitionWorkItem = nil
+
+        guard activeChordRecognitionRequestID == requestID else {
+            return
+        }
+
+        guard interactionMode.allowsChordInkEditing,
+              let activeInkScope = activeInkScope(),
+              case .chords(let chordFrame) = activeInkScope,
+              let drawingData = currentCanvasDrawingData(),
+              drawingData != lastRecognizedChordDrawingData,
+              let target = chordInkTarget(
+                for: pageInkCanvasView.drawing,
+                chordFrame: chordFrame
+              ) else {
+            activeChordRecognitionRequestID = nil
+            return
+        }
+        let strokes = PencilKitInkAdapter.inkStrokes(from: pageInkCanvasView.drawing)
+        let drawingForOCR = pageInkCanvasView.drawing
+
+        let recognizer = chordInkRecognizer
+        let recognitionOptions = chordInkRecognitionOptions
+        let ocrCandidateProvider = chordOCRCandidateProvider
+        chordInkRecognitionQueue.async { [weak self] in
+            let recognitionStartedAt = Date()
+            var result = recognizer.recognize(
+                strokes: strokes,
+                options: recognitionOptions
+            )
+            let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
+            if ChordRecognitionTrustArbiter.shouldRequestOCR(
+                for: result,
+                primaryDecision: primaryDecision
+            ),
+               let ocrCandidateProvider,
+               let ocrImage = self?.chordOCRImage(for: drawingForOCR) {
+                let ocrStartedAt = Date()
+                result.ocrCandidates = ocrCandidateProvider.recognizeCandidates(in: ocrImage)
+                result.metrics.ocrMilliseconds = Date().timeIntervalSince(ocrStartedAt) * 1_000
+            }
+            let recognitionFinishedAt = Date()
+            DispatchQueue.main.async { [weak self] in
+                self?.finishChordInkRecognition(
+                    requestID: requestID,
+                    result: result,
+                    drawingData: drawingData,
+                    target: target,
+                    timing: ChordInkRecognitionTiming(
+                        scheduledAt: scheduledAt,
+                        requestedDelay: requestedDelay,
+                        recognitionStartedAt: recognitionStartedAt,
+                        recognitionFinishedAt: recognitionFinishedAt,
+                        strokeCount: strokes.count,
+                        ocrCandidateCount: result.ocrCandidates?.count ?? 0
+                    )
+                )
+            }
+        }
+    }
+
+    private func finishChordInkRecognition(
+        requestID: UUID,
+        result: ChordInkRecognitionResult,
+        drawingData: Data,
+        target: (measureID: UUID, fraction: Double),
+        timing: ChordInkRecognitionTiming
+    ) {
+        guard activeChordRecognitionRequestID == requestID else {
+            return
+        }
+        activeChordRecognitionRequestID = nil
+
+        logChordInkRecognitionTiming(timing, result: result)
+
+        guard interactionMode.allowsChordInkEditing,
+              !result.rawCandidates.isEmpty else {
+            return
+        }
+
+        if shouldGiveChordInkContinuationGrace(
+            result: result,
+            drawingData: drawingData,
+            timing: timing
+        ) {
+            chordInkContinuationGraceDrawingData = drawingData
+            scheduleChordInkRecognition(after: chordInkContinuationGraceDelay)
+            return
+        }
+
+        chordInkContinuationGraceDrawingData = nil
+        lastRecognizedChordDrawingData = drawingData
+        onChordInkRecognitionProposal?(
+            target.measureID,
+            result,
+            drawingData,
+            target.fraction
+        )
+    }
+
+    private func shouldGiveChordInkContinuationGrace(
+        result: ChordInkRecognitionResult,
+        drawingData: Data,
+        timing: ChordInkRecognitionTiming
+    ) -> Bool {
+        guard chordInkContinuationGraceDrawingData != drawingData,
+              timing.requestedDelay <= chordInkIdleDelay + 0.01,
+              ChordInkContinuationGracePolicy.shouldWaitForPossibleContinuation(
+                  result: result,
+                  strokeCount: timing.strokeCount
+              ) else {
+            return false
+        }
+
+        return true
+    }
+
+    private func chordInkRecognitionIdleDelay(for _: PKDrawing) -> TimeInterval {
+        chordInkIdleDelay
+    }
+
+    private func inkRenderBounds(for drawing: PKDrawing) -> CGRect {
+        drawing.strokes.reduce(CGRect.null) { partialBounds, stroke in
+            let strokeBounds = stroke.renderBounds
+            guard !strokeBounds.isNull else {
+                return partialBounds
+            }
+
+            return partialBounds.isNull ? strokeBounds : partialBounds.union(strokeBounds)
+        }
+    }
+
+    private func chordOCRImage(for drawing: PKDrawing) -> CGImage? {
+        let inkBounds = inkRenderBounds(for: drawing)
+        guard !inkBounds.isNull,
+              inkBounds.width > 1,
+              inkBounds.height > 1 else {
+            return nil
+        }
+
+        let cropBounds = inkBounds.insetBy(dx: -18, dy: -18)
+        let inkImage = drawing.image(from: cropBounds, scale: 3)
+        let rendererFormat = UIGraphicsImageRendererFormat.default()
+        rendererFormat.opaque = true
+        rendererFormat.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: inkImage.size, format: rendererFormat)
+        let image = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: inkImage.size))
+            inkImage.draw(in: CGRect(origin: .zero, size: inkImage.size))
+        }
+
+        return image.cgImage
+    }
+
+    private func logChordInkRecognitionTiming(
+        _ timing: ChordInkRecognitionTiming,
+        result: ChordInkRecognitionResult
+    ) {
+        #if DEBUG || targetEnvironment(simulator)
+        let idleMilliseconds = timing.recognitionStartedAt.timeIntervalSince(timing.scheduledAt) * 1_000
+        let recognitionMilliseconds = timing.recognitionFinishedAt.timeIntervalSince(timing.recognitionStartedAt) * 1_000
+        let totalMilliseconds = timing.recognitionFinishedAt.timeIntervalSince(timing.scheduledAt) * 1_000
+        let bestRead = result.match?.displayText ?? "none"
+        let metrics = result.metrics
+        let composition = metrics.compositionMetrics
+        print(
+            String(
+                format: "SmartChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms cluster=%.0fms glyph=%.0fms context=%.0fms compose=%.0fms semantic=%.0fms match=%.0fms ocrMs=%.0fms strokes=%d clusters=%d candidates=%d sequences=%d/%d limit=%@ ocr=%d best=%@",
+                timing.requestedDelay * 1_000,
+                idleMilliseconds,
+                recognitionMilliseconds,
+                totalMilliseconds,
+                metrics.clusterMilliseconds,
+                metrics.glyphMilliseconds,
+                metrics.contextualGlyphMilliseconds,
+                metrics.composeMilliseconds,
+                metrics.semanticMilliseconds,
+                metrics.matchMilliseconds,
+                metrics.ocrMilliseconds ?? 0,
+                timing.strokeCount,
+                metrics.clusterCount,
+                result.rawCandidates.count,
+                composition.generatedSequenceCount,
+                composition.maxGeneratedSequences,
+                composition.hitGeneratedSequenceLimit ? "yes" : "no",
+                timing.ocrCandidateCount,
+                bestRead
+            )
+        )
+        #endif
     }
 
     private func shouldFinalizeRhythmicNotation(from previousMeasureID: UUID?, to nextMeasureID: UUID?) -> Bool {
@@ -1083,368 +1304,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func finalizeChordInkIfNeeded() -> Bool {
-        guard let pageLayout else {
-            return true
-        }
-
-        let drawing = pageInkCanvasView.drawing
-        let chordBandLocalFrames = chordBandLocalFrames(in: pageLayout)
-        guard !drawing.strokes.isEmpty,
-              !chordBandLocalFrames.isEmpty else {
-            return true
-        }
-
-        let scopes = chordRecognitionScopes(in: pageLayout, drawing: drawing)
-        guard !scopes.isEmpty else {
-            let remainingDrawing = drawing.filtered(toAnyOf: chordBandLocalFrames)
-            replaceLiveChordDrawing(with: remainingDrawing, in: chart)
-            return true
-        }
-
-        var updatedChart = chart
-        var recognizedFrames: [CGRect] = []
-
-        for scope in scopes {
-            let evaluation = resolvedChordRecognitionEvaluation(in: scope.localFrame, drawing: drawing)
-
-            guard let candidate = evaluation.report.bestCandidate else {
-                recordChordRecognitionTelemetry(
-                    evaluation: evaluation,
-                    scope: scope,
-                    outcome: .unrecognized
-                )
-                continue
-            }
-
-            let requiresConfirmation = ChordRecognitionDecisionPolicy.requiresConfirmation(
-                report: evaluation.report,
-                userRequiresConfirmation: chordRecognitionRequiresConfirmation
-            )
-            let shouldAppendAutomatically = ChordRecognitionDecisionPolicy.shouldAppendAutomatically(
-                report: evaluation.report,
-                userRequiresConfirmation: chordRecognitionRequiresConfirmation
-            )
-
-            if requiresConfirmation || !shouldAppendAutomatically {
-                if !evaluation.report.shouldOfferBestCandidateConfirmation {
-                    recordChordRecognitionTelemetry(
-                        evaluation: evaluation,
-                        scope: scope,
-                        outcome: .unrecognized,
-                        requiresConfirmation: requiresConfirmation
-                    )
-                    continue
-                }
-
-                let telemetryID = recordChordRecognitionTelemetry(
-                    evaluation: evaluation,
-                    scope: scope,
-                    outcome: .confirmationOffered,
-                    requiresConfirmation: requiresConfirmation
-                )
-                let proposal = chordRecognitionProposal(
-                    for: scope,
-                    telemetryID: telemetryID,
-                    candidate: candidate,
-                    evaluation: evaluation,
-                    drawing: drawing,
-                    chordBandLocalFrames: chordBandLocalFrames,
-                    acceptedFrames: recognizedFrames
-                )
-
-                if !recognizedFrames.isEmpty {
-                    let drawingAfterRecognizedChords = drawing.filteringChordRecognitionStrokes(
-                        chordBandFrames: chordBandLocalFrames,
-                        recognizedFrames: recognizedFrames
-                    )
-                    replaceLiveChordDrawing(with: drawingAfterRecognizedChords, in: updatedChart)
-                }
-
-                onChordRecognitionProposal?(proposal)
-                setNeedsDisplay()
-                return false
-            }
-
-            let match = candidate.match
-
-            guard updatedChart.appendRecognizedChord(
-                    match.symbol,
-                    rawInput: match.rawInput,
-                    to: scope.measureID,
-                    atFraction: scope.insertionFraction
-                  ) else {
-                recordChordRecognitionTelemetry(
-                    evaluation: evaluation,
-                    scope: scope,
-                    outcome: .appendFailed,
-                    requiresConfirmation: requiresConfirmation
-                )
-                continue
-            }
-
-            recordChordRecognitionTelemetry(
-                evaluation: evaluation,
-                scope: scope,
-                outcome: .recognized,
-                requiresConfirmation: requiresConfirmation
-            )
-            recognizedFrames.append(scope.localFrame)
-        }
-
-        let remainingDrawing = drawing.filteringChordRecognitionStrokes(
-            chordBandFrames: chordBandLocalFrames,
-            recognizedFrames: recognizedFrames
-        )
-        replaceLiveChordDrawing(with: remainingDrawing, in: updatedChart)
-
-        if recognizedFrames.isEmpty {
-            onChordRecognitionError?(
-                "That chord could not be read yet. Try a root like C, C#, Db, Bb, or a minor form like C-, Cm, or Cmin."
-            )
-            return false
-        }
-
-        setNeedsDisplay()
-        return true
-    }
-
-    private func replaceLiveChordDrawing(with drawing: PKDrawing, in updatedChart: Chart) {
-        let drawingData = drawing.strokes.isEmpty ? nil : drawing.dataRepresentation()
-        var nextChart = updatedChart
-        _ = nextChart.setPageHandwrittenChordDrawing(drawingData)
-
-        isSyncingInkCanvasFromModel = true
-        pageInkCanvasView.drawing = drawing
-        isSyncingInkCanvasFromModel = false
-
-        chart = nextChart
-        onChartChanged?(nextChart)
-    }
-
-    private func chordRecognitionScopes(
-        in pageLayout: LeadSheetPageLayout,
-        drawing: PKDrawing
-    ) -> [ChordRecognitionScope] {
-        let writingFrame = chordWritingFrame(for: pageLayout)
-        return pageLayout.systems
-            .flatMap(\.measures)
-            .compactMap { measure in
-                guard let measureID = measure.sourceMeasureID else {
-                    return nil
-                }
-
-                let localFrame = localChordBandFrame(for: measure, writingFrame: writingFrame)
-                let searchFrame = localFrame.insetBy(dx: -6, dy: -6)
-                let inkBounds = drawing.strokes.reduce(CGRect?.none) { partialResult, stroke in
-                    let bounds = stroke.renderBounds
-                    guard searchFrame.intersects(bounds) else {
-                        return partialResult
-                    }
-
-                    return partialResult?.union(bounds) ?? bounds
-                }
-
-                guard let inkBounds,
-                      !inkBounds.isNull,
-                      inkBounds.width >= 5,
-                      inkBounds.height >= 8 else {
-                    return nil
-                }
-
-                let globalInkMidX = inkBounds.midX + writingFrame.minX
-                let fraction = (globalInkMidX - measure.chordBandFrame.minX) / max(1, measure.chordBandFrame.width)
-
-                return ChordRecognitionScope(
-                    measureID: measureID,
-                    localFrame: localFrame,
-                    insertionFraction: Double(min(max(fraction, 0), 0.9999))
-                )
-            }
-    }
-
-    private func chordRecognitionEvaluation(
-        in localFrame: CGRect,
-        drawing: PKDrawing,
-        includeTextRecognition: Bool
-    ) -> ChordRecognitionEvaluation {
-        let startTime = CACurrentMediaTime()
-        let textCandidates = includeTextRecognition
-            ? recognizedChordTextCandidates(in: localFrame, drawing: drawing)
-            : []
-        let inkSample = ChordRecognitionInkSample(
-            drawing: drawing,
-            localFrame: localFrame
-        )
-        let confirmedExamples = ChordRecognitionLearningStore.examples()
-
-        let report = ChordSymbolRecognizer.evaluate(
-            textCandidates: textCandidates,
-            inkSample: inkSample,
-            confirmedExamples: confirmedExamples
-        )
-
-        return ChordRecognitionEvaluation(
-            textCandidates: textCandidates,
-            inkSample: inkSample,
-            report: report,
-            confirmedExampleCount: confirmedExamples.count,
-            recognitionDurationMillis: (CACurrentMediaTime() - startTime) * 1000
-        )
-    }
-
-    private func resolvedChordRecognitionEvaluation(
-        in localFrame: CGRect,
-        drawing: PKDrawing
-    ) -> ChordRecognitionEvaluation {
-        if chordRecognitionRequiresConfirmation {
-            return chordRecognitionEvaluation(
-                in: localFrame,
-                drawing: drawing,
-                includeTextRecognition: true
-            )
-        }
-
-        let visualEvaluation = chordRecognitionEvaluation(
-            in: localFrame,
-            drawing: drawing,
-            includeTextRecognition: false
-        )
-        guard !ChordRecognitionDecisionPolicy.shouldAppendAutomatically(
-            report: visualEvaluation.report,
-            userRequiresConfirmation: chordRecognitionRequiresConfirmation
-        ) else {
-            return visualEvaluation
-        }
-
-        let fullEvaluation = chordRecognitionEvaluation(
-            in: localFrame,
-            drawing: drawing,
-            includeTextRecognition: true
-        )
-        if fullEvaluation.report.bestCandidate == nil {
-            return visualEvaluation
-        }
-
-        return fullEvaluation
-    }
-
-    private func chordRecognitionProposal(
-        for scope: ChordRecognitionScope,
-        telemetryID: UUID,
-        candidate: ChordRecognitionCandidate,
-        evaluation: ChordRecognitionEvaluation,
-        drawing: PKDrawing,
-        chordBandLocalFrames: [CGRect],
-        acceptedFrames: [CGRect]
-    ) -> ChordRecognitionProposal {
-        let drawingAfterAcceptance = drawing.filteringChordRecognitionStrokes(
-            chordBandFrames: chordBandLocalFrames,
-            recognizedFrames: acceptedFrames + [scope.localFrame]
-        )
-        let remainingDrawingData = drawingAfterAcceptance.strokes.isEmpty
-            ? nil
-            : drawingAfterAcceptance.dataRepresentation()
-        let measureIndex = chart.measure(id: scope.measureID)?.index ?? 0
-
-        return ChordRecognitionProposal(
-            telemetryID: telemetryID,
-            measureID: scope.measureID,
-            measureIndex: measureIndex,
-            symbol: candidate.match.symbol,
-            rawInput: candidate.match.rawInput,
-            insertionFraction: scope.insertionFraction,
-            confidence: candidate.confidence,
-            methodName: candidate.method.rawValue,
-            reportSummary: evaluation.report.debugSummary,
-            learningInk: evaluation.inkSample.map(ChordRecognitionLearningInk.init(sample:)),
-            remainingChordDrawingData: remainingDrawingData
-        )
-    }
-
-    @discardableResult
-    private func recordChordRecognitionTelemetry(
-        evaluation: ChordRecognitionEvaluation,
-        scope: ChordRecognitionScope,
-        outcome: ChordRecognitionTelemetryOutcome,
-        requiresConfirmation: Bool? = nil
-    ) -> UUID {
-        let record = ChordRecognitionTelemetryRecord(
-            chartID: chart.id,
-            measureID: scope.measureID,
-            insertionFraction: scope.insertionFraction,
-            outcome: outcome,
-            textCandidates: evaluation.textCandidates,
-            report: evaluation.report,
-            inkSample: evaluation.inkSample,
-            confirmedExampleCount: evaluation.confirmedExampleCount,
-            recognitionDurationMillis: evaluation.recognitionDurationMillis,
-            requiresConfirmation: requiresConfirmation
-        )
-        ChordRecognitionTelemetryStore.record(record)
-        return record.id
-    }
-
-    private func recognizedChordTextCandidates(
-        in localFrame: CGRect,
-        drawing: PKDrawing
-    ) -> [String] {
-        guard let image = chordInkImage(from: drawing, localFrame: localFrame),
-              let cgImage = image.cgImage else {
-            return []
-        }
-
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        request.customWords = ChordRecognitionCompendium.recognitionWords
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up)
-        do {
-            try handler.perform([request])
-        } catch {
-            return []
-        }
-
-        let observations = (request.results ?? []).sorted {
-            $0.boundingBox.minX < $1.boundingBox.minX
-        }
-        var candidates = observations.flatMap { observation in
-            observation.topCandidates(5).map(\.string)
-        }
-        let bestLine = observations.compactMap { observation in
-            observation.topCandidates(1).first?.string
-        }
-        if !bestLine.isEmpty {
-            candidates.append(bestLine.joined())
-            candidates.append(bestLine.joined(separator: " "))
-        }
-
-        return candidates
-    }
-
-    private func chordInkImage(from drawing: PKDrawing, localFrame: CGRect) -> UIImage? {
-        let renderFrame = localFrame.insetBy(dx: -8, dy: -8)
-        guard renderFrame.width > 0,
-              renderFrame.height > 0 else {
-            return nil
-        }
-
-        let renderedInk = drawing.image(
-            from: renderFrame,
-            scale: max(UIScreen.main.scale * 2, 4)
-        )
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = renderedInk.scale
-        format.opaque = true
-
-        return UIGraphicsImageRenderer(size: renderedInk.size, format: format).image { context in
-            UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: renderedInk.size))
-            renderedInk.draw(in: CGRect(origin: .zero, size: renderedInk.size))
-        }
-    }
-
     private func chordWritingBandContains(_ location: CGPoint, in pageLayout: LeadSheetPageLayout) -> Bool {
         pageLayout.systems
             .flatMap(\.measures)
@@ -1453,22 +1312,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
     }
 
-    private func chordBandLocalFrames(in pageLayout: LeadSheetPageLayout) -> [CGRect] {
-        let writingFrame = chordWritingFrame(for: pageLayout)
-        return pageLayout.systems
-            .flatMap(\.measures)
-            .map { measure in
-                localChordBandFrame(for: measure, writingFrame: writingFrame)
+    private func chordInkTarget(
+        for drawing: PKDrawing,
+        chordFrame: CGRect
+    ) -> (measureID: UUID, fraction: Double)? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        let inkBounds = inkRenderBounds(for: drawing)
+        guard !inkBounds.isNull,
+              inkBounds.width >= 4 || inkBounds.height >= 4 else {
+            return nil
+        }
+
+        let inkBoundsInView = inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
+        let inkCenter = CGPoint(x: inkBoundsInView.midX, y: inkBoundsInView.midY)
+        let candidateMeasures = pageLayout.systems.flatMap(\.measures).compactMap { measure -> LeadSheetMeasureLayout? in
+            guard measure.sourceMeasureID != nil else {
+                return nil
             }
+
+            return measure
+        }
+
+        let targetMeasure = candidateMeasures.max { lhs, rhs in
+            chordInkScore(inkBoundsInView, center: inkCenter, for: lhs)
+                < chordInkScore(inkBoundsInView, center: inkCenter, for: rhs)
+        }
+        guard let targetMeasure,
+              let measureID = targetMeasure.sourceMeasureID,
+              chordInkScore(inkBoundsInView, center: inkCenter, for: targetMeasure) > 0 else {
+            return nil
+        }
+
+        let fraction = (inkCenter.x - targetMeasure.chordBandFrame.minX)
+            / max(1, targetMeasure.chordBandFrame.width)
+        return (measureID, Double(min(max(fraction, 0), 0.9999)))
     }
 
-    private func localChordBandFrame(
-        for measure: LeadSheetMeasureLayout,
-        writingFrame: CGRect
-    ) -> CGRect {
-        measure.chordBandFrame
-            .intersection(writingFrame)
-            .offsetBy(dx: -writingFrame.minX, dy: -writingFrame.minY)
+    private func chordInkScore(
+        _ inkBounds: CGRect,
+        center: CGPoint,
+        for measure: LeadSheetMeasureLayout
+    ) -> CGFloat {
+        let generousBandFrame = measure.chordBandFrame.insetBy(dx: -14, dy: -18)
+        let intersection = generousBandFrame.intersection(inkBounds)
+        let intersectionArea = intersection.isNull ? 0 : intersection.width * intersection.height
+        let centerBonus: CGFloat = generousBandFrame.contains(center) ? 10_000 : 0
+
+        return intersectionArea + centerBonus
     }
 
     private func restoreSelectedMeasureID(_ measureID: UUID?) {
@@ -1514,6 +1407,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if !interactionMode.allowsChordInkEditing {
             activeChordMoveDrag = nil
+            pendingChordRecognitionWorkItem?.cancel()
+            pendingChordRecognitionWorkItem = nil
+            activeChordRecognitionRequestID = nil
+            lastRecognizedChordDrawingData = nil
         }
 
         if !interactionMode.allowsAnyInkEditing {
@@ -1521,10 +1418,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageInkCanvasView.resignFirstResponder()
         }
 
-        if !interactionMode.allowsChordInkEditing {
-            pendingChordFinalizeWorkItem?.cancel()
-            pendingChordFinalizeWorkItem = nil
-        }
     }
 
     private func updateInkTool() {
@@ -1707,6 +1600,7 @@ private struct ChordEditHitTarget {
     enum Action {
         case delete
         case move
+        case review
     }
 
     var measureID: UUID
@@ -1723,50 +1617,6 @@ private final class ChordEditHitOverlayView: UIView {
         }
 
         return containsEditableControl?(point) ?? false
-    }
-}
-
-private struct ChordRecognitionScope {
-    var measureID: UUID
-    var localFrame: CGRect
-    var insertionFraction: Double
-}
-
-private struct ChordRecognitionEvaluation {
-    var textCandidates: [String]
-    var inkSample: ChordRecognitionInkSample?
-    var report: ChordRecognitionReport
-    var confirmedExampleCount: Int
-    var recognitionDurationMillis: Double
-}
-
-private extension PKDrawing {
-    func filtered(toAnyOf frames: [CGRect]) -> PKDrawing {
-        let keptStrokes = strokes.filter { stroke in
-            frames.contains { frame in
-                frame.insetBy(dx: -3, dy: -3).intersects(stroke.renderBounds)
-            }
-        }
-
-        return PKDrawing(strokes: keptStrokes)
-    }
-
-    func filteringChordRecognitionStrokes(
-        chordBandFrames: [CGRect],
-        recognizedFrames: [CGRect]
-    ) -> PKDrawing {
-        let keptStrokes = strokes.filter { stroke in
-            let bounds = stroke.renderBounds
-            guard chordBandFrames.contains(where: { $0.insetBy(dx: -3, dy: -3).intersects(bounds) }) else {
-                return false
-            }
-
-            return !recognizedFrames.contains {
-                $0.insetBy(dx: -8, dy: -8).intersects(bounds)
-            }
-        }
-
-        return PKDrawing(strokes: keptStrokes)
     }
 }
 

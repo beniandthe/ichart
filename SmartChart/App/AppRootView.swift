@@ -8,16 +8,16 @@ struct AppRootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $projectPath) {
-                LibraryView { chartID in
+                LibraryView { chartID, initialCanvasMode in
                     store.selectedChartID = chartID
-                    projectPath = [.chart(chartID)]
+                    projectPath = [.chart(chartID, initialCanvasMode)]
                 }
                 .navigationTitle("Projects")
                 .navigationDestination(for: ProjectRoute.self) { route in
                     switch route {
-                    case .chart(let chartID):
+                    case .chart(let chartID, let initialCanvasMode):
                         if let chart = chartBinding(for: chartID) {
-                            EditorView(chart: chart)
+                            EditorView(chart: chart, initialCanvasMode: initialCanvasMode)
                         } else {
                             ContentUnavailableView(
                                 "Chart Not Found",
@@ -77,5 +77,5 @@ private enum AppTab: Hashable {
 }
 
 private enum ProjectRoute: Hashable {
-    case chart(UUID)
+    case chart(UUID, EditorCanvasMode)
 }

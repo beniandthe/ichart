@@ -37,4 +37,27 @@ final class FileChartRepositoryTests: XCTestCase {
 
         XCTAssertEqual(loadedSnapshot, snapshot)
     }
+
+    func testRoundTripsSnapshotWhenPathContainsSpaces() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let repository = FileChartRepository(
+            url: temporaryDirectory.appendingPathComponent("library-state.json")
+        )
+        let snapshot = ChartLibrarySnapshot(
+            charts: [Chart.blank(title: "Chord Writing Test Chart", key: .cMajor)],
+            selectedChartID: nil,
+            entitlements: AppEntitlements(activePlan: .free)
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory.deletingLastPathComponent())
+        }
+
+        try repository.saveSnapshot(snapshot)
+        let loadedSnapshot = try XCTUnwrap(repository.loadSnapshot())
+
+        XCTAssertEqual(loadedSnapshot, snapshot)
+    }
 }

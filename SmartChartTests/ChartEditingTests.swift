@@ -193,20 +193,93 @@ final class ChartEditingTests: XCTestCase {
         )
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let symbol = try XCTUnwrap(BasicMajorChordCompendium.match("Db")?.symbol)
+        let sourceInkData = Data([1, 9, 7, 5])
 
-        XCTAssertTrue(
-            chart.appendRecognizedChord(
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
                 symbol,
                 rawInput: "D flat",
                 to: measureID,
-                atFraction: 0.55
+                atFraction: 0.55,
+                sourceInkData: sourceInkData
             )
         )
 
         let chord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
+        XCTAssertEqual(chord.id, chordID)
         XCTAssertEqual(chord.symbol.displayText, "Db")
         XCTAssertEqual(chord.rawInput, "D flat")
+        XCTAssertEqual(chord.sourceInkData, sourceInkData)
         XCTAssertEqual(chord.startPosition.displayText, "3")
+    }
+
+    func testReplaceChordEventUpdatesSymbolWithoutMovingPlacementOrInkSource() throws {
+        var chart = Chart.draft(title: "New Chart")
+        chart.completeInitialSetup(
+            title: "Pocket Groove",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let sourceInkData = Data([9, 8, 7])
+        let initialSymbol = try XCTUnwrap(ChordRecognitionCompendium.match("Bb/A")?.symbol)
+        let correctedSymbol = try XCTUnwrap(ChordRecognitionCompendium.match("Db/A")?.symbol)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                initialSymbol,
+                rawInput: "Bb/A",
+                to: measureID,
+                atFraction: 0.55,
+                sourceInkData: sourceInkData
+            )
+        )
+
+        XCTAssertTrue(chart.replaceChordEvent(chordID, with: correctedSymbol, rawInput: "Db/A"))
+
+        let chord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chord.symbol.displayText, "Db/A")
+        XCTAssertEqual(chord.rawInput, "Db/A")
+        XCTAssertEqual(chord.sourceInkData, sourceInkData)
+        XCTAssertEqual(chord.startPosition.displayText, "3")
+        XCTAssertEqual(chart.measureContainingChordEvent(id: chordID)?.id, measureID)
+    }
+
+    func testChordWritingLoopOnDisposableTestChartCommitsStructuredChords() throws {
+        var chart = Chart.blank(title: "Chord Writing Test Chart", measureCount: 8)
+        let chordLoopCases = [
+            (written: "C", expected: "C"),
+            (written: "Bb7", expected: "Bb7"),
+            (written: "F#-11", expected: "F#-11"),
+            (written: "Db7b9", expected: "Db7(b9)"),
+            (written: "G/B", expected: "G/B")
+        ]
+
+        for (index, chordCase) in chordLoopCases.enumerated() {
+            let measureID = chart.measures[index].id
+            let inkData = Data("ink-\(chordCase.written)".utf8)
+            let match = try XCTUnwrap(ChordRecognitionCompendium.match(chordCase.written))
+
+            XCTAssertTrue(chart.setPageHandwrittenChordDrawing(inkData))
+            XCTAssertTrue(
+                chart.appendRecognizedChord(
+                    match.symbol,
+                    rawInput: chordCase.written,
+                    to: measureID,
+                    atFraction: 0.05,
+                    sourceInkData: inkData
+                ),
+                chordCase.written
+            )
+            XCTAssertTrue(chart.setPageHandwrittenChordDrawing(nil))
+
+            let chord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
+            XCTAssertEqual(chord.symbol.displayText, chordCase.expected)
+            XCTAssertEqual(chord.rawInput, chordCase.written)
+            XCTAssertEqual(chord.sourceInkData, inkData)
+            XCTAssertEqual(chord.startPosition.displayText, "1")
+            XCTAssertNil(chart.pageHandwrittenChordData)
+        }
     }
 
     func testDeleteChordEventRemovesRenderedChordFromMeasure() throws {

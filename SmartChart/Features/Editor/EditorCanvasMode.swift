@@ -47,6 +47,10 @@ enum EditorCanvasMode: Hashable {
         self == .freeHand || self == .chordEntry || self == .noteEdit
     }
 
+    var allowsTopBarExport: Bool {
+        self != .freeHand
+    }
+
     var allowsMeasureSelection: Bool {
         self != .freeHand && self != .chordEntry && self != .noteEdit
     }

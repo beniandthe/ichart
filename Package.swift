@@ -27,7 +27,10 @@ let package = Package(
         .testTarget(
             name: "SmartChartTests",
             dependencies: ["SmartChart"],
-            path: "SmartChartTests"
+            path: "SmartChartTests",
+            exclude: [
+                "Fixtures"
+            ]
         )
     ]
 )

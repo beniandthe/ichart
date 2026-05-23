@@ -1,9 +1,17 @@
 # Smart Chart — Current Architecture Audit
 
-Status: Active implementation path
+Status: historical audit, stale for current recognition path
 Date: 2026-04-23
 
 Execution sequence reference: `docs/jazz-lead-sheet-build-plan.md`
+
+## Historical Notice
+
+This audit reflects an older editor-cleanup checkpoint before live chord-entry recognition returned to the app. It is useful as historical context for the jazz-page reset, but it is not the active sprint or recognition architecture authority.
+
+For current sprint execution, use `docs/smart-chart-sprint-source-of-truth.md`. For the May 2026 repo, GitHub, and recognition audit evidence, use `docs/repo-github-recognition-audit-2026-05-20.md`.
+
+When this document conflicts with the living sprint source of truth, the living sprint source of truth wins.
 
 This audit reflects the repo after the jazz-page cleanup pass. It is meant to answer one practical question:
 
@@ -80,7 +88,8 @@ The repository is simpler now:
 - the editor owns a small set of deliberate top-level actions
 - free-hand mode is page-wide raw ink only
 - structured measure growth still exists through `commitOpenMeasure()` and `positionOpenMeasure(after:)`
-- rhythm interpretation now runs through a confirmation-first handwritten quantizer, while chord interpretation remains outside the current live path
+- rhythm interpretation now runs through a confirmation-first handwritten quantizer
+- at this historical checkpoint, chord interpretation was outside the live path; that is no longer true for the current recovery branch
 
 That makes the codebase much closer to the actual product goal: build the page authoring experience first, then add interpretation back on top of a stable surface.
 

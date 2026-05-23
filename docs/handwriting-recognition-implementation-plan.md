@@ -1,8 +1,16 @@
 # Handwriting Recognition Implementation Plan
 
-Status: Implementation plan
+Status: historical architecture context, not active sprint authority
 Date: 2026-05-06
 Target repo: `beniandthe/smart-chart`
+
+## Historical Notice
+
+This document preserves the original handwriting-recognition architecture, pass notes, and recovery context. It is not the active sprint plan.
+
+For current execution, start with `docs/smart-chart-sprint-source-of-truth.md`. For the May 2026 repo, GitHub, and recognition audit evidence, use `docs/repo-github-recognition-audit-2026-05-20.md`.
+
+When this document conflicts with the living sprint source of truth, the living sprint source of truth wins.
 
 ## Purpose
 
@@ -10,7 +18,7 @@ Smart Chart should convert Apple Pencil input into clean, editable chord-chart o
 
 The goal is not full OCR. The goal is a constrained, testable recognition pipeline for common chord-chart tokens: chord roots, accidentals, minor marks, extensions, alterations, slash bass, and a small set of notation marks.
 
-This plan assumes the GitHub `main` branch is the source of truth.
+Historically, this plan assumed the GitHub `main` branch was the source of truth. That assumption is stale for the Sprint 2 recovery work; the active recovery baseline is recorded in `docs/smart-chart-sprint-source-of-truth.md`.
 
 ## Current Repo Starting Point
 
@@ -53,6 +61,34 @@ PKDrawing
 ```
 
 Recognition should propose. The structured chart model should decide.
+
+## Pipeline 1 Trust Sidecar
+
+The first OCR integration should be a compendium-gated sidecar, not a replacement for the
+glyph/template recognizer.
+
+Preferred live flow:
+
+```text
+PKDrawing
+-> stroke groups / glyph candidates / chord-string candidates
+-> ChordRecognitionCompendium.match(candidates:)
+-> primary recognizer decision
+
+only for primary reads that would already require confirmation:
+ink crop
+-> OCR text candidates
+-> ChordRecognitionCompendium.match(candidates:)
+-> trust arbiter
+
+trust arbiter
+-> auto-render when primary is clear or primary and OCR agree
+-> confirmation when OCR supports a ranked runner-up or is the only valid source
+```
+
+Raw OCR text should never be rendered or shown as a candidate unless it normalizes through
+`ChordRecognitionCompendium`. Invalid OCR strings, partial reads such as a bare root letter,
+and OCR strings that do not match a ranked recognizer candidate are diagnostic-only evidence.
 
 ## Third-Party References
 
@@ -273,12 +309,12 @@ Important cases:
 - `Bb` should group as `B` + flat modifier.
 - `F#` should group as `F` + sharp modifier.
 - `C-` should group as root + minor mark.
-- `Db7b9` should split into usable glyph clusters but compose into one chord candidate.
+- `Db7(b9)` should split into usable glyph clusters but compose into one chord candidate.
 - Slash bass such as `G/B` should preserve the slash as a separator.
 
 Acceptance criteria:
 
-- Fixture tests prove grouping for `Bb`, `F#`, `C-`, and `Db7b9`.
+- Fixture tests prove grouping for `Bb`, `F#`, `C-`, and `Db7(b9)`.
 - Clusterer output is deterministic.
 - Clusterer has no knowledge of `ChordSymbol`; it only returns geometry/time clusters.
 
@@ -353,7 +389,7 @@ Acceptance criteria:
 - `Bb` beats `8b` when both are plausible.
 - `F#` beats `F` when a nearby sharp cluster is present with reasonable confidence.
 - `C-` and `Cm` normalize to the same minor symbol.
-- `Db7b9` can be composed and parsed.
+- `Db7(b9)` can be composed and parsed.
 
 ## Layer 6: ChordInkRecognizer Facade
 
@@ -469,6 +505,260 @@ Whenever recognition fails on real iPad input:
 
 This is the main guardrail against recurring regressions.
 
+### Live fixture capture loop
+
+For exact data collection, use the confirmation sheet as a labeling tool rather
+than as a chart-entry tool:
+
+1. write exactly one chord symbol in chord mode
+2. correct `Intended chord` to the exact target spelling
+3. tap `Copy Test Fixture`
+4. let `scripts/watch_simulator_chord_fixtures.py` import the copied sample
+5. tap `Clear & Next Sample`
+6. repeat
+
+The corrected `Intended chord` label is the source of truth for the captured
+fixture. Do not tap `Use Chord` during a fixture pass unless the goal is to test
+normal chart entry instead of data capture.
+
+### Current captured fixture coverage
+
+The first real handwriting fixture set is now committed and covered by
+`InkFixtureCoverageTests`:
+
+### Consolidated chord-recognition v1 boundary
+
+Recognition v1 is now scoped to a constrained chord-chart vocabulary, validated
+through the parser/compendium instead of arbitrary OCR. The fixture corpus has
+been deduplicated so exact name-only duplicates do not inflate confidence:
+
+- fixture corpus: 645 distinct ink fixture payloads across 209 canonical
+  display texts
+- duplicate policy: exact duplicate payloads are rejected by coverage tests and
+  skipped by the fixture importer
+- source of truth: the compendium and parser remain the only authority for
+  accepted chord tokens; ink recognition only proposes ranked candidates
+
+Supported in v1:
+
+- roots and accidentals: natural roots plus `#` and `b`, including spellings
+  such as `Cb`, `E#`, and `B#` without enharmonic rewriting
+- major triads: root letter only, with unsupported written major aliases still
+  rejected for now
+- minor forms: written `-`, `m`, `min`, and `minor`, rendered through the
+  standardized jazz minor notation where appropriate
+- dominant extensions: `7`, `9`, `11`, and `13`
+- sixth chords: major `6` and minor `m6`
+- major-triangle extensions: `△7`, `△9`, and `△13`
+- minor extensions: `-7`, `-9`, `-11`, and `-13`
+- minor-major seventh: `-△7`
+- suspended forms: `sus`, `sus4`, and `7sus`
+- diminished forms: `°`, `°7`, and `ø7`, with parser aliases such as `dim`,
+  `dim7`, `m7b5`, and `-7b5`
+- augmented triads: `+`
+- altered dominants: `7(b9)`, `7(#9)`, `7(b5)`, `7(#5)`, `7(b13)`,
+  `7(#11)`, and shorthand `7alt`
+- slash chords: root plus slash bass such as `F/A`, `D/F#`, and `F#/A#`
+
+Deferred beyond v1:
+
+- full handwriting-to-text OCR
+- natural signs and broader accidental systems
+- major-eleventh symbols outside the suspended-chord path
+- compound/multiple simultaneous altered extensions beyond the current
+  one-alteration fixture families
+- add chords, `6/9`, polychords, cluster notation, and advanced voicing syntax
+- CoreML/HOMUS expansion unless the constrained template pipeline hits a clear
+  ceiling
+
+The next product step is not full end-to-end app validation yet. It is a
+focused chord-writing loop on a disposable test chart: create/open a clean test
+chart, write chord symbols above measures, show concise alternatives, accept or
+correct them, commit structured `ChordEvent` values to the chart, preserve raw
+ink for the confirmation cycle, and keep fixture copy tooling behind a
+debug/data-collection path.
+
+After each normal chart-entry pass, run
+`scripts/audit_chord_entry_diagnostics.py --strict` before tuning recognition.
+The audit compares rendered `ChordEvent` IDs in the disposable test chart with
+`chord-entry-diagnostics.jsonl` so stale simulator logs or missing auto-render
+events do not get mistaken for recognizer evidence. When several disposable
+charts share the same title, the audit should prefer the selected matching
+chart, then the newest matching chart; pass `--chart-id` only when replaying a
+specific historical chart.
+Use `scripts/audit_chord_entry_diagnostics.py --strict --details --scores 3`
+when deciding what to tune next. The detail view is the canonical quick read
+for a pass: it shows each accepted/rendered chord, whether it auto-rendered or
+needed confirmation, the winning confidence, the close-race gap, and the top
+candidate scores without treating confirmed close races as failures.
+If a pass rendered before live diagnostics were complete, use
+`scripts/audit_chord_entry_diagnostics.py --reconcile-missing --strict` once to
+backfill explicitly labeled `reconciledRenderedChord` rows from rendered chart
+state. These rows prove coverage but must not be treated as recognizer
+confidence wins.
+
+Current checkpoint expectation for the chord-writing loop is a mixed but
+intentional result: obvious roots and clean root/accidental forms should
+auto-render, while compact suffix collisions such as minor sevenths, altered
+dominants, and suspended forms may still request confirmation if the candidate
+gap is genuinely tight. The next tuning target should be visible in the
+diagnostic detail output before recognition heuristics are changed.
+Chord-entry latency should be tuned separately from recognition confidence:
+simple settled ink can use a shorter idle delay, complex/wide multi-stroke
+symbols should keep the longer delay, and debug timing should show the idle,
+recognition, and total milliseconds before further responsiveness changes.
+
+### Symbol-ledger checkpoint
+
+The symbol-ledger sprint is a diagnostics checkpoint, not a new authority layer.
+It records stable left-to-right symbol evidence, running-prefix candidates, final
+candidate support, and primary-candidate agreement so live passes can be audited
+without adding another opaque scoring stack.
+
+Keep these boundaries in place:
+
+- ledger evidence may explain a recognition result, but it should not auto-render
+  a different answer on its own
+- raster/cache experiments remain deferred unless the diagnostic ledger proves a
+  specific, repeated gap that the current template pipeline cannot explain
+- pass-visible fixes should stay narrow and replayable; avoid broad scoring
+  rewrites from a single frustrating live pass
+- if the loop starts requiring repeated manual passes without clear diagnostic
+  signal, stop tuning and return to product/editor work
+
+Current checkpoint evidence:
+
+- full Swift suite is green with the symbol-ledger diagnostics in place
+- replay can validate archived chord-writing passes from `library-state.json`
+- `Db7(b9)` stays a flat-ninth case instead of inventing an unwritten `b13`
+- the known remaining hard cases are confirmation/backlog items, not blockers
+  for continuing app design
+
+- natural roots: at least 4 captured samples each for `A`, `B`, `C`, `D`, `E`,
+  `F`, and `G`
+- common accidentals: at least 3 captured samples each for `A#`, `Ab`, `Bb`,
+  `C#`, `D#`, `Db`, `Eb`, `F#`, `G#`, and `Gb`
+- success-criteria forms: fixtures remain present for `C`, `Bb`, `F#`, `C-`,
+  `C-7`, `Db7(b9)`, and `G/B`
+- alias behavior: written `Cm7` remains supported as input, but exported
+  fixtures and rendered chord events canonicalize it to `C-7`
+- minor-form pass: captured samples now cover both written dash minor
+  (`C-`, `C-7`) and written lowercase-m minor (`Cm`, `Cm7`) while rendering
+  both paths through the standard dash-minor chord model
+- flat-minor stress pass: captured samples now cover `Bb-`, `Bbm`, `Bb-7`,
+  and `Bbm7`; the exporter preserves the written `m` glyphs for fixture
+  truth while the chart model still renders canonical `Bb-` / `Bb-7`
+- G-flat minor stress pass: captured samples now cover `Gb-`, `Gbm`,
+  `Gb-7`, and `Gbm7`; compact trailing sevens now split from handwritten `m`
+  suffixes so `Gbm7` does not collapse into `Gb7`
+- C-flat minor stress pass: captured samples now cover `Cb-`, `Cbm`,
+  `Cb-7`, and `Cbm7`; the existing flat pipeline preserves the written
+  C-flat spelling without enharmonic conversion
+- A-sharp minor stress pass: captured samples now cover `A#-`, `A#m`,
+  `A#-7`, and `A#m7`; embedded root-plus-sharp clusters are now split back
+  into the largest root prefix plus complete sharp suffix, so an `A` crossbar
+  does not make `A#m` collapse into `F-`
+- E-sharp minor stress pass: captured samples now cover `E#-`, `E#m`,
+  `E#-7`, and `E#m7`; the existing sharp pipeline preserves the written
+  E-sharp spelling without enharmonic conversion
+- B-sharp minor stress pass: captured samples now cover `B#-`, `B#m`,
+  `B#-7`, and `B#m7`; compact two-bowl B roots now use their whole-symbol
+  horizontal direction changes so they do not lose close races to D-sharp
+  candidates
+- sharp-minor stress pass: captured samples now cover `F#-`, `F#m`, `F#-7`,
+  and `F#m7`; slash detection was tightened so slanted `F` bars do not split
+  from the root as false slash separators
+- C-sharp minor stress pass: captured samples now cover `C#-`, `C#m`,
+  `C#-7`, and `C#m7`; compact sharp construction now merges thin upright
+  strokes without letting the sharp absorb the following minor dash
+- G-sharp minor stress pass: captured samples now cover `G#-`, `G#m`,
+  `G#-7`, and `G#m7`; completed sharp glyphs now stay separate from following
+  quality marks, including overlapping dash-plus-7 handwriting
+- G-sharp sanity pass: preserved a valid `G#m7` sample where the sharp's
+  cross-strokes slightly overlap the `G` root edge; sharp construction strokes
+  may now cross into the root edge without being absorbed into the root cluster
+- D-sharp minor stress pass: captured samples now cover `D#-`, `D#m`,
+  `D#-7`, and `D#m7`; tiny hand-drawn minor dashes now stay separate from a
+  following `7` instead of collapsing the suffix into a false minor-like glyph
+- D-flat minor stress pass: captured samples now cover `Db-`, `Dbm`, `Db-7`,
+  and `Dbm7`; compact two-stroke D roots now receive a root-level D heuristic
+  so they do not lose close races to B-flat candidates
+- E-flat minor stress pass: captured samples now cover `Eb-`, `Ebm`, `Eb-7`,
+  and `Ebm7`; multi-stroke E roots now merge their staff-like bars before
+  glyph recognition, flat marks are read more by whole-symbol shape than stroke
+  direction, and the confirmation UI filters raw glyph noise out of suggestions
+- A-flat minor stress pass: captured samples now cover `Ab-`, `Abm`, `Ab-7`,
+  and `Abm7`; root-construction merging now requires true same-glyph horizontal
+  overlap so an A crossbar does not swallow a flat mark, while flat modifier
+  overlap at the root edge remains supported
+- dominant-seventh stress pass: captured samples now cover `C7`, `Bb7`,
+  `F#7`, `Db7`, `G#7`, and `B#7`; the first extension-only pass tightened
+  compact seven-vs-minor matching, compact flat ranking, one-stroke-root sharp
+  splitting, and compact B roots before moving into larger extensions
+- sixth-chord stress pass: captured samples now cover `C6`, `Bb6`, `F#6`,
+  `Db6`, `G#6`, and `B#6`; wide looped `6` glyphs now resolve against flat,
+  minor, and `9` lookalikes, leaned D/B stems merge back into their root body,
+  and rough E/F root ordering uses stroke order instead of only geometry
+- dominant-ninth stress pass: captured samples now cover `C9`, `Bb9`,
+  `F#9`, `Db9`, `G#9`, and `B#9`; open-loop handwritten 9s are accepted as a
+  whole-symbol shape, compact D roots are protected from B-like collisions, and
+  sharp fragments can be rejoined after a right-edge stem is split away from a
+  root
+- dominant-eleventh stress pass: captured samples now cover `C11`, `Bb11`,
+  `F#11`, `Db11`, `G#11`, and `B#11`; adjacent handwritten `1` glyphs stay
+  sequential instead of merging into a double-stem cluster, and narrow `1`
+  strokes receive a high-confidence glyph heuristic even with a small top hook
+- dominant-thirteenth stress pass: captured samples now cover `C13`, `Bb13`,
+  `F#13`, `Db13`, `G#13`, and `B#13`; compact suffix `1` strokes and curled
+  whole-symbol `3` strokes now resolve before weak flat/seven alternates, while
+  accidental bonus scoring only applies when the accidental glyph itself is
+  strong enough to earn it
+- major-seventh triangle stress pass: captured samples now cover `C△7`,
+  `Bb△7`, `F#△7`, `Db△7`, `G#△7`, and `B#△7`; triangle quality glyphs now use
+  a dedicated lower-body-to-upper-peak return cue, and the parser rejects
+  reordered noise such as `B6△7` so the written `Bb△7` candidate can win
+- major-ninth triangle stress pass: captured samples now cover `C△9`, `Bb△9`,
+  `F#△9`, `Db△9`, `G#△9`, and `B#△9`; open handwritten `9` glyphs now require
+  a true upper-loop return and tail-side closure so they do not steal already
+  locked `6`, flat, or compact C shapes
+- major-thirteenth triangle stress pass: captured samples now cover `C△13`,
+  `Bb△13`, `F#△13`, `Db△13`, `G#△13`, and `B#△13`; adjacent suffix `1` and
+  `3` glyphs stay split even when handwritten tightly, while major-eleventh
+  support remains intentionally deferred for the later sus/sus4 pass
+- minor ninth/thirteenth stress pass: captured samples now cover `C-9`,
+  `Bb-9`, `F#-9`, `Db-9`, `G#-9`, `B#-9`, `C-13`, `Bb-13`, `F#-13`,
+  `Db-13`, `G#-13`, and `B#-13`; a relaxed top-shelf cue is available only
+  for suffix `3` glyphs so tight minor-thirteenth handwriting does not lose to
+  `6`/flat/C lookalikes
+- minor eleventh stress pass: captured samples now cover `C-11`, `Bb-11`,
+  `F#-11`, `Db-11`, `G#-11`, and `B#-11`; parser, compendium fallback,
+  candidate composer, and fixture exporter preserve written `m`/`min`/`-`
+  aliases while rendering standardized jazz `-11` symbols, and ultra-compact
+  two-point minor dashes are accepted as intentional dash-minor glyphs
+- minor-major-seventh prep: symbolic parsing, compendium matching, candidate
+  composition, and fixture export now support written dash-triangle forms such
+  as `C-△7` while preserving the canonical rendered chord as `C-△7`
+- diminished family prep: parser, compendium fallback, candidate composer,
+  glyph templates, and fixture exporter now support diminished triads (`C°`),
+  diminished sevenths (`C°7`), and half-diminished sevenths (`Cø7`) while
+  accepting aliases such as `Cdim`, `Cdim7`, `Cø`, `Cm7b5`, and `C-7b5`
+- dominant flat-ninth stress pass: captured samples now cover `C7(b9)`,
+  `Bb7(b9)`, `F#7(b9)`, `Db7(b9)`, `G#7(b9)`, and `B#7(b9)`; the suffix
+  repair is deliberately constrained to a `7` followed by split `b9`
+  fragments, so it does not globally merge adjacent major, diminished, sixth,
+  or extension glyphs
+- dominant sharp-ninth prep: symbolic parsing, candidate composition, glyph
+  templates, and fixture export now accept literal handwritten parentheses for
+  `7(#9)` while keeping the semantic glyph target as `7#9`; parenthesis wrapper
+  strokes are stripped before chord matching so tight handwritten `(#9)` groups
+  do not depend on punctuation spacing
+- pure altered prep: symbolic parsing, compendium matching, candidate
+  composition, fixture export, and glyph templates now support written
+  root-plus-`alt` forms such as `Calt`, `C alt`, and `C7alt`, while
+  standardizing all accepted shorthand to dominant altered display text such as
+  `C7alt`; the lowercase `a/l/t` templates are geometry-gated so they do not
+  steal already stable `9`, `1`, `+`, or altered-dominant glyphs
+
 ## Milestones
 
 ### Milestone 1: Stabilize symbolic recognition
@@ -565,21 +855,24 @@ Recognition should identify tokens. Beat placement, snapping, and page layout sh
 
 ## First Implementation Checklist
 
-- [ ] Add this plan to the repo.
-- [ ] Expand `ChordSymbolParserTests` around compendium behavior.
-- [ ] Add `SmartChart/Recognition` folder.
-- [ ] Add pure Swift ink data types.
-- [ ] Add fixture loader for recognition tests.
-- [ ] Add `StrokeClusterer` with deterministic heuristics.
-- [ ] Add a minimal point-cloud glyph recognizer.
-- [ ] Add initial glyph templates.
-- [ ] Add `ChordInkCandidateComposer`.
-- [ ] Add `ChordInkRecognizer` facade.
-- [ ] Wire final matching through `ChordRecognitionCompendium.match(candidates:)`.
-- [ ] Add PencilKit capture overlay.
-- [ ] Add candidate UI.
-- [ ] Commit accepted candidates into `ChordEvent`.
-- [ ] Add real iPad handwriting samples as fixtures.
+- [x] Add this plan to the repo.
+- [x] Expand `ChordSymbolParserTests` around compendium behavior.
+- [x] Add `SmartChart/Recognition` folder.
+- [x] Add pure Swift ink data types.
+- [x] Add fixture loader for recognition tests.
+- [x] Add `StrokeClusterer` with deterministic heuristics.
+- [x] Add a minimal point-cloud glyph recognizer.
+- [x] Add initial glyph templates.
+- [x] Add `ChordInkCandidateComposer`.
+- [x] Add `ChordInkRecognizer` facade.
+- [x] Wire final matching through `ChordRecognitionCompendium.match(candidates:)`.
+- [x] Add PencilKit capture overlay.
+- [x] Add candidate UI.
+- [x] Commit accepted candidates into `ChordEvent`.
+- [x] Add fixture export path for real iPad handwriting samples.
+- [x] Add fixture import path for real iPad handwriting samples.
+- [x] Add real iPad handwriting samples as fixtures.
+- [x] Keep fixture capture as a dev-only path and make normal chord confirmation render to the chart first.
 
 ## Success Criteria
 
@@ -590,7 +883,7 @@ The first successful implementation should let a user write simple chord symbols
 - `F#`
 - `C-`
 - `Cm7`
-- `Db7b9`
+- `Db7(b9)`
 - `G/B`
 
 and receive a structured candidate that can be accepted, corrected, transposed, saved, and exported through the existing Smart Chart model.

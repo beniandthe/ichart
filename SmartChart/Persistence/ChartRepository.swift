@@ -42,7 +42,7 @@ struct FileChartRepository: ChartRepository {
     }
 
     func loadSnapshot() throws -> ChartLibrarySnapshot? {
-        guard fileManager.fileExists(atPath: url.path()) else {
+        guard fileManager.fileExists(atPath: url.fileSystemPath) else {
             return nil
         }
 
@@ -56,6 +56,12 @@ struct FileChartRepository: ChartRepository {
 
         let data = try Self.encoder.encode(snapshot)
         try data.write(to: url, options: .atomic)
+    }
+}
+
+private extension URL {
+    var fileSystemPath: String {
+        path(percentEncoded: false)
     }
 }
 

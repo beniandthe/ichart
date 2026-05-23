@@ -88,7 +88,7 @@ enum ChartSamples {
                     rhythmPlacement: .belowChord,
                     tieOut: false,
                     hitStyle: .accent,
-                    rawInput: "C7b9"
+                    rawInput: "C7(b9)"
                 )
             ],
             cueTextIDs: [grooveCueID],
@@ -290,14 +290,15 @@ extension Chart {
         )
     }
 
-    static func blank(title: String, key: DocumentKey = .cMajor) -> Chart {
-        let measures = (1...4).map { index in
+    static func blank(title: String, key: DocumentKey = .cMajor, measureCount: Int = 4) -> Chart {
+        let normalizedMeasureCount = max(1, measureCount)
+        let measures = (1...normalizedMeasureCount).map { index in
             Measure(
                 id: UUID(),
                 index: index,
                 meterOverride: nil,
                 beatGridPreset: .simple,
-                barlineAfter: index == 4 ? .double : .single,
+                barlineAfter: index == normalizedMeasureCount ? .double : .single,
                 chordEvents: [],
                 cueTextIDs: [],
                 roadmapObjectIDs: []

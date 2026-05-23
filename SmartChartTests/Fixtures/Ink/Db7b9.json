@@ -1,0 +1,90 @@
+{
+  "name": "Db7b9",
+  "expectedDisplayText": "Db7(b9)",
+  "expectedClusterCount": 5,
+  "expectedTopGlyphs": ["D", "b", "7", "b", "9"],
+  "strokes": [
+    {
+      "points": [
+        { "x": 10.0, "y": 12.0, "timeOffset": 0.00 },
+        { "x": 10.0, "y": 60.0, "timeOffset": 0.06 }
+      ],
+      "bounds": {
+        "minX": 10.0,
+        "minY": 12.0,
+        "maxX": 10.0,
+        "maxY": 60.0
+      }
+    },
+    {
+      "points": [
+        { "x": 10.0, "y": 12.0, "timeOffset": 0.10 },
+        { "x": 42.0, "y": 20.0, "timeOffset": 0.16 },
+        { "x": 39.0, "y": 50.0, "timeOffset": 0.22 },
+        { "x": 10.0, "y": 60.0, "timeOffset": 0.28 }
+      ],
+      "bounds": {
+        "minX": 10.0,
+        "minY": 12.0,
+        "maxX": 42.0,
+        "maxY": 60.0
+      }
+    },
+    {
+      "points": [
+        { "x": 59.0, "y": 18.0, "timeOffset": 0.62 },
+        { "x": 59.0, "y": 57.0, "timeOffset": 0.67 },
+        { "x": 71.0, "y": 48.0, "timeOffset": 0.72 },
+        { "x": 62.0, "y": 39.0, "timeOffset": 0.77 }
+      ],
+      "bounds": {
+        "minX": 59.0,
+        "minY": 18.0,
+        "maxX": 71.0,
+        "maxY": 57.0
+      }
+    },
+    {
+      "points": [
+        { "x": 87.0, "y": 16.0, "timeOffset": 1.12 },
+        { "x": 108.0, "y": 16.0, "timeOffset": 1.16 },
+        { "x": 96.0, "y": 57.0, "timeOffset": 1.24 }
+      ],
+      "bounds": {
+        "minX": 87.0,
+        "minY": 16.0,
+        "maxX": 108.0,
+        "maxY": 57.0
+      }
+    },
+    {
+      "points": [
+        { "x": 125.0, "y": 18.0, "timeOffset": 1.58 },
+        { "x": 125.0, "y": 57.0, "timeOffset": 1.63 },
+        { "x": 137.0, "y": 48.0, "timeOffset": 1.68 },
+        { "x": 128.0, "y": 39.0, "timeOffset": 1.73 }
+      ],
+      "bounds": {
+        "minX": 125.0,
+        "minY": 18.0,
+        "maxX": 137.0,
+        "maxY": 57.0
+      }
+    },
+    {
+      "points": [
+        { "x": 160.0, "y": 17.0, "timeOffset": 2.06 },
+        { "x": 179.0, "y": 19.0, "timeOffset": 2.10 },
+        { "x": 178.0, "y": 39.0, "timeOffset": 2.16 },
+        { "x": 160.0, "y": 39.0, "timeOffset": 2.22 },
+        { "x": 177.0, "y": 58.0, "timeOffset": 2.30 }
+      ],
+      "bounds": {
+        "minX": 160.0,
+        "minY": 17.0,
+        "maxX": 179.0,
+        "maxY": 58.0
+      }
+    }
+  ]
+}

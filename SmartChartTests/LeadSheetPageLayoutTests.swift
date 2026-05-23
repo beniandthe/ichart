@@ -18,6 +18,21 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(layout.header.titleFrame.midX > layout.paperFrame.minX)
     }
 
+    func testNarrowEditorWidthKeepsPaperInsideVisiblePageBounds() {
+        let chart = Chart.blank(title: "Chord Writing Test Chart", key: .cMajor, measureCount: 8)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 772, height: 1200)
+        )
+
+        XCTAssertEqual(layout.pageBounds.width, 772)
+        XCTAssertGreaterThanOrEqual(layout.paperFrame.minX, layout.pageBounds.minX)
+        XCTAssertLessThanOrEqual(layout.paperFrame.maxX, layout.pageBounds.maxX)
+        XCTAssertTrue(layout.paperFrame.contains(layout.header.titleFrame))
+        XCTAssertEqual(layout.header.titleFrame.width, layout.paperFrame.width)
+    }
+
     func testFiveLineLayoutPlacesChordTextAboveStaffWithoutImplicitNotes() throws {
         let chart = ChartSamples.straightAheadSwing
 
@@ -68,6 +83,38 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(chordLayouts[0].frame.midX, firstMeasure.staffFrame.minX + 8 + beatStep * 0.5, accuracy: 0.001)
         XCTAssertEqual(chordLayouts[1].frame.midX, firstMeasure.staffFrame.minX + 8 + beatStep * 2.5, accuracy: 0.001)
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
+    }
+
+    func testChordLayoutsLeaveRoomForExtendedChordSymbolsAroundBeatAnchor() throws {
+        var chart = makeBlankLeadSheet()
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let symbol = try ChordSymbolParser.parse("Db7(#11)/F#")
+        XCTAssertTrue(
+            chart.appendRecognizedChord(
+                symbol,
+                rawInput: "Db7(#11)/F#",
+                to: measureID,
+                atFraction: 0.03
+            )
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
+        let usableWidth = firstMeasure.staffFrame.width - 16
+        let beatStep = usableWidth / 4
+        let beatAttackX = firstMeasure.staffFrame.minX + 8 + beatStep * 0.5
+
+        XCTAssertEqual(chordLayout.text, "Db7(#11)/F#")
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.width, 100)
+        XCTAssertLessThanOrEqual(chordLayout.frame.minX, beatAttackX)
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.maxX, beatAttackX)
+        XCTAssertGreaterThanOrEqual(chordLayout.frame.minX, firstMeasure.chordBandFrame.minX)
+        XCTAssertLessThanOrEqual(chordLayout.frame.maxX, firstMeasure.chordBandFrame.maxX)
     }
 
     func testChordLayoutsAlignWithRhythmAttackCentersWhenMeasureHasRhythmMap() throws {

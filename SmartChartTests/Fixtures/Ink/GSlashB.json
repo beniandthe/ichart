@@ -1,0 +1,64 @@
+{
+  "name": "GSlashB",
+  "expectedDisplayText": "G/B",
+  "expectedClusterCount": 3,
+  "expectedTopGlyphs": ["G", "/", "B"],
+  "strokes": [
+    {
+      "points": [
+        { "x": 40.0, "y": 16.0, "timeOffset": 0.00 },
+        { "x": 18.0, "y": 14.0, "timeOffset": 0.05 },
+        { "x": 10.0, "y": 36.0, "timeOffset": 0.11 },
+        { "x": 24.0, "y": 58.0, "timeOffset": 0.17 },
+        { "x": 45.0, "y": 48.0, "timeOffset": 0.23 },
+        { "x": 33.0, "y": 40.0, "timeOffset": 0.29 }
+      ],
+      "bounds": {
+        "minX": 10.0,
+        "minY": 14.0,
+        "maxX": 45.0,
+        "maxY": 58.0
+      }
+    },
+    {
+      "points": [
+        { "x": 71.0, "y": 58.0, "timeOffset": 0.62 },
+        { "x": 87.0, "y": 12.0, "timeOffset": 0.70 }
+      ],
+      "bounds": {
+        "minX": 71.0,
+        "minY": 12.0,
+        "maxX": 87.0,
+        "maxY": 58.0
+      }
+    },
+    {
+      "points": [
+        { "x": 111.0, "y": 12.0, "timeOffset": 1.05 },
+        { "x": 111.0, "y": 35.0, "timeOffset": 1.10 },
+        { "x": 111.0, "y": 60.0, "timeOffset": 1.15 }
+      ],
+      "bounds": {
+        "minX": 111.0,
+        "minY": 12.0,
+        "maxX": 111.0,
+        "maxY": 60.0
+      }
+    },
+    {
+      "points": [
+        { "x": 111.0, "y": 12.0, "timeOffset": 1.19 },
+        { "x": 139.0, "y": 18.0, "timeOffset": 1.23 },
+        { "x": 126.0, "y": 35.0, "timeOffset": 1.27 },
+        { "x": 140.0, "y": 48.0, "timeOffset": 1.31 },
+        { "x": 111.0, "y": 60.0, "timeOffset": 1.35 }
+      ],
+      "bounds": {
+        "minX": 111.0,
+        "minY": 12.0,
+        "maxX": 140.0,
+        "maxY": 60.0
+      }
+    }
+  ]
+}

@@ -111,13 +111,14 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
 }
 
 enum LeadSheetPageLayoutEngine {
+    private static let minimumResponsivePageWidth: CGFloat = 720
     private static let mediumOpenMeasureWidth: CGFloat = 252
     private static let preferredCommittedMeasureWidth: CGFloat = 140
     private static let systemTrailingPadding: CGFloat = 6
 
     static func pageLayout(for chart: Chart, pageSize: CGSize) -> LeadSheetPageLayout {
         let resolvedPageSize = CGSize(
-            width: max(pageSize.width, 900),
+            width: max(pageSize.width, minimumResponsivePageWidth),
             height: max(pageSize.height, 1100)
         )
         let pageBounds = CGRect(origin: .zero, size: resolvedPageSize)
@@ -166,13 +167,14 @@ enum LeadSheetPageLayoutEngine {
     }
 
     static func estimatedSystemCount(for chart: Chart, pageWidth: CGFloat) -> Int {
-        let resolvedPageWidth = max(pageWidth, 900)
+        let resolvedPageWidth = max(pageWidth, minimumResponsivePageWidth)
         let paperWidth = min(860, max(640, resolvedPageWidth - 140))
         return max(1, packedSystemPlans(for: chart, maxSystemWidth: paperWidth - 68).count)
     }
 
     private static func headerLayout(for chart: Chart, in frame: CGRect) -> LeadSheetHeaderLayout {
-        let titleWidth = frame.width * 0.62
+        let composerCredit = normalizedText(chart.composerCredit)
+        let titleWidth = composerCredit == nil ? frame.width + 68 : frame.width * 0.62
         let titleFrame = CGRect(
             x: frame.midX - titleWidth / 2,
             y: frame.minY + 20,
@@ -180,7 +182,7 @@ enum LeadSheetPageLayoutEngine {
             height: 44
         )
         let composerFrame: CGRect?
-        if let composerCredit = normalizedText(chart.composerCredit), !composerCredit.isEmpty {
+        if let composerCredit, !composerCredit.isEmpty {
             composerFrame = CGRect(
                 x: frame.maxX - 190,
                 y: titleFrame.minY + 10,
@@ -532,7 +534,7 @@ enum LeadSheetPageLayoutEngine {
         staffFrame: CGRect
     ) -> LeadSheetChordLayout {
         let event = placement.chordEvent.transposed(for: chart.defaultTranspositionView)
-        let textWidth = max(24, CGFloat(max(2, event.symbol.displayText.count)) * 11)
+        let textWidth = estimatedChordTextWidth(for: event.symbol.displayText)
         let usableWidth = staffFrame.width - 16
         let attackCenterX = beatAttackCenterX(
             startPosition: placement.startPosition,
@@ -551,6 +553,32 @@ enum LeadSheetPageLayoutEngine {
             text: event.symbol.displayText,
             frame: CGRect(x: chordX, y: chordBandFrame.minY, width: textWidth, height: chordBandFrame.height)
         )
+    }
+
+    private static func estimatedChordTextWidth(for text: String) -> CGFloat {
+        let baseWidth = text.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        return max(28, baseWidth + 12)
+    }
+
+    private static func estimatedChordCharacterWidth(_ character: Character) -> CGFloat {
+        switch character {
+        case "i", "l", "I", "1":
+            return 5
+        case "m", "M", "w", "W":
+            return 15
+        case "#", "♯", "b", "♭", "7", "9", "5", "6", "3":
+            return 10
+        case "0"..."8":
+            return 9
+        case "-", "+", "°", "ø", "/", "(", ")":
+            return 7
+        case "△", "Δ":
+            return 13
+        default:
+            return 12
+        }
     }
 
     private static func slashNoteheadSymbol(
