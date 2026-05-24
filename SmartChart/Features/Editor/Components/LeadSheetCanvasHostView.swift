@@ -969,38 +969,40 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func shouldFinalizeRhythmicNotation(from previousMeasureID: UUID?, to nextMeasureID: UUID?) -> Bool {
-        interactionMode.allowsDirectRhythmicNotationInk
-            && !isRestoringSelection
-            && !isApplyingTapSelection
-            && previousMeasureID != nil
-            && previousMeasureID != nextMeasureID
+        LeadSheetRhythmicNotationFinalization.shouldFinalizeSelectionChange(
+            interactionMode: interactionMode,
+            isRestoringSelection: isRestoringSelection,
+            isApplyingTapSelection: isApplyingTapSelection,
+            previousMeasureID: previousMeasureID,
+            nextMeasureID: nextMeasureID
+        )
     }
 
     private func shouldFinalizeRhythmicNotationTap(
         at location: CGPoint,
         nextMeasureID: UUID?
     ) -> Bool {
-        guard interactionMode.allowsDirectRhythmicNotationInk,
-              let activeMeasureID = selectedMeasureID,
-              let activeMeasureLayout = measureLayout(for: activeMeasureID) else {
-            return false
-        }
-
-        if nextMeasureID != activeMeasureID {
-            return true
-        }
-
-        let activeWritingFrame = activeMeasureLayout.writableFrame.insetBy(dx: -8, dy: -8)
-        return !activeWritingFrame.contains(location)
+        LeadSheetRhythmicNotationFinalization.shouldFinalizeTap(
+            interactionMode: interactionMode,
+            selectedMeasureID: selectedMeasureID,
+            activeMeasureLayout: selectedMeasureID.flatMap { measureLayout(for: $0) },
+            location: location,
+            nextMeasureID: nextMeasureID
+        )
     }
 
     private func finalizeRhythmicNotationIfNeeded(for measureID: UUID) -> Bool {
         let liveDrawingData = currentCanvasDrawingData()
         var workingChart = chart
         if interactionMode.allowsDirectRhythmicNotationInk,
-           workingChart.setMeasureHandwrittenRhythmicNotationDrawing(liveDrawingData, for: measureID) {
-            chart = workingChart
-            onChartChanged?(workingChart)
+           let updatedChart = LeadSheetRhythmicNotationFinalization.chartByPersistingLiveDrawing(
+               liveDrawingData,
+               for: measureID,
+               in: workingChart
+           ) {
+            chart = updatedChart
+            onChartChanged?(updatedChart)
+            workingChart = updatedChart
         }
 
         guard let measure = workingChart.measure(id: measureID),
@@ -1011,13 +1013,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         do {
-            let quantizedValues = try RhythmicNotationQuantizer.quantize(
+            let quantizedValues = try LeadSheetRhythmicNotationFinalization.quantize(
                 drawingData: drawingData,
-                meter: measure.resolvedMeter(defaultMeter: chart.defaultMeter),
-                drawingFrame: CGRect(
-                    origin: .zero,
-                    size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-                )
+                measure: measure,
+                defaultMeter: chart.defaultMeter,
+                measureLayout: measureLayout
             )
 
             if let onRhythmicNotationProposal {
@@ -1025,18 +1025,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return false
             }
 
-            var updatedChart = workingChart
-            let appliedRhythmMap = updatedChart.setMeasureRhythmMap(
+            if let updatedChart = LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
                 quantizedValues,
                 drawingData: drawingData,
-                for: measureID
-            )
-            let clearedInk = updatedChart.clearMeasureRhythmicNotation(
                 for: measureID,
-                clearRhythmMap: false
-            )
-
-            if appliedRhythmMap || clearedInk {
+                in: workingChart
+            ) {
                 chart = updatedChart
                 onChartChanged?(updatedChart)
             }
