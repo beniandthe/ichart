@@ -16,16 +16,6 @@ enum SmartChartPlan: String, Codable, CaseIterable, Hashable {
         }
     }
 
-    var summaryText: String {
-        switch self {
-        case .free:
-            return "Start free with a limited local chart library, then upgrade to own the full local tool."
-        case .proLifetime:
-            return "One-time unlock for unlimited local charts, export, transposition, and advanced editing tools."
-        case .studioSubscription:
-            return "Adds sync, cross-device organization, shared libraries, version history, and AI-assisted services on top of Pro."
-        }
-    }
 }
 
 enum EntitledFeature: String, Codable, CaseIterable, Hashable {
@@ -157,23 +147,12 @@ struct AppEntitlements: Codable, Hashable {
             let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount) ?? 0
 
             if remainingSlots == 0 {
-                return "Free library full at \(localChartLimit) charts. Pro unlock removes the cap and adds export."
+                return "Free limit reached: \(localChartLimit) local charts. Pro removes the cap and adds export."
             }
 
-            return "\(remainingSlots) of \(localChartLimit) free chart slots remaining."
+            return "\(remainingSlots) of \(localChartLimit) free chart slots left."
         }
 
-        return "Unlimited local charts available on this plan."
-    }
-
-    var upgradeSummaryText: String {
-        switch activePlan {
-        case .free:
-            return "Pro is for ownership features. Studio is reserved for sync, shared libraries, and other ongoing services."
-        case .proLifetime:
-            return "Studio should stay focused on sync, shared libraries, version history, and AI-assisted services."
-        case .studioSubscription:
-            return "Studio extends Pro with service-backed features while preserving local ownership."
-        }
+        return "Unlimited local charts."
     }
 }

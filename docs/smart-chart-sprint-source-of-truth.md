@@ -26,11 +26,11 @@ The active app runtime implementation state is the merged recovery branch from P
 - PR review follow-through checkpoint: `66dc5d2 Document chord ink clear decision`
 - PR readiness checkpoint: `61caeb9 Open sprint nine merge readiness`
 - previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
-- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, and Sprint 16 app-shell debloat are complete; awaiting Sprint 17 user input
+- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, and Sprint 17 working Library debloat are complete; awaiting Sprint 18 user input
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
 - Sprint 12 audit artifact: `docs/smart-chart-post-merge-app-audit-2026-05-23.md`
-- latest local verification: Sprint 16 passed `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint16` on 2026-05-24 with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `git diff --check` passed; `xcodegen generate` completed; iOS simulator `SmartChart` scheme passed through XcodeBuildMCP with `321` passed, `36` skipped, `0` failures on the configured iPad Air 11-inch (M4) simulator; build/run succeeded; visual screenshot confirmed the app opens directly to Projects without Workspace/Settings tabs and with debug Developer Tools tucked below the project list.
-- latest GitHub verification: main commit `31f1dde Start sprint twelve app audit` passed SwiftPM tests, iOS simulator tests, and Analyze Swift on 2026-05-23; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
+- latest local verification: Sprint 17 passed `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint17` on 2026-05-24 with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `xcodegen generate` completed; iOS simulator `SmartChart` scheme passed through XcodeBuildMCP with `321` passed, `36` skipped, `0` failures on the configured iPad Air 11-inch (M4) simulator; build/run succeeded; visual screenshot confirmed the app opens to a compact Projects/Local library surface with no oversized hero card and with debug Developer Tools still collapsed below the chart list; `git diff --check` passed.
+- latest GitHub verification: main commit `fff2ee4 Debloat app shell surface` passed SwiftPM tests, iOS simulator tests, and Analyze Swift on 2026-05-24; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -112,11 +112,11 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ## Active Sprint
 
-### Sprint 17: User Decision Point
+### Sprint 18: User Decision Point
 
 Status: waiting for user input.
 
-Goal: choose the next product or maintenance sprint after Sprint 16 removed the most obvious unfinished app-shell surfaces.
+Goal: choose the next product or maintenance sprint after Sprint 17 made the Projects/Library surface denser and more work-focused.
 
 Current state:
 
@@ -124,16 +124,18 @@ Current state:
 - Workspace and Settings placeholder tabs are no longer active navigation.
 - The chord-writing test chart entry point remains available only under debug/simulator Developer Tools.
 - The local Pro entitlement switch is debug/simulator-only until StoreKit or a real purchase path exists.
+- The Library no longer has an oversized hero card; the top surface is a compact Local library header, New Chart action, chart count, capacity text, and the chart list.
+- Unused plan-summary and upgrade-summary marketing copy accessors were removed from the active Library model path.
 
 Candidate directions to discuss:
 
-- Continue app-shell/product polish by deciding whether the Library hero and free-tier copy should be more compact.
+- Continue app-shell/product polish only if the next Library need is real organization work such as search, sort, archive, or import.
 - Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`.
 - Validate handwriting quality with real Pencil/user input before any recognition retuning.
 - Split semantic candidate recipes into smaller behavior-preserving files only if review surface still feels too large.
 - Discuss full fixture archive pruning only as repository/data hygiene, not as recognition training.
 
-Non-goals until the user chooses Sprint 17:
+Non-goals until the user chooses Sprint 18:
 
 - No recognition score retuning, parser/compendium changes, or fixture deletion.
 - No StoreKit implementation unless explicitly selected.
@@ -304,11 +306,21 @@ Append one entry here after each sprint completes. Each entry must include:
 - unresolved follow-up: Library hero/free-tier copy still reads broad and marketing-like; a future product polish sprint can make it denser and more work-focused. StoreKit remains intentionally unimplemented.
 - next sprint candidate: Sprint 17 decision point for user input.
 
+### Sprint 17: Working Library Surface Debloat
+
+- status: complete; final closeout commit is the commit containing this entry
+- summary: Reworked the Projects/Library screen from a hero-led landing surface into a denser working chart list. The top area now uses a compact Local library header, New Chart action, chart count, and concise capacity text; chart rows are tighter and use smaller radii; debug Developer Tools remain collapsed below the chart list. Removed unused plan-summary and upgrade-summary accessors that were only carrying marketing copy through the Library model path.
+- tests and evidence: `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint17` passed with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `xcodegen generate` completed; XcodeBuildMCP iOS simulator `SmartChart` scheme test passed with `321` passed, `36` skipped, `0` failures; XcodeBuildMCP build/run succeeded on the configured iPad Air 11-inch (M4) simulator; `git diff --check` passed.
+- visual evidence: simulator screenshot after launch showed the Projects navigation title, compact Local library header, New Chart button, immediate visible chart rows, selected-chart affordance, and collapsed Developer Tools with no oversized hero card.
+- behavior boundary: no recognition score, parser, compendium, fixture, PencilKit, editor chord lifecycle, chart persistence, entitlement rules, StoreKit, or export behavior changed.
+- unresolved follow-up: Library organization remains minimal. Search, sort, archive, import, or richer project metadata should wait for an explicit future product sprint rather than creeping in as surface polish.
+- next sprint candidate: Sprint 18 decision point for user input.
+
 ## Next Sprint Backlog
 
-Discuss and choose one item for Sprint 17:
+Discuss and choose one item for Sprint 18:
 
-- Tighten Library hero/free-tier copy into a denser working library surface.
+- Continue app-shell/product polish only if the next Library need is real organization work such as search, sort, archive, or import.
 - Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`.
 - Validate handwriting quality with real Pencil/user input before any recognition retuning.
 - Split semantic candidate recipes into smaller behavior-preserving files only if the review surface still feels too large.

@@ -48,14 +48,6 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.chartCapacityText(currentChartCount: charts.count)
     }
 
-    var planSummaryText: String {
-        entitlements.activePlan.summaryText
-    }
-
-    var upgradeSummaryText: String {
-        entitlements.upgradeSummaryText
-    }
-
     func canUse(_ feature: EntitledFeature) -> Bool {
         entitlements.includes(feature)
     }

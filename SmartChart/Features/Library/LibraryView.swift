@@ -4,16 +4,27 @@ struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
 
+    private var chartCountText: String {
+        let count = store.charts.count
+        return count == 1 ? "1 chart" : "\(count) charts"
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                heroSection
+            VStack(alignment: .leading, spacing: 20) {
+                LibraryHeaderView(
+                    chartCountText: chartCountText,
+                    capacityText: store.chartCapacityText,
+                    canCreateChart: store.canCreateChart,
+                    onCreateChart: createNewChart
+                )
                 projectsSection
                 #if DEBUG || targetEnvironment(simulator)
                 developerToolsSection
                 #endif
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
         }
         .background(
             LinearGradient(
@@ -27,39 +38,18 @@ struct LibraryView: View {
         )
     }
 
-    private var heroSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Start a chart from a blank page.")
-                .font(.system(size: 34, weight: .semibold, design: .serif))
-
-            Text("Open an existing project or create a new chart to choose the key and time signature before the jazz page appears.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 640, alignment: .leading)
-
-            Button {
-                createNewChart()
-            } label: {
-                Label("New Chart", systemImage: "square.and.pencil")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!store.canCreateChart)
-
-            Text(store.canCreateChart ? store.chartCapacityText : store.upgradeSummaryText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .background(Color.white.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Existing Projects")
-                .font(.title3.weight(.semibold))
+            HStack(alignment: .firstTextBaseline) {
+                Text("Charts")
+                    .font(.title3.weight(.semibold))
+
+                Spacer()
+
+                Text(chartCountText)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
 
             if store.charts.isEmpty {
                 ContentUnavailableView(
@@ -70,43 +60,19 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
                 .background(Color.white.opacity(0.68))
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                LazyVStack(spacing: 14) {
+                LazyVStack(spacing: 10) {
                     ForEach(store.charts) { chart in
                         Button {
                             onOpenChart(chart.id, .browse)
                         } label: {
-                            HStack(alignment: .top, spacing: 16) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(chart.title)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-
-                                    Text(chartSummary(for: chart))
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-
-                                    Text("Updated \(chart.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, 2)
-                            }
-                            .padding(18)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(cardBackground(for: chart))
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(cardBorderColor(for: chart), lineWidth: 1)
-                            }
+                            ProjectRowView(
+                                title: chart.title,
+                                summary: chartSummary(for: chart),
+                                updatedText: "Updated \(chart.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                                isSelected: store.selectedChartID == chart.id
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -139,7 +105,7 @@ struct LibraryView: View {
         }
         .padding(18)
         .background(Color.white.opacity(0.60))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
     #endif
 
@@ -153,14 +119,6 @@ struct LibraryView: View {
         }
 
         return "\(chart.documentKey.displayText) · \(chart.defaultMeter.displayText) · \(chart.measures.count) measures"
-    }
-
-    private func cardBackground(for chart: Chart) -> Color {
-        store.selectedChartID == chart.id ? Color.blue.opacity(0.10) : Color.white.opacity(0.72)
-    }
-
-    private func cardBorderColor(for chart: Chart) -> Color {
-        store.selectedChartID == chart.id ? Color.blue.opacity(0.35) : Color.black.opacity(0.06)
     }
 
     private func createNewChart() {
@@ -177,4 +135,110 @@ struct LibraryView: View {
         onOpenChart(chartID, .chordEntry)
     }
     #endif
+}
+
+private struct LibraryHeaderView: View {
+    let chartCountText: String
+    let capacityText: String
+    let canCreateChart: Bool
+    let onCreateChart: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 16) {
+                    titleBlock
+
+                    Spacer(minLength: 24)
+
+                    newChartButton
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    titleBlock
+                    newChartButton
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label(chartCountText, systemImage: "doc.text")
+                    .font(.caption.weight(.medium))
+
+                Text(capacityText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Local library")
+                .font(.title2.weight(.semibold))
+
+            Text("Create, open, and export charts.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var newChartButton: some View {
+        Button(action: onCreateChart) {
+            Label("New Chart", systemImage: "square.and.pencil")
+                .frame(minWidth: 150)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(!canCreateChart)
+    }
+}
+
+private struct ProjectRowView: View {
+    let title: String
+    let summary: String
+    let updatedText: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Text(updatedText)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(cardBorderColor, lineWidth: 1)
+        }
+    }
+
+    private var cardBackground: Color {
+        isSelected ? Color.blue.opacity(0.10) : Color.white.opacity(0.72)
+    }
+
+    private var cardBorderColor: Color {
+        isSelected ? Color.blue.opacity(0.35) : Color.black.opacity(0.06)
+    }
 }
