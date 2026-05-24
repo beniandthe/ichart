@@ -29,13 +29,16 @@ struct UpgradeSheetView: View {
                     benefitRow("Font presets, notation tools, and advanced editing")
                 }
 
-                Text("Prototype only: this upgrade flow switches the local entitlement state until StoreKit is wired on a Mac.")
+                #if DEBUG || targetEnvironment(simulator)
+                Text("Debug build: this switches local entitlement state until StoreKit is wired.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                #endif
 
                 Spacer()
 
                 VStack(spacing: 12) {
+                    #if DEBUG || targetEnvironment(simulator)
                     Button {
                         store.setPlan(.proLifetime)
                         dismiss()
@@ -44,6 +47,7 @@ struct UpgradeSheetView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    #endif
 
                     Button("Not Now") {
                         dismiss()

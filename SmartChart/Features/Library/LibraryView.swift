@@ -9,6 +9,9 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 heroSection
                 projectsSection
+                #if DEBUG || targetEnvironment(simulator)
+                developerToolsSection
+                #endif
             }
             .padding(24)
         }
@@ -35,10 +38,7 @@ struct LibraryView: View {
                 .frame(maxWidth: 640, alignment: .leading)
 
             Button {
-                guard store.createBlankChart(), let chartID = store.selectedChartID else {
-                    return
-                }
-                onOpenChart(chartID, .browse)
+                createNewChart()
             } label: {
                 Label("New Chart", systemImage: "square.and.pencil")
                     .frame(maxWidth: .infinity)
@@ -46,22 +46,6 @@ struct LibraryView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(!store.canCreateChart)
-
-            #if DEBUG || targetEnvironment(simulator)
-            Button {
-                let chartID = store.createChordWritingTestChart()
-                onOpenChart(chartID, .chordEntry)
-            } label: {
-                Label("Open Chord Test Chart", systemImage: "pencil.and.scribble")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-
-            Text("Debug build: opens a fresh disposable 8-measure chart for the chord-writing loop.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            #endif
 
             Text(store.canCreateChart ? store.chartCapacityText : store.upgradeSummaryText)
                 .font(.caption)
@@ -131,6 +115,34 @@ struct LibraryView: View {
         }
     }
 
+    #if DEBUG || targetEnvironment(simulator)
+    private var developerToolsSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    openChordWritingTestChart()
+                } label: {
+                    Label("Open Chord Test Chart", systemImage: "pencil.and.scribble")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Text("Opens a fresh disposable 8-measure chart for the chord-writing loop.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 12)
+        } label: {
+            Label("Developer Tools", systemImage: "wrench.and.screwdriver")
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(18)
+        .background(Color.white.opacity(0.60))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+    #endif
+
     private func chartSummary(for chart: Chart) -> String {
         if !chart.hasCompletedInitialSetup {
             return "Setup pending"
@@ -150,4 +162,19 @@ struct LibraryView: View {
     private func cardBorderColor(for chart: Chart) -> Color {
         store.selectedChartID == chart.id ? Color.blue.opacity(0.35) : Color.black.opacity(0.06)
     }
+
+    private func createNewChart() {
+        guard store.createBlankChart(), let chartID = store.selectedChartID else {
+            return
+        }
+
+        onOpenChart(chartID, .browse)
+    }
+
+    #if DEBUG || targetEnvironment(simulator)
+    private func openChordWritingTestChart() {
+        let chartID = store.createChordWritingTestChart()
+        onOpenChart(chartID, .chordEntry)
+    }
+    #endif
 }
