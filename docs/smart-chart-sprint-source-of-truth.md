@@ -26,11 +26,11 @@ The active app runtime implementation state is the merged recovery branch from P
 - PR review follow-through checkpoint: `66dc5d2 Document chord ink clear decision`
 - PR readiness checkpoint: `61caeb9 Open sprint nine merge readiness`
 - previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
-- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, and Sprint 17 working Library debloat are complete; awaiting Sprint 18 user input
+- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, Sprint 17 working Library debloat, and Sprint 18 chord sheet extraction are complete; awaiting Sprint 19 user input
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
 - Sprint 12 audit artifact: `docs/smart-chart-post-merge-app-audit-2026-05-23.md`
-- latest local verification: Sprint 17 passed `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint17` on 2026-05-24 with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `xcodegen generate` completed; iOS simulator `SmartChart` scheme passed through XcodeBuildMCP with `321` passed, `36` skipped, `0` failures on the configured iPad Air 11-inch (M4) simulator; build/run succeeded; visual screenshot confirmed the app opens to a compact Projects/Local library surface with no oversized hero card and with debug Developer Tools still collapsed below the chart list; `git diff --check` passed.
-- latest GitHub verification: main commit `fff2ee4 Debloat app shell surface` passed SwiftPM tests, iOS simulator tests, and Analyze Swift on 2026-05-24; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
+- latest local verification: Sprint 18 passed `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint18` on 2026-05-24 with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `xcodegen generate` completed; iOS simulator `SmartChart` scheme passed through XcodeBuildMCP with `321` passed, `36` skipped, `0` failures on the configured iPad Air 11-inch (M4) simulator; build/run succeeded; screenshot confirmed the app still launches to the compact Projects/Local library surface; `git diff --check` passed.
+- latest GitHub verification: main commit `6cbcfba Debloat working library surface` passed SwiftPM tests, iOS simulator tests, and Analyze Swift on 2026-05-24; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -50,6 +50,7 @@ Known drift after Sprint 8:
 - PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merged the recovery branch into `main`; it is no longer the active review surface.
 - The local duplicate `SmartChartTests/Recognition/* 2.swift` files found during Sprint 12 were removed after explicit approval; no duplicate files remain in that directory.
 - No tracked cache/raster/direct-ink detour files remain in the current tree; remaining bloat is inside the current recognition path and broad editor surfaces.
+- `EditorView.swift` no longer owns chord confirmation/correction sheet UI or the shared flow layout after Sprint 18, but it remains broad at roughly `1683` lines. `LeadSheetCanvasHostView.swift` remains the largest live editor bridge at roughly `1622` lines.
 
 ## Product North Star
 
@@ -112,11 +113,11 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ## Active Sprint
 
-### Sprint 18: User Decision Point
+### Sprint 19: User Decision Point
 
 Status: waiting for user input.
 
-Goal: choose the next product or maintenance sprint after Sprint 17 made the Projects/Library surface denser and more work-focused.
+Goal: choose the next product or maintenance sprint after Sprint 18 moved chord confirmation/correction sheet UI out of `EditorView.swift`.
 
 Current state:
 
@@ -126,16 +127,18 @@ Current state:
 - The local Pro entitlement switch is debug/simulator-only until StoreKit or a real purchase path exists.
 - The Library no longer has an oversized hero card; the top surface is a compact Local library header, New Chart action, chart count, capacity text, and the chart list.
 - Unused plan-summary and upgrade-summary marketing copy accessors were removed from the active Library model path.
+- `EditorView.swift` now delegates chord confirmation and chord correction sheet UI to `ChordInkSheetViews.swift`.
+- `FlowLayout` is a shared editor component instead of a private type embedded in `EditorView.swift`.
 
 Candidate directions to discuss:
 
 - Continue app-shell/product polish only if the next Library need is real organization work such as search, sort, archive, or import.
-- Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`.
+- Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`, with the bridge file now the largest live editor surface.
 - Validate handwriting quality with real Pencil/user input before any recognition retuning.
 - Split semantic candidate recipes into smaller behavior-preserving files only if review surface still feels too large.
 - Discuss full fixture archive pruning only as repository/data hygiene, not as recognition training.
 
-Non-goals until the user chooses Sprint 18:
+Non-goals until the user chooses Sprint 19:
 
 - No recognition score retuning, parser/compendium changes, or fixture deletion.
 - No StoreKit implementation unless explicitly selected.
@@ -316,12 +319,22 @@ Append one entry here after each sprint completes. Each entry must include:
 - unresolved follow-up: Library organization remains minimal. Search, sort, archive, import, or richer project metadata should wait for an explicit future product sprint rather than creeping in as surface polish.
 - next sprint candidate: Sprint 18 decision point for user input.
 
+### Sprint 18: Chord Sheet Boundary Extraction
+
+- status: complete; final closeout commit is the commit containing this entry
+- summary: Moved chord ink confirmation and rendered-chord correction sheet UI, their pending DTOs, and fixture-copy status out of `EditorView.swift` into `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift`. Moved the shared wrapping chip layout into `SmartChart/Features/Editor/Components/FlowLayout.swift`. This reduced `EditorView.swift` from roughly `2183` lines to roughly `1683` lines while keeping editor orchestration in place.
+- tests and evidence: `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint18` passed with `315` tests, `36` skipped, `0` failures; `python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py` passed; `xcodegen generate` completed; XcodeBuildMCP iOS simulator `SmartChart` scheme test passed with `321` passed, `36` skipped, `0` failures; XcodeBuildMCP build/run succeeded on the configured iPad Air 11-inch (M4) simulator; `git diff --check` passed.
+- visual evidence: simulator screenshot after launch confirmed the app still opens to the compact Projects/Local library surface. Sprint 18 intentionally made no visible product change.
+- behavior boundary: no recognition score, parser, compendium, fixture, PencilKit, editor chord lifecycle, chart persistence, entitlement rules, StoreKit, or export behavior changed. Chord accept, keep-ink, clear/rewrite, correction, and debug fixture-copy callbacks remain wired through `EditorView`.
+- unresolved follow-up: `LeadSheetCanvasHostView.swift` remains the largest live editor bridge at roughly `1622` lines, and `EditorView.swift` still owns several modal/editor subviews. Continue one behavior-preserving extraction at a time.
+- next sprint candidate: Sprint 19 decision point for user input.
+
 ## Next Sprint Backlog
 
-Discuss and choose one item for Sprint 18:
+Discuss and choose one item for Sprint 19:
 
 - Continue app-shell/product polish only if the next Library need is real organization work such as search, sort, archive, or import.
-- Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`.
+- Continue editor surface cleanup with one behavior-preserving extraction from `EditorView.swift` or `LeadSheetCanvasHostView.swift`, likely focusing next on the bridge file or another modal subview.
 - Validate handwriting quality with real Pencil/user input before any recognition retuning.
 - Split semantic candidate recipes into smaller behavior-preserving files only if the review surface still feels too large.
 - Discuss full fixture archive pruning only as repository/data hygiene, not as recognition training.
