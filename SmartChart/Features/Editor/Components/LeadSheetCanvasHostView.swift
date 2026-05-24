@@ -653,7 +653,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard let lassoFrame = noteSelectionLassoFrame(ignoringTapAt: location) else {
+        guard let lassoFrame = LeadSheetNoteSelectionLassoTargeting.lassoFrame(
+            for: pageInkCanvasView.drawing,
+            activeInkScope: activeInkScope(),
+            ignoringTapAt: location,
+            allowsNoteSelection: interactionMode.allowsNoteSelection
+        ) else {
             return
         }
 
@@ -1250,48 +1255,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             selectedMeasureLayout: selectedMeasureID.flatMap { measureLayout(for: $0) },
             pageLayout: pageLayout
         )
-    }
-
-    private func noteSelectionLassoFrame(ignoringTapAt tapLocation: CGPoint) -> CGRect? {
-        guard let activeInkScope = activeInkScope() else {
-            return nil
-        }
-
-        let tapLocationInInkScope = CGPoint(
-            x: tapLocation.x - activeInkScope.frame.minX,
-            y: tapLocation.y - activeInkScope.frame.minY
-        )
-        let lassoBounds = pageInkCanvasView.drawing.strokes.reduce(CGRect?.none) { partialResult, stroke in
-            let strokeBounds = stroke.renderBounds
-            guard !isIncidentalTapStroke(strokeBounds, near: tapLocationInInkScope) else {
-                return partialResult
-            }
-
-            return partialResult?.union(strokeBounds) ?? strokeBounds
-        }
-
-        guard let lassoBounds,
-              !lassoBounds.isNull,
-              lassoBounds.width >= 10,
-              lassoBounds.height >= 10 else {
-            return nil
-        }
-
-        return lassoBounds
-            .offsetBy(dx: activeInkScope.frame.minX, dy: activeInkScope.frame.minY)
-            .insetBy(dx: -4, dy: -4)
-    }
-
-    private func isIncidentalTapStroke(_ strokeBounds: CGRect, near tapLocation: CGPoint) -> Bool {
-        let maximumTapDotSize: CGFloat = 12
-        let tapSlop: CGFloat = 18
-        guard strokeBounds.width <= maximumTapDotSize,
-              strokeBounds.height <= maximumTapDotSize else {
-            return false
-        }
-
-        return interactionMode.allowsNoteSelection
-            || strokeBounds.insetBy(dx: -tapSlop, dy: -tapSlop).contains(tapLocation)
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
