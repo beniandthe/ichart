@@ -550,24 +550,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return LeadSheetChordEditOverlayGeometry.hitTarget(at: location, in: pageLayout)
     }
 
-    private func chordMoveTarget(at location: CGPoint) -> (measureID: UUID, fraction: Double)? {
-        guard let pageLayout else {
-            return nil
-        }
-
-        let measures = pageLayout.systems.flatMap(\.measures)
-        guard let targetMeasure = measures.first(where: { measure in
-            measure.frame.insetBy(dx: -6, dy: -12).contains(location)
-        }),
-              let measureID = targetMeasure.sourceMeasureID else {
-            return nil
-        }
-
-        let fraction = (location.x - targetMeasure.chordBandFrame.minX)
-            / max(1, targetMeasure.chordBandFrame.width)
-        return (measureID, Double(min(max(fraction, 0), 0.9999)))
-    }
-
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isSyncingInkCanvasFromModel else {
             return
@@ -593,7 +575,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: self)
-        let tappedMeasure = measureLayout(at: location)
+        let tappedMeasure = LeadSheetCanvasInteractionTargeting.measure(at: location, in: pageLayout)
         let tappedMeasureID = tappedMeasure?.sourceMeasureID
 
         if shouldFinalizeRhythmicNotationTap(at: location, nextMeasureID: tappedMeasureID),
@@ -649,7 +631,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if chordWritingBandContains(location, in: pageLayout) {
+        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout) {
             return
         }
     }
@@ -738,7 +720,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeChordMoveDrag = ActiveChordMoveDrag(chordID: hitTarget.chordID)
         case .changed, .ended:
             guard let activeChordMoveDrag,
-                  let target = chordMoveTarget(at: recognizer.location(in: self)) else {
+                  let target = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                    at: recognizer.location(in: self),
+                    in: pageLayout
+                  ) else {
                 if recognizer.state == .ended {
                     self.activeChordMoveDrag = nil
                 }
@@ -1111,14 +1096,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func chordWritingBandContains(_ location: CGPoint, in pageLayout: LeadSheetPageLayout) -> Bool {
-        pageLayout.systems
-            .flatMap(\.measures)
-            .contains { measure in
-                measure.chordBandFrame.insetBy(dx: -3, dy: -3).contains(location)
-            }
-    }
-
     private func chordInkTarget(
         for drawing: PKDrawing,
         chordFrame: CGRect
@@ -1317,12 +1294,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             || strokeBounds.insetBy(dx: -tapSlop, dy: -tapSlop).contains(tapLocation)
     }
 
-    private func measureLayout(at location: CGPoint) -> LeadSheetMeasureLayout? {
-        pageLayout?.systems
-            .flatMap(\.measures)
-            .first(where: { $0.frame.insetBy(dx: -6, dy: -6).contains(location) })
-    }
-
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === measureResizePanRecognizer {
             let location = gestureRecognizer.location(in: self)
@@ -1343,10 +1314,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     ) -> Bool {
         gestureRecognizer === inkSelectionTapRecognizer || otherGestureRecognizer === inkSelectionTapRecognizer
     }
-}
-
-private struct ActiveChordMoveDrag {
-    var chordID: UUID
 }
 
 #endif
