@@ -113,6 +113,8 @@ private struct ChartPDFRenderer {
 
     private func beginPage(index: Int, in context: UIGraphicsPDFRendererContext) -> CGFloat {
         context.beginPage()
+        UIColor.white.setFill()
+        UIBezierPath(rect: pageRect).fill()
 
         let headerRect = CGRect(
             x: pageMargins.left,
@@ -402,15 +404,30 @@ private struct ChartPDFRenderer {
             ? UIColor(red: 0.11, green: 0.42, blue: 0.2, alpha: 1)
             : UIColor(red: 0.11, green: 0.22, blue: 0.38, alpha: 1)
 
+        let chordText = event.symbol.displayText
+        let chordFont = chart.documentFont.pdfFont(size: 13, weight: .semibold)
+        let chordWidth = clampedTextWidth(
+            for: chordText,
+            font: chordFont,
+            minimumWidth: 28,
+            maximumWidth: usableWidth
+        )
+        let chordX = clampedLabelX(
+            preferredX: startX,
+            labelWidth: chordWidth,
+            in: rect,
+            horizontalInset: horizontalInset
+        )
+
         drawText(
-            event.symbol.displayText,
+            chordText,
             in: CGRect(
-                x: startX,
+                x: chordX,
                 y: rowY,
-                width: max(28, rect.maxX - startX - 12),
+                width: chordWidth,
                 height: 14
             ),
-            font: chart.documentFont.pdfFont(size: 13, weight: .semibold),
+            font: chordFont,
             color: eventColor
         )
 
@@ -421,17 +438,57 @@ private struct ChartPDFRenderer {
             color: UIColor(red: 0.18, green: 0.45, blue: 0.77, alpha: 1)
         )
 
+        let timingText = "\(placement.startPosition.displayText) · \(placement.durationDisplayText)"
+        let timingFont = chart.documentFont.pdfFont(size: 8, weight: .medium)
+        let timingWidth = clampedTextWidth(
+            for: timingText,
+            font: timingFont,
+            minimumWidth: 42,
+            maximumWidth: usableWidth
+        )
+        let timingX = clampedLabelX(
+            preferredX: startX,
+            labelWidth: timingWidth,
+            in: rect,
+            horizontalInset: horizontalInset
+        )
+
         drawText(
-            "\(placement.startPosition.displayText) · \(placement.durationDisplayText)",
+            timingText,
             in: CGRect(
-                x: startX,
+                x: timingX,
                 y: rowY + 18,
-                width: max(42, rect.maxX - startX - 12),
+                width: timingWidth,
                 height: 12
             ),
-            font: chart.documentFont.pdfFont(size: 8, weight: .medium),
+            font: timingFont,
             color: UIColor(white: 0.45, alpha: 1)
         )
+    }
+
+    private func clampedTextWidth(
+        for text: String,
+        font: UIFont,
+        minimumWidth: CGFloat,
+        maximumWidth: CGFloat
+    ) -> CGFloat {
+        let size = textSize(
+            for: text,
+            font: font,
+            maxSize: CGSize(width: maximumWidth, height: CGFloat.greatestFiniteMagnitude)
+        )
+        return min(max(minimumWidth, size.width + 4), maximumWidth)
+    }
+
+    private func clampedLabelX(
+        preferredX: CGFloat,
+        labelWidth: CGFloat,
+        in rect: CGRect,
+        horizontalInset: CGFloat
+    ) -> CGFloat {
+        let minX = rect.minX + horizontalInset
+        let maxX = rect.maxX - horizontalInset - labelWidth
+        return min(max(preferredX, minX), maxX)
     }
 
     private func drawLine(from start: CGPoint, to end: CGPoint, width: CGFloat, color: UIColor) {
