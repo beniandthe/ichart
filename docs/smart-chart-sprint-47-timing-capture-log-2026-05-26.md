@@ -4,7 +4,7 @@ Status: ready for real iPad/Pencil timing pass
 Date: 2026-05-26
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 Triage artifact: `docs/smart-chart-sprint-47-confidence-performance-triage-2026-05-26.md`
-Test build: `7d0347b Add sprint 47 chord timing instrumentation`
+Test build: current green `main` at `b8add53 Set up sprint 47 timing capture`
 
 ## Purpose
 
@@ -18,7 +18,7 @@ This pass is not training data. It should classify the remaining delay for `C` a
 - device model:
 - iPadOS version:
 - Apple Pencil model:
-- app build/commit: `7d0347b`
+- app build/commit: `b8add53`
 - date/time:
 - chart title:
 - Xcode/device console log file:
