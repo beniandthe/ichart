@@ -44,7 +44,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - Sprint 51 real-life polish artifact: `docs/smart-chart-sprint-51-real-life-polish-2026-05-26.md`
 - Sprint 52 chord confirmation/user loop artifact: `docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`
 - latest local verification: Sprint 52 focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordInkUserCorrectionMemoryTests` passed with `5` tests, `0` failures; `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordEntryDiagnosticsTests` passed with `7` tests, `0` failures; XcodeBuildMCP iOS simulator focused test `-only-testing:SmartChartTests/ChordInkUserCorrectionMemoryTests` passed with `5` tests, `0` failures; `git diff --check` passed. Sprint 50 post-stroke responsiveness full verification remains the latest broad app baseline: full SwiftPM passed with `319` tests, `36` skipped, `0` failures; XcodeBuildMCP full iOS simulator scheme passed with `336` tests, `36` skipped, `0` failures; Python script compilation passed.
-- latest GitHub verification: main commit `a84e397 Tune sprint 50 post-stroke responsiveness` passed required GitHub Actions on 2026-05-26, with SwiftPM tests, iOS simulator tests, and Analyze Swift passing; Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
+- latest GitHub verification: main commit `0a59588 Add sprint 52 chord confirmation user loop` passed required GitHub Actions on 2026-05-26, with SwiftPM tests, iOS simulator tests, and Analyze Swift passing; Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health. Sprint 50 remains the latest broad full-suite local baseline; Sprint 52 is focused green plus CI green.
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -153,7 +153,7 @@ Current state:
 - Close races route to confirmation when trust is not clear enough.
 - Complete failures previously opened confirmation/direct entry immediately; Sprint 52 changes the first two complete misses into automatic ink clears so rewriting is instant.
 - User-specific correction memory is local app support data and must not become global recognition tuning.
-- The active evidence artifact is `docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`.
+- The active evidence artifacts are `docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md` and `docs/smart-chart-sprint-52-manual-ux-validation-log-2026-05-26.md`.
 
 Sprint 52 tasks:
 
@@ -167,6 +167,8 @@ Sprint 52 tasks:
 Sprint 52 current evidence:
 
 - Focused SwiftPM and XcodeBuildMCP iOS simulator tests cover the new correction-memory policy, complete-failure cap, non-extremely-tight rule creation, extremely-tight no-rule behavior, manual exclusion behavior, and persistence.
+- Required GitHub Actions passed on `0a59588`.
+- The remaining Sprint 52 gate is one bounded manual UX validation pass for the new confirmation loop.
 
 Acceptance criteria:
 
@@ -780,6 +782,7 @@ Current authority:
 - `docs/smart-chart-sprint-50-post-stroke-responsiveness-2026-05-26.md`: Sprint 50 post-stroke responsiveness and bounded-repeat setup.
 - `docs/smart-chart-sprint-51-real-life-polish-2026-05-26.md`: Sprint 51 real-life polish and product-flow evidence routing.
 - `docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`: Sprint 52 chord confirmation and local user correction loop.
+- `docs/smart-chart-sprint-52-manual-ux-validation-log-2026-05-26.md`: Sprint 52 bounded manual UX validation gate.
 - `docs/core-design-document.md`: product intent and design rules.
 - `docs/developer-mvp-spec.md`: MVP scope, subordinate to the core design document.
 - `docs/repo-github-recognition-audit-2026-05-20.md`: evidence snapshot for the current recovery plan.

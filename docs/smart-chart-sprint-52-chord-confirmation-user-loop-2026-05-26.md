@@ -1,9 +1,10 @@
 # Smart Chart Sprint 52 Chord Confirmation User Loop
 
-Status: implementation in progress
+Status: implementation green; manual UX validation gate
 Date: 2026-05-26
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 Prior evidence: `docs/smart-chart-sprint-51-real-life-polish-2026-05-26.md`
+Manual validation log: `docs/smart-chart-sprint-52-manual-ux-validation-log-2026-05-26.md`
 
 ## Purpose
 
@@ -62,3 +63,17 @@ This is product personalization, not recognizer training.
   `-only-testing:SmartChartTests/ChordInkUserCorrectionMemoryTests`
 - `git diff --check`
 - Run a short manual UI pass only after the implementation is green: one complete miss loop, one close-race confirmation, and one manual-entry correction.
+
+## Verification Evidence
+
+- local `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordInkUserCorrectionMemoryTests`: passed with `5` tests, `0` failures
+- local `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordEntryDiagnosticsTests`: passed with `7` tests, `0` failures
+- XcodeBuildMCP iOS simulator focused test `-only-testing:SmartChartTests/ChordInkUserCorrectionMemoryTests`: passed with `5` tests, `0` failures
+- `git diff --check`: passed
+- GitHub Actions on `0a59588 Add sprint 52 chord confirmation user loop`: SwiftPM tests, iOS simulator tests, and Analyze Swift passed
+
+## Current Gate
+
+Run only the bounded manual UX validation pass in `docs/smart-chart-sprint-52-manual-ux-validation-log-2026-05-26.md`.
+
+Do not add fixtures, retune scores, expand OCR, or run a long chord loop from this gate. The only question is whether the new confirmation UX rules feel right in the app.
