@@ -112,6 +112,40 @@ final class StrokeClustererTests: XCTestCase {
         XCTAssertTrue(clusters.areSortedLeftToRight)
     }
 
+    func testAttachedFlatModifierSplitsFromRootConstruction() {
+        let stem = InkStroke(points: [
+            InkPoint(x: 10, y: 20, timeOffset: 0.0),
+            InkPoint(x: 10, y: 31, timeOffset: 0.03),
+            InkPoint(x: 10, y: 42, timeOffset: 0.06),
+            InkPoint(x: 10, y: 53, timeOffset: 0.09)
+        ])
+        let rootBody = InkStroke(points: [
+            InkPoint(x: 11, y: 22, timeOffset: 0.12),
+            InkPoint(x: 17, y: 22, timeOffset: 0.15),
+            InkPoint(x: 23, y: 26, timeOffset: 0.18),
+            InkPoint(x: 27, y: 33, timeOffset: 0.21),
+            InkPoint(x: 27, y: 40, timeOffset: 0.24),
+            InkPoint(x: 23, y: 48, timeOffset: 0.27),
+            InkPoint(x: 16, y: 53, timeOffset: 0.30),
+            InkPoint(x: 11, y: 53, timeOffset: 0.33)
+        ])
+        let flatModifier = InkStroke(points: [
+            InkPoint(x: 25, y: 10, timeOffset: 0.36),
+            InkPoint(x: 25, y: 18, timeOffset: 0.39),
+            InkPoint(x: 25, y: 26, timeOffset: 0.42),
+            InkPoint(x: 29, y: 22, timeOffset: 0.45),
+            InkPoint(x: 35, y: 20, timeOffset: 0.48),
+            InkPoint(x: 38, y: 24, timeOffset: 0.51),
+            InkPoint(x: 34, y: 30, timeOffset: 0.54),
+            InkPoint(x: 27, y: 32, timeOffset: 0.57)
+        ])
+
+        let clusters = clusterer.cluster([stem, rootBody, flatModifier])
+
+        XCTAssertEqual(clusters.map(\.strokes.count), [2, 1])
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
     func testTallMinorMStaysSeparateFromFollowingSeven() throws {
         let fixture = try InkFixtureLoader.load("CSharpm7Captured02", file: #filePath)
         let clusters = clusterer.cluster(fixture.strokes)

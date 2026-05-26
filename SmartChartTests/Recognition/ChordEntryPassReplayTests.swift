@@ -12,8 +12,8 @@ final class ChordEntryPassReplayTests: XCTestCase {
         let repository = FileChartRepository(url: URL(fileURLWithPath: statePath))
         let snapshot = try XCTUnwrap(try repository.loadSnapshot())
         let chart = try XCTUnwrap(
-            snapshot.charts.first { $0.title == "Chord Writing Test Chart" },
-            "Expected a Chord Writing Test Chart in \(statePath)."
+            selectedChart(in: snapshot),
+            "Expected a matching chart in \(statePath)."
         )
         let recognizer = ChordInkRecognizer()
 
@@ -63,10 +63,30 @@ final class ChordEntryPassReplayTests: XCTestCase {
                             " x=\(String(format: "%.1f", $0.bounds.minX))-\(String(format: "%.1f", $0.bounds.maxX)) y=\(String(format: "%.1f", $0.bounds.minY))-\(String(format: "%.1f", $0.bounds.maxY)) strokes=\($0.strokes.count)"
                         } ?? ""
                         print("  glyph[\(index)]\(bounds)=[\(glyphSummary)]")
+                        if ProcessInfo.processInfo.environment["SMART_CHART_REPLAY_STROKES"] == "1",
+                           let cluster {
+                            for (strokeIndex, stroke) in cluster.strokes.enumerated() {
+                                print(
+                                    "    stroke[\(strokeIndex)] x=\(String(format: "%.1f", stroke.bounds.minX))-\(String(format: "%.1f", stroke.bounds.maxX)) y=\(String(format: "%.1f", stroke.bounds.minY))-\(String(format: "%.1f", stroke.bounds.maxY)) points=\(stroke.points.count) straight=\(String(format: "%.2f", stroke.straightness)) hdir=\(stroke.horizontalDirectionChangeCount)"
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func selectedChart(in snapshot: ChartLibrarySnapshot) -> Chart? {
+        if let chartIDText = ProcessInfo.processInfo.environment["SMART_CHART_REPLAY_CHART_ID"],
+           let chartID = UUID(uuidString: chartIDText),
+           let chart = snapshot.charts.first(where: { $0.id == chartID }) {
+            return chart
+        }
+
+        let title = ProcessInfo.processInfo.environment["SMART_CHART_REPLAY_CHART_TITLE"]
+            ?? "Chord Writing Test Chart"
+        return snapshot.charts.first { $0.title == title }
     }
 }
 #endif

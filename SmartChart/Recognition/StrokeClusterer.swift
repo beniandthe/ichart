@@ -47,9 +47,13 @@ struct StrokeClusterer {
             .flatMap { cluster in
                 splitAttachedRightSideSharpStem(in: cluster) ?? [cluster]
             }
-        let normalizedClusters = mergeRootConstructionFragments(
+        let rootNormalizedClusters = mergeRootConstructionFragments(
             in: mergeSharpConstructionFragments(in: splitClusters)
         )
+            .flatMap { cluster in
+                splitAttachedRootFlatModifier(in: cluster) ?? [cluster]
+            }
+        let normalizedClusters = rootNormalizedClusters
             .flatMap { cluster in
                 splitAdjacentOneGlyphs(in: cluster) ?? [cluster]
             }
@@ -916,6 +920,69 @@ struct StrokeClusterer {
         }
 
         return [root, modifier]
+    }
+
+    private func splitAttachedRootFlatModifier(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 3 else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard let modifier = singleStrokeClusters.last,
+              isAttachedRootFlatModifierCandidate(modifier) else {
+            return nil
+        }
+
+        let rootFragments = singleStrokeClusters.dropLast()
+        let rootCluster = MutableInkCluster(
+            strokes: rootFragments.flatMap(\.strokes),
+            originalIndexes: rootFragments.flatMap(\.originalIndexes)
+        )
+        let rootWidth = max(rootCluster.bounds.width, 1)
+        let rootHeight = max(rootCluster.bounds.height, 1)
+        let modifierHeight = max(modifier.bounds.height, 1)
+        let modifierVerticalOverlap = modifier.bounds.verticalOverlap(with: rootCluster.bounds)
+
+        guard rootCluster.hasRootConstructionVerticalStem,
+              rootCluster.hasRootConstructionBody,
+              modifier.bounds.recognitionMidX > rootCluster.bounds.recognitionMidX,
+              modifier.bounds.minX >= rootCluster.bounds.minX + rootWidth * 0.45,
+              modifier.bounds.minX <= rootCluster.bounds.maxX + max(5, rootWidth * 0.30),
+              modifier.bounds.maxY <= rootCluster.bounds.minY + rootHeight * 0.72,
+              modifierVerticalOverlap >= max(4, min(modifierHeight, rootHeight) * 0.18) else {
+            return nil
+        }
+
+        return [rootCluster, modifier]
+    }
+
+    private func isAttachedRootFlatModifierCandidate(_ cluster: MutableInkCluster) -> Bool {
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        let aspectRatio = cluster.bounds.width / max(cluster.bounds.height, 1)
+        return stroke.points.count >= 7
+            && cluster.bounds.width >= 4
+            && cluster.bounds.height >= 8
+            && aspectRatio >= 0.25
+            && aspectRatio <= 1.35
+            && stroke.straightness <= 0.82
+            && !stroke.hasEarlyTopHorizontalRun
     }
 
     private func splitEmbeddedSharpAccidentals(
