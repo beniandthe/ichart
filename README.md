@@ -115,7 +115,8 @@ Current implementation authority:
 - [`docs/smart-chart-sprint-source-of-truth.md`](docs/smart-chart-sprint-source-of-truth.md) — active living sprint plan, recovery baseline, and current implementation authority
 - [`docs/smart-chart-post-merge-app-audit-2026-05-23.md`](docs/smart-chart-post-merge-app-audit-2026-05-23.md) — post-merge written/visual app audit and Sprint 13-15 planning evidence
 - [`docs/smart-chart-real-life-testing-readiness-2026-05-25.md`](docs/smart-chart-real-life-testing-readiness-2026-05-25.md) — Sprint 42 writing-to-render readiness handoff for real Pencil validation
-- [`docs/smart-chart-real-pencil-field-test-log-2026-05-26.md`](docs/smart-chart-real-pencil-field-test-log-2026-05-26.md) — Sprint 43 real Pencil field-test log template
+- [`docs/smart-chart-real-pencil-field-test-log-2026-05-26.md`](docs/smart-chart-real-pencil-field-test-log-2026-05-26.md) — Sprint 43 real Pencil field-test evidence log
+- [`docs/smart-chart-post-export-field-test-log-2026-05-26.md`](docs/smart-chart-post-export-field-test-log-2026-05-26.md) — Sprint 45 post-export real Pencil validation log
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan
