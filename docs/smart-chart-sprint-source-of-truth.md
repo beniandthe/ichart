@@ -165,6 +165,7 @@ Sprint 47 current evidence:
 - Existing committed-chord diagnostics already preserve confidence, candidate scores, trust source, agreement level, OCR evidence, and primary/final decision details after a chord is accepted.
 - Sprint 47 added debug-only console labels for final trust action/reason plus proposal and commit mutation timing. Recognition behavior is unchanged.
 - Sprint 47 added a timing-capture log and parser so the next real iPad/Pencil pass can be reduced into recognizer, trust/proposal, commit, and render-handoff evidence without importing the pass as fixtures.
+- A simulator/Preview pass on chart `4C07805D-48BC-4447-B003-8445FE7CFAFC` rendered and exported `C`, `G/B`, and `Db7(b9)` correctly. Active diagnostics show `C` and `G/B` auto-rendered with sub-2ms recognizer totals and no OCR, while `Db7(b9)` remained confirmation-routed as a close race. The pass did not capture the new console timing lines, so scheduler/proposal/commit/render latency remains unclassified.
 
 Acceptance criteria:
 
