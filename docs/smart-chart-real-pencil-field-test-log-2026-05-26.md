@@ -1,6 +1,6 @@
 # Smart Chart Real Pencil Field Test Log
 
-Status: Sprint 43 field-test evidence started
+Status: Sprint 43 field-test evidence captured; follow-up decision pending
 Date: 2026-05-26
 Protocol: `docs/smart-chart-real-life-testing-readiness-2026-05-25.md`
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
@@ -20,63 +20,64 @@ This is not a handwriting training session. Do not add fixtures, tune scores, or
 ## Test Setup
 
 - tester: Beni
-- device model: not yet recorded from tester; exported artifact was found in the configured iOS simulator Preview/export containers
+- device model: real iPad used; exact model not yet recorded. Exported PDF artifact inspected locally was found in the configured iOS simulator Preview/export containers.
 - iPadOS version: not yet recorded from tester; exported PDF metadata reports iOS Version 26.5 (Build 23F77)
-- Apple Pencil model: not yet recorded
+- Apple Pencil model: real Apple Pencil used; exact model not yet recorded
 - app build/commit: `56ef6ae Set up real Pencil field test`
 - date/time: user-reported pass complete on 2026-05-25; exported PDF metadata timestamp `2026-05-26T03:01:32Z` (`2026-05-25 20:01:32 PDT`)
 - chart title: `Untitled Chart`
-- notes on input environment: user reported the pass was completed and exported to Preview; local evidence currently proves the Preview/export PDF artifact, not physical device identity or subjective Pencil feel
+- notes on input environment: user confirmed the writing pass was completed on a real iPad with Apple Pencil. Local metadata confirms the inspected Preview PDF artifact came from simulator/Preview export storage, so it proves generated PDF shape and metadata rather than physical iPad file provenance.
 
 ## Preflight
 
-- [ ] App opens to Projects/Library.
-- [ ] Clean chart is created or opened.
-- [ ] Chord-writing mode is reachable.
-- [ ] Apple Pencil writes native ink without obvious lag before recognition starts.
-- [x] Export path is reachable.
+- [x] App opens to Projects/Library.
+- [x] Clean chart is created or opened.
+- [x] Chord-writing mode is reachable.
+- [ ] Apple Pencil writes native ink without obvious lag before recognition starts. Partial pass: tester reported native writing feel with small stroke-break issues.
+- [ ] Export/share path is reachable on tested iPad. Tester reported export/share was not available on iPad and only available from MacBook/local Preview flow.
 
 ## Bounded Test Cases
 
 | Case | Expected route | Actual route | Pencil feel | Correction friction | Export result | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `C` | Auto-render or clear correction path | Rendered into exported PDF; route details not yet recorded | not yet recorded | not yet recorded | Pass: visible in M1 | Visual export proof shows label and beat subtitle legibly rendered |
-| `G/B` | Auto-render slash chord | Rendered into exported PDF; route details not yet recorded | not yet recorded | not yet recorded | Pass: visible in M2 | Slash chord label rendered without clipping |
-| `Db7(b9)` | Confirmation, not blind auto-render | Rendered into exported PDF; confirmation behavior not yet recorded | not yet recorded | not yet recorded | Pass: visible in M3 | Altered chord label rendered without clipping |
+| `C` | Auto-render or clear correction path | Auto-rendered correctly, but slowly | Native feel with small stroke breaks | No correction needed | Visible in local Preview PDF M1 | Visual export proof shows label and beat subtitle legibly rendered |
+| `G/B` | Auto-render slash chord | Auto-rendered correctly, but slowly | Native feel with small stroke breaks | No correction needed | Visible in local Preview PDF M2 | Slash chord label rendered without clipping |
+| `Db7(b9)` | Confirmation, not blind auto-render | Recognition had issues, mostly around the altered extension note | Native feel with small stroke breaks | Altered extension correction/trust friction observed | Visible in local Preview PDF M3 after successful output | Altered chord label rendered without clipping once exported |
 
 ## Product Observations
 
 ### Writing Feel
 
-- latency: not yet recorded from tester
-- stroke fragmentation: not yet recorded from tester
-- pressure/visual feel: not yet recorded from tester
-- accidental mode/tool friction: not yet recorded from tester
+- latency: writing itself felt native, but recognition/auto-render was slow for `C` and `G/B`.
+- stroke fragmentation: small stroke-break issues observed.
+- pressure/visual feel: native Apple Pencil feel was acceptable overall.
+- accidental mode/tool friction: not reported.
 
 ### Recognition Trust
 
-- auto-render felt correct when: not yet recorded from tester
-- confirmation felt necessary when: not yet recorded from tester
-- surprising result: not yet recorded from tester
+- auto-render felt correct when: `C` and `G/B` both auto-rendered correctly.
+- confirmation felt necessary when: `Db7(b9)` remained the ambiguous altered-chord case; friction centered on the altered extension note.
+- surprising result: auto-render speed was slower than desired; altered extension recognition was weaker than the simple/slash-chord cases.
 
 ### Correction Flow
 
-- suggestion clarity: not yet recorded from tester
-- manual edit friction: not yet recorded from tester
-- recovery from wrong/unsupported chord: not yet recorded from tester
+- suggestion clarity: `Db7(b9)` needs follow-up; altered extension handling did not feel trustworthy enough yet.
+- manual edit friction: not fully recorded.
+- recovery from wrong/unsupported chord: not fully recorded.
 
 ### Ink Lifecycle
 
-- chord ink cleared after accepted render: not yet recorded from tester
+- chord ink cleared after accepted render: pass. Tester confirmed all chord ink cleared.
 - unexpected ink left behind: not visible in exported PDF; live canvas state not yet recorded
-- unexpected ink cleared too early: not yet recorded from tester
+- unexpected ink cleared too early: not reported.
 
 ### Export
 
 - PDF readability: pass. Rendered PNG proof is legible at `792x612`; white page background is stable.
 - chord placement: pass. `C`, `G/B`, and `Db7(b9)` appear in M1, M2, and M3 respectively with no visible clipping; M4 remains empty.
 - title/header/layout: pass. Header shows `Untitled Chart`, `C major`, `Concert`, `4/4`, `4 measures`, and `Page 1`.
-- share/export friction: user reported export to Preview succeeded; exact tap path and any friction are not yet recorded.
+- share/export friction: fail on real iPad. Tester reported export/share was not available on iPad and only available from MacBook/local Preview flow.
+- export fidelity: fail for product expectations. The generated PDF uses old singular/card-like measure blocks rather than the full actual chart/page surface.
 
 ## Evidence
 
@@ -92,6 +93,10 @@ Attach or reference only product-useful evidence:
   - PDF metadata: creator `Smart Chart`, title `Untitled Chart`, producer `iOS Version 26.5 (Build 23F77) Quartz PDFContext`, creation/modification timestamp `2026-05-26T03:01:32Z`
 - rendered QA image: `/tmp/SmartChartRealPencilFieldTest/untitled-chart-concert.png`
 - visual QA notes: first page renders as a clean landscape chart with four visible measures; `C`, `G/B`, and `Db7(b9)` are legible and not clipped.
+- metadata confirmation:
+  - inspected artifact provenance: CoreSimulator path for booted `iPad Pro 13-inch (M5)` simulator `42254D11-2E65-4586-AEBE-C6317AF2DD10`
+  - physical iPad/Pencil provenance: confirmed by tester notes, not by the local PDF file path
+  - current export renderer implementation: `PDFChartExporter` renders fixed 792x612 pages with card-style measure blocks; it does not yet share the full on-screen chart/page geometry
 - console/log notes:
 
 Do not save repeated personal handwriting samples unless a specific transferable regression needs a fixture later.
@@ -109,4 +114,4 @@ Choose the next sprint from the observed product friction:
 
 Decision notes:
 
-The first evidence capture confirms the write-to-render-to-export output can produce a legible Preview PDF for the bounded Sprint 42/43 chord set. The remaining Sprint 43 decision should be driven by the tester's live notes on Pencil feel, route trust, correction friction, and ink-clearing behavior rather than by adding more one-writer ink samples.
+The field test confirms the recovered writing-to-render loop works in principle on real iPad/Pencil: native writing feel is mostly intact, `C` and `G/B` can auto-render, and accepted chord ink clears. The pass also exposes real product blockers: small stroke breaks, slow auto-render, `Db7(b9)` altered-extension recognition friction, unavailable iPad export/share, and PDF export fidelity that still looks like old measure cards instead of the actual chart page. These findings should route the next sprint toward export availability/fidelity first, with recognition latency and altered-extension trust as the next bounded follow-up. Do not respond by adding more personal handwriting fixtures.
