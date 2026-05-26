@@ -79,6 +79,8 @@ Run this manually on a real iPad with Apple Pencil after Sprint 42 is green:
 9. Accept the supported candidate and confirm the active chord ink pass clears after render.
 10. Export the chart to PDF and visually inspect that the rendered chords are readable.
 
+Record the pass in `docs/smart-chart-real-pencil-field-test-log-2026-05-26.md` so the next sprint can be chosen from product evidence instead of memory.
+
 Evidence to record:
 
 - device model and iPadOS version
