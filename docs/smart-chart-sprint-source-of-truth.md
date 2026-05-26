@@ -35,8 +35,9 @@ The active app runtime implementation state is the merged recovery branch from P
 - Sprint 43 field-test log: `docs/smart-chart-real-pencil-field-test-log-2026-05-26.md`
 - Sprint 45 post-export field-test log: `docs/smart-chart-post-export-field-test-log-2026-05-26.md`
 - Sprint 46 latency triage artifact: `docs/smart-chart-recognition-latency-triage-2026-05-26.md`
+- Sprint 46 latency repeat log: `docs/smart-chart-sprint-46-latency-repeat-log-2026-05-26.md`
 - latest local verification: Sprint 46 scheduler tuning passed XcodeBuildMCP focused iOS simulator `SmartChartTests/LeadSheetChordInkRecognitionSchedulingTests` with `5` tests, `0` failures; `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint46 --filter WritingToRenderPipelineReadinessTests` passed with `1` test, `0` failures and bounded recognizer/readiness runtime of `0.131s`; full `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint46` passed with `317` tests, `36` skipped, `0` failures; XcodeBuildMCP full iOS simulator test for scheme `SmartChart` passed with `334` tests, `36` skipped, `0` failures; `xcodegen generate`, Python script compilation, and `git diff --check` passed.
-- latest GitHub verification: main commit `19ea6a9 Add sprint 46 latency triage evidence` passed required GitHub Actions on 2026-05-26, with SwiftPM tests, iOS simulator tests, and Analyze Swift passing; Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
+- latest GitHub verification: main commit `72e6d91 Tune sprint 46 chord recognition scheduling` passed required GitHub Actions on 2026-05-26, with SwiftPM tests, iOS simulator tests, and Analyze Swift passing; Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health; PR [#4](https://github.com/beniandthe/smart-chart/pull/4) had Dependency Review, SwiftPM, iOS simulator, Analyze Swift, and CodeQL passing on `66dc5d2`; the review thread was answered/resolved by product decision, and the PR merged into `main` as `1b792df` on 2026-05-23
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -145,7 +146,7 @@ Current state:
 - Sprint 44 fixed the export blockers locally: `PDFChartExporter` now renders through `LeadSheetPageLayoutEngine` and `LeadSheetNotationRenderer`, and PDF export is temporarily reachable before StoreKit through `AppEntitlements.pdfExportAvailableBeforeStoreKit`.
 - Sprint 44 GitHub verification passed on main commit `2501fdf`.
 - Sprint 45 confirmed the post-export field-test pass: export worked as expected, the chart exported as PDF to Preview, `C` and `G/B` still auto-rendered slowly after a couple seconds, `Db7(b9)` needed confirmation and was good, no stroke breaks reproduced, and accepted chord ink cleared.
-- Sprint 46 evidence and tuning are recorded in `docs/smart-chart-recognition-latency-triage-2026-05-26.md`: clear `C` could previously pay the normal `1.2s` idle delay plus a `1.2s` continuation-grace recheck before proposal; bounded recognizer compute remains well below the product-loop latency budget; scheduler tuning now uses a `0.85s` idle delay and a `0.55s` root-only continuation grace while preserving full `1.2s` grace for extension prefixes and no grace for `G/B` or `Db7(b9)`. The next decision gate is a bounded real iPad/Pencil latency repeat after GitHub is green.
+- Sprint 46 evidence and tuning are recorded in `docs/smart-chart-recognition-latency-triage-2026-05-26.md`: clear `C` could previously pay the normal `1.2s` idle delay plus a `1.2s` continuation-grace recheck before proposal; bounded recognizer compute remains well below the product-loop latency budget; scheduler tuning now uses a `0.85s` idle delay and a `0.55s` root-only continuation grace while preserving full `1.2s` grace for extension prefixes and no grace for `G/B` or `Db7(b9)`. GitHub is green on `72e6d91`, and the current decision gate is the bounded real iPad/Pencil repeat in `docs/smart-chart-sprint-46-latency-repeat-log-2026-05-26.md`.
 
 Sprint 46 tasks:
 
@@ -670,7 +671,8 @@ Append one entry here after each sprint completes. Each entry must include:
 
 Use this queue for Sprint 47 routing after Sprint 46 latency/trust triage. The user has approved continuing through the current audit/cleanup plan one scoped sprint at a time until a necessary approval/input point or plan completion.
 
-- If Sprint 46 finds scheduler/debounce latency, implement the smallest clear-case scheduling improvement and repeat the bounded iPad/Pencil pass.
+- If the Sprint 46 real iPad/Pencil repeat confirms the scheduler improvement, close Sprint 46 and choose the Sprint 47 product route.
+- If the Sprint 46 repeat still feels slow, inspect live timing logs before making any further scheduler, trust, or recognition changes.
 - If Sprint 46 finds recognizer compute latency, target the narrow expensive step without enabling diagnostics sidecars or personal fixture expansion.
 - If Sprint 46 cannot safely improve latency, document the remaining tradeoff and choose correction UX or broader beta/readiness polish.
 - If the duplicated-screen observation persists with screenshot/repro, choose a visual/UI state bug sprint.
@@ -694,6 +696,7 @@ Current authority:
 - `docs/smart-chart-real-pencil-field-test-log-2026-05-26.md`: Sprint 43 real Pencil field-test evidence log.
 - `docs/smart-chart-post-export-field-test-log-2026-05-26.md`: Sprint 45 post-export real Pencil validation log.
 - `docs/smart-chart-recognition-latency-triage-2026-05-26.md`: Sprint 46 recognition latency evidence.
+- `docs/smart-chart-sprint-46-latency-repeat-log-2026-05-26.md`: Sprint 46 real Pencil latency repeat gate.
 - `docs/core-design-document.md`: product intent and design rules.
 - `docs/developer-mvp-spec.md`: MVP scope, subordinate to the core design document.
 - `docs/repo-github-recognition-audit-2026-05-20.md`: evidence snapshot for the current recovery plan.

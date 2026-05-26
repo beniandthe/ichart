@@ -1,9 +1,10 @@
 # Smart Chart Recognition Latency Triage
 
-Status: Sprint 46 scheduler tuning implemented; local verification complete; GitHub verification pending after push
+Status: Sprint 46 scheduler tuning implemented; local and GitHub verification complete; awaiting real iPad/Pencil latency repeat
 Date: 2026-05-26
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 Trigger evidence: `docs/smart-chart-post-export-field-test-log-2026-05-26.md`
+Repeat pass log: `docs/smart-chart-sprint-46-latency-repeat-log-2026-05-26.md`
 
 ## Purpose
 
@@ -19,7 +20,7 @@ The live chord-entry path schedules recognition after a fixed idle delay:
 PKCanvasView drawing changed
 -> scheduleChordInkRecognition()
 -> LeadSheetChordInkRecognitionScheduling.idleDelay(...)
--> DispatchQueue.main.asyncAfter(default 1.2s)
+-> DispatchQueue.main.asyncAfter(default 0.85s)
 -> ChordInkRecognitionSession.start(...)
 -> ChordInkRecognizer.recognize(...)
 -> optional OCR only when trust policy needs ambiguity evidence
@@ -40,8 +41,8 @@ The first repo-local Sprint 46 test is `LeadSheetChordInkRecognitionSchedulingTe
 
 It proves:
 
-- `LeadSheetChordInkRecognitionScheduling.idleDelay` currently returns the configured default delay.
-- A clear root like `C` can pay the initial `1.2s` idle delay plus a `1.2s` continuation-grace recheck before the proposal is sent.
+- Before tuning, `LeadSheetChordInkRecognitionScheduling.idleDelay` returned the configured default delay.
+- Before tuning, a clear root like `C` could pay the initial `1.2s` idle delay plus a `1.2s` continuation-grace recheck before the proposal was sent.
 - The same drawing data does not repeat continuation grace forever.
 - `G/B` and `Db7(b9)` do not use that continuation-grace path because slash-bass and altered chords are outside the simple-continuation guard.
 
@@ -75,10 +76,11 @@ Expected product impact:
 - After scheduler tuning, `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint46 --filter WritingToRenderPipelineReadinessTests` passed with `1` test, `0` failures; the bounded recognizer/readiness pass completed in `0.131s`.
 - After scheduler tuning, `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint46` passed with `317` tests, `36` skipped, `0` failures.
 - After scheduler tuning, XcodeBuildMCP full iOS simulator test for scheme `SmartChart` passed with `334` tests, `36` skipped, `0` failures on `iPad Pro 13-inch (M5)`.
+- GitHub Actions passed on main commit `72e6d91`, with Analyze Swift, iOS simulator tests, and SwiftPM tests all successful.
 
 ## Next Evidence To Gather
 
-- Repeat the bounded real iPad/Pencil pass after GitHub is green to confirm the perceived delay improves without premature root-only auto-render.
+- Repeat the bounded real iPad/Pencil pass using `docs/smart-chart-sprint-46-latency-repeat-log-2026-05-26.md` to confirm the perceived delay improves without premature root-only auto-render.
 - Inspect existing debug timing logs from a live/simulator pass if available:
   - `delay`
   - `idle`
