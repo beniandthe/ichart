@@ -27,7 +27,7 @@ This sprint is evidence-first. It should decide the next chord-related implement
 
 ## Pass Setup
 
-Use the current real-device build containing app commit `1eebe00 Require Pencil for device chord entry`.
+Use the current real-device build containing app commit `1ef7980 Restore supported altered extensions`.
 
 Pass device:
 
@@ -107,3 +107,17 @@ Sprint 56 follow-up:
 - Reject repeated alterations and root-only altered suffixes such as `Db(b9)` / `Db(b9)(b9)` at the parser/compendium boundary.
 - Keep `Db7(b9)` valid and supported.
 - Build confirmation suggestions from ranked supported scores, the primary match, and supported OCR display text only; do not promote raw recognizer strings into the user-facing top-three list.
+
+## Repeat Pass Gate
+
+Status: ready after green checks for `1ef7980 Restore supported altered extensions`.
+
+Use `docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md` for the next bounded pass.
+
+Keep this pass narrow:
+
+- validate native iPad/Pencil feel rather than simulator sharing feel
+- confirm no mouse/pointer contamination on the real-device chord-entry path
+- confirm the confirmation sheet shows only compendium/parser-approved suggestions
+- confirm `Db(b9)(b9)` or similar raw unsupported strings do not appear as suggestions
+- confirm `Db7(b9)` and existing altered-extension families remain available

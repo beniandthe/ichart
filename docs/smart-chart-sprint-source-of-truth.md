@@ -145,21 +145,22 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ### Sprint 56: Chord Field Validation
 
-Status: active; first pass produced a confirmation-authority fix and a simulator-input caveat.
+Status: active; parser/confirmation authority fix is green, ready for bounded repeat pass.
 
 Goal: validate the Sprint 55 chord-first improvements on real hardware before starting another architecture or recognition implementation sprint.
 
 Current state:
 
 - Sprint 55 closed the current chord-first polish lane: rhythm-aware placement snapping, placement/timing diagnostics, `Absus` candidate availability, fast-writing PencilKit ownership, and real-device Pencil-only chord entry.
-- Required GitHub Actions are green for `1eebe00 Require Pencil for device chord entry`.
+- Required GitHub Actions are green for `1ef7980 Restore supported altered extensions`.
 - Simulator chord input remains `.anyInput` for automation; real iPad/device chord entry uses `.pencilOnly`.
 - The first Sprint 56 report showed simulator/shared-input lag after manually hiding the pointer. Treat that as simulator evidence only, not as proof of native real-device Pencil lag.
-- The first Sprint 56 report also showed an unsupported confirmation suggestion (`Db(b9)(b9)`). This routes a narrow authority-boundary fix before any broader recognition tuning.
+- The first Sprint 56 report also showed an unsupported confirmation suggestion (`Db(b9)(b9)`). The narrow authority-boundary fix is green at `1ef7980 Restore supported altered extensions`.
+- The repeat pass should use `docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md`.
 
 Sprint 56 tasks:
 
-- Run the bounded pass defined in `docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md`.
+- Run the bounded repeat pass defined in `docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md`.
 - Validate fast writing feel on real iPad with Apple Pencil.
 - Confirm mouse/trackpad/pointer input no longer contaminates real-device chord ink.
 - Validate supported chord usability for `C`, `G/B`, `Db7(b9)`, and `Absus`.
