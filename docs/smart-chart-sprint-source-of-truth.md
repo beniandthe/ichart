@@ -26,7 +26,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - PR review follow-through checkpoint: `66dc5d2 Document chord ink clear decision`
 - PR readiness checkpoint: `61caeb9 Open sprint nine merge readiness`
 - previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
-- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, Sprint 17 working Library debloat, Sprint 18 chord sheet extraction, Sprint 19 rhythm confirmation extraction, Sprint 20 chord edit overlay geometry extraction, Sprint 21 measure resize geometry extraction, Sprint 22 active ink-scope extraction, Sprint 23 saved ink renderer extraction, Sprint 24 active ink persistence extraction, Sprint 25 chord ink image renderer extraction, Sprint 26 interaction targeting extraction, Sprint 27 note-selection lasso targeting extraction, Sprint 28 chord ink recognition targeting extraction, Sprint 29 chord recognition timing extraction, Sprint 30 chord recognition scheduling extraction, Sprint 31 rhythmic notation finalization policy extraction, Sprint 32 interaction-mode state policy extraction, Sprint 33 chord recognition request-state extraction, Sprint 34 editor/recognition execution audit, Sprint 35 recognition-session boundary design, Sprint 36 recognition generalization policy reset, Sprint 37 recognition-session boundary implementation, Sprint 38 recognition-session OCR gate test hardening, Sprint 39 bounded renderer product proof, Sprint 40 visual renderer QA, Sprint 41 writing-to-render commit contract, Sprint 42 writing-to-render readiness QA, Sprint 43 real Pencil field-test evidence, Sprint 44 renderer/iPad export availability, Sprint 45 post-export field-test validation, Sprint 46 recognition latency/trust triage, Sprint 47 confidence/performance split triage, Sprint 48 persistent timing telemetry, Sprint 49 flat-root candidate availability, Sprint 50 post-stroke responsiveness, Sprint 51 real-life polish, and Sprint 52 chord confirmation/user loop UX are complete locally; Sprint 53 validation speed is active
+- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, Sprint 17 working Library debloat, Sprint 18 chord sheet extraction, Sprint 19 rhythm confirmation extraction, Sprint 20 chord edit overlay geometry extraction, Sprint 21 measure resize geometry extraction, Sprint 22 active ink-scope extraction, Sprint 23 saved ink renderer extraction, Sprint 24 active ink persistence extraction, Sprint 25 chord ink image renderer extraction, Sprint 26 interaction targeting extraction, Sprint 27 note-selection lasso targeting extraction, Sprint 28 chord ink recognition targeting extraction, Sprint 29 chord recognition timing extraction, Sprint 30 chord recognition scheduling extraction, Sprint 31 rhythmic notation finalization policy extraction, Sprint 32 interaction-mode state policy extraction, Sprint 33 chord recognition request-state extraction, Sprint 34 editor/recognition execution audit, Sprint 35 recognition-session boundary design, Sprint 36 recognition generalization policy reset, Sprint 37 recognition-session boundary implementation, Sprint 38 recognition-session OCR gate test hardening, Sprint 39 bounded renderer product proof, Sprint 40 visual renderer QA, Sprint 41 writing-to-render commit contract, Sprint 42 writing-to-render readiness QA, Sprint 43 real Pencil field-test evidence, Sprint 44 renderer/iPad export availability, Sprint 45 post-export field-test validation, Sprint 46 recognition latency/trust triage, Sprint 47 confidence/performance split triage, Sprint 48 persistent timing telemetry, Sprint 49 flat-root candidate availability, Sprint 50 post-stroke responsiveness, Sprint 51 real-life polish, Sprint 52 chord confirmation/user loop UX, and Sprint 53 validation speed are complete locally; Sprint 54 product polish decision is active
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
 - Sprint 12 audit artifact: `docs/smart-chart-post-merge-app-audit-2026-05-23.md`
 - Sprint 34 audit artifact: `docs/smart-chart-editor-recognition-execution-audit-2026-05-24.md`
@@ -45,7 +45,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - Sprint 52 chord confirmation/user loop artifact: `docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`
 - Sprint 53 validation speed artifact: `docs/smart-chart-sprint-53-validation-speed-2026-05-26.md`
 - latest local verification: Sprint 53 workflow YAML parse passed for `.github/workflows/ci.yml` and `.github/workflows/codeql.yml`; `git diff --check` passed. Sprint 52 focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordInkUserCorrectionMemoryTests` passed with `7` tests, `0` failures; `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint52 --filter ChordEntryDiagnosticsTests` passed with `7` tests, `0` failures; XcodeBuildMCP iOS simulator focused test `-only-testing:SmartChartTests/ChordInkUserCorrectionMemoryTests` passed with `7` tests, `0` failures. Sprint 50 post-stroke responsiveness full verification remains the latest broad app baseline: full SwiftPM passed with `319` tests, `36` skipped, `0` failures; XcodeBuildMCP full iOS simulator scheme passed with `336` tests, `36` skipped, `0` failures; Python script compilation passed.
-- latest GitHub verification: main commit `bded045 Record deleted chord auto-render rejections` passed required GitHub Actions on 2026-05-26, with SwiftPM tests, iOS simulator tests, and Analyze Swift passing; Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health. Sprint 50 remains the latest broad full-suite local baseline; Sprint 52 is focused green plus CI green.
+- latest GitHub verification: main commit `89ec2dc Speed up sprint validation checks` passed `SwiftPM tests`, `iOS simulator tests`, `Analyze Swift`, and `Dependabot` on 2026-05-26. Direct-main `Analyze Swift` completed quickly and reported the intentional CodeQL defer; real CodeQL remains on pull requests, weekly schedule, and manual dispatch. Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health. Sprint 50 remains the latest broad full-suite local baseline; Sprint 52 is focused green plus CI green.
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -140,43 +140,31 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ## Active Sprint
 
-### Sprint 53: Validation Speed
+### Sprint 54: Product Polish Decision
 
-Status: active implementation after Sprint 52 validated the correction loop and exposed validation-loop drag.
+Status: decision gate after Sprint 53 validation-speed cleanup.
 
-Goal: make routine sprint validation faster while preserving the checks that actually protect app behavior.
-
-Trigger: the user confirmed Sprint 52's correction loop seems to be working, with the added product goal that wrong auto-render deletion must not trap the user in a write -> delete -> rewrite loop. The remaining friction is waiting roughly 15 to 20 minutes for each small pass because the direct-main `Analyze Swift` CodeQL lane dominates runtime.
+Goal: choose the next product-facing sprint without reopening solved recognition loops or unnecessary validation drag.
 
 Current state:
 
-- SwiftPM and iOS simulator checks remain the app-health gates for app-impacting changes.
-- The latest direct-main CI timing showed app CI around 5 minutes and CodeQL around 14 minutes.
-- Branch protection still names `SwiftPM tests`, `iOS simulator tests`, `Analyze Swift`, and `Review dependency changes` as required contexts.
-- CodeQL should stay real on pull requests, weekly schedule, and manual dispatch, but does not need to block every direct sprint push to `main`.
-- The active evidence artifact is `docs/smart-chart-sprint-53-validation-speed-2026-05-26.md`.
+- Writing-to-render latency is good enough to move forward.
+- Sprint 52 correction UX is validated as working.
+- The correction loop must never trap the user in write -> wrong render -> delete -> rewrite.
+- Sprint 53 shortened direct-main validation by deferring CodeQL to PR/schedule/manual runs and by skipping app test suites for docs/config-only passes.
 
-Sprint 53 tasks:
+Candidate next lanes:
 
-- Preserve existing required check names.
-- Make docs/config-only CI passes no-op quickly for SwiftPM and iOS simulator jobs when no app-impacting path changed.
-- Make direct-main `Analyze Swift` report an explicit CodeQL defer instead of running the full CodeQL build.
-- Keep real CodeQL on pull requests, scheduled weekly scans, and manual dispatch.
-- Document the validation-speed tradeoff in this source-of-truth file.
+- Confirmation sheet visual/interaction polish.
+- Direct-input affordance polish for repeated failures.
+- Chart placement/snapping polish.
+- Library/navigation polish.
+- Close the recovery/audit arc and move to feature prioritization.
 
-Acceptance criteria:
+Decision rule:
 
-- Docs-only direct-main pushes complete the required check contexts quickly.
-- App-impacting direct-main pushes still run SwiftPM and iOS simulator tests.
-- Pull requests still run real Swift CodeQL.
-- No runtime recognition, correction-memory, PencilKit, export, or editor behavior changes.
-- `git diff --check` passes.
-
-Non-goals for Sprint 53:
-
-- No weakening app tests for app-impacting code.
-- No recognition score, fixture corpus, OCR authority, symbol-ledger, or correction-memory behavior changes.
-- No branch-protection UI changes from the repo unless explicitly requested later.
+- Pick a user-visible product lane unless new evidence shows a regression.
+- Keep verification proportional: focused checks for narrow UI/doc changes, full SwiftPM and iOS simulator checks for app-impacting or broad project changes.
 
 ## Completed Sprints Log
 
@@ -747,6 +735,16 @@ Append one entry here after each sprint completes. Each entry must include:
 - behavior boundary: no fixture expansion, score retuning from one user's pass, default OCR expansion, symbol-ledger diagnostics cost, export behavior, PencilKit capture, or global recognition authority changed.
 - unresolved follow-up: the correction loop must never become a write -> wrong render -> delete -> rewrite trap; future correction-memory work should route repeated negative feedback to confirmation/direct input rather than repeating the same wrong auto-render.
 - next sprint candidate: Sprint 53 validation speed.
+
+### Sprint 53: Validation Speed
+
+- status: complete; direct-main app validation passed and CodeQL defer proved on `main`
+- workflow commit: `89ec2dc Speed up sprint validation checks`
+- summary: Reduced default sprint validation drag while preserving required check names. SwiftPM and iOS simulator jobs now detect app-impacting paths and no-op for docs/config-only changes. Direct-main `Analyze Swift` now reports an explicit CodeQL defer, while pull requests, scheduled weekly scans, and manual dispatch still run real Swift CodeQL.
+- tests and evidence: local workflow YAML parse passed for `.github/workflows/ci.yml` and `.github/workflows/codeql.yml`; `git diff --check` passed; main commit `89ec2dc` passed `SwiftPM tests`, `iOS simulator tests`, `Analyze Swift`, and `Dependabot`. The `Analyze Swift` log showed CodeQL was deferred on the direct `main` push instead of running the full build/analyze lane.
+- behavior boundary: no runtime recognition, correction-memory, PencilKit, export, editor, fixture, OCR, symbol-ledger, or app behavior changed.
+- unresolved follow-up: verify the docs/config-only no-op path on the next source-of-truth-only push; keep real CodeQL on PR/schedule/manual runs.
+- next sprint candidate: Sprint 54 product polish decision.
 
 ## Next Sprint Backlog
 

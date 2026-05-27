@@ -1,6 +1,6 @@
 # Smart Chart Sprint 53: Validation Speed
 
-Status: active implementation
+Status: complete
 Date: 2026-05-26
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 
@@ -41,3 +41,15 @@ Sprint 52's chord confirmation/user loop is functionally validated by the user, 
 - Push and confirm required check contexts complete.
 - After push, confirm the direct-main `Analyze Swift` job reports the intentional defer instead of spending the full CodeQL build time.
 
+## Verification Evidence
+
+- Local workflow YAML parse passed for `.github/workflows/ci.yml` and `.github/workflows/codeql.yml`.
+- `git diff --check` passed.
+- Main commit `89ec2dc Speed up sprint validation checks` passed `SwiftPM tests`, `iOS simulator tests`, `Analyze Swift`, and `Dependabot`.
+- The direct-main `Analyze Swift` log explicitly reported: `CodeQL is deferred on direct main pushes; it still runs on pull requests, the weekly schedule, and manual dispatch.`
+- `Analyze Swift` completed quickly instead of running the full Swift CodeQL build.
+
+## Follow-Up
+
+- Use the next doc-only/source-of-truth closeout commit to prove the docs/config-only no-op path for SwiftPM and iOS simulator jobs.
+- Keep full app validation for app-impacting changes and broad project configuration changes.
