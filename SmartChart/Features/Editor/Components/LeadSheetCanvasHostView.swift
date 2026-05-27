@@ -188,6 +188,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         action: #selector(handleChordEditTap(_:))
     )
     private var isSyncingInkCanvasFromModel = false
+    private var hasUnpersistedChordInk = false
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
@@ -551,6 +552,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if interactionMode.allowsChordInkEditing {
+            hasUnpersistedChordInk = true
+        }
+
         schedulePersistActiveInk()
     }
 
@@ -779,6 +784,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let desiredData = activeInkScope.drawingData(in: chart)
         let currentData = currentCanvasDrawingData()
+        if interactionMode.allowsChordInkEditing,
+           hasUnpersistedChordInk,
+           currentData != desiredData {
+            pageInkCanvasView.becomeFirstResponder()
+            return
+        }
+
         guard currentData != desiredData else {
             return
         }
@@ -796,7 +808,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func schedulePersistActiveInk() {
         if interactionMode.allowsChordInkEditing {
-            persistActiveInkIfNeeded(cancelPendingRecognition: false)
             scheduleChordInkRecognition()
             return
         }
@@ -846,13 +857,26 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let isChordInkScope: Bool
+        if case .chords = activeInkScope {
+            isChordInkScope = true
+        } else {
+            isChordInkScope = false
+        }
+
         let drawingData = currentCanvasDrawingData()
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
+            if isChordInkScope {
+                hasUnpersistedChordInk = false
+            }
             return
         }
 
         chart = updatedChart
         onChartChanged?(updatedChart)
+        if isChordInkScope {
+            hasUnpersistedChordInk = false
+        }
     }
 
     private func recognizeChordInkIfNeeded(
@@ -868,14 +892,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         guard interactionMode.allowsChordInkEditing,
               let activeInkScope = activeInkScope(),
-              case .chords(let chordFrame) = activeInkScope,
-              let drawingData = currentCanvasDrawingData(),
-              drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData,
-              let target = LeadSheetChordInkRecognitionTargeting.target(
-                for: pageInkCanvasView.drawing,
-                chordFrame: chordFrame,
-                pageLayout: pageLayout
-              ) else {
+              case .chords(let chordFrame) = activeInkScope else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        guard let drawingData = currentCanvasDrawingData() else {
+            if hasUnpersistedChordInk {
+                persistActiveInkIfNeeded(cancelPendingRecognition: false)
+            }
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        guard drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        persistActiveInkIfNeeded(cancelPendingRecognition: false)
+
+        guard let target = LeadSheetChordInkRecognitionTargeting.target(
+            for: pageInkCanvasView.drawing,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        ) else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
         }
