@@ -15,6 +15,14 @@ from typing import Any
 
 DEFAULT_BUNDLE_ID = "com.smartchart.app"
 DEFAULT_CHART_TITLE = "Chord Writing Test Chart"
+TIMING_SUMMARY_FIELDS = [
+    ("requestedDelayMilliseconds", "delay"),
+    ("idleMilliseconds", "idle"),
+    ("recognitionTotalMilliseconds", "recognitionTotal"),
+    ("proposalDecisionMilliseconds", "proposal"),
+    ("commitMutationMilliseconds", "commit"),
+    ("renderHandoffMilliseconds", "render"),
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -145,8 +153,8 @@ def chord_events(chart: dict[str, Any]) -> list[dict[str, Any]]:
 def event_label(event: dict[str, Any]) -> str:
     raw_input = event.get("rawInput") or "?"
     measure_index = event.get("_measureIndex")
-    beat = event.get("startPosition", {}).get("beat")
-    return f"{event.get('id')} measure={measure_index} beat={beat} raw={raw_input}"
+    placement = format_compact_placement(placement_evidence_for_chord_event(event))
+    return f"{event.get('id')} measure={measure_index} placement={placement} raw={raw_input}"
 
 
 def diagnostic_sort_key(event: dict[str, Any]) -> tuple[int, str, str]:
@@ -186,6 +194,10 @@ def short_text(text: Any, fallback: str = "?") -> str:
 
 def format_confidence(value: Any) -> str:
     return f"{value:.2f}" if isinstance(value, (float, int)) else "?"
+
+
+def format_milliseconds(value: Any) -> str:
+    return f"{value:.0f}ms" if isinstance(value, (float, int)) else "?"
 
 
 def format_gap(value: Any) -> str:
@@ -241,8 +253,7 @@ def format_timing_evidence(timing: dict[str, Any] | None) -> str:
         return ""
 
     def ms(key: str) -> str:
-        value = timing.get(key)
-        return "?" if value is None else f"{value:.0f}ms"
+        return format_milliseconds(timing.get(key))
 
     return (
         " timing=["
@@ -255,6 +266,25 @@ def format_timing_evidence(timing: dict[str, Any] | None) -> str:
         f"render={ms('renderHandoffMilliseconds')}"
         "]"
     )
+
+
+def format_placement_evidence(placement: dict[str, Any] | None) -> str:
+    if not placement:
+        return ""
+
+    return " placement=[" + format_compact_placement(placement) + "]"
+
+
+def format_compact_placement(placement: dict[str, Any] | None) -> str:
+    if not placement:
+        return "start=?, duration=?, rhythm=-, slot=-"
+
+    start = short_text(placement.get("startPositionText"), fallback="?")
+    duration = short_text(placement.get("durationText"), fallback="?")
+    rhythm_placement = short_text(placement.get("rhythmPlacement"), fallback="-")
+    slot_index = placement.get("mappedRhythmSlotIndex")
+    slot = slot_index + 1 if isinstance(slot_index, int) else "-"
+    return f"start={start}, duration={duration}, rhythm={rhythm_placement}, slot={slot}"
 
 
 def format_symbol_ledger(ledger: dict[str, Any] | None) -> str:
@@ -370,6 +400,7 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
         score_suffix = format_scores(event.get("candidateScores") or [], score_limit)
         metrics_suffix = format_metrics(event.get("recognitionMetrics"))
         timing_suffix = format_timing_evidence(event.get("timingEvidence"))
+        placement_suffix = format_placement_evidence(event.get("placementEvidence"))
         ledger_suffix = format_symbol_ledger(event.get("symbolLedger"))
         ledger_assessment_suffix = format_symbol_ledger_assessment(
             event.get("symbolLedgerAssessment")
@@ -384,6 +415,7 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
             f"agreement={agreement} ocr={ocr} "
             f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}"
             f"{timing_suffix}"
+            f"{placement_suffix}"
             f"{ledger_suffix}{ledger_assessment_suffix}{primary_ledger_assessment_suffix}"
         )
 
@@ -432,11 +464,117 @@ def fallback_diagnostic_event(
         "primaryWasCloseRace": None,
         "primaryConfidenceGap": None,
         "recognitionMetrics": None,
+        "placementEvidence": placement_evidence_for_chord_event(chord_event),
         "timingEvidence": None,
         "symbolLedger": None,
         "symbolLedgerAssessment": None,
         "primarySymbolLedgerAssessment": None,
     }
+
+
+def beat_position_display_text(position: dict[str, Any] | None) -> str:
+    if not position:
+        return "?"
+
+    beat = position.get("beat")
+    subdivision = position.get("subdivision")
+    if not isinstance(beat, int) or not isinstance(subdivision, int):
+        return "?"
+    if subdivision <= 0:
+        return str(beat)
+
+    markers = ["", "&", "a", "e", "+"]
+    marker = markers[subdivision] if subdivision < len(markers) else f".{subdivision}"
+    return f"{beat}{marker}"
+
+
+def rhythm_value_display_text(value: Any) -> str:
+    labels = {
+        "slash": "slash",
+        "eighth": "eighth",
+        "eighthRest": "eighth rest",
+        "quarter": "quarter",
+        "quarterRest": "quarter rest",
+        "dottedQuarter": "dotted quarter",
+        "half": "half",
+        "halfRest": "half rest",
+        "dottedHalf": "dotted half",
+        "whole": "whole",
+        "wholeRest": "whole rest",
+        "tiedContinuation": "tie",
+    }
+    return labels.get(value, value if isinstance(value, str) and value else "?")
+
+
+def placement_evidence_for_chord_event(chord_event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "startPositionText": beat_position_display_text(chord_event.get("startPosition")),
+        "durationText": rhythm_value_display_text(chord_event.get("duration")),
+        "rhythmPlacement": chord_event.get("rhythmPlacement") or "?",
+        "mappedRhythmSlotIndex": chord_event.get("mappedRhythmSlotIndex"),
+    }
+
+
+def placement_evidence_status(
+    chart_diagnostics: list[dict[str, Any]],
+    rendered_by_id: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]]:
+    missing: list[dict[str, Any]] = []
+    mismatched: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+
+    for event in chart_diagnostics:
+        chord_event_id = event.get("chordEventID")
+        chord_event = rendered_by_id.get(chord_event_id)
+        if not chord_event:
+            continue
+
+        actual = event.get("placementEvidence")
+        if not actual:
+            missing.append(event)
+            continue
+
+        expected = placement_evidence_for_chord_event(chord_event)
+        comparable_actual = {
+            "startPositionText": actual.get("startPositionText"),
+            "durationText": actual.get("durationText"),
+            "rhythmPlacement": actual.get("rhythmPlacement"),
+            "mappedRhythmSlotIndex": actual.get("mappedRhythmSlotIndex"),
+        }
+        if comparable_actual != expected:
+            mismatched.append((event, comparable_actual, expected))
+
+    return missing, mismatched
+
+
+def timing_evidence_status(
+    chart_diagnostics: list[dict[str, Any]]
+) -> tuple[int, dict[str, tuple[float | int, dict[str, Any]]]]:
+    available_count = 0
+    slowest_by_field: dict[str, tuple[float | int, dict[str, Any]]] = {}
+
+    for event in chart_diagnostics:
+        timing = event.get("timingEvidence")
+        if not timing:
+            continue
+
+        available_count += 1
+        for field, _label in TIMING_SUMMARY_FIELDS:
+            value = timing.get(field)
+            if not isinstance(value, (float, int)):
+                continue
+
+            current = slowest_by_field.get(field)
+            if current is None or value > current[0]:
+                slowest_by_field[field] = (value, event)
+
+    return available_count, slowest_by_field
+
+
+def timing_peak_label(value: float | int, event: dict[str, Any]) -> str:
+    rendered = short_text(event.get("renderedDisplayText"), fallback="?")
+    measure = event.get("measureIndex")
+    measure_label = measure + 1 if isinstance(measure, int) else "?"
+    return f"{format_milliseconds(value)} {rendered}@m{measure_label}"
 
 
 def main() -> int:
@@ -492,6 +630,7 @@ def main() -> int:
         if chord_event_id and chord_event_id not in logged_ids:
             logged_ids.append(chord_event_id)
     logged_id_set = set(logged_ids)
+    rendered_by_id = {event.get("id"): event for event in rendered_events}
     missing_ids = [event_id for event_id in rendered_ids if event_id not in logged_id_set]
     stale_ids = [
         event.get("chordEventID") for event in chart_diagnostics
@@ -499,6 +638,11 @@ def main() -> int:
     ]
     stale_ids = list(dict.fromkeys(stale_ids))
     resolutions = Counter(event.get("resolution", "unknown") for event in latest_active_chart_diagnostics)
+    missing_placement_events, placement_mismatches = placement_evidence_status(
+        latest_active_chart_diagnostics,
+        rendered_by_id,
+    )
+    timing_event_count, slowest_timing = timing_evidence_status(latest_active_chart_diagnostics)
 
     print(f"App data: {app_data}")
     print(f"Chart: {chart_title} ({chart_id})")
@@ -513,20 +657,41 @@ def main() -> int:
     if stale_title_diagnostics:
         print(f"Stale diagnostics with same chart title: {len(stale_title_diagnostics)}")
     print("Resolution counts: " + (", ".join(f"{key}={value}" for key, value in sorted(resolutions.items())) or "none"))
+    print(
+        "Placement evidence: "
+        f"missing={len(missing_placement_events)}, mismatched={len(placement_mismatches)}"
+    )
+    timing_summary = []
+    for field, label in TIMING_SUMMARY_FIELDS:
+        peak = slowest_timing.get(field)
+        if peak:
+            timing_summary.append(f"{label}={timing_peak_label(peak[0], peak[1])}")
+    if timing_summary:
+        print(f"Timing evidence: available={timing_event_count}; " + ", ".join(timing_summary))
+    else:
+        print(f"Timing evidence: available={timing_event_count}")
 
     if args.details:
         print_diagnostic_details(latest_active_chart_diagnostics, args.scores)
+        if placement_mismatches:
+            print("\nPlacement evidence mismatches:")
+            for event, actual, expected in placement_mismatches:
+                chord_event_id = event.get("chordEventID") or "?"
+                rendered = short_text(event.get("renderedDisplayText"), fallback="?")
+                print(
+                    f"  - {chord_event_id} rendered={rendered} "
+                    f"diagnostic=[{format_compact_placement(actual)}] "
+                    f"chart=[{format_compact_placement(expected)}]"
+                )
 
     if missing_ids:
         print("\nMissing diagnostics:")
-        rendered_by_id = {event.get("id"): event for event in rendered_events}
         for event_id in missing_ids:
             print(f"  - {event_label(rendered_by_id[event_id])}")
     else:
         print("\nMissing diagnostics: none")
 
     if args.reconcile_missing and missing_ids:
-        rendered_by_id = {event.get("id"): event for event in rendered_events}
         fallback_events = [
             fallback_diagnostic_event(chart, rendered_by_id[event_id])
             for event_id in missing_ids

@@ -188,6 +188,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         action: #selector(handleChordEditTap(_:))
     )
     private var isSyncingInkCanvasFromModel = false
+    private var hasUnpersistedChordInk = false
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
@@ -468,12 +469,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     ) {
         let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
         let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        let isActiveMove = activeChordMoveDrag?.chordID == chordLayout.id
 
         let boxPath = UIBezierPath(roundedRect: editFrame, cornerRadius: 5)
-        UIColor(red: 0.88, green: 0.93, blue: 1, alpha: 0.18).setFill()
+        UIColor(red: 0.88, green: 0.93, blue: 1, alpha: isActiveMove ? 0.30 : 0.18).setFill()
         boxPath.fill()
-        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.62).setStroke()
-        boxPath.lineWidth = 1
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: isActiveMove ? 0.92 : 0.62).setStroke()
+        boxPath.lineWidth = isActiveMove ? 1.4 : 1
         boxPath.stroke()
 
         let deletePath = UIBezierPath(ovalIn: controlFrames.delete)
@@ -491,11 +493,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         let movePath = UIBezierPath(ovalIn: controlFrames.move)
-        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.88).setFill()
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: isActiveMove ? 1 : 0.88).setFill()
         movePath.fill()
         UIColor.white.withAlphaComponent(0.95).setStroke()
         movePath.lineWidth = 1
         movePath.stroke()
+
+        let moveGlyph = UIBezierPath()
+        let glyphInset: CGFloat = 5
+        moveGlyph.move(to: CGPoint(x: controlFrames.move.minX + glyphInset, y: controlFrames.move.midY))
+        moveGlyph.addLine(to: CGPoint(x: controlFrames.move.maxX - glyphInset, y: controlFrames.move.midY))
+        moveGlyph.move(to: CGPoint(x: controlFrames.move.midX, y: controlFrames.move.minY + glyphInset))
+        moveGlyph.addLine(to: CGPoint(x: controlFrames.move.midX, y: controlFrames.move.maxY - glyphInset))
+        UIColor.white.withAlphaComponent(0.96).setStroke()
+        moveGlyph.lineWidth = 1.5
+        moveGlyph.lineCapStyle = .round
+        moveGlyph.stroke()
     }
 
     private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {
@@ -549,6 +562,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isSyncingInkCanvasFromModel else {
             return
+        }
+
+        if interactionMode.allowsChordInkEditing {
+            hasUnpersistedChordInk = true
         }
 
         schedulePersistActiveInk()
@@ -720,10 +737,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard let hitTarget = chordEditHitTarget(at: location),
                   hitTarget.action == .move else {
                 activeChordMoveDrag = nil
+                setNeedsDisplay()
                 return
             }
 
             activeChordMoveDrag = ActiveChordMoveDrag(chordID: hitTarget.chordID)
+            setNeedsDisplay()
         case .changed, .ended:
             guard let activeChordMoveDrag,
                   let target = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
@@ -732,6 +751,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                   ) else {
                 if recognizer.state == .ended {
                     self.activeChordMoveDrag = nil
+                    setNeedsDisplay()
                 }
                 return
             }
@@ -754,6 +774,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
         case .cancelled, .failed:
             activeChordMoveDrag = nil
+            setNeedsDisplay()
         default:
             break
         }
@@ -779,6 +800,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let desiredData = activeInkScope.drawingData(in: chart)
         let currentData = currentCanvasDrawingData()
+        if interactionMode.allowsChordInkEditing,
+           hasUnpersistedChordInk,
+           currentData != desiredData {
+            pageInkCanvasView.becomeFirstResponder()
+            return
+        }
+
         guard currentData != desiredData else {
             return
         }
@@ -834,22 +862,37 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         DispatchQueue.main.asyncAfter(deadline: .now() + requestedDelay, execute: workItem)
     }
 
-    private func persistActiveInkIfNeeded() {
-        pendingInkPersistWorkItem?.cancel()
-        pendingInkPersistWorkItem = nil
-        chordInkRecognitionRequestState.cancelPendingRequest()
+    private func persistActiveInkIfNeeded(cancelPendingRecognition: Bool = true) {
+        if cancelPendingRecognition {
+            pendingInkPersistWorkItem?.cancel()
+            pendingInkPersistWorkItem = nil
+            chordInkRecognitionRequestState.cancelPendingRequest()
+        }
 
         guard let activeInkScope = activeInkScope() else {
             return
         }
 
+        let isChordInkScope: Bool
+        if case .chords = activeInkScope {
+            isChordInkScope = true
+        } else {
+            isChordInkScope = false
+        }
+
         let drawingData = currentCanvasDrawingData()
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
+            if isChordInkScope {
+                hasUnpersistedChordInk = false
+            }
             return
         }
 
         chart = updatedChart
         onChartChanged?(updatedChart)
+        if isChordInkScope {
+            hasUnpersistedChordInk = false
+        }
     }
 
     private func recognizeChordInkIfNeeded(
@@ -865,14 +908,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         guard interactionMode.allowsChordInkEditing,
               let activeInkScope = activeInkScope(),
-              case .chords(let chordFrame) = activeInkScope,
-              let drawingData = currentCanvasDrawingData(),
-              drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData,
-              let target = LeadSheetChordInkRecognitionTargeting.target(
-                for: pageInkCanvasView.drawing,
-                chordFrame: chordFrame,
-                pageLayout: pageLayout
-              ) else {
+              case .chords(let chordFrame) = activeInkScope else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        guard let drawingData = currentCanvasDrawingData() else {
+            if hasUnpersistedChordInk {
+                persistActiveInkIfNeeded(cancelPendingRecognition: false)
+            }
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        guard drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+
+        persistActiveInkIfNeeded(cancelPendingRecognition: false)
+
+        guard let target = LeadSheetChordInkRecognitionTargeting.target(
+            for: pageInkCanvasView.drawing,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        ) else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
         }
@@ -1067,6 +1127,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
         chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled
         pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
+        pageInkCanvasView.drawingPolicy = policy.drawingPolicy
         pageInkCanvasView.tool = policy.inkTool
 
         if policy.clearsMeasureResizeDrag {

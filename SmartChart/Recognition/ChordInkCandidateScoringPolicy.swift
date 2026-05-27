@@ -810,7 +810,7 @@ struct ChordInkCandidateScoringPolicy {
         }
 
         return candidateColumns[slashIndex].contains { candidate in
-            candidate.text == "s" && candidate.confidence >= 0.70
+            candidate.text == "s" && candidate.confidence >= 0.50
         }
     }
 

@@ -77,7 +77,7 @@ final class ChordEntryDiagnosticsTests: XCTestCase {
         XCTAssertEqual(try recorder.loadEvents(), [])
     }
 
-    func testRecorderPersistsTimingEvidence() throws {
+    func testRecorderPersistsPlacementAndTimingEvidence() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let recorder = ChordEntryDiagnosticsRecorder(
@@ -100,6 +100,12 @@ final class ChordEntryDiagnosticsTests: XCTestCase {
             commitMutationMilliseconds: 3,
             renderHandoffMilliseconds: 16
         )
+        event.placementEvidence = ChordEntryPlacementEvidence(
+            startPositionText: "3",
+            durationText: "half",
+            rhythmPlacement: .aboveChord,
+            mappedRhythmSlotIndex: 2
+        )
 
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
@@ -109,6 +115,44 @@ final class ChordEntryDiagnosticsTests: XCTestCase {
 
         let loadedEvent = try XCTUnwrap(try recorder.loadEvents().first)
         XCTAssertEqual(loadedEvent.timingEvidence, event.timingEvidence)
+        XCTAssertEqual(loadedEvent.placementEvidence, event.placementEvidence)
+    }
+
+    func testRecorderReplacesLatestMatchingDiagnosticWhenRenderTimingArrives() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let recorder = ChordEntryDiagnosticsRecorder(
+            url: temporaryDirectory.appendingPathComponent("chord-entry-diagnostics.jsonl")
+        )
+        let chart = Chart.blank(title: "Chord Writing Test Chart", key: .cMajor)
+        let event = diagnosticEvent(
+            chart: chart,
+            measureID: UUID(),
+            chordEventID: UUID(),
+            acceptedText: "Db7(b9)",
+            renderedDisplayText: "Db7(b9)",
+            resolution: .confirmedSuggestion
+        )
+        var eventWithRenderTiming = event
+        eventWithRenderTiming.timestamp = Date(timeIntervalSinceReferenceDate: 20)
+        eventWithRenderTiming.timingEvidence = ChordEntryTimingEvidence(
+            requestedDelayMilliseconds: 750,
+            idleMilliseconds: 782,
+            recognitionMilliseconds: 100,
+            recognitionTotalMilliseconds: 882,
+            proposalDecisionMilliseconds: 1,
+            commitMutationMilliseconds: 7,
+            renderHandoffMilliseconds: 43
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        try recorder.append(event)
+        try recorder.replaceLatestMatchingEvent(with: eventWithRenderTiming)
+
+        XCTAssertEqual(try recorder.loadEvents(), [eventWithRenderTiming])
     }
 
     func testCoverageReportFindsMissingChordEntryDiagnostics() throws {
@@ -224,6 +268,15 @@ final class ChordEntryDiagnosticsTests: XCTestCase {
         XCTAssertEqual(reconciledEvent.candidateScores, [])
         XCTAssertEqual(reconciledEvent.confidence, 0)
         XCTAssertEqual(reconciledEvent.recognitionReason, "Reconciled rendered chord event missing live diagnostic.")
+        XCTAssertEqual(
+            reconciledEvent.placementEvidence,
+            ChordEntryPlacementEvidence(
+                startPositionText: "2",
+                durationText: "quarter",
+                rhythmPlacement: .inline,
+                mappedRhythmSlotIndex: nil
+            )
+        )
 
         let loadedEvents = try recorder.loadEvents()
         XCTAssertEqual(loadedEvents.map(\.chordEventID), [cEventID, slashEventID])

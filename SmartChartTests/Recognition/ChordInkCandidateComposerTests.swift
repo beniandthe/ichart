@@ -3,6 +3,7 @@ import XCTest
 
 final class ChordInkCandidateComposerTests: XCTestCase {
     private let composer = ChordInkCandidateComposer()
+    private let recognitionComposer = ChordInkRecognitionCandidateComposer()
 
     func testComposesBbAheadOfInvalidEightFlatLookalike() {
         let candidates = composer.compose(glyphCandidates: [
@@ -325,6 +326,75 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         let slashCandidate = candidates.first { $0.text == "C/Db" }
 
         XCTAssertLessThan(slashCandidate?.confidence ?? 0, 4.70)
+    }
+
+    func testCompactSuspendedCandidateIncludesPlausibleLowConfidenceFlatRoots() throws {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [
+                    glyph("B", confidence: 0.555),
+                    glyph("F", confidence: 0.535),
+                    glyph("D", confidence: 0.515),
+                    glyph("A", confidence: 0.507)
+                ],
+                [glyph("b", confidence: 0.980)],
+                [
+                    glyph("9", confidence: 0.999),
+                    glyph("b", confidence: 0.980),
+                    glyph("C", confidence: 0.950),
+                    glyph("s", confidence: 0.550)
+                ],
+                [
+                    glyph("1", confidence: 0.996),
+                    glyph("C", confidence: 0.965),
+                    glyph("b", confidence: 0.658),
+                    glyph("s", confidence: 0.550)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 100, maxX: 22, maxY: 145, strokes: 2),
+                cluster(minX: 25, minY: 92, maxX: 35, maxY: 119),
+                cluster(minX: 43, minY: 126, maxX: 53, maxY: 145),
+                cluster(minX: 61, minY: 124, maxX: 66, maxY: 145)
+            ]
+        )
+
+        let supportedTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+        let absusCandidate = try XCTUnwrap(result.candidates.first { candidate in
+            candidate.text == "Absus"
+        })
+
+        XCTAssertTrue(supportedTexts.contains("Absus"))
+        XCTAssertTrue(supportedTexts.contains("Bbsus"))
+        XCTAssertGreaterThanOrEqual(absusCandidate.confidence, 3.70)
+        XCTAssertLessThan(absusCandidate.confidence, ChordInkRecognitionPolicy.autoRenderMinimumConfidence)
+    }
+
+    func testSuspendedLookalikePenalizesSlashBassCandidateAtModestSConfidence() throws {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("A", confidence: 0.95)],
+            [glyph("b", confidence: 0.98)],
+            [
+                glyph("/", confidence: 0.72),
+                glyph("s", confidence: 0.55)
+            ],
+            [
+                glyph("C", confidence: 0.96),
+                glyph("u", confidence: 0.78)
+            ],
+            [
+                glyph("b", confidence: 0.98),
+                glyph("s", confidence: 0.55)
+            ]
+        ])
+
+        let slashCandidate = try XCTUnwrap(candidates.first { candidate in
+            candidate.text == "Ab/Cb"
+        })
+
+        XCTAssertLessThan(slashCandidate.confidence, 4.95)
     }
 
     func testComposesExtensionAlterationAndSlashBassCandidates() throws {
@@ -1134,5 +1204,27 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         source: RecognitionSource = .template
     ) -> GlyphCandidate {
         GlyphCandidate(text: text, confidence: confidence, source: source)
+    }
+
+    private func cluster(
+        minX: Double,
+        minY: Double,
+        maxX: Double,
+        maxY: Double,
+        strokes: Int = 1
+    ) -> InkCluster {
+        let bounds = InkBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+        return InkCluster(
+            strokes: (0..<strokes).map { _ in
+                InkStroke(
+                    points: [
+                        InkPoint(x: minX, y: minY, timeOffset: nil),
+                        InkPoint(x: maxX, y: maxY, timeOffset: nil)
+                    ],
+                    bounds: bounds
+                )
+            },
+            bounds: bounds
+        )
     }
 }

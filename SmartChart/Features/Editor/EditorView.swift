@@ -790,11 +790,13 @@ struct EditorView: View {
         selectedNoteSelection = nil
         let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
         var decision = ChordRecognitionTrustArbiter.decision(for: result)
+        let candidateTexts = PendingChordInkConfirmation.candidateTexts(for: result)
         if decision.action == .autoRender,
            let acceptedText = decision.acceptedText,
            chordInkUserCorrectionMemory.shouldBlockAutoRender(
                acceptedText: acceptedText,
-               drawingData: drawingData
+               drawingData: drawingData,
+               candidateTexts: candidateTexts
            ) {
             decision.action = .confirm
             decision.reason = "This ink previously rendered as \(acceptedText) and was deleted. Choose the intended chord, or type it in."
@@ -943,7 +945,10 @@ struct EditorView: View {
             rawInput: candidateText,
             to: confirmation.measureID,
             atFraction: confirmation.targetFraction,
-            sourceInkData: confirmation.drawingData
+            sourceInkData: confirmation.drawingData,
+            sourceCandidateSignature: ChordInkUserCorrectionMemoryPolicy.candidateSignature(
+                from: confirmation.candidateTexts
+            )
         ) else {
             chordInkErrorMessage = "That measure is no longer available. Keep the ink and try again."
             showingChordInkError = true
@@ -1011,7 +1016,8 @@ struct EditorView: View {
         let acceptedText = chordEvent.rawInput ?? chordEvent.symbol.displayText
         if chordInkUserCorrectionMemory.recordRejectedAutoRender(
             acceptedText: acceptedText,
-            drawingData: sourceInkData
+            drawingData: sourceInkData,
+            candidateSignature: chordEvent.sourceCandidateSignature
         ) {
             persistChordInkUserCorrectionMemory()
         }
@@ -1149,6 +1155,8 @@ struct EditorView: View {
                 primaryDisplayText: match.displayText
             ),
             primarySymbolLedgerAssessment: confirmation.result.symbolLedgerAssessment,
+            placementEvidence: chartSnapshot.chordEvent(id: chordEventID)
+                .map(ChordEntryPlacementEvidence.init(chordEvent:)),
             timingEvidence: timingEvidence
         )
 
@@ -1192,7 +1200,7 @@ struct EditorView: View {
                 timingEvidence.renderHandoffMilliseconds = renderHandoffMilliseconds
                 event.timestamp = observedAt
                 event.timingEvidence = timingEvidence
-                try recorder.append(event)
+                try recorder.replaceLatestMatchingEvent(with: event)
                 print(
                     String(
                         format: "SmartChart chord render: renderHandoffMs=%.0f event=%@ accepted=%@",
@@ -1232,7 +1240,9 @@ struct EditorView: View {
             recognitionReason: "Rendered chord correction.",
             wasCloseRace: false,
             confidenceGap: nil,
-            targetFraction: nil
+            targetFraction: nil,
+            placementEvidence: chartSnapshot.chordEvent(id: correction.chordEventID)
+                .map(ChordEntryPlacementEvidence.init(chordEvent:))
         )
 
         do {

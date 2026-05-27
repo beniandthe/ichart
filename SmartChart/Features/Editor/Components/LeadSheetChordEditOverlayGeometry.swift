@@ -20,18 +20,20 @@ struct ChordEditHitTarget {
 }
 
 enum LeadSheetChordEditOverlayGeometry {
+    static let controlSize: CGFloat = 18
+    static let controlHitOutset: CGFloat = 12
+
     static func editFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
         CGRect(
-            x: chordLayout.frame.minX - 8,
+            x: chordLayout.frame.minX - 10,
             y: chordLayout.frame.minY + 1,
-            width: chordLayout.frame.width + 18,
-            height: 25
+            width: chordLayout.frame.width + 22,
+            height: 28
         )
     }
 
     static func controlFrames(for chordLayout: LeadSheetChordLayout) -> LeadSheetChordEditControlFrames {
         let editFrame = editFrame(for: chordLayout)
-        let controlSize: CGFloat = 14
         let originY = editFrame.minY - controlSize / 2
 
         return LeadSheetChordEditControlFrames(
@@ -62,8 +64,7 @@ enum LeadSheetChordEditOverlayGeometry {
 
             for chordLayout in measure.chordLayouts.reversed() {
                 let controlFrames = controlFrames(for: chordLayout)
-                let hitInset: CGFloat = -9
-                if controlFrames.delete.insetBy(dx: hitInset, dy: hitInset).contains(location) {
+                if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
                         chordID: chordLayout.id,
@@ -71,7 +72,7 @@ enum LeadSheetChordEditOverlayGeometry {
                     )
                 }
 
-                if controlFrames.move.insetBy(dx: hitInset, dy: hitInset).contains(location) {
+                if controlFrames.move.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
                         chordID: chordLayout.id,

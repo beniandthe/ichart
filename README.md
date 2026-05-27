@@ -120,6 +120,18 @@ Current implementation authority:
 - [`docs/smart-chart-recognition-latency-triage-2026-05-26.md`](docs/smart-chart-recognition-latency-triage-2026-05-26.md) — Sprint 46 recognition latency evidence
 - [`docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`](docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md) — Sprint 52 chord confirmation and local user correction loop
 - [`docs/smart-chart-sprint-53-validation-speed-2026-05-26.md`](docs/smart-chart-sprint-53-validation-speed-2026-05-26.md) — Sprint 53 validation-speed policy and workflow cleanup
+- [`docs/smart-chart-sprint-54-confirmation-ux-polish-2026-05-26.md`](docs/smart-chart-sprint-54-confirmation-ux-polish-2026-05-26.md) — Sprint 54 confirmation and correction sheet UX polish
+- [`docs/smart-chart-sprint-55-chord-first-product-polish-2026-05-26.md`](docs/smart-chart-sprint-55-chord-first-product-polish-2026-05-26.md) — Sprint 55 chord-first product polish
+- [`docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md`](docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md) — Sprint 56 bounded real-device chord validation
+- [`docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md`](docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md) — Sprint 56 repeat validation gate
+- [`docs/smart-chart-chord-first-side-sprints-2026-05-27.md`](docs/smart-chart-chord-first-side-sprints-2026-05-27.md) — active chord-first side-sprint route map
+- [`docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`](docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md) — Sprint 57 chord placement/edit loop
+- [`docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md`](docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md) — Sprint 58 wrong render recovery and replace UX
+- [`docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`](docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md) — Sprint 59 confirmation and direct-input polish
+- [`docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`](docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md) — Sprint 60 general candidate availability hardening
+- [`docs/smart-chart-sprint-61-raster-render-handoff-polish-2026-05-27.md`](docs/smart-chart-sprint-61-raster-render-handoff-polish-2026-05-27.md) — Sprint 61 raster/render handoff evidence
+- [`docs/smart-chart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md`](docs/smart-chart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md) — Sprint 62 chord-first release-candidate pass
+- [`docs/smart-chart-sprint-63-chart-layout-goals-2026-05-27.md`](docs/smart-chart-sprint-63-chart-layout-goals-2026-05-27.md) — Sprint 63 chart layout goals
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan
@@ -161,4 +173,4 @@ The first meaningful prototype succeeds if a musician can:
 
 ## Status
 
-Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-52 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, and added the first local chord-correction UX loop. Current sprint status lives in the source-of-truth doc.
+Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-62 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and completed the chord-first release-candidate pass. Sprint 63 defines the three new-chart layout families: Simple Chord Sheet, Rhythm Section Sheet, and Lead Sheet. Current sprint status lives in the source-of-truth doc.

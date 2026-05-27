@@ -72,6 +72,7 @@ struct ChordInkRejectedAutoRenderRule: Codable, Equatable, Identifiable {
     var id: UUID
     var acceptedText: String
     var inkDigests: [String]
+    var candidateSignatures: [[String]]? = nil
     var createdAt: Date
     var updatedAt: Date
     var count: Int
@@ -152,15 +153,29 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
 
     func shouldBlockAutoRender(
         acceptedText: String,
-        drawingData: Data
+        drawingData: Data,
+        candidateTexts: [String] = []
     ) -> Bool {
         guard let match = ChordRecognitionCompendium.match(acceptedText) else {
             return false
         }
 
         let digest = ChordInkUserCorrectionMemoryPolicy.inkDigest(for: drawingData)
+        let candidateSignature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
         return rejectedAutoRenderRules.contains { rule in
-            rule.acceptedText == match.displayText && rule.inkDigests.contains(digest)
+            guard rule.acceptedText == match.displayText else {
+                return false
+            }
+
+            if rule.inkDigests.contains(digest) {
+                return true
+            }
+
+            guard !candidateSignature.isEmpty else {
+                return false
+            }
+
+            return rule.candidateSignatures?.contains(candidateSignature) == true
         }
     }
 
@@ -260,6 +275,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
     mutating func recordRejectedAutoRender(
         acceptedText: String,
         drawingData: Data,
+        candidateSignature: [String] = [],
         now: Date = .now
     ) -> Bool {
         guard let match = ChordRecognitionCompendium.match(acceptedText) else {
@@ -271,12 +287,14 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             rejectedAutoRenderRules[index].updatedAt = now
             rejectedAutoRenderRules[index].count += 1
             appendDigest(digest, toRejectedAutoRenderAt: index)
+            appendCandidateSignature(candidateSignature, toRejectedAutoRenderAt: index)
         } else {
             rejectedAutoRenderRules.append(
                 ChordInkRejectedAutoRenderRule(
                     id: UUID(),
                     acceptedText: match.displayText,
                     inkDigests: [digest],
+                    candidateSignatures: candidateSignature.isEmpty ? nil : [candidateSignature],
                     createdAt: now,
                     updatedAt: now,
                     count: 1
@@ -330,6 +348,25 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         }
 
         rejectedAutoRenderRules[index].inkDigests.append(digest)
+    }
+
+    private mutating func appendCandidateSignature(
+        _ candidateSignature: [String],
+        toRejectedAutoRenderAt index: Int
+    ) {
+        guard !candidateSignature.isEmpty else {
+            return
+        }
+
+        if rejectedAutoRenderRules[index].candidateSignatures == nil {
+            rejectedAutoRenderRules[index].candidateSignatures = []
+        }
+
+        guard rejectedAutoRenderRules[index].candidateSignatures?.contains(candidateSignature) == false else {
+            return
+        }
+
+        rejectedAutoRenderRules[index].candidateSignatures?.append(candidateSignature)
     }
 }
 

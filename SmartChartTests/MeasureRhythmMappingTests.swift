@@ -202,6 +202,27 @@ final class MeasureRhythmMappingTests: XCTestCase {
         XCTAssertEqual(suggestion.duration, .half)
     }
 
+    func testSuggestedChordInsertionAtFractionUsesRhythmSlotAttackForLongSlots() {
+        let meter = Meter(numerator: 4, denominator: 4)
+        let measure = Measure(
+            id: UUID(),
+            index: 1,
+            meterOverride: nil,
+            beatGridPreset: .simple,
+            rhythmMap: MeasureRhythmMap(values: [.quarter, .quarter, .half]),
+            barlineAfter: .single,
+            chordEvents: [],
+            cueTextIDs: [],
+            roadmapObjectIDs: []
+        )
+
+        let suggestion = measure.suggestedChordInsertion(atFraction: 0.52, defaultMeter: meter)
+
+        XCTAssertEqual(suggestion.mappedRhythmSlotIndex, 2)
+        XCTAssertEqual(suggestion.startPosition.displayText, "3")
+        XCTAssertEqual(suggestion.duration, .half)
+    }
+
     func testSuggestedChordInsertionExcludingChordKeepsCurrentSlotAvailable() {
         let meter = Meter(numerator: 4, denominator: 4)
         let firstChord = demoChord(root: .c)

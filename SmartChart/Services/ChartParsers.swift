@@ -380,6 +380,15 @@ enum ChordSymbolParser {
         extensions: [String],
         alterations: [String]
     ) throws {
+        if Set(alterations).count != alterations.count {
+            throw ChordSymbolParseError.unsupportedAlteration
+        }
+
+        if !alterations.isEmpty,
+           extensions.isEmpty {
+            throw ChordSymbolParseError.unsupportedAlteration
+        }
+
         if quality == "°" {
             guard alterations.isEmpty,
                   extensions.isEmpty || extensions == ["7"] else {

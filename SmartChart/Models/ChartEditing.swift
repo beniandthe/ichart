@@ -248,14 +248,16 @@ extension Chart {
         rawInput: String?,
         to measureID: UUID,
         atFraction fraction: Double?,
-        sourceInkData: Data? = nil
+        sourceInkData: Data? = nil,
+        sourceCandidateSignature: [String] = []
     ) -> Bool {
         appendRecognizedChordEvent(
             symbol,
             rawInput: rawInput,
             to: measureID,
             atFraction: fraction,
-            sourceInkData: sourceInkData
+            sourceInkData: sourceInkData,
+            sourceCandidateSignature: sourceCandidateSignature
         ) != nil
     }
 
@@ -265,7 +267,8 @@ extension Chart {
         rawInput: String?,
         to measureID: UUID,
         atFraction fraction: Double?,
-        sourceInkData: Data? = nil
+        sourceInkData: Data? = nil,
+        sourceCandidateSignature: [String] = []
     ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
             return nil
@@ -280,7 +283,8 @@ extension Chart {
             symbol: symbol,
             rawInput: rawInput,
             suggestion: suggestion,
-            sourceInkData: sourceInkData
+            sourceInkData: sourceInkData,
+            sourceCandidateSignature: sourceCandidateSignature
         )
 
         systems[location.systemIndex].measures[location.measureIndex] = measure
@@ -294,14 +298,16 @@ extension Chart {
         rawInput: String?,
         to measureID: UUID,
         atFraction fraction: Double?,
-        sourceInkData: Data
+        sourceInkData: Data,
+        sourceCandidateSignature: [String] = []
     ) -> UUID? {
         guard let chordEventID = appendRecognizedChordEvent(
             symbol,
             rawInput: rawInput,
             to: measureID,
             atFraction: fraction,
-            sourceInkData: sourceInkData
+            sourceInkData: sourceInkData,
+            sourceCandidateSignature: sourceCandidateSignature
         ) else {
             return nil
         }

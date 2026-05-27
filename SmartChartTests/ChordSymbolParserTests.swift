@@ -557,7 +557,7 @@ final class ChordSymbolParserTests: XCTestCase {
     }
 
     func testParserRejectsUnsupportedGlyphNoiseDescriptors() {
-        for spelling in ["CC", "CG7", "C△C", "C-△", "C-△9", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "Csus7", "C7()", "C7(9)"] {
+        for spelling in ["CC", "CG7", "C△C", "C-△", "C-△9", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "Csus7", "C7()", "C7(9)", "Db(b9)", "Db(b9)(b9)", "Db7(b9)(b9)", "Db7b9b9"] {
             XCTAssertThrowsError(try ChordSymbolParser.parse(spelling), spelling)
             XCTAssertNil(ChordRecognitionCompendium.match(spelling), spelling)
         }

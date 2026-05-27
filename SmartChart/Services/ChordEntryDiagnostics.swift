@@ -43,7 +43,15 @@ struct ChordEntryDiagnosticEvent: Codable, Equatable {
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
     var primarySymbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
+    var placementEvidence: ChordEntryPlacementEvidence? = nil
     var timingEvidence: ChordEntryTimingEvidence? = nil
+}
+
+struct ChordEntryPlacementEvidence: Codable, Equatable {
+    var startPositionText: String
+    var durationText: String
+    var rhythmPlacement: RhythmPlacement
+    var mappedRhythmSlotIndex: Int?
 }
 
 struct ChordEntryTimingEvidence: Codable, Equatable {
@@ -82,6 +90,24 @@ struct ChordEntryDiagnosticsRecorder {
         }
     }
 
+    func replaceLatestMatchingEvent(with event: ChordEntryDiagnosticEvent) throws {
+        guard event.chordEventID != nil else {
+            try append(event)
+            return
+        }
+
+        var events = try loadEvents()
+        guard let matchingIndex = events.indices.reversed().first(where: { index in
+            Self.hasSameDiagnosticIdentity(events[index], event)
+        }) else {
+            try append(event)
+            return
+        }
+
+        events[matchingIndex] = event
+        try write(events)
+    }
+
     func reset() throws {
         guard fileManager.fileExists(atPath: url.fileSystemPath) else {
             return
@@ -108,6 +134,32 @@ struct ChordEntryDiagnosticsRecorder {
                     from: Data(line.utf8)
                 )
             }
+    }
+
+    private func write(_ events: [ChordEntryDiagnosticEvent]) throws {
+        guard !events.isEmpty else {
+            try reset()
+            return
+        }
+
+        let directory = url.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try events.reduce(into: Data()) { output, event in
+            output.append(try Self.encoder.encode(event))
+            output.append(0x0A)
+        }
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func hasSameDiagnosticIdentity(
+        _ lhs: ChordEntryDiagnosticEvent,
+        _ rhs: ChordEntryDiagnosticEvent
+    ) -> Bool {
+        lhs.chartID == rhs.chartID
+            && lhs.chordEventID == rhs.chordEventID
+            && lhs.resolution == rhs.resolution
+            && lhs.acceptedText == rhs.acceptedText
+            && lhs.renderedDisplayText == rhs.renderedDisplayText
     }
 
     @discardableResult
@@ -158,6 +210,7 @@ struct ChordEntryDiagnosticsRecorder {
                     primaryWasCloseRace: nil,
                     primaryConfidenceGap: nil,
                     recognitionMetrics: nil,
+                    placementEvidence: ChordEntryPlacementEvidence(chordEvent: chordEvent),
                     timingEvidence: nil
                 )
             }
@@ -207,4 +260,15 @@ private extension ChordEntryDiagnosticsRecorder {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+}
+
+extension ChordEntryPlacementEvidence {
+    init(chordEvent: ChordEvent) {
+        self.init(
+            startPositionText: chordEvent.startPosition.displayText,
+            durationText: chordEvent.duration.displayText,
+            rhythmPlacement: chordEvent.rhythmPlacement,
+            mappedRhythmSlotIndex: chordEvent.mappedRhythmSlotIndex
+        )
+    }
 }

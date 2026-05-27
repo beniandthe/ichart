@@ -73,7 +73,7 @@ struct ChordInkSemanticCandidateComposer {
         from glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster]
     ) -> [ChordInkCandidate] {
-        [
+        let singleCandidates = [
             diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
             plainNinthAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
             majorAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
@@ -81,9 +81,13 @@ struct ChordInkSemanticCandidateComposer {
             dominantSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
             majorSharpElevenCandidate(from: glyphCandidateGroups, clusters: clusters),
             minorEleventhCandidate(from: glyphCandidateGroups, clusters: clusters),
-            majorSixthCandidate(from: glyphCandidateGroups, clusters: clusters),
-            suspendedSuffixCandidate(from: glyphCandidateGroups, clusters: clusters)
+            majorSixthCandidate(from: glyphCandidateGroups, clusters: clusters)
         ].compactMap { $0 }
+
+        return singleCandidates + suspendedSuffixCandidates(
+            from: glyphCandidateGroups,
+            clusters: clusters
+        )
     }
 
     private func minorEleventhCandidate(
@@ -183,6 +187,7 @@ struct ChordInkSemanticCandidateComposer {
 
     private enum SuspendedSuffixKind {
         case suspended
+        case compactSuspended
         case suspendedFourth
     }
 
@@ -198,41 +203,40 @@ struct ChordInkSemanticCandidateComposer {
         var glyphs: [GlyphCandidate]
     }
 
-    private func suspendedSuffixCandidate(
+    private func suspendedSuffixCandidates(
         from glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster]
-    ) -> ChordInkCandidate? {
+    ) -> [ChordInkCandidate] {
         guard glyphCandidateGroups.count == clusters.count,
               clusters.count >= 3,
-              let rootCandidate = rootCandidate(in: glyphCandidateGroups[0]) else {
-            return nil
+              !plausibleSuspendedRootCandidates(in: glyphCandidateGroups[0]).isEmpty else {
+            return []
         }
 
-        var glyphs = [rootCandidate]
         var index = 1
-        var symbolText = rootCandidate.text
+        var accidentalGlyph: GlyphCandidate?
 
         if glyphCandidateGroups.indices.contains(index),
-           let accidentalCandidate = accidentalCandidate(
+           let candidate = accidentalCandidate(
                in: glyphCandidateGroups[index],
                minimumConfidence: 0.65
            ),
            isHighAccidentalCluster(clusters[index], rootBounds: clusters[0].bounds) {
-            glyphs.append(accidentalCandidate)
-            symbolText.append(accidentalCandidate.text)
+            accidentalGlyph = candidate
             index += 1
         }
 
         var hasDominantSeven = false
+        var dominantSevenCandidate: GlyphCandidate?
         if glyphCandidateGroups.indices.contains(index),
            let sevenCandidate = sevenCandidate(in: glyphCandidateGroups[index]) {
             hasDominantSeven = true
-            glyphs.append(sevenCandidate)
+            dominantSevenCandidate = sevenCandidate
             index += 1
         }
 
         guard index < glyphCandidateGroups.count else {
-            return nil
+            return []
         }
 
         let suffixGroups = Array(glyphCandidateGroups[index...])
@@ -242,50 +246,96 @@ struct ChordInkSemanticCandidateComposer {
             clusters: suffixClusters,
             rootBounds: clusters[0].bounds
         ) else {
-            return nil
+            return []
         }
 
-        if hasDominantSeven {
-            symbolText.append("7sus")
-            glyphs.append(contentsOf: [
-                GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
-                GlyphCandidate(text: "u", confidence: 0.86, source: .composer),
-                GlyphCandidate(text: "s", confidence: 0.86, source: .composer)
-            ])
-            return ChordInkCandidate(
-                text: symbolText,
-                confidence: 5.05,
-                glyphCandidates: glyphs
-            )
+        return plausibleSuspendedRootCandidates(in: glyphCandidateGroups[0]).map { rootCandidate in
+            var glyphs = [rootCandidate]
+            var symbolText = rootCandidate.text
+
+            if let accidentalGlyph {
+                glyphs.append(accidentalGlyph)
+                symbolText.append(accidentalGlyph.text)
+            }
+
+            if let dominantSevenCandidate {
+                glyphs.append(dominantSevenCandidate)
+            }
+
+            if hasDominantSeven {
+                symbolText.append("7sus")
+                glyphs.append(contentsOf: [
+                    GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
+                    GlyphCandidate(text: "u", confidence: 0.86, source: .composer),
+                    GlyphCandidate(text: "s", confidence: 0.86, source: .composer)
+                ])
+                return ChordInkCandidate(
+                    text: symbolText,
+                    confidence: 5.05,
+                    glyphCandidates: glyphs
+                )
+            }
+
+            switch suffixKind {
+            case .suspended:
+                symbolText.append("sus")
+                glyphs.append(contentsOf: [
+                    GlyphCandidate(text: "s", confidence: 0.84, source: .composer),
+                    GlyphCandidate(text: "u", confidence: 0.84, source: .composer),
+                    GlyphCandidate(text: "s", confidence: 0.84, source: .composer)
+                ])
+                return ChordInkCandidate(
+                    text: symbolText,
+                    confidence: 4.95,
+                    glyphCandidates: glyphs
+                )
+            case .compactSuspended:
+                symbolText.append("sus")
+                glyphs.append(contentsOf: [
+                    GlyphCandidate(text: "s", confidence: 0.72, source: .composer),
+                    GlyphCandidate(text: "u", confidence: 0.72, source: .composer),
+                    GlyphCandidate(text: "s", confidence: 0.72, source: .composer)
+                ])
+                return ChordInkCandidate(
+                    text: symbolText,
+                    confidence: 3.90,
+                    glyphCandidates: glyphs
+                )
+            case .suspendedFourth:
+                symbolText.append("sus4")
+                glyphs.append(contentsOf: [
+                    GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
+                    GlyphCandidate(text: "u", confidence: 0.86, source: .composer),
+                    GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
+                    GlyphCandidate(text: "4", confidence: 0.82, source: .composer)
+                ])
+                return ChordInkCandidate(
+                    text: symbolText,
+                    confidence: 5.15,
+                    glyphCandidates: glyphs
+                )
+            }
+        }
+    }
+
+    private func plausibleSuspendedRootCandidates(in group: [GlyphCandidate]) -> [GlyphCandidate] {
+        let rootCandidates = group.filter { candidate in
+            candidate.confidence >= 0.50 && "ABCDEFG".contains(candidate.text)
+        }
+        guard let strongestConfidence = rootCandidates.map(\.confidence).max() else {
+            return []
         }
 
-        switch suffixKind {
-        case .suspended:
-            symbolText.append("sus")
-            glyphs.append(contentsOf: [
-                GlyphCandidate(text: "s", confidence: 0.84, source: .composer),
-                GlyphCandidate(text: "u", confidence: 0.84, source: .composer),
-                GlyphCandidate(text: "s", confidence: 0.84, source: .composer)
-            ])
-            return ChordInkCandidate(
-                text: symbolText,
-                confidence: 4.95,
-                glyphCandidates: glyphs
-            )
-        case .suspendedFourth:
-            symbolText.append("sus4")
-            glyphs.append(contentsOf: [
-                GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
-                GlyphCandidate(text: "u", confidence: 0.86, source: .composer),
-                GlyphCandidate(text: "s", confidence: 0.86, source: .composer),
-                GlyphCandidate(text: "4", confidence: 0.82, source: .composer)
-            ])
-            return ChordInkCandidate(
-                text: symbolText,
-                confidence: 5.15,
-                glyphCandidates: glyphs
-            )
-        }
+        let floor = max(0.50, strongestConfidence - 0.08)
+        return rootCandidates
+            .filter { $0.confidence >= floor }
+            .sorted { lhs, rhs in
+                if lhs.confidence != rhs.confidence {
+                    return lhs.confidence > rhs.confidence
+                }
+
+                return lhs.text < rhs.text
+            }
     }
 
     private func diminishedQualityCandidate(
@@ -1478,10 +1528,25 @@ struct ChordInkSemanticCandidateComposer {
             return .suspended
         }
 
+        if suffixGroups.count >= 3,
+           isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
+           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1]),
+           isCompactSuspendedTailContext(group: suffixGroups[2], cluster: clusters[2]),
+           !hasHardNonSuspendedDescriptorEvidence(in: Array(suffixGroups.prefix(3))) {
+            return .compactSuspended
+        }
+
         if suffixGroups.count == 2,
            isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
            isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1]) {
             return .suspended
+        }
+
+        if suffixGroups.count == 2,
+           isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
+           isCompactSuspendedTailContext(group: suffixGroups[1], cluster: clusters[1]),
+           !hasHardNonSuspendedDescriptorEvidence(in: suffixGroups) {
+            return .compactSuspended
         }
 
         return nil
@@ -1557,6 +1622,47 @@ struct ChordInkSemanticCandidateComposer {
             && cluster.bounds.height >= 10
             && cluster.bounds.height <= 30
             && cluster.bounds.width * cluster.bounds.height >= 220
+    }
+
+    private func isCompactSuspendedTailContext(
+        group: [GlyphCandidate],
+        cluster: InkCluster
+    ) -> Bool {
+        if group.containsSuspendedCandidate("s", minimumConfidence: 0.45)
+            || group.containsSuspendedCandidate("u", minimumConfidence: 0.45) {
+            return true
+        }
+
+        let hasHardDescriptor = group.contains { candidate in
+            candidate.confidence >= 0.78
+                && ["#", "°", "ø", "△", "+"].contains(candidate.text)
+        }
+
+        return !hasHardDescriptor
+            && cluster.strokes.count == 1
+            && cluster.bounds.width >= 4
+            && cluster.bounds.width <= 14
+            && cluster.bounds.height >= 10
+            && cluster.bounds.height <= 32
+            && cluster.bounds.width * cluster.bounds.height >= 45
+    }
+
+    private func hasHardNonSuspendedDescriptorEvidence(
+        in suffixGroups: [[GlyphCandidate]]
+    ) -> Bool {
+        suffixGroups.contains { group in
+            if let topCandidate = group.max(by: { lhs, rhs in
+                lhs.confidence < rhs.confidence
+            }),
+               ["s", "u"].contains(topCandidate.text) {
+                return false
+            }
+
+            return group.contains { candidate in
+                candidate.confidence >= 0.70
+                    && ["#", "°", "ø", "△", "+"].contains(candidate.text)
+            }
+        }
     }
 
     private func isSuspendedFourthContext(

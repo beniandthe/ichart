@@ -292,7 +292,8 @@ extension Measure {
         rawInput: String?,
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
-        sourceInkData: Data? = nil
+        sourceInkData: Data? = nil,
+        sourceCandidateSignature: [String] = []
     ) -> UUID {
         let chordEventID = UUID()
         chordEvents.append(
@@ -306,7 +307,8 @@ extension Measure {
                 tieOut: false,
                 hitStyle: hitStyle,
                 rawInput: rawInput,
-                sourceInkData: sourceInkData
+                sourceInkData: sourceInkData,
+                sourceCandidateSignature: sourceCandidateSignature
             )
         )
         return chordEventID
@@ -326,8 +328,8 @@ extension Measure {
                 return lhs < rhs
             }
 
-            let lhsDistance = abs(slotMidpointFraction(lhsSlot, meter: meter) - clampedFraction)
-            let rhsDistance = abs(slotMidpointFraction(rhsSlot, meter: meter) - clampedFraction)
+            let lhsDistance = abs(slotAttackFraction(lhsSlot, meter: meter) - clampedFraction)
+            let rhsDistance = abs(slotAttackFraction(rhsSlot, meter: meter) - clampedFraction)
 
             if abs(lhsDistance - rhsDistance) > 0.0001 {
                 return lhsDistance < rhsDistance
@@ -337,12 +339,10 @@ extension Measure {
         }
     }
 
-    private func slotMidpointFraction(_ slot: MeasureRhythmSlot, meter: Meter) -> Double {
-        let startFraction = slot.startPosition.startOffset(in: meter)
+    private func slotAttackFraction(_ slot: MeasureRhythmSlot, meter: Meter) -> Double {
+        slot.startPosition.startOffset(in: meter)
             .map { $0 / meter.measureLengthInWholeNotes }
             ?? 0
-        let durationFraction = slot.duration.wholeNoteLength / meter.measureLengthInWholeNotes
-        return startFraction + durationFraction / 2
     }
 
     private func quantizedBeatPosition(

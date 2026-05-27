@@ -85,6 +85,39 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(decodedChart.engravingPreset, .balanced)
     }
 
+    func testChordEventDecodingDefaultsMissingSourceCandidateSignature() throws {
+        var chart = Chart.blank(title: "Older Chord Snapshot", key: .cMajor, measureCount: 1)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let symbol = try XCTUnwrap(ChordRecognitionCompendium.match("C")?.symbol)
+        _ = chart.appendRecognizedChordEvent(
+            symbol,
+            rawInput: "C",
+            to: measureID,
+            atFraction: 0.05,
+            sourceInkData: Data([1, 2, 3])
+        )
+        let encodedData = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        var systems = try XCTUnwrap(object["systems"] as? [[String: Any]])
+        var firstSystem = try XCTUnwrap(systems.first)
+        var measures = try XCTUnwrap(firstSystem["measures"] as? [[String: Any]])
+        var firstMeasure = try XCTUnwrap(measures.first)
+        var chordEvents = try XCTUnwrap(firstMeasure["chordEvents"] as? [[String: Any]])
+        var firstChordEvent = try XCTUnwrap(chordEvents.first)
+        firstChordEvent.removeValue(forKey: "sourceCandidateSignature")
+        chordEvents[0] = firstChordEvent
+        firstMeasure["chordEvents"] = chordEvents
+        measures[0] = firstMeasure
+        firstSystem["measures"] = measures
+        systems[0] = firstSystem
+        object["systems"] = systems
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.measures.first?.chordEvents.first?.sourceCandidateSignature, [])
+    }
+
     func testNotationGlyphCatalogProvidesSemanticSmuflSymbols() {
         XCTAssertEqual(NotationGlyphCatalog.trebleClef, "\u{E050}")
         XCTAssertEqual(NotationGlyphCatalog.noteheadWhole, "\u{E0A2}")
@@ -201,7 +234,8 @@ final class ChartEditingTests: XCTestCase {
                 rawInput: "D flat",
                 to: measureID,
                 atFraction: 0.55,
-                sourceInkData: sourceInkData
+                sourceInkData: sourceInkData,
+                sourceCandidateSignature: ["Db", "D"]
             )
         )
 
@@ -210,6 +244,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chord.symbol.displayText, "Db")
         XCTAssertEqual(chord.rawInput, "D flat")
         XCTAssertEqual(chord.sourceInkData, sourceInkData)
+        XCTAssertEqual(chord.sourceCandidateSignature, ["Db", "D"])
         XCTAssertEqual(chord.startPosition.displayText, "3")
     }
 
@@ -231,7 +266,8 @@ final class ChartEditingTests: XCTestCase {
                 rawInput: "Bb/A",
                 to: measureID,
                 atFraction: 0.55,
-                sourceInkData: sourceInkData
+                sourceInkData: sourceInkData,
+                sourceCandidateSignature: ["Bb/A", "Db/A"]
             )
         )
 
@@ -241,6 +277,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chord.symbol.displayText, "Db/A")
         XCTAssertEqual(chord.rawInput, "Db/A")
         XCTAssertEqual(chord.sourceInkData, sourceInkData)
+        XCTAssertEqual(chord.sourceCandidateSignature, ["Bb/A", "Db/A"])
         XCTAssertEqual(chord.startPosition.displayText, "3")
         XCTAssertEqual(chart.measureContainingChordEvent(id: chordID)?.id, measureID)
     }
@@ -267,7 +304,8 @@ final class ChartEditingTests: XCTestCase {
                     rawInput: chordCase.written,
                     to: measureID,
                     atFraction: 0.05,
-                    sourceInkData: inkData
+                    sourceInkData: inkData,
+                    sourceCandidateSignature: [chordCase.expected]
                 ),
                 chordCase.written
             )
@@ -276,6 +314,7 @@ final class ChartEditingTests: XCTestCase {
             XCTAssertEqual(chord.symbol.displayText, chordCase.expected)
             XCTAssertEqual(chord.rawInput, chordCase.written)
             XCTAssertEqual(chord.sourceInkData, inkData)
+            XCTAssertEqual(chord.sourceCandidateSignature, [chordCase.expected])
             XCTAssertEqual(chord.startPosition.displayText, "1")
             XCTAssertNil(chart.pageHandwrittenChordData)
         }

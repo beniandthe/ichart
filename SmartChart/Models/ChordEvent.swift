@@ -11,6 +11,79 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var hitStyle: HitStyle
     var rawInput: String?
     var sourceInkData: Data? = nil
+    var sourceCandidateSignature: [String] = []
+
+    init(
+        id: UUID,
+        symbol: ChordSymbol,
+        startPosition: BeatPosition,
+        duration: RhythmValue,
+        rhythmPlacement: RhythmPlacement,
+        mappedRhythmSlotIndex: Int? = nil,
+        tieOut: Bool,
+        hitStyle: HitStyle,
+        rawInput: String?,
+        sourceInkData: Data? = nil,
+        sourceCandidateSignature: [String] = []
+    ) {
+        self.id = id
+        self.symbol = symbol
+        self.startPosition = startPosition
+        self.duration = duration
+        self.rhythmPlacement = rhythmPlacement
+        self.mappedRhythmSlotIndex = mappedRhythmSlotIndex
+        self.tieOut = tieOut
+        self.hitStyle = hitStyle
+        self.rawInput = rawInput
+        self.sourceInkData = sourceInkData
+        self.sourceCandidateSignature = sourceCandidateSignature
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case symbol
+        case startPosition
+        case duration
+        case rhythmPlacement
+        case mappedRhythmSlotIndex
+        case tieOut
+        case hitStyle
+        case rawInput
+        case sourceInkData
+        case sourceCandidateSignature
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        symbol = try container.decode(ChordSymbol.self, forKey: .symbol)
+        startPosition = try container.decode(BeatPosition.self, forKey: .startPosition)
+        duration = try container.decode(RhythmValue.self, forKey: .duration)
+        rhythmPlacement = try container.decode(RhythmPlacement.self, forKey: .rhythmPlacement)
+        mappedRhythmSlotIndex = try container.decodeIfPresent(Int.self, forKey: .mappedRhythmSlotIndex)
+        tieOut = try container.decode(Bool.self, forKey: .tieOut)
+        hitStyle = try container.decode(HitStyle.self, forKey: .hitStyle)
+        rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
+        sourceInkData = try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
+        sourceCandidateSignature = try container.decodeIfPresent([String].self, forKey: .sourceCandidateSignature) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(symbol, forKey: .symbol)
+        try container.encode(startPosition, forKey: .startPosition)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(rhythmPlacement, forKey: .rhythmPlacement)
+        try container.encodeIfPresent(mappedRhythmSlotIndex, forKey: .mappedRhythmSlotIndex)
+        try container.encode(tieOut, forKey: .tieOut)
+        try container.encode(hitStyle, forKey: .hitStyle)
+        try container.encodeIfPresent(rawInput, forKey: .rawInput)
+        try container.encodeIfPresent(sourceInkData, forKey: .sourceInkData)
+        if !sourceCandidateSignature.isEmpty {
+            try container.encode(sourceCandidateSignature, forKey: .sourceCandidateSignature)
+        }
+    }
 
     var displaySummary: String {
         var components = [symbol.displayText, "@\(startPosition.displayText)", duration.displayText]
