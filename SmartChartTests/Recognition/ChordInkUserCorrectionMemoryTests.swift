@@ -111,15 +111,17 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
     }
 
-    func testDeletedInkChordBlocksSameAutoRenderDigestOnly() {
+    func testDeletedInkChordBlocksSameAutoRenderByDigestOrCandidateSignature() {
         var memory = ChordInkUserCorrectionMemory()
         let rejectedDrawing = Data("wrong auto render".utf8)
         let differentDrawing = Data("different drawing".utf8)
+        let rejectedSignature = ["Db7(b9)", "Db7", "G/B"]
 
         XCTAssertFalse(
             memory.shouldBlockAutoRender(
                 acceptedText: "Db7(b9)",
-                drawingData: rejectedDrawing
+                drawingData: rejectedDrawing,
+                candidateTexts: rejectedSignature
             )
         )
 
@@ -127,6 +129,7 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
             memory.recordRejectedAutoRender(
                 acceptedText: "Db7(b9)",
                 drawingData: rejectedDrawing,
+                candidateSignature: rejectedSignature,
                 now: Date(timeIntervalSinceReferenceDate: 25)
             )
         )
@@ -137,16 +140,25 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
                 drawingData: rejectedDrawing
             )
         )
+        XCTAssertTrue(
+            memory.shouldBlockAutoRender(
+                acceptedText: "Db7(b9)",
+                drawingData: differentDrawing,
+                candidateTexts: rejectedSignature
+            )
+        )
         XCTAssertFalse(
             memory.shouldBlockAutoRender(
                 acceptedText: "Db7(b9)",
-                drawingData: differentDrawing
+                drawingData: differentDrawing,
+                candidateTexts: ["C", "G/B", "F#"]
             )
         )
         XCTAssertFalse(
             memory.shouldBlockAutoRender(
                 acceptedText: "G/B",
-                drawingData: rejectedDrawing
+                drawingData: rejectedDrawing,
+                candidateTexts: rejectedSignature
             )
         )
     }

@@ -14,6 +14,17 @@ struct PendingChordInkConfirmation: Identifiable {
     let candidateTexts: [String]
     let bestCandidateText: String?
 
+    static func candidateTexts(for result: ChordInkRecognitionResult) -> [String] {
+        let rankedCandidateTexts = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
+            .compactMap(\.displayText)
+        let primaryCandidateTexts = [result.match?.displayText].compactMap { $0 }
+        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
+
+        return ChordRecognitionCompendium.userFacingCandidateTexts(
+            from: rankedCandidateTexts + primaryCandidateTexts + ocrCandidateTexts
+        )
+    }
+
     init(
         measureID: UUID,
         measureIndex: Int,
@@ -35,13 +46,7 @@ struct PendingChordInkConfirmation: Identifiable {
         self.primaryDecision = primaryDecision
         self.decision = decision
 
-        let rankedCandidateTexts = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
-            .compactMap(\.displayText)
-        let primaryCandidateTexts = [result.match?.displayText].compactMap { $0 }
-        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
-        let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
-            from: rankedCandidateTexts + primaryCandidateTexts + ocrCandidateTexts
-        )
+        let userFacingCandidateTexts = Self.candidateTexts(for: result)
         self.candidateTexts = userFacingCandidateTexts
         self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first
     }

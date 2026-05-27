@@ -41,7 +41,7 @@ Use these side sprints for focused chord work after the Sprint 56 field-validati
 
 ### Side Sprint 57: Chord Placement And Edit Loop
 
-Status: complete locally; awaiting GitHub verification.
+Status: complete; GitHub Actions passed on `ece1924`.
 
 Goal: make the post-render chord feel editable and correctly anchored after recognition.
 
@@ -54,17 +54,20 @@ Candidate work:
 
 ### Side Sprint 58: Wrong Render Recovery And Replace UX
 
-Status: active.
+Status: complete locally; awaiting GitHub verification.
 
 Goal: make wrong auto-renders recover cleanly.
 
 Candidate work:
 
-- Treat deletion of an ink-origin rendered chord as local negative feedback for that ink/chord pairing.
+- Stored the source candidate signature on ink-origin rendered chords.
+- Treat deletion of an ink-origin rendered chord as local negative feedback for exact ink digest or the saved candidate signature.
 - Route repeated rejection away from the same auto-render and toward confirmation or direct input.
 - Make the replacement path obvious without forcing another full rewrite when direct correction is faster.
 
 ### Side Sprint 59: Confirmation And Direct Input Polish
+
+Status: active.
 
 Goal: turn confirmation/direct entry into a calm product loop.
 

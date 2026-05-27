@@ -292,7 +292,8 @@ extension Measure {
         rawInput: String?,
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
-        sourceInkData: Data? = nil
+        sourceInkData: Data? = nil,
+        sourceCandidateSignature: [String] = []
     ) -> UUID {
         let chordEventID = UUID()
         chordEvents.append(
@@ -306,7 +307,8 @@ extension Measure {
                 tieOut: false,
                 hitStyle: hitStyle,
                 rawInput: rawInput,
-                sourceInkData: sourceInkData
+                sourceInkData: sourceInkData,
+                sourceCandidateSignature: sourceCandidateSignature
             )
         )
         return chordEventID
