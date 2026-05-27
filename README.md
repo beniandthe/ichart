@@ -171,4 +171,4 @@ The first meaningful prototype succeeds if a musician can:
 
 ## Status
 
-Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-60 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and started the chord-first side-sprint lane. Sprint 61 is the active raster/render handoff polish lane. Current sprint status lives in the source-of-truth doc.
+Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-61 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and started the chord-first side-sprint lane. Sprint 62 is the active chord-first release-candidate pass. Current sprint status lives in the source-of-truth doc.

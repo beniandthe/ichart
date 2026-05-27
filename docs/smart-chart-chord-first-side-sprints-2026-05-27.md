@@ -93,7 +93,7 @@ Candidate work:
 
 ### Side Sprint 61: Raster/Render Handoff Polish
 
-Status: active evidence audit.
+Status: complete locally; awaiting GitHub verification.
 
 Goal: keep the writing-to-render handoff feeling immediate without premature rendering.
 
@@ -101,10 +101,13 @@ Candidate work:
 
 - Inspected timing telemetry before changing debounce or render policy.
 - Separated recognition wait from commit/render/export work in the evidence map.
-- Current finding: prior persisted evidence shows render handoff around `6-13ms`, so do not rewrite raster/render behavior without a fresh timing pass that contradicts that signal.
+- Current finding: fresh timing capture shows render handoff around `15-28ms`, so do not rewrite raster/render behavior.
+- Noted one `Db7(b9)` placement evidence mismatch as release-candidate input, not a render handoff issue.
 - Keep `PKCanvasView` as the native ink renderer.
 
 ### Side Sprint 62: Chord-First Release Candidate Pass
+
+Status: active.
 
 Goal: close the chord-first lane with one bounded real chart pass.
 

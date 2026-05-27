@@ -1,6 +1,6 @@
 # Smart Chart Sprint 61 Raster Render Handoff Polish
 
-Status: active evidence audit
+Status: complete locally; awaiting GitHub verification after push
 Date: 2026-05-27
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 
@@ -90,6 +90,34 @@ Route the next move from evidence:
 - high `proposal` or `commit`: editor proposal or chart mutation
 - high `render`: SwiftUI/render handoff
 - low timing but wrong/ambiguous result: confidence/candidate/trust route
+
+## Timing Capture Result
+
+Fresh simulator pass source:
+
+- app data: CoreSimulator app container `Library/Application Support/SmartChart`
+- chart: `Untitled Chart`
+- chart ID: `57C55F1B-3860-43D1-9622-5FCF7D9EC403`
+- diagnostics: `chord-entry-diagnostics.jsonl`
+- console runtime log: `/Users/benirossman/Library/Developer/XcodeBuildMCP/workspaces/Smart-Chart-f58ea80f996f/logs/com.smartchart.app_2026-05-27T18-00-37-067Z_helperpid35175_ownerpid1549_ce5f8613.log`
+
+Observed result:
+
+| Case | Route | Scheduled-to-finished | Recognition | Commit | Render handoff | Classification |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `C` | auto-render | `419ms` | `0ms` | `5ms` | `19ms` | root-continuation scheduler wait dominated |
+| `Absus` | auto-render | `432ms` | `18ms` | `4ms` | `17ms` | scheduler plus modest candidate composition |
+| `Db7(b9)` | user-rule applied after close-route evidence | `863ms` | `63ms` including `41ms` OCR | `3ms` | `19ms` | trust/OCR/candidate race, not render |
+| `G#+` | auto-render | `420ms` | `3ms` | `7ms` | `28ms` | scheduler dominated; highest render sample still small |
+| `B°7` | auto-render | `1265ms` | `1ms` | `3ms` | `15ms` | continuation scheduler wait dominated |
+
+The active chart had `7` rendered chord events and `7` matching diagnostics with timing evidence. `6` were `autoRendered`; `1` was `userRuleApplied`. The pass also produced one placement evidence mismatch for `Db7(b9)`: the diagnostic row captured start `3`, while the current chart state reports start `1`. That belongs to placement/edit evidence, not raster/render handoff.
+
+## Closeout Decision
+
+Sprint 61 does not justify renderer or raster code changes. The measured render handoff stayed in a small `15-28ms` band. Perceived delay is still dominated by scheduler/continuation policy, recognition/trust work on complex chords, or user-rule/confirmation routing.
+
+Do not change `PKCanvasView`, export rasterization, or rendered chord drawing from this sprint. Move to the chord-first release-candidate pass with this evidence preserved.
 
 ## Guardrails
 
