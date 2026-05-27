@@ -36,6 +36,7 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - Tighten compact suspended-chord candidate availability from transferable field evidence: `Absus` failures were missing `Absus` from suggestions or losing to slash-bass lookalikes, so semantic suspended candidates now consider nearby plausible root letters and add cautious `sus` candidates without raising them into auto-render.
 - Soften slash-bass candidates when the slash column also carries suspended-`s` evidence, allowing `Absus`/neighboring suspended candidates to compete instead of letting a slash lookalike silently steal the result.
 - Improve chord-entry live ink persistence by letting `PKCanvasView` own active strokes while the Pencil is moving, blocking stale chart-data reloads during unpersisted chord ink, and syncing the chart's chord-ink snapshot at the idle recognition boundary. The original chord-entry pen tool and weight are preserved.
+- Keep chord entry Pencil-only on real iPad/device builds so trackpad, mouse, or cursor input cannot enter the chord ink stream during field testing. Simulator builds keep pointer input enabled for automation and smoke tests.
 - Preserve recognition, trust, parser, correction-memory, PencilKit, fixture corpus, OCR, export, and chart mutation authority.
 
 ## Verification Plan
@@ -79,6 +80,8 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - XcodeBuildMCP focused iOS simulator `test_sim -only-testing:SmartChartTests/LeadSheetInteractionModeStatePolicyTests CODE_SIGNING_ALLOWED=NO` passed with `1` test and `0` failures after the fast-writing ownership change.
 - XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` passed and launched `com.smartchart.app` on the iPad simulator after the fast-writing ownership change.
 - `xcodegen generate` passed after the fast-writing ownership change.
+- XcodeBuildMCP focused iOS simulator `test_sim -only-testing:SmartChartTests/LeadSheetInteractionModeStatePolicyTests CODE_SIGNING_ALLOWED=NO` passed with `2` tests and `0` failures after adding the real-device Pencil-only chord input policy.
+- XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` passed and launched `com.smartchart.app` on the iPad simulator after the Pencil-only device policy; simulator chord input remains `.anyInput` for automation.
 
 ## Acceptance Criteria
 
@@ -93,4 +96,5 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - Chord-entry live ink is not pushed through SwiftUI on every point update; active strokes remain owned by `PKCanvasView`, and the chart snapshot catches up at the idle recognition boundary.
 - Active chord ink with unpersisted changes is not overwritten by stale model ink during SwiftUI refreshes.
 - Chord-entry keeps the original `.pen` tool at `2.5` points; ink persistence must not be faked by making strokes thicker.
+- Chord-entry on real iPad/device builds accepts Apple Pencil input only; simulator builds keep `.anyInput` for automation.
 - No personal handwriting fixture expansion or score retuning.

@@ -1111,6 +1111,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
         chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled
         pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
+        pageInkCanvasView.drawingPolicy = policy.drawingPolicy
         pageInkCanvasView.tool = policy.inkTool
 
         if policy.clearsMeasureResizeDrag {

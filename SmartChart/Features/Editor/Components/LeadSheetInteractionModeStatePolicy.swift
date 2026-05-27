@@ -15,6 +15,7 @@ struct LeadSheetInteractionModeStatePolicy {
     var clearsChordInteractionState: Bool
     var hidesPageInkCanvas: Bool
     var inkTool: PKInkingTool
+    var drawingPolicy: PKCanvasViewDrawingPolicy
 
     static func resolve(for interactionMode: EditorCanvasMode) -> LeadSheetInteractionModeStatePolicy {
         LeadSheetInteractionModeStatePolicy(
@@ -29,7 +30,8 @@ struct LeadSheetInteractionModeStatePolicy {
             clearsMeasureResizeDrag: !interactionMode.showsMeasureResizeHandles,
             clearsChordInteractionState: !interactionMode.allowsChordInkEditing,
             hidesPageInkCanvas: !interactionMode.allowsAnyInkEditing,
-            inkTool: inkTool(for: interactionMode)
+            inkTool: inkTool(for: interactionMode),
+            drawingPolicy: drawingPolicy(for: interactionMode)
         )
     }
 
@@ -51,6 +53,18 @@ struct LeadSheetInteractionModeStatePolicy {
         }
 
         return PKInkingTool(.pen, color: UIColor(white: 0.06, alpha: 1), width: 2.8)
+    }
+
+    private static func drawingPolicy(for interactionMode: EditorCanvasMode) -> PKCanvasViewDrawingPolicy {
+        guard interactionMode.allowsChordInkEditing else {
+            return .anyInput
+        }
+
+        #if targetEnvironment(simulator)
+        return .anyInput
+        #else
+        return .pencilOnly
+        #endif
     }
 }
 #endif
