@@ -26,7 +26,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - PR review follow-through checkpoint: `66dc5d2 Document chord ink clear decision`
 - PR readiness checkpoint: `61caeb9 Open sprint nine merge readiness`
 - previous runtime checkpoint: `a738ed3 Close sprint seven text variant extraction`
-- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, Sprint 17 working Library debloat, Sprint 18 chord sheet extraction, Sprint 19 rhythm confirmation extraction, Sprint 20 chord edit overlay geometry extraction, Sprint 21 measure resize geometry extraction, Sprint 22 active ink-scope extraction, Sprint 23 saved ink renderer extraction, Sprint 24 active ink persistence extraction, Sprint 25 chord ink image renderer extraction, Sprint 26 interaction targeting extraction, Sprint 27 note-selection lasso targeting extraction, Sprint 28 chord ink recognition targeting extraction, Sprint 29 chord recognition timing extraction, Sprint 30 chord recognition scheduling extraction, Sprint 31 rhythmic notation finalization policy extraction, Sprint 32 interaction-mode state policy extraction, Sprint 33 chord recognition request-state extraction, Sprint 34 editor/recognition execution audit, Sprint 35 recognition-session boundary design, Sprint 36 recognition generalization policy reset, Sprint 37 recognition-session boundary implementation, Sprint 38 recognition-session OCR gate test hardening, Sprint 39 bounded renderer product proof, Sprint 40 visual renderer QA, Sprint 41 writing-to-render commit contract, Sprint 42 writing-to-render readiness QA, Sprint 43 real Pencil field-test evidence, Sprint 44 renderer/iPad export availability, Sprint 45 post-export field-test validation, Sprint 46 recognition latency/trust triage, Sprint 47 confidence/performance split triage, Sprint 48 persistent timing telemetry, Sprint 49 flat-root candidate availability, Sprint 50 post-stroke responsiveness, Sprint 51 real-life polish, Sprint 52 chord confirmation/user loop UX, Sprint 53 validation speed, Sprint 54 confirmation UX polish, Sprint 55 chord-first product polish, Sprint 56 chord field validation, Sprint 57 chord placement/edit loop, Sprint 58 wrong render recovery, and Sprint 59 confirmation/direct-input polish are complete; Sprint 60 general candidate availability hardening is active
+- implementation state: recognition recovery, product/editor polish audit, PR review follow-through, PR [#4](https://github.com/beniandthe/smart-chart/pull/4) merge, Sprint 12 post-merge app audit, Sprint 13 local hygiene/product smoke, Sprint 14 editor boundary cleanup, Sprint 15 recognition corpus debloat, Sprint 16 app-shell debloat, Sprint 17 working Library debloat, Sprint 18 chord sheet extraction, Sprint 19 rhythm confirmation extraction, Sprint 20 chord edit overlay geometry extraction, Sprint 21 measure resize geometry extraction, Sprint 22 active ink-scope extraction, Sprint 23 saved ink renderer extraction, Sprint 24 active ink persistence extraction, Sprint 25 chord ink image renderer extraction, Sprint 26 interaction targeting extraction, Sprint 27 note-selection lasso targeting extraction, Sprint 28 chord ink recognition targeting extraction, Sprint 29 chord recognition timing extraction, Sprint 30 chord recognition scheduling extraction, Sprint 31 rhythmic notation finalization policy extraction, Sprint 32 interaction-mode state policy extraction, Sprint 33 chord recognition request-state extraction, Sprint 34 editor/recognition execution audit, Sprint 35 recognition-session boundary design, Sprint 36 recognition generalization policy reset, Sprint 37 recognition-session boundary implementation, Sprint 38 recognition-session OCR gate test hardening, Sprint 39 bounded renderer product proof, Sprint 40 visual renderer QA, Sprint 41 writing-to-render commit contract, Sprint 42 writing-to-render readiness QA, Sprint 43 real Pencil field-test evidence, Sprint 44 renderer/iPad export availability, Sprint 45 post-export field-test validation, Sprint 46 recognition latency/trust triage, Sprint 47 confidence/performance split triage, Sprint 48 persistent timing telemetry, Sprint 49 flat-root candidate availability, Sprint 50 post-stroke responsiveness, Sprint 51 real-life polish, Sprint 52 chord confirmation/user loop UX, Sprint 53 validation speed, Sprint 54 confirmation UX polish, Sprint 55 chord-first product polish, Sprint 56 chord field validation, Sprint 57 chord placement/edit loop, Sprint 58 wrong render recovery, Sprint 59 confirmation/direct-input polish, and Sprint 60 general candidate availability hardening are complete; Sprint 61 raster/render handoff polish is active
 - supporting audit: `docs/repo-github-recognition-audit-2026-05-20.md`
 - Sprint 12 audit artifact: `docs/smart-chart-post-merge-app-audit-2026-05-23.md`
 - Sprint 34 audit artifact: `docs/smart-chart-editor-recognition-execution-audit-2026-05-24.md`
@@ -52,8 +52,9 @@ The active app runtime implementation state is the merged recovery branch from P
 - Sprint 57 chord placement/edit loop artifact: `docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`
 - Sprint 58 wrong render recovery artifact: `docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md`
 - Sprint 59 confirmation/direct-input polish artifact: `docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`
-- latest local verification: Sprint 59 `xcodegen generate` passed; XcodeBuildMCP focused iOS simulator `SmartChartTests/ChordInkUserCorrectionMemoryTests` passed with `7` tests and `0` failures; `git diff --check` passed. Sprint 58 required GitHub Actions passed on `b748b2a`.
-- latest GitHub verification: main commit `b748b2a Reroute rejected chord auto-renders` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift` on 2026-05-27. Direct-main `Analyze Swift` completed quickly and reported the intentional CodeQL defer; real CodeQL remains on pull requests, weekly schedule, and manual dispatch. Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health.
+- Sprint 60 general candidate availability artifact: `docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`
+- latest local verification: Sprint 60 focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint60-availability --filter ChordInkRecognizerTests` passed with `41` tests, `1` skipped, and `0` failures; `git diff --check` passed. Sprint 59 required GitHub Actions passed on `88feda5`.
+- latest GitHub verification: main commit `88feda5 Polish chord confirmation flow` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift` on 2026-05-27. Direct-main `Analyze Swift` completed quickly and reported the intentional CodeQL defer; real CodeQL remains on pull requests, weekly schedule, and manual dispatch. Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health.
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
 
@@ -148,25 +149,25 @@ These rules are hard boundaries for Sprint 1 and future recognition work:
 
 ## Active Sprint
 
-### Sprint 60: General Candidate Availability Hardening
+### Sprint 61: Raster/Render Handoff Polish
 
-Status: active side sprint; evidence audit and first implementation slice.
+Status: active side sprint; evidence audit before implementation.
 
-Goal: fix transferable chord-family candidate gaps before any score retuning, personal handwriting fixture expansion, or broader recognition changes.
+Goal: keep the writing-to-render handoff feeling immediate without premature rendering or unnecessary redraw/raster work.
 
 Current state:
 
 - Sprint 58 prevents repeated wrong auto-renders by local ink digest or candidate-signature reroute.
 - Sprint 59 made confirmation/direct input calmer and more concise when reroutes, close races, or complete misses need user input.
-- The next chord-first gap is candidate availability: supported chords must be present in the candidate set before trust policy can make a good auto-render or confirmation decision.
+- Sprint 60 backfilled supported candidates into candidate-score evidence when raw unsupported noise occupies the top prefix.
+- The next chord-first gap is handoff feel: confirm whether any remaining perceived delay is recognition wait, commit/render handoff, or visual redraw/raster work before changing policy.
 
-Sprint 60 tasks:
+Sprint 61 tasks:
 
-- Audit recent diagnostics, known chord-family failures, and composer/compendium boundaries for supported chords missing from candidate availability.
-- Improve compendium/parser/composer availability only when a supported chord family is missing from the candidate set.
-- Prefer transferable tests around supported families such as suspended chords, slash chords, flat roots, and altered extensions.
-- Keep suggestions and accepted chords compendium/parser-approved only.
-- Preserve deleted-render rejection memory, confirmation/direct-input behavior, accepted-chord ink clearing, export behavior, and native `PKCanvasView` writing feel.
+- Inspect timing telemetry and current renderer/raster handoff points before changing behavior.
+- Separate recognition wait from commit mutation, rendered-chord display, and export/raster work in the evidence.
+- Improve only the measured handoff bottleneck if the evidence points to a small transferable change.
+- Preserve deleted-render rejection memory, confirmation/direct-input behavior, accepted-chord ink clearing, export behavior, supported-candidate backfill, and native `PKCanvasView` writing feel.
 - Update this source-of-truth doc and the chord-first side-sprint doc when the slice closes.
 
 Non-goals:
@@ -174,13 +175,14 @@ Non-goals:
 - No personal handwriting fixture expansion.
 - No recognition score retuning from one writer's pass.
 - No default OCR expansion or symbol-ledger diagnostics cost.
-- No broad editor cleanup unless directly required by candidate availability evidence.
+- No broad renderer/export rewrite unless the timing or visual evidence requires it.
 
 Acceptance criteria:
 
-- Supported chord candidates remain compendium/parser-approved.
-- Any candidate-availability improvement is justified by repo-local diagnostics or transferable chord-family evidence.
-- Focused recognizer/composer/parser tests pass.
+- Any implementation is tied to timing or visual handoff evidence.
+- Rendered chords still appear as structured `ChordEvent`s and accepted chord ink still clears.
+- Export behavior remains unchanged unless the sprint explicitly touches export/raster output.
+- Focused timing/render/editor tests pass if behavior changes.
 - No user handwriting training loop is introduced.
 - The next side sprint is chosen from the chord-first queue rather than reopening the full audit plan.
 
@@ -817,13 +819,23 @@ Append one entry here after each sprint completes. Each entry must include:
 
 ### Sprint 59: Confirmation And Direct Input Polish
 
-- status: complete locally; required GitHub Actions need to run after push
-- implementation commit: Sprint 59 closeout commit containing this entry
+- status: complete; required GitHub Actions passed on `88feda5`
+- implementation commit: `88feda5 Polish chord confirmation flow`
 - summary: Turned the chord confirmation/direct-entry sheet into a calmer product loop. The sheet now uses compact top-three candidate buttons, a clearly labeled manual-entry field, concise reroute/close-race copy, and clearer `Accept Chord` / `Rewrite Ink` actions.
 - tests and evidence: `xcodegen generate` passed; XcodeBuildMCP focused iOS simulator `SmartChartTests/ChordInkUserCorrectionMemoryTests CODE_SIGNING_ALLOWED=NO` passed with `7` tests and `0` failures; `git diff --check` passed.
 - behavior boundary: no personal handwriting fixture expansion, no recognition score retuning, no parser/compendium authority change, no default OCR expansion, no symbol-ledger diagnostics cost, no export behavior change, no placement behavior change, and no accepted-chord ink clearing change.
 - unresolved follow-up: candidate availability remains the next chord-first blocker for supported chord families that do not reliably enter the top supported candidates.
 - next sprint candidate: Sprint 60 general candidate availability hardening.
+
+### Sprint 60: General Candidate Availability Hardening
+
+- status: complete locally; required GitHub Actions need to run after push
+- implementation commit: Sprint 60 closeout commit containing this entry
+- summary: Hardened candidate-score availability without retuning recognition. The recognizer still keeps the top raw score prefix for diagnostics, but now backfills bounded unique supported candidates from beyond that prefix so confirmation/trust evidence can include compendium-approved chords even when unsupported numeric/noisy candidates occupy the top raw slots.
+- tests and evidence: focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint60-availability --filter ChordInkRecognizerTests` passed with `41` tests, `1` skipped by the opt-in full fixture archive gate, and `0` failures; `git diff --check` passed.
+- behavior boundary: no personal handwriting fixture expansion, no recognition score retuning, no parser/compendium authority change, no default OCR expansion, no symbol-ledger diagnostics cost, no editor/export/placement/direct-input behavior change, and no accepted-chord ink clearing change.
+- unresolved follow-up: if users still feel delay after supported candidates are visible, route to timing/render handoff evidence rather than score tuning.
+- next sprint candidate: Sprint 61 raster/render handoff polish.
 
 ## Chord-First Side Sprint Queue
 
@@ -831,9 +843,9 @@ Use this queue for chord-specific product work after Sprint 56. `docs/smart-char
 
 - Sprint 57: Chord Placement And Edit Loop: complete; GitHub Actions passed on `ece1924`.
 - Sprint 58: Wrong Render Recovery And Replace UX: complete; GitHub Actions passed on `b748b2a`.
-- Sprint 59: Confirmation And Direct Input Polish: complete locally; awaiting GitHub verification.
-- Sprint 60: General Candidate Availability Hardening: active.
-- Sprint 61: Raster/Render Handoff Polish.
+- Sprint 59: Confirmation And Direct Input Polish: complete; GitHub Actions passed on `88feda5`.
+- Sprint 60: General Candidate Availability Hardening: complete locally; awaiting GitHub verification.
+- Sprint 61: Raster/Render Handoff Polish: active.
 - Sprint 62: Chord-First Release Candidate Pass.
 
 ## Next Sprint Backlog
@@ -884,6 +896,7 @@ Current authority:
 - `docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`: Sprint 57 chord placement/edit loop.
 - `docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md`: Sprint 58 wrong render recovery and replace UX.
 - `docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`: Sprint 59 confirmation and direct-input polish.
+- `docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`: Sprint 60 general candidate availability hardening.
 - `docs/core-design-document.md`: product intent and design rules.
 - `docs/developer-mvp-spec.md`: MVP scope, subordinate to the core design document.
 - `docs/repo-github-recognition-audit-2026-05-20.md`: evidence snapshot for the current recovery plan.

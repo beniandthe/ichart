@@ -11,6 +11,50 @@ final class ChordInkRecognizerTests: XCTestCase {
 
     private let recognizer = ChordInkRecognizer()
 
+    func testCandidateScoresKeepSupportedCandidatesBeyondRawTopEight() {
+        let unsupportedNoise = [
+            "E3",
+            "E2",
+            "E4",
+            "E5",
+            "E8",
+            "E10",
+            "Db7(b9)(b9)",
+            "Csus7"
+        ].enumerated().map { index, text in
+            ChordInkCandidate(
+                text: text,
+                confidence: 5.0 - (Double(index) * 0.01),
+                glyphCandidates: []
+            )
+        }
+        let supportedCandidates = [
+            ChordInkCandidate(text: "Db7b9", confidence: 3.93, glyphCandidates: []),
+            ChordInkCandidate(text: "G/B", confidence: 3.92, glyphCandidates: [])
+        ]
+
+        let scores = ChordInkRecognizer.candidateScores(
+            from: unsupportedNoise + supportedCandidates,
+            minimumConfidence: 3.91,
+            match: ChordRecognitionCompendium.match
+        )
+        let supportedDisplayTexts = ChordInkRecognitionPolicy
+            .rankedSupportedScores(
+                for: ChordInkRecognitionResult(
+                    rawCandidates: [],
+                    glyphCandidates: [],
+                    match: nil,
+                    confidence: 0,
+                    candidateScores: scores
+                )
+            )
+            .compactMap(\.displayText)
+
+        XCTAssertEqual(scores.prefix(8).filter { $0.displayText == nil }.count, 8)
+        XCTAssertTrue(supportedDisplayTexts.contains("Db7(b9)"))
+        XCTAssertTrue(supportedDisplayTexts.contains("G/B"))
+    }
+
     func testRecognizesDefaultRegressionFixturesThroughPureSwiftPipeline() throws {
         try assertRecognizes(fixtures: allFixtures())
     }

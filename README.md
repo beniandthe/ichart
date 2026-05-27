@@ -128,6 +128,7 @@ Current implementation authority:
 - [`docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`](docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md) — Sprint 57 chord placement/edit loop
 - [`docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md`](docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md) — Sprint 58 wrong render recovery and replace UX
 - [`docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`](docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md) — Sprint 59 confirmation and direct-input polish
+- [`docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`](docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md) — Sprint 60 general candidate availability hardening
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan
@@ -169,4 +170,4 @@ The first meaningful prototype succeeds if a musician can:
 
 ## Status
 
-Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-59 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and started the chord-first side-sprint lane. Sprint 60 is the active general candidate-availability lane. Current sprint status lives in the source-of-truth doc.
+Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-60 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and started the chord-first side-sprint lane. Sprint 61 is the active raster/render handoff polish lane. Current sprint status lives in the source-of-truth doc.

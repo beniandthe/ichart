@@ -112,16 +112,11 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             return match
         }
 
-        let candidateScores = chordCandidates.prefix(8)
-            .filter { $0.confidence >= minimumScoredCandidateConfidence }
-            .map { candidate in
-                let match = cachedMatch(candidate.text)
-                return ChordInkCandidateScore(
-                    text: candidate.text,
-                    displayText: match?.displayText,
-                    confidence: candidate.confidence
-                )
-            }
+        let candidateScores = Self.candidateScores(
+            from: chordCandidates,
+            minimumConfidence: minimumScoredCandidateConfidence,
+            match: cachedMatch
+        )
         let acceptedCandidate = chordCandidates.lazy.compactMap { candidate -> (ChordRecognitionMatch, Double)? in
             guard let match = cachedMatch(candidate.text),
                   candidate.confidence >= minimumAcceptedCandidateConfidence else {
@@ -165,5 +160,57 @@ struct ChordInkRecognizer: ChordInkRecognizing {
 
     private static func elapsedMilliseconds(since start: Date) -> Double {
         Date().timeIntervalSince(start) * 1_000
+    }
+
+    static func candidateScores(
+        from chordCandidates: [ChordInkCandidate],
+        minimumConfidence: Double,
+        match: (String) -> ChordRecognitionMatch?
+    ) -> [ChordInkCandidateScore] {
+        let rawScorePrefixCount = 8
+        let supportedScoreTargetCount = 12
+        var scores: [ChordInkCandidateScore] = []
+        var scoredCandidateTexts = Set<String>()
+        var supportedDisplayTexts = Set<String>()
+
+        func appendScore(for candidate: ChordInkCandidate, match: ChordRecognitionMatch?) {
+            guard candidate.confidence >= minimumConfidence,
+                  !scoredCandidateTexts.contains(candidate.text) else {
+                return
+            }
+
+            let displayText = match?.displayText
+            scores.append(
+                ChordInkCandidateScore(
+                    text: candidate.text,
+                    displayText: displayText,
+                    confidence: candidate.confidence
+                )
+            )
+            scoredCandidateTexts.insert(candidate.text)
+
+            if let displayText {
+                supportedDisplayTexts.insert(displayText)
+            }
+        }
+
+        for candidate in chordCandidates.prefix(rawScorePrefixCount) {
+            appendScore(for: candidate, match: match(candidate.text))
+        }
+
+        for candidate in chordCandidates.dropFirst(rawScorePrefixCount) {
+            guard candidate.confidence >= minimumConfidence,
+                  let supportedMatch = match(candidate.text),
+                  !supportedDisplayTexts.contains(supportedMatch.displayText) else {
+                continue
+            }
+
+            appendScore(for: candidate, match: supportedMatch)
+            if supportedDisplayTexts.count >= supportedScoreTargetCount {
+                break
+            }
+        }
+
+        return scores
     }
 }

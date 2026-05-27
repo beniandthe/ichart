@@ -67,7 +67,7 @@ Candidate work:
 
 ### Side Sprint 59: Confirmation And Direct Input Polish
 
-Status: complete locally; awaiting GitHub verification.
+Status: complete; GitHub Actions passed on `88feda5`.
 
 Goal: turn confirmation/direct entry into a calm product loop.
 
@@ -80,17 +80,20 @@ Candidate work:
 
 ### Side Sprint 60: General Candidate Availability Hardening
 
-Status: active.
+Status: complete locally; awaiting GitHub verification.
 
 Goal: fix transferable chord-family gaps without handwriting-specific training.
 
 Candidate work:
 
-- Search diagnostics for missing supported candidates before touching scores.
-- Improve compendium/parser/composer availability for general families such as suspended, slash, flat-root, and altered-extension chords.
-- Add only transferable regression tests, not another personal fixture loop.
+- Audited candidate exposure before touching scores.
+- Preserved the top raw score prefix for diagnostics.
+- Backfilled bounded unique supported candidates from beyond the raw prefix so confirmation/trust evidence can still include compendium-approved chords when unsupported noise occupies the top raw slots.
+- Added transferable recognizer coverage without expanding handwriting fixtures.
 
 ### Side Sprint 61: Raster/Render Handoff Polish
+
+Status: active.
 
 Goal: keep the writing-to-render handoff feeling immediate without premature rendering.
 
