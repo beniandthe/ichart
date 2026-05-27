@@ -46,7 +46,7 @@ The active app runtime implementation state is the merged recovery branch from P
 - Sprint 53 validation speed artifact: `docs/smart-chart-sprint-53-validation-speed-2026-05-26.md`
 - Sprint 54 confirmation UX polish artifact: `docs/smart-chart-sprint-54-confirmation-ux-polish-2026-05-26.md`
 - Sprint 55 chord-first product polish artifact: `docs/smart-chart-sprint-55-chord-first-product-polish-2026-05-26.md`
-- latest local verification: Sprint 55 suspended-ink settle update XcodeBuildMCP focused iOS simulator `test_sim -only-testing:SmartChartTests/LeadSheetChordInkRecognitionSchedulingTests CODE_SIGNING_ALLOWED=NO` passed with `6` tests and `0` failures; focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-sus-composer --filter ChordInkCandidateComposerTests/testCompactSuspendedCandidateIncludesPlausibleLowConfidenceFlatRoots` passed; `git diff --check` passed. Sprint 55 `Absus` compact-suspended update `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus --filter ChordInkCandidateComposerTests` passed with `51` tests and `0` failures; `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus-recognizer --filter ChordInkRecognizerTests` passed with `40` tests, `1` skipped, and `0` failures; saved-state replay `SMART_CHART_REPLAY_CHART_ID=17D5CFA4-1267-4914-B800-63100FC13C78 SMART_CHART_REPLAY_GLYPHS=1 swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus-replay-after --filter ChordEntryPassReplayTests/testReplayChordWritingTestChartFromSavedState` passed and showed the three `Absus` rows now matching `Absus` through confirmation; XcodeBuildMCP `build_run_sim` passed for the `SmartChart` scheme with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed. Sprint 50 post-stroke responsiveness full verification remains the latest broad app baseline: full SwiftPM passed with `319` tests, `36` skipped, `0` failures; XcodeBuildMCP full iOS simulator scheme passed with `336` tests, `36` skipped, `0` failures; Python script compilation passed.
+- latest local verification: Sprint 55 `Absus` compact-suspended update `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus --filter ChordInkCandidateComposerTests` passed with `51` tests and `0` failures; `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus-recognizer --filter ChordInkRecognizerTests` passed with `40` tests, `1` skipped, and `0` failures; saved-state replay `SMART_CHART_REPLAY_CHART_ID=17D5CFA4-1267-4914-B800-63100FC13C78 SMART_CHART_REPLAY_GLYPHS=1 swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus-replay-after --filter ChordEntryPassReplayTests/testReplayChordWritingTestChartFromSavedState` passed and showed the three `Absus` rows now matching `Absus` through confirmation; XcodeBuildMCP `build_run_sim` passed for the `SmartChart` scheme with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed. Sprint 50 post-stroke responsiveness full verification remains the latest broad app baseline: full SwiftPM passed with `319` tests, `36` skipped, `0` failures; XcodeBuildMCP full iOS simulator scheme passed with `336` tests, `36` skipped, `0` failures; Python script compilation passed.
 - latest GitHub verification: main commit `e21b6d9 Summarize chord timing evidence in diagnostics audit` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift` on 2026-05-26. Direct-main `Analyze Swift` completed quickly and reported the intentional CodeQL defer; real CodeQL remains on pull requests, weekly schedule, and manual dispatch. Supabase and Expo suites may remain queued with zero check runs and are not treated as current required app health. Sprint 50 remains the latest broad full-suite local baseline; Sprint 55 timing-summary audit is app-CI green and validated.
 
 `c60bb46` remains the trusted checkpoint reference. It represents the last known-good altered-chord trust polish baseline before the symbol-ledger drift/recovery work. Do not treat `c60bb46` as the active implementation baseline unless a future sprint explicitly chooses a reset.
@@ -162,7 +162,6 @@ Current state:
 - The diagnostic audit script now reports missing or mismatched placement evidence against the current rendered chart.
 - The diagnostic audit script now summarizes available timing evidence for render/performance triage.
 - A larger real-use pass felt good overall, but exposed a transferable `Absus` candidate-availability gap: compact suspended suffixes could fall out of suggestions or lose to slash-bass lookalikes.
-- The follow-up pass felt much better, but plain `Absus` rows showed the short `400ms` continuation settle path; that is useful for bare roots but a little aggressive for live `s-u-s` ink.
 
 Sprint 55 tasks:
 
@@ -176,7 +175,6 @@ Sprint 55 tasks:
 - Diagnostic metadata review should summarize available timing evidence before any render/performance change.
 - Compact suspended-chord recognition should keep `Absus` and neighboring suspended candidates available for confirmation without tuning around one writer's samples.
 - Slash-bass candidates should be softened when the slash column also carries suspended-`s` evidence, so `sus` lookalikes can compete instead of silently stealing the render.
-- Plain suspended qualities should use a medium continuation settle window: longer than bare-root `C`, shorter than full extension-prefix grace.
 - Keep confidence and accuracy work measurement-first; do not retune scores from one writer's pass.
 - Keep render/raster work evidence-based using existing timing and renderer QA lanes.
 
@@ -188,7 +186,6 @@ Acceptance criteria:
 - The diagnostic audit script flags missing or mismatched placement evidence.
 - The diagnostic audit script summarizes available timing evidence for render/performance triage.
 - `Absus` remains available as a supported candidate for compact suspended suffix evidence and stays confirmation-routed when root/suffix evidence is ambiguous.
-- Plain `sus` ink gets enough post-recognition settle time for the final `s` stroke without slowing bare-root chord rendering.
 - The sprint avoids handwriting-training loops and personal fixture expansion.
 - Verification remains proportional to the touched surface.
 - Any recognition work must be triggered by transferable evidence, not one-off handwriting drift.
