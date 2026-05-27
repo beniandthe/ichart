@@ -469,12 +469,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     ) {
         let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
         let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        let isActiveMove = activeChordMoveDrag?.chordID == chordLayout.id
 
         let boxPath = UIBezierPath(roundedRect: editFrame, cornerRadius: 5)
-        UIColor(red: 0.88, green: 0.93, blue: 1, alpha: 0.18).setFill()
+        UIColor(red: 0.88, green: 0.93, blue: 1, alpha: isActiveMove ? 0.30 : 0.18).setFill()
         boxPath.fill()
-        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.62).setStroke()
-        boxPath.lineWidth = 1
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: isActiveMove ? 0.92 : 0.62).setStroke()
+        boxPath.lineWidth = isActiveMove ? 1.4 : 1
         boxPath.stroke()
 
         let deletePath = UIBezierPath(ovalIn: controlFrames.delete)
@@ -492,11 +493,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         let movePath = UIBezierPath(ovalIn: controlFrames.move)
-        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.88).setFill()
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: isActiveMove ? 1 : 0.88).setFill()
         movePath.fill()
         UIColor.white.withAlphaComponent(0.95).setStroke()
         movePath.lineWidth = 1
         movePath.stroke()
+
+        let moveGlyph = UIBezierPath()
+        let glyphInset: CGFloat = 5
+        moveGlyph.move(to: CGPoint(x: controlFrames.move.minX + glyphInset, y: controlFrames.move.midY))
+        moveGlyph.addLine(to: CGPoint(x: controlFrames.move.maxX - glyphInset, y: controlFrames.move.midY))
+        moveGlyph.move(to: CGPoint(x: controlFrames.move.midX, y: controlFrames.move.minY + glyphInset))
+        moveGlyph.addLine(to: CGPoint(x: controlFrames.move.midX, y: controlFrames.move.maxY - glyphInset))
+        UIColor.white.withAlphaComponent(0.96).setStroke()
+        moveGlyph.lineWidth = 1.5
+        moveGlyph.lineCapStyle = .round
+        moveGlyph.stroke()
     }
 
     private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {
@@ -725,10 +737,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard let hitTarget = chordEditHitTarget(at: location),
                   hitTarget.action == .move else {
                 activeChordMoveDrag = nil
+                setNeedsDisplay()
                 return
             }
 
             activeChordMoveDrag = ActiveChordMoveDrag(chordID: hitTarget.chordID)
+            setNeedsDisplay()
         case .changed, .ended:
             guard let activeChordMoveDrag,
                   let target = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
@@ -737,6 +751,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                   ) else {
                 if recognizer.state == .ended {
                     self.activeChordMoveDrag = nil
+                    setNeedsDisplay()
                 }
                 return
             }
@@ -759,6 +774,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
         case .cancelled, .failed:
             activeChordMoveDrag = nil
+            setNeedsDisplay()
         default:
             break
         }

@@ -41,16 +41,20 @@ Use these side sprints for focused chord work after the Sprint 56 field-validati
 
 ### Side Sprint 57: Chord Placement And Edit Loop
 
+Status: complete locally; awaiting GitHub verification.
+
 Goal: make the post-render chord feel editable and correctly anchored after recognition.
 
 Candidate work:
 
-- Audit current placement sources in `MeasureRhythmMapping`, `LeadSheetPageLayout`, and editor chord interaction code.
-- Use existing placement diagnostics to identify whether missed placement is mapping, snapping, or UI feedback.
-- Improve one bounded placement/edit affordance before broad layout work.
-- Preserve auto-render, confirmation, ink clearing, export, and writer-agnostic recognition behavior.
+- Kept current placement math and move APIs intact.
+- Enlarged delete/move controls for a more Pencil/finger-friendly edit target.
+- Added an explicit move grip and active move highlight.
+- Added focused iOS geometry coverage for delete, move, and review hit-target priority.
 
 ### Side Sprint 58: Wrong Render Recovery And Replace UX
+
+Status: active.
 
 Goal: make wrong auto-renders recover cleanly.
 

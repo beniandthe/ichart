@@ -125,6 +125,7 @@ Current implementation authority:
 - [`docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md`](docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md) — Sprint 56 bounded real-device chord validation
 - [`docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md`](docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md) — Sprint 56 repeat validation gate
 - [`docs/smart-chart-chord-first-side-sprints-2026-05-27.md`](docs/smart-chart-chord-first-side-sprints-2026-05-27.md) — active chord-first side-sprint route map
+- [`docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`](docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md) — Sprint 57 chord placement/edit loop
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan
@@ -166,4 +167,4 @@ The first meaningful prototype succeeds if a musician can:
 
 ## Status
 
-Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-56 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, and closed the first chord field-validation loop. Sprint 57 starts the chord-first side-sprint lane. Current sprint status lives in the source-of-truth doc.
+Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-57 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and started the chord-first side-sprint lane. Sprint 58 is the active wrong-render recovery lane. Current sprint status lives in the source-of-truth doc.
