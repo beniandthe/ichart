@@ -61,6 +61,31 @@ final class LeadSheetChordInkRecognitionSchedulingTests: XCTestCase {
         )
     }
 
+    func testSuspendedQualityUsesMediumContinuationGrace() throws {
+        let result = try recognitionResult(for: "Absus", confidence: 4.95)
+
+        XCTAssertTrue(
+            LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+                previousDrawingData: nil,
+                drawingData: Data([0x41, 0x62, 0x73, 0x75, 0x73]),
+                timing: recognitionTiming(
+                    requestedDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                    strokeCount: 6
+                ),
+                idleDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                result: result
+            )
+        )
+        XCTAssertEqual(
+            LeadSheetChordInkRecognitionScheduling.continuationGraceDelay(
+                for: result,
+                defaultDelay: LeadSheetChordInkRecognitionScheduling.defaultContinuationGraceDelay
+            ),
+            0.65,
+            accuracy: 0.001
+        )
+    }
+
     func testContinuationGraceDoesNotRepeatForSameDrawingData() throws {
         let result = try recognitionResult(for: "C", confidence: 4.5)
         let drawingData = Data([0x43])

@@ -35,6 +35,7 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - Summarize available timing evidence by slowest delay, idle, recognition total, proposal, commit, and render handoff so render/performance review starts from metadata instead of impressions.
 - Tighten compact suspended-chord candidate availability from transferable field evidence: `Absus` failures were missing `Absus` from suggestions or losing to slash-bass lookalikes, so semantic suspended candidates now consider nearby plausible root letters and add cautious `sus` candidates without raising them into auto-render.
 - Soften slash-bass candidates when the slash column also carries suspended-`s` evidence, allowing `Absus`/neighboring suspended candidates to compete instead of letting a slash lookalike silently steal the result.
+- Give plain suspended qualities a medium continuation settle delay (`650ms`) after recognition: faster than the full extension-prefix grace, but less aggressive than the bare-root `400ms` path that made live `s-u-s` ink feel slightly too eager.
 - Preserve recognition, trust, parser, correction-memory, PencilKit, fixture corpus, OCR, export, and chart mutation authority.
 
 ## Verification Plan
@@ -71,6 +72,9 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - Saved-state replay `SMART_CHART_REPLAY_CHART_ID=17D5CFA4-1267-4914-B800-63100FC13C78 SMART_CHART_REPLAY_GLYPHS=1 swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-absus-replay-after --filter ChordEntryPassReplayTests/testReplayChordWritingTestChartFromSavedState` passed; the three `Absus` rows now match `Absus` and remain confirmation-routed when root/suffix evidence is ambiguous.
 - XcodeBuildMCP `build_run_sim` passed for the `SmartChart` scheme with `CODE_SIGNING_ALLOWED=NO`.
 - `git diff --check` passed after the compact suspended-chord update.
+- XcodeBuildMCP focused iOS simulator `test_sim -only-testing:SmartChartTests/LeadSheetChordInkRecognitionSchedulingTests CODE_SIGNING_ALLOWED=NO` passed with `6` tests and `0` failures after the suspended-ink settle update.
+- Focused `swift test --scratch-path /tmp/SmartChartSwiftBuild-sprint55-sus-composer --filter ChordInkCandidateComposerTests/testCompactSuspendedCandidateIncludesPlausibleLowConfidenceFlatRoots` passed.
+- `git diff --check` passed after the suspended-ink settle update.
 
 ## Acceptance Criteria
 
@@ -82,4 +86,5 @@ Reason: if a chord lands in the wrong rhythmic location, it feels wrong even whe
 - The diagnostic audit script reports whether active diagnostic placement evidence is missing or no longer matches the rendered chart.
 - The diagnostic audit script summarizes available timing evidence for render/performance triage.
 - Compact `Absus` evidence stays in the supported candidate set, with ambiguous cases routed to confirmation instead of new global score tuning or handwriting-specific fixtures.
+- Plain `sus` chords no longer use the bare-root continuation settle window; the final `s` stroke gets a small extra sustain window while bare roots remain fast.
 - No personal handwriting fixture expansion or score retuning.

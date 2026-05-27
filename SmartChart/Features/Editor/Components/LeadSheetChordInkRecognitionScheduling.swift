@@ -5,6 +5,7 @@ enum LeadSheetChordInkRecognitionScheduling {
     static let defaultIdleDelay: TimeInterval = 0.75
     static let defaultContinuationGraceDelay: TimeInterval = 1.2
     static let rootOnlyContinuationGraceDelay: TimeInterval = 0.4
+    static let suspendedQualityContinuationGraceDelay: TimeInterval = 0.65
 
     static func idleDelay(
         for _: PKDrawing,
@@ -22,6 +23,14 @@ enum LeadSheetChordInkRecognitionScheduling {
               symbol.alterations.isEmpty,
               symbol.slashBass == nil,
               result.confidence >= ChordInkRecognitionPolicy.autoRenderMinimumConfidence else {
+            return defaultDelay
+        }
+
+        if symbol.quality == "sus" {
+            return min(defaultDelay, suspendedQualityContinuationGraceDelay)
+        }
+
+        guard symbol.quality.isEmpty else {
             return defaultDelay
         }
 
