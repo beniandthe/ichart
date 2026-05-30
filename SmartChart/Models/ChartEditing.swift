@@ -76,6 +76,69 @@ extension Chart {
         return normalizedWidth
     }
 
+    func canInsertSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet,
+              let location = measureLocation(id: measureID) else {
+            return false
+        }
+
+        return location.measureIndex > 0
+    }
+
+    func canRemoveSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet,
+              let location = measureLocation(id: measureID),
+              location.systemIndex > 0,
+              location.measureIndex == 0,
+              systems[location.systemIndex].lineBreakRule == .forced else {
+            return false
+        }
+
+        let mergedMeasureCount = systems[location.systemIndex - 1].measures.count
+            + systems[location.systemIndex].measures.count
+        return mergedMeasureCount <= simpleSystemMeasureCap
+    }
+
+    @discardableResult
+    mutating func insertSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard canInsertSimpleSystemBreak(before: measureID),
+              let location = measureLocation(id: measureID) else {
+            return false
+        }
+
+        let trailingMeasures = Array(systems[location.systemIndex].measures[location.measureIndex...])
+        systems[location.systemIndex].measures.removeSubrange(location.measureIndex...)
+        systems.insert(
+            ChartSystem(
+                id: UUID(),
+                index: location.systemIndex + 1,
+                spacingMode: layoutStyle.profile.measureDefaults.systemSpacingMode,
+                lineBreakRule: .forced,
+                measures: trailingMeasures
+            ),
+            at: location.systemIndex + 1
+        )
+        rebuildSystems(using: measures)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func removeSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard canRemoveSimpleSystemBreak(before: measureID),
+              let location = measureLocation(id: measureID) else {
+            return false
+        }
+
+        let mergedMeasures = systems[location.systemIndex - 1].measures
+            + systems[location.systemIndex].measures
+        systems[location.systemIndex - 1].measures = mergedMeasures
+        systems.remove(at: location.systemIndex)
+        rebuildSystems(using: measures)
+        updatedAt = .now
+        return true
+    }
+
     @discardableResult
     mutating func applyMeterChange(
         _ meter: Meter,
@@ -1270,6 +1333,10 @@ extension Chart {
             && measure.roadmapObjectIDs.isEmpty
     }
 
+    private var simpleSystemMeasureCap: Int {
+        layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem ?? Int.max
+    }
+
     private mutating func removeMeasure(
         at location: (systemIndex: Int, measureIndex: Int)
     ) {
@@ -1480,6 +1547,11 @@ extension Chart {
             normalizedMeasures[measureIndex].index = measureIndex + 1
         }
 
+        if layoutStyle == .simpleChordSheet {
+            rebuildSimpleChordSheetSystems(using: normalizedMeasures, systemTemplates: systemTemplates)
+            return
+        }
+
         if normalizedMeasures.isEmpty {
             let template = systemTemplates.first ?? (UUID(), .automatic, .automatic)
             systems = [
@@ -1517,6 +1589,81 @@ extension Chart {
             )
             cursor = chunkEnd
             systemIndex += 1
+        }
+
+        systems = rebuiltSystems
+        normalizeSystemIndices()
+        normalizeAnchorsToSystems()
+    }
+
+    private mutating func rebuildSimpleChordSheetSystems(
+        using normalizedMeasures: [Measure],
+        systemTemplates: [(id: UUID, spacingMode: SpacingMode, lineBreakRule: LineBreakRule)]
+    ) {
+        let measureIDs = Set(normalizedMeasures.map(\.id))
+        let forcedBreakStartIDs = Set(
+            systems
+                .dropFirst()
+                .filter { $0.lineBreakRule == .forced }
+                .compactMap { system in
+                    system.measures.first { measureIDs.contains($0.id) }?.id
+                }
+        )
+
+        let defaultSpacingMode = layoutStyle.profile.measureDefaults.systemSpacingMode
+        let cap = simpleSystemMeasureCap
+        var rebuiltSystems: [ChartSystem] = []
+        var currentMeasures: [Measure] = []
+        var currentLineBreakRule: LineBreakRule = .automatic
+
+        func flushCurrentSystem() {
+            guard !currentMeasures.isEmpty else {
+                return
+            }
+
+            let systemIndex = rebuiltSystems.count
+            let template = systemTemplates.indices.contains(systemIndex)
+                ? systemTemplates[systemIndex]
+                : (UUID(), defaultSpacingMode, currentLineBreakRule)
+            rebuiltSystems.append(
+                ChartSystem(
+                    id: template.0,
+                    index: systemIndex,
+                    spacingMode: template.1,
+                    lineBreakRule: systemIndex == 0 ? .automatic : currentLineBreakRule,
+                    measures: currentMeasures
+                )
+            )
+            currentMeasures = []
+            currentLineBreakRule = .automatic
+        }
+
+        for measure in normalizedMeasures {
+            if !currentMeasures.isEmpty && forcedBreakStartIDs.contains(measure.id) {
+                flushCurrentSystem()
+                currentLineBreakRule = .forced
+            }
+
+            if !currentMeasures.isEmpty && currentMeasures.count >= cap {
+                flushCurrentSystem()
+            }
+
+            currentMeasures.append(measure)
+        }
+
+        flushCurrentSystem()
+
+        if rebuiltSystems.isEmpty {
+            let template = systemTemplates.first ?? (UUID(), defaultSpacingMode, .automatic)
+            rebuiltSystems = [
+                ChartSystem(
+                    id: template.0,
+                    index: 0,
+                    spacingMode: template.1,
+                    lineBreakRule: .automatic,
+                    measures: []
+                )
+            ]
         }
 
         systems = rebuiltSystems

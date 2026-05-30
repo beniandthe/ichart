@@ -367,6 +367,25 @@ Verification:
 - Full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `385` tests, `36` skipped, and `0` failures.
 - Simulator smoke verification: XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch simulator with the existing headermap warning only, and screenshot capture succeeded.
 
+## Simple Chord Sheet Manual Rows Implementation
+
+Implemented slice:
+
+- `ChartLayoutProfile` now exposes a Simple Chord Sheet row-cap contract through `maximumMeasuresPerSystem`, defaulting Simple Chord Sheet to `20` while leaving Rhythm Section Sheet and Lead Sheet automatic.
+- `ChartEditing` now supports `New System Before This Measure` and `Remove System Break` for Simple Chord Sheet only.
+- Manual row breaks are stored as forced `ChartSystem` boundaries and are preserved by measure identity when measures are inserted or reindexed.
+- Adding a measure at the beginning keeps the new measure on the first row and shifts existing forced row breaks by measure identity.
+- Adding a measure beyond the Simple row cap starts an automatic next row; this is the only automatic Simple row push in this slice.
+- The Simple Chord Sheet page layout now renders each model system as a proportional fit-to-row chord-grid system, with manual width emphasis acting as the weight source.
+- Simple Chord Sheet layout allows `16` measures on one row and caps at `20`; Rhythm Section layout remains on the existing automatic width-packing path.
+- The editor Measures menu exposes `New System Before This Measure` and `Remove System Break`, disabled outside valid Simple Chord Sheet row-break positions.
+
+Verification:
+
+- Focused model/layout verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile --filter ChartEditingTests --filter LeadSheetPageLayoutTests` passed with `134` tests and `0` failures.
+- Full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `410` tests, `36` skipped, and `0` failures.
+- Simulator smoke verification: XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch simulator with the existing headermap warning only, and screenshot capture showed the app launched to Projects.
+
 ## Recommended Sequence
 
 1. Define system layout and measure flow.
@@ -393,9 +412,9 @@ Verification:
 
 ## Current Checkpoint
 
-Optional linked target behavior is implemented locally as a model/editing layer on top of point roadmap markers.
+Simple Chord Sheet manual row breaks are implemented locally as the first system-layout and measure-flow slice.
 
 Next implementation checkpoint:
 
-- Move into Simple Chord Sheet manual system rows, row-break controls, and measure-flow behavior.
+- Add the subtle Simple Chord Sheet row-break/group affordance in Measure edit mode and then decide whether vertical drag row movement is stable enough for the next slice.
 - Keep vamp count deferred until there is a clearer V1 need.

@@ -64,17 +64,20 @@ enum ChartClef: String, Codable, CaseIterable, Hashable, Identifiable {
 struct ChartLayoutMeasureDefaults: Hashable {
     var initialMeasureCount: Int
     var preferredMeasuresPerSystem: Int
+    var maximumMeasuresPerSystem: Int?
     var systemSpacingMode: SpacingMode
     var beatGridPreset: BeatGridPreset
 
     init(
         initialMeasureCount: Int,
         preferredMeasuresPerSystem: Int,
+        maximumMeasuresPerSystem: Int? = nil,
         systemSpacingMode: SpacingMode,
         beatGridPreset: BeatGridPreset
     ) {
         self.initialMeasureCount = max(1, initialMeasureCount)
         self.preferredMeasuresPerSystem = max(1, preferredMeasuresPerSystem)
+        self.maximumMeasuresPerSystem = maximumMeasuresPerSystem.map { max(1, $0) }
         self.systemSpacingMode = systemSpacingMode
         self.beatGridPreset = beatGridPreset
     }
@@ -107,6 +110,7 @@ extension ChartLayoutStyle {
                 measureDefaults: ChartLayoutMeasureDefaults(
                     initialMeasureCount: 1,
                     preferredMeasuresPerSystem: 4,
+                    maximumMeasuresPerSystem: 20,
                     systemSpacingMode: .compact,
                     beatGridPreset: .simple
                 ),

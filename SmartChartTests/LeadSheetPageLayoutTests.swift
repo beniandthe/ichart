@@ -239,6 +239,54 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
+    func testSimpleChordSheetManualSystemBreakControlsRenderedRows() throws {
+        var chart = Chart.blank(title: "Manual Rows", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertEqual(layout.systems.count, 2)
+        XCTAssertEqual(layout.systems[0].measures.compactMap(\.sourceMeasureID), Array(measureIDs[0..<4]))
+        XCTAssertEqual(layout.systems[1].measures.compactMap(\.sourceMeasureID), Array(measureIDs[4..<6]))
+        XCTAssertTrue(layout.systems.allSatisfy { $0.staffLineYPositions.isEmpty })
+        XCTAssertTrue(layout.systems.allSatisfy { $0.frame.width <= layout.paperFrame.width })
+    }
+
+    func testSimpleChordSheetAllowsSixteenMeasuresOnOneManualRow() throws {
+        let chart = Chart.blank(title: "Dense Grid", measureCount: 16, layoutStyle: .simpleChordSheet)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let lastMeasure = try XCTUnwrap(firstSystem.measures.last)
+
+        XCTAssertEqual(layout.systems.count, 1)
+        XCTAssertEqual(firstSystem.measures.count, 16)
+        XCTAssertLessThanOrEqual(lastMeasure.frame.maxX, firstSystem.frame.maxX + 0.001)
+        XCTAssertGreaterThan(firstSystem.measures[0].frame.width, 20)
+        XCTAssertTrue(firstSystem.staffLineYPositions.isEmpty)
+    }
+
+    func testSimpleChordSheetRowCapCreatesNextRenderedSystem() throws {
+        let chart = Chart.blank(title: "Capped Grid", measureCount: 21, layoutStyle: .simpleChordSheet)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertEqual(layout.systems.map { $0.measures.count }, [20, 1])
+        XCTAssertTrue(layout.systems.allSatisfy { $0.staffLineYPositions.isEmpty })
+    }
+
     func testRhythmSectionSheetLayoutOmitsKeyHeaderButKeepsStaffSystem() throws {
         let chart = Chart.blank(title: "Pocket", measureCount: 4, layoutStyle: .rhythmSectionSheet)
 

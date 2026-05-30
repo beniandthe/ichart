@@ -354,6 +354,22 @@ struct EditorView: View {
                     Divider()
 
                     Button {
+                        handleNewSystemBeforeSelectedMeasure()
+                    } label: {
+                        Label("New System Before This Measure", systemImage: "arrow.down.to.line")
+                    }
+                    .disabled(!canInsertSimpleSystemBreakBeforeSelectedMeasure)
+
+                    Button {
+                        handleRemoveSystemBreakBeforeSelectedMeasure()
+                    } label: {
+                        Label("Remove System Break", systemImage: "arrow.up.to.line")
+                    }
+                    .disabled(!canRemoveSimpleSystemBreakBeforeSelectedMeasure)
+
+                    Divider()
+
+                    Button {
                         handleRepeatSelectedMeasure()
                     } label: {
                         Label("Repeat Selected Measure", systemImage: "repeat")
@@ -763,6 +779,22 @@ struct EditorView: View {
         return !chart.endingSpanIDs(attachedTo: targetMeasureID).isEmpty
     }
 
+    private var canInsertSimpleSystemBreakBeforeSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.canInsertSimpleSystemBreak(before: targetMeasureID)
+    }
+
+    private var canRemoveSimpleSystemBreakBeforeSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.canRemoveSimpleSystemBreak(before: targetMeasureID)
+    }
+
     private var canRemovePointRoadmapMarkerAtSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
@@ -854,6 +886,34 @@ struct EditorView: View {
         } else {
             selectedMeasureID = chart.positionOpenMeasure(after: targetMeasureID)
         }
+    }
+
+    private func handleNewSystemBeforeSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              chart.insertSimpleSystemBreak(before: targetMeasureID) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func handleRemoveSystemBreakBeforeSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              chart.removeSimpleSystemBreak(before: targetMeasureID) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
     }
 
     private func handleRepeatSelectedMeasure() {

@@ -605,6 +605,14 @@ enum LeadSheetPageLayoutEngine {
         }
 
         let metrics = chart.engravingPreset.layoutMetrics
+        if chart.layoutStyle == .simpleChordSheet {
+            return simpleChordSheetSystemPlans(
+                for: chart,
+                maxSystemWidth: maxSystemWidth,
+                metrics: metrics
+            )
+        }
+
         var plans: [PackedLeadSheetSystemPlan] = []
         var currentMeasures: [PackedLeadSheetMeasurePlan] = []
         var currentSystemIndex = 0
@@ -656,6 +664,55 @@ enum LeadSheetPageLayoutEngine {
         }
 
         flushCurrentSystem()
+        return plans
+    }
+
+    private static func simpleChordSheetSystemPlans(
+        for chart: Chart,
+        maxSystemWidth: CGFloat,
+        metrics: LeadSheetEngravingMetrics
+    ) -> [PackedLeadSheetSystemPlan] {
+        let cap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem
+            ?? max(1, chart.measures.count)
+        let bodyWidth = max(1, maxSystemWidth - systemTrailingPadding)
+        var plans: [PackedLeadSheetSystemPlan] = []
+
+        func appendPlan(for measures: [Measure], id: UUID) {
+            let weights = measures.map {
+                max(1, preferredWidth(for: $0, chart: chart) / max(0.1, metrics.measureWidthScale))
+            }
+            let totalWeight = max(1, weights.reduce(0, +))
+            let measurePlans = zip(measures, weights).map { measure, weight in
+                PackedLeadSheetMeasurePlan(
+                    measure: measure,
+                    width: bodyWidth * weight / totalWeight
+                )
+            }
+
+            plans.append(
+                PackedLeadSheetSystemPlan(
+                    id: id,
+                    leadingSignatureWidth: 0,
+                    frameWidth: maxSystemWidth,
+                    measures: measurePlans
+                )
+            )
+        }
+
+        for system in chart.systems where !system.measures.isEmpty {
+            var cursor = 0
+            while cursor < system.measures.count {
+                let chunkEnd = min(cursor + cap, system.measures.count)
+                let chunk = Array(system.measures[cursor..<chunkEnd])
+                appendPlan(for: chunk, id: cursor == 0 ? system.id : UUID())
+                cursor = chunkEnd
+            }
+        }
+
+        if plans.isEmpty {
+            appendPlan(for: chart.measures, id: chart.systems.first?.id ?? UUID())
+        }
+
         return plans
     }
 

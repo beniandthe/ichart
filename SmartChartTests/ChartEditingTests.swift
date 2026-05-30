@@ -645,6 +645,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(chordProfile.allowsUserFacingRhythmNoteEditing)
         XCTAssertEqual(chordProfile.measureDefaults.initialMeasureCount, 1)
         XCTAssertEqual(chordProfile.measureDefaults.preferredMeasuresPerSystem, 4)
+        XCTAssertEqual(chordProfile.measureDefaults.maximumMeasuresPerSystem, 20)
         XCTAssertEqual(chordProfile.measureDefaults.systemSpacingMode, .compact)
         XCTAssertEqual(chordProfile.measureDefaults.beatGridPreset, .simple)
 
@@ -661,6 +662,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(rhythmProfile.allowsUserFacingRhythmNoteEditing)
         XCTAssertEqual(rhythmProfile.measureDefaults.initialMeasureCount, 8)
         XCTAssertEqual(rhythmProfile.measureDefaults.preferredMeasuresPerSystem, 3)
+        XCTAssertNil(rhythmProfile.measureDefaults.maximumMeasuresPerSystem)
         XCTAssertEqual(rhythmProfile.measureDefaults.systemSpacingMode, .relaxed)
         XCTAssertEqual(rhythmProfile.measureDefaults.beatGridPreset, .eighthSubdivision)
 
@@ -677,6 +679,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(leadProfile.allowsUserFacingRhythmNoteEditing)
         XCTAssertEqual(leadProfile.measureDefaults.initialMeasureCount, 4)
         XCTAssertEqual(leadProfile.measureDefaults.preferredMeasuresPerSystem, 4)
+        XCTAssertNil(leadProfile.measureDefaults.maximumMeasuresPerSystem)
         XCTAssertEqual(leadProfile.measureDefaults.systemSpacingMode, .automatic)
         XCTAssertEqual(leadProfile.measureDefaults.beatGridPreset, .simple)
     }
@@ -698,6 +701,7 @@ final class ChartEditingTests: XCTestCase {
         let sanitizedDefaults = ChartLayoutMeasureDefaults(
             initialMeasureCount: 0,
             preferredMeasuresPerSystem: 0,
+            maximumMeasuresPerSystem: 0,
             systemSpacingMode: .compact,
             beatGridPreset: .simple
         )
@@ -710,10 +714,76 @@ final class ChartEditingTests: XCTestCase {
 
         XCTAssertEqual(sanitizedDefaults.initialMeasureCount, 1)
         XCTAssertEqual(sanitizedDefaults.preferredMeasuresPerSystem, 1)
+        XCTAssertEqual(sanitizedDefaults.maximumMeasuresPerSystem, 1)
         XCTAssertTrue(ChartLayoutStyle.allCases.allSatisfy { $0.profile.measureDefaults.initialMeasureCount >= 1 })
         XCTAssertEqual(blankChart.measures.count, 1)
         XCTAssertEqual(rhythmChart.systems[0].spacingMode, .relaxed)
         XCTAssertTrue(rhythmChart.measures.allSatisfy { $0.beatGridPreset == .eighthSubdivision })
+    }
+
+    func testSimpleChordSheetManualSystemBreakSplitsAndRemovesRows() throws {
+        var chart = Chart.blank(title: "Manual Rows", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.canInsertSimpleSystemBreak(before: measureIDs[4]))
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+
+        XCTAssertEqual(chart.systems.count, 2)
+        XCTAssertEqual(chart.systems.map { $0.measures.map(\.id) }, [
+            Array(measureIDs[0..<4]),
+            Array(measureIDs[4..<6])
+        ])
+        XCTAssertEqual(chart.systems[0].lineBreakRule, .automatic)
+        XCTAssertEqual(chart.systems[1].lineBreakRule, .forced)
+        XCTAssertFalse(chart.canInsertSimpleSystemBreak(before: measureIDs[4]))
+        XCTAssertTrue(chart.canRemoveSimpleSystemBreak(before: measureIDs[4]))
+
+        XCTAssertTrue(chart.removeSimpleSystemBreak(before: measureIDs[4]))
+
+        XCTAssertEqual(chart.systems.count, 1)
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.systems[0].lineBreakRule, .automatic)
+    }
+
+    func testSimpleChordSheetInsertionsPreserveManualBreakByMeasureIdentity() throws {
+        var chart = Chart.blank(title: "Manual Rows", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let originalMeasureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: originalMeasureIDs[2]))
+        let insertedID = chart.insertMeasureAtBeginning()
+
+        XCTAssertEqual(chart.systems.count, 2)
+        XCTAssertEqual(chart.systems[0].measures.map(\.id), [
+            insertedID,
+            originalMeasureIDs[0],
+            originalMeasureIDs[1]
+        ])
+        XCTAssertEqual(chart.systems[1].measures.map(\.id), Array(originalMeasureIDs[2..<4]))
+        XCTAssertEqual(chart.systems[1].lineBreakRule, .forced)
+        XCTAssertEqual(chart.measures.map(\.index), Array(1...5))
+    }
+
+    func testSimpleChordSheetMeasureCapStartsAutomaticNewSystem() throws {
+        var chart = Chart.blank(title: "Manual Rows", measureCount: 20, layoutStyle: .simpleChordSheet)
+
+        let appendedID = chart.appendMeasure()
+
+        XCTAssertEqual(chart.systems.count, 2)
+        XCTAssertEqual(chart.systems[0].measures.count, 20)
+        XCTAssertEqual(chart.systems[1].measures.count, 1)
+        XCTAssertEqual(chart.systems[1].measures.first?.id, appendedID)
+        XCTAssertEqual(chart.systems[1].lineBreakRule, .automatic)
+        XCTAssertEqual(chart.measures.map(\.index), Array(1...21))
+    }
+
+    func testNonSimpleChartsRejectSimpleSystemBreakControls() throws {
+        var chart = Chart.blank(title: "Rhythm Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let secondMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
+
+        XCTAssertFalse(chart.canInsertSimpleSystemBreak(before: secondMeasureID))
+        XCTAssertFalse(chart.insertSimpleSystemBreak(before: secondMeasureID))
+        XCTAssertFalse(chart.removeSimpleSystemBreak(before: secondMeasureID))
+        XCTAssertEqual(chart.systems.count, 1)
     }
 
     func testAppearanceSettersUpdateDocumentAppearanceChoices() {
