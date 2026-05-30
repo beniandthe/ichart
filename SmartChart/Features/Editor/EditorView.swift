@@ -381,7 +381,7 @@ struct EditorView: View {
                 }
                 .buttonStyle(.plain)
 
-                if canvasMode == .measureEdit {
+                if canvasMode == .measureEdit && !isMeasureMenuContinuationActive {
                     Button {
                         activateSelectTool()
                     } label: {
@@ -656,11 +656,15 @@ struct EditorView: View {
             EditorMenuTabLabel(
                 title: "Measures",
                 systemImage: "rectangle.split.4x1",
-                isSelected: false
+                isSelected: canvasMode == .measureEdit
             )
         }
         .disabled(canvasMode.locksDocumentActions)
         .buttonStyle(.plain)
+    }
+
+    private var isMeasureMenuContinuationActive: Bool {
+        pendingRepeatStartMeasureID != nil || pendingEndingStartMeasureID != nil
     }
 
     @ViewBuilder

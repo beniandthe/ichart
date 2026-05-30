@@ -725,20 +725,18 @@ private struct LeadSheetNotationStyle {
     func titleFont(size: CGFloat) -> UIFont {
         switch documentStyle {
         case .cleanStudio:
-            return notationFont.textUIFont(size: size, fallback: markerFont(size: size, weight: .regular))
+            return UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .gigSheet:
-            return markerFont(size: size, weight: .regular)
+            return UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .rehearsalDraft:
-            return UIFont.systemFont(ofSize: size * 0.82, weight: .black)
+            return UIFont.systemFont(ofSize: size * 0.9, weight: .bold)
         }
     }
 
     func metadataFont(size: CGFloat) -> UIFont {
         switch documentStyle {
-        case .cleanStudio:
-            return notationFont.textUIFont(size: size, fallback: UIFont.systemFont(ofSize: size, weight: .semibold))
-        case .gigSheet:
-            return markerFont(size: size, weight: .regular)
+        case .cleanStudio, .gigSheet:
+            return UIFont.systemFont(ofSize: size, weight: .semibold)
         case .rehearsalDraft:
             return UIFont.systemFont(ofSize: size, weight: .semibold)
         }

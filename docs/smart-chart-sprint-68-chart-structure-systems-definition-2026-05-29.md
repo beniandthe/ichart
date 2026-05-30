@@ -486,6 +486,28 @@ Verification:
 - `git diff --check` passed.
 - XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded with the existing headermap warning only, and screenshot capture succeeded.
 
+## Cohesion Polish
+
+Implemented slice:
+
+- Simple Chord Sheet now reserves a left meter gutter across every rendered row, so the initial time signature appears before the first measure without shifting only the first row.
+- Simple Chord Sheet trailing meter changes now render inside the blank grid cell near the changed boundary; meter edits are no longer model-only for Simple.
+- The Measures tool keeps opening as a menu during pending multi-step measure workflows such as `Start Repeat Here` -> `End Repeat Here` and ending-span creation, instead of deselecting on the second tap.
+- Header, metadata, section, roadmap, and cue text now use stable app-standard text fonts instead of the selected notation font, so font changes do not clip the bottom of chart headers or make annotation styles drift.
+
+Design note:
+
+- This is the first small pass toward a unified chart visual grammar. The larger follow-up is to consolidate tool/symbol/header/annotation styling into one explicit per-style visual policy instead of letting each feature define its own typography, spacing, and symbol treatment independently.
+
+Verification:
+
+- Focused SwiftPM `LeadSheetPageLayoutTests` passed with `57` tests and `0` failures after adding Simple meter-gutter and Simple meter-change layout coverage.
+- Focused SwiftPM `ChartEditingTests/testDraftStoresSelectedLayoutStyleAndDefaults` passed with `1` test and `0` failures.
+- Full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `416` tests, `36` skipped, and `0` failures.
+- Focused simulator editor verification: XcodeBuildMCP `test_sim -only-testing:SmartChartTests/LeadSheetInteractionModeStatePolicyTests CODE_SIGNING_ALLOWED=NO` passed with `24` tests and `0` failures.
+- Focused simulator layout verification: XcodeBuildMCP `test_sim -only-testing:SmartChartTests/LeadSheetPageLayoutTests CODE_SIGNING_ALLOWED=NO` passed with `57` tests and `0` failures.
+- Simulator smoke verification: `git diff --check` passed; XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch simulator with the existing headermap warning only, and screenshot capture succeeded.
+
 ## Recommended Sequence
 
 1. Define system layout and measure flow.

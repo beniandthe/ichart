@@ -249,9 +249,9 @@ enum LeadSheetPageLayoutEngine {
         let titleHorizontalBleed: CGFloat = 34
         let titleFrame = CGRect(
             x: frame.minX - titleHorizontalBleed,
-            y: frame.minY + 10,
+            y: frame.minY + 6,
             width: frame.width + titleHorizontalBleed * 2,
-            height: 46
+            height: 54
         )
         let metadataY = titleFrame.maxY + 6
         let metadataHeight: CGFloat = 20
@@ -355,6 +355,7 @@ enum LeadSheetPageLayoutEngine {
         let measureStartX = frame.minX + plan.leadingSignatureWidth
 
         let shouldShowLeadingNotation = index == 0 && !isSimpleChordSheet
+        let shouldShowSimpleTimeSignature = index == 0 && isSimpleChordSheet
         let clefFrame = shouldShowLeadingNotation
             ? CGRect(x: frame.minX, y: staffTop - 12, width: 26, height: 54)
             : nil
@@ -367,9 +368,19 @@ enum LeadSheetPageLayoutEngine {
             )
             : []
         let timeSignatureX = keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
-        let timeSignatureFrame = shouldShowLeadingNotation
-            ? CGRect(x: timeSignatureX, y: staffTop - 10, width: 24, height: 50)
-            : nil
+        let timeSignatureFrame: CGRect?
+        if shouldShowLeadingNotation {
+            timeSignatureFrame = CGRect(x: timeSignatureX, y: staffTop - 10, width: 24, height: 50)
+        } else if shouldShowSimpleTimeSignature {
+            timeSignatureFrame = CGRect(
+                x: frame.minX + 3,
+                y: staffFrame.midY - 24,
+                width: max(22, plan.leadingSignatureWidth - 10),
+                height: 48
+            )
+        } else {
+            timeSignatureFrame = nil
+        }
         let measureIDs = plan.measures.compactMap(\.measure?.id)
         let sectionText = chart.sectionLabels.first(where: { measureIDs.contains($0.anchorMeasureID) })?.text
         let sectionTextFrame = sectionText.map { _ in
@@ -681,7 +692,8 @@ enum LeadSheetPageLayoutEngine {
     ) -> [PackedLeadSheetSystemPlan] {
         let cap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem
             ?? max(1, chart.measures.count)
-        let bodyWidth = max(1, maxSystemWidth - systemTrailingPadding)
+        let leadingSignatureWidth = leadingSignatureWidth(for: chart, metrics: metrics, systemIndex: 0)
+        let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - systemTrailingPadding)
         var plans: [PackedLeadSheetSystemPlan] = []
 
         func appendPlan(for measures: [Measure], id: UUID) {
@@ -699,8 +711,8 @@ enum LeadSheetPageLayoutEngine {
             plans.append(
                 PackedLeadSheetSystemPlan(
                     id: id,
-                    leadingSignatureWidth: 0,
-                    frameWidth: maxSystemWidth,
+                    leadingSignatureWidth: leadingSignatureWidth,
+                    frameWidth: leadingSignatureWidth + bodyWidth + systemTrailingPadding,
                     measures: measurePlans
                 )
             )
@@ -740,7 +752,9 @@ enum LeadSheetPageLayoutEngine {
         metrics: LeadSheetEngravingMetrics,
         systemIndex: Int
     ) -> CGFloat {
-        guard chart.layoutStyle != .simpleChordSheet else { return 0 }
+        if chart.layoutStyle == .simpleChordSheet {
+            return 42
+        }
         guard systemIndex == 0 else { return metrics.continuationSystemSignatureWidth }
 
         let keySignatureWidth = chart.layoutStyle == .leadSheet
@@ -951,10 +965,10 @@ enum LeadSheetPageLayoutEngine {
             width: 1.6,
             height: staffFrame.height
         )
-        let trailingMeterChangeFrame = isSimpleChordSheet ? nil : trailingMeterChange.map { _ in
+        let trailingMeterChangeFrame = trailingMeterChange.map { _ in
             CGRect(
                 x: max(frame.minX + 8, trailingBarlineFrame.minX - 24),
-                y: staffFrame.minY - 10,
+                y: isSimpleChordSheet ? staffFrame.midY - 22 : staffFrame.minY - 10,
                 width: 20,
                 height: 44
             )

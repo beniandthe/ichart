@@ -224,7 +224,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
-    func testSimpleChordSheetLayoutUsesBlankMeasureSpaceWithoutStaffOrLeadingSymbols() throws {
+    func testSimpleChordSheetLayoutUsesBlankMeasureSpaceWithInitialMeterGutter() throws {
         var chart = Chart.blank(title: "Simple Roadmap", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
 
@@ -250,8 +250,10 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertNotNil(layout.header.meterFrame)
         XCTAssertTrue(firstSystem.staffLineYPositions.isEmpty)
         XCTAssertNil(firstSystem.clefFrame)
-        XCTAssertNil(firstSystem.timeSignatureFrame)
-        XCTAssertEqual(firstSystem.frame.minX, firstMeasure.frame.minX, accuracy: 0.001)
+        let timeSignatureFrame = try XCTUnwrap(firstSystem.timeSignatureFrame)
+        XCTAssertGreaterThan(firstMeasure.frame.minX, firstSystem.frame.minX)
+        XCTAssertLessThan(timeSignatureFrame.maxX, firstMeasure.frame.minX)
+        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 42, accuracy: 0.001)
         XCTAssertNil(firstMeasure.freehandAboveFrame)
         XCTAssertNil(firstMeasure.freehandBelowFrame)
         XCTAssertTrue(firstMeasure.staffFrame.contains(firstMeasure.chordBandFrame))
@@ -260,6 +262,31 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(firstChord.frame.minY, firstMeasure.staffFrame.minY)
         XCTAssertLessThanOrEqual(firstChord.frame.maxY, firstMeasure.staffFrame.maxY)
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
+    }
+
+    func testSimpleChordSheetMeterGutterAlignsAcrossRows() throws {
+        var chart = Chart.blank(title: "Manual Rows", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let secondSystem = try XCTUnwrap(layout.systems.last)
+        let firstMeasure = try XCTUnwrap(firstSystem.measures.first)
+        let secondRowFirstMeasure = try XCTUnwrap(secondSystem.measures.first)
+
+        XCTAssertEqual(firstSystem.measures.count, 4)
+        XCTAssertEqual(secondSystem.measures.count, 2)
+        XCTAssertNotNil(firstSystem.timeSignatureFrame)
+        XCTAssertNil(secondSystem.timeSignatureFrame)
+        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 42, accuracy: 0.001)
+        XCTAssertEqual(secondRowFirstMeasure.frame.minX - secondSystem.frame.minX, 42, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.frame.minX, secondRowFirstMeasure.frame.minX, accuracy: 0.001)
     }
 
     func testSimpleChordSheetManualSystemBreakControlsRenderedRows() throws {
@@ -1016,6 +1043,31 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(trailingChangeMeasure.sourceMeasureID, thirdMeasureID)
         XCTAssertEqual(trailingChangeMeasure.trailingMeterChange, Meter(numerator: 3, denominator: 4))
         XCTAssertNotNil(trailingChangeMeasure.trailingMeterChangeFrame)
+    }
+
+    func testSimpleChordSheetLayoutShowsTrailingMeterChangeInsideGrid() throws {
+        var chart = Chart.blank(title: "Simple Time", measureCount: 3, layoutStyle: .simpleChordSheet)
+        let secondMeasureID = chart.measures[1].id
+        _ = chart.applyMeterChange(
+            Meter(numerator: 3, denominator: 4),
+            after: secondMeasureID,
+            scope: .toNextTimeSignature
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let changedBoundaryMeasure = try XCTUnwrap(
+            firstSystem.measures.first { $0.sourceMeasureID == secondMeasureID }
+        )
+        let meterFrame = try XCTUnwrap(changedBoundaryMeasure.trailingMeterChangeFrame)
+
+        XCTAssertEqual(changedBoundaryMeasure.trailingMeterChange, Meter(numerator: 3, denominator: 4))
+        XCTAssertTrue(changedBoundaryMeasure.staffFrame.intersects(meterFrame))
+        XCTAssertLessThan(meterFrame.maxX, changedBoundaryMeasure.trailingBarlineFrame.midX)
     }
 
     func testLeadSheetLayoutRendersQuantizedRhythmMapAsSlashNotation() throws {
