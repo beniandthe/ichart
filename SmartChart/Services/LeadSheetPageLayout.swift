@@ -66,7 +66,22 @@ struct LeadSheetChordLayout: Identifiable, Hashable {
     var id: UUID
     var text: String
     var frame: CGRect
+    var fitFrame: CGRect
     var snapGuideTarget: CGPoint
+
+    init(
+        id: UUID,
+        text: String,
+        frame: CGRect,
+        fitFrame: CGRect? = nil,
+        snapGuideTarget: CGPoint
+    ) {
+        self.id = id
+        self.text = text
+        self.frame = frame
+        self.fitFrame = fitFrame ?? frame
+        self.snapGuideTarget = snapGuideTarget
+    }
 }
 
 struct LeadSheetNoteLayout: Identifiable, Hashable {
@@ -1181,16 +1196,21 @@ enum LeadSheetPageLayoutEngine {
         )
 
         if visualPolicy.layoutStyle == .simpleChordSheet {
+            let fitFrame = simpleChordFitFrame(
+                for: placement,
+                nextPlacement: nextPlacement,
+                meter: meter,
+                chordBandFrame: chordBandFrame,
+                visualPolicy: visualPolicy
+            )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
                 text: event.symbol.displayText,
-                frame: simpleChordFrame(
-                    for: placement,
-                    nextPlacement: nextPlacement,
-                    meter: meter,
-                    chordBandFrame: chordBandFrame,
-                    visualPolicy: visualPolicy
+                frame: simpleChordDisplayFrame(
+                    text: event.symbol.displayText,
+                    fitFrame: fitFrame
                 ),
+                fitFrame: fitFrame,
                 snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
             )
         }
@@ -1216,7 +1236,7 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func simpleChordFrame(
+    private static func simpleChordFitFrame(
         for placement: MeasureChordPlacement,
         nextPlacement: MeasureChordPlacement?,
         meter: Meter,
@@ -1251,6 +1271,47 @@ enum LeadSheetPageLayoutEngine {
             width: max(1, maxX - minX),
             height: chordBandFrame.height
         )
+    }
+
+    private static func simpleChordDisplayFrame(
+        text: String,
+        fitFrame: CGRect
+    ) -> CGRect {
+        let fontSize = estimatedSimpleChordFontSize(fitting: fitFrame, text: text)
+        let estimatedWidth = min(
+            fitFrame.width,
+            max(1, estimatedSimpleChordTextWidth(for: text, fontSize: fontSize) + 2)
+        )
+        return CGRect(
+            x: fitFrame.minX,
+            y: fitFrame.minY,
+            width: estimatedWidth,
+            height: fitFrame.height
+        )
+    }
+
+    private static func estimatedSimpleChordFontSize(
+        fitting frame: CGRect,
+        text: String
+    ) -> CGFloat {
+        var size = min(56, max(24, frame.height * 0.92))
+        while size > 16 {
+            if estimatedSimpleChordTextWidth(for: text, fontSize: size) <= frame.width {
+                break
+            }
+            size -= 1
+        }
+        return size
+    }
+
+    private static func estimatedSimpleChordTextWidth(
+        for text: String,
+        fontSize: CGFloat
+    ) -> CGFloat {
+        let baseWidth = text.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        return max(16, baseWidth * (fontSize / 18))
     }
 
     private static func repeatMarkerLayouts(

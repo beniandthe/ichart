@@ -70,6 +70,22 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         assertAction(target?.action, is: .review)
     }
 
+    func testEditFrameWrapsVisibleChordFrameNotMeasureFitFrame() {
+        let chordLayout = LeadSheetChordLayout(
+            id: UUID(),
+            text: "B7(b5)",
+            frame: CGRect(x: 140, y: 90, width: 88, height: 44),
+            fitFrame: CGRect(x: 140, y: 90, width: 220, height: 44),
+            snapGuideTarget: CGPoint(x: 250, y: 132)
+        )
+
+        let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
+
+        XCTAssertLessThan(editFrame.width, chordLayout.fitFrame.width * 0.6)
+        XCTAssertEqual(editFrame.minX, chordLayout.frame.minX - 6, accuracy: 0.001)
+        XCTAssertEqual(editFrame.maxX, chordLayout.frame.maxX + 6, accuracy: 0.001)
+    }
+
     private func assertAction(
         _ action: ChordEditHitTarget.Action?,
         is expectedAction: ChordEditHitTarget.Action,

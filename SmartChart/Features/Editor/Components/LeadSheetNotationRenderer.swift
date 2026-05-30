@@ -274,11 +274,11 @@ struct LeadSheetNotationRenderer {
 
     func drawChord(_ chordLayout: LeadSheetChordLayout) {
         let font = style.chordFont(
-            size: style.chordFontSize(fitting: chordLayout.frame, text: chordLayout.text)
+            size: style.chordFontSize(fitting: chordLayout.fitFrame, text: chordLayout.text)
         )
         drawText(
             chordLayout.text,
-            in: chordLayout.frame,
+            in: chordLayout.fitFrame,
             font: font,
             color: style.inkColor
         )

@@ -25,10 +25,10 @@ enum LeadSheetChordEditOverlayGeometry {
 
     static func editFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
         CGRect(
-            x: chordLayout.frame.minX - 10,
-            y: chordLayout.frame.minY + 1,
-            width: chordLayout.frame.width + 22,
-            height: 28
+            x: chordLayout.frame.minX - 6,
+            y: chordLayout.frame.minY - 2,
+            width: chordLayout.frame.width + 12,
+            height: max(28, chordLayout.frame.height + 4)
         )
     }
 

@@ -514,10 +514,11 @@ Implemented slice:
 
 Follow-up chord-fit slice:
 
-- Simple Chord Sheet chords now render into the available snapped measure segment instead of a text-width-sized box.
+- Simple Chord Sheet chords now use the available snapped measure segment as their invisible sizing area instead of sizing only from a text-width box.
 - A single downbeat chord uses nearly the whole measure cell, matching the iReal-style chord-grid read.
 - Multiple chords in one measure divide the cell by their snapped attack positions, so two chords read as two large half-measure chord regions instead of small labels near beat centers.
 - Simple chord font sizing ignores the selected notation font/style and scales bold text into the segment, shrinking only when a longer chord symbol would overflow.
+- The visible rendered chord frame and edit overlay are intentionally separate from the fit segment: the chord can scale like an iReal-style grid cell while the selection/review/move/delete box wraps the displayed chord instead of presenting a segment-sized resize-looking box.
 
 Verification:
 
@@ -528,6 +529,7 @@ Verification:
 - Follow-up chord-fit focused SwiftPM `LeadSheetPageLayoutTests` passed with `60` tests and `0` failures.
 - Follow-up chord-fit full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `419` tests, `36` skipped, and `0` failures.
 - Follow-up chord-fit simulator layout/PDF verification: XcodeBuildMCP `test_sim -only-testing:SmartChartTests/LeadSheetPageLayoutTests -only-testing:SmartChartTests/PDFChartExporterTests CODE_SIGNING_ALLOWED=NO` passed with `65` tests and `0` failures.
+- Follow-up chord edit-box correction: focused SwiftPM `LeadSheetPageLayoutTests` passed with `60` tests and `0` failures; full SwiftPM verification passed with `419` tests, `36` skipped, and `0` failures; XcodeBuildMCP `test_sim -only-testing:SmartChartTests/LeadSheetPageLayoutTests -only-testing:SmartChartTests/LeadSheetChordEditOverlayGeometryTests -only-testing:SmartChartTests/PDFChartExporterTests CODE_SIGNING_ALLOWED=NO` passed with `69` tests and `0` failures; `git diff --check` passed; clean simulator reinstall/rebuild and screenshot capture succeeded.
 
 Verification:
 

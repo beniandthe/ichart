@@ -287,7 +287,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(firstMeasure.staffFrame.height, firstMeasure.chordBandFrame.height)
         XCTAssertGreaterThanOrEqual(firstChord.frame.minY, firstMeasure.staffFrame.minY)
         XCTAssertLessThanOrEqual(firstChord.frame.maxY, firstMeasure.staffFrame.maxY)
-        XCTAssertGreaterThanOrEqual(firstChord.frame.width, 46)
+        XCTAssertGreaterThanOrEqual(firstChord.fitFrame.width, 46)
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
@@ -305,7 +305,10 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
 
         XCTAssertEqual(chordLayout.frame.minX, firstMeasure.chordBandFrame.minX + 6, accuracy: 0.001)
-        XCTAssertGreaterThan(chordLayout.frame.width, firstMeasure.chordBandFrame.width * 0.9)
+        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX + 6, accuracy: 0.001)
+        XCTAssertGreaterThan(chordLayout.fitFrame.width, firstMeasure.chordBandFrame.width * 0.9)
+        XCTAssertLessThan(chordLayout.frame.width, chordLayout.fitFrame.width * 0.55)
+        XCTAssertEqual(chordLayout.frame.height, chordLayout.fitFrame.height, accuracy: 0.001)
         XCTAssertLessThanOrEqual(chordLayout.frame.maxX, firstMeasure.chordBandFrame.maxX)
     }
 
@@ -324,9 +327,11 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let chordLayouts = firstMeasure.chordLayouts
 
         XCTAssertEqual(chordLayouts.map(\.text), ["C", "D7"])
-        XCTAssertLessThanOrEqual(chordLayouts[0].frame.maxX, firstMeasure.chordBandFrame.midX)
-        XCTAssertGreaterThanOrEqual(chordLayouts[1].frame.minX, firstMeasure.chordBandFrame.midX)
-        XCTAssertEqual(chordLayouts[0].frame.width, chordLayouts[1].frame.width, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(chordLayouts[0].fitFrame.maxX, firstMeasure.chordBandFrame.midX)
+        XCTAssertGreaterThanOrEqual(chordLayouts[1].fitFrame.minX, firstMeasure.chordBandFrame.midX)
+        XCTAssertEqual(chordLayouts[0].fitFrame.width, chordLayouts[1].fitFrame.width, accuracy: 0.001)
+        XCTAssertLessThan(chordLayouts[0].frame.width, chordLayouts[0].fitFrame.width)
+        XCTAssertLessThan(chordLayouts[1].frame.width, chordLayouts[1].fitFrame.width)
     }
 
     func testSimpleChordSheetMeterGutterAlignsAcrossRows() throws {
