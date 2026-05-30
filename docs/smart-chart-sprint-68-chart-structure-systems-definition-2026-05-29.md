@@ -178,8 +178,8 @@ Implementation sequence:
 1. Add/edit/delete repeat spans and repeat markers first.
 2. Add/edit/delete first and second endings.
 3. Add/edit/delete point roadmap markers such as Coda, Segno, Fine, D.S., D.C., and N.C.
-4. Add vamp count support.
-5. Add optional linked target behavior only after the visual/export path is stable.
+4. Skip vamp count for now; keep it deferred until there is a clearer V1 need.
+5. Add optional linked target behavior after point marker rendering is stable.
 
 First roadmap implementation:
 
@@ -274,8 +274,8 @@ Point marker contract:
 - Supported V1 point marker types are `Coda`, `To Coda`, `Segno`, `D.S.`, `D.S. al Coda`, `D.C.`, `D.C. al Fine`, `Fine`, and `N.C.`.
 - Duplicate requests for the same marker type and same measure return the existing point marker instead of stacking duplicates.
 - Deleting the attached measure deletes the marker and clears the measure back-reference.
-- Linked target behavior, such as connecting `To Coda` to a `Coda`, remains deferred for V1; visual rendering does not depend on playback/navigation semantics.
-- Vamp count remains deferred to the next roadmap-object slice because it needs a count entry surface and may later become either a point marker or span.
+- Linked target behavior, such as connecting `To Coda` to a `Coda`, remains optional and model-only for V1; visual rendering does not depend on playback/navigation semantics.
+- Vamp count is skipped for now because it needs a count entry surface and may later become either a point marker or span.
 
 Point marker visual contract:
 
@@ -294,6 +294,26 @@ Point marker implementation progress:
 - Focused verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile --filter ChartEditingTests --filter LeadSheetPageLayoutTests` passed with `122` tests and `0` failures.
 - Full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `398` tests, `36` skipped, and `0` failures.
 - Focused simulator PDF verification: XcodeBuildMCP `test_sim -only-testing:SmartChartTests/PDFChartExporterTests CODE_SIGNING_ALLOWED=NO` passed with `5` tests and `0` failures.
+- Simulator verification: XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch simulator with the existing headermap warning only, and screenshot capture succeeded.
+
+Linked target contract:
+
+- Optional V1 linked targets use the existing `RoadmapObject.linkedTargetID` field.
+- Supported source-to-target rules are intentionally small: `To Coda` can link to `Coda`, `D.S.` and `D.S. al Coda` can link to `Segno`, and `D.C. al Fine` can link to `Fine`.
+- `D.C.`, standalone `Coda`, standalone `Segno`, standalone `Fine`, `N.C.`, repeat spans, endings, and deferred vamp count are not link sources in this slice.
+- Suggested links prefer musical direction: `To Coda` looks forward first, while `D.S.`, `D.S. al Coda`, and `D.C. al Fine` look backward first.
+- Missing targets fail quietly. The marker still renders and exports normally without a link.
+- Deleting a linked target clears any source `linkedTargetID` that pointed to it, whether the target marker is removed directly or through measure deletion.
+- Linked targets do not create playback/navigation behavior, extra visible explanation text, or export dependencies in this slice.
+
+Linked target implementation progress:
+
+- `RoadmapType` now owns the small source/target vocabulary and preferred target-search direction.
+- `ChartEditing` can suggest, set, clear, and auto-link valid point roadmap targets while rejecting invalid source/target pairs.
+- Point marker creation auto-links when a valid target already exists, and the editor `Roadmap` menu can link or clear links for markers attached to the selected measure.
+- Roadmap deletion paths clear stale incoming links so the model does not retain dangling target IDs.
+- Focused verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile --filter ChartEditingTests` passed with `78` tests and `0` failures.
+- Full SwiftPM verification: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile` passed with `403` tests, `36` skipped, and `0` failures.
 - Simulator verification: XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch simulator with the existing headermap warning only, and screenshot capture succeeded.
 
 ### 4. Cue Text
@@ -373,9 +393,9 @@ Verification:
 
 ## Current Checkpoint
 
-Point navigation markers are implemented locally as the third roadmap-object slice.
+Optional linked target behavior is implemented locally as a model/editing layer on top of point roadmap markers.
 
 Next implementation checkpoint:
 
-- Continue the roadmap-object sequence with vamp count support.
-- Keep optional linked target behavior deferred until point marker and vamp rendering are stable.
+- Move into Simple Chord Sheet manual system rows, row-break controls, and measure-flow behavior.
+- Keep vamp count deferred until there is a clearer V1 need.

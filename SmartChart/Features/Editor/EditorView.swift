@@ -456,6 +456,22 @@ struct EditorView: View {
 
                     Divider()
 
+                    Button {
+                        handleLinkPointRoadmapMarkersAtSelectedMeasure()
+                    } label: {
+                        Label("Link Roadmap Marker at Selected Measure", systemImage: "link")
+                    }
+                    .disabled(!canLinkPointRoadmapMarkerAtSelectedMeasure)
+
+                    Button {
+                        handleClearPointRoadmapLinksAtSelectedMeasure()
+                    } label: {
+                        Label("Clear Roadmap Link at Selected Measure", systemImage: "link.badge.minus")
+                    }
+                    .disabled(!canClearPointRoadmapLinkAtSelectedMeasure)
+
+                    Divider()
+
                     Button(role: .destructive) {
                         handleRemovePointRoadmapMarkersAtSelectedMeasure()
                     } label: {
@@ -755,6 +771,31 @@ struct EditorView: View {
         return !chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).isEmpty
     }
 
+    private var canLinkPointRoadmapMarkerAtSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).contains { markerID in
+            guard let suggestedTargetID = chart.suggestedRoadmapTargetID(for: markerID),
+                  let marker = chart.roadmapObject(id: markerID) else {
+                return false
+            }
+
+            return marker.linkedTargetID != suggestedTargetID
+        }
+    }
+
+    private var canClearPointRoadmapLinkAtSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).contains { markerID in
+            chart.roadmapObject(id: markerID)?.linkedTargetID != nil
+        }
+    }
+
     private var canRemoveCueTextAtSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
@@ -967,6 +1008,34 @@ struct EditorView: View {
             return
         }
 
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func handleLinkPointRoadmapMarkersAtSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              chart.linkPointRoadmapMarkers(attachedTo: targetMeasureID) > 0 else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func handleClearPointRoadmapLinksAtSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              chart.clearRoadmapLinks(attachedTo: targetMeasureID) > 0 else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
         selectedMeasureID = targetMeasureID
     }
 

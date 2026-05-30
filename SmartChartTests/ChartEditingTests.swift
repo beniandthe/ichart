@@ -128,6 +128,80 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measure(id: secondMeasureID)?.roadmapObjectIDs, [secondMarkerID])
     }
 
+    func testPointRoadmapMarkersAutoLinkToDirectionalTargets() throws {
+        var chart = Chart.blank(title: "Roadmap Links", measureCount: 5)
+        let measureIDs = chart.measures.map(\.id)
+        let codaID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureIDs[4]))
+        let segnoID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: measureIDs[0]))
+        let fineID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: measureIDs[1]))
+
+        let toCodaID = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[2]))
+        let dsID = try XCTUnwrap(chart.addPointRoadmapMarker(.dsAlCoda, anchorMeasureID: measureIDs[3]))
+        let dcFineID = try XCTUnwrap(chart.addPointRoadmapMarker(.dcAlFine, anchorMeasureID: measureIDs[4]))
+
+        XCTAssertEqual(chart.roadmapObject(id: toCodaID)?.linkedTargetID, codaID)
+        XCTAssertEqual(chart.roadmapObject(id: dsID)?.linkedTargetID, segnoID)
+        XCTAssertEqual(chart.roadmapObject(id: dcFineID)?.linkedTargetID, fineID)
+    }
+
+    func testPointRoadmapMarkersCanLinkAfterTargetAppears() throws {
+        var chart = Chart.blank(title: "Roadmap Links", measureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let toCodaID = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[0]))
+
+        XCTAssertNil(chart.roadmapObject(id: toCodaID)?.linkedTargetID)
+
+        let codaID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureIDs[2]))
+
+        XCTAssertEqual(chart.linkPointRoadmapMarkers(attachedTo: measureIDs[0]), 1)
+        XCTAssertEqual(chart.roadmapObject(id: toCodaID)?.linkedTargetID, codaID)
+        XCTAssertEqual(chart.linkPointRoadmapMarkers(attachedTo: measureIDs[0]), 0)
+    }
+
+    func testPointRoadmapLinksRejectInvalidTargetsAndCanClear() throws {
+        var chart = Chart.blank(title: "Roadmap Links", measureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let segnoID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: measureIDs[0]))
+        let fineID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: measureIDs[1]))
+        let toCodaID = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[2]))
+        let dcFineID = try XCTUnwrap(chart.addPointRoadmapMarker(.dcAlFine, anchorMeasureID: measureIDs[2]))
+
+        XCTAssertFalse(chart.linkRoadmapObject(toCodaID, to: segnoID))
+        XCTAssertEqual(chart.roadmapObject(id: dcFineID)?.linkedTargetID, fineID)
+        XCTAssertTrue(chart.clearRoadmapLink(dcFineID))
+        XCTAssertTrue(chart.linkRoadmapObject(dcFineID, to: fineID))
+        XCTAssertEqual(chart.roadmapObject(id: dcFineID)?.linkedTargetID, fineID)
+        XCTAssertEqual(chart.clearRoadmapLinks(attachedTo: measureIDs[2]), 1)
+        XCTAssertNil(chart.roadmapObject(id: dcFineID)?.linkedTargetID)
+    }
+
+    func testDeletingLinkedTargetClearsSourceLink() throws {
+        var chart = Chart.blank(title: "Roadmap Links", measureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let codaID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureIDs[2]))
+        let toCodaID = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[0]))
+
+        XCTAssertEqual(chart.roadmapObject(id: toCodaID)?.linkedTargetID, codaID)
+        XCTAssertEqual(chart.deletePointRoadmapMarkers(attachedTo: measureIDs[2]), 1)
+
+        XCTAssertNotNil(chart.roadmapObject(id: toCodaID))
+        XCTAssertNil(chart.roadmapObject(id: codaID))
+        XCTAssertNil(chart.roadmapObject(id: toCodaID)?.linkedTargetID)
+    }
+
+    func testDeletingMeasureWithLinkedTargetClearsSourceLink() throws {
+        var chart = Chart.blank(title: "Roadmap Links", measureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let codaID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureIDs[2]))
+        let toCodaID = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[0]))
+
+        XCTAssertEqual(chart.roadmapObject(id: toCodaID)?.linkedTargetID, codaID)
+        XCTAssertTrue(chart.deleteMeasure(id: measureIDs[2]))
+
+        XCTAssertNil(chart.roadmapObject(id: codaID))
+        XCTAssertNil(chart.roadmapObject(id: toCodaID)?.linkedTargetID)
+    }
+
     func testAddRepeatSpanCreatesSingleObjectAttachedToBoundaryMeasures() throws {
         var chart = Chart.blank(title: "Repeats", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let startMeasureID = chart.measures[1].id

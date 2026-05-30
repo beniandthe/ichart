@@ -819,10 +819,13 @@ extension Chart {
                 && $0.displayText == resolvedDisplayText
                 && $0.count == count
         }) {
+            if existingMarker.linkedTargetID == nil {
+                _ = linkRoadmapObjectToSuggestedTarget(existingMarker.id)
+            }
             return existingMarker.id
         }
 
-        let marker = RoadmapObject(
+        var marker = RoadmapObject(
             id: UUID(),
             type: type,
             startMeasureID: resolvedMeasureID,
@@ -834,6 +837,7 @@ extension Chart {
             linkedTargetID: nil,
             rawInput: resolvedDisplayText ?? type.defaultDisplayText
         )
+        marker.linkedTargetID = suggestedRoadmapTargetID(for: marker)
 
         roadmapObjects.append(marker)
         attachRoadmapObject(marker.id, to: resolvedMeasureID)
@@ -843,6 +847,84 @@ extension Chart {
 
     func roadmapObject(id roadmapObjectID: UUID) -> RoadmapObject? {
         roadmapObjects.first { $0.id == roadmapObjectID }
+    }
+
+    func canLinkRoadmapObject(_ sourceID: UUID, to targetID: UUID) -> Bool {
+        guard let source = roadmapObject(id: sourceID),
+              let target = roadmapObject(id: targetID) else {
+            return false
+        }
+
+        return canLinkRoadmapObject(source, to: target)
+    }
+
+    func suggestedRoadmapTargetID(for roadmapObjectID: UUID) -> UUID? {
+        guard let source = roadmapObject(id: roadmapObjectID) else {
+            return nil
+        }
+
+        return suggestedRoadmapTargetID(for: source)
+    }
+
+    @discardableResult
+    mutating func linkRoadmapObject(_ sourceID: UUID, to targetID: UUID) -> Bool {
+        guard let sourceIndex = roadmapObjects.firstIndex(where: { $0.id == sourceID }),
+              canLinkRoadmapObject(roadmapObjects[sourceIndex], to: targetID) else {
+            return false
+        }
+
+        guard roadmapObjects[sourceIndex].linkedTargetID != targetID else {
+            return false
+        }
+
+        roadmapObjects[sourceIndex].linkedTargetID = targetID
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func linkRoadmapObjectToSuggestedTarget(_ sourceID: UUID) -> Bool {
+        guard let targetID = suggestedRoadmapTargetID(for: sourceID) else {
+            return false
+        }
+
+        return linkRoadmapObject(sourceID, to: targetID)
+    }
+
+    @discardableResult
+    mutating func linkPointRoadmapMarkers(attachedTo measureID: UUID) -> Int {
+        let markerIDs = pointRoadmapMarkerIDs(attachedTo: measureID)
+        var linkedCount = 0
+
+        for markerID in markerIDs where linkRoadmapObjectToSuggestedTarget(markerID) {
+            linkedCount += 1
+        }
+
+        return linkedCount
+    }
+
+    @discardableResult
+    mutating func clearRoadmapLink(_ sourceID: UUID) -> Bool {
+        guard let sourceIndex = roadmapObjects.firstIndex(where: { $0.id == sourceID }),
+              roadmapObjects[sourceIndex].linkedTargetID != nil else {
+            return false
+        }
+
+        roadmapObjects[sourceIndex].linkedTargetID = nil
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func clearRoadmapLinks(attachedTo measureID: UUID) -> Int {
+        let markerIDs = pointRoadmapMarkerIDs(attachedTo: measureID)
+        var clearedCount = 0
+
+        for markerID in markerIDs where clearRoadmapLink(markerID) {
+            clearedCount += 1
+        }
+
+        return clearedCount
     }
 
     @discardableResult
@@ -994,6 +1076,7 @@ extension Chart {
 
         roadmapObjects.remove(at: roadmapObjectIndex)
         removeRoadmapObjectIDFromMeasures(roadmapObjectID)
+        clearRoadmapLinks(toDeletedRoadmapObjectIDs: [roadmapObjectID])
         updatedAt = .now
         return true
     }
@@ -1038,6 +1121,7 @@ extension Chart {
         for repeatSpanID in repeatSpanIDs {
             removeRoadmapObjectIDFromMeasures(repeatSpanID)
         }
+        clearRoadmapLinks(toDeletedRoadmapObjectIDs: repeatSpanIDSet)
         updatedAt = .now
         return repeatSpanIDs.count
     }
@@ -1054,6 +1138,7 @@ extension Chart {
         for endingSpanID in endingSpanIDs {
             removeRoadmapObjectIDFromMeasures(endingSpanID)
         }
+        clearRoadmapLinks(toDeletedRoadmapObjectIDs: endingSpanIDSet)
         updatedAt = .now
         return endingSpanIDs.count
     }
@@ -1070,6 +1155,7 @@ extension Chart {
         for markerID in markerIDs {
             removeRoadmapObjectIDFromMeasures(markerID)
         }
+        clearRoadmapLinks(toDeletedRoadmapObjectIDs: markerIDSet)
         updatedAt = .now
         return markerIDs.count
     }
@@ -1272,6 +1358,75 @@ extension Chart {
         }
     }
 
+    private func canLinkRoadmapObject(_ source: RoadmapObject, to targetID: UUID) -> Bool {
+        guard let target = roadmapObject(id: targetID) else {
+            return false
+        }
+
+        return canLinkRoadmapObject(source, to: target)
+    }
+
+    private func canLinkRoadmapObject(_ source: RoadmapObject, to target: RoadmapObject) -> Bool {
+        source.id != target.id
+            && source.type.isPointMarker
+            && target.type.isPointMarker
+            && source.endMeasureID == nil
+            && target.endMeasureID == nil
+            && source.type.linkTargetTypes.contains(target.type)
+    }
+
+    private func suggestedRoadmapTargetID(for source: RoadmapObject) -> UUID? {
+        guard source.type.isPointMarker,
+              !source.type.linkTargetTypes.isEmpty,
+              let sourceLocation = measureLocation(id: source.startMeasureID) else {
+            return nil
+        }
+
+        let sourceMeasureIndex = flattenedMeasureIndex(for: sourceLocation)
+        let candidates = roadmapObjects.compactMap { candidate -> (id: UUID, distance: Int, isPreferredDirection: Bool)? in
+            guard canLinkRoadmapObject(source, to: candidate),
+                  let targetLocation = measureLocation(id: candidate.startMeasureID) else {
+                return nil
+            }
+
+            let targetMeasureIndex = flattenedMeasureIndex(for: targetLocation)
+            let distance = abs(targetMeasureIndex - sourceMeasureIndex)
+            let isPreferredDirection: Bool
+            switch source.type.linkTargetSearchDirection {
+            case .before:
+                isPreferredDirection = targetMeasureIndex < sourceMeasureIndex
+            case .after:
+                isPreferredDirection = targetMeasureIndex > sourceMeasureIndex
+            case .nearest:
+                isPreferredDirection = true
+            }
+
+            return (candidate.id, distance, isPreferredDirection)
+        }
+
+        return candidates
+            .sorted {
+                if $0.isPreferredDirection != $1.isPreferredDirection {
+                    return $0.isPreferredDirection && !$1.isPreferredDirection
+                }
+
+                return $0.distance < $1.distance
+            }
+            .first?
+            .id
+    }
+
+    private mutating func clearRoadmapLinks(toDeletedRoadmapObjectIDs deletedIDs: Set<UUID>) {
+        guard !deletedIDs.isEmpty else {
+            return
+        }
+
+        for roadmapObjectIndex in roadmapObjects.indices
+            where roadmapObjects[roadmapObjectIndex].linkedTargetID.map(deletedIDs.contains) == true {
+            roadmapObjects[roadmapObjectIndex].linkedTargetID = nil
+        }
+    }
+
     private mutating func removeAnnotations(
         attachedTo removedMeasure: Measure,
         fromRemainingMeasures remainingMeasures: inout [Measure]
@@ -1299,6 +1454,7 @@ extension Chart {
             $0.anchorMeasureID == removedMeasureID || removedCueTextIDs.contains($0.id)
         }
         roadmapObjects.removeAll { removedRoadmapObjectIDs.contains($0.id) }
+        clearRoadmapLinks(toDeletedRoadmapObjectIDs: removedRoadmapObjectIDs)
         freehandSymbols.removeAll { $0.anchorMeasureID == removedMeasureID }
 
         for measureIndex in remainingMeasures.indices {

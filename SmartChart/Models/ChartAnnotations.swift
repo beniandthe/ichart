@@ -117,6 +117,30 @@ enum RoadmapType: String, Codable, CaseIterable, Hashable {
         }
     }
 
+    var linkTargetTypes: [RoadmapType] {
+        switch self {
+        case .toCoda:
+            return [.codaMarker]
+        case .ds, .dsAlCoda:
+            return [.segno]
+        case .dcAlFine:
+            return [.fine]
+        default:
+            return []
+        }
+    }
+
+    var linkTargetSearchDirection: RoadmapLinkTargetSearchDirection {
+        switch self {
+        case .toCoda:
+            return .after
+        case .ds, .dsAlCoda, .dcAlFine:
+            return .before
+        default:
+            return .nearest
+        }
+    }
+
     var usesStructuredLayout: Bool {
         self == .repeatSpan || isEnding || isPointMarker
     }
@@ -143,6 +167,12 @@ enum RoadmapType: String, Codable, CaseIterable, Hashable {
             return nil
         }
     }
+}
+
+enum RoadmapLinkTargetSearchDirection: Hashable {
+    case before
+    case after
+    case nearest
 }
 
 enum RoadmapPlacement: String, Codable, CaseIterable, Hashable {
