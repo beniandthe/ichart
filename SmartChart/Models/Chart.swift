@@ -10,6 +10,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var documentKey: DocumentKey
     var documentFont: ChartFontPreset
     var notationFont: NotationFontPreset
+    var typography: ChartTypographySettings
     var defaultTranspositionView: TranspositionView
     var defaultMeter: Meter
     var staffStyle: StaffStyle = .fiveLine
@@ -42,6 +43,7 @@ struct Chart: Identifiable, Codable, Hashable {
         documentKey: DocumentKey,
         documentFont: ChartFontPreset,
         notationFont: NotationFontPreset = .petaluma,
+        typography: ChartTypographySettings? = nil,
         defaultTranspositionView: TranspositionView,
         defaultMeter: Meter,
         staffStyle: StaffStyle = .fiveLine,
@@ -69,6 +71,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.documentKey = documentKey
         self.documentFont = documentFont
         self.notationFont = notationFont
+        self.typography = typography ?? ChartTypographySettings.default(for: notationFont)
         self.defaultTranspositionView = defaultTranspositionView
         self.defaultMeter = defaultMeter
         self.staffStyle = staffStyle
@@ -98,6 +101,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case documentKey
         case documentFont
         case notationFont
+        case typography
         case defaultTranspositionView
         case defaultMeter
         case staffStyle
@@ -128,6 +132,8 @@ struct Chart: Identifiable, Codable, Hashable {
         documentKey = try container.decode(DocumentKey.self, forKey: .documentKey)
         documentFont = try container.decode(ChartFontPreset.self, forKey: .documentFont)
         notationFont = try container.decodeIfPresent(NotationFontPreset.self, forKey: .notationFont) ?? .petaluma
+        typography = try container.decodeIfPresent(ChartTypographySettings.self, forKey: .typography)
+            ?? ChartTypographySettings.default(for: notationFont)
         defaultTranspositionView = try container.decode(TranspositionView.self, forKey: .defaultTranspositionView)
         defaultMeter = try container.decode(Meter.self, forKey: .defaultMeter)
         staffStyle = try container.decodeIfPresent(StaffStyle.self, forKey: .staffStyle) ?? .fiveLine

@@ -10,6 +10,7 @@ struct LeadSheetNotationRenderer {
             layoutStyle: chart.layoutStyle,
             documentStyle: chart.stylePreset,
             notationFont: chart.notationFont,
+            typography: ChartTypographyResolver(chart: chart),
             engravingPreset: chart.engravingPreset
         )
     }
@@ -123,7 +124,7 @@ struct LeadSheetNotationRenderer {
         drawText(
             text.uppercased(),
             in: frame,
-            font: style.metadataFont(size: 13),
+            font: style.textFont(size: 13),
             color: style.inkColor.withAlphaComponent(0.78),
             alignment: .right
         )
@@ -147,7 +148,7 @@ struct LeadSheetNotationRenderer {
         drawText(
             cueTextLayout.text,
             in: cueTextLayout.frame,
-            font: style.metadataFont(size: fontSize),
+            font: style.textFont(size: fontSize),
             color: style.inkColor.withAlphaComponent(alpha),
             alignment: cueTextLayout.position == .trailingEdge ? .right : .left
         )
@@ -183,7 +184,7 @@ struct LeadSheetNotationRenderer {
                 width: min(70, max(1, endingLayout.frame.width - 12)),
                 height: max(1, endingLayout.frame.height - 4)
             ),
-            font: style.metadataFont(size: 12),
+            font: style.textFont(size: 12),
             color: style.inkColor.withAlphaComponent(0.88)
         )
     }
@@ -202,7 +203,7 @@ struct LeadSheetNotationRenderer {
         drawText(
             markerLayout.text.uppercased(),
             in: markerLayout.frame.insetBy(dx: 5, dy: 2),
-            font: style.metadataFont(size: 10.8),
+            font: style.textFont(size: 10.8),
             color: style.inkColor.withAlphaComponent(0.82),
             alignment: .center
         )
@@ -273,15 +274,198 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawChord(_ chordLayout: LeadSheetChordLayout) {
+        if chart.layoutStyle == .simpleChordSheet {
+            drawSimpleChord(chordLayout)
+            return
+        }
+
+        let textFrame = chordLayout.frame
         let font = style.chordFont(
-            size: style.chordFontSize(fitting: chordLayout.fitFrame, text: chordLayout.text)
+            size: style.chordFontSize(fitting: textFrame, text: chordLayout.text)
         )
         drawText(
             chordLayout.text,
-            in: chordLayout.fitFrame,
+            in: textFrame,
             font: font,
             color: style.inkColor
         )
+    }
+
+    private func drawSimpleChord(_ chordLayout: LeadSheetChordLayout) {
+        let rootFontSize = style.simpleChordPrimaryFontSize(
+            fitting: chordLayout.frame,
+            text: chordLayout.text
+        )
+        let rootFont = style.chordFont(size: rootFontSize)
+        let suffixFontSize = style.simpleChordSuffixFontSize(primarySize: rootFontSize)
+        let suffixFont = style.chordFont(size: suffixFontSize)
+        let symbolFont = style.chordSymbolFont(size: suffixFontSize)
+        let runs = simpleChordRenderRuns(
+            for: chordLayout,
+            rootFont: rootFont,
+            suffixFont: suffixFont,
+            symbolFont: symbolFont,
+            suffixFontSize: suffixFontSize
+        )
+        let gapWidth = runs.count > 1
+            ? CGFloat(runs.count - 1) * ChartTypographyResolver.simpleChordTokenGapWidth
+            : 0
+        let totalWidth = max(1, runs.reduce(CGFloat(0)) { $0 + $1.size.width } + gapWidth)
+        let requestedHorizontalScale = min(
+            1,
+            max(0.01, chordLayout.horizontalCompressionScale)
+        )
+        let fittingHorizontalScale = min(1, chordLayout.frame.width / totalWidth)
+        let horizontalScale = min(requestedHorizontalScale, fittingHorizontalScale)
+        let renderedWidth = totalWidth * horizontalScale
+        let startX = chordLayout.frame.minX + max(0, (chordLayout.frame.width - renderedWidth) / 2)
+        let rootHeight = runs
+            .filter { $0.role == .primaryText }
+            .map(\.size.height)
+            .max() ?? (chordLayout.text as NSString).size(withAttributes: [.font: rootFont]).height
+        let rootY = chordLayout.frame.midY - rootHeight / 2
+        let suffixY = rootY + rootHeight * 0.16
+
+        guard let context = UIGraphicsGetCurrentContext() else {
+            drawSimpleChordRuns(runs, originX: startX, rootY: rootY, suffixY: suffixY)
+            return
+        }
+
+        context.saveGState()
+        context.translateBy(x: startX, y: 0)
+        context.scaleBy(x: horizontalScale, y: 1)
+        defer { context.restoreGState() }
+
+        drawSimpleChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY)
+    }
+
+    private func simpleChordRenderRuns(
+        for chordLayout: LeadSheetChordLayout,
+        rootFont: UIFont,
+        suffixFont: UIFont,
+        symbolFont: UIFont,
+        suffixFontSize: CGFloat
+    ) -> [SimpleChordRenderRun] {
+        let tokens: [ChordTypographyToken]
+        if let symbol = chordLayout.symbol {
+            tokens = style.chordTokens(for: symbol)
+        } else {
+            let parts = SimpleChordTextParts(text: chordLayout.text)
+            tokens = [
+                ChordTypographyToken(text: parts.root, role: .primaryText),
+                ChordTypographyToken(text: parts.suffix, role: .suffixText)
+            ].filter { !$0.text.isEmpty }
+        }
+
+        return tokens.map { token in
+            let font: UIFont
+            switch token.role {
+            case .primaryText:
+                font = rootFont
+            case .suffixText:
+                font = suffixFont
+            case .musicSymbol:
+                font = symbolFont
+            }
+
+            let drawsVectorSymbol = token.role == .musicSymbol
+                && !font.supportsNotationGlyph(token.text)
+            let size = drawsVectorSymbol
+                ? vectorChordSymbolSize(for: token.text, fontSize: suffixFontSize)
+                : (token.text as NSString).size(withAttributes: [.font: font])
+
+            return SimpleChordRenderRun(
+                text: token.text,
+                role: token.role,
+                font: font,
+                size: size,
+                drawsVectorSymbol: drawsVectorSymbol
+            )
+        }
+    }
+
+    private func drawSimpleChordRuns(
+        _ runs: [SimpleChordRenderRun],
+        originX: CGFloat,
+        rootY: CGFloat,
+        suffixY: CGFloat
+    ) {
+        var cursorX = originX
+
+        for (index, run) in runs.enumerated() {
+            if index > 0 {
+                cursorX += ChartTypographyResolver.simpleChordTokenGapWidth
+            }
+
+            let y = run.role == .primaryText ? rootY : suffixY
+            if run.drawsVectorSymbol {
+                let symbolFrame = CGRect(
+                    x: cursorX,
+                    y: y + run.size.height * 0.12,
+                    width: run.size.width,
+                    height: run.size.height * 0.78
+                )
+                drawVectorChordSymbol(run.text, in: symbolFrame)
+            } else {
+                (run.text as NSString).draw(
+                    at: CGPoint(x: cursorX, y: y),
+                    withAttributes: [
+                        .font: run.font,
+                        .foregroundColor: style.inkColor
+                    ]
+                )
+            }
+
+            cursorX += run.size.width
+        }
+    }
+
+    private func vectorChordSymbolSize(for text: String, fontSize: CGFloat) -> CGSize {
+        switch text {
+        case "△", "Δ", "∆":
+            return CGSize(width: fontSize * 0.78, height: fontSize * 0.82)
+        case "ø":
+            return CGSize(width: fontSize * 0.72, height: fontSize * 0.86)
+        case "°":
+            return CGSize(width: fontSize * 0.46, height: fontSize * 0.66)
+        default:
+            return CGSize(width: fontSize * 0.62, height: fontSize * 0.8)
+        }
+    }
+
+    private func drawVectorChordSymbol(_ text: String, in frame: CGRect) {
+        let lineWidth = max(CGFloat(1), min(frame.width, frame.height) * 0.1)
+        style.inkColor.setStroke()
+
+        switch text {
+        case "△", "Δ", "∆":
+            let triangle = UIBezierPath()
+            triangle.move(to: CGPoint(x: frame.midX, y: frame.minY + lineWidth / 2))
+            triangle.addLine(to: CGPoint(x: frame.maxX - lineWidth / 2, y: frame.maxY - lineWidth / 2))
+            triangle.addLine(to: CGPoint(x: frame.minX + lineWidth / 2, y: frame.maxY - lineWidth / 2))
+            triangle.close()
+            triangle.lineWidth = lineWidth
+            triangle.lineJoinStyle = .round
+            triangle.stroke()
+        case "°", "ø":
+            let circleFrame = text == "ø"
+                ? frame.insetBy(dx: frame.width * 0.12, dy: frame.height * 0.12)
+                : frame.insetBy(dx: frame.width * 0.08, dy: frame.height * 0.08)
+            let circle = UIBezierPath(ovalIn: circleFrame)
+            circle.lineWidth = lineWidth
+            circle.stroke()
+
+            if text == "ø" {
+                let slash = UIBezierPath()
+                slash.move(to: CGPoint(x: circleFrame.minX - lineWidth, y: circleFrame.maxY + lineWidth))
+                slash.addLine(to: CGPoint(x: circleFrame.maxX + lineWidth, y: circleFrame.minY - lineWidth))
+                slash.lineWidth = lineWidth
+                slash.lineCapStyle = .round
+                slash.stroke()
+            }
+        default:
+            break
+        }
     }
 
     func drawNote(_ noteLayout: LeadSheetNoteLayout) {
@@ -679,6 +863,7 @@ private struct LeadSheetNotationStyle {
     let layoutStyle: ChartLayoutStyle
     let documentStyle: StylePreset
     let notationFont: NotationFontPreset
+    let typography: ChartTypographyResolver
     let engravingPreset: EngravingPreset
     let defaultStaffSpace: CGFloat = 10.5
 
@@ -778,38 +963,71 @@ private struct LeadSheetNotationStyle {
 
     func titleFont(size: CGFloat) -> UIFont {
         if layoutStyle == .simpleChordSheet {
-            return UIFont.systemFont(ofSize: size, weight: .bold)
+            return typography.headerUIFont(
+                size: size,
+                weight: .bold,
+                fallback: UIFont.systemFont(ofSize: size, weight: .bold)
+            )
         }
 
+        let fallback: UIFont
         switch documentStyle {
         case .cleanStudio:
-            return UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
+            fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .gigSheet:
-            return UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
+            fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .rehearsalDraft:
-            return UIFont.systemFont(ofSize: size * 0.9, weight: .bold)
+            fallback = UIFont.systemFont(ofSize: size * 0.9, weight: .bold)
         }
+        return typography.headerUIFont(size: fallback.pointSize, weight: .semibold, fallback: fallback)
     }
 
     func metadataFont(size: CGFloat) -> UIFont {
         if layoutStyle == .simpleChordSheet {
-            return UIFont.systemFont(ofSize: size, weight: .regular)
+            return typography.headerUIFont(
+                size: size,
+                weight: .regular,
+                fallback: UIFont.systemFont(ofSize: size, weight: .regular)
+            )
         }
 
+        let fallback: UIFont
         switch documentStyle {
         case .cleanStudio, .gigSheet:
-            return UIFont.systemFont(ofSize: size, weight: .semibold)
+            fallback = UIFont.systemFont(ofSize: size, weight: .semibold)
         case .rehearsalDraft:
-            return UIFont.systemFont(ofSize: size, weight: .semibold)
+            fallback = UIFont.systemFont(ofSize: size, weight: .semibold)
         }
+        return typography.headerUIFont(size: size, weight: .semibold, fallback: fallback)
+    }
+
+    func textFont(size: CGFloat) -> UIFont {
+        typography.textUIFont(
+            size: size,
+            weight: .semibold,
+            fallback: markerFont(size: size, weight: .semibold)
+        )
     }
 
     func chordFont(size: CGFloat) -> UIFont {
         if layoutStyle == .simpleChordSheet {
-            return UIFont.systemFont(ofSize: size, weight: .bold)
+            return typography.chordTextUIFont(size: size, fallback: simpleChordFont(size: size))
         }
 
-        return notationFont.textUIFont(size: size, fallback: markerFont(size: size, weight: .regular))
+        return typography.chordTextUIFont(size: size, fallback: markerFont(size: size, weight: .regular))
+    }
+
+    func chordSymbolFont(size: CGFloat) -> UIFont {
+        typography.chordSymbolUIFont(size: size, fallback: notationGlyphFont(size: size))
+    }
+
+    func chordTokens(for symbol: ChordSymbol) -> [ChordTypographyToken] {
+        typography.chordTokens(for: symbol)
+    }
+
+    func simpleChordFont(size: CGFloat) -> UIFont {
+        UIFont(name: "AvenirNextCondensed-Regular", size: size)
+            ?? UIFont.systemFont(ofSize: size, weight: .regular)
     }
 
     func chordFontSize(fitting frame: CGRect, text: String) -> CGFloat {
@@ -827,6 +1045,14 @@ private struct LeadSheetNotationStyle {
             size -= 1
         }
         return size
+    }
+
+    func simpleChordPrimaryFontSize(fitting frame: CGRect, text: String) -> CGFloat {
+        ChartTypographyResolver.simpleChordPrimaryFontSize
+    }
+
+    func simpleChordSuffixFontSize(primarySize: CGFloat) -> CGFloat {
+        ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: primarySize)
     }
 
     func sectionBadgeFont(size: CGFloat) -> UIFont {
@@ -973,6 +1199,37 @@ private extension UIFont {
         let font = self as CTFont
         let hasGlyphs = CTFontGetGlyphsForCharacters(font, &characters, &glyphs, characters.count)
         return hasGlyphs && glyphs.allSatisfy { $0 != 0 }
+    }
+}
+
+private struct SimpleChordRenderRun {
+    var text: String
+    var role: ChordTypographyTokenRole
+    var font: UIFont
+    var size: CGSize
+    var drawsVectorSymbol: Bool
+}
+
+private struct SimpleChordTextParts {
+    var root: String
+    var suffix: String
+
+    init(text: String) {
+        guard let firstCharacter = text.first,
+              "ABCDEFG".contains(firstCharacter) else {
+            root = text
+            suffix = ""
+            return
+        }
+
+        var rootEnd = text.index(after: text.startIndex)
+        if rootEnd < text.endIndex,
+           ["b", "♭", "#", "♯"].contains(text[rootEnd]) {
+            rootEnd = text.index(after: rootEnd)
+        }
+
+        root = String(text[..<rootEnd])
+        suffix = String(text[rootEnd...])
     }
 }
 #endif

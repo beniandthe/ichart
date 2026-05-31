@@ -825,6 +825,12 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.engravingPreset, .wide)
     }
 
+    func testFinaleJazzUsesLowercaseSafeChordTextFace() {
+        XCTAssertEqual(NotationFontPreset.finaleJazz.textPostScriptName, "FinaleJazzText")
+        XCTAssertEqual(NotationFontPreset.finaleJazz.chordTextPostScriptName, "FinaleJazzTextLowercase")
+        XCTAssertEqual(NotationFontPreset.petaluma.chordTextPostScriptName, NotationFontPreset.petaluma.textPostScriptName)
+    }
+
     func testChartDecodingDefaultsMissingAppearanceFieldsForOlderSnapshots() throws {
         let chart = Chart.blank(title: "Older Snapshot")
         let encodedData = try JSONEncoder().encode(chart)
@@ -1447,6 +1453,23 @@ final class ChartEditingTests: XCTestCase {
 
         let chords = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
         XCTAssertEqual(chords.map(\.startPosition.displayText), ["1", "3"])
+        XCTAssertTrue(chords.allSatisfy { $0.mappedRhythmSlotIndex == nil })
+    }
+
+    func testSimpleChordSheetAppendAfterExistingLaterBeatKeepsWrittenOrder() throws {
+        var chart = Chart.blank(title: "Simple Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let firstSymbol = try ChordSymbolParser.parse("C-7")
+        let secondSymbol = try ChordSymbolParser.parse("D-7")
+
+        XCTAssertTrue(chart.appendRecognizedChord(firstSymbol, rawInput: "C-7", to: measureID, atFraction: 0.05))
+        let firstChordID = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first?.id)
+        XCTAssertTrue(chart.moveChordEvent(firstChordID, to: measureID, atFraction: 0.62))
+        XCTAssertTrue(chart.appendRecognizedChord(secondSymbol, rawInput: "D-7", to: measureID, atFraction: 0.86))
+
+        let chords = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
+        XCTAssertEqual(chords.map(\.rawInput), ["C-7", "D-7"])
+        XCTAssertEqual(chords.map(\.startPosition.displayText), ["3", "4"])
         XCTAssertTrue(chords.allSatisfy { $0.mappedRhythmSlotIndex == nil })
     }
 

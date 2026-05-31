@@ -14,6 +14,8 @@ enum NotationFontRegistrar {
         "PetalumaText.otf",
         "Leland.otf",
         "LelandText.otf",
+        "MuseJazz.otf",
+        "MuseJazzText.otf",
         "FinaleAsh.otf",
         "FinaleAshText.otf",
         "FinaleBroadway.otf",
@@ -71,6 +73,15 @@ extension NotationFontPreset {
         }
 
         return UIFont(name: textPostScriptName, size: size) ?? fallback
+    }
+
+    func chordTextUIFont(size: CGFloat, fallback: UIFont) -> UIFont {
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+        guard let chordTextPostScriptName else {
+            return fallback
+        }
+
+        return UIFont(name: chordTextPostScriptName, size: size) ?? fallback
     }
 }
 #endif

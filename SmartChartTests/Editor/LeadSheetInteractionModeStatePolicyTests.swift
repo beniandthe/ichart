@@ -41,6 +41,26 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         #endif
     }
 
+    func testChordEntryWritesOnlyAndDoesNotEnableRenderedChordMove() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
+
+        XCTAssertTrue(policy.pageInkCanvasInteractionEnabled)
+        XCTAssertFalse(policy.chordEditTapEnabled)
+        XCTAssertFalse(policy.chordMovePanEnabled)
+        XCTAssertTrue(policy.chordEditOverlayHidden)
+        XCTAssertFalse(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
+    }
+
+    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvas() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
+
+        XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
+        XCTAssertTrue(policy.chordEditTapEnabled)
+        XCTAssertTrue(policy.chordMovePanEnabled)
+        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
+    }
+
     func testToolModesRestrictPageScrollToOutsideMargins() {
         XCTAssertFalse(EditorCanvasMode.browse.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)

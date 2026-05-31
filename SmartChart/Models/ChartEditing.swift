@@ -49,6 +49,27 @@ extension Chart {
         updatedAt = .now
     }
 
+    mutating func setMatchedFontFamily(_ preset: ChartFontFamilyPreset) {
+        typography.matchedSet = preset
+        notationFont = preset.notationFont
+        updatedAt = .now
+    }
+
+    mutating func setChordFontOverride(_ preset: ChartFontFamilyPreset?) {
+        typography.chordOverride = preset
+        updatedAt = .now
+    }
+
+    mutating func setHeaderFontOverride(_ preset: ChartFontFamilyPreset?) {
+        typography.headerOverride = preset
+        updatedAt = .now
+    }
+
+    mutating func setTextFontOverride(_ preset: ChartFontFamilyPreset?) {
+        typography.textOverride = preset
+        updatedAt = .now
+    }
+
     mutating func setEngravingPreset(_ preset: EngravingPreset) {
         engravingPreset = preset
         updatedAt = .now
@@ -646,15 +667,18 @@ extension Chart {
 
         return simpleChordSheetAutomaticChordInsertionSuggestion(
             for: measure,
+            atFraction: fraction,
             excluding: chordEventID
         )
     }
 
     private func simpleChordSheetAutomaticChordInsertionSuggestion(
         for measure: Measure,
+        atFraction fraction: Double?,
         excluding chordEventID: UUID?
     ) -> MeasureChordInsertionSuggestion {
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
+        let beatCount = max(1, meter.numerator)
         let occupiedBeats = Set<Int>(
             measure.chordEvents.compactMap { event in
                 guard event.id != chordEventID,
@@ -665,15 +689,72 @@ extension Chart {
                 return event.startPosition.beat
             }
         )
+        let availableBeats = (1...beatCount).filter { !occupiedBeats.contains($0) }
+        let preferredBeatOrder = simpleChordSheetPreferredBeatOrder(for: meter)
+
+        guard !occupiedBeats.isEmpty else {
+            return simpleChordSheetChordInsertionSuggestion(onBeat: 1)
+        }
+
+        if let fraction,
+           let locationBeat = simpleChordSheetLocationBeat(for: fraction, meter: meter) {
+            if !occupiedBeats.contains(locationBeat) {
+                return simpleChordSheetChordInsertionSuggestion(onBeat: locationBeat)
+            }
+
+            if occupiedBeats == [1],
+               let midpointBeat = preferredBeatOrder.dropFirst().first(where: { !occupiedBeats.contains($0) }) {
+                return simpleChordSheetChordInsertionSuggestion(onBeat: midpointBeat)
+            }
+
+            let writesAfterOccupiedBeat = fraction >= simpleChordSheetAttackFraction(
+                forBeat: locationBeat,
+                meter: meter
+            )
+            let directionalBeats = writesAfterOccupiedBeat
+                ? availableBeats.filter { $0 > locationBeat }
+                : Array(availableBeats.filter { $0 < locationBeat }.reversed())
+
+            if let directionalBeat = directionalBeats.first {
+                return simpleChordSheetChordInsertionSuggestion(onBeat: directionalBeat)
+            }
+
+            if let nearestBeat = availableBeats.min(by: { lhs, rhs in
+                abs(lhs - locationBeat) < abs(rhs - locationBeat)
+            }) {
+                return simpleChordSheetChordInsertionSuggestion(onBeat: nearestBeat)
+            }
+        }
+
         let preferredBeat = simpleChordSheetPreferredBeatOrder(for: meter)
             .first { !occupiedBeats.contains($0) }
             ?? 1
 
-        return MeasureChordInsertionSuggestion(
-            startPosition: BeatPosition(beat: preferredBeat, subdivision: 0, subdivisionsPerBeat: 1),
+        return simpleChordSheetChordInsertionSuggestion(onBeat: preferredBeat)
+    }
+
+    private func simpleChordSheetChordInsertionSuggestion(onBeat beat: Int) -> MeasureChordInsertionSuggestion {
+        MeasureChordInsertionSuggestion(
+            startPosition: BeatPosition(beat: beat, subdivision: 0, subdivisionsPerBeat: 1),
             duration: .quarter,
             mappedRhythmSlotIndex: nil
         )
+    }
+
+    private func simpleChordSheetLocationBeat(for fraction: Double, meter: Meter) -> Int? {
+        let beatCount = max(1, meter.numerator)
+        guard beatCount > 0 else {
+            return nil
+        }
+
+        let clampedFraction = min(max(fraction, 0), 0.9999)
+        let rawBeatIndex = Int((clampedFraction * Double(beatCount)).rounded())
+        return min(max(0, rawBeatIndex), beatCount - 1) + 1
+    }
+
+    private func simpleChordSheetAttackFraction(forBeat beat: Int, meter: Meter) -> Double {
+        let beatCount = max(1, meter.numerator)
+        return Double(min(max(1, beat), beatCount) - 1) / Double(beatCount)
     }
 
     private func simpleChordSheetPreferredBeatOrder(for meter: Meter) -> [Int] {

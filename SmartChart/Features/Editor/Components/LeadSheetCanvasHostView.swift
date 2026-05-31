@@ -405,6 +405,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            if hasNewChordEvent(from: oldValue, to: chart) {
+                suppressChordObjectEditingTemporarily()
+            }
             invalidateLayout()
         }
     }
@@ -543,6 +546,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var pendingRhythmicNotationCommitWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
+    private var chordObjectEditingSuppressedUntil: Date?
     private var rhythmicNotationUnreadInkFeedback: LeadSheetRhythmicNotationUnreadInkFeedback? {
         didSet {
             rhythmicNotationFeedbackOverlayView.feedback = rhythmicNotationUnreadInkFeedback
@@ -781,7 +785,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             for chordLayout in measure.chordLayouts {
                 renderer.drawChord(chordLayout)
-                if interactionMode.allowsChordInkEditing,
+                if interactionMode.allowsChordObjectEditing,
                    measure.sourceMeasureID != nil {
                     drawChordEditOverlay(for: chordLayout, using: renderer)
                 }
@@ -1126,8 +1130,38 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return LeadSheetMeasureResizeGeometry.hitTarget(at: location, in: measure)
     }
 
+    private func hasNewChordEvent(from oldChart: Chart, to newChart: Chart) -> Bool {
+        let oldChordIDs = Set(oldChart.measures.flatMap { measure in
+            measure.chordEvents.map(\.id)
+        })
+        let newChordIDs = Set(newChart.measures.flatMap { measure in
+            measure.chordEvents.map(\.id)
+        })
+
+        return !newChordIDs.subtracting(oldChordIDs).isEmpty
+    }
+
+    private func suppressChordObjectEditingTemporarily() {
+        chordObjectEditingSuppressedUntil = Date().addingTimeInterval(1.5)
+        activeChordMoveDrag = nil
+    }
+
+    private func isChordObjectEditingTemporarilySuppressed() -> Bool {
+        guard let chordObjectEditingSuppressedUntil else {
+            return false
+        }
+
+        if Date() < chordObjectEditingSuppressedUntil {
+            return true
+        }
+
+        self.chordObjectEditingSuppressedUntil = nil
+        return false
+    }
+
     private func chordEditHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
-        guard interactionMode.allowsChordInkEditing,
+        guard interactionMode.allowsChordObjectEditing,
+              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -1136,7 +1170,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func chordMoveHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
-        guard interactionMode.allowsChordInkEditing,
+        guard interactionMode.allowsChordObjectEditing,
+              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -2428,6 +2463,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if policy.clearsChordInteractionState {
             activeChordMoveDrag = nil
+        }
+
+        if !interactionMode.allowsChordInkEditing {
             chordInkRecognitionRequestState.clearForChordEditingDisabled()
         }
 

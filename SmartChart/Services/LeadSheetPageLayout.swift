@@ -65,21 +65,27 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
 struct LeadSheetChordLayout: Identifiable, Hashable {
     var id: UUID
     var text: String
+    var symbol: ChordSymbol?
     var frame: CGRect
     var fitFrame: CGRect
+    var horizontalCompressionScale: CGFloat
     var snapGuideTarget: CGPoint
 
     init(
         id: UUID,
         text: String,
+        symbol: ChordSymbol? = nil,
         frame: CGRect,
         fitFrame: CGRect? = nil,
+        horizontalCompressionScale: CGFloat = 1,
         snapGuideTarget: CGPoint
     ) {
         self.id = id
         self.text = text
+        self.symbol = symbol
         self.frame = frame
         self.fitFrame = fitFrame ?? frame
+        self.horizontalCompressionScale = horizontalCompressionScale
         self.snapGuideTarget = snapGuideTarget
     }
 }
@@ -283,6 +289,11 @@ enum LeadSheetPageLayoutEngine {
                 height: 44
             )
         }
+    }
+
+    private struct SimpleChordDisplayPlan {
+        var frame: CGRect
+        var horizontalCompressionScale: CGFloat
     }
 
     static func pageLayout(for chart: Chart, pageSize: CGSize) -> LeadSheetPageLayout {
@@ -1118,6 +1129,14 @@ enum LeadSheetPageLayoutEngine {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
                     ($1.startPosition.startOffset(in: meter) ?? 0)
             }
+        let simpleChordDisplayPlans = isSimpleChordSheet
+            ? simpleChordDisplayPlans(
+                for: displayedPlacements,
+                chart: chart,
+                chordBandFrame: chordBandFrame,
+                visualPolicy: visualPolicy
+            )
+            : [:]
 
         let chordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
             let nextPlacementIndex = placementIndex + 1
@@ -1131,7 +1150,10 @@ enum LeadSheetPageLayoutEngine {
                 meter: meter,
                 chordBandFrame: chordBandFrame,
                 staffFrame: staffFrame,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                placementIndex: placementIndex,
+                placementCount: displayedPlacements.count,
+                simpleChordDisplayPlan: simpleChordDisplayPlans[placement.chordEvent.id]
             )
         }
         let noteLayouts = isSimpleChordSheet ? [] : noteLayouts(
@@ -1183,7 +1205,10 @@ enum LeadSheetPageLayoutEngine {
         meter: Meter,
         chordBandFrame: CGRect,
         staffFrame: CGRect,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        placementIndex: Int,
+        placementCount: Int,
+        simpleChordDisplayPlan: SimpleChordDisplayPlan?
     ) -> LeadSheetChordLayout {
         let event = placement.chordEvent.transposed(for: chart.defaultTranspositionView)
         let usableWidth = staffFrame.width - 16
@@ -1196,19 +1221,41 @@ enum LeadSheetPageLayoutEngine {
         )
 
         if visualPolicy.layoutStyle == .simpleChordSheet {
+            if let simpleChordDisplayPlan {
+                return LeadSheetChordLayout(
+                    id: placement.chordEvent.id,
+                    text: event.symbol.displayText,
+                    symbol: event.symbol,
+                    frame: simpleChordDisplayPlan.frame,
+                    fitFrame: simpleChordDisplayPlan.frame,
+                    horizontalCompressionScale: simpleChordDisplayPlan.horizontalCompressionScale,
+                    snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
+                )
+            }
+
             let fitFrame = simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                placementIndex: placementIndex,
+                placementCount: placementCount
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
                 text: event.symbol.displayText,
+                symbol: event.symbol,
                 frame: simpleChordDisplayFrame(
+                    symbol: event.symbol,
                     text: event.symbol.displayText,
-                    fitFrame: fitFrame
+                    fitFrame: fitFrame,
+                    horizontalCompressionScale: 1,
+                    reservesTrailingWritingSpace: simpleChordReservesTrailingWritingSpace(
+                        placement: placement,
+                        nextPlacement: nextPlacement,
+                        meter: meter
+                    )
                 ),
                 fitFrame: fitFrame,
                 snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
@@ -1226,6 +1273,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetChordLayout(
             id: placement.chordEvent.id,
             text: event.symbol.displayText,
+            symbol: event.symbol,
             frame: CGRect(
                 x: resolvedChordX,
                 y: chordBandFrame.minY,
@@ -1241,8 +1289,19 @@ enum LeadSheetPageLayoutEngine {
         nextPlacement: MeasureChordPlacement?,
         meter: Meter,
         chordBandFrame: CGRect,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        placementIndex: Int,
+        placementCount: Int
     ) -> CGRect {
+        if placementCount >= 3 {
+            return simpleChordEqualDivisionFitFrame(
+                placementIndex: placementIndex,
+                placementCount: placementCount,
+                chordBandFrame: chordBandFrame,
+                visualPolicy: visualPolicy
+            )
+        }
+
         let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
         let startOffset = min(
             measureLength,
@@ -1273,14 +1332,46 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func simpleChordDisplayFrame(
-        text: String,
-        fitFrame: CGRect
+    private static func simpleChordEqualDivisionFitFrame(
+        placementIndex: Int,
+        placementCount: Int,
+        chordBandFrame: CGRect,
+        visualPolicy: VisualPolicy
     ) -> CGRect {
-        let fontSize = estimatedSimpleChordFontSize(fitting: fitFrame, text: text)
-        let estimatedWidth = min(
-            fitFrame.width,
-            max(1, estimatedSimpleChordTextWidth(for: text, fontSize: fontSize) + 2)
+        let resolvedCount = max(1, placementCount)
+        let clampedIndex = min(max(0, placementIndex), resolvedCount - 1)
+        let slotWidth = chordBandFrame.width / CGFloat(resolvedCount)
+        let rawMinX = chordBandFrame.minX + slotWidth * CGFloat(clampedIndex)
+        let rawMaxX = clampedIndex == resolvedCount - 1
+            ? chordBandFrame.maxX
+            : rawMinX + slotWidth
+        let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, slotWidth / 4))
+        let minX = rawMinX + inset
+        let maxX = max(minX + 1, rawMaxX - inset)
+
+        return CGRect(
+            x: minX,
+            y: chordBandFrame.minY,
+            width: max(1, maxX - minX),
+            height: chordBandFrame.height
+        )
+    }
+
+    private static func simpleChordDisplayFrame(
+        symbol: ChordSymbol? = nil,
+        text: String,
+        fitFrame: CGRect,
+        horizontalCompressionScale: CGFloat,
+        reservesTrailingWritingSpace: Bool
+    ) -> CGRect {
+        let visualSlotFrame = reservesTrailingWritingSpace
+            ? simpleChordPrimaryBeatVisualSlot(in: fitFrame)
+            : fitFrame
+        let fontSize = estimatedSimpleChordFontSize(fitting: visualSlotFrame, text: text)
+        let estimatedWidth = max(
+            1,
+            estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize)
+                * max(0.01, min(1, horizontalCompressionScale)) + 2
         )
         return CGRect(
             x: fitFrame.minX,
@@ -1290,28 +1381,157 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func estimatedSimpleChordFontSize(
-        fitting frame: CGRect,
-        text: String
-    ) -> CGFloat {
-        var size = min(56, max(24, frame.height * 0.92))
-        while size > 16 {
-            if estimatedSimpleChordTextWidth(for: text, fontSize: size) <= frame.width {
-                break
-            }
-            size -= 1
+    private static func simpleChordDisplayPlans(
+        for placements: [MeasureChordPlacement],
+        chart: Chart,
+        chordBandFrame: CGRect,
+        visualPolicy: VisualPolicy
+    ) -> [UUID: SimpleChordDisplayPlan] {
+        guard placements.count >= 3 else {
+            return [:]
         }
-        return size
+
+        let fontSize = preferredSimpleChordFontSize()
+        let naturalWidths = placements.map { placement -> (id: UUID, width: CGFloat) in
+            let symbol = placement.chordEvent
+                .transposed(for: chart.defaultTranspositionView)
+                .symbol
+            return (
+                placement.chordEvent.id,
+                max(
+                    1,
+                    estimatedSimpleChordTextWidth(
+                        for: symbol,
+                        fallbackText: symbol.displayText,
+                        fontSize: fontSize
+                    ) + 2
+                )
+            )
+        }
+        let naturalWidthTotal = naturalWidths.reduce(CGFloat(0)) { partialWidth, chord in
+            partialWidth + chord.width
+        }
+        let gapCount = CGFloat(placements.count + 1)
+        let minimumGap = min(
+            visualPolicy.simpleChordHorizontalInset,
+            max(2, chordBandFrame.width * 0.015)
+        )
+        let reservedGapWidth = minimumGap * gapCount
+        let compressedContentWidth = max(1, chordBandFrame.width - reservedGapWidth)
+        let horizontalCompressionScale = min(1, compressedContentWidth / max(1, naturalWidthTotal))
+        let scaledWidths = naturalWidths.map { chord in
+            (id: chord.id, width: chord.width * horizontalCompressionScale)
+        }
+        let scaledWidthTotal = scaledWidths.reduce(CGFloat(0)) { partialWidth, chord in
+            partialWidth + chord.width
+        }
+        let distributedGap = max(0, (chordBandFrame.width - scaledWidthTotal) / gapCount)
+        var nextX = chordBandFrame.minX + distributedGap
+        var plans: [UUID: SimpleChordDisplayPlan] = [:]
+
+        for chord in scaledWidths {
+            plans[chord.id] = SimpleChordDisplayPlan(
+                frame: CGRect(
+                    x: nextX,
+                    y: chordBandFrame.minY,
+                    width: chord.width,
+                    height: chordBandFrame.height
+                ),
+                horizontalCompressionScale: horizontalCompressionScale
+            )
+            nextX += chord.width + distributedGap
+        }
+
+        return plans
+    }
+
+    private static func simpleChordReservesTrailingWritingSpace(
+        placement: MeasureChordPlacement,
+        nextPlacement: MeasureChordPlacement?,
+        meter: Meter
+    ) -> Bool {
+        guard nextPlacement == nil,
+              let startOffset = placement.startPosition.startOffset(in: meter) else {
+            return false
+        }
+
+        return startOffset <= meter.beatUnitWholeNoteLength * 0.05
+    }
+
+    private static func simpleChordPrimaryBeatVisualSlot(in fitFrame: CGRect) -> CGRect {
+        let cappedWidth = min(
+            fitFrame.width,
+            max(54, fitFrame.width * 0.62)
+        )
+        return CGRect(
+            x: fitFrame.minX,
+            y: fitFrame.minY,
+            width: cappedWidth,
+            height: fitFrame.height
+        )
+    }
+
+    private static func estimatedSimpleChordFontSize(fitting frame: CGRect, text: String) -> CGFloat {
+        preferredSimpleChordFontSize()
+    }
+
+    private static func preferredSimpleChordFontSize() -> CGFloat {
+        ChartTypographyResolver.simpleChordPrimaryFontSize
+    }
+
+    private static func estimatedSimpleChordTextWidth(
+        for symbol: ChordSymbol?,
+        fallbackText: String,
+        fontSize: CGFloat
+    ) -> CGFloat {
+        guard let symbol else {
+            return estimatedSimpleChordTextWidth(for: fallbackText, fontSize: fontSize)
+        }
+
+        let suffixFontSize = ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: fontSize)
+        return ChartTypographyResolver
+            .estimatedChordTokenWidth(
+                for: symbol,
+                primaryFontSize: fontSize,
+                suffixFontSize: suffixFontSize
+            )
     }
 
     private static func estimatedSimpleChordTextWidth(
         for text: String,
         fontSize: CGFloat
     ) -> CGFloat {
-        let baseWidth = text.reduce(CGFloat(0)) { partialWidth, character in
+        let parts = simpleChordTextParts(for: text)
+        let rootBaseWidth = parts.root.reduce(CGFloat(0)) { partialWidth, character in
             partialWidth + estimatedChordCharacterWidth(character)
         }
-        return max(16, baseWidth * (fontSize / 18))
+        let suffixFontSize = ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: fontSize)
+        let suffixBaseWidth = parts.suffix.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        let suffixGap = parts.suffix.isEmpty ? CGFloat(0) : ChartTypographyResolver.simpleChordTokenGapWidth
+        let simpleChordFontWidthScale: CGFloat = 0.84
+        return max(16, rootBaseWidth * (fontSize / 18) * simpleChordFontWidthScale)
+            + suffixGap
+            + suffixBaseWidth * (suffixFontSize / 18) * simpleChordFontWidthScale
+    }
+
+    private static func simpleChordTextParts(for text: String) -> (root: String, suffix: String) {
+        guard let firstCharacter = text.first,
+              "ABCDEFG".contains(firstCharacter) else {
+            return (text, "")
+        }
+
+        var rootEnd = text.index(after: text.startIndex)
+        if rootEnd < text.endIndex,
+           ["b", "♭", "#", "♯"].contains(text[rootEnd]) {
+            rootEnd = text.index(after: rootEnd)
+        }
+
+        return (
+            String(text[..<rootEnd]),
+            String(text[rootEnd...])
+        )
     }
 
     private static func repeatMarkerLayouts(

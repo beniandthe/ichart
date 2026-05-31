@@ -25,6 +25,7 @@ struct EditorView: View {
     @State private var showingExportAlert = false
     @State private var showingSetupSheet = false
     @State private var showingHeaderSheet = false
+    @State private var showingTypographySheet = false
     @State private var showingRhythmicNotationAcceptanceSheet = false
     @State private var hasPresentedRhythmicNotationGuide = false
     @State private var isExporting = false
@@ -127,6 +128,9 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingHeaderSheet) {
             ChartHeaderSheetView(chart: $chart)
+        }
+        .sheet(isPresented: $showingTypographySheet) {
+            ChartTypographySheetView(chart: $chart)
         }
         .sheet(isPresented: $showingCueTextEntry) {
             CueTextEntrySheetView(
@@ -339,15 +343,9 @@ struct EditorView: View {
                         Label("Style", systemImage: "paintpalette")
                     }
 
-                    Menu {
-                        ForEach(NotationFontPreset.allCases, id: \.self) { preset in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setNotationFont(preset)
-                            } label: {
-                                notationMenuLabel(preset.displayText, isSelected: chart.notationFont == preset)
-                            }
-                        }
+                    Button {
+                        activateSelectTool(clearsMeasureSelection: true)
+                        showingTypographySheet = true
                     } label: {
                         Label("Fonts", systemImage: "textformat")
                     }

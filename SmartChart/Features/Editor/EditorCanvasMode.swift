@@ -71,6 +71,10 @@ enum EditorCanvasMode: Hashable {
         self == .chordEntry
     }
 
+    var allowsChordObjectEditing: Bool {
+        self == .browse
+    }
+
     var allowsNoteSelectionInk: Bool {
         self == .noteEdit
     }
