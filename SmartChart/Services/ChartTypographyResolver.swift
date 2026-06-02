@@ -4,6 +4,7 @@ import CoreGraphics
 enum ChordTypographyTokenRole: String, Hashable {
     case primaryText
     case suffixText
+    case slashBassText
     case musicSymbol
 }
 
@@ -15,7 +16,11 @@ struct ChordTypographyToken: Hashable {
 struct ChartTypographyResolver: Hashable {
     static let simpleChordPrimaryFontSize: CGFloat = 46
     static let simpleChordSuffixScale: CGFloat = 0.54
+    static let simpleChordSlashBassScale: CGFloat = 0.56
     static let simpleChordTokenGapWidth: CGFloat = 2
+    static let structuredChordPrimaryFontSize: CGFloat = 18
+    static let structuredChordSuffixScale: CGFloat = 0.68
+    static let structuredChordSlashBassScale: CGFloat = 0.70
 
     var settings: ChartTypographySettings
     var notationFont: NotationFontPreset
@@ -49,6 +54,18 @@ struct ChartTypographyResolver: Hashable {
         primarySize * simpleChordSuffixScale
     }
 
+    static func simpleChordSlashBassFontSize(primarySize: CGFloat = simpleChordPrimaryFontSize) -> CGFloat {
+        primarySize * simpleChordSlashBassScale
+    }
+
+    static func structuredChordSuffixFontSize(primarySize: CGFloat = structuredChordPrimaryFontSize) -> CGFloat {
+        primarySize * structuredChordSuffixScale
+    }
+
+    static func structuredChordSlashBassFontSize(primarySize: CGFloat = structuredChordPrimaryFontSize) -> CGFloat {
+        primarySize * structuredChordSlashBassScale
+    }
+
     static func chordTokens(for symbol: ChordSymbol) -> [ChordTypographyToken] {
         let qualityText = normalizedQualityText(for: symbol.quality)
         var tokens: [ChordTypographyToken] = [
@@ -66,26 +83,20 @@ struct ChartTypographyResolver: Hashable {
 
         if qualityText == "alt", symbol.extensions.isEmpty || symbol.extensions == ["7"] {
             appendTextToken("7alt", role: .suffixText, to: &tokens)
-            if let slashBass = symbol.slashBass {
-                appendTextToken("/\(slashBass)", role: .suffixText, to: &tokens)
-            }
+            appendSlashBassToken(for: symbol, to: &tokens)
             return tokens
         }
 
         if qualityText == "-△", symbol.extensions == ["7"], symbol.alterations.isEmpty {
             appendQualityTokens("-△", to: &tokens)
             appendTextToken("7", role: .suffixText, to: &tokens)
-            if let slashBass = symbol.slashBass {
-                appendTextToken("/\(slashBass)", role: .suffixText, to: &tokens)
-            }
+            appendSlashBassToken(for: symbol, to: &tokens)
             return tokens
         }
 
         if qualityText == "-", symbol.extensions == ["6"], symbol.alterations.isEmpty {
             appendTextToken("m6", role: .suffixText, to: &tokens)
-            if let slashBass = symbol.slashBass {
-                appendTextToken("/\(slashBass)", role: .suffixText, to: &tokens)
-            }
+            appendSlashBassToken(for: symbol, to: &tokens)
             return tokens
         }
 
@@ -105,20 +116,40 @@ struct ChartTypographyResolver: Hashable {
         for alteration in symbol.alterations {
             appendTextToken("(\(alteration))", role: .suffixText, to: &tokens)
         }
-        if let slashBass = symbol.slashBass {
-            appendTextToken("/\(slashBass)", role: .suffixText, to: &tokens)
+        appendSlashBassToken(for: symbol, to: &tokens)
+    }
+
+    private static func appendSlashBassToken(
+        for symbol: ChordSymbol,
+        to tokens: inout [ChordTypographyToken]
+    ) {
+        guard let slashBass = symbol.slashBass else {
+            return
         }
+
+        appendTextToken("/\(slashBass)", role: .slashBassText, to: &tokens)
     }
 
     static func estimatedChordTokenWidth(
         for symbol: ChordSymbol,
         primaryFontSize: CGFloat,
-        suffixFontSize: CGFloat
+        suffixFontSize: CGFloat,
+        slashBassFontSize: CGFloat? = nil
     ) -> CGFloat {
         let tokens = chordTokens(for: symbol)
+        let resolvedSlashBassFontSize = slashBassFontSize
+            ?? simpleChordSlashBassFontSize(primarySize: primaryFontSize)
         let gapWidth = tokens.count > 1 ? CGFloat(tokens.count - 1) * simpleChordTokenGapWidth : 0
         let rawWidth = tokens.reduce(CGFloat(0)) { partialWidth, token in
-            let fontSize = token.role == .primaryText ? primaryFontSize : suffixFontSize
+            let fontSize: CGFloat
+            switch token.role {
+            case .primaryText:
+                fontSize = primaryFontSize
+            case .suffixText, .musicSymbol:
+                fontSize = suffixFontSize
+            case .slashBassText:
+                fontSize = resolvedSlashBassFontSize
+            }
             return partialWidth + token.text.reduce(CGFloat(0)) { characterWidth, character in
                 characterWidth + estimatedChordCharacterWidth(character) * (fontSize / 18)
             }

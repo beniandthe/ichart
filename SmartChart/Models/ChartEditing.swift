@@ -655,6 +655,13 @@ extension Chart {
         excluding chordEventID: UUID?,
         mode: ChordInsertionMode
     ) -> MeasureChordInsertionSuggestion {
+        if layoutStyle == .rhythmSectionSheet,
+           measure.rhythmMap == nil,
+           mode == .append,
+           measure.chordEvents.filter({ $0.id != chordEventID }).isEmpty {
+            return beatOneChordInsertionSuggestion()
+        }
+
         guard layoutStyle == .simpleChordSheet,
               measure.rhythmMap == nil,
               mode == .append else {
@@ -736,6 +743,14 @@ extension Chart {
     private func simpleChordSheetChordInsertionSuggestion(onBeat beat: Int) -> MeasureChordInsertionSuggestion {
         MeasureChordInsertionSuggestion(
             startPosition: BeatPosition(beat: beat, subdivision: 0, subdivisionsPerBeat: 1),
+            duration: .quarter,
+            mappedRhythmSlotIndex: nil
+        )
+    }
+
+    private func beatOneChordInsertionSuggestion() -> MeasureChordInsertionSuggestion {
+        MeasureChordInsertionSuggestion(
+            startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1),
             duration: .quarter,
             mappedRhythmSlotIndex: nil
         )

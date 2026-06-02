@@ -24,6 +24,12 @@ enum ChordInkUserCorrectionMemoryPolicy {
         }
     }
 
+    static func canUseRejectedAutoRenderCandidateSignature(_ signature: [String]) -> Bool {
+        // A single-candidate deletion only proves that exact ink was wrong in that local moment.
+        // Multi-candidate signatures describe a real recognizer race and are safe to block broadly.
+        signature.count > 1
+    }
+
     static func isCompleteFailure(
         result: ChordInkRecognitionResult,
         decision: ChordInkRecognitionDecision,
@@ -171,7 +177,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
                 return true
             }
 
-            guard !candidateSignature.isEmpty else {
+            guard ChordInkUserCorrectionMemoryPolicy.canUseRejectedAutoRenderCandidateSignature(candidateSignature) else {
                 return false
             }
 
@@ -287,14 +293,20 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             rejectedAutoRenderRules[index].updatedAt = now
             rejectedAutoRenderRules[index].count += 1
             appendDigest(digest, toRejectedAutoRenderAt: index)
-            appendCandidateSignature(candidateSignature, toRejectedAutoRenderAt: index)
+            if ChordInkUserCorrectionMemoryPolicy.canUseRejectedAutoRenderCandidateSignature(candidateSignature) {
+                appendCandidateSignature(candidateSignature, toRejectedAutoRenderAt: index)
+            }
         } else {
+            let candidateSignatures = ChordInkUserCorrectionMemoryPolicy
+                .canUseRejectedAutoRenderCandidateSignature(candidateSignature)
+                ? [candidateSignature]
+                : nil
             rejectedAutoRenderRules.append(
                 ChordInkRejectedAutoRenderRule(
                     id: UUID(),
                     acceptedText: match.displayText,
                     inkDigests: [digest],
-                    candidateSignatures: candidateSignature.isEmpty ? nil : [candidateSignature],
+                    candidateSignatures: candidateSignatures,
                     createdAt: now,
                     updatedAt: now,
                     count: 1

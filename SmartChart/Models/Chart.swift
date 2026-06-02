@@ -173,6 +173,11 @@ enum ChartLayoutStyle: String, Codable, CaseIterable, Hashable, Identifiable {
     case rhythmSectionSheet
     case leadSheet
 
+    static let v1NewChartOptions: [ChartLayoutStyle] = [
+        .simpleChordSheet,
+        .rhythmSectionSheet
+    ]
+
     var id: String { rawValue }
 
     var displayText: String {

@@ -87,12 +87,14 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawSectionText(_ text: String, in frame: CGRect) {
-        if chart.layoutStyle == .simpleChordSheet {
-            let font = style.sectionBadgeFont(size: 15)
+        if chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet {
+            let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
+            let font = style.sectionBadgeFont(size: isRhythmSection ? 13.5 : 15)
             let label = text.uppercased()
             let textWidth = (label as NSString).size(withAttributes: [.font: font]).width
-            let boxHeight = min(frame.height, 22)
-            let boxWidth = min(frame.width, max(boxHeight, ceil(textWidth) + 8))
+            let boxHeight = min(frame.height, isRhythmSection ? 20 : 22)
+            let horizontalPadding: CGFloat = isRhythmSection ? 7 : 8
+            let boxWidth = min(frame.width, max(boxHeight, ceil(textWidth) + horizontalPadding))
             let boxFrame = CGRect(
                 x: frame.minX,
                 y: frame.minY,
@@ -121,11 +123,12 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawRoadmapText(_ text: String, in frame: CGRect) {
+        let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
         drawText(
             text.uppercased(),
             in: frame,
-            font: style.textFont(size: 13),
-            color: style.inkColor.withAlphaComponent(0.78),
+            font: style.textFont(size: isRhythmSection ? 13.4 : 13),
+            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.86 : 0.78),
             alignment: .right
         )
     }
@@ -135,14 +138,14 @@ struct LeadSheetNotationRenderer {
         let alpha: CGFloat
         switch cueTextLayout.emphasis {
         case .subtle:
-            fontSize = 10.5
-            alpha = 0.56
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 11 : 10.5
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.64 : 0.56
         case .normal:
-            fontSize = 11.5
-            alpha = 0.68
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 12 : 11.5
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.76 : 0.68
         case .strong:
-            fontSize = 12.5
-            alpha = 0.82
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 13 : 12.5
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.88 : 0.82
         }
 
         drawText(
@@ -155,6 +158,7 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawEnding(_ endingLayout: LeadSheetEndingLayout) {
+        let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
         let bracketY = endingLayout.frame.minY + 3
         let hookBottomY = endingLayout.frame.maxY
         let path = UIBezierPath()
@@ -168,7 +172,7 @@ struct LeadSheetNotationRenderer {
             path.move(to: CGPoint(x: endingLayout.frame.maxX, y: bracketY))
             path.addLine(to: CGPoint(x: endingLayout.frame.maxX, y: hookBottomY))
         }
-        path.lineWidth = 1.35 * style.strokeScale
+        path.lineWidth = (isRhythmSection ? 1.45 : 1.35) * style.strokeScale
         style.inkColor.setStroke()
         path.stroke()
 
@@ -184,27 +188,28 @@ struct LeadSheetNotationRenderer {
                 width: min(70, max(1, endingLayout.frame.width - 12)),
                 height: max(1, endingLayout.frame.height - 4)
             ),
-            font: style.textFont(size: 12),
-            color: style.inkColor.withAlphaComponent(0.88)
+            font: style.textFont(size: isRhythmSection ? 12.4 : 12),
+            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.92 : 0.88)
         )
     }
 
     func drawRoadmapMarker(_ markerLayout: LeadSheetRoadmapMarkerLayout) {
+        let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
         let markerPath = UIBezierPath(
-            roundedRect: markerLayout.frame.insetBy(dx: 0.5, dy: 1.5),
-            cornerRadius: 2.5
+            roundedRect: markerLayout.frame.insetBy(dx: 0.5, dy: isRhythmSection ? 1 : 1.5),
+            cornerRadius: isRhythmSection ? 0.75 : 2.5
         )
-        style.inkColor.withAlphaComponent(0.055).setFill()
+        style.inkColor.withAlphaComponent(isRhythmSection ? 0.035 : 0.055).setFill()
         markerPath.fill()
-        style.inkColor.withAlphaComponent(0.62).setStroke()
-        markerPath.lineWidth = 0.9 * style.strokeScale
+        style.inkColor.withAlphaComponent(isRhythmSection ? 0.84 : 0.62).setStroke()
+        markerPath.lineWidth = (isRhythmSection ? 1.05 : 0.9) * style.strokeScale
         markerPath.stroke()
 
         drawText(
             markerLayout.text.uppercased(),
-            in: markerLayout.frame.insetBy(dx: 5, dy: 2),
-            font: style.textFont(size: 10.8),
-            color: style.inkColor.withAlphaComponent(0.82),
+            in: markerLayout.frame.insetBy(dx: 5, dy: isRhythmSection ? 1.5 : 2),
+            font: style.textFont(size: isRhythmSection ? 11.2 : 10.8),
+            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.9 : 0.82),
             alignment: .center
         )
     }
@@ -216,7 +221,7 @@ struct LeadSheetNotationRenderer {
             path.move(to: CGPoint(x: system.frame.minX, y: lineY))
             path.addLine(to: CGPoint(x: system.frame.maxX, y: lineY))
             path.lineWidth = style.staffLineWidth(staffSpace: staffSpace)
-            style.inkColor.withAlphaComponent(0.72).setStroke()
+            style.inkColor.withAlphaComponent(chart.layoutStyle == .rhythmSectionSheet ? 0.82 : 0.72).setStroke()
             path.stroke()
         }
     }
@@ -279,16 +284,64 @@ struct LeadSheetNotationRenderer {
             return
         }
 
-        let textFrame = chordLayout.frame
-        let font = style.chordFont(
-            size: style.chordFontSize(fitting: textFrame, text: chordLayout.text)
+        drawStructuredChord(chordLayout)
+    }
+
+    private func drawStructuredChord(_ chordLayout: LeadSheetChordLayout) {
+        let rootFontSize = style.chordFontSize(
+            fitting: chordLayout.frame,
+            text: chordLayout.text
         )
-        drawText(
-            chordLayout.text,
-            in: textFrame,
-            font: font,
-            color: style.inkColor
+        let suffixFontSize = style.structuredChordSuffixFontSize(primarySize: rootFontSize)
+        let slashBassFontSize = style.structuredChordSlashBassFontSize(primarySize: rootFontSize)
+        let rootFont = style.chordFont(size: rootFontSize)
+        let suffixFont = style.chordFont(size: suffixFontSize)
+        let slashBassFont = style.chordFont(size: slashBassFontSize)
+        let symbolFont = style.chordSymbolFont(size: suffixFontSize)
+        let runs = chordRenderRuns(
+            for: chordLayout,
+            rootFont: rootFont,
+            suffixFont: suffixFont,
+            slashBassFont: slashBassFont,
+            symbolFont: symbolFont,
+            suffixFontSize: suffixFontSize
         )
+        let gapWidth = runs.count > 1
+            ? CGFloat(runs.count - 1) * ChartTypographyResolver.simpleChordTokenGapWidth
+            : 0
+        let totalWidth = max(1, runs.reduce(CGFloat(0)) { $0 + $1.size.width } + gapWidth)
+        let horizontalScale = min(1, chordLayout.frame.width / totalWidth)
+        let renderedWidth = totalWidth * horizontalScale
+        let startX = chordLayout.frame.minX + max(0, (chordLayout.frame.width - renderedWidth) / 2)
+        let rootHeight = runs
+            .filter { $0.role == .primaryText }
+            .map(\.size.height)
+            .max() ?? (chordLayout.text as NSString).size(withAttributes: [.font: rootFont]).height
+        let rootY = chordLayout.frame.midY - rootHeight / 2
+        let suffixY = rootY + rootHeight * 0.18
+        let slashBassHeight = runs
+            .filter { $0.role == .slashBassText }
+            .map(\.size.height)
+            .max() ?? ("/B" as NSString).size(withAttributes: [.font: slashBassFont]).height
+        let slashBassY = rootY + max(0, rootHeight - slashBassHeight * 0.92)
+
+        guard let context = UIGraphicsGetCurrentContext() else {
+            drawChordRuns(
+                runs,
+                originX: startX,
+                rootY: rootY,
+                suffixY: suffixY,
+                slashBassY: slashBassY
+            )
+            return
+        }
+
+        context.saveGState()
+        context.translateBy(x: startX, y: 0)
+        context.scaleBy(x: horizontalScale, y: 1)
+        defer { context.restoreGState() }
+
+        drawChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY)
     }
 
     private func drawSimpleChord(_ chordLayout: LeadSheetChordLayout) {
@@ -298,12 +351,15 @@ struct LeadSheetNotationRenderer {
         )
         let rootFont = style.chordFont(size: rootFontSize)
         let suffixFontSize = style.simpleChordSuffixFontSize(primarySize: rootFontSize)
+        let slashBassFontSize = style.simpleChordSlashBassFontSize(primarySize: rootFontSize)
         let suffixFont = style.chordFont(size: suffixFontSize)
+        let slashBassFont = style.chordFont(size: slashBassFontSize)
         let symbolFont = style.chordSymbolFont(size: suffixFontSize)
-        let runs = simpleChordRenderRuns(
+        let runs = chordRenderRuns(
             for: chordLayout,
             rootFont: rootFont,
             suffixFont: suffixFont,
+            slashBassFont: slashBassFont,
             symbolFont: symbolFont,
             suffixFontSize: suffixFontSize
         )
@@ -325,9 +381,20 @@ struct LeadSheetNotationRenderer {
             .max() ?? (chordLayout.text as NSString).size(withAttributes: [.font: rootFont]).height
         let rootY = chordLayout.frame.midY - rootHeight / 2
         let suffixY = rootY + rootHeight * 0.16
+        let slashBassHeight = runs
+            .filter { $0.role == .slashBassText }
+            .map(\.size.height)
+            .max() ?? ("/B" as NSString).size(withAttributes: [.font: slashBassFont]).height
+        let slashBassY = rootY + max(0, rootHeight - slashBassHeight * 0.96)
 
         guard let context = UIGraphicsGetCurrentContext() else {
-            drawSimpleChordRuns(runs, originX: startX, rootY: rootY, suffixY: suffixY)
+            drawChordRuns(
+                runs,
+                originX: startX,
+                rootY: rootY,
+                suffixY: suffixY,
+                slashBassY: slashBassY
+            )
             return
         }
 
@@ -336,16 +403,17 @@ struct LeadSheetNotationRenderer {
         context.scaleBy(x: horizontalScale, y: 1)
         defer { context.restoreGState() }
 
-        drawSimpleChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY)
+        drawChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY)
     }
 
-    private func simpleChordRenderRuns(
+    private func chordRenderRuns(
         for chordLayout: LeadSheetChordLayout,
         rootFont: UIFont,
         suffixFont: UIFont,
+        slashBassFont: UIFont,
         symbolFont: UIFont,
         suffixFontSize: CGFloat
-    ) -> [SimpleChordRenderRun] {
+    ) -> [ChordRenderRun] {
         let tokens: [ChordTypographyToken]
         if let symbol = chordLayout.symbol {
             tokens = style.chordTokens(for: symbol)
@@ -364,8 +432,10 @@ struct LeadSheetNotationRenderer {
                 font = rootFont
             case .suffixText:
                 font = suffixFont
+            case .slashBassText:
+                font = slashBassFont
             case .musicSymbol:
-                font = symbolFont
+                font = suffixFont.supportsNotationGlyph(token.text) ? suffixFont : symbolFont
             }
 
             let drawsVectorSymbol = token.role == .musicSymbol
@@ -374,7 +444,7 @@ struct LeadSheetNotationRenderer {
                 ? vectorChordSymbolSize(for: token.text, fontSize: suffixFontSize)
                 : (token.text as NSString).size(withAttributes: [.font: font])
 
-            return SimpleChordRenderRun(
+            return ChordRenderRun(
                 text: token.text,
                 role: token.role,
                 font: font,
@@ -384,11 +454,12 @@ struct LeadSheetNotationRenderer {
         }
     }
 
-    private func drawSimpleChordRuns(
-        _ runs: [SimpleChordRenderRun],
+    private func drawChordRuns(
+        _ runs: [ChordRenderRun],
         originX: CGFloat,
         rootY: CGFloat,
-        suffixY: CGFloat
+        suffixY: CGFloat,
+        slashBassY: CGFloat
     ) {
         var cursorX = originX
 
@@ -397,7 +468,15 @@ struct LeadSheetNotationRenderer {
                 cursorX += ChartTypographyResolver.simpleChordTokenGapWidth
             }
 
-            let y = run.role == .primaryText ? rootY : suffixY
+            let y: CGFloat
+            switch run.role {
+            case .primaryText:
+                y = rootY
+            case .slashBassText:
+                y = slashBassY
+            case .suffixText, .musicSymbol:
+                y = suffixY
+            }
             if run.drawsVectorSymbol {
                 let symbolFrame = CGRect(
                     x: cursorX,
@@ -509,41 +588,43 @@ struct LeadSheetNotationRenderer {
 
     func drawRepeatMarker(_ marker: LeadSheetRepeatMarkerLayout) {
         let staffSpace = staffSpace(fromStaffHeight: marker.frame.height)
-        let separation = max(
-            style.barlineSeparation(staffSpace: staffSpace) * 1.55,
-            staffSpace * 0.46
+        let separation = style.repeatBarlineSeparation(staffSpace: staffSpace)
+        let lineWidth = style.repeatLineWidth(staffSpace: staffSpace)
+        let dotRadius = style.repeatDotRadius(staffSpace: staffSpace)
+        let dotOffset = style.repeatDotOffset(
+            thinLineWidth: lineWidth,
+            dotRadius: dotRadius,
+            staffSpace: staffSpace
         )
-        let thinLineWidth = max(style.barlineWidth(.thin, staffSpace: staffSpace), 1.05)
-        let heavyLineWidth = max(thinLineWidth * 1.45, 1.65)
         let centerX = marker.frame.midX
-        let thinX: CGFloat
-        let thickX: CGFloat
+        let nearDotLineX: CGFloat
+        let farLineX: CGFloat
         let dotX: CGFloat
 
         switch marker.edge {
         case .leading:
-            thickX = centerX - separation / 2
-            thinX = centerX + separation / 2
-            dotX = thinX + separation * 1.35
+            farLineX = centerX - separation / 2
+            nearDotLineX = centerX + separation / 2
+            dotX = nearDotLineX + dotOffset
         case .trailing:
-            thinX = centerX - separation / 2
-            thickX = centerX + separation / 2
-            dotX = thinX - separation * 1.35
+            nearDotLineX = centerX - separation / 2
+            farLineX = centerX + separation / 2
+            dotX = nearDotLineX - dotOffset
         }
 
         drawRepeatBarline(
-            at: thickX,
+            at: farLineX,
             from: marker.frame.minY,
             to: marker.frame.maxY,
-            width: heavyLineWidth
+            width: lineWidth
         )
         drawRepeatBarline(
-            at: thinX,
+            at: nearDotLineX,
             from: marker.frame.minY,
             to: marker.frame.maxY,
-            width: thinLineWidth
+            width: lineWidth
         )
-        drawRepeatDots(atX: dotX, in: marker.frame, staffSpace: staffSpace)
+        drawRepeatDots(atX: dotX, in: marker.frame, staffSpace: staffSpace, radius: dotRadius)
     }
 
     func drawSingleBarline(
@@ -575,8 +656,12 @@ struct LeadSheetNotationRenderer {
         path.stroke()
     }
 
-    private func drawRepeatDots(atX dotX: CGFloat, in frame: CGRect, staffSpace: CGFloat) {
-        let dotRadius = max(CGFloat(1.45), staffSpace * 0.16)
+    private func drawRepeatDots(
+        atX dotX: CGFloat,
+        in frame: CGRect,
+        staffSpace: CGFloat,
+        radius dotRadius: CGFloat
+    ) {
         let dotCenters = [
             CGPoint(x: dotX, y: frame.midY - staffSpace / 2),
             CGPoint(x: dotX, y: frame.midY + staffSpace / 2)
@@ -897,14 +982,45 @@ private struct LeadSheetNotationStyle {
     func barlineWidth(_ width: BarlineStrokeWidth, staffSpace: CGFloat) -> CGFloat {
         switch width {
         case .thin:
-            return scaledStaffSpaceValue(smuflDefaults.thinBarlineThickness, staffSpace: staffSpace, minimum: 0.8)
+            return LeadSheetBarlineMetrics.thinWidth(staffSpace: staffSpace, strokeScale: strokeScale)
         case .thick:
-            return scaledStaffSpaceValue(smuflDefaults.thickBarlineThickness, staffSpace: staffSpace, minimum: 2.2)
+            return LeadSheetBarlineMetrics.thickWidth(staffSpace: staffSpace, strokeScale: strokeScale)
         }
     }
 
+    func repeatLineWidth(staffSpace: CGFloat) -> CGFloat {
+        LeadSheetBarlineMetrics.repeatLineWidth(
+            staffSpace: staffSpace,
+            strokeScale: strokeScale,
+            layoutStyle: layoutStyle
+        )
+    }
+
     func barlineSeparation(staffSpace: CGFloat) -> CGFloat {
-        scaledStaffSpaceValue(smuflDefaults.barlineSeparation, staffSpace: staffSpace, minimum: 2.4)
+        LeadSheetBarlineMetrics.separation(staffSpace: staffSpace)
+    }
+
+    func repeatBarlineSeparation(staffSpace: CGFloat) -> CGFloat {
+        LeadSheetBarlineMetrics.repeatSeparation(
+            staffSpace: staffSpace,
+            layoutStyle: layoutStyle
+        )
+    }
+
+    func repeatDotRadius(staffSpace: CGFloat) -> CGFloat {
+        LeadSheetBarlineMetrics.repeatDotRadius(
+            staffSpace: staffSpace,
+            layoutStyle: layoutStyle
+        )
+    }
+
+    func repeatDotOffset(thinLineWidth: CGFloat, dotRadius: CGFloat, staffSpace: CGFloat) -> CGFloat {
+        LeadSheetBarlineMetrics.repeatDotOffset(
+            thinLineWidth: thinLineWidth,
+            dotRadius: dotRadius,
+            staffSpace: staffSpace,
+            layoutStyle: layoutStyle
+        )
     }
 
     func tieMidpointWidth(staffSpace: CGFloat) -> CGFloat {
@@ -1032,7 +1148,7 @@ private struct LeadSheetNotationStyle {
 
     func chordFontSize(fitting frame: CGRect, text: String) -> CGFloat {
         guard layoutStyle == .simpleChordSheet else {
-            return 18
+            return ChartTypographyResolver.structuredChordPrimaryFontSize
         }
 
         var size = min(56, max(24, frame.height * 0.92))
@@ -1053,6 +1169,18 @@ private struct LeadSheetNotationStyle {
 
     func simpleChordSuffixFontSize(primarySize: CGFloat) -> CGFloat {
         ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: primarySize)
+    }
+
+    func simpleChordSlashBassFontSize(primarySize: CGFloat) -> CGFloat {
+        ChartTypographyResolver.simpleChordSlashBassFontSize(primarySize: primarySize)
+    }
+
+    func structuredChordSuffixFontSize(primarySize: CGFloat) -> CGFloat {
+        ChartTypographyResolver.structuredChordSuffixFontSize(primarySize: primarySize)
+    }
+
+    func structuredChordSlashBassFontSize(primarySize: CGFloat) -> CGFloat {
+        ChartTypographyResolver.structuredChordSlashBassFontSize(primarySize: primarySize)
     }
 
     func sectionBadgeFont(size: CGFloat) -> UIFont {
@@ -1202,7 +1330,7 @@ private extension UIFont {
     }
 }
 
-private struct SimpleChordRenderRun {
+private struct ChordRenderRun {
     var text: String
     var role: ChordTypographyTokenRole
     var font: UIFont

@@ -1811,6 +1811,15 @@ private struct VisualRhythmRecognizer {
                 .subsets(containing: anchor, maximumCount: 4)
                 .compactMap { strokes -> (symbol: SymbolObservation, score: CGFloat)? in
                     let symbol = SymbolObservation(strokes: strokes)
+                    guard !symbol.strokes.allSatisfy({
+                        $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
+                            && $0.isIsolatedPlaceholderSlash(
+                                among: availableStrokes,
+                                sceneBounds: sceneBounds
+                            )
+                    }) else {
+                        return nil
+                    }
                     guard !symbol.hasAttachedLowerNotehead(among: availableStrokes, in: sceneBounds) else {
                         return nil
                     }
@@ -2906,6 +2915,8 @@ extension Array where Element == [StrokeObservation] {
 
             let movableDots = group.filter { stroke in
                 stroke.isDotLike(in: groupBounds)
+                    && !stroke.looksLikeLowerNotehead(in: groupBounds)
+                    && !stroke.looksLikeVisualNotehead(in: groupBounds)
                     && stroke.bounds.maxX < firstStem.bounds.midX
                     && stroke.center.y >= groupBounds.midY - groupBounds.height * 0.12
             }

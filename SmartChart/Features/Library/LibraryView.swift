@@ -119,15 +119,7 @@ struct LibraryView: View {
     #endif
 
     private func chartSummary(for chart: Chart) -> String {
-        if !chart.hasCompletedInitialSetup {
-            return "\(chart.layoutStyle.displayText) · setup pending"
-        }
-
-        if chart.measures.isEmpty {
-            return "\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText) · \(chart.defaultMeter.displayText) · blank page"
-        }
-
-        return "\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText) · \(chart.defaultMeter.displayText) · \(chart.measures.count) measures"
+        chart.librarySummaryText
     }
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
@@ -154,7 +146,7 @@ private struct NewChartLayoutPickerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(ChartLayoutStyle.allCases) { layoutStyle in
+                    ForEach(ChartLayoutStyle.v1NewChartOptions) { layoutStyle in
                         Button {
                             onSelect(layoutStyle)
                         } label: {

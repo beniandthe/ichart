@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 struct SmuflEngravingDefaults: Codable, Hashable {
@@ -431,5 +432,60 @@ extension StylePreset: Identifiable {
         case .rehearsalDraft:
             return "Plain working-copy style for fast revisions."
         }
+    }
+}
+
+enum LeadSheetBarlineMetrics {
+    static func thinWidth(staffSpace: CGFloat, strokeScale: CGFloat) -> CGFloat {
+        max(CGFloat(1.05), staffSpace * 0.075) * strokeScale
+    }
+
+    static func thickWidth(staffSpace: CGFloat, strokeScale: CGFloat) -> CGFloat {
+        max(CGFloat(1.9), staffSpace * 0.17) * strokeScale
+    }
+
+    static func repeatLineWidth(
+        staffSpace: CGFloat,
+        strokeScale: CGFloat,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGFloat {
+        let structuralWidth = thinWidth(staffSpace: staffSpace, strokeScale: strokeScale)
+        if layoutStyle == .simpleChordSheet {
+            return max(structuralWidth * 1.65, 1.55 * strokeScale)
+        }
+
+        return structuralWidth
+    }
+
+    static func separation(staffSpace: CGFloat) -> CGFloat {
+        max(CGFloat(2.4), staffSpace * 0.4)
+    }
+
+    static func repeatSeparation(staffSpace: CGFloat, layoutStyle: ChartLayoutStyle) -> CGFloat {
+        if layoutStyle == .simpleChordSheet {
+            return max(CGFloat(2.8), staffSpace * 0.23)
+        }
+
+        return max(separation(staffSpace: staffSpace) * 1.55, staffSpace * 0.46)
+    }
+
+    static func repeatDotRadius(staffSpace: CGFloat, layoutStyle: ChartLayoutStyle) -> CGFloat {
+        if layoutStyle == .simpleChordSheet {
+            return max(CGFloat(1.55), staffSpace * 0.135)
+        }
+
+        return max(CGFloat(1.45), staffSpace * 0.16)
+    }
+
+    static func repeatDotOffset(
+        thinLineWidth: CGFloat,
+        dotRadius: CGFloat,
+        staffSpace: CGFloat,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGFloat {
+        let clearance = layoutStyle == .simpleChordSheet
+            ? max(CGFloat(0.65), staffSpace * 0.035)
+            : max(CGFloat(0.8), staffSpace * 0.05)
+        return thinLineWidth / 2 + dotRadius + clearance
     }
 }

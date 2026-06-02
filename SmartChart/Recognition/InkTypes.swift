@@ -309,6 +309,8 @@ enum ChordInkRecognitionPolicy {
     static let autoRenderMinimumConfidence = 3.95
     static let closeRaceConfidenceGap = 0.04
     private static let uncommonRootSpellingConfirmationGap = 0.08
+    private static let weakSingleCandidateRootConfidence = 0.76
+    private static let ambiguousSingleCandidateRootGap = 0.08
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
         guard let match = result.match else {
@@ -332,6 +334,21 @@ enum ChordInkRecognitionPolicy {
                 action: .confirm,
                 acceptedText: acceptedText,
                 reason: "Low-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if shouldConfirmSingleCandidateWithWeakRoot(
+            acceptedText: acceptedText,
+            rankedScores: rankedScores,
+            glyphCandidates: result.glyphCandidates
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Ambiguous root read. Choose a suggestion or type the chord you meant.",
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
@@ -453,6 +470,57 @@ enum ChordInkRecognitionPolicy {
         }
 
         return ["B#", "E#", "Cb", "Fb"].contains("\(symbol.root.rawValue)\(symbol.accidental.rawValue)")
+    }
+
+    private static func shouldConfirmSingleCandidateWithWeakRoot(
+        acceptedText: String,
+        rankedScores: [ChordInkCandidateScore],
+        glyphCandidates: [[GlyphCandidate]]
+    ) -> Bool {
+        guard rankedScores.count == 1,
+              let acceptedSymbol = try? ChordSymbolParser.parse(acceptedText),
+              let rootEvidence = rootGlyphEvidence(
+                for: acceptedSymbol.root.rawValue,
+                glyphCandidates: glyphCandidates
+              ) else {
+            return false
+        }
+
+        return rootEvidence.acceptedConfidence < weakSingleCandidateRootConfidence
+            || rootEvidence.gapToRunnerUp <= ambiguousSingleCandidateRootGap
+    }
+
+    private static func rootGlyphEvidence(
+        for acceptedRoot: String,
+        glyphCandidates: [[GlyphCandidate]]
+    ) -> (acceptedConfidence: Double, gapToRunnerUp: Double)? {
+        guard let rootGlyphColumn = glyphCandidates.first else {
+            return nil
+        }
+
+        let rootLetters: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
+        let rootCandidates = rootGlyphColumn
+            .filter { candidate in
+                candidate.text.count == 1 && rootLetters.contains(candidate.text)
+            }
+            .sorted { lhs, rhs in
+                if lhs.confidence != rhs.confidence {
+                    return lhs.confidence > rhs.confidence
+                }
+
+                return lhs.text < rhs.text
+            }
+        guard let acceptedCandidate = rootCandidates.first(where: { $0.text == acceptedRoot }) else {
+            return nil
+        }
+
+        let runnerUpConfidence = rootCandidates
+            .first { $0.text != acceptedRoot }?
+            .confidence ?? 0
+        return (
+            acceptedConfidence: acceptedCandidate.confidence,
+            gapToRunnerUp: acceptedCandidate.confidence - runnerUpConfidence
+        )
     }
 }
 

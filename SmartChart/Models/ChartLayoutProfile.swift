@@ -22,6 +22,34 @@ struct ChartLayoutProfile: Hashable {
     }
 }
 
+extension Chart {
+    var librarySummaryText: String {
+        if !hasCompletedInitialSetup {
+            return "\(layoutStyle.displayText) · setup pending"
+        }
+
+        let measureSummary = measures.isEmpty ? "blank page" : "\(measures.count) measures"
+        let visibleSetupParts = layoutStyle.visibleLibrarySetupSummaryParts(for: self)
+        return ([layoutStyle.displayText] + visibleSetupParts + [measureSummary]).joined(separator: " · ")
+    }
+}
+
+private extension ChartLayoutStyle {
+    func visibleLibrarySetupSummaryParts(for chart: Chart) -> [String] {
+        var parts = [String]()
+
+        if profile.setupPolicy.includesKeySelection {
+            parts.append(chart.documentKey.displayText)
+        }
+
+        if profile.setupPolicy.includesTimeSignatureSelection {
+            parts.append(chart.defaultMeter.displayText)
+        }
+
+        return parts
+    }
+}
+
 enum ChartLayoutToolbarEmphasis: String, Hashable {
     case chordRoadmap
     case rhythmAndHits

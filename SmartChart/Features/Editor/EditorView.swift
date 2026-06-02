@@ -29,9 +29,6 @@ struct EditorView: View {
     @State private var showingRhythmicNotationAcceptanceSheet = false
     @State private var hasPresentedRhythmicNotationGuide = false
     @State private var isExporting = false
-    @State private var rhythmicNotationErrorMessage = ""
-    @State private var showingRhythmicNotationError = false
-    @State private var pendingRhythmicNotationConfirmation: PendingRhythmicNotationConfirmation?
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
     @State private var isNoteEditMenuPresented = false
@@ -76,15 +73,8 @@ struct EditorView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                toolStrip
-
-                canvasView
-                    .frame(minHeight: canvasHeight)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 28)
+        GeometryReader { proxy in
+            editorSurface(availableSize: proxy.size)
         }
         .background(
             LinearGradient(
@@ -141,17 +131,6 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingRhythmicNotationAcceptanceSheet) {
             RhythmicNotationAcceptanceSheetView()
-        }
-        .sheet(item: $pendingRhythmicNotationConfirmation) { confirmation in
-            RhythmicNotationConfirmationSheetView(
-                confirmation: confirmation,
-                onAccept: {
-                    handleRhythmicNotationConfirmationAccepted(confirmation)
-                },
-                onRewrite: {
-                    handleRhythmicNotationConfirmationRewriteRequested(confirmation)
-                }
-            )
         }
         .sheet(item: $pendingChordInkConfirmation) { confirmation in
             ChordInkConfirmationSheetView(
@@ -243,11 +222,6 @@ struct EditorView: View {
         } message: {
             Text(exportAlertMessage)
         }
-        .alert("Rhythmic Notation", isPresented: $showingRhythmicNotationError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(rhythmicNotationErrorMessage)
-        }
         .alert("Rhythm Edit", isPresented: $showingNoteEditError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -295,6 +269,30 @@ struct EditorView: View {
             if !chart.hasCompletedInitialSetup {
                 showingSetupSheet = true
             }
+        }
+    }
+
+    @ViewBuilder
+    private func editorSurface(availableSize: CGSize) -> some View {
+        let horizontalPadding = editorHorizontalPadding(for: availableSize.width)
+        let verticalPadding = editorVerticalPadding(for: availableSize.height)
+        let contentSize = CGSize(
+            width: max(1, availableSize.width - horizontalPadding * 2),
+            height: max(1, availableSize.height - verticalPadding * 2)
+        )
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                toolStrip
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                canvasView
+                    .frame(width: contentSize.width, alignment: .topLeading)
+                    .frame(minHeight: canvasHeight(for: contentSize), alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
         }
     }
 
@@ -675,8 +673,6 @@ struct EditorView: View {
                 interactionMode: canvasMode,
                 inkToolMode: inkToolMode,
                 onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
-                onRhythmicNotationProposal: handleRhythmicNotationProposal,
-                onRhythmicNotationValidationError: handleRhythmicNotationValidationError,
                 onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
                 onChordCorrectionRequested: handleChordCorrectionRequested,
                 onChordDeleted: handleChordDeleted,
@@ -1308,70 +1304,6 @@ struct EditorView: View {
         }
     }
 
-    private func handleRhythmicNotationValidationError(_ message: String) {
-        rhythmicNotationErrorMessage = message
-        showingRhythmicNotationError = true
-        canvasMode = .rhythmicNotationEdit
-    }
-
-    private func handleRhythmicNotationProposal(
-        measureID: UUID,
-        values: [RhythmValue],
-        drawingData: Data
-    ) {
-        guard let measure = chart.measure(id: measureID) else {
-            return
-        }
-
-        selectedMeasureID = measureID
-        selectedNoteSelection = nil
-        canvasMode = .rhythmicNotationEdit
-        pendingRhythmicNotationConfirmation = PendingRhythmicNotationConfirmation(
-            measureID: measureID,
-            measureIndex: measure.index,
-            meter: measure.resolvedMeter(defaultMeter: chart.defaultMeter),
-            values: values,
-            drawingData: drawingData
-        )
-    }
-
-    private func handleRhythmicNotationConfirmationAccepted(
-        _ confirmation: PendingRhythmicNotationConfirmation
-    ) {
-        var updatedChart = chart
-        _ = updatedChart.setMeasureRhythmMap(
-            confirmation.values,
-            drawingData: confirmation.drawingData,
-            for: confirmation.measureID
-        )
-        _ = updatedChart.clearMeasureRhythmicNotation(
-            for: confirmation.measureID,
-            clearRhythmMap: false
-        )
-
-        chart = updatedChart
-        selectedMeasureID = confirmation.measureID
-        selectedNoteSelection = nil
-        canvasMode = .rhythmicNotationEdit
-        pendingRhythmicNotationConfirmation = nil
-    }
-
-    private func handleRhythmicNotationConfirmationRewriteRequested(
-        _ confirmation: PendingRhythmicNotationConfirmation
-    ) {
-        var updatedChart = chart
-        _ = updatedChart.clearMeasureRhythmicNotation(
-            for: confirmation.measureID,
-            clearRhythmMap: true
-        )
-
-        chart = updatedChart
-        selectedMeasureID = confirmation.measureID
-        selectedNoteSelection = nil
-        canvasMode = .rhythmicNotationEdit
-        pendingRhythmicNotationConfirmation = nil
-    }
-
     private func handleChordInkRecognitionProposal(
         measureID: UUID,
         result: ChordInkRecognitionResult,
@@ -1448,17 +1380,7 @@ struct EditorView: View {
             candidateTexts: confirmation.candidateTexts
         )
 
-        if isCompleteFailure {
-            let failureCount = chordInkAutomaticRewriteFailures.recordFailure(
-                measureID: measureID,
-                targetFraction: targetFraction
-            )
-
-            if failureCount <= ChordInkUserCorrectionMemoryPolicy.maximumAutomaticRewriteFailures {
-                clearChordInkForRewrite()
-                return
-            }
-        } else {
+        if !isCompleteFailure {
             chordInkAutomaticRewriteFailures.reset()
         }
 
@@ -2014,16 +1936,32 @@ struct EditorView: View {
         }
     }
 
-    private var canvasHeight: CGFloat {
+    private func editorHorizontalPadding(for width: CGFloat) -> CGFloat {
+        if width >= 1180 {
+            return 10
+        }
+
+        if width >= 820 {
+            return 14
+        }
+
+        return 10
+    }
+
+    private func editorVerticalPadding(for height: CGFloat) -> CGFloat {
+        height >= 900 ? 20 : 14
+    }
+
+    private func canvasHeight(for availableSize: CGSize) -> CGFloat {
         if !chart.hasCompletedInitialSetup {
-            return 760
+            return max(760, availableSize.height)
         }
 
         let visibleSystemCount = LeadSheetPageLayoutEngine.estimatedSystemCount(
             for: chart,
-            pageWidth: 900
+            pageWidth: availableSize.width
         )
-        return max(1200, CGFloat(visibleSystemCount) * 168 + 320)
+        return max(availableSize.height, 1200, CGFloat(visibleSystemCount) * 168 + 320)
     }
 
     @ViewBuilder

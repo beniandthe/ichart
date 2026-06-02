@@ -1442,6 +1442,25 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(chord.mappedRhythmSlotIndex)
     }
 
+    func testRhythmSectionFirstChordWithoutRhythmStartsAtBeatOneButCanMove() throws {
+        var chart = Chart.blank(title: "Rhythm Chords", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let symbol = ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil)
+
+        XCTAssertTrue(chart.appendRecognizedChord(symbol, rawInput: "C", to: measureID, atFraction: 0.72))
+
+        let chordID = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first?.id)
+        let insertedChord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
+        XCTAssertEqual(insertedChord.startPosition.displayText, "1")
+        XCTAssertNil(insertedChord.mappedRhythmSlotIndex)
+
+        XCTAssertTrue(chart.moveChordEvent(chordID, to: measureID, atFraction: 0.68))
+
+        let movedChord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
+        XCTAssertEqual(movedChord.startPosition.displayText, "4")
+        XCTAssertNil(movedChord.mappedRhythmSlotIndex)
+    }
+
     func testSimpleChordSheetSecondChordAutomaticallyStartsAtBeatThree() throws {
         var chart = Chart.blank(title: "Simple Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
