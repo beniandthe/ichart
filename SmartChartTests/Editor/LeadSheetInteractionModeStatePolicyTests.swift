@@ -162,8 +162,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .chords(frame: CGRect(x: 0, y: 0, width: 100, height: 40)),
                 interactionMode: .chordEntry,
-                hasUnpersistedChordInk: true,
-                hasUnpersistedRhythmicNotationInk: false,
+                sessionState: dirtyInkSessionState(.chord),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
             )
@@ -178,8 +177,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                     frame: CGRect(x: 0, y: 0, width: 100, height: 40)
                 ),
                 interactionMode: .rhythmicNotationEdit,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: true,
+                sessionState: dirtyInkSessionState(.rhythm),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
             )
@@ -191,9 +189,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
                 interactionMode: .headerEntry,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: false,
-                hasUnpersistedPassiveInk: true,
+                sessionState: dirtyInkSessionState(.passive),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
             )
@@ -205,9 +201,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .freehandSymbols(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
                 interactionMode: .freeHand,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: false,
-                hasUnpersistedPassiveInk: true,
+                sessionState: dirtyInkSessionState(.passive),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: nil
             )
@@ -219,9 +213,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
                 interactionMode: .headerEntry,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: false,
-                hasUnpersistedPassiveInk: false,
+                sessionState: dirtyInkSessionState(),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
             )
@@ -230,9 +222,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
                 interactionMode: .headerEntry,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: false,
-                hasUnpersistedPassiveInk: true,
+                sessionState: dirtyInkSessionState(.passive),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x01])
             )
@@ -249,8 +239,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: activeScope,
                 interactionMode: .rhythmicNotationEdit,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: false,
+                sessionState: dirtyInkSessionState(),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
             )
@@ -259,8 +248,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: activeScope,
                 interactionMode: .rhythmicNotationEdit,
-                hasUnpersistedChordInk: false,
-                hasUnpersistedRhythmicNotationInk: true,
+                sessionState: dirtyInkSessionState(.rhythm),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x01])
             )
@@ -465,7 +453,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testRhythmAutoApplyRequiresStableNonEmptyScheduledSnapshot() {
-        let snapshot = LeadSheetRhythmicNotationInkSnapshot(testValues: [1, 2])
+        let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
 
         XCTAssertTrue(
             LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
@@ -475,7 +463,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         XCTAssertFalse(
             LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
-                currentInkSnapshot: LeadSheetRhythmicNotationInkSnapshot(testValues: [1, 3]),
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [1, 3]),
                 scheduledInkSnapshot: snapshot
             )
         )
@@ -493,11 +481,34 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testInkAuthoringSessionPolicyRequiresStableSnapshotForScheduledRecognitionWork() {
+        let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
+
+        XCTAssertTrue(
+            LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: snapshot,
+                scheduledInkSnapshot: snapshot
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [1, 3]),
+                scheduledInkSnapshot: snapshot
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: snapshot,
+                scheduledInkSnapshot: nil
+            )
+        )
+    }
+
     func testRhythmAutoApplySnapshotIgnoresSerializedDrawingMetadata() {
         let firstDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let secondDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 20))])
-        let firstSnapshot = LeadSheetRhythmicNotationInkSnapshot(drawing: firstDrawing)
-        let secondSnapshot = LeadSheetRhythmicNotationInkSnapshot(drawing: secondDrawing)
+        let firstSnapshot = LeadSheetInkDrawingSnapshot(drawing: firstDrawing)
+        let secondSnapshot = LeadSheetInkDrawingSnapshot(drawing: secondDrawing)
 
         XCTAssertNotNil(firstSnapshot)
         XCTAssertNotNil(secondSnapshot)
@@ -900,6 +911,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             targetUnits: 8,
             passesCompendium: true
         )
+    }
+
+    private func dirtyInkSessionState(
+        _ roles: LeadSheetInkAuthoringSessionRole...
+    ) -> LeadSheetInkAuthoringSessionState {
+        var state = LeadSheetInkAuthoringSessionState()
+        roles.forEach { state.markDirty($0) }
+        return state
     }
 
     private func snapshotStroke(creationDate: Date) -> PKStroke {

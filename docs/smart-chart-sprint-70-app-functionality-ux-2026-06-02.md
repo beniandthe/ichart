@@ -61,6 +61,23 @@ Implementation contract:
 - Persist using the old tool's active ink scope when switching back to Select, so header/page/freehand ink does not depend on the idle timer firing first.
 - Keep chord recognition, rhythm recognition, OCR, score thresholds, and personal handwriting fixtures unchanged.
 
+## Slice 4: Chord/Rhythm Ink Session Unification
+
+User direction:
+
+- Apply the same live-ink stability thinking to chord and rhythm authoring without changing recognizer behavior.
+- Improve recognition reliability by reducing stale scheduled reads and canvas/model sync drift, not by retuning scores.
+
+Implementation contract:
+
+- Replace separate chord, rhythm, and passive dirty-canvas flags with a shared `LeadSheetInkAuthoringSessionState`.
+- Route active ink scopes through `LeadSheetInkAuthoringSessionRole` values: chord, rhythm, and passive.
+- Keep dirty active canvases protected from stale model reloads through one policy.
+- Rename the rhythm-only drawing snapshot to `LeadSheetInkDrawingSnapshot` and use it as the shared stable-canvas snapshot for scheduled work.
+- Add stable-snapshot gating to chord recognition requests, matching the rhythm auto-apply safety model.
+- Preserve the existing chord commit cleanup path and rhythm V4 commit/fail-closed authority.
+- Keep chord recognition, rhythm recognition, OCR, score thresholds, compendium behavior, and personal handwriting fixtures unchanged.
+
 ## Verification
 
 - Focused SwiftPM: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile --filter 'ChartEditingTests|LeadSheetPageLayoutTests'`
@@ -71,8 +88,11 @@ Implementation contract:
 - Result: `174` tests, `0` failures.
 - Full SwiftPM: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile`
 - Result: `467` tests, `36` skipped, `0` failures.
+- Chord/rhythm ink-session unification full SwiftPM: `swift test --scratch-path /tmp/SmartChartSwiftBuild-layoutprofile`
+- Result: `467` tests, `36` skipped, `0` failures.
 - `git diff --check` passed.
 - XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch (M5) simulator with the existing headermap warning only; screenshot capture completed after launch.
+- Chord/rhythm ink-session unification XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch (M5) simulator with the existing headermap warning only; screenshot capture completed after launch.
 
 ## Guardrails
 
@@ -83,6 +103,7 @@ Implementation contract:
 - No key-dependent transposition requirements for Simple Chord Sheet or Rhythm Section Sheet.
 - Header handwriting is raw page ink, not OCR or recognized text.
 - Passive ink responsiveness does not change chord/rhythm recognition authority.
+- Chord/rhythm ink-session unification does not change parser, compendium, scoring, OCR, or training authority.
 - Lead Sheet remains post-V1 beyond compatibility behavior already present in the model.
 
 ## Next Candidate Slices
