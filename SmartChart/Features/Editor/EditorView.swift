@@ -326,6 +326,48 @@ struct EditorView: View {
                         Label("Header", systemImage: "character.cursor.ibeam")
                     }
 
+                    Menu {
+                        Button {
+                            activateSelectTool(clearsMeasureSelection: true)
+                            chart.transposeChordsByHalfSteps(1)
+                        } label: {
+                            Label("Up Half Step", systemImage: "arrow.up")
+                        }
+
+                        Button {
+                            activateSelectTool(clearsMeasureSelection: true)
+                            chart.transposeChordsByHalfSteps(-1)
+                        } label: {
+                            Label("Down Half Step", systemImage: "arrow.down")
+                        }
+
+                        Button {
+                            activateSelectTool(clearsMeasureSelection: true)
+                            chart.setChordTranspositionSemitones(0)
+                        } label: {
+                            Label("Reset to Written", systemImage: "arrow.uturn.backward")
+                        }
+
+                        Divider()
+
+                        ForEach(Array(0...11), id: \.self) { semitones in
+                            Button {
+                                activateSelectTool(clearsMeasureSelection: true)
+                                chart.setChordTranspositionSemitones(semitones)
+                            } label: {
+                                notationMenuLabel(
+                                    chordTranspositionOptionTitle(semitones),
+                                    isSelected: chart.chordTranspositionSemitones == semitones
+                                )
+                            }
+                        }
+                    } label: {
+                        Label(
+                            "Transpose Chords (\(chart.chordTranspositionDisplayText))",
+                            systemImage: "arrow.up.arrow.down"
+                        )
+                    }
+
                     Divider()
 
                     Menu {
@@ -1971,6 +2013,17 @@ struct EditorView: View {
             if isSelected {
                 Image(systemName: "checkmark")
             }
+        }
+    }
+
+    private func chordTranspositionOptionTitle(_ semitones: Int) -> String {
+        switch semitones {
+        case 0:
+            return "Written"
+        case 1:
+            return "+1 half step"
+        default:
+            return "+\(semitones) half steps"
         }
     }
 

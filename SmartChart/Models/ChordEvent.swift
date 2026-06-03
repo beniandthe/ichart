@@ -170,6 +170,49 @@ struct ChordSymbol: Codable, Hashable {
         return copy
     }
 
+    func transposedForChartDisplay(by semitones: Int) -> ChordSymbol {
+        let normalizedSemitones = Chart.normalizedChordTranspositionSemitones(semitones)
+        guard normalizedSemitones != 0 else { return self }
+
+        let originalPitch = ChordPitch(root: root, accidental: accidental)
+        let rootPreference = Self.chartDisplaySpellingPreference(
+            for: originalPitch,
+            semitones: normalizedSemitones
+        )
+        let transposedRoot = originalPitch
+            .transposed(by: normalizedSemitones)
+            .spelled(using: rootPreference)
+
+        var copy = self
+        copy.root = transposedRoot.root
+        copy.accidental = transposedRoot.accidental
+
+        if let slashBass,
+           let parsedBass = ChordPitch.parse(slashBass) {
+            let bassPreference = Self.chartDisplaySpellingPreference(
+                for: parsedBass,
+                semitones: normalizedSemitones
+            )
+            let transposedBass = parsedBass
+                .transposed(by: normalizedSemitones)
+                .spelled(using: bassPreference)
+            copy.slashBass = transposedBass.displayText
+        }
+
+        return copy
+    }
+
+    private static func chartDisplaySpellingPreference(
+        for pitch: ChordPitch,
+        semitones: Int
+    ) -> PitchSpellingPreference {
+        if pitch.accidental != .natural {
+            return PitchSpellingPreference.forAccidental(pitch.accidental)
+        }
+
+        return semitones == 0 ? .flats : .sharps
+    }
+
     private var displayQualityText: String {
         if quality == "△" || quality == "Δ" || quality == "∆" {
             return "△"

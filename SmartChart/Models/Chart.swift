@@ -12,6 +12,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var notationFont: NotationFontPreset
     var typography: ChartTypographySettings
     var defaultTranspositionView: TranspositionView
+    var chordTranspositionSemitones: Int
     var defaultMeter: Meter
     var staffStyle: StaffStyle = .fiveLine
     var defaultClef: ChartClef = .treble
@@ -45,6 +46,7 @@ struct Chart: Identifiable, Codable, Hashable {
         notationFont: NotationFontPreset = .petaluma,
         typography: ChartTypographySettings? = nil,
         defaultTranspositionView: TranspositionView,
+        chordTranspositionSemitones: Int = 0,
         defaultMeter: Meter,
         staffStyle: StaffStyle = .fiveLine,
         defaultClef: ChartClef = .treble,
@@ -73,6 +75,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.notationFont = notationFont
         self.typography = typography ?? ChartTypographySettings.default(for: notationFont)
         self.defaultTranspositionView = defaultTranspositionView
+        self.chordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(chordTranspositionSemitones)
         self.defaultMeter = defaultMeter
         self.staffStyle = staffStyle
         self.defaultClef = defaultClef
@@ -103,6 +106,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case notationFont
         case typography
         case defaultTranspositionView
+        case chordTranspositionSemitones
         case defaultMeter
         case staffStyle
         case defaultClef
@@ -135,6 +139,9 @@ struct Chart: Identifiable, Codable, Hashable {
         typography = try container.decodeIfPresent(ChartTypographySettings.self, forKey: .typography)
             ?? ChartTypographySettings.default(for: notationFont)
         defaultTranspositionView = try container.decode(TranspositionView.self, forKey: .defaultTranspositionView)
+        chordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(
+            try container.decodeIfPresent(Int.self, forKey: .chordTranspositionSemitones) ?? 0
+        )
         defaultMeter = try container.decode(Meter.self, forKey: .defaultMeter)
         staffStyle = try container.decodeIfPresent(StaffStyle.self, forKey: .staffStyle) ?? .fiveLine
         defaultClef = try container.decodeIfPresent(ChartClef.self, forKey: .defaultClef) ?? .treble
@@ -288,6 +295,31 @@ enum TranspositionView: String, Codable, CaseIterable, Hashable {
         case .eb:
             return 9
         }
+    }
+}
+
+extension Chart {
+    static func normalizedChordTranspositionSemitones(_ semitones: Int) -> Int {
+        let modulo = semitones % 12
+        return modulo >= 0 ? modulo : modulo + 12
+    }
+
+    var chordTranspositionDisplayText: String {
+        switch chordTranspositionSemitones {
+        case 0:
+            return "Written"
+        case 1:
+            return "+1 half step"
+        default:
+            return "+\(chordTranspositionSemitones) half steps"
+        }
+    }
+
+    func displayedChordSymbol(for chordEvent: ChordEvent) -> ChordSymbol {
+        chordEvent
+            .transposed(for: defaultTranspositionView)
+            .symbol
+            .transposedForChartDisplay(by: chordTranspositionSemitones)
     }
 }
 

@@ -578,6 +578,77 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(displayedKey.displayText, "Cb major")
     }
 
+    func testChordTranspositionSemitonesNormalizeForChartDisplay() {
+        var chart = Chart.blank(title: "Transposition", measureCount: 1, layoutStyle: .simpleChordSheet)
+
+        chart.setChordTranspositionSemitones(14)
+
+        XCTAssertEqual(chart.chordTranspositionSemitones, 2)
+        XCTAssertEqual(chart.chordTranspositionDisplayText, "+2 half steps")
+
+        chart.transposeChordsByHalfSteps(-3)
+
+        XCTAssertEqual(chart.chordTranspositionSemitones, 11)
+        XCTAssertEqual(chart.chordTranspositionDisplayText, "+11 half steps")
+    }
+
+    func testDisplayedChordSymbolAppliesChartTranspositionWithoutMutatingSourceChord() throws {
+        var chart = Chart.blank(title: "Transposition", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let sourceSymbol = try ChordSymbolParser.parse("G/B")
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                sourceSymbol,
+                rawInput: "G/B",
+                to: measureID,
+                atFraction: 0.05,
+                sourceInkData: Data([1, 2, 3]),
+                sourceCandidateSignature: ["G/B"]
+            )
+        )
+
+        chart.setChordTranspositionSemitones(1)
+
+        let storedChord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(storedChord.symbol.displayText, "G/B")
+        XCTAssertEqual(storedChord.rawInput, "G/B")
+        XCTAssertEqual(chart.displayedChordSymbol(for: storedChord).displayText, "G#/C")
+    }
+
+    func testDisplayedChordSymbolPreservesAccidentalFamilyForFlatChordTransposition() throws {
+        var chart = Chart.blank(title: "Transposition", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let sourceSymbol = try ChordSymbolParser.parse("Db7(b9)/Ab")
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                sourceSymbol,
+                rawInput: "Db7(b9)/Ab",
+                to: measureID,
+                atFraction: 0.05
+            )
+        )
+
+        chart.setChordTranspositionSemitones(2)
+
+        let storedChord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chart.displayedChordSymbol(for: storedChord).displayText, "Eb7(b9)/Bb")
+        XCTAssertEqual(storedChord.symbol.displayText, "Db7(b9)/Ab")
+    }
+
+    func testLegacyChartDecodingDefaultsChordTranspositionToWritten() throws {
+        let chart = Chart.blank(title: "Legacy", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let encodedChart = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedChart) as? [String: Any])
+
+        object.removeValue(forKey: "chordTranspositionSemitones")
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.chordTranspositionSemitones, 0)
+        XCTAssertEqual(decodedChart.chordTranspositionDisplayText, "Written")
+    }
+
     func testCompleteInitialSetupStoresPromptSelections() {
         var chart = Chart.draft(title: "New Chart")
 

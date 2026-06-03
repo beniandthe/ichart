@@ -1294,7 +1294,8 @@ enum LeadSheetPageLayoutEngine {
         placementCount: Int,
         simpleChordDisplayPlan: SimpleChordDisplayPlan?
     ) -> LeadSheetChordLayout {
-        let event = placement.chordEvent.transposed(for: chart.defaultTranspositionView)
+        let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent)
+        let displayedText = displayedSymbol.displayText
         let usableWidth = staffFrame.width - 16
         let attackCenterX = beatAttackCenterX(
             startPosition: placement.startPosition,
@@ -1308,8 +1309,8 @@ enum LeadSheetPageLayoutEngine {
             if let simpleChordDisplayPlan {
                 return LeadSheetChordLayout(
                     id: placement.chordEvent.id,
-                    text: event.symbol.displayText,
-                    symbol: event.symbol,
+                    text: displayedText,
+                    symbol: displayedSymbol,
                     frame: simpleChordDisplayPlan.frame,
                     fitFrame: simpleChordDisplayPlan.frame,
                     horizontalCompressionScale: simpleChordDisplayPlan.horizontalCompressionScale,
@@ -1328,11 +1329,11 @@ enum LeadSheetPageLayoutEngine {
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
-                text: event.symbol.displayText,
-                symbol: event.symbol,
+                text: displayedText,
+                symbol: displayedSymbol,
                 frame: simpleChordDisplayFrame(
-                    symbol: event.symbol,
-                    text: event.symbol.displayText,
+                    symbol: displayedSymbol,
+                    text: displayedText,
                     fitFrame: fitFrame,
                     horizontalCompressionScale: 1,
                     reservesTrailingWritingSpace: simpleChordReservesTrailingWritingSpace(
@@ -1346,7 +1347,7 @@ enum LeadSheetPageLayoutEngine {
             )
         }
 
-        let textWidth = estimatedChordTextWidth(for: event.symbol.displayText)
+        let textWidth = estimatedChordTextWidth(for: displayedText)
         let chordX = min(
             max(chordBandFrame.minX + 1, attackCenterX - textWidth / 2),
             chordBandFrame.maxX - textWidth
@@ -1359,8 +1360,8 @@ enum LeadSheetPageLayoutEngine {
             : 0
         return LeadSheetChordLayout(
             id: placement.chordEvent.id,
-            text: event.symbol.displayText,
-            symbol: event.symbol,
+            text: displayedText,
+            symbol: displayedSymbol,
             frame: CGRect(
                 x: resolvedChordX,
                 y: chordBandFrame.minY + structuredChordRenderOffset,
@@ -1480,9 +1481,7 @@ enum LeadSheetPageLayoutEngine {
 
         let fontSize = preferredSimpleChordFontSize()
         let naturalWidths = placements.map { placement -> (id: UUID, width: CGFloat) in
-            let symbol = placement.chordEvent
-                .transposed(for: chart.defaultTranspositionView)
-                .symbol
+            let symbol = chart.displayedChordSymbol(for: placement.chordEvent)
             return (
                 placement.chordEvent.id,
                 max(

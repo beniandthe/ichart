@@ -80,6 +80,20 @@ extension Chart {
         updatedAt = .now
     }
 
+    mutating func setChordTranspositionSemitones(_ semitones: Int) {
+        let normalizedSemitones = Self.normalizedChordTranspositionSemitones(semitones)
+        guard chordTranspositionSemitones != normalizedSemitones else {
+            return
+        }
+
+        chordTranspositionSemitones = normalizedSemitones
+        updatedAt = .now
+    }
+
+    mutating func transposeChordsByHalfSteps(_ delta: Int) {
+        setChordTranspositionSemitones(chordTranspositionSemitones + delta)
+    }
+
     @discardableResult
     mutating func setMeasureManualLayoutWidth(_ width: CGFloat?, for measureID: UUID) -> CGFloat? {
         guard let location = measureLocation(id: measureID) else {

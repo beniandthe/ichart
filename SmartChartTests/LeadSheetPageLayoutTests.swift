@@ -430,6 +430,27 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertLessThan(chordLayouts[1].frame.width, chordLayouts[1].fitFrame.width)
     }
 
+    func testSimpleChordSheetRendersChartWideChordTransposition() throws {
+        var chart = Chart.blank(title: "Simple Chord Transpose", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        try appendChord("Bb△7", to: measureID, in: &chart, atFraction: 0.05)
+        try appendChord("C-7", to: measureID, in: &chart, atFraction: 0.62)
+        try appendChord("G/B", to: measureID, in: &chart, atFraction: 0.86)
+
+        chart.setChordTranspositionSemitones(2)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+
+        XCTAssertEqual(firstMeasure.chordLayouts.map(\.text), ["C△7", "D-7", "A/C#"])
+        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["Bb△7", "C-7", "G/B"])
+        XCTAssertEqual(firstMeasure.chordLayouts.count, 3)
+        XCTAssertTrue(firstMeasure.chordLayouts.allSatisfy { $0.horizontalCompressionScale == firstMeasure.chordLayouts[0].horizontalCompressionScale })
+    }
+
     func testSimpleChordSheetTwoChordMeasureDoesNotCompressWhenChordMoves() throws {
         var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 6, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -1029,6 +1050,40 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordLayouts[0].snapGuideTarget.x, firstMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[1].snapGuideTarget.x, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertTrue(layout.freehandSymbolLayouts(for: chart).isEmpty)
+    }
+
+    func testRhythmSectionSheetRendersChartWideChordTranspositionWithoutMovingSnaps() throws {
+        var chart = Chart.blank(title: "Pocket Transpose", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measureID))
+        try appendChord("C", to: measureID, in: &chart, atFraction: 0.03)
+        try appendChord("G/B", to: measureID, in: &chart, atFraction: 0.62)
+
+        let writtenLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let writtenMeasure = try XCTUnwrap(writtenLayout.systems.first?.measures.first)
+        let writtenSnapTargets = writtenMeasure.chordLayouts.map(\.snapGuideTarget.x)
+
+        chart.setChordTranspositionSemitones(1)
+
+        let transposedLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let transposedMeasure = try XCTUnwrap(transposedLayout.systems.first?.measures.first)
+
+        XCTAssertEqual(transposedMeasure.chordLayouts.map(\.text), ["C#", "G#/C"])
+        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C", "G/B"])
+        for (transposedTarget, writtenTarget) in zip(
+            transposedMeasure.chordLayouts.map(\.snapGuideTarget.x),
+            writtenSnapTargets
+        ) {
+            XCTAssertEqual(transposedTarget, writtenTarget, accuracy: 0.001)
+        }
+        XCTAssertEqual(transposedMeasure.chordLayouts[0].frame.midX, transposedMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(transposedMeasure.chordLayouts[1].frame.midX, transposedMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
     }
 
     func testSimpleChordSheetExportReadinessKeepsStructuredObjectsReadable() throws {
