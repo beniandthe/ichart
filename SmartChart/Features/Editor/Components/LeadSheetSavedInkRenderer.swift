@@ -11,6 +11,13 @@ enum LeadSheetSavedInkRenderer {
         )
     }
 
+    static func drawHeaderInk(_ drawingData: Data?, in pageLayout: LeadSheetPageLayout) {
+        drawInk(
+            drawingData,
+            in: pageLayout.header.handwrittenFrame
+        )
+    }
+
     static func drawChordInk(_ drawingData: Data?, in pageLayout: LeadSheetPageLayout) {
         drawInk(
             drawingData,

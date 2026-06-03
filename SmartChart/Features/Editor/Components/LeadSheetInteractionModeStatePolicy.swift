@@ -37,6 +37,7 @@ struct LeadSheetInteractionModeStatePolicy {
             selectionTapEnabled: interactionMode.allowsMeasureSelection || interactionMode.allowsNoteSelection,
             inkSelectionTapEnabled: interactionMode.allowsNoteSelection
                 || interactionMode.allowsChordInkEditing
+                || interactionMode.allowsHeaderInkEditing
                 || interactionMode.allowsPageInkEditing,
             measureResizePanEnabled: interactionMode.showsMeasureResizeHandles,
             chordEditTapEnabled: allowsTransparentEditOverlay,

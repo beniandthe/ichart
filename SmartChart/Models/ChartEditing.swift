@@ -75,6 +75,15 @@ extension Chart {
         updatedAt = .now
     }
 
+    mutating func setHeaderInputMode(_ mode: ChartHeaderInputMode) {
+        guard headerInputMode != mode else {
+            return
+        }
+
+        headerInputMode = mode
+        updatedAt = .now
+    }
+
     mutating func setTranspositionView(_ view: TranspositionView) {
         defaultTranspositionView = view
         updatedAt = .now
@@ -302,6 +311,18 @@ extension Chart {
         }
 
         pageHandwrittenNotationData = normalizedData
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func setPageHandwrittenHeaderDrawing(_ drawingData: Data?) -> Bool {
+        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        guard pageHandwrittenHeaderData != normalizedData else {
+            return false
+        }
+
+        pageHandwrittenHeaderData = normalizedData
         updatedAt = .now
         return true
     }

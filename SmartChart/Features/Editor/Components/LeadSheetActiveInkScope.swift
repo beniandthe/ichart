@@ -4,6 +4,7 @@ import UIKit
 
 enum LeadSheetActiveInkScope {
     case page(frame: CGRect)
+    case header(frame: CGRect)
     case chords(frame: CGRect)
     case rhythmicMeasure(measureID: UUID, frame: CGRect)
     case noteSelection(frame: CGRect)
@@ -12,6 +13,7 @@ enum LeadSheetActiveInkScope {
     var frame: CGRect {
         switch self {
         case .page(let frame),
+             .header(let frame),
              .chords(let frame),
              .rhythmicMeasure(_, let frame),
              .noteSelection(let frame),
@@ -40,6 +42,11 @@ enum LeadSheetActiveInkScope {
         if interactionMode.allowsNoteSelectionInk,
            let pageLayout {
             return .noteSelection(frame: pageWritingFrame(for: pageLayout))
+        }
+
+        if interactionMode.allowsHeaderInkEditing,
+           let pageLayout {
+            return .header(frame: pageLayout.header.handwrittenFrame)
         }
 
         if interactionMode.allowsChordInkEditing,
@@ -102,6 +109,8 @@ enum LeadSheetActiveInkScope {
         switch self {
         case .page:
             return chart.pageHandwrittenNotationData
+        case .header:
+            return chart.pageHandwrittenHeaderData
         case .chords:
             return chart.pageHandwrittenChordData
         case .rhythmicMeasure(let measureID, _):
@@ -118,6 +127,11 @@ enum LeadSheetActiveInkScope {
         case .page:
             guard chart.pageHandwrittenNotationData != drawingData,
                   updatedChart.setPageHandwrittenNotationDrawing(drawingData) else {
+                return nil
+            }
+        case .header:
+            guard chart.pageHandwrittenHeaderData != drawingData,
+                  updatedChart.setPageHandwrittenHeaderDrawing(drawingData) else {
                 return nil
             }
         case .chords:

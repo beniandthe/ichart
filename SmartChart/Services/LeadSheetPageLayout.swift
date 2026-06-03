@@ -10,6 +10,7 @@ struct LeadSheetPageLayout: Hashable {
 
 struct LeadSheetHeaderLayout: Hashable {
     var frame: CGRect
+    var handwrittenFrame: CGRect
     var titleFrame: CGRect
     var composerFrame: CGRect?
     var styleNoteFrame: CGRect?
@@ -447,8 +448,24 @@ enum LeadSheetPageLayoutEngine {
             meterFrame = nil
         }
 
+        let headerContentFrames = [
+            titleFrame,
+            composerFrame,
+            styleNoteFrame,
+            keyFrame,
+            meterFrame
+        ].compactMap { $0 }
+        let handwrittenFrame = headerContentFrames
+            .dropFirst()
+            .reduce(headerContentFrames.first ?? frame) { partialFrame, contentFrame in
+                partialFrame.union(contentFrame)
+            }
+            .union(frame)
+            .insetBy(dx: 0, dy: -4)
+
         return LeadSheetHeaderLayout(
             frame: frame,
+            handwrittenFrame: handwrittenFrame,
             titleFrame: titleFrame,
             composerFrame: composerFrame,
             styleNoteFrame: styleNoteFrame,

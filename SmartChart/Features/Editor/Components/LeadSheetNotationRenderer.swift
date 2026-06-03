@@ -35,6 +35,10 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawHeader(_ header: LeadSheetHeaderLayout) {
+        guard chart.headerInputMode == .typed else {
+            return
+        }
+
         let title = chart.title.trimmingCharacters(in: .whitespacesAndNewlines)
         drawText(
             style.headerTitleText(title),

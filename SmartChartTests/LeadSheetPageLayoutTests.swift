@@ -67,6 +67,28 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(composerFrame.minX, layout.header.titleFrame.maxX - layout.header.titleFrame.width * 0.34)
     }
 
+    func testHeaderLayoutProvidesWritableHandwrittenHeaderFrame() {
+        var chart = Chart.blank(
+            title: "Handwritten Header",
+            measureCount: 4,
+            layoutStyle: .simpleChordSheet
+        )
+        chart.setHeaderInputMode(.handwritten)
+        chart.styleNote = "Medium Swing"
+        chart.composerCredit = "Composer"
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstSystemFrame = layout.systems.first?.frame ?? .zero
+
+        XCTAssertTrue(layout.paperFrame.contains(layout.header.handwrittenFrame))
+        XCTAssertTrue(layout.header.handwrittenFrame.contains(layout.header.titleFrame))
+        XCTAssertGreaterThan(layout.header.handwrittenFrame.height, layout.header.titleFrame.height)
+        XCTAssertLessThan(layout.header.handwrittenFrame.maxY, firstSystemFrame.minY)
+    }
+
     func testNarrowEditorWidthKeepsPaperInsideVisiblePageBounds() {
         let chart = Chart.blank(title: "Chord Writing Test Chart", key: .cMajor, measureCount: 8)
 

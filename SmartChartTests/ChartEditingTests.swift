@@ -649,6 +649,21 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(decodedChart.chordTranspositionDisplayText, "Written")
     }
 
+    func testLegacyChartDecodingDefaultsHeaderInputModeToTyped() throws {
+        let chart = Chart.blank(title: "Legacy Header", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let encodedChart = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedChart) as? [String: Any])
+
+        object.removeValue(forKey: "headerInputMode")
+        object.removeValue(forKey: "pageHandwrittenHeaderData")
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.headerInputMode, .typed)
+        XCTAssertNil(decodedChart.pageHandwrittenHeaderData)
+    }
+
     func testCompleteInitialSetupStoresPromptSelections() {
         var chart = Chart.draft(title: "New Chart")
 
@@ -1012,6 +1027,28 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(chart.setPageHandwrittenChordDrawing(nil))
         XCTAssertNil(chart.pageHandwrittenChordData)
         XCTAssertEqual(chart.pageHandwrittenNotationData, freeHandData)
+    }
+
+    func testSetPageHandwrittenHeaderDrawingStoresSeparatelyFromPageAndChordInk() {
+        var chart = Chart.draft(title: "New Chart")
+        let pageInkData = Data([4, 3, 2, 1])
+        let headerInkData = Data([1, 3, 5, 7])
+        let chordInkData = Data([8, 7, 6, 5])
+
+        chart.setHeaderInputMode(.handwritten)
+
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(pageInkData))
+        XCTAssertTrue(chart.setPageHandwrittenHeaderDrawing(headerInkData))
+        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(chordInkData))
+        XCTAssertEqual(chart.headerInputMode, .handwritten)
+        XCTAssertEqual(chart.pageHandwrittenNotationData, pageInkData)
+        XCTAssertEqual(chart.pageHandwrittenHeaderData, headerInkData)
+        XCTAssertEqual(chart.pageHandwrittenChordData, chordInkData)
+
+        XCTAssertTrue(chart.setPageHandwrittenHeaderDrawing(nil))
+        XCTAssertNil(chart.pageHandwrittenHeaderData)
+        XCTAssertEqual(chart.pageHandwrittenNotationData, pageInkData)
+        XCTAssertEqual(chart.pageHandwrittenChordData, chordInkData)
     }
 
     func testSetMeasureHandwrittenRhythmicNotationDrawingStoresAndClearsRawInk() throws {

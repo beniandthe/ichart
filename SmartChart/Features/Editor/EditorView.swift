@@ -319,11 +319,33 @@ struct EditorView: View {
                     }
                     .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
 
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        showingHeaderSheet = true
+                    Menu {
+                        Button {
+                            activateSelectTool(clearsMeasureSelection: true)
+                            chart.setHeaderInputMode(.typed)
+                            showingHeaderSheet = true
+                        } label: {
+                            notationMenuLabel("Typed", isSelected: chart.headerInputMode == .typed)
+                        }
+
+                        Button {
+                            activateHeaderWritingTool()
+                        } label: {
+                            notationMenuLabel("Handwritten", isSelected: chart.headerInputMode == .handwritten)
+                        }
+
+                        if chart.pageHandwrittenHeaderData != nil {
+                            Divider()
+
+                            Button(role: .destructive) {
+                                activateSelectTool(clearsMeasureSelection: true)
+                                chart.setPageHandwrittenHeaderDrawing(nil)
+                            } label: {
+                                Label("Clear Handwritten Header", systemImage: "trash")
+                            }
+                        }
                     } label: {
-                        Label("Header", systemImage: "character.cursor.ibeam")
+                        Label("Header (\(chart.headerInputMode.displayText))", systemImage: "character.cursor.ibeam")
                     }
 
                     Menu {
@@ -403,7 +425,11 @@ struct EditorView: View {
                         Label("Engraving", systemImage: "slider.horizontal.3")
                     }
                 } label: {
-                    EditorMenuTabLabel(title: "Page", systemImage: "doc.text")
+                    EditorMenuTabLabel(
+                        title: "Page",
+                        systemImage: "doc.text",
+                        isSelected: canvasMode == .headerEntry
+                    )
                 }
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
@@ -1272,6 +1298,26 @@ struct EditorView: View {
         selectedNoteSelection = nil
         inkToolMode = .write
         canvasMode = .freeHand
+    }
+
+    private func activateHeaderWritingTool() {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        isNoteEditMenuPresented = false
+        noteEditMenuStage = .actions
+        chart.setHeaderInputMode(.handwritten)
+        inkToolMode = .write
+        canvasMode = .headerEntry
     }
 
     private func handleChordTabTapped() {

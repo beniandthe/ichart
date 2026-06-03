@@ -7,17 +7,29 @@ struct ChartHeaderSheetView: View {
     @State private var draftTitle: String
     @State private var draftComposerCredit: String
     @State private var draftStyleNote: String
+    @State private var draftHeaderInputMode: ChartHeaderInputMode
 
     init(chart: Binding<Chart>) {
         self._chart = chart
         _draftTitle = State(initialValue: chart.wrappedValue.title)
         _draftComposerCredit = State(initialValue: chart.wrappedValue.composerCredit ?? "")
         _draftStyleNote = State(initialValue: chart.wrappedValue.styleNote ?? "")
+        _draftHeaderInputMode = State(initialValue: chart.wrappedValue.headerInputMode)
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Header Mode") {
+                    Picker("Mode", selection: $draftHeaderInputMode) {
+                        ForEach(ChartHeaderInputMode.allCases) { mode in
+                            Text(mode.displayText)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Section("Chart") {
                     TextField("Title", text: $draftTitle)
                     TextField("Composer / Credit", text: $draftComposerCredit)
@@ -40,6 +52,7 @@ struct ChartHeaderSheetView: View {
                             : draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                         chart.composerCredit = normalizedText(draftComposerCredit)
                         chart.styleNote = normalizedText(draftStyleNote)
+                        chart.setHeaderInputMode(draftHeaderInputMode)
                         chart.updatedAt = .now
                         dismiss()
                     }

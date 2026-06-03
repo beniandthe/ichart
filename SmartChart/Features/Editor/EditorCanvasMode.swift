@@ -5,13 +5,14 @@ enum EditorCanvasMode: Hashable {
     case measureEdit
     case timeSignatureEdit
     case rhythmicNotationEdit
+    case headerEntry
     case chordEntry
     case noteEdit
     case freeHand
 
     var freeHandTabTitle: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .chordEntry, .noteEdit:
+        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit:
             return "Free-Hand"
         case .freeHand:
             return "Done"
@@ -20,7 +21,7 @@ enum EditorCanvasMode: Hashable {
 
     var freeHandTabSymbol: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .chordEntry, .noteEdit:
+        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit:
             return "pencil.and.scribble"
         case .freeHand:
             return "pencil.slash"
@@ -44,15 +45,15 @@ enum EditorCanvasMode: Hashable {
     }
 
     var locksDocumentActions: Bool {
-        self == .freeHand || self == .chordEntry || self == .noteEdit
+        self == .freeHand || self == .headerEntry || self == .chordEntry || self == .noteEdit
     }
 
     var allowsTopBarExport: Bool {
-        self != .freeHand
+        self != .freeHand && self != .headerEntry
     }
 
     var allowsMeasureSelection: Bool {
-        self != .freeHand && self != .chordEntry && self != .noteEdit
+        self != .freeHand && self != .headerEntry && self != .chordEntry && self != .noteEdit
     }
 
     var allowsNoteSelection: Bool {
@@ -65,6 +66,10 @@ enum EditorCanvasMode: Hashable {
 
     var allowsPageInkEditing: Bool {
         self == .freeHand
+    }
+
+    var allowsHeaderInkEditing: Bool {
+        self == .headerEntry
     }
 
     var allowsChordInkEditing: Bool {
@@ -80,7 +85,15 @@ enum EditorCanvasMode: Hashable {
     }
 
     var allowsAnyInkEditing: Bool {
-        allowsPageInkEditing || allowsChordInkEditing || allowsDirectRhythmicNotationInk || allowsNoteSelectionInk
+        allowsPageInkEditing
+            || allowsHeaderInkEditing
+            || allowsChordInkEditing
+            || allowsDirectRhythmicNotationInk
+            || allowsNoteSelectionInk
+    }
+
+    var allowsPassiveInkPersistence: Bool {
+        allowsPageInkEditing || allowsHeaderInkEditing
     }
 
     var restrictsPageScrollToOutsideMargins: Bool {

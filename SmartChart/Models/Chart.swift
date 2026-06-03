@@ -5,6 +5,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var title: String
     var composerCredit: String?
     var styleNote: String?
+    var headerInputMode: ChartHeaderInputMode
     var chartType: ChartType
     var layoutStyle: ChartLayoutStyle
     var documentKey: DocumentKey
@@ -26,6 +27,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var stylePreset: StylePreset
     var engravingPreset: EngravingPreset
     var pageHandwrittenNotationData: Data?
+    var pageHandwrittenHeaderData: Data?
     var pageHandwrittenChordData: Data?
     var createdAt: Date
     var updatedAt: Date
@@ -39,6 +41,7 @@ struct Chart: Identifiable, Codable, Hashable {
         title: String,
         composerCredit: String? = nil,
         styleNote: String? = nil,
+        headerInputMode: ChartHeaderInputMode = .typed,
         chartType: ChartType,
         layoutStyle: ChartLayoutStyle = .leadSheet,
         documentKey: DocumentKey,
@@ -60,6 +63,7 @@ struct Chart: Identifiable, Codable, Hashable {
         stylePreset: StylePreset,
         engravingPreset: EngravingPreset = .balanced,
         pageHandwrittenNotationData: Data? = nil,
+        pageHandwrittenHeaderData: Data? = nil,
         pageHandwrittenChordData: Data? = nil,
         createdAt: Date,
         updatedAt: Date
@@ -68,6 +72,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.title = title
         self.composerCredit = composerCredit
         self.styleNote = styleNote
+        self.headerInputMode = headerInputMode
         self.chartType = chartType
         self.layoutStyle = layoutStyle
         self.documentKey = documentKey
@@ -89,6 +94,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
         self.pageHandwrittenNotationData = pageHandwrittenNotationData
+        self.pageHandwrittenHeaderData = pageHandwrittenHeaderData
         self.pageHandwrittenChordData = pageHandwrittenChordData
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -99,6 +105,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case title
         case composerCredit
         case styleNote
+        case headerInputMode
         case chartType
         case layoutStyle
         case documentKey
@@ -120,6 +127,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case stylePreset
         case engravingPreset
         case pageHandwrittenNotationData
+        case pageHandwrittenHeaderData
         case pageHandwrittenChordData
         case createdAt
         case updatedAt
@@ -131,6 +139,7 @@ struct Chart: Identifiable, Codable, Hashable {
         title = try container.decode(String.self, forKey: .title)
         composerCredit = try container.decodeIfPresent(String.self, forKey: .composerCredit)
         styleNote = try container.decodeIfPresent(String.self, forKey: .styleNote)
+        headerInputMode = try container.decodeIfPresent(ChartHeaderInputMode.self, forKey: .headerInputMode) ?? .typed
         chartType = try container.decode(ChartType.self, forKey: .chartType)
         layoutStyle = try container.decodeIfPresent(ChartLayoutStyle.self, forKey: .layoutStyle) ?? .leadSheet
         documentKey = try container.decode(DocumentKey.self, forKey: .documentKey)
@@ -155,9 +164,26 @@ struct Chart: Identifiable, Codable, Hashable {
         stylePreset = try container.decode(StylePreset.self, forKey: .stylePreset)
         engravingPreset = try container.decodeIfPresent(EngravingPreset.self, forKey: .engravingPreset) ?? .balanced
         pageHandwrittenNotationData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
+        pageHandwrittenHeaderData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
         pageHandwrittenChordData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenChordData)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
+enum ChartHeaderInputMode: String, Codable, CaseIterable, Hashable, Identifiable {
+    case typed
+    case handwritten
+
+    var id: String { rawValue }
+
+    var displayText: String {
+        switch self {
+        case .typed:
+            return "Typed"
+        case .handwritten:
+            return "Handwritten"
+        }
     }
 }
 

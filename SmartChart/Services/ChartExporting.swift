@@ -108,6 +108,9 @@ private struct ChartPDFRenderer {
         let renderer = LeadSheetNotationRenderer(chart: chart)
         renderer.drawPaper(pageLayout.paperFrame, in: context, showsShadow: false)
         renderer.drawHeader(pageLayout.header)
+        if chart.headerInputMode == .handwritten {
+            LeadSheetSavedInkRenderer.drawHeaderInk(chart.pageHandwrittenHeaderData, in: pageLayout)
+        }
 
         for system in pageLayout.systems {
             drawSystem(system, using: renderer)

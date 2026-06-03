@@ -111,6 +111,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.timeSignatureEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertTrue(EditorCanvasMode.headerEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.chordEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.noteEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.freeHand.restrictsPageScrollToOutsideMargins)
@@ -119,6 +120,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testFreehandTabTitleUsesFreeHandNameUntilActive() {
         XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Hand")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.freeHandTabTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.headerEntry.freeHandTabTitle, "Free-Hand")
         XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Done")
     }
 
@@ -180,6 +182,59 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 hasUnpersistedRhythmicNotationInk: true,
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x02])
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyPreservesDirtyHeaderInkFromStaleModelReload() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
+                activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
+                interactionMode: .headerEntry,
+                hasUnpersistedChordInk: false,
+                hasUnpersistedRhythmicNotationInk: false,
+                hasUnpersistedPassiveInk: true,
+                currentDrawingData: Data([0x01]),
+                desiredDrawingData: Data([0x02])
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyPreservesDirtyFreehandInkFromStaleModelReload() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
+                activeInkScope: .freehandSymbols(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                interactionMode: .freeHand,
+                hasUnpersistedChordInk: false,
+                hasUnpersistedRhythmicNotationInk: false,
+                hasUnpersistedPassiveInk: true,
+                currentDrawingData: Data([0x01]),
+                desiredDrawingData: nil
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyAllowsPassiveInkReloadWhenCleanOrSynced() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
+                activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
+                interactionMode: .headerEntry,
+                hasUnpersistedChordInk: false,
+                hasUnpersistedRhythmicNotationInk: false,
+                hasUnpersistedPassiveInk: false,
+                currentDrawingData: Data([0x01]),
+                desiredDrawingData: Data([0x02])
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
+                activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
+                interactionMode: .headerEntry,
+                hasUnpersistedChordInk: false,
+                hasUnpersistedRhythmicNotationInk: false,
+                hasUnpersistedPassiveInk: true,
+                currentDrawingData: Data([0x01]),
+                desiredDrawingData: Data([0x01])
             )
         )
     }
@@ -262,6 +317,41 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 .allSatisfy { rhythmFrame.contains($0) }
         )
         XCTAssertNil(leadScope)
+    }
+
+    func testHeaderActiveInkScopeUsesHeaderFrameForAllV1Styles() {
+        let simplePage = LeadSheetPageLayoutEngine.pageLayout(
+            for: Chart.blank(title: "Simple", measureCount: 1, layoutStyle: .simpleChordSheet),
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let rhythmPage = LeadSheetPageLayoutEngine.pageLayout(
+            for: Chart.blank(title: "Rhythm", measureCount: 1, layoutStyle: .rhythmSectionSheet),
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let simpleScope = LeadSheetActiveInkScope.resolve(
+            interactionMode: .headerEntry,
+            chartLayoutStyle: .simpleChordSheet,
+            selectedMeasureID: nil,
+            selectedMeasureLayout: nil,
+            pageLayout: simplePage
+        )
+        let rhythmScope = LeadSheetActiveInkScope.resolve(
+            interactionMode: .headerEntry,
+            chartLayoutStyle: .rhythmSectionSheet,
+            selectedMeasureID: nil,
+            selectedMeasureLayout: nil,
+            pageLayout: rhythmPage
+        )
+
+        guard case .header(let simpleFrame) = simpleScope,
+              case .header(let rhythmFrame) = rhythmScope else {
+            XCTFail("Header writing should resolve a header ink scope")
+            return
+        }
+
+        XCTAssertEqual(simpleFrame, simplePage.header.handwrittenFrame)
+        XCTAssertEqual(rhythmFrame, rhythmPage.header.handwrittenFrame)
     }
 
     func testRhythmicNotationActiveInkScopeRequiresProfileRhythmTool() throws {

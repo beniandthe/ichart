@@ -80,6 +80,7 @@ enum LeadSheetInkCanvasSyncPolicy {
         interactionMode: EditorCanvasMode,
         hasUnpersistedChordInk: Bool,
         hasUnpersistedRhythmicNotationInk: Bool,
+        hasUnpersistedPassiveInk: Bool = false,
         currentDrawingData: Data?,
         desiredDrawingData: Data?
     ) -> Bool {
@@ -92,10 +93,16 @@ enum LeadSheetInkCanvasSyncPolicy {
             return interactionMode.allowsChordInkEditing && hasUnpersistedChordInk
         case .rhythmicMeasure:
             return interactionMode.allowsDirectRhythmicNotationInk && hasUnpersistedRhythmicNotationInk
-        case .page, .noteSelection, .freehandSymbols:
+        case .page, .header, .freehandSymbols:
+            return interactionMode.allowsPassiveInkPersistence && hasUnpersistedPassiveInk
+        case .noteSelection:
             return false
         }
     }
+}
+
+enum LeadSheetPassiveInkPersistencePolicy {
+    static let idleDelay: TimeInterval = 0.95
 }
 
 struct LeadSheetRhythmicNotationInkSnapshot: Equatable {
@@ -543,7 +550,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             if oldValue.allowsAnyInkEditing && !interactionMode.allowsAnyInkEditing {
-                persistActiveInkIfNeeded()
+                persistActiveInkIfNeeded(activeInkScope: activeInkScope(for: oldValue))
             }
 
             if oldValue.allowsDirectRhythmicNotationInk && !interactionMode.allowsDirectRhythmicNotationInk {
@@ -625,6 +632,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var isSyncingInkCanvasFromModel = false
     private var hasUnpersistedChordInk = false
     private var hasUnpersistedRhythmicNotationInk = false
+    private var hasUnpersistedPassiveInk = false
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var pendingRhythmicNotationCommitWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
@@ -680,6 +688,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         context.clear(rect)
         renderer.drawPaper(pageLayout.paperFrame, in: context)
         renderer.drawHeader(pageLayout.header)
+
+        if !interactionMode.allowsHeaderInkEditing,
+           chart.headerInputMode == .handwritten {
+            drawSavedHeaderInk()
+        }
 
         for system in pageLayout.systems {
             drawSystem(system, using: renderer)
@@ -995,6 +1008,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         LeadSheetSavedInkRenderer.drawPageInk(chart.pageHandwrittenNotationData, in: pageLayout)
+    }
+
+    private func drawSavedHeaderInk() {
+        guard let pageLayout else {
+            return
+        }
+
+        LeadSheetSavedInkRenderer.drawHeaderInk(chart.pageHandwrittenHeaderData, in: pageLayout)
     }
 
     private func drawSavedChordInk() {
@@ -1372,6 +1393,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             hasUnpersistedRhythmicNotationInk = true
             clearRhythmicNotationUnreadInkFeedback()
             recordRhythmicNotationDrawingChange()
+        }
+        if interactionMode.allowsPassiveInkPersistence {
+            hasUnpersistedPassiveInk = true
         }
 
         schedulePersistActiveInk()
@@ -1756,6 +1780,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             interactionMode: interactionMode,
             hasUnpersistedChordInk: hasUnpersistedChordInk,
             hasUnpersistedRhythmicNotationInk: hasUnpersistedRhythmicNotationInk,
+            hasUnpersistedPassiveInk: hasUnpersistedPassiveInk,
             currentDrawingData: currentData,
             desiredDrawingData: desiredData
         ) {
@@ -1804,11 +1829,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if interactionMode.allowsPassiveInkPersistence {
+            let scheduledInkSnapshot = currentCanvasInkSnapshot()
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.persistPassiveInkIfStable(scheduledInkSnapshot: scheduledInkSnapshot)
+            }
+            pendingInkPersistWorkItem = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + LeadSheetPassiveInkPersistencePolicy.idleDelay,
+                execute: workItem
+            )
+            return
+        }
+
         let workItem = DispatchWorkItem { [weak self] in
             self?.persistActiveInkIfNeeded()
         }
         pendingInkPersistWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
+    }
+
+    private func persistPassiveInkIfStable(scheduledInkSnapshot: LeadSheetRhythmicNotationInkSnapshot?) {
+        guard currentCanvasInkSnapshot() == scheduledInkSnapshot else {
+            return
+        }
+
+        persistActiveInkIfNeeded()
     }
 
     private func scheduleChordInkRecognition() {
@@ -1837,14 +1883,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         DispatchQueue.main.asyncAfter(deadline: .now() + requestedDelay, execute: workItem)
     }
 
-    private func persistActiveInkIfNeeded(cancelPendingRecognition: Bool = true) {
+    private func persistActiveInkIfNeeded(
+        cancelPendingRecognition: Bool = true,
+        activeInkScope explicitActiveInkScope: LeadSheetActiveInkScope? = nil
+    ) {
         if cancelPendingRecognition {
             pendingInkPersistWorkItem?.cancel()
             pendingInkPersistWorkItem = nil
             chordInkRecognitionRequestState.cancelPendingRequest()
         }
 
-        guard let activeInkScope = activeInkScope() else {
+        guard let activeInkScope = explicitActiveInkScope ?? activeInkScope() else {
             return
         }
 
@@ -1860,9 +1909,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         } else {
             isRhythmicNotationScope = false
         }
+        let isPassiveInkScope: Bool
+        switch activeInkScope {
+        case .page, .header, .freehandSymbols:
+            isPassiveInkScope = true
+        case .chords, .rhythmicMeasure, .noteSelection:
+            isPassiveInkScope = false
+        }
 
         if case .freehandSymbols(let frame) = activeInkScope {
             persistFreehandSymbolInkIfNeeded(canvasFrame: frame)
+            hasUnpersistedPassiveInk = false
             return
         }
 
@@ -1874,6 +1931,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if isRhythmicNotationScope {
                 hasUnpersistedRhythmicNotationInk = false
             }
+            if isPassiveInkScope {
+                hasUnpersistedPassiveInk = false
+            }
             return
         }
 
@@ -1884,6 +1944,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         if isRhythmicNotationScope {
             hasUnpersistedRhythmicNotationInk = false
+        }
+        if isPassiveInkScope {
+            hasUnpersistedPassiveInk = false
         }
     }
 
@@ -2679,6 +2742,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func activeInkScope() -> LeadSheetActiveInkScope? {
+        activeInkScope(for: interactionMode)
+    }
+
+    private func activeInkScope(for interactionMode: EditorCanvasMode) -> LeadSheetActiveInkScope? {
         LeadSheetActiveInkScope.resolve(
             interactionMode: interactionMode,
             chartLayoutStyle: chart.layoutStyle,
