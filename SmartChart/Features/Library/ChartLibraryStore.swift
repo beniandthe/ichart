@@ -73,6 +73,65 @@ final class ChartLibraryStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func renameChart(id chartID: Chart.ID, to proposedTitle: String) -> Bool {
+        let sanitizedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitizedTitle.isEmpty,
+              let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
+            return false
+        }
+
+        performPersistedBatch {
+            charts[chartIndex].title = sanitizedTitle
+            charts[chartIndex].updatedAt = .now
+        }
+        return true
+    }
+
+    @discardableResult
+    func duplicateChart(id chartID: Chart.ID) -> Chart.ID? {
+        guard canCreateChart,
+              let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
+            return nil
+        }
+
+        var duplicate = charts[chartIndex]
+        let now = Date()
+        duplicate.id = UUID()
+        duplicate.title = Self.duplicateTitle(
+            for: duplicate.title,
+            existingTitles: Set(charts.map(\.title))
+        )
+        duplicate.createdAt = now
+        duplicate.updatedAt = now
+
+        performPersistedBatch {
+            charts.insert(duplicate, at: min(chartIndex + 1, charts.endIndex))
+            selectedChartID = duplicate.id
+        }
+        return duplicate.id
+    }
+
+    @discardableResult
+    func deleteChart(id chartID: Chart.ID) -> Bool {
+        guard let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
+            return false
+        }
+
+        var updatedCharts = charts
+        updatedCharts.remove(at: chartIndex)
+        let fallbackSelection = chartIndex < updatedCharts.count
+            ? updatedCharts[chartIndex].id
+            : updatedCharts.last?.id
+        let proposedSelection = selectedChartID == chartID ? fallbackSelection : selectedChartID
+
+        performPersistedBatch {
+            charts = updatedCharts
+            selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
+        }
+        return true
+    }
+
     #if DEBUG || targetEnvironment(simulator)
     @discardableResult
     func createChordWritingTestChart() -> Chart.ID {
@@ -124,6 +183,28 @@ final class ChartLibraryStore: ObservableObject {
         } catch {
             print("SmartChart persistence error: \(error)")
         }
+    }
+
+    private func performPersistedBatch(_ mutation: () -> Void) {
+        let wasPersistenceEnabled = persistenceEnabled
+        persistenceEnabled = false
+        mutation()
+        persistenceEnabled = wasPersistenceEnabled
+        persistIfNeeded()
+    }
+
+    private static func duplicateTitle(for title: String, existingTitles: Set<String>) -> String {
+        let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateBase = baseTitle.isEmpty ? "Untitled Chart Copy" : "\(baseTitle) Copy"
+        var candidate = candidateBase
+        var suffix = 2
+
+        while existingTitles.contains(candidate) {
+            candidate = "\(candidateBase) \(suffix)"
+            suffix += 1
+        }
+
+        return candidate
     }
 
     private static func sanitizedSelection(_ selectedChartID: Chart.ID?, charts: [Chart]) -> Chart.ID? {

@@ -57,8 +57,9 @@ final class RendererProductProofTests: XCTestCase {
         XCTAssertFalse(documentText.contains("M1"))
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
         for expectedDisplayText in expectedDisplayTexts {
-            XCTAssertTrue(
-                documentText.contains(expectedDisplayText),
+            XCTAssertPDFExtractedTextContains(
+                documentText,
+                visibleChordText: expectedDisplayText,
                 "Expected exported renderer output to contain \(expectedDisplayText). PDF text: \(documentText)"
             )
         }

@@ -4,6 +4,8 @@ struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @State private var showingLayoutPicker = false
+    @State private var renameRequest: ChartRenameRequest?
+    @State private var deleteRequest: ChartDeleteRequest?
 
     private var chartCountText: String {
         let count = store.charts.count
@@ -22,9 +24,6 @@ struct LibraryView: View {
                     }
                 )
                 projectsSection
-                #if DEBUG || targetEnvironment(simulator)
-                developerToolsSection
-                #endif
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
@@ -44,6 +43,26 @@ struct LibraryView: View {
                 showingLayoutPicker = false
                 createNewChart(layoutStyle: layoutStyle)
             }
+        }
+        .sheet(item: $renameRequest) { request in
+            RenameChartSheetView(request: request) { chartID, title in
+                store.renameChart(id: chartID, to: title)
+            }
+        }
+        .alert(
+            "Delete Chart?",
+            isPresented: deleteConfirmationPresented,
+            presenting: deleteRequest
+        ) { request in
+            Button("Delete", role: .destructive) {
+                store.deleteChart(id: request.chartID)
+                deleteRequest = nil
+            }
+            Button("Cancel", role: .cancel) {
+                deleteRequest = nil
+            }
+        } message: { request in
+            Text("This removes \(request.title) from the local library.")
         }
     }
 
@@ -73,50 +92,41 @@ struct LibraryView: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(store.charts) { chart in
-                        Button {
-                            onOpenChart(chart.id, .browse)
-                        } label: {
-                            ProjectRowView(
-                                title: chart.title,
-                                summary: chartSummary(for: chart),
-                                updatedText: "Updated \(chart.updatedAt.formatted(date: .abbreviated, time: .shortened))",
-                                isSelected: store.selectedChartID == chart.id
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        ProjectRowView(
+                            title: chart.title,
+                            summary: chartSummary(for: chart),
+                            updatedText: "Updated \(chart.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                            isSelected: store.selectedChartID == chart.id,
+                            canDuplicate: store.canCreateChart,
+                            onOpen: {
+                                onOpenChart(chart.id, .browse)
+                            },
+                            onRename: {
+                                renameRequest = ChartRenameRequest(chart: chart)
+                            },
+                            onDuplicate: {
+                                store.duplicateChart(id: chart.id)
+                            },
+                            onDelete: {
+                                deleteRequest = ChartDeleteRequest(chart: chart)
+                            }
+                        )
                     }
                 }
             }
         }
     }
 
-    #if DEBUG || targetEnvironment(simulator)
-    private var developerToolsSection: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 12) {
-                Button {
-                    openChordWritingTestChart()
-                } label: {
-                    Label("Open Chord Test Chart", systemImage: "pencil.and.scribble")
-                        .frame(maxWidth: .infinity)
+    private var deleteConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { deleteRequest != nil },
+            set: { isPresented in
+                if !isPresented {
+                    deleteRequest = nil
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-
-                Text("Opens a fresh disposable 8-measure chart for the chord-writing loop.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            .padding(.top, 12)
-        } label: {
-            Label("Developer Tools", systemImage: "wrench.and.screwdriver")
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(18)
-        .background(Color.white.opacity(0.60))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        )
     }
-    #endif
 
     private func chartSummary(for chart: Chart) -> String {
         chart.librarySummaryText
@@ -129,13 +139,88 @@ struct LibraryView: View {
 
         onOpenChart(chartID, .browse)
     }
+}
 
-    #if DEBUG || targetEnvironment(simulator)
-    private func openChordWritingTestChart() {
-        let chartID = store.createChordWritingTestChart()
-        onOpenChart(chartID, .chordEntry)
+private struct ChartRenameRequest: Identifiable, Hashable {
+    let chartID: Chart.ID
+    let currentTitle: String
+
+    var id: Chart.ID { chartID }
+
+    init(chart: Chart) {
+        chartID = chart.id
+        currentTitle = chart.title
     }
-    #endif
+}
+
+private struct ChartDeleteRequest: Identifiable, Hashable {
+    let chartID: Chart.ID
+    let title: String
+
+    var id: Chart.ID { chartID }
+
+    init(chart: Chart) {
+        chartID = chart.id
+        title = chart.title
+    }
+}
+
+private struct RenameChartSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: ChartRenameRequest
+    let onSave: (Chart.ID, String) -> Void
+    @State private var title: String
+
+    init(
+        request: ChartRenameRequest,
+        onSave: @escaping (Chart.ID, String) -> Void
+    ) {
+        self.request = request
+        self.onSave = onSave
+        _title = State(initialValue: request.currentTitle)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Chart title", text: $title)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                }
+            }
+            .navigationTitle("Rename Chart")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        save()
+                    }
+                    .disabled(sanitizedTitle.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var sanitizedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func save() {
+        guard !sanitizedTitle.isEmpty else {
+            return
+        }
+
+        onSave(request.chartID, sanitizedTitle)
+        dismiss()
+    }
 }
 
 private struct NewChartLayoutPickerView: View {
@@ -260,29 +345,64 @@ private struct ProjectRowView: View {
     let summary: String
     let updatedText: String
     let isSelected: Bool
+    let canDuplicate: Bool
+    let onOpen: () -> Void
+    let onRename: () -> Void
+    let onDuplicate: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+        HStack(alignment: .top, spacing: 12) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
 
-                Text(summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                        Text(summary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
 
-                Text(updatedText)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                        Text(updatedText)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                }
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
 
-            Spacer()
+            Menu {
+                Button(action: onRename) {
+                    Label("Rename", systemImage: "pencil")
+                }
 
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
+                Button(action: onDuplicate) {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                .disabled(!canDuplicate)
+
+                Divider()
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Chart actions")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -292,6 +412,20 @@ private struct ProjectRowView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(cardBorderColor, lineWidth: 1)
+        }
+        .contextMenu {
+            Button(action: onRename) {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button(action: onDuplicate) {
+                Label("Duplicate", systemImage: "plus.square.on.square")
+            }
+            .disabled(!canDuplicate)
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 

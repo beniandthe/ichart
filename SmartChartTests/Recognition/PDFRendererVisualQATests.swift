@@ -50,8 +50,9 @@ final class PDFRendererVisualQATests: XCTestCase {
             XCTAssertFalse(documentText.contains("Tap the measure in the editor"), qaCase.label)
 
             for expectedText in qaCase.expectedText {
-                XCTAssertTrue(
-                    documentText.contains(expectedText),
+                XCTAssertPDFExtractedTextContains(
+                    documentText,
+                    visibleChordText: expectedText,
                     "Expected \(qaCase.label) export to contain \(expectedText). PDF text: \(documentText)"
                 )
             }

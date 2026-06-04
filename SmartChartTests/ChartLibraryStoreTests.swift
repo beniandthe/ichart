@@ -141,6 +141,162 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.charts.first?.stylePreset, .gigSheet)
     }
 
+    func testRenameChartTrimsTitleAndPersistsSelection() throws {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Original Title", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+
+        let didRename = store.renameChart(id: chart.id, to: "  New Title  ")
+
+        XCTAssertTrue(didRename)
+        XCTAssertEqual(store.charts.first?.title, "New Title")
+        XCTAssertEqual(store.selectedChartID, chart.id)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.charts.first?.title, "New Title")
+        XCTAssertEqual(savedSnapshot.selectedChartID, chart.id)
+    }
+
+    func testRenameChartRejectsEmptyTitle() {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Original Title")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+
+        let didRename = store.renameChart(id: chart.id, to: "   ")
+
+        XCTAssertFalse(didRename)
+        XCTAssertEqual(store.charts.first?.title, "Original Title")
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+    }
+
+    func testDuplicateChartCopiesContentWithFreshChartIdentityAndSelection() throws {
+        let repository = RecordingChartRepository()
+        var sourceChart = Chart.blank(
+            title: "Gig Chart",
+            measureCount: 2,
+            layoutStyle: .rhythmSectionSheet
+        )
+        sourceChart.styleNote = "Medium Swing"
+        sourceChart.chordTranspositionSemitones = 5
+        let store = ChartLibraryStore(
+            charts: [sourceChart],
+            selectedChartID: sourceChart.id,
+            repository: repository
+        )
+
+        let duplicateID = try XCTUnwrap(store.duplicateChart(id: sourceChart.id))
+        let duplicate = try XCTUnwrap(store.charts.first { $0.id == duplicateID })
+
+        XCTAssertNotEqual(duplicate.id, sourceChart.id)
+        XCTAssertEqual(duplicate.title, "Gig Chart Copy")
+        XCTAssertEqual(duplicate.layoutStyle, sourceChart.layoutStyle)
+        XCTAssertEqual(duplicate.styleNote, sourceChart.styleNote)
+        XCTAssertEqual(duplicate.chordTranspositionSemitones, sourceChart.chordTranspositionSemitones)
+        XCTAssertEqual(duplicate.systems, sourceChart.systems)
+        XCTAssertEqual(store.selectedChartID, duplicateID)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.selectedChartID, duplicateID)
+        XCTAssertTrue(savedSnapshot.charts.contains { $0.id == sourceChart.id })
+        XCTAssertTrue(savedSnapshot.charts.contains { $0.id == duplicateID })
+    }
+
+    func testDuplicateChartUsesNumberedCopyTitleWhenCopyAlreadyExists() throws {
+        let sourceChart = Chart.blank(title: "Gig Chart")
+        let firstCopy = Chart.blank(title: "Gig Chart Copy")
+        let store = ChartLibraryStore(charts: [sourceChart, firstCopy])
+
+        let duplicateID = try XCTUnwrap(store.duplicateChart(id: sourceChart.id))
+        let duplicate = try XCTUnwrap(store.charts.first { $0.id == duplicateID })
+
+        XCTAssertEqual(duplicate.title, "Gig Chart Copy 2")
+    }
+
+    func testDuplicateChartRespectsFreePlanLimit() {
+        let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+
+        let duplicateID = store.duplicateChart(id: charts[0].id)
+
+        XCTAssertNil(duplicateID)
+        XCTAssertEqual(store.charts.count, AppEntitlements.recommendedFreeChartLimit)
+    }
+
+    func testDeleteSelectedChartSelectsNeighborAndPersistsWithoutStaleSelection() throws {
+        let repository = RecordingChartRepository()
+        let charts = [
+            Chart.blank(title: "First"),
+            Chart.blank(title: "Second"),
+            Chart.blank(title: "Third")
+        ]
+        let store = ChartLibraryStore(
+            charts: charts,
+            selectedChartID: charts[1].id,
+            repository: repository
+        )
+
+        let didDelete = store.deleteChart(id: charts[1].id)
+
+        XCTAssertTrue(didDelete)
+        XCTAssertEqual(store.charts.map(\.id), [charts[0].id, charts[2].id])
+        XCTAssertEqual(store.selectedChartID, charts[2].id)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.charts.map(\.id), [charts[0].id, charts[2].id])
+        XCTAssertEqual(savedSnapshot.selectedChartID, charts[2].id)
+        XCTAssertTrue(repository.savedSnapshots.allSatisfy { snapshot in
+            snapshot.selectedChartID.map { selectedID in
+                snapshot.charts.contains { $0.id == selectedID }
+            } ?? true
+        })
+    }
+
+    func testDeleteNonSelectedChartKeepsValidSelection() throws {
+        let repository = RecordingChartRepository()
+        let charts = [
+            Chart.blank(title: "First"),
+            Chart.blank(title: "Second")
+        ]
+        let store = ChartLibraryStore(
+            charts: charts,
+            selectedChartID: charts[1].id,
+            repository: repository
+        )
+
+        let didDelete = store.deleteChart(id: charts[0].id)
+
+        XCTAssertTrue(didDelete)
+        XCTAssertEqual(store.charts.map(\.id), [charts[1].id])
+        XCTAssertEqual(store.selectedChartID, charts[1].id)
+        XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, charts[1].id)
+    }
+
+    func testDeleteLastChartClearsSelection() throws {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Only Chart")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+
+        let didDelete = store.deleteChart(id: chart.id)
+
+        XCTAssertTrue(didDelete)
+        XCTAssertTrue(store.charts.isEmpty)
+        XCTAssertNil(store.selectedChartID)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertTrue(savedSnapshot.charts.isEmpty)
+        XCTAssertNil(savedSnapshot.selectedChartID)
+    }
+
     func testV1NewChartOptionsExposeOnlyActiveReleaseStyles() {
         XCTAssertEqual(ChartLayoutStyle.v1NewChartOptions, [.simpleChordSheet, .rhythmSectionSheet])
         XCTAssertTrue(ChartLayoutStyle.allCases.contains(.leadSheet))

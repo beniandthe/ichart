@@ -107,9 +107,9 @@ final class PDFChartExporterTests: XCTestCase {
 
         XCTAssertTrue(documentText.contains("RHYTHM EXPORT PROOF"))
         XCTAssertTrue(documentText.contains("A"))
-        XCTAssertTrue(documentText.contains("C7"))
-        XCTAssertTrue(documentText.contains("F7"))
-        XCTAssertTrue(documentText.contains("G7sus"))
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "C7")
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "F7")
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "G7sus")
         XCTAssertTrue(documentText.contains("stop time"))
         XCTAssertTrue(documentText.contains("D.S. AL CODA"))
         XCTAssertFalse(documentText.contains("C MAJOR"))

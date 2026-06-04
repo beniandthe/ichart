@@ -1,6 +1,6 @@
 # Smart Chart Sprint 70 App Functionality And UX/UI
 
-Status: opened locally
+Status: complete and pushed
 Date: 2026-06-02
 Branch: `codex/rhythm-section-core-authoring`
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
@@ -9,7 +9,7 @@ Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 
 Sprint 70 starts after the Sprint 69 V1 readiness audit closed with no confirmed V1 blocker.
 
-The goal is to turn the proven Simple Chord Sheet and Rhythm Section Sheet authoring core into a clearer app experience. The broad lane remains project/library UX, export/share confidence, save/reopen confidence, and tool/menu affordance polish. The first functionality slice was chart-wide chord transposition, the second slice added typed-or-handwritten header entry, the third and fourth slices hardened live ink responsiveness, the fifth slice adds a user-facing pen responsiveness setting, the sixth slice adds first-measure and measure-menu double barline behavior, the seventh slice adds rendered chord correction/movement inside the Chord tool, the eighth slice locks out the editor route's swipe-to-exit gesture, the ninth slice promotes Measure-menu system breaks to Rhythm Section charts, the tenth slice tightens Rhythm Section system visual alignment, the eleventh slice standardizes default Rhythm Section measure widths across rendered systems, the twelfth slice adds Measure-menu deletion for the selected measure stack, and the thirteenth slice adds Measure-menu bulk deletion from or after the selected measure.
+The goal was to turn the proven Simple Chord Sheet and Rhythm Section Sheet authoring core into a clearer app experience. The lane closed with chart-wide chord transposition, typed-or-handwritten header entry, live ink responsiveness, chord/rhythm ink-session unification, a user-facing pen responsiveness setting, first-measure and measure-menu double barline behavior, rendered chord correction/movement inside the Chord tool, editor swipe-to-exit locking, Rhythm Section system breaks, Rhythm Section system visual alignment, standard Rhythm Section measure widths, selected-measure deletion, controlled measure range deletion, and user-counted measure stack insertion.
 
 ## Slice 1: Chart-Wide Chord Transposition
 
@@ -346,7 +346,10 @@ Implementation contract:
 
 ## Next Candidate Slices
 
+Moved to Sprint 71 V1 Product Readiness and Release Hardening:
+
 1. Project/library UX: rename, duplicate, delete, clearer metadata, less developer-facing library behavior.
 2. Export/share UX: obvious export flow, PDF preview confidence, file naming, app-created export proof.
 3. Save/reopen confidence: visible but quiet saved-state behavior.
-4. Toolstrip/menu affordances: naming, hit-targets, active-menu state polish.
+4. Release hygiene: build settings, app metadata, stale-doc audit, PR/CI readiness.
+5. Toolstrip/menu affordances: targeted naming, hit-target, and active-menu state polish.
