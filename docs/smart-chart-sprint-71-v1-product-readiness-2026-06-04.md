@@ -1,6 +1,6 @@
 # Smart Chart Sprint 71 V1 Product Readiness And Release Hardening
 
-Status: opened locally; Slice 1 implemented and pushed; GitHub Actions passed on `fc46d33`
+Status: opened locally; Slice 2 implemented locally; GitHub Actions passed on `fc46d33`
 Date: 2026-06-04
 Branch: `codex/rhythm-section-core-authoring`
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
@@ -50,6 +50,25 @@ Implementation checkpoint:
 4. Release hygiene: build settings, app metadata, test gates, stale docs, and PR/CI readiness.
 5. Toolstrip/menu affordances: only remaining naming, hit-target, and active-menu state polish not covered by the user-side UI overhaul.
 
+## Slice 2: Export And Share Confidence
+
+Implementation contract:
+
+- Keep PDF export rendered from structured chart objects and shared page-layout geometry.
+- Make the export result feel like a product handoff, not just a background file write.
+- Return a first-class export result from the exporter with file URL, file name, chart style, transposition context, page count, file size, and exported-at timestamp.
+- Use readable, share-friendly file names that preserve the chart title and active chart style instead of lowercase cache-style stems.
+- Keep the PDF preview path as the immediate post-export destination, with direct sharing still available from the preview.
+- Do not change recognition, chord/rhythm layout, PDF drawing geometry, StoreKit policy, or entitlement behavior in this slice.
+
+Implementation checkpoint:
+
+- `ChartExporting.exportPDF(for:)` now returns `ExportedPDF` metadata instead of a bare URL.
+- `PDFChartExporter` keeps the same renderer, but creates readable file names such as `Almost Like Being In Love - Simple Chord Sheet - Concert.pdf` and includes chord-transposition context when the chart is displayed away from written pitch.
+- `PDFExportPreviewView` now shows a compact export summary above the PDF: ready state, file name, chart style, transposition, page count, file size, and export timestamp.
+- The preview now includes an explicit `Done` action plus the existing share action.
+- Export tests pin product-ready metadata, readable file naming, blank-title fallback, existing structured-object PDF proof, and renderer product proof.
+
 ## Guardrails
 
 - No chord-recognition score retuning.
@@ -89,3 +108,10 @@ GitHub Actions audit checkpoint:
 - Full SwiftPM passed again with `489` tests, `36` skipped, and `0` failures.
 - `git diff --check` passed.
 - GitHub Actions branch run [`26922352743`](https://github.com/beniandthe/smart-chart/actions/runs/26922352743) passed on `fc46d33`: `SwiftPM tests` passed in `1m46s`, and `iOS simulator tests` passed in `8m7s`.
+
+Slice 2 export/share confidence checkpoint:
+
+- Focused XcodeBuildMCP simulator export group passed with `9` tests and `0` failures: `PDFChartExporterTests`, `PDFRendererVisualQATests`, and `RendererProductProofTests`.
+- Full SwiftPM passed with `489` tests, `36` skipped, and `0` failures.
+- XcodeBuildMCP `build_run_sim CODE_SIGNING_ALLOWED=NO` succeeded on the configured iPad Pro 13-inch (M5) simulator with the existing headermap warning only.
+- Simulator screenshot capture succeeded after launch.

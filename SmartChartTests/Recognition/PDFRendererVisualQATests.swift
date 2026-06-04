@@ -40,7 +40,7 @@ final class PDFRendererVisualQATests: XCTestCase {
         }
 
         for qaCase in qaCases {
-            let exportedURL = try await exporter.exportPDF(for: qaCase.chart)
+            let exportedURL = try await exporter.exportPDF(for: qaCase.chart).url
             let data = try Data(contentsOf: exportedURL)
             let documentText = try XCTUnwrap(PDFDocument(url: exportedURL)?.string, qaCase.label)
 

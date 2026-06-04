@@ -1,10 +1,63 @@
 import Foundation
 
+struct ExportedPDF: Identifiable, Hashable {
+    let url: URL
+    let chartTitle: String
+    let layoutStyle: ChartLayoutStyle
+    let transpositionView: TranspositionView
+    let chordTranspositionSemitones: Int
+    let pageCount: Int
+    let fileSizeBytes: Int
+    let exportedAt: Date
+
+    var id: URL { url }
+
+    var fileName: String {
+        url.lastPathComponent
+    }
+
+    var navigationTitle: String {
+        let trimmedTitle = chartTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? url.deletingPathExtension().lastPathComponent : trimmedTitle
+    }
+
+    var pageCountText: String {
+        pageCount == 1 ? "1 page" : "\(pageCount) pages"
+    }
+
+    var fileSizeText: String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(fileSizeBytes),
+            countStyle: .file
+        )
+    }
+
+    var transpositionText: String {
+        guard chordTranspositionSemitones != 0 else {
+            return transpositionView.displayText
+        }
+
+        return "\(transpositionView.displayText) · \(chordTranspositionDisplayText)"
+    }
+
+    private var chordTranspositionDisplayText: String {
+        switch Chart.normalizedChordTranspositionSemitones(chordTranspositionSemitones) {
+        case 0:
+            return "Written"
+        case 1:
+            return "+1 half step"
+        default:
+            return "+\(Chart.normalizedChordTranspositionSemitones(chordTranspositionSemitones)) half steps"
+        }
+    }
+}
+
 protocol ChartExporting {
-    func exportPDF(for chart: Chart) async throws -> URL
+    func exportPDF(for chart: Chart) async throws -> ExportedPDF
 }
 
 #if canImport(UIKit)
+import PDFKit
 import UIKit
 
 struct PDFChartExporter: ChartExporting {
@@ -26,7 +79,7 @@ struct PDFChartExporter: ChartExporting {
         )
     }
 
-    func exportPDF(for chart: Chart) async throws -> URL {
+    func exportPDF(for chart: Chart) async throws -> ExportedPDF {
         try fileManager.createDirectory(
             at: exportDirectory,
             withIntermediateDirectories: true,
@@ -40,28 +93,47 @@ struct PDFChartExporter: ChartExporting {
         }
 
         try pdfData.write(to: outputURL, options: .atomic)
-        return outputURL
+        return ExportedPDF(
+            url: outputURL,
+            chartTitle: chart.title,
+            layoutStyle: chart.layoutStyle,
+            transpositionView: chart.defaultTranspositionView,
+            chordTranspositionSemitones: chart.chordTranspositionSemitones,
+            pageCount: PDFDocument(data: pdfData)?.pageCount ?? 1,
+            fileSizeBytes: pdfData.count,
+            exportedAt: Date()
+        )
     }
 
-    private func exportFileName(for chart: Chart) -> String {
-        let baseName = sanitizedStem(from: chart.title)
-        let viewSuffix = chart.defaultTranspositionView.displayText
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "-")
+    func exportFileName(for chart: Chart) -> String {
+        var components = [
+            Self.sanitizedFileNameStem(from: chart.title),
+            chart.layoutStyle.displayText,
+            chart.defaultTranspositionView.displayText
+        ]
 
-        return "\(baseName)-\(viewSuffix).pdf"
+        if chart.chordTranspositionSemitones != 0 {
+            components.append(chart.chordTranspositionDisplayText)
+        }
+
+        return "\(components.joined(separator: " - ")).pdf"
     }
 
-    private func sanitizedStem(from title: String) -> String {
+    static func sanitizedFileNameStem(from title: String) -> String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = trimmedTitle.isEmpty ? "smart-chart" : trimmedTitle.lowercased()
-        let collapsed = fallback.replacingOccurrences(
-            of: "[^a-z0-9]+",
-            with: "-",
+        let fallback = trimmedTitle.isEmpty ? "Smart Chart" : trimmedTitle
+        let stripped = fallback.replacingOccurrences(
+            of: #"[\\/:*?"<>|\p{C}]+"#,
+            with: " ",
             options: .regularExpression
         )
-        let cleaned = collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return cleaned.isEmpty ? "smart-chart" : cleaned
+        let collapsedWhitespace = stripped.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let cleaned = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Smart Chart" : cleaned
     }
 }
 

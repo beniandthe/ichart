@@ -14,12 +14,19 @@ final class PDFChartExporterTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: ChartSamples.syncopatedFunkGroove)
+        let exportedPDF = try await exporter.exportPDF(for: ChartSamples.syncopatedFunkGroove)
+        let exportedURL = exportedPDF.url
         let data = try Data(contentsOf: exportedURL)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: exportedURL.path))
         XCTAssertEqual(String(data: data.prefix(4), encoding: .utf8), "%PDF")
         XCTAssertGreaterThan(data.count, 2_000)
+        XCTAssertEqual(exportedPDF.chartTitle, ChartSamples.syncopatedFunkGroove.title)
+        XCTAssertEqual(exportedPDF.layoutStyle, ChartSamples.syncopatedFunkGroove.layoutStyle)
+        XCTAssertEqual(exportedPDF.transpositionView, ChartSamples.syncopatedFunkGroove.defaultTranspositionView)
+        XCTAssertEqual(exportedPDF.pageCount, 1)
+        XCTAssertEqual(exportedPDF.fileSizeBytes, data.count)
+        XCTAssertFalse(exportedPDF.fileName.isEmpty)
     }
 
     func testExportPDFDoesNotIncludeEditorInstructionPlaceholderText() async throws {
@@ -36,7 +43,7 @@ final class PDFChartExporterTests: XCTestCase {
             key: .cMajor,
             measureCount: 8
         )
-        let exportedURL = try await exporter.exportPDF(for: chart)
+        let exportedURL = try await exporter.exportPDF(for: chart).url
         let documentText = PDFDocument(url: exportedURL)?.string ?? ""
 
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
@@ -51,7 +58,7 @@ final class PDFChartExporterTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: ChartSamples.straightAheadSwing)
+        let exportedURL = try await exporter.exportPDF(for: ChartSamples.straightAheadSwing).url
         let document = try XCTUnwrap(PDFDocument(url: exportedURL))
         let documentText = document.string ?? ""
         let pageBounds = try XCTUnwrap(document.page(at: 0)?.bounds(for: .mediaBox))
@@ -73,7 +80,7 @@ final class PDFChartExporterTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: chart)
+        let exportedURL = try await exporter.exportPDF(for: chart).url
         let document = try XCTUnwrap(PDFDocument(url: exportedURL))
         let documentText = document.string ?? ""
         let pageBounds = try XCTUnwrap(document.page(at: 0)?.bounds(for: .mediaBox))
@@ -100,7 +107,7 @@ final class PDFChartExporterTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: chart)
+        let exportedURL = try await exporter.exportPDF(for: chart).url
         let document = try XCTUnwrap(PDFDocument(url: exportedURL))
         let documentText = document.string ?? ""
         let pageBounds = try XCTUnwrap(document.page(at: 0)?.bounds(for: .mediaBox))
@@ -115,6 +122,53 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertFalse(documentText.contains("C MAJOR"))
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
         XCTAssertGreaterThan(pageBounds.height, pageBounds.width)
+    }
+
+    func testExportPDFUsesProductReadyReadableFileNames() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: #"Almost Like / Being: In Love?"#,
+            measureCount: 4,
+            layoutStyle: .simpleChordSheet
+        )
+        chart.setChordTranspositionSemitones(2)
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedPDF = try await exporter.exportPDF(for: chart)
+
+        XCTAssertEqual(
+            exportedPDF.fileName,
+            "Almost Like Being In Love - Simple Chord Sheet - Concert - +2 half steps.pdf"
+        )
+        XCTAssertEqual(exportedPDF.url.lastPathComponent, exportedPDF.fileName)
+        XCTAssertEqual(exportedPDF.transpositionText, "Concert · +2 half steps")
+        XCTAssertEqual(exportedPDF.pageCountText, "1 page")
+        XCTAssertFalse(exportedPDF.fileSizeText.isEmpty)
+    }
+
+    func testExportPDFFileNameFallsBackForBlankTitles() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        let chart = Chart.blank(
+            title: "   ",
+            measureCount: 4,
+            layoutStyle: .rhythmSectionSheet
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedPDF = try await exporter.exportPDF(for: chart)
+
+        XCTAssertEqual(exportedPDF.fileName, "Smart Chart - Rhythm Section Sheet - Concert.pdf")
+        XCTAssertEqual(exportedPDF.navigationTitle, "Smart Chart - Rhythm Section Sheet - Concert")
     }
 
     private func makeSimpleChordSheetExportProofChart() throws -> Chart {

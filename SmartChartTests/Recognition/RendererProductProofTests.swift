@@ -50,7 +50,7 @@ final class RendererProductProofTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: chart)
+        let exportedURL = try await exporter.exportPDF(for: chart).url
         let documentText = try XCTUnwrap(PDFDocument(url: exportedURL)?.string)
 
         XCTAssertTrue(documentText.contains("RENDERER PRODUCT PROOF"))

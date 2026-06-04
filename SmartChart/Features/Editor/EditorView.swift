@@ -857,14 +857,9 @@ struct EditorView: View {
 
         Task {
             do {
-                let exportedURL = try await exporter.exportPDF(for: chartToExport)
+                let exportedPDF = try await exporter.exportPDF(for: chartToExport)
                 await MainActor.run {
-                    activeSheet = .export(
-                        ExportedPDF(
-                            url: exportedURL,
-                            chartTitle: chartToExport.title
-                        )
-                    )
+                    activeSheet = .export(exportedPDF)
                     isExporting = false
                 }
             } catch {
