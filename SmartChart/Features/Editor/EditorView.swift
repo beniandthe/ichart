@@ -9,6 +9,11 @@ private struct PendingChordRenderTimingEvidence {
     var committedAt: Date
 }
 
+private struct PendingMeasureStackInsertion: Identifiable {
+    let id = UUID()
+    let anchorMeasureID: UUID
+}
+
 struct EditorView: View {
     private static let supportedTimeSignatureChoices = [
         Meter(numerator: 4, denominator: 4),
@@ -18,6 +23,7 @@ struct EditorView: View {
     ]
     private static let showsChordFixtureCaptureTools = false
 
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ChartLibraryStore
     @Binding var chart: Chart
     @State private var activeSheet: EditorSheet?
@@ -26,6 +32,7 @@ struct EditorView: View {
     @State private var showingSetupSheet = false
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
+    @State private var showingInkResponsivenessSheet = false
     @State private var showingRhythmicNotationAcceptanceSheet = false
     @State private var hasPresentedRhythmicNotationGuide = false
     @State private var isExporting = false
@@ -45,8 +52,10 @@ struct EditorView: View {
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
+    @State private var pendingDeleteStartMeasureID: UUID?
     @State private var pendingEndingStartMeasureID: UUID?
     @State private var pendingEndingType: RoadmapType?
+    @State private var pendingMeasureStackInsertion: PendingMeasureStackInsertion?
     @State private var pendingCueTextMeasureID: UUID?
     @State private var pendingCueTextPosition: CuePosition?
     @State private var cueTextDraft = ""
@@ -54,6 +63,8 @@ struct EditorView: View {
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
+    @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
+    private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
 
@@ -88,7 +99,18 @@ struct EditorView: View {
         )
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                }
+                .accessibilityLabel("Exit Chart")
+            }
+
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     activateSelectTool(clearsMeasureSelection: true)
@@ -122,11 +144,24 @@ struct EditorView: View {
         .sheet(isPresented: $showingTypographySheet) {
             ChartTypographySheetView(chart: $chart)
         }
+        .sheet(isPresented: $showingInkResponsivenessSheet) {
+            InkResponsivenessSheetView(value: $inkResponsivenessValue)
+        }
         .sheet(isPresented: $showingCueTextEntry) {
             CueTextEntrySheetView(
                 text: $cueTextDraft,
                 onAdd: handleCueTextEntryAccepted,
                 onCancel: clearPendingCueTextEntry
+            )
+        }
+        .sheet(item: $pendingMeasureStackInsertion) { insertion in
+            MeasureStackInsertionSheetView(
+                onAdd: { measureCount in
+                    handleMeasureStackInsertionAccepted(measureCount, insertion: insertion)
+                },
+                onCancel: {
+                    pendingMeasureStackInsertion = nil
+                }
             )
         }
         .sheet(isPresented: $showingRhythmicNotationAcceptanceSheet) {
@@ -412,6 +447,13 @@ struct EditorView: View {
                         Label("Fonts", systemImage: "textformat")
                     }
 
+                    Button {
+                        activateSelectTool(clearsMeasureSelection: true)
+                        showingInkResponsivenessSheet = true
+                    } label: {
+                        Label("Pen Responsiveness", systemImage: "pencil.tip")
+                    }
+
                     Menu {
                         ForEach(EngravingPreset.allCases, id: \.self) { preset in
                             Button {
@@ -616,6 +658,46 @@ struct EditorView: View {
                 Label("Add Measure After Selected", systemImage: "forward.end")
             }
 
+            Button {
+                handleAddMeasureStackAfterSelectedRequested()
+            } label: {
+                Label("Add Measure Stack After Selected", systemImage: "plus.rectangle")
+            }
+
+            Button {
+                handleAddDoubleBarlineMeasure()
+            } label: {
+                Label("Add Double Barline Measure", systemImage: "pause")
+            }
+
+            Button(role: .destructive) {
+                handleDeleteSelectedMeasure()
+            } label: {
+                Label("Delete Selected Measure", systemImage: "trash")
+            }
+            .disabled(!canDeleteSelectedMeasure)
+
+            Button {
+                handleStartDeleteRangeHere()
+            } label: {
+                Label("Start Delete Range Here", systemImage: "trash.circle")
+            }
+
+            Button(role: .destructive) {
+                handleDeleteThroughHere()
+            } label: {
+                Label("Delete Through Here", systemImage: "checkmark.circle")
+            }
+            .disabled(pendingDeleteStartMeasureID == nil || !canDeleteThroughSelectedMeasure)
+
+            if pendingDeleteStartMeasureID != nil {
+                Button(role: .cancel) {
+                    pendingDeleteStartMeasureID = nil
+                } label: {
+                    Label("Clear Delete Start", systemImage: "xmark.circle")
+                }
+            }
+
             Divider()
 
             Button {
@@ -623,14 +705,14 @@ struct EditorView: View {
             } label: {
                 Label("New System Before This Measure", systemImage: "arrow.down.to.line")
             }
-            .disabled(!canInsertSimpleSystemBreakBeforeSelectedMeasure)
+            .disabled(!canInsertSystemBreakBeforeSelectedMeasure)
 
             Button {
                 handleRemoveSystemBreakBeforeSelectedMeasure()
             } label: {
                 Label("Remove System Break", systemImage: "arrow.up.to.line")
             }
-            .disabled(!canRemoveSimpleSystemBreakBeforeSelectedMeasure)
+            .disabled(!canRemoveSystemBreakBeforeSelectedMeasure)
 
             Divider()
 
@@ -728,7 +810,9 @@ struct EditorView: View {
     }
 
     private var isMeasureMenuContinuationActive: Bool {
-        pendingRepeatStartMeasureID != nil || pendingEndingStartMeasureID != nil
+        pendingRepeatStartMeasureID != nil
+            || pendingDeleteStartMeasureID != nil
+            || pendingEndingStartMeasureID != nil
     }
 
     @ViewBuilder
@@ -740,6 +824,7 @@ struct EditorView: View {
                 selectedNoteSelection: $selectedNoteSelection,
                 interactionMode: canvasMode,
                 inkToolMode: inkToolMode,
+                inkResponsivenessValue: inkResponsivenessValue,
                 onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
                 onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
                 onChordCorrectionRequested: handleChordCorrectionRequested,
@@ -812,20 +897,20 @@ struct EditorView: View {
         return !chart.endingSpanIDs(attachedTo: targetMeasureID).isEmpty
     }
 
-    private var canInsertSimpleSystemBreakBeforeSelectedMeasure: Bool {
+    private var canInsertSystemBreakBeforeSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
         }
 
-        return chart.canInsertSimpleSystemBreak(before: targetMeasureID)
+        return chart.canInsertSystemBreak(before: targetMeasureID)
     }
 
-    private var canRemoveSimpleSystemBreakBeforeSelectedMeasure: Bool {
+    private var canRemoveSystemBreakBeforeSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
         }
 
-        return chart.canRemoveSimpleSystemBreak(before: targetMeasureID)
+        return chart.canRemoveSystemBreak(before: targetMeasureID)
     }
 
     private var canRemovePointRoadmapMarkerAtSelectedMeasure: Bool {
@@ -869,6 +954,23 @@ struct EditorView: View {
         return !chart.cueTextIDs(attachedTo: targetMeasureID).isEmpty
     }
 
+    private var canDeleteSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.canDeleteMeasure(id: targetMeasureID)
+    }
+
+    private var canDeleteThroughSelectedMeasure: Bool {
+        guard let pendingDeleteStartMeasureID,
+              let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
+    }
+
     @discardableResult
     private func enterMeasureEditMode() -> Bool {
         guard chart.hasCompletedInitialSetup else {
@@ -899,41 +1001,144 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = chart.insertMeasureAtBeginning()
     }
 
     private func handleAddMeasureAfterSelected() {
+        handleAddMeasureAfterSelected(barlineAfter: .single)
+    }
+
+    private func handleAddMeasureStackAfterSelectedRequested() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+        pendingMeasureStackInsertion = PendingMeasureStackInsertion(anchorMeasureID: targetMeasureID)
+    }
+
+    private func handleMeasureStackInsertionAccepted(
+        _ measureCount: Int,
+        insertion: PendingMeasureStackInsertion
+    ) {
+        let normalizedMeasureCount = min(max(measureCount, 1), 64)
+        guard enterMeasureEditMode(),
+              chart.measure(id: insertion.anchorMeasureID) != nil else {
+            pendingMeasureStackInsertion = nil
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        if chart.measure(id: insertion.anchorMeasureID)?.authoringState == .open {
+            _ = chart.commitOpenMeasure()
+        }
+        guard let insertedMeasureIDs = chart.insertMeasures(
+            after: insertion.anchorMeasureID,
+            count: normalizedMeasureCount
+        ) else {
+            pendingMeasureStackInsertion = nil
+            return
+        }
+
+        pendingMeasureStackInsertion = nil
+        selectedMeasureID = insertedMeasureIDs.last ?? insertion.anchorMeasureID
+    }
+
+    private func handleAddDoubleBarlineMeasure() {
+        handleAddMeasureAfterSelected(barlineAfter: .double)
+    }
+
+    private func handleAddMeasureAfterSelected(barlineAfter: BarlineType) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode() else {
             return
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         guard let targetMeasureID else {
-            selectedMeasureID = chart.appendMeasure()
+            selectedMeasureID = chart.appendMeasure(barlineAfter: barlineAfter)
             return
         }
 
         if chart.measure(id: targetMeasureID)?.authoringState == .open {
-            selectedMeasureID = chart.commitOpenMeasure()
+            selectedMeasureID = chart.commitOpenMeasure(barlineAfter: barlineAfter)
         } else {
-            selectedMeasureID = chart.insertMeasure(after: targetMeasureID)
+            selectedMeasureID = chart.insertMeasure(after: targetMeasureID, barlineAfter: barlineAfter)
         }
+    }
+
+    private func handleDeleteSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        let nextSelectionID = targetMeasureID.flatMap(neighboringSelectionAfterDeletingMeasure)
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              chart.deleteMeasure(id: targetMeasureID) else {
+            return
+        }
+
+        clearPendingMeasureStackState()
+        selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
+            ?? chart.resolvedAuthoringMeasureID()
+    }
+
+    private func handleStartDeleteRangeHere() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = targetMeasureID
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func handleDeleteThroughHere() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        let nextSelectionID = pendingDeleteStartMeasureID.flatMap { startID in
+            targetMeasureID.flatMap { endID in
+                neighboringSelectionAfterDeletingMeasureRange(startMeasureID: startID, endMeasureID: endID)
+            }
+        }
+        guard enterMeasureEditMode(),
+              let pendingDeleteStartMeasureID,
+              let targetMeasureID,
+              chart.deleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID) else {
+            return
+        }
+
+        clearPendingMeasureStackState()
+        selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
+            ?? chart.resolvedAuthoringMeasureID()
     }
 
     private func handleNewSystemBeforeSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              chart.insertSimpleSystemBreak(before: targetMeasureID) else {
+              chart.insertSystemBreak(before: targetMeasureID) else {
             return
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -943,11 +1148,12 @@ struct EditorView: View {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              chart.removeSimpleSystemBreak(before: targetMeasureID) else {
+              chart.removeSystemBreak(before: targetMeasureID) else {
             return
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -962,6 +1168,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -975,6 +1182,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = targetMeasureID
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -997,6 +1205,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1011,6 +1220,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1026,6 +1236,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1040,6 +1251,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = targetMeasureID
         pendingEndingType = type
         selectedMeasureID = targetMeasureID
@@ -1064,6 +1276,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         self.pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1077,6 +1290,7 @@ struct EditorView: View {
             return
         }
 
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1092,6 +1306,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1105,6 +1320,7 @@ struct EditorView: View {
             return
         }
 
+        pendingDeleteStartMeasureID = nil
         selectedMeasureID = targetMeasureID
     }
 
@@ -1117,6 +1333,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1131,6 +1348,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1144,6 +1362,7 @@ struct EditorView: View {
         }
 
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
@@ -1179,6 +1398,7 @@ struct EditorView: View {
             return
         }
 
+        pendingDeleteStartMeasureID = nil
         selectedMeasureID = targetMeasureID
     }
 
@@ -1187,6 +1407,21 @@ struct EditorView: View {
         pendingCueTextMeasureID = nil
         pendingCueTextPosition = nil
         showingCueTextEntry = false
+    }
+
+    private func clearPendingMeasureStackState() {
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        pendingMeasureStackInsertion = nil
+        pendingCueTextMeasureID = nil
+        pendingCueTextPosition = nil
+        cueTextDraft = ""
+        showingCueTextEntry = false
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        selectedNoteSelection = nil
     }
 
     private func handleTimeSignatureTabTapped() {
@@ -1202,6 +1437,8 @@ struct EditorView: View {
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
         selectedNoteSelection = nil
         canvasMode = .timeSignatureEdit
     }
@@ -1216,12 +1453,16 @@ struct EditorView: View {
             selectedNoteSelection = nil
             pendingTimeSignatureSourceMeasureID = nil
             pendingTimeSignaturePlacement = nil
+            pendingDeleteStartMeasureID = nil
+            pendingMeasureStackInsertion = nil
             canvasMode = .browse
             return
         }
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
         selectedNoteSelection = nil
 
         if canvasMode == .rhythmicNotationEdit {
@@ -1247,8 +1488,10 @@ struct EditorView: View {
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
+        pendingMeasureStackInsertion = nil
         isNoteEditMenuPresented = false
         noteEditMenuStage = .actions
         canvasMode = .browse
@@ -1256,6 +1499,46 @@ struct EditorView: View {
 
     private func resolvedMeasureActionTargetID() -> UUID? {
         chart.resolvedAuthoringMeasureID(preferredMeasureID: selectedMeasureID)
+    }
+
+    private func neighboringSelectionAfterDeletingMeasure(_ measureID: UUID) -> UUID? {
+        let measureIDs = chart.measures.map(\.id)
+        guard let deletionIndex = measureIDs.firstIndex(of: measureID) else {
+            return nil
+        }
+
+        if measureIDs.indices.contains(deletionIndex + 1) {
+            return measureIDs[deletionIndex + 1]
+        }
+
+        if deletionIndex > 0 {
+            return measureIDs[deletionIndex - 1]
+        }
+
+        return nil
+    }
+
+    private func neighboringSelectionAfterDeletingMeasureRange(
+        startMeasureID: UUID,
+        endMeasureID: UUID
+    ) -> UUID? {
+        let measureIDs = chart.measures.map(\.id)
+        guard let startIndex = measureIDs.firstIndex(of: startMeasureID),
+              let endIndex = measureIDs.firstIndex(of: endMeasureID) else {
+            return nil
+        }
+
+        let lowerBound = min(startIndex, endIndex)
+        let upperBound = max(startIndex, endIndex)
+        if lowerBound > 0 {
+            return measureIDs[lowerBound - 1]
+        }
+
+        if measureIDs.indices.contains(upperBound + 1) {
+            return measureIDs[upperBound + 1]
+        }
+
+        return nil
     }
 
     private func orderedRepeatBoundaryIDs(
@@ -1289,12 +1572,16 @@ struct EditorView: View {
         }
         guard chart.layoutStyle.profile.allowsFreehandSymbolInk else {
             selectedNoteSelection = nil
+            pendingDeleteStartMeasureID = nil
+            pendingMeasureStackInsertion = nil
             canvasMode = .browse
             return
         }
 
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
         selectedNoteSelection = nil
         inkToolMode = .write
         canvasMode = .freeHand
@@ -1311,8 +1598,10 @@ struct EditorView: View {
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
+        pendingMeasureStackInsertion = nil
         isNoteEditMenuPresented = false
         noteEditMenuStage = .actions
         chart.setHeaderInputMode(.handwritten)
@@ -1330,6 +1619,8 @@ struct EditorView: View {
         selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
 
         if canvasMode == .chordEntry {
             activateSelectTool()
@@ -1354,6 +1645,8 @@ struct EditorView: View {
         selectedMeasureID = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
 
         if canvasMode == .noteEdit {
             selectedNoteSelection = nil
@@ -2362,6 +2655,89 @@ private extension RhythmValue {
 
 }
 
+private struct InkResponsivenessSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var value: Double
+
+    private var normalizedBinding: Binding<Double> {
+        Binding(
+            get: { LeadSheetInkResponsivenessPolicy.normalized(value) },
+            set: { value = LeadSheetInkResponsivenessPolicy.normalized($0) }
+        )
+    }
+
+    private var percentageText: String {
+        "\(Int((LeadSheetInkResponsivenessPolicy.normalized(value) * 100).rounded()))%"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Pen Responsiveness") {
+                    HStack(spacing: 14) {
+                        Button {
+                            adjust(-LeadSheetInkResponsivenessPolicy.step)
+                        } label: {
+                            Image(systemName: "minus")
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Decrease pen responsiveness")
+
+                        Slider(
+                            value: normalizedBinding,
+                            in: LeadSheetInkResponsivenessPolicy.minimumValue...LeadSheetInkResponsivenessPolicy.maximumValue,
+                            step: LeadSheetInkResponsivenessPolicy.step
+                        ) {
+                            Text("Pen Responsiveness")
+                        } minimumValueLabel: {
+                            Text("Direct")
+                                .font(.caption)
+                        } maximumValueLabel: {
+                            Text("Smooth")
+                                .font(.caption)
+                        }
+
+                        Button {
+                            adjust(LeadSheetInkResponsivenessPolicy.step)
+                        } label: {
+                            Image(systemName: "plus")
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Increase pen responsiveness")
+                    }
+
+                    HStack {
+                        Spacer()
+                        Text(percentageText)
+                            .font(.headline.monospacedDigit())
+                        Spacer()
+                    }
+
+                    Button("Balanced") {
+                        value = LeadSheetInkResponsivenessPolicy.defaultValue
+                    }
+                }
+            }
+            .navigationTitle("Pen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func adjust(_ delta: Double) {
+        value = LeadSheetInkResponsivenessPolicy.normalized(value + delta)
+    }
+}
+
 private struct CueTextEntrySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var text: String
@@ -2401,6 +2777,61 @@ private struct CueTextEntrySheetView: View {
             }
         }
         .presentationDetents([.height(190)])
+    }
+}
+
+private struct MeasureStackInsertionSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onAdd: (Int) -> Void
+    let onCancel: () -> Void
+
+    @State private var measureCount = 4
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Measures") {
+                    Stepper(value: $measureCount, in: 1...64) {
+                        HStack {
+                            Text("Measure Count")
+                            Spacer()
+                            Text("\(measureCount)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        ForEach([2, 4, 8, 16], id: \.self) { preset in
+                            Button {
+                                measureCount = preset
+                            } label: {
+                                Text("\(preset)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Measure Stack")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        onCancel()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add") {
+                        onAdd(measureCount)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(260), .medium])
     }
 }
 

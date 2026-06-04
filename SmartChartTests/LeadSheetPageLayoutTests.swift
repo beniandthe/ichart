@@ -386,6 +386,22 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
+    func testFirstChartMeasureUsesLeadingDoubleBarlineWithoutTrailingMutation() throws {
+        for layoutStyle in ChartLayoutStyle.allCases {
+            let chart = Chart.blank(title: "Leading Double", measureCount: 3, layoutStyle: layoutStyle)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(
+                for: chart,
+                pageSize: CGSize(width: 900, height: 1400)
+            )
+            let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+            let secondMeasure = try XCTUnwrap(layout.systems.first?.measures.dropFirst().first)
+
+            XCTAssertEqual(firstMeasure.leadingBarline, .double)
+            XCTAssertEqual(firstMeasure.barlineAfter, .single)
+            XCTAssertNil(secondMeasure.leadingBarline)
+        }
+    }
+
     func testSimpleChordSheetSingleChordUsesMeasureFitFrame() throws {
         var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -760,6 +776,71 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
         XCTAssertEqual(freehandBelowFrame.minY, firstMeasure.staffFrame.maxY + 4, accuracy: 0.001)
         XCTAssertEqual(freehandBelowFrame.maxY, firstMeasure.frame.maxY, accuracy: 0.001)
+    }
+
+    func testRhythmSectionManualSystemBreakControlsRenderedRows() throws {
+        var chart = Chart.blank(title: "Pocket Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[2]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertEqual(layout.systems.count, 2)
+        XCTAssertEqual(layout.systems[0].measures.compactMap(\.sourceMeasureID), Array(measureIDs[0..<2]))
+        XCTAssertEqual(layout.systems[1].measures.compactMap(\.sourceMeasureID), Array(measureIDs[2..<4]))
+        XCTAssertTrue(layout.systems.allSatisfy { $0.staffLineYPositions.count == 5 })
+        XCTAssertTrue(layout.systems.allSatisfy { $0.measures.allSatisfy { $0.freehandAboveFrame == nil } })
+        XCTAssertTrue(layout.systems.allSatisfy { $0.frame.width <= layout.paperFrame.width })
+        let firstRowFirstMeasure = try XCTUnwrap(layout.systems[0].measures.first)
+        let firstRowLastMeasure = try XCTUnwrap(layout.systems[0].measures.last)
+        let secondRowFirstMeasure = try XCTUnwrap(layout.systems[1].measures.first)
+        let secondRowLastMeasure = try XCTUnwrap(layout.systems[1].measures.last)
+        XCTAssertEqual(
+            firstRowFirstMeasure.frame.minX,
+            secondRowFirstMeasure.frame.minX,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            firstRowLastMeasure.trailingBarlineFrame.midX,
+            secondRowLastMeasure.trailingBarlineFrame.midX,
+            accuracy: 0.001
+        )
+        XCTAssertNil(layout.systems[1].clefFrame)
+        XCTAssertNil(layout.systems[1].timeSignatureFrame)
+    }
+
+    func testRhythmSectionManualSystemBreakKeepsStandardMeasureWidthOnShortRows() throws {
+        var chart = Chart.blank(title: "Pocket Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[3]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let secondSystem = try XCTUnwrap(layout.systems.dropFirst().first)
+        let standardWidth = try XCTUnwrap(firstSystem.measures.first?.frame.width)
+        let shortRowMeasure = try XCTUnwrap(secondSystem.measures.first)
+
+        XCTAssertEqual(firstSystem.measures.count, 3)
+        XCTAssertEqual(secondSystem.measures.count, 1)
+        XCTAssertTrue(
+            firstSystem.measures.allSatisfy { abs($0.frame.width - standardWidth) <= 0.001 },
+            "The first Rhythm Section system establishes the default measure width."
+        )
+        XCTAssertEqual(shortRowMeasure.frame.width, standardWidth, accuracy: 0.001)
+        XCTAssertLessThan(
+            shortRowMeasure.trailingBarlineFrame.midX,
+            firstSystem.measures.last?.trailingBarlineFrame.midX ?? .zero,
+            "A short manual Rhythm Section row should keep standard measure width instead of stretching."
+        )
     }
 
     func testRhythmSectionSectionLabelsReserveRehearsalMarkSpaceAboveChordLane() throws {

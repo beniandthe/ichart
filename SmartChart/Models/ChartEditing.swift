@@ -120,22 +120,27 @@ extension Chart {
         return normalizedWidth
     }
 
-    func canInsertSimpleSystemBreak(before measureID: UUID) -> Bool {
-        guard layoutStyle == .simpleChordSheet,
-              let location = measureLocation(id: measureID) else {
+    func canInsertSystemBreak(before measureID: UUID) -> Bool {
+        guard supportsManualSystemBreaks,
+              let flatMeasureIndex = measures.firstIndex(where: { $0.id == measureID }) else {
             return false
         }
 
-        return location.measureIndex > 0
+        return flatMeasureIndex > 0
+            && !currentForcedSystemBreakStartIDs().contains(measureID)
     }
 
-    func canRemoveSimpleSystemBreak(before measureID: UUID) -> Bool {
-        guard layoutStyle == .simpleChordSheet,
+    func canRemoveSystemBreak(before measureID: UUID) -> Bool {
+        guard supportsManualSystemBreaks,
               let location = measureLocation(id: measureID),
               location.systemIndex > 0,
               location.measureIndex == 0,
               systems[location.systemIndex].lineBreakRule == .forced else {
             return false
+        }
+
+        guard layoutStyle == .simpleChordSheet else {
+            return true
         }
 
         let mergedMeasureCount = systems[location.systemIndex - 1].measures.count
@@ -144,43 +149,57 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func insertSimpleSystemBreak(before measureID: UUID) -> Bool {
-        guard canInsertSimpleSystemBreak(before: measureID),
-              let location = measureLocation(id: measureID) else {
+    mutating func insertSystemBreak(before measureID: UUID) -> Bool {
+        guard canInsertSystemBreak(before: measureID) else {
             return false
         }
 
-        let trailingMeasures = Array(systems[location.systemIndex].measures[location.measureIndex...])
-        systems[location.systemIndex].measures.removeSubrange(location.measureIndex...)
-        systems.insert(
-            ChartSystem(
-                id: UUID(),
-                index: location.systemIndex + 1,
-                spacingMode: layoutStyle.profile.measureDefaults.systemSpacingMode,
-                lineBreakRule: .forced,
-                measures: trailingMeasures
-            ),
-            at: location.systemIndex + 1
-        )
-        rebuildSystems(using: measures)
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        forcedBreakStartIDs.insert(measureID)
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
         updatedAt = .now
         return true
     }
 
     @discardableResult
-    mutating func removeSimpleSystemBreak(before measureID: UUID) -> Bool {
-        guard canRemoveSimpleSystemBreak(before: measureID),
-              let location = measureLocation(id: measureID) else {
+    mutating func removeSystemBreak(before measureID: UUID) -> Bool {
+        guard canRemoveSystemBreak(before: measureID) else {
             return false
         }
 
-        let mergedMeasures = systems[location.systemIndex - 1].measures
-            + systems[location.systemIndex].measures
-        systems[location.systemIndex - 1].measures = mergedMeasures
-        systems.remove(at: location.systemIndex)
-        rebuildSystems(using: measures)
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        forcedBreakStartIDs.remove(measureID)
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
         updatedAt = .now
         return true
+    }
+
+    func canInsertSimpleSystemBreak(before measureID: UUID) -> Bool {
+        layoutStyle == .simpleChordSheet
+            && canInsertSystemBreak(before: measureID)
+    }
+
+    func canRemoveSimpleSystemBreak(before measureID: UUID) -> Bool {
+        layoutStyle == .simpleChordSheet
+            && canRemoveSystemBreak(before: measureID)
+    }
+
+    @discardableResult
+    mutating func insertSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet else {
+            return false
+        }
+
+        return insertSystemBreak(before: measureID)
+    }
+
+    @discardableResult
+    mutating func removeSimpleSystemBreak(before measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet else {
+            return false
+        }
+
+        return removeSystemBreak(before: measureID)
     }
 
     @discardableResult
@@ -292,13 +311,63 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func insertMeasures(
+        after measureID: UUID,
+        count: Int,
+        authoringState: MeasureAuthoringState = .committed,
+        barlineAfter: BarlineType = .single
+    ) -> [UUID]? {
+        guard count > 0,
+              let targetLocation = measureLocation(id: measureID) else {
+            return nil
+        }
+
+        let insertionIndex = flattenedMeasureIndex(for: targetLocation) + 1
+        let newMeasures = (0..<count).map { offset in
+            Self.makeMeasure(
+                index: insertionIndex + offset + 1,
+                authoringState: authoringState,
+                barlineAfter: barlineAfter,
+                beatGridPreset: layoutStyle.profile.measureDefaults.beatGridPreset
+            )
+        }
+        insertPreparedMeasures(newMeasures, at: insertionIndex)
+        updatedAt = .now
+        return newMeasures.map(\.id)
+    }
+
+    func canDeleteMeasure(id measureID: UUID) -> Bool {
+        measures.count > 1 && measureLocation(id: measureID) != nil
+    }
+
+    func canDeleteMeasures(from startMeasureID: UUID, through endMeasureID: UUID) -> Bool {
+        guard let deletionRange = deletionRange(from: startMeasureID, through: endMeasureID) else {
+            return false
+        }
+
+        return deletionRange.count < measures.count
+    }
+
+    @discardableResult
     mutating func deleteMeasure(id measureID: UUID) -> Bool {
-        guard measures.count > 1,
+        guard canDeleteMeasure(id: measureID),
               let location = measureLocation(id: measureID) else {
             return false
         }
 
         removeMeasure(at: location)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func deleteMeasures(from startMeasureID: UUID, through endMeasureID: UUID) -> Bool {
+        guard canDeleteMeasures(from: startMeasureID, through: endMeasureID),
+              let deletionRange = deletionRange(from: startMeasureID, through: endMeasureID) else {
+            return false
+        }
+
+        removeMeasures(in: deletionRange)
         updatedAt = .now
         return true
     }
@@ -962,12 +1031,15 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func commitOpenMeasure() -> UUID? {
+    mutating func commitOpenMeasure(barlineAfter: BarlineType? = nil) -> UUID? {
         guard let location = openMeasureLocation() else {
             return nil
         }
 
         systems[location.systemIndex].measures[location.measureIndex].authoringState = .committed
+        if let barlineAfter {
+            systems[location.systemIndex].measures[location.measureIndex].barlineAfter = barlineAfter
+        }
         let newMeasure = Self.makeMeasure(
             index: measures.count + 1,
             authoringState: .open,
@@ -1605,17 +1677,39 @@ extension Chart {
         layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem ?? Int.max
     }
 
+    private var supportsManualSystemBreaks: Bool {
+        layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
+    }
+
+    private func currentForcedSystemBreakStartIDs() -> Set<UUID> {
+        Set(
+            systems
+                .dropFirst()
+                .filter { $0.lineBreakRule == .forced }
+                .compactMap(\.measures.first?.id)
+        )
+    }
+
     private mutating func removeMeasure(
         at location: (systemIndex: Int, measureIndex: Int)
     ) {
         let removalIndex = flattenedMeasureIndex(for: location)
+        removeMeasures(in: removalIndex..<(removalIndex + 1))
+    }
+
+    private mutating func removeMeasures(in removalRange: Range<Int>) {
         var flattenedMeasures = measures
-        guard flattenedMeasures.indices.contains(removalIndex) else {
+        let clampedLowerBound = min(max(removalRange.lowerBound, 0), flattenedMeasures.count)
+        let clampedUpperBound = min(max(removalRange.upperBound, clampedLowerBound), flattenedMeasures.count)
+        guard clampedLowerBound < clampedUpperBound else {
             return
         }
 
-        let removedMeasure = flattenedMeasures.remove(at: removalIndex)
-        removeAnnotations(attachedTo: removedMeasure, fromRemainingMeasures: &flattenedMeasures)
+        let removedMeasures = Array(flattenedMeasures[clampedLowerBound..<clampedUpperBound])
+        flattenedMeasures.removeSubrange(clampedLowerBound..<clampedUpperBound)
+        for removedMeasure in removedMeasures {
+            removeAnnotations(attachedTo: removedMeasure, fromRemainingMeasures: &flattenedMeasures)
+        }
         rebuildSystems(using: flattenedMeasures)
     }
 
@@ -1634,6 +1728,18 @@ extension Chart {
         var flattenedMeasures = measures
         let clampedIndex = min(max(insertionIndex, 0), flattenedMeasures.count)
         flattenedMeasures.insert(newMeasure, at: clampedIndex)
+        rebuildSystems(using: flattenedMeasures)
+    }
+
+    private mutating func insertPreparedMeasures(_ newMeasures: [Measure], at insertionIndex: Int) {
+        guard !newMeasures.isEmpty else {
+            return
+        }
+
+        ensureInitialSystem()
+        var flattenedMeasures = measures
+        let clampedIndex = min(max(insertionIndex, 0), flattenedMeasures.count)
+        flattenedMeasures.insert(contentsOf: newMeasures, at: clampedIndex)
         rebuildSystems(using: flattenedMeasures)
     }
 
@@ -1657,6 +1763,21 @@ extension Chart {
             }
 
         return precedingMeasureCount + location.measureIndex
+    }
+
+    private func flattenedMeasureIndex(id measureID: UUID) -> Int? {
+        measureLocation(id: measureID).map { flattenedMeasureIndex(for: $0) }
+    }
+
+    private func deletionRange(from startMeasureID: UUID, through endMeasureID: UUID) -> Range<Int>? {
+        guard let startIndex = flattenedMeasureIndex(id: startMeasureID),
+              let endIndex = flattenedMeasureIndex(id: endMeasureID) else {
+            return nil
+        }
+
+        let lowerBound = min(startIndex, endIndex)
+        let upperBound = max(startIndex, endIndex) + 1
+        return lowerBound..<upperBound
     }
 
     private mutating func attachCueText(_ cueTextID: UUID, to measureID: UUID) {
@@ -1802,7 +1923,10 @@ extension Chart {
         measure.meterOverride ?? defaultMeter
     }
 
-    private mutating func rebuildSystems(using flattenedMeasures: [Measure]) {
+    private mutating func rebuildSystems(
+        using flattenedMeasures: [Measure],
+        forcedBreakStartIDsOverride: Set<UUID>? = nil
+    ) {
         ensureInitialSystem()
 
         let systemTemplates = systems.map {
@@ -1814,9 +1938,15 @@ extension Chart {
         for measureIndex in normalizedMeasures.indices {
             normalizedMeasures[measureIndex].index = measureIndex + 1
         }
-
-        if layoutStyle == .simpleChordSheet {
-            rebuildSimpleChordSheetSystems(using: normalizedMeasures, systemTemplates: systemTemplates)
+        if supportsManualSystemBreaks {
+            let forcedBreakStartIDs = forcedBreakStartIDsOverride
+                ?? currentForcedSystemBreakStartIDs(in: normalizedMeasures)
+            rebuildManualSystemBreakSystems(
+                using: normalizedMeasures,
+                systemTemplates: systemTemplates,
+                forcedBreakStartIDs: forcedBreakStartIDs,
+                measureCap: layoutStyle == .simpleChordSheet ? simpleSystemMeasureCap : nil
+            )
             return
         }
 
@@ -1864,12 +1994,9 @@ extension Chart {
         normalizeAnchorsToSystems()
     }
 
-    private mutating func rebuildSimpleChordSheetSystems(
-        using normalizedMeasures: [Measure],
-        systemTemplates: [(id: UUID, spacingMode: SpacingMode, lineBreakRule: LineBreakRule)]
-    ) {
+    private func currentForcedSystemBreakStartIDs(in normalizedMeasures: [Measure]) -> Set<UUID> {
         let measureIDs = Set(normalizedMeasures.map(\.id))
-        let forcedBreakStartIDs = Set(
+        return Set(
             systems
                 .dropFirst()
                 .filter { $0.lineBreakRule == .forced }
@@ -1877,9 +2004,15 @@ extension Chart {
                     system.measures.first { measureIDs.contains($0.id) }?.id
                 }
         )
+    }
 
+    private mutating func rebuildManualSystemBreakSystems(
+        using normalizedMeasures: [Measure],
+        systemTemplates: [(id: UUID, spacingMode: SpacingMode, lineBreakRule: LineBreakRule)],
+        forcedBreakStartIDs: Set<UUID>,
+        measureCap: Int?
+    ) {
         let defaultSpacingMode = layoutStyle.profile.measureDefaults.systemSpacingMode
-        let cap = simpleSystemMeasureCap
         var rebuiltSystems: [ChartSystem] = []
         var currentMeasures: [Measure] = []
         var currentLineBreakRule: LineBreakRule = .automatic
@@ -1912,7 +2045,9 @@ extension Chart {
                 currentLineBreakRule = .forced
             }
 
-            if !currentMeasures.isEmpty && currentMeasures.count >= cap {
+            if let measureCap,
+               !currentMeasures.isEmpty,
+               currentMeasures.count >= measureCap {
                 flushCurrentSystem()
             }
 

@@ -405,6 +405,72 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.map(\.index), Array(1...4))
     }
 
+    func testInsertMeasureStackAfterSelectedAddsChosenMeasuresWithoutMovingTrailingOpenMeasure() throws {
+        var chart = Chart.draft(title: "New Chart")
+        chart.completeInitialSetup(
+            title: "Pocket Groove",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let secondMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+        let trailingOpenMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+
+        let insertedIDs = try XCTUnwrap(chart.insertMeasures(after: firstMeasureID, count: 3))
+
+        XCTAssertEqual(chart.measures.map(\.id), [
+            firstMeasureID,
+            insertedIDs[0],
+            insertedIDs[1],
+            insertedIDs[2],
+            secondMeasureID,
+            trailingOpenMeasureID
+        ])
+        XCTAssertEqual(insertedIDs.count, 3)
+        XCTAssertTrue(insertedIDs.allSatisfy { chart.measure(id: $0)?.authoringState == .committed })
+        XCTAssertEqual(chart.measure(id: trailingOpenMeasureID)?.authoringState, .open)
+        XCTAssertEqual(chart.measures.map(\.index), Array(1...6))
+    }
+
+    func testInsertMeasureStackRejectsZeroCountAndMissingAnchor() throws {
+        var chart = Chart.blank(title: "Stack Gate", measureCount: 2, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertNil(chart.insertMeasures(after: measureIDs[0], count: 0))
+        XCTAssertNil(chart.insertMeasures(after: UUID(), count: 4))
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.measures.map(\.index), [1, 2])
+    }
+
+    func testInsertMeasureStackAfterOpenAnchorLeavesTrailingOpenMeasure() throws {
+        var chart = Chart.draft(title: "New Chart")
+        chart.completeInitialSetup(
+            title: "Pocket Groove",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+
+        let openAnchorID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertEqual(chart.measure(id: openAnchorID)?.authoringState, .open)
+
+        let trailingOpenMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+        let insertedIDs = try XCTUnwrap(chart.insertMeasures(after: openAnchorID, count: 2))
+
+        XCTAssertEqual(chart.measures.map(\.id), [
+            openAnchorID,
+            insertedIDs[0],
+            insertedIDs[1],
+            trailingOpenMeasureID
+        ])
+        XCTAssertEqual(chart.measure(id: openAnchorID)?.authoringState, .committed)
+        XCTAssertTrue(insertedIDs.allSatisfy { chart.measure(id: $0)?.authoringState == .committed })
+        XCTAssertEqual(chart.measures.last?.authoringState, .open)
+        XCTAssertEqual(chart.measures.map(\.index), Array(1...4))
+    }
+
     func testAddEndingSpanCreatesTypedSpanAttachedToBoundaryMeasures() throws {
         var chart = Chart.blank(title: "Endings", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let startMeasureID = chart.measures[1].id
@@ -556,9 +622,100 @@ final class ChartEditingTests: XCTestCase {
         var chart = Chart.blank(title: "Repeats", measureCount: 1)
         let onlyMeasureID = try XCTUnwrap(chart.measures.first?.id)
 
+        XCTAssertFalse(chart.canDeleteMeasure(id: onlyMeasureID))
         XCTAssertFalse(chart.deleteMeasure(id: onlyMeasureID))
 
         XCTAssertEqual(chart.measures.count, 1)
+    }
+
+    func testCanDeleteMeasureRequiresExistingMeasureAndSpareMeasure() throws {
+        var chart = Chart.blank(title: "Delete Gate", measureCount: 2)
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let secondMeasureID = try XCTUnwrap(chart.measures.last?.id)
+
+        XCTAssertTrue(chart.canDeleteMeasure(id: firstMeasureID))
+        XCTAssertFalse(chart.canDeleteMeasure(id: UUID()))
+
+        XCTAssertTrue(chart.deleteMeasure(id: secondMeasureID))
+        XCTAssertFalse(chart.canDeleteMeasure(id: firstMeasureID))
+    }
+
+    func testDeleteMeasureRangeRemovesSelectedRangeStacks() throws {
+        var chart = Chart.blank(title: "Range Delete", measureCount: 5, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let keptMarkerID = try XCTUnwrap(
+            chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[0])
+        )
+        let deletedMarkerID = try XCTUnwrap(
+            chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureIDs[3])
+        )
+        XCTAssertEqual(chart.linkPointRoadmapMarkers(attachedTo: measureIDs[0]), 1)
+        XCTAssertEqual(chart.roadmapObject(id: keptMarkerID)?.linkedTargetID, deletedMarkerID)
+        let deletedRepeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[1], endMeasureID: measureIDs[3])
+        )
+        let deletedCueID = try XCTUnwrap(
+            chart.addCueText("break", anchorMeasureID: measureIDs[3])
+        )
+        let deletedFreehandID = try XCTUnwrap(
+            chart.addFreehandSymbol(
+                anchorMeasureID: measureIDs[3],
+                lane: .chartArea,
+                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.1, y: 0.2, width: 0.2, height: 0.2),
+                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 12, offsetY: 8, width: 22, height: 18),
+                drawingData: Data([9, 8, 7])
+            )
+        )
+        let keptFreehandID = try XCTUnwrap(
+            chart.addFreehandSymbol(
+                anchorMeasureID: measureIDs[4],
+                lane: .chartArea,
+                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.1, y: 0.2, width: 0.2, height: 0.2),
+                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 12, offsetY: 8, width: 22, height: 18),
+                drawingData: Data([9, 8, 7])
+            )
+        )
+        let deletedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                ChordSymbol(root: .c, accidental: .natural, quality: "7", extensions: [], alterations: [], slashBass: nil),
+                rawInput: "C7",
+                to: measureIDs[2],
+                atFraction: 0.1
+            )
+        )
+        XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measureIDs[2]))
+
+        XCTAssertTrue(chart.canDeleteMeasures(from: measureIDs[3], through: measureIDs[2]))
+        XCTAssertTrue(chart.deleteMeasures(from: measureIDs[3], through: measureIDs[2]))
+
+        XCTAssertEqual(chart.measures.map(\.id), [measureIDs[0], measureIDs[1], measureIDs[4]])
+        XCTAssertNil(chart.roadmapObject(id: deletedMarkerID))
+        XCTAssertNil(chart.roadmapObject(id: deletedRepeatID))
+        XCTAssertNil(chart.cueText(id: deletedCueID))
+        XCTAssertNil(chart.freehandSymbol(id: deletedFreehandID))
+        XCTAssertNotNil(chart.freehandSymbol(id: keptFreehandID))
+        XCTAssertNil(chart.chordEvent(id: deletedChordID))
+        XCTAssertNil(chart.roadmapObject(id: keptMarkerID)?.linkedTargetID)
+        XCTAssertTrue(chart.measures.allSatisfy { $0.roadmapObjectIDs.allSatisfy { $0 == keptMarkerID } })
+        XCTAssertTrue(chart.measures.allSatisfy(\.cueTextIDs.isEmpty))
+        XCTAssertEqual(chart.measures.map(\.index), [1, 2, 3])
+    }
+
+    func testDeleteMeasureRangePreservesOneMeasureMinimum() throws {
+        var chart = Chart.blank(title: "Range Delete Gate", measureCount: 3, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertFalse(chart.canDeleteMeasures(from: measureIDs[0], through: measureIDs[2]))
+        XCTAssertFalse(chart.deleteMeasures(from: measureIDs[0], through: measureIDs[2]))
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.measures.map(\.index), [1, 2, 3])
+
+        XCTAssertTrue(chart.canDeleteMeasures(from: measureIDs[0], through: measureIDs[1]))
+        XCTAssertTrue(chart.deleteMeasures(from: measureIDs[0], through: measureIDs[1]))
+
+        XCTAssertEqual(chart.measures.map(\.id), [measureIDs[2]])
+        XCTAssertEqual(chart.measures.map(\.index), [1])
+        XCTAssertFalse(chart.canDeleteMeasures(from: measureIDs[2], through: measureIDs[2]))
     }
 
     func testDocumentKeyTransposesForBbView() {
@@ -703,6 +860,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.systems.count, 1)
         XCTAssertEqual(chart.systems[0].spacingMode, .relaxed)
         XCTAssertEqual(chart.measures.count, 8)
+        XCTAssertEqual(chart.measures.first?.barlineAfter, .single)
         XCTAssertTrue(chart.measures.allSatisfy { $0.beatGridPreset == .eighthSubdivision })
         XCTAssertTrue(chart.measures.dropLast().allSatisfy { $0.authoringState == .committed })
         XCTAssertEqual(chart.measures.last?.authoringState, .open)
@@ -722,6 +880,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.systems.count, 1)
         XCTAssertEqual(chart.measures.count, 1)
         XCTAssertEqual(chart.measures[0].authoringState, .open)
+        XCTAssertEqual(chart.measures[0].barlineAfter, .single)
     }
 
     func testDraftStoresSelectedLayoutStyleAndDefaults() {
@@ -830,8 +989,84 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(sanitizedDefaults.maximumMeasuresPerSystem, 1)
         XCTAssertTrue(ChartLayoutStyle.allCases.allSatisfy { $0.profile.measureDefaults.initialMeasureCount >= 1 })
         XCTAssertEqual(blankChart.measures.count, 1)
+        XCTAssertEqual(blankChart.measures.first?.barlineAfter, .double)
         XCTAssertEqual(rhythmChart.systems[0].spacingMode, .relaxed)
+        XCTAssertEqual(rhythmChart.measures.first?.barlineAfter, .single)
         XCTAssertTrue(rhythmChart.measures.allSatisfy { $0.beatGridPreset == .eighthSubdivision })
+    }
+
+    func testFirstMeasureDoesNotForceTrailingDoubleBarlineAfterInsertAndDelete() throws {
+        var chart = Chart.blank(title: "Double Start", measureCount: 3, layoutStyle: .rhythmSectionSheet)
+        let originalFirstID = try XCTUnwrap(chart.measures.first?.id)
+        let originalSecondID = chart.measures[1].id
+
+        XCTAssertEqual(chart.measure(id: originalFirstID)?.barlineAfter, .single)
+        XCTAssertEqual(chart.measure(id: originalSecondID)?.barlineAfter, .single)
+
+        let insertedID = chart.insertMeasureAtBeginning()
+        XCTAssertEqual(chart.measures.first?.id, insertedID)
+        XCTAssertEqual(chart.measures.first?.barlineAfter, .single)
+
+        XCTAssertTrue(chart.deleteMeasure(id: insertedID))
+        XCTAssertEqual(chart.measures.first?.id, originalFirstID)
+        XCTAssertEqual(chart.measure(id: originalFirstID)?.barlineAfter, .single)
+
+        XCTAssertTrue(chart.deleteMeasure(id: originalFirstID))
+        XCTAssertEqual(chart.measures.first?.id, originalSecondID)
+        XCTAssertEqual(chart.measure(id: originalSecondID)?.barlineAfter, .single)
+    }
+
+    func testCommitOpenMeasureCanCreateDoubleBarlineMeasure() throws {
+        var chart = Chart.draft(title: "Open Double", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Open Double",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 2
+        )
+        let openMeasureID = try XCTUnwrap(chart.measures.last?.id)
+
+        let nextOpenMeasureID = try XCTUnwrap(chart.commitOpenMeasure(barlineAfter: .double))
+
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.authoringState, .committed)
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.barlineAfter, .double)
+        XCTAssertEqual(chart.measure(id: nextOpenMeasureID)?.authoringState, .open)
+        XCTAssertEqual(chart.measure(id: nextOpenMeasureID)?.barlineAfter, .single)
+    }
+
+    func testChartInitializationPreservesFirstMeasureTrailingBarline() {
+        let chart = Chart(
+            id: UUID(),
+            title: "Legacy Single Start",
+            chartType: .chordChart,
+            documentKey: .cMajor,
+            documentFont: .classic,
+            defaultTranspositionView: .concert,
+            defaultMeter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            systems: [
+                ChartSystem(
+                    id: UUID(),
+                    index: 0,
+                    spacingMode: .automatic,
+                    lineBreakRule: .automatic,
+                    measures: [
+                        makeMeasure(index: 1, barlineAfter: .single),
+                        makeMeasure(index: 2, barlineAfter: .single)
+                    ]
+                )
+            ],
+            sectionLabels: [],
+            cueTexts: [],
+            roadmapObjects: [],
+            stylePreset: .rehearsalDraft,
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        XCTAssertEqual(chart.measures.first?.barlineAfter, .single)
+        XCTAssertEqual(chart.measures.last?.barlineAfter, .single)
     }
 
     func testSimpleChordSheetManualSystemBreakSplitsAndRemovesRows() throws {
@@ -889,13 +1124,45 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.map(\.index), Array(1...21))
     }
 
-    func testNonSimpleChartsRejectSimpleSystemBreakControls() throws {
+    func testRhythmSectionManualSystemBreakSplitsAndRemovesRows() throws {
+        var chart = Chart.blank(title: "Rhythm Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let secondMeasureID = try XCTUnwrap(measureIDs.dropFirst().first)
+
+        XCTAssertFalse(chart.canInsertSystemBreak(before: measureIDs[0]))
+        XCTAssertTrue(chart.canInsertSystemBreak(before: secondMeasureID))
+        XCTAssertTrue(chart.insertSystemBreak(before: secondMeasureID))
+
+        XCTAssertEqual(chart.systems.count, 2)
+        XCTAssertEqual(chart.systems[0].measures.map(\.id), [measureIDs[0]])
+        XCTAssertEqual(chart.systems[1].measures.map(\.id), Array(measureIDs[1..<4]))
+        XCTAssertEqual(chart.systems[1].lineBreakRule, .forced)
+        XCTAssertFalse(chart.canInsertSystemBreak(before: secondMeasureID))
+        XCTAssertTrue(chart.canRemoveSystemBreak(before: secondMeasureID))
+        XCTAssertTrue(chart.removeSystemBreak(before: secondMeasureID))
+
+        XCTAssertEqual(chart.systems.count, 1)
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.systems[0].lineBreakRule, .automatic)
+    }
+
+    func testSimpleNamedSystemBreakControlsRemainSimpleOnly() throws {
         var chart = Chart.blank(title: "Rhythm Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let secondMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
 
         XCTAssertFalse(chart.canInsertSimpleSystemBreak(before: secondMeasureID))
         XCTAssertFalse(chart.insertSimpleSystemBreak(before: secondMeasureID))
         XCTAssertFalse(chart.removeSimpleSystemBreak(before: secondMeasureID))
+        XCTAssertEqual(chart.systems.count, 1)
+    }
+
+    func testLeadSheetRejectsManualSystemBreakControlsForNow() throws {
+        var chart = Chart.blank(title: "Lead Rows", measureCount: 4, layoutStyle: .leadSheet)
+        let secondMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
+
+        XCTAssertFalse(chart.canInsertSystemBreak(before: secondMeasureID))
+        XCTAssertFalse(chart.insertSystemBreak(before: secondMeasureID))
+        XCTAssertFalse(chart.removeSystemBreak(before: secondMeasureID))
         XCTAssertEqual(chart.systems.count, 1)
     }
 

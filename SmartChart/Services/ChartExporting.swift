@@ -154,7 +154,8 @@ private struct ChartPDFRenderer {
 
         if let firstMeasure = system.measures.first,
            !firstMeasure.repeatMarkerLayouts.contains(where: { $0.edge == .leading }) {
-            renderer.drawSingleBarline(
+            renderer.drawLeadingBarline(
+                firstMeasure.leadingBarline ?? .single,
                 at: firstMeasure.frame.minX,
                 from: firstMeasure.staffFrame.minY,
                 to: firstMeasure.staffFrame.maxY

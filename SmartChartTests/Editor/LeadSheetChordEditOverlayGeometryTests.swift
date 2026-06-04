@@ -86,6 +86,138 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         assertAction(target?.action, is: .review)
     }
 
+    func testSelectFirstPolicyTurnsUnselectedChordTapIntoSelection() {
+        let measureID = UUID()
+        let chordID = UUID()
+        let rawTarget = ChordEditHitTarget(measureID: measureID, chordID: chordID, action: .review)
+
+        let resolvedTarget = LeadSheetChordObjectInteractionPolicy.resolvedTapTarget(
+            rawTarget,
+            selectedChordID: nil,
+            requiresSelectionBeforeAction: true
+        )
+
+        XCTAssertEqual(resolvedTarget?.measureID, measureID)
+        XCTAssertEqual(resolvedTarget?.chordID, chordID)
+        assertAction(resolvedTarget?.action, is: .select)
+    }
+
+    func testSelectFirstPolicyAllowsActionsAfterChordSelection() {
+        let measureID = UUID()
+        let chordID = UUID()
+        let rawDeleteTarget = ChordEditHitTarget(measureID: measureID, chordID: chordID, action: .delete)
+        let rawMoveTarget = ChordEditHitTarget(measureID: measureID, chordID: chordID, action: .move)
+
+        let resolvedDeleteTarget = LeadSheetChordObjectInteractionPolicy.resolvedTapTarget(
+            rawDeleteTarget,
+            selectedChordID: chordID,
+            requiresSelectionBeforeAction: true
+        )
+        let resolvedMoveTarget = LeadSheetChordObjectInteractionPolicy.resolvedMoveTarget(
+            rawMoveTarget,
+            selectedChordID: chordID,
+            requiresSelectionBeforeMove: true
+        )
+
+        assertAction(resolvedDeleteTarget?.action, is: .delete)
+        assertAction(resolvedMoveTarget?.action, is: .move)
+    }
+
+    func testSelectFirstPolicyBlocksUnselectedChordMoveStart() {
+        let rawMoveTarget = ChordEditHitTarget(measureID: UUID(), chordID: UUID(), action: .move)
+
+        let resolvedMoveTarget = LeadSheetChordObjectInteractionPolicy.resolvedMoveTarget(
+            rawMoveTarget,
+            selectedChordID: nil,
+            requiresSelectionBeforeMove: true
+        )
+
+        XCTAssertNil(resolvedMoveTarget)
+    }
+
+    func testActiveChordPolicyLeavesRenderedChordActionsAvailableImmediately() {
+        let chordID = UUID()
+        let rawReviewTarget = ChordEditHitTarget(measureID: UUID(), chordID: chordID, action: .review)
+        let rawMoveTarget = ChordEditHitTarget(measureID: UUID(), chordID: chordID, action: .move)
+
+        let resolvedReviewTarget = LeadSheetChordObjectInteractionPolicy.resolvedTapTarget(
+            rawReviewTarget,
+            selectedChordID: nil,
+            requiresSelectionBeforeAction: false
+        )
+        let resolvedMoveTarget = LeadSheetChordObjectInteractionPolicy.resolvedMoveTarget(
+            rawMoveTarget,
+            selectedChordID: nil,
+            requiresSelectionBeforeMove: false
+        )
+
+        assertAction(resolvedReviewTarget?.action, is: .review)
+        assertAction(resolvedMoveTarget?.action, is: .move)
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
+                for: chordID,
+                selectedChordID: nil,
+                activeMoveChordID: nil,
+                drawsAllBoxes: true
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawControls(
+                for: chordID,
+                selectedChordID: nil,
+                activeMoveChordID: nil,
+                drawsAllControls: true
+            )
+        )
+    }
+
+    func testSelectFirstPolicyDrawsAllBoxesButOnlySelectedOrMovingControls() {
+        let selectedChordID = UUID()
+        let movingChordID = UUID()
+        let idleChordID = UUID()
+
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
+                for: idleChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: movingChordID,
+                drawsAllBoxes: true
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawControls(
+                for: idleChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: movingChordID,
+                drawsAllControls: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawControls(
+                for: selectedChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: nil,
+                drawsAllControls: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawControls(
+                for: movingChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: movingChordID,
+                drawsAllControls: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawControls(
+                for: idleChordID,
+                selectedChordID: nil,
+                activeMoveChordID: nil,
+                drawsAllControls: true
+            )
+        )
+    }
+
     func testEditFrameWrapsVisibleChordFrameNotMeasureFitFrame() {
         let chordLayout = LeadSheetChordLayout(
             id: UUID(),
@@ -109,7 +241,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         line: UInt = #line
     ) {
         switch (action, expectedAction) {
-        case (.delete?, .delete), (.move?, .move), (.review?, .review):
+        case (.select?, .select), (.delete?, .delete), (.move?, .move), (.review?, .review):
             break
         default:
             XCTFail("Expected \(expectedAction), got \(String(describing: action))", file: file, line: line)
@@ -134,6 +266,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             noteLayouts: [],
             repeatMarkerLayouts: [],
             cueTextLayouts: [],
+            leadingBarline: nil,
             barlineAfter: .single,
             meterChange: nil,
             meterChangeFrame: nil,
@@ -163,6 +296,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             paperFrame: CGRect(x: 40, y: 40, width: 420, height: 420),
             header: LeadSheetHeaderLayout(
                 frame: CGRect(x: 60, y: 60, width: 380, height: 80),
+                handwrittenFrame: CGRect(x: 60, y: 60, width: 380, height: 80),
                 titleFrame: CGRect(x: 120, y: 70, width: 220, height: 36),
                 composerFrame: nil,
                 styleNoteFrame: nil,

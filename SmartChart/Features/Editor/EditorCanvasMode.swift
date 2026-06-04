@@ -77,7 +77,19 @@ enum EditorCanvasMode: Hashable {
     }
 
     var allowsChordObjectEditing: Bool {
-        self == .browse
+        self == .browse || self == .chordEntry
+    }
+
+    var requiresChordSelectionBeforeObjectActions: Bool {
+        false
+    }
+
+    var drawsAllChordObjectEditBoxes: Bool {
+        self == .browse || self == .chordEntry
+    }
+
+    var drawsAllChordObjectEditControls: Bool {
+        self == .browse || self == .chordEntry
     }
 
     var allowsNoteSelectionInk: Bool {

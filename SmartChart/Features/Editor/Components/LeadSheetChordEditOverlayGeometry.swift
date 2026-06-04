@@ -8,6 +8,7 @@ struct LeadSheetChordEditControlFrames {
 
 struct ChordEditHitTarget {
     enum Action {
+        case select
         case delete
         case move
         case review
@@ -107,6 +108,67 @@ enum LeadSheetChordEditOverlayGeometry {
         }
 
         return nil
+    }
+}
+
+enum LeadSheetChordObjectInteractionPolicy {
+    static func resolvedTapTarget(
+        _ hitTarget: ChordEditHitTarget?,
+        selectedChordID: UUID?,
+        requiresSelectionBeforeAction: Bool
+    ) -> ChordEditHitTarget? {
+        guard let hitTarget else {
+            return nil
+        }
+
+        guard requiresSelectionBeforeAction,
+              selectedChordID != hitTarget.chordID else {
+            return hitTarget
+        }
+
+        return ChordEditHitTarget(
+            measureID: hitTarget.measureID,
+            chordID: hitTarget.chordID,
+            action: .select
+        )
+    }
+
+    static func resolvedMoveTarget(
+        _ hitTarget: ChordEditHitTarget?,
+        selectedChordID: UUID?,
+        requiresSelectionBeforeMove: Bool
+    ) -> ChordEditHitTarget? {
+        guard let hitTarget else {
+            return nil
+        }
+
+        guard requiresSelectionBeforeMove else {
+            return hitTarget
+        }
+
+        return selectedChordID == hitTarget.chordID ? hitTarget : nil
+    }
+
+    static func shouldDrawBox(
+        for chordID: UUID,
+        selectedChordID: UUID?,
+        activeMoveChordID: UUID?,
+        drawsAllBoxes: Bool
+    ) -> Bool {
+        drawsAllBoxes
+            || selectedChordID == chordID
+            || activeMoveChordID == chordID
+    }
+
+    static func shouldDrawControls(
+        for chordID: UUID,
+        selectedChordID: UUID?,
+        activeMoveChordID: UUID?,
+        drawsAllControls: Bool
+    ) -> Bool {
+        drawsAllControls
+            || selectedChordID == chordID
+            || activeMoveChordID == chordID
     }
 }
 

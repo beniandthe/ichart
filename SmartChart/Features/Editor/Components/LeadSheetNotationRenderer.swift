@@ -220,13 +220,70 @@ struct LeadSheetNotationRenderer {
 
     func drawStaffLines(for system: LeadSheetSystemLayout) {
         let staffSpace = system.staffSpace
+        let horizontalSpan = staffLineHorizontalSpan(for: system, staffSpace: staffSpace)
         for lineY in system.staffLineYPositions {
             let path = UIBezierPath()
-            path.move(to: CGPoint(x: system.frame.minX, y: lineY))
-            path.addLine(to: CGPoint(x: system.frame.maxX, y: lineY))
+            path.move(to: CGPoint(x: horizontalSpan.minX, y: lineY))
+            path.addLine(to: CGPoint(x: horizontalSpan.maxX, y: lineY))
             path.lineWidth = style.staffLineWidth(staffSpace: staffSpace)
             style.inkColor.withAlphaComponent(chart.layoutStyle == .rhythmSectionSheet ? 0.82 : 0.72).setStroke()
             path.stroke()
+        }
+    }
+
+    private func staffLineHorizontalSpan(
+        for system: LeadSheetSystemLayout,
+        staffSpace: CGFloat
+    ) -> (minX: CGFloat, maxX: CGFloat) {
+        guard chart.layoutStyle == .rhythmSectionSheet,
+              let firstMeasure = system.measures.first,
+              let lastMeasure = system.measures.last else {
+            return (system.frame.minX, system.frame.maxX)
+        }
+
+        let startX = rhythmSectionSystemStartX(for: firstMeasure, staffSpace: staffSpace)
+        let endX = rhythmSectionSystemEndX(for: lastMeasure, staffSpace: staffSpace)
+        return (min(startX, endX), max(startX, endX))
+    }
+
+    private func rhythmSectionSystemStartX(
+        for measure: LeadSheetMeasureLayout,
+        staffSpace: CGFloat
+    ) -> CGFloat {
+        if let leadingRepeatFrame = measure.repeatMarkerLayouts
+            .filter({ $0.edge == .leading })
+            .map(\.frame)
+            .min(by: { $0.minX < $1.minX }) {
+            return leadingRepeatFrame.minX
+        }
+
+        let barline = measure.leadingBarline ?? .single
+        let x = measure.frame.minX
+        switch barline {
+        case .single:
+            return x
+        case .double, .final:
+            return x - style.barlineSeparation(staffSpace: staffSpace)
+        }
+    }
+
+    private func rhythmSectionSystemEndX(
+        for measure: LeadSheetMeasureLayout,
+        staffSpace: CGFloat
+    ) -> CGFloat {
+        if let trailingRepeatFrame = measure.repeatMarkerLayouts
+            .filter({ $0.edge == .trailing })
+            .map(\.frame)
+            .max(by: { $0.maxX < $1.maxX }) {
+            return trailingRepeatFrame.maxX
+        }
+
+        let x = measure.trailingBarlineFrame.midX
+        switch measure.barlineAfter {
+        case .single:
+            return x
+        case .double, .final:
+            return x + style.barlineSeparation(staffSpace: staffSpace) / 2
         }
     }
 
@@ -585,6 +642,28 @@ struct LeadSheetNotationRenderer {
                 at: frame.midX + separation / 2,
                 from: frame.minY,
                 to: frame.maxY,
+                semanticWidth: .thick
+            )
+        }
+    }
+
+    func drawLeadingBarline(_ barline: BarlineType, at x: CGFloat, from startY: CGFloat, to endY: CGFloat) {
+        switch barline {
+        case .single:
+            drawSingleBarline(at: x, from: startY, to: endY)
+        case .double:
+            let staffSpace = staffSpace(fromStaffHeight: endY - startY)
+            let separation = style.barlineSeparation(staffSpace: staffSpace)
+            drawSingleBarline(at: x - separation, from: startY, to: endY)
+            drawSingleBarline(at: x, from: startY, to: endY)
+        case .final:
+            let staffSpace = staffSpace(fromStaffHeight: endY - startY)
+            let separation = style.barlineSeparation(staffSpace: staffSpace)
+            drawSingleBarline(at: x - separation, from: startY, to: endY)
+            drawSingleBarline(
+                at: x,
+                from: startY,
+                to: endY,
                 semanticWidth: .thick
             )
         }

@@ -41,14 +41,17 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         #endif
     }
 
-    func testChordEntryWritesOnlyAndDoesNotEnableRenderedChordMove() {
+    func testChordEntryKeepsInkCanvasAndEnablesRenderedChordObjects() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
         XCTAssertTrue(policy.pageInkCanvasInteractionEnabled)
-        XCTAssertFalse(policy.chordEditTapEnabled)
-        XCTAssertFalse(policy.chordMovePanEnabled)
-        XCTAssertTrue(policy.chordEditOverlayHidden)
-        XCTAssertFalse(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
+        XCTAssertTrue(policy.chordEditTapEnabled)
+        XCTAssertTrue(policy.chordMovePanEnabled)
+        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
+        XCTAssertFalse(EditorCanvasMode.chordEntry.requiresChordSelectionBeforeObjectActions)
+        XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditBoxes)
+        XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
     }
 
     func testChordTargetingAcceptsInkAcrossFullRhythmSectionChordLane() throws {
@@ -104,6 +107,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(policy.chordMovePanEnabled)
         XCTAssertFalse(policy.chordEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
+        XCTAssertFalse(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
+        XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
+        XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
     func testToolModesRestrictPageScrollToOutsideMargins() {
@@ -115,6 +121,25 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.chordEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.noteEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.freeHand.restrictsPageScrollToOutsideMargins)
+    }
+
+    func testInkResponsivenessPolicyClampsValues() {
+        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(-0.4), 0)
+        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(1.4), 1)
+        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(0.65), 0.65)
+    }
+
+    func testInkResponsivenessPolicyMapsHigherValuesToMoreInputCoalescing() {
+        let direct = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: 0)
+        let balanced = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(
+            for: LeadSheetInkResponsivenessPolicy.defaultValue
+        )
+        let smooth = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: 1)
+
+        XCTAssertLessThan(direct, balanced)
+        XCTAssertLessThan(balanced, smooth)
+        XCTAssertEqual(direct, 0.01, accuracy: 0.001)
+        XCTAssertEqual(smooth, 0.06, accuracy: 0.001)
     }
 
     func testFreehandTabTitleUsesFreeHandNameUntilActive() {
@@ -153,6 +178,27 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 at: CGPoint(x: paperFrame.minX - LeadSheetScrollMarginPolicy.paperHitSlop / 2, y: 140),
                 paperFrame: paperFrame,
                 restrictsToOutsideMargins: true
+            )
+        )
+    }
+
+    func testChordMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
+        XCTAssertFalse(
+            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesChordMove: true,
+                involvesParentScroll: true
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesChordMove: true,
+                involvesParentScroll: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesChordMove: false,
+                involvesParentScroll: true
             )
         )
     }

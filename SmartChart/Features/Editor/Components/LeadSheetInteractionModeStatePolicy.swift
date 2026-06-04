@@ -105,4 +105,13 @@ enum LeadSheetScrollMarginPolicy {
             .contains(point)
     }
 }
+
+enum LeadSheetChordMoveScrollLockPolicy {
+    static func allowsSimultaneousRecognition(
+        involvesChordMove: Bool,
+        involvesParentScroll: Bool
+    ) -> Bool {
+        !(involvesChordMove && involvesParentScroll)
+    }
+}
 #endif

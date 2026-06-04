@@ -56,6 +56,7 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var noteLayouts: [LeadSheetNoteLayout]
     var repeatMarkerLayouts: [LeadSheetRepeatMarkerLayout]
     var cueTextLayouts: [LeadSheetCueTextLayout]
+    var leadingBarline: BarlineType?
     var barlineAfter: BarlineType
     var meterChange: Meter?
     var meterChangeFrame: CGRect?
@@ -834,6 +835,9 @@ enum LeadSheetPageLayoutEngine {
             systemIndex: currentSystemIndex
         )
         var currentBodyWidth: CGFloat = 0
+        let forcedBreakStartIDs = chart.layoutStyle == .rhythmSectionSheet
+            ? forcedSystemBreakStartIDs(for: chart)
+            : Set<UUID>()
 
         func flushCurrentSystem() {
             guard !currentMeasures.isEmpty else {
@@ -859,6 +863,10 @@ enum LeadSheetPageLayoutEngine {
         }
 
         for measure in sourceMeasures {
+            if !currentMeasures.isEmpty && forcedBreakStartIDs.contains(measure.id) {
+                flushCurrentSystem()
+            }
+
             let preferredWidth = preferredWidth(for: measure, chart: chart)
             let nextFrameWidth = currentLeadingSignatureWidth
                 + currentBodyWidth
@@ -880,33 +888,79 @@ enum LeadSheetPageLayoutEngine {
             return plans
         }
 
-        return plans.map {
-            stretchedRhythmSectionSystemPlan($0, maxSystemWidth: maxSystemWidth)
+        return standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth)
+    }
+
+    private static func forcedSystemBreakStartIDs(for chart: Chart) -> Set<UUID> {
+        Set(
+            chart.systems
+                .dropFirst()
+                .filter { $0.lineBreakRule == .forced }
+                .compactMap(\.measures.first?.id)
+        )
+    }
+
+    private static func standardizedRhythmSectionSystemPlans(
+        _ plans: [PackedLeadSheetSystemPlan],
+        maxSystemWidth: CGFloat
+    ) -> [PackedLeadSheetSystemPlan] {
+        guard let firstPlan = plans.first,
+              let firstMeasure = firstPlan.measures.first else {
+            return plans
+        }
+
+        let firstBodyWidth = max(1, maxSystemWidth - firstPlan.leadingSignatureWidth - systemTrailingPadding)
+        let firstPreferredBodyWidth = firstPlan.measures.map(\.width).reduce(0, +)
+        guard firstPreferredBodyWidth > 0 else {
+            return plans
+        }
+
+        let maxMeasureCount = max(1, plans.map(\.measures.count).max() ?? 1)
+        let largestBodyWidth = max(
+            1,
+            plans
+                .map { maxSystemWidth - $0.leadingSignatureWidth - systemTrailingPadding }
+                .min() ?? firstBodyWidth
+        )
+        let firstScale = firstBodyWidth / firstPreferredBodyWidth
+        let firstSystemMeasureWidth = firstMeasure.width * firstScale
+        let standardMeasureWidth = min(
+            firstSystemMeasureWidth,
+            largestBodyWidth / CGFloat(maxMeasureCount)
+        )
+
+        return plans.map { plan in
+            standardizedRhythmSectionSystemPlan(
+                plan,
+                standardMeasureWidth: standardMeasureWidth
+            )
         }
     }
 
-    private static func stretchedRhythmSectionSystemPlan(
+    private static func standardizedRhythmSectionSystemPlan(
         _ plan: PackedLeadSheetSystemPlan,
-        maxSystemWidth: CGFloat
+        standardMeasureWidth: CGFloat
     ) -> PackedLeadSheetSystemPlan {
-        let bodyWidth = max(1, maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding)
-        let preferredBodyWidth = plan.measures.map(\.width).reduce(0, +)
-        guard preferredBodyWidth > 0 else {
-            return plan
-        }
+        let standardizedMeasures = plan.measures.map { measurePlan in
+            let width: CGFloat
+            if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
+                width = Measure.clampedManualLayoutWidth(CGFloat(manualLayoutWidth))
+            } else {
+                width = standardMeasureWidth
+            }
 
-        let stretchedMeasures = plan.measures.map { measurePlan in
-            PackedLeadSheetMeasurePlan(
+            return PackedLeadSheetMeasurePlan(
                 measure: measurePlan.measure,
-                width: bodyWidth * measurePlan.width / preferredBodyWidth
+                width: width
             )
         }
+        let bodyWidth = standardizedMeasures.map(\.width).reduce(0, +)
 
         return PackedLeadSheetSystemPlan(
             id: plan.id,
             leadingSignatureWidth: plan.leadingSignatureWidth,
             frameWidth: plan.leadingSignatureWidth + bodyWidth + systemTrailingPadding,
-            measures: stretchedMeasures
+            measures: standardizedMeasures
         )
     }
 
@@ -986,6 +1040,9 @@ enum LeadSheetPageLayoutEngine {
             return visualPolicy.simpleLeadingMeterGutterWidth
         }
         let metrics = visualPolicy.metrics
+        if chart.layoutStyle == .rhythmSectionSheet {
+            return metrics.firstSystemSignatureWidth
+        }
         guard systemIndex == 0 else { return metrics.continuationSystemSignatureWidth }
 
         let keySignatureWidth = chart.layoutStyle == .leadSheet
@@ -1216,6 +1273,7 @@ enum LeadSheetPageLayoutEngine {
                 noteLayouts: [],
                 repeatMarkerLayouts: [],
                 cueTextLayouts: [],
+                leadingBarline: nil,
                 barlineAfter: .single,
                 meterChange: meterChange,
                 meterChangeFrame: meterChangeFrame,
@@ -1291,6 +1349,7 @@ enum LeadSheetPageLayoutEngine {
             noteLayouts: noteLayouts,
             repeatMarkerLayouts: repeatMarkerLayouts,
             cueTextLayouts: cueTextLayouts,
+            leadingBarline: measure.index == 1 ? .double : nil,
             barlineAfter: measure.barlineAfter,
             meterChange: meterChange,
             meterChangeFrame: meterChangeFrame,
