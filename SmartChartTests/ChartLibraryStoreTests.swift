@@ -2,15 +2,37 @@ import XCTest
 @testable import SmartChart
 
 final class ChartLibraryStoreTests: XCTestCase {
+    private enum RecordingRepositoryError: LocalizedError {
+        case load
+        case save
+
+        var errorDescription: String? {
+            switch self {
+            case .load:
+                "Could not read saved library."
+            case .save:
+                "Could not write saved library."
+            }
+        }
+    }
+
     private final class RecordingChartRepository: ChartRepository {
         var snapshotToLoad: ChartLibrarySnapshot?
+        var loadError: Error?
+        var saveError: Error?
         private(set) var savedSnapshots: [ChartLibrarySnapshot] = []
 
         func loadSnapshot() throws -> ChartLibrarySnapshot? {
-            snapshotToLoad
+            if let loadError {
+                throw loadError
+            }
+            return snapshotToLoad
         }
 
         func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws {
+            if let saveError {
+                throw saveError
+            }
             savedSnapshots.append(snapshot)
         }
     }
@@ -64,6 +86,74 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertTrue(didCreateChart)
         XCTAssertEqual(repository.savedSnapshots.last?.charts.first?.documentKey, .gMajor)
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
+    }
+
+    func testRepositoryBackedStoreStartsWithAutosaveReadyStatus() {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(charts: [], repository: repository)
+
+        XCTAssertEqual(store.persistenceStatus, .ready)
+    }
+
+    func testSuccessfulMutationMarksPersistenceStatusSaved() {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(charts: [], repository: repository)
+
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
+
+        guard case .saved(let savedAt) = store.persistenceStatus else {
+            return XCTFail("Expected saved persistence status, got \(store.persistenceStatus)")
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(savedAt), 5)
+        XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
+    }
+
+    func testFailedSaveReportsPersistenceIssueWithoutDroppingInMemoryMutation() {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let store = ChartLibraryStore(charts: [], repository: repository)
+
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .rhythmSectionSheet))
+
+        XCTAssertEqual(store.charts.count, 1)
+        XCTAssertEqual(store.selectedChartID, store.charts.first?.id)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        guard case .failed(let message) = store.persistenceStatus else {
+            return XCTFail("Expected failed persistence status, got \(store.persistenceStatus)")
+        }
+        XCTAssertTrue(message.contains("Could not write saved library"))
+    }
+
+    func testLiveStoreMarksLoadedSnapshotAsSaved() {
+        let chart = Chart.blank(title: "Saved Chart")
+        let snapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: AppEntitlements(activePlan: .proLifetime)
+        )
+        let repository = RecordingChartRepository()
+        repository.snapshotToLoad = snapshot
+
+        let store = ChartLibraryStore.live(repository: repository)
+
+        XCTAssertEqual(store.snapshot, snapshot)
+        guard case .saved = store.persistenceStatus else {
+            return XCTFail("Expected loaded live store to be marked saved, got \(store.persistenceStatus)")
+        }
+    }
+
+    func testLiveStoreReportsLoadFailureWithoutPersistingPreviewFallback() {
+        let repository = RecordingChartRepository()
+        repository.loadError = RecordingRepositoryError.load
+
+        let store = ChartLibraryStore.live(repository: repository)
+
+        XCTAssertFalse(store.charts.isEmpty)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        guard case .failed(let message) = store.persistenceStatus else {
+            return XCTFail("Expected load failure status, got \(store.persistenceStatus)")
+        }
+        XCTAssertTrue(message.contains("Could not read saved library"))
     }
 
     func testMutatingChartElementPersistsEditedChartSnapshot() throws {

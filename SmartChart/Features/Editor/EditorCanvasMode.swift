@@ -3,6 +3,7 @@ import Foundation
 enum EditorCanvasMode: Hashable {
     case browse
     case measureEdit
+    case repeatEdit
     case timeSignatureEdit
     case rhythmicNotationEdit
     case headerEntry
@@ -12,19 +13,67 @@ enum EditorCanvasMode: Hashable {
 
     var freeHandTabTitle: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit:
+        case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
+                .headerEntry, .chordEntry, .noteEdit, .freeHand:
             return "Free-Hand"
-        case .freeHand:
-            return "Done"
         }
     }
 
     var freeHandTabSymbol: String {
         switch self {
-        case .browse, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit:
+        case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
+                .headerEntry, .chordEntry, .noteEdit, .freeHand:
             return "pencil.and.scribble"
+        }
+    }
+
+    var showsActiveToolControls: Bool {
+        self != .browse
+    }
+
+    var activeToolTitle: String {
+        switch self {
+        case .browse:
+            return "Select"
+        case .measureEdit:
+            return "Measures"
+        case .repeatEdit:
+            return "Repeats"
+        case .timeSignatureEdit:
+            return "Time"
+        case .rhythmicNotationEdit:
+            return "Rhythm"
+        case .headerEntry:
+            return "Header"
+        case .chordEntry:
+            return "Chord"
+        case .noteEdit:
+            return "Rhythm Edit"
         case .freeHand:
-            return "pencil.slash"
+            return "Free-Hand"
+        }
+    }
+
+    var activeToolSymbol: String {
+        switch self {
+        case .browse:
+            return "cursorarrow"
+        case .measureEdit:
+            return "rectangle.split.4x1"
+        case .repeatEdit:
+            return "repeat"
+        case .timeSignatureEdit:
+            return "metronome"
+        case .rhythmicNotationEdit:
+            return "note.quarter"
+        case .headerEntry:
+            return "character.cursor.ibeam"
+        case .chordEntry:
+            return "pencil"
+        case .noteEdit:
+            return "selection.pin.in.out"
+        case .freeHand:
+            return "pencil.and.scribble"
         }
     }
 
@@ -81,7 +130,7 @@ enum EditorCanvasMode: Hashable {
     }
 
     var requiresChordSelectionBeforeObjectActions: Bool {
-        false
+        self == .browse || self == .chordEntry
     }
 
     var drawsAllChordObjectEditBoxes: Bool {
@@ -89,7 +138,7 @@ enum EditorCanvasMode: Hashable {
     }
 
     var drawsAllChordObjectEditControls: Bool {
-        self == .browse || self == .chordEntry
+        false
     }
 
     var allowsNoteSelectionInk: Bool {

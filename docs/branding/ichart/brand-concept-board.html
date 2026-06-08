@@ -1,0 +1,2073 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iChart Brand Concept Board</title>
+  <style>
+    :root {
+      --paper: #f7f3ea;
+      --paper-2: #eee6d9;
+      --ink: #151a1f;
+      --staff: #68717a;
+      --blue: #226c8a;
+      --blue-soft: #dcecf1;
+      --brass: #b9832f;
+      --brass-soft: #f2dfbd;
+      --green: #2e7d58;
+      --coral: #c94f43;
+      --night: #10161c;
+      --line: rgba(21, 26, 31, 0.12);
+      --shadow: 0 22px 70px rgba(21, 26, 31, 0.13);
+      color-scheme: light;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    @font-face {
+      font-family: "iChartPetalumaScript";
+      src: url("../../../SmartChart/Resources/Fonts/PetalumaScript.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartPetalumaText";
+      src: url("../../../SmartChart/Resources/Fonts/PetalumaText.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleBroadwayText";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleBroadwayText.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartBravuraText";
+      src: url("../../../SmartChart/Resources/Fonts/BravuraText.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartLelandText";
+      src: url("../../../SmartChart/Resources/Fonts/LelandText.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartMuseJazzText";
+      src: url("../../../SmartChart/Resources/Fonts/MuseJazzText.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleJazzText";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleJazzTextLowercase.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleMaestroText";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleMaestroText-Regular.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleMaestroTextItalic";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleMaestroText-Italic.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleMaestroTextBold";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleMaestroText-Bold.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleAshText";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleAshText.otf") format("opentype");
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(120deg, rgba(34, 108, 138, 0.12), transparent 36%),
+        linear-gradient(240deg, rgba(185, 131, 47, 0.12), transparent 42%),
+        var(--paper);
+    }
+
+    .board {
+      width: min(1560px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 36px 0 48px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .hero-b4-panel {
+      display: grid;
+      place-items: center;
+      min-width: 330px;
+      min-height: 132px;
+      padding: 18px 22px;
+      border-radius: 8px;
+      background: #0f151b;
+      box-shadow: 0 22px 70px rgba(21, 26, 31, 0.18);
+    }
+
+    .hero-b4-panel .wordmark-note {
+      color: rgba(245, 241, 232, 0.68);
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", ui-sans-serif, sans-serif;
+      font-size: 54px;
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 720px;
+      margin-top: 12px;
+      color: #4d5962;
+      font-size: 19px;
+      line-height: 1.45;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.48);
+      color: #4d5962;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 26px;
+    }
+
+    .concept {
+      display: grid;
+      min-height: 520px;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 18px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.68);
+      box-shadow: 0 14px 44px rgba(21, 26, 31, 0.08);
+    }
+
+    .concept.dark {
+      color: #f5f1e8;
+      background: linear-gradient(150deg, #111820, #172530);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .concept-kicker {
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .dark .concept-kicker {
+      color: #8fd3e6;
+    }
+
+    .concept h2 {
+      margin-top: 4px;
+      font-size: 24px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .concept-copy {
+      color: #52606a;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .dark .concept-copy {
+      color: rgba(245, 241, 232, 0.74);
+    }
+
+    .mark-stage {
+      display: grid;
+      place-items: center;
+      min-height: 190px;
+      border-radius: 8px;
+      background:
+        linear-gradient(transparent 25%, rgba(21, 26, 31, 0.045) 25%, rgba(21, 26, 31, 0.045) 26%, transparent 26%),
+        linear-gradient(transparent 50%, rgba(21, 26, 31, 0.045) 50%, rgba(21, 26, 31, 0.045) 51%, transparent 51%),
+        linear-gradient(transparent 75%, rgba(21, 26, 31, 0.045) 75%, rgba(21, 26, 31, 0.045) 76%, transparent 76%),
+        var(--paper);
+      box-shadow: inset 0 0 0 1px rgba(21, 26, 31, 0.06);
+    }
+
+    .dark .mark-stage {
+      background:
+        linear-gradient(transparent 25%, rgba(255, 255, 255, 0.08) 25%, rgba(255, 255, 255, 0.08) 26%, transparent 26%),
+        linear-gradient(transparent 50%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.08) 51%, transparent 51%),
+        linear-gradient(transparent 75%, rgba(255, 255, 255, 0.08) 75%, rgba(255, 255, 255, 0.08) 76%, transparent 76%),
+        #0f151b;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    .logo-lockup {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .wordmark {
+      font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", ui-sans-serif, sans-serif;
+      font-size: 35px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .wordmark small {
+      display: block;
+      margin-top: 5px;
+      color: var(--staff);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .dark .wordmark small {
+      color: rgba(245, 241, 232, 0.62);
+    }
+
+    .name-logo {
+      position: relative;
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 0.035em;
+      color: var(--ink);
+      font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", ui-sans-serif, sans-serif;
+      font-size: clamp(64px, 5vw, 94px);
+      font-weight: 900;
+      line-height: 0.9;
+      letter-spacing: 0;
+      isolation: isolate;
+    }
+
+    .dark .name-logo {
+      color: #f7f3ea;
+    }
+
+    .name-logo .i-letter {
+      position: relative;
+      width: 0.32em;
+      height: 0.92em;
+      margin-right: 0.02em;
+    }
+
+    .name-logo .i-dot {
+      position: absolute;
+      top: -0.02em;
+      left: 50%;
+      width: 0.17em;
+      height: 0.17em;
+      border-radius: 50%;
+      background: var(--brass);
+      transform: translateX(-50%);
+    }
+
+    .name-logo .i-stem {
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      width: 0.13em;
+      height: 0.66em;
+      border-radius: 999px;
+      background: currentColor;
+      transform: translateX(-50%);
+    }
+
+    .name-logo .c-letter {
+      position: relative;
+      color: var(--blue);
+      font-size: 1.06em;
+      line-height: 0.84;
+    }
+
+    .name-logo .rest {
+      position: relative;
+      line-height: 0.88;
+    }
+
+    .name-logo .accent-slash,
+    .name-logo .accent-staff,
+    .name-logo .accent-underline {
+      position: absolute;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .name-logo .accent-slash {
+      right: 0.18em;
+      bottom: 0.09em;
+      width: 0.78em;
+      height: 0.07em;
+      border-radius: 999px;
+      background: var(--brass);
+      transform: rotate(-7deg);
+      transform-origin: center;
+    }
+
+    .name-logo .accent-underline {
+      left: 0.42em;
+      right: 0.04em;
+      bottom: -0.13em;
+      height: 0.055em;
+      border-radius: 999px;
+      background: var(--brass);
+    }
+
+    .name-logo .accent-staff {
+      left: 0.48em;
+      right: 0.1em;
+      bottom: 0.14em;
+      height: 0.54em;
+      background:
+        linear-gradient(transparent 18%, rgba(104, 113, 122, 0.24) 18%, rgba(104, 113, 122, 0.24) 21%, transparent 21%),
+        linear-gradient(transparent 39%, rgba(104, 113, 122, 0.24) 39%, rgba(104, 113, 122, 0.24) 42%, transparent 42%),
+        linear-gradient(transparent 60%, rgba(104, 113, 122, 0.24) 60%, rgba(104, 113, 122, 0.24) 63%, transparent 63%),
+        linear-gradient(transparent 81%, rgba(104, 113, 122, 0.24) 81%, rgba(104, 113, 122, 0.24) 84%, transparent 84%);
+    }
+
+    .name-logo.script {
+      display: inline-block;
+      font-family: "Snell Roundhand", "Bradley Hand", ui-rounded, cursive;
+      font-size: clamp(74px, 5.6vw, 106px);
+      font-weight: 700;
+      line-height: 0.88;
+      transform: rotate(-2deg);
+    }
+
+    .name-logo.script .script-word {
+      position: relative;
+      z-index: 1;
+    }
+
+    .name-logo.script::after {
+      content: "";
+      position: absolute;
+      right: 0.02em;
+      bottom: -0.03em;
+      width: 0.95em;
+      height: 0.08em;
+      border-radius: 999px;
+      background: var(--coral);
+      transform: rotate(-4deg);
+      z-index: 0;
+    }
+
+    .name-logo.stage {
+      padding: 0.08em 0.12em 0.13em;
+      color: #f7f3ea;
+      font-size: clamp(58px, 4.8vw, 88px);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 8px;
+    }
+
+    .name-logo.stage .c-letter {
+      color: #8fd3e6;
+    }
+
+    .name-logo.staff-line-logo {
+      color: #f7f3ea;
+    }
+
+    .name-logo.staff-line-logo .i-dot {
+      background: #f7f3ea;
+    }
+
+    .name-logo.staff-line-logo .c-letter {
+      color: #8fd3e6;
+    }
+
+    .name-logo.staff-line-logo .accent-staff {
+      display: none;
+      left: 0.55em;
+      right: 0;
+      bottom: 0.12em;
+      height: 0.58em;
+      background:
+        linear-gradient(transparent 18%, rgba(255, 255, 255, 0.24) 18%, rgba(255, 255, 255, 0.24) 21%, transparent 21%),
+        linear-gradient(transparent 39%, rgba(255, 255, 255, 0.24) 39%, rgba(255, 255, 255, 0.24) 42%, transparent 42%),
+        linear-gradient(transparent 60%, rgba(255, 255, 255, 0.24) 60%, rgba(255, 255, 255, 0.24) 63%, transparent 63%),
+        linear-gradient(transparent 81%, rgba(255, 255, 255, 0.24) 81%, rgba(255, 255, 255, 0.24) 84%, transparent 84%);
+    }
+
+    .name-logo.staff-line-logo .c-letter,
+    .name-logo.staff-line-logo .rest {
+      background:
+        linear-gradient(transparent 18%, rgba(255, 255, 255, 0.24) 18%, rgba(255, 255, 255, 0.24) 21%, transparent 21%),
+        linear-gradient(transparent 39%, rgba(255, 255, 255, 0.24) 39%, rgba(255, 255, 255, 0.24) 42%, transparent 42%),
+        linear-gradient(transparent 60%, rgba(255, 255, 255, 0.24) 60%, rgba(255, 255, 255, 0.24) 63%, transparent 63%),
+        linear-gradient(transparent 81%, rgba(255, 255, 255, 0.24) 81%, rgba(255, 255, 255, 0.24) 84%, transparent 84%);
+    }
+
+    .chord-suffix-logo {
+      position: relative;
+      display: inline-block;
+      min-width: 5.2em;
+      color: var(--ink);
+      font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", ui-sans-serif, sans-serif;
+      font-size: 88px;
+      font-weight: 920;
+      line-height: 0.9;
+      letter-spacing: 0;
+    }
+
+    .dark .chord-suffix-logo {
+      color: #f7f3ea;
+    }
+
+    .chord-suffix-logo .root {
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 0.02em;
+    }
+
+    .chord-suffix-logo .root-i {
+      color: var(--ink);
+    }
+
+    .dark .chord-suffix-logo .root-i {
+      color: #f7f3ea;
+    }
+
+    .chord-suffix-logo .root-c {
+      color: var(--blue);
+      font-size: 1.18em;
+      line-height: 0.78;
+    }
+
+    .chord-suffix-logo .suffix {
+      position: absolute;
+      left: 2.15em;
+      top: 0.02em;
+      color: var(--ink);
+      font-size: 0.46em;
+      font-weight: 880;
+      letter-spacing: 0;
+    }
+
+    .dark .chord-suffix-logo .suffix {
+      color: #f7f3ea;
+    }
+
+    .chord-suffix-logo .suffix::after {
+      content: none;
+      position: absolute;
+      left: 0;
+      right: 0.08em;
+      bottom: -0.16em;
+      height: 0.08em;
+      border-radius: 999px;
+      background: var(--brass);
+    }
+
+    .chord-suffix-logo .note-dot {
+      display: none;
+      position: absolute;
+      left: 0.16em;
+      top: -0.13em;
+      width: 0.13em;
+      height: 0.13em;
+      border-radius: 50%;
+      background: var(--brass);
+    }
+
+    .font-mix-logo {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.01em;
+      color: var(--ink);
+      font-size: 82px;
+      line-height: 0.86;
+      letter-spacing: 0;
+    }
+
+    .dark .font-mix-logo {
+      color: #f7f3ea;
+    }
+
+    .font-mix-logo span {
+      display: inline-block;
+      letter-spacing: 0;
+    }
+
+    .font-mix-logo .l-i {
+      color: var(--brass);
+      font-family: "iChartPetalumaScript", "Snell Roundhand", cursive;
+      font-size: 1.04em;
+      transform: translateY(0.03em) rotate(-4deg);
+    }
+
+    .font-mix-logo .l-c {
+      color: var(--blue);
+      font-family: "iChartFinaleBroadwayText", ui-serif, serif;
+      font-size: 1.08em;
+      transform: translateY(0.01em);
+    }
+
+    .font-mix-logo .l-h {
+      font-family: "iChartBravuraText", ui-serif, serif;
+      font-size: 0.98em;
+    }
+
+    .font-mix-logo .l-a {
+      font-family: "iChartLelandText", ui-serif, serif;
+      font-size: 1.01em;
+      transform: translateY(0.02em);
+    }
+
+    .font-mix-logo .l-r {
+      font-family: "iChartMuseJazzText", ui-serif, serif;
+      font-size: 1.02em;
+      transform: translateY(0.015em) rotate(1.5deg);
+    }
+
+    .font-mix-logo .l-t {
+      font-family: "iChartFinaleJazzText", ui-serif, serif;
+      font-size: 1.0em;
+      transform: translateY(0.02em);
+    }
+
+    .font-key {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin-top: 10px;
+      color: #52606a;
+      font-size: 11px;
+      font-weight: 750;
+      line-height: 1.25;
+    }
+
+    .dark .font-key {
+      color: rgba(245, 241, 232, 0.68);
+    }
+
+    .font-audition-section {
+      margin-top: 26px;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    .section-heading h2 {
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .section-heading p {
+      max-width: 760px;
+      color: #52606a;
+      font-size: 15px;
+      line-height: 1.42;
+    }
+
+    .font-audition-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .font-card {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      min-height: 330px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 14px 44px rgba(21, 26, 31, 0.08);
+    }
+
+    .font-card.dark {
+      color: #f5f1e8;
+      background: linear-gradient(150deg, #111820, #172530);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .font-card .mark-stage {
+      min-height: 150px;
+    }
+
+    .font-card.dark .mark-stage {
+      background: #0f151b;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    .font-card-label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .font-card-label h3 {
+      font-size: 19px;
+      line-height: 1.12;
+    }
+
+    .font-card-label span {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .dark .font-card-label span {
+      color: #8fd3e6;
+    }
+
+    .font-note {
+      color: #52606a;
+      font-size: 13px;
+      line-height: 1.38;
+    }
+
+    .dark .font-note {
+      color: rgba(245, 241, 232, 0.68);
+    }
+
+    .suffix-system {
+      font-family: "Avenir Next", "Helvetica Neue", ui-sans-serif, sans-serif;
+      font-weight: 900;
+    }
+
+    .suffix-editorial {
+      font-family: "Optima", "Palatino", ui-serif, serif;
+      font-weight: 800;
+    }
+
+    .suffix-condensed {
+      font-family: "Avenir Next Condensed", "Helvetica Neue Condensed", ui-sans-serif, sans-serif;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .suffix-maestro {
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .suffix-jazz {
+      font-family: "iChartFinaleJazzText", "iChartPetalumaText", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .suffix-ash {
+      font-family: "iChartFinaleAshText", "iChartMuseJazzText", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .staff-system {
+      font-family: "Avenir Next", "Helvetica Neue", ui-sans-serif, sans-serif;
+      font-weight: 900;
+    }
+
+    .staff-editorial {
+      font-family: "Optima", "Palatino", ui-serif, serif;
+      font-weight: 800;
+    }
+
+    .staff-condensed {
+      font-family: "Avenir Next Condensed", "Helvetica Neue Condensed", ui-sans-serif, sans-serif;
+      font-weight: 900;
+    }
+
+    .staff-maestro {
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .staff-jazz {
+      font-family: "iChartFinaleJazzText", "iChartPetalumaText", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .staff-ash {
+      font-family: "iChartFinaleAshText", "iChartMuseJazzText", ui-serif, serif;
+      font-weight: 700;
+    }
+
+    .b4-focus-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .b4-card {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      min-height: 330px;
+      padding: 18px;
+      color: #f5f1e8;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      background: linear-gradient(150deg, #111820, #172530);
+      box-shadow: 0 14px 44px rgba(21, 26, 31, 0.1);
+    }
+
+    .b4-card .mark-stage {
+      min-height: 154px;
+      background: #0f151b;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    .b4-logo {
+      color: #f7f3ea;
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 92px;
+      font-weight: 700;
+    }
+
+    .b4-logo .c-letter {
+      color: #8fd3e6;
+    }
+
+    .b4-logo .c-letter,
+    .b4-logo .rest {
+      background:
+        linear-gradient(transparent 18%, rgba(255, 255, 255, 0.24) 18%, rgba(255, 255, 255, 0.24) 21%, transparent 21%),
+        linear-gradient(transparent 39%, rgba(255, 255, 255, 0.24) 39%, rgba(255, 255, 255, 0.24) 42%, transparent 42%),
+        linear-gradient(transparent 60%, rgba(255, 255, 255, 0.24) 60%, rgba(255, 255, 255, 0.24) 63%, transparent 63%),
+        linear-gradient(transparent 81%, rgba(255, 255, 255, 0.24) 81%, rgba(255, 255, 255, 0.24) 84%, transparent 84%);
+    }
+
+    .b4-logo .i-dot {
+      background: #f7f3ea;
+    }
+
+    .b4-small-i .i-letter {
+      transform: scale(0.68) translateY(0.08em);
+      transform-origin: bottom center;
+      margin-right: -0.05em;
+    }
+
+    .b4-faint-i .i-letter {
+      opacity: 0.52;
+      transform: scale(0.76) translateY(0.06em);
+      transform-origin: bottom center;
+      margin-right: -0.04em;
+    }
+
+    .b4-hairline-i .i-letter {
+      transform: scale(0.78) translateY(0.05em);
+      transform-origin: bottom center;
+      margin-right: -0.04em;
+    }
+
+    .b4-hairline-i .i-stem {
+      width: 0.065em;
+    }
+
+    .b4-pickup-i .i-letter {
+      transform: scale(0.54) translate(0.13em, 0.18em);
+      transform-origin: bottom center;
+      margin-right: -0.10em;
+    }
+
+    .b4-no-dot-i .i-letter {
+      transform: scale(0.66) translateY(0.1em);
+      transform-origin: bottom center;
+      margin-right: -0.08em;
+    }
+
+    .b4-no-dot-i .i-dot {
+      display: none;
+    }
+
+    .b4-tucked-i .i-letter {
+      transform: scale(0.58) translate(0.26em, 0.1em);
+      transform-origin: bottom center;
+      margin-right: -0.18em;
+      opacity: 0.82;
+    }
+
+    .b4-baseline-logo {
+      position: relative;
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 0;
+      color: #f7f3ea;
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 92px;
+      font-weight: 700;
+      line-height: 0.86;
+      letter-spacing: 0;
+      isolation: isolate;
+    }
+
+    .b4-baseline-logo::after {
+      content: none;
+    }
+
+    .b4-baseline-logo .staff-word {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      line-height: 0.86;
+      isolation: isolate;
+    }
+
+    .b4-baseline-logo .staff-word::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: -0.04em;
+      top: 0.08em;
+      height: 0.72em;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)) 0 0 / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)) 0 25% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)) 0 50% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)) 0 75% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)) 0 100% / 100% 1.5px no-repeat;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .measure-end .staff-word::after {
+      right: -0.14em;
+    }
+
+    .measure-end .staff-word::before {
+      content: "";
+      position: absolute;
+      right: -0.14em;
+      top: 0.08em;
+      width: 0.078em;
+      height: 0.72em;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.23), rgba(255, 255, 255, 0.23)) 0 0 / 1.25px 100% no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.23), rgba(255, 255, 255, 0.23)) 100% 0 / 1.25px 100% no-repeat;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .b4-baseline-logo .font-i {
+      display: inline-block;
+      align-self: flex-end;
+      color: #f7f3ea;
+      font-size: 0.58em;
+      line-height: 0.86;
+      margin-right: -0.025em;
+      transform: translateY(0);
+      transform-origin: bottom center;
+      position: relative;
+      z-index: 2;
+    }
+
+    .b4-baseline-logo .c-letter {
+      display: inline-block;
+      color: #8fd3e6;
+      line-height: 0.86;
+      position: relative;
+      z-index: 2;
+    }
+
+    .b4-baseline-logo .rest {
+      display: inline-block;
+      align-self: center;
+      font-size: 0.74em;
+      line-height: 0.74;
+      margin-left: -0.035em;
+      transform: translateY(0.01em);
+      position: relative;
+      z-index: 2;
+    }
+
+    .b4-baseline-logo .c-letter,
+    .b4-baseline-logo .rest {
+      background: none;
+    }
+
+    .b4-i-maestro .font-i {
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+    }
+
+    .b4-i-bravura .font-i {
+      font-family: "iChartBravuraText", "Times New Roman", ui-serif, serif;
+      font-size: 0.56em;
+    }
+
+    .b4-i-leland .font-i {
+      font-family: "iChartLelandText", "Times New Roman", ui-serif, serif;
+      font-size: 0.56em;
+    }
+
+    .b4-i-jazz .font-i {
+      font-family: "iChartFinaleJazzText", "iChartPetalumaText", ui-serif, serif;
+      font-size: 0.6em;
+    }
+
+    .b4-i-optima .font-i {
+      font-family: "Optima", "Palatino", ui-serif, serif;
+      font-size: 0.6em;
+    }
+
+    .b4-i-avenir .font-i {
+      font-family: "Avenir Next", "Helvetica Neue", ui-sans-serif, sans-serif;
+      font-size: 0.55em;
+      font-weight: 800;
+    }
+
+    .b4-i-maestro-italic .font-i {
+      font-family: "iChartFinaleMaestroTextItalic", "Times New Roman", ui-serif, serif;
+      font-size: 0.58em;
+    }
+
+    .b48a-adjusted-i .font-i {
+      transform: translate(-0.025em, -0.03em);
+    }
+
+    .b48a-high-i .font-i {
+      transform: translate(-0.055em, -0.16em);
+    }
+
+    .b48a-top-i .font-i {
+      transform: translate(-0.085em, -0.40em);
+    }
+
+    .b48a-c-top-i .font-i {
+      transform: translate(-0.085em, -0.52em);
+    }
+
+    .b4-i-maestro-bold .font-i {
+      font-family: "iChartFinaleMaestroTextBold", "Times New Roman", ui-serif, serif;
+      font-size: 0.55em;
+    }
+
+    .b4-i-petaluma .font-i {
+      font-family: "iChartPetalumaText", "Times New Roman", ui-serif, serif;
+      font-size: 0.58em;
+    }
+
+    .b4-i-muse .font-i {
+      font-family: "iChartMuseJazzText", "Times New Roman", ui-serif, serif;
+      font-size: 0.58em;
+    }
+
+    .b4-i-broadway .font-i {
+      font-family: "iChartFinaleBroadwayText", "Times New Roman", ui-serif, serif;
+      font-size: 0.55em;
+    }
+
+    .b4-i-ash .font-i {
+      font-family: "iChartFinaleAshText", "Times New Roman", ui-serif, serif;
+      font-size: 0.6em;
+    }
+
+    .canon-focus-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .canon-pair-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .raised-i-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .canon-selected {
+      border-color: rgba(143, 211, 230, 0.46);
+      background:
+        linear-gradient(150deg, rgba(143, 211, 230, 0.1), transparent 42%),
+        linear-gradient(150deg, #111820, #172530);
+      box-shadow: 0 18px 54px rgba(21, 26, 31, 0.14);
+    }
+
+    .canon-selected .font-card-label span {
+      color: #8fd3e6;
+    }
+
+    .canon-card {
+      min-height: 300px;
+    }
+
+    .canon-card .b4-baseline-logo {
+      font-size: 88px;
+    }
+
+    .canon-tight-i .font-i {
+      margin-right: -0.07em;
+    }
+
+    .canon-open-i .font-i {
+      margin-right: 0.015em;
+    }
+
+    .canon-lighter-staff .staff-word::after {
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)) 0 0 / 100% 1.25px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)) 0 25% / 100% 1.25px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)) 0 50% / 100% 1.25px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)) 0 75% / 100% 1.25px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)) 0 100% / 100% 1.25px no-repeat;
+    }
+
+    .canon-stronger-staff .staff-word::after {
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)) 0 0 / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)) 0 25% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)) 0 50% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)) 0 75% / 100% 1.5px no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)) 0 100% / 100% 1.5px no-repeat;
+    }
+
+    .canon-bigger-hart .rest {
+      font-size: 0.78em;
+      transform: translateY(0);
+    }
+
+    .canon-raised-hart .rest {
+      transform: translateY(-0.018em);
+    }
+
+    .canon-compact .rest {
+      margin-left: -0.07em;
+    }
+
+    .wordmark-note {
+      margin-top: 14px;
+      color: #52606a;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .dark .wordmark-note {
+      color: rgba(245, 241, 232, 0.62);
+    }
+
+    .app-icon {
+      display: grid;
+      place-items: center;
+      width: 92px;
+      height: 92px;
+      flex: 0 0 auto;
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .icon-measure {
+      background: linear-gradient(145deg, #fffaf0, #dcecf1);
+    }
+
+    .icon-slash {
+      background: linear-gradient(145deg, #111820, #226c8a);
+    }
+
+    .icon-grid {
+      background: linear-gradient(145deg, #f7f3ea, #f2dfbd);
+    }
+
+    .icon-night {
+      background: linear-gradient(145deg, #0d1218, #1c2d38);
+      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.32);
+    }
+
+    svg {
+      display: block;
+    }
+
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .swatch {
+      min-height: 48px;
+      padding: 7px;
+      border-radius: 6px;
+      border: 1px solid rgba(21, 26, 31, 0.08);
+      color: rgba(255, 255, 255, 0.92);
+      font-size: 11px;
+      font-weight: 800;
+      text-shadow: 0 1px 7px rgba(0, 0, 0, 0.25);
+    }
+
+    .swatch.paper,
+    .swatch.paper2,
+    .swatch.blue-soft,
+    .swatch.brass-soft {
+      color: var(--ink);
+      text-shadow: none;
+    }
+
+    .paper { background: var(--paper); }
+    .paper2 { background: var(--paper-2); }
+    .ink { background: var(--ink); }
+    .blue { background: var(--blue); }
+    .blue-soft { background: var(--blue-soft); }
+    .brass { background: var(--brass); }
+    .brass-soft { background: var(--brass-soft); }
+    .green { background: var(--green); }
+    .coral { background: var(--coral); }
+    .night { background: var(--night); }
+
+    .usage {
+      display: grid;
+      gap: 8px;
+      padding-top: 3px;
+      color: #52606a;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .dark .usage {
+      color: rgba(245, 241, 232, 0.72);
+    }
+
+    .usage strong {
+      color: var(--ink);
+    }
+
+    .dark .usage strong {
+      color: #f5f1e8;
+    }
+
+    .surface-row {
+      display: grid;
+      grid-template-columns: 1.08fr 1.4fr 1fr;
+      gap: 18px;
+      margin-top: 18px;
+      align-items: stretch;
+    }
+
+    .surface {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.7);
+      box-shadow: 0 16px 50px rgba(21, 26, 31, 0.08);
+    }
+
+    .surface h3 {
+      margin-bottom: 16px;
+      font-size: 20px;
+      line-height: 1.1;
+    }
+
+    .library-mock {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border-radius: 8px;
+      background: linear-gradient(150deg, #fdfaf3, #e7f2f5);
+    }
+
+    .library-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(21, 26, 31, 0.1);
+    }
+
+    .brand-mini {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 850;
+    }
+
+    .mini-word {
+      display: inline-flex;
+      gap: 0;
+      align-items: baseline;
+      letter-spacing: 0;
+    }
+
+    .mini-suffix-word {
+      position: relative;
+      display: inline-block;
+      min-width: 62px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .mini-suffix-word .mini-root-c {
+      color: var(--blue);
+      font-size: 1.18em;
+    }
+
+    .editor-toolbar .mini-suffix-word .mini-root-c {
+      color: #8fd3e6;
+    }
+
+    .mini-suffix-word .mini-root-i {
+      color: var(--ink);
+    }
+
+    .editor-toolbar .mini-suffix-word .mini-root-i {
+      color: #f7f3ea;
+    }
+
+    .mini-suffix-word .mini-suffix {
+      position: absolute;
+      top: -0.18em;
+      left: 2.05em;
+      font-size: 0.58em;
+      letter-spacing: 0;
+      color: var(--ink);
+    }
+
+    .editor-toolbar .mini-suffix-word .mini-suffix {
+      color: #f7f3ea;
+    }
+
+    .mini-staff-word {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0;
+      color: #f7f3ea;
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .mini-staff-word .mini-i,
+    .mini-library-word .mini-i {
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 0.64em;
+      transform: translateY(-0.02em);
+    }
+
+    .mini-staff-word .mini-c,
+    .mini-library-word .mini-c {
+      color: #8fd3e6;
+    }
+
+    .mini-library-word {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0;
+      color: var(--ink);
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .new-button {
+      padding: 8px 12px;
+      border-radius: 7px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .chart-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid rgba(21, 26, 31, 0.08);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .chart-title {
+      font-weight: 800;
+    }
+
+    .chart-meta {
+      margin-top: 3px;
+      color: #61707a;
+      font-size: 12px;
+    }
+
+    .editor-mock {
+      overflow: hidden;
+      border: 1px solid rgba(21, 26, 31, 0.12);
+      border-radius: 8px;
+      background: #fbf8ef;
+    }
+
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: #151a1f;
+      color: #f5f1e8;
+    }
+
+    .tool-group {
+      display: flex;
+      gap: 7px;
+    }
+
+    .tool {
+      width: 34px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #f5f1e8;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .tool.active {
+      background: var(--brass);
+      color: var(--ink);
+    }
+
+    .chart-page {
+      margin: 18px;
+      padding: 20px;
+      border: 1px solid rgba(21, 26, 31, 0.1);
+      background: #fffdf7;
+      box-shadow: 0 10px 34px rgba(21, 26, 31, 0.12);
+    }
+
+    .chart-name {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      font-family: "Arial Rounded MT Bold", ui-rounded, sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .measure-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 2px solid var(--ink);
+      border-left: 2px solid var(--ink);
+    }
+
+    .measure {
+      min-height: 60px;
+      padding: 8px;
+      border-right: 2px solid var(--ink);
+      border-bottom: 2px solid var(--ink);
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .slash-lines {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin-top: 16px;
+    }
+
+    .slash-lines span {
+      height: 34px;
+      border-left: 2px solid rgba(21, 26, 31, 0.38);
+      transform: skewX(-18deg);
+    }
+
+    .type-card {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 8px;
+      background: var(--night);
+      color: #f5f1e8;
+    }
+
+    .type-big {
+      font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", sans-serif;
+      font-size: 38px;
+      font-weight: 850;
+      line-height: 0.95;
+    }
+
+    .type-small {
+      color: rgba(245, 241, 232, 0.72);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .recommendation {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 18px;
+      align-items: start;
+      margin-top: 18px;
+      padding: 22px;
+      border: 1px solid rgba(34, 108, 138, 0.28);
+      border-radius: 8px;
+      background: rgba(220, 236, 241, 0.62);
+    }
+
+    .rec-badge {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .recommendation h3 {
+      font-size: 21px;
+      margin-bottom: 6px;
+    }
+
+    .recommendation p {
+      color: #47545d;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1180px) {
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .font-audition-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .b4-focus-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .canon-focus-grid,
+      .raised-i-grid,
+      .canon-pair-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .surface-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .board {
+        width: min(100vw - 28px, 1560px);
+        padding-top: 22px;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 42px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .font-audition-grid,
+      .b4-focus-grid,
+      .canon-focus-grid,
+      .raised-i-grid,
+      .canon-pair-grid,
+      .section-heading {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="topbar">
+      <div>
+        <div class="pill">Smart Chart becomes iChart</div>
+        <h1>B4.8A-H1 primary iChart mark</h1>
+        <p class="subtitle">B4.8A-H1 is now the primary wordmark, with the italic i lifted into a clearer high lead-in. B4.7B stays as the steadier reference alternate. The palette remains night navy, warm paper, and the blue C.</p>
+      </div>
+      <div class="hero-b4-panel" aria-label="iChart B4 staff-line wordmark sketch">
+        <div class="b4-baseline-logo b4-i-maestro-italic b48a-high-i measure-end">
+          <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+        </div>
+        <div class="wordmark-note">B4.8A-H1 primary + high italic i</div>
+      </div>
+    </section>
+
+    <section class="font-audition-section">
+      <div class="section-heading">
+        <div>
+          <h2>Primary and alternate</h2>
+          <p>B4.8A-H1 is the current primary app mark. B4.7B remains the steadier alternate reference, with the same measure-ending double barline treatment.</p>
+        </div>
+        <div class="pill">canon pair</div>
+      </div>
+      <div class="canon-pair-grid">
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>High italic canon</h3><span>B4.8A-H1</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic b48a-high-i measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Primary app mark: Maestro Italic i with the high lead-in, plus the blue C and measure-ending staff.</p>
+        </article>
+
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>Maestro tighter</h3><span>B4.7B</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro canon-tight-i canon-bigger-hart measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Steadier reference alternate: regular Maestro i, tighter C relationship, fuller hart, and a clear double barline finish.</p>
+        </article>
+      </div>
+
+      <div class="section-heading">
+        <div>
+          <h2>Raised i studies</h2>
+          <p>The preserved B4.8A raised-i set: H1 is canon for now, with H2 and H3 stored for comparison.</p>
+        </div>
+        <div class="pill">top i</div>
+      </div>
+      <div class="raised-i-grid">
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>High italic canon</h3><span>B4.8A-H1</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic b48a-high-i measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Current canon: a controlled lift where the italic i moves left and clearly higher, but still reads as part of the word.</p>
+        </article>
+
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>Top italic i</h3><span>B4.8A-H2</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic b48a-top-i measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">The more literal top-read: the i sits up near the top of the C/staff relationship.</p>
+        </article>
+
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>C-top italic i</h3><span>B4.8A-H3</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic b48a-c-top-i measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">The taller top-read: the italic i reaches the blue C height.</p>
+        </article>
+      </div>
+
+      <div class="canon-focus-grid">
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Maestro balanced</h3><span>B4.7a</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">The current reference: integrated i, clear C, contained hart, continuous staff.</p>
+        </article>
+
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>Maestro tighter</h3><span>B4.7b</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro canon-tight-i canon-bigger-hart measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Pulls i closer to C, lets hart nearly fill the staff height, and now closes the measure.</p>
+        </article>
+
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Maestro light staff</h3><span>B4.7c</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro canon-lighter-staff canon-raised-hart">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Quieter staff lines so the C and letters stay dominant.</p>
+        </article>
+
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Maestro compact</h3><span>B4.7d</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro canon-tight-i canon-compact canon-stronger-staff">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">More logo-like and compact, with a clearer staff gesture.</p>
+        </article>
+
+        <article class="b4-card canon-card canon-selected">
+          <div class="font-card-label"><h3>Italic balanced adjusted</h3><span>B4.8a</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic b48a-adjusted-i measure-end">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Stored study: slightly more movement, balanced left/up, with a measure-ending barline.</p>
+        </article>
+
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Italic tighter</h3><span>B4.8b</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic canon-tight-i canon-bigger-hart">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Gives the italic i a closer, more intentional relationship to C.</p>
+        </article>
+
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Italic light staff</h3><span>B4.8c</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic canon-lighter-staff canon-raised-hart">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Most graceful: italic i plus softer staff lines.</p>
+        </article>
+
+        <article class="b4-card canon-card">
+          <div class="font-card-label"><h3>Italic compact</h3><span>B4.8d</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic canon-tight-i canon-compact canon-stronger-staff">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">More expressive and badge-like, but still restrained.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="font-audition-section">
+      <div class="section-heading">
+        <div>
+          <h2>B4 focus: baseline i + smaller hart</h2>
+          <p>The i is a smaller real letter aligned with the bottom of C. Hart is slightly larger now, but still contained between the top and bottom staff lines. The staff starts at the C and runs to the end.</p>
+        </div>
+        <div class="pill">contained hart</div>
+      </div>
+      <div class="b4-focus-grid">
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Maestro i</h3><span>B4.7</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Most unified: the i belongs to the same family, but stays smaller and baseline-aligned.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Maestro Italic i</h3><span>B4.8</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-maestro-italic">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Keeps the family match, but gives the i a small lead-in gesture without getting louder.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Broadway i</h3><span>B4.9</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-broadway">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">More theatrical and sturdy. It gives the i character while still staying compact.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>MuseJazz i</h3><span>B4.10</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-muse">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">Loose and friendly. Good for warmth, but watch whether it pulls too much attention from C.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Bravura i</h3><span>B4.11</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-bravura">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">A quieter comparison option: engraved, restrained, and less likely to compete with the C.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Leland i</h3><span>B4.12</span></div>
+          <div class="mark-stage">
+            <div class="b4-baseline-logo b4-i-leland">
+              <span class="font-i">i</span><span class="staff-word"><span class="c-letter">C</span><span class="rest">hart</span></span>
+            </div>
+          </div>
+          <p class="font-note">A second quiet comparison option with a clean notation-adjacent shape.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="font-audition-section">
+      <div class="section-heading">
+        <div>
+          <h2>Previous B4 quiet-i experiments</h2>
+          <p>These keep the earlier custom drawn i mark. They are still useful for comparison, but the new row above uses actual font i variations.</p>
+        </div>
+        <div class="pill">prior set</div>
+      </div>
+      <div class="b4-focus-grid">
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Smaller i</h3><span>B4.1</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-small-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Keeps the full name readable, but lets the C take visual priority first.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Faint i</h3><span>B4.2</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-faint-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Makes i feel like a pickup mark before the chord-symbol C. Softer, less assertive.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Hairline i</h3><span>B4.3</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-hairline-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Preserves the i shape, but turns it into a fine mark so it stops competing with C.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Pickup i</h3><span>B4.4</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-pickup-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Treats i almost like a small lead-in gesture. Strong C emphasis, but name readability drops a little.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>No-dot i</h3><span>B4.5</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-no-dot-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Reduces visual noise most aggressively while still preserving the initial i stem.</p>
+        </article>
+
+        <article class="b4-card">
+          <div class="font-card-label"><h3>Tucked i</h3><span>B4.6</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro b4-logo b4-tucked-i">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Pulls i closer into C, almost like an attached prefix. Compact and mark-like.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="font-audition-section">
+      <div class="section-heading">
+        <div>
+          <h2>A. iC + suffix font auditions</h2>
+          <p>Same structure each time: C is blue, i and hart are black, hart sits high like a chord extension, and there is no underline.</p>
+        </div>
+        <div class="pill">light mark</div>
+      </div>
+      <div class="font-audition-grid">
+        <article class="font-card">
+          <div class="font-card-label"><h3>Avenir Next Heavy</h3><span>A1</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-system">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Cleanest app-native read. Strong, modern, maybe still a little too default unless customized.</p>
+        </article>
+
+        <article class="font-card">
+          <div class="font-card-label"><h3>Optima Editorial</h3><span>A2</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-editorial">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">More elegant and chart-book-like. Softer, less techy, with better logo character.</p>
+        </article>
+
+        <article class="font-card">
+          <div class="font-card-label"><h3>Avenir Condensed</h3><span>A3</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-condensed">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Compact and icon-friendly. The suffix idea reads quickly, but it may feel more utility than music.</p>
+        </article>
+
+        <article class="font-card">
+          <div class="font-card-label"><h3>Finale Maestro Text</h3><span>A4</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-maestro">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">More formal notation-publishing flavor. Could suit lead sheets, less immediate for a modern iPad app.</p>
+        </article>
+
+        <article class="font-card">
+          <div class="font-card-label"><h3>Finale Jazz Text</h3><span>A5</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-jazz">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Most naturally chart-adjacent. It has personality, but the final logo would need hand cleanup.</p>
+        </article>
+
+        <article class="font-card">
+          <div class="font-card-label"><h3>Finale Ash Text</h3><span>A6</span></div>
+          <div class="mark-stage">
+            <div class="chord-suffix-logo suffix-ash">
+              <span class="root"><span class="root-i">i</span><span class="root-c">C</span></span>
+              <span class="suffix">hart</span>
+            </div>
+          </div>
+          <p class="font-note">Loose and handwritten without going full script. Interesting if we want warmth over polish.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="font-audition-section">
+      <div class="section-heading">
+        <div>
+          <h2>B. Staff-line wordmark font auditions</h2>
+          <p>Same structure each time: white letters, blue C, no gold, and staff lines running across Chart on a dark field.</p>
+        </div>
+        <div class="pill">dark mark</div>
+      </div>
+      <div class="font-audition-grid">
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Avenir Next Heavy</h3><span>B1</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-system">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">Strongest screen/UI read. Good contrast, but still close to the current generic-feeling family.</p>
+        </article>
+
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Optima Editorial</h3><span>B2</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-editorial">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">More refined and less software-ish. Staff lines feel more integrated with this shape.</p>
+        </article>
+
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Avenir Condensed</h3><span>B3</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-condensed">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">Tighter and more badge-like. Useful for toolbar placement, less elegant as a full brand lockup.</p>
+        </article>
+
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Finale Maestro Text</h3><span>B4</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-maestro">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">Formal and notation-adjacent. Potentially good for export/lead-sheet credibility.</p>
+        </article>
+
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Finale Jazz Text</h3><span>B5</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-jazz">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">The most chart-like dark option. It could become great if redrawn to improve spacing and weight.</p>
+        </article>
+
+        <article class="font-card dark">
+          <div class="font-card-label"><h3>Finale Ash Text</h3><span>B6</span></div>
+          <div class="mark-stage">
+            <div class="name-logo staff-line-logo staff-ash">
+              <span class="i-letter" aria-hidden="true"><span class="i-dot"></span><span class="i-stem"></span></span><span class="c-letter">C</span><span class="rest">hart</span>
+              <span class="accent-staff"></span>
+            </div>
+          </div>
+          <p class="font-note">Warmer, slightly rougher, and more hand-chart flavored. Risk: less premium at small sizes.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="surface-row">
+      <article class="surface">
+        <h3>Library shell cue</h3>
+        <div class="library-mock">
+          <div class="library-head">
+            <div class="brand-mini">
+              <span class="mini-library-word"><span class="mini-i">i</span><span class="mini-c">C</span><span>hart</span></span>
+            </div>
+            <div class="new-button">New Chart</div>
+          </div>
+          <div class="chart-row">
+            <div>
+              <div class="chart-title">All The Things You Are</div>
+              <div class="chart-meta">Simple Chord Sheet - 32 bars - saved</div>
+            </div>
+            <strong>Cmaj7</strong>
+          </div>
+          <div class="chart-row">
+            <div>
+              <div class="chart-title">Rhythm Changes</div>
+              <div class="chart-meta">Rhythm Section Sheet - hits and slashes</div>
+            </div>
+            <strong>Bb7</strong>
+          </div>
+        </div>
+      </article>
+
+      <article class="surface">
+        <h3>Editor shell cue</h3>
+        <div class="editor-mock">
+          <div class="editor-toolbar">
+            <div class="brand-mini">
+              <span class="mini-staff-word"><span class="mini-i">i</span><span class="mini-c">C</span><span>hart</span></span>
+            </div>
+            <div class="tool-group">
+              <div class="tool active">P</div>
+              <div class="tool">C</div>
+              <div class="tool">R</div>
+              <div class="tool">S</div>
+            </div>
+          </div>
+          <div class="chart-page">
+            <div class="chart-name"><span>Blue Bossa</span><span>4/4</span></div>
+            <div class="measure-grid">
+              <div class="measure">Cm7</div>
+              <div class="measure">Fm7</div>
+              <div class="measure">D-7b5</div>
+              <div class="measure">G7alt</div>
+              <div class="measure">Ebmaj7</div>
+              <div class="measure">Ab7</div>
+              <div class="measure">Dbmaj7</div>
+              <div class="measure">G7</div>
+            </div>
+            <div class="slash-lines" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="surface">
+        <h3>Type and tone</h3>
+        <div class="type-card">
+          <div class="type-big">Primary:<br>B4.8A-H1.</div>
+          <p class="type-small">Maestro Italic has the right motion for the app mark, now lifted as the high lead-in. The C, five-line staff, and end double barline remain the core symbol.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="recommendation">
+      <div class="rec-badge">B4</div>
+      <div>
+        <h3>Current lock: B4.8A-H1 primary.</h3>
+        <p>B4.8A-H1 uses the Maestro Italic i as a high lead-in. The earlier B4.8A balance study plus H2 and H3 remain stored for comparison. B4.7B remains the steadier alternate. Both canon choices use night navy, warm paper, blue C, Finale Maestro Text, and a light measure-ending double barline.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -309,30 +309,43 @@ struct LeadSheetNotationRenderer {
     func drawTimeSignature(_ meter: Meter, in frame: CGRect) {
         if NotationGlyphCatalog.glyph(for: .timeSignatureDigit(meter.numerator)) != nil,
            NotationGlyphCatalog.glyph(for: .timeSignatureDigit(meter.denominator)) != nil {
+            let digitStaffSpace = style.defaultStaffSpace * 0.84
             drawNotationSymbol(
                 .timeSignatureDigit(meter.numerator),
-                centeredAt: CGPoint(x: frame.midX, y: frame.minY + frame.height * 0.28),
-                staffSpace: style.defaultStaffSpace
+                centeredAt: CGPoint(x: frame.midX, y: frame.minY + frame.height * 0.22),
+                staffSpace: digitStaffSpace
             )
             drawNotationSymbol(
                 .timeSignatureDigit(meter.denominator),
-                centeredAt: CGPoint(x: frame.midX, y: frame.minY + frame.height * 0.72),
-                staffSpace: style.defaultStaffSpace
+                centeredAt: CGPoint(x: frame.midX, y: frame.minY + frame.height * 0.78),
+                staffSpace: digitStaffSpace
             )
         } else {
-            let numeratorRect = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height / 2)
-            let denominatorRect = CGRect(x: frame.minX, y: frame.midY - 2, width: frame.width, height: frame.height / 2)
+            let numberHeight = frame.height * 0.42
+            let fontSize = min(19, frame.height * 0.34)
+            let numeratorRect = CGRect(
+                x: frame.minX,
+                y: frame.minY,
+                width: frame.width,
+                height: numberHeight
+            )
+            let denominatorRect = CGRect(
+                x: frame.minX,
+                y: frame.maxY - numberHeight,
+                width: frame.width,
+                height: numberHeight
+            )
             drawText(
                 "\(meter.numerator)",
                 in: numeratorRect,
-                font: style.timeSignatureFont(size: 22),
+                font: style.timeSignatureFont(size: fontSize),
                 color: style.inkColor,
                 alignment: .center
             )
             drawText(
                 "\(meter.denominator)",
                 in: denominatorRect,
-                font: style.timeSignatureFont(size: 22),
+                font: style.timeSignatureFont(size: fontSize),
                 color: style.inkColor,
                 alignment: .center
             )
@@ -670,7 +683,20 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawRepeatMarker(_ marker: LeadSheetRepeatMarkerLayout) {
-        let staffSpace = staffSpace(fromStaffHeight: marker.frame.height)
+        drawRepeatBoundary([marker])
+    }
+
+    func drawRepeatBoundary(_ markers: [LeadSheetRepeatMarkerLayout]) {
+        guard let firstMarker = markers.first else {
+            return
+        }
+
+        let frame = markers
+            .dropFirst()
+            .reduce(firstMarker.frame) { partialFrame, marker in
+                partialFrame.union(marker.frame)
+            }
+        let staffSpace = staffSpace(fromStaffHeight: frame.height)
         let separation = style.repeatBarlineSeparation(staffSpace: staffSpace)
         let lineWidth = style.repeatLineWidth(staffSpace: staffSpace)
         let dotRadius = style.repeatDotRadius(staffSpace: staffSpace)
@@ -679,35 +705,41 @@ struct LeadSheetNotationRenderer {
             dotRadius: dotRadius,
             staffSpace: staffSpace
         )
-        let centerX = marker.frame.midX
-        let nearDotLineX: CGFloat
-        let farLineX: CGFloat
-        let dotX: CGFloat
+        let centerX = firstMarker.frame.midX
+        let leadingLineX = centerX - separation / 2
+        let trailingLineX = centerX + separation / 2
+        let edges = Set(markers.map(\.edge))
 
-        switch marker.edge {
-        case .leading:
-            farLineX = centerX - separation / 2
-            nearDotLineX = centerX + separation / 2
-            dotX = nearDotLineX + dotOffset
-        case .trailing:
-            nearDotLineX = centerX - separation / 2
-            farLineX = centerX + separation / 2
-            dotX = nearDotLineX - dotOffset
+        drawRepeatBarline(
+            at: leadingLineX,
+            from: frame.minY,
+            to: frame.maxY,
+            width: lineWidth
+        )
+        drawRepeatBarline(
+            at: trailingLineX,
+            from: frame.minY,
+            to: frame.maxY,
+            width: lineWidth
+        )
+
+        if edges.contains(.trailing) {
+            drawRepeatDots(
+                atX: leadingLineX - dotOffset,
+                in: frame,
+                staffSpace: staffSpace,
+                radius: dotRadius
+            )
         }
 
-        drawRepeatBarline(
-            at: farLineX,
-            from: marker.frame.minY,
-            to: marker.frame.maxY,
-            width: lineWidth
-        )
-        drawRepeatBarline(
-            at: nearDotLineX,
-            from: marker.frame.minY,
-            to: marker.frame.maxY,
-            width: lineWidth
-        )
-        drawRepeatDots(atX: dotX, in: marker.frame, staffSpace: staffSpace, radius: dotRadius)
+        if edges.contains(.leading) {
+            drawRepeatDots(
+                atX: trailingLineX + dotOffset,
+                in: frame,
+                staffSpace: staffSpace,
+                radius: dotRadius
+            )
+        }
     }
 
     func drawSingleBarline(

@@ -49,9 +49,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(policy.chordMovePanEnabled)
         XCTAssertFalse(policy.chordEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
-        XCTAssertFalse(EditorCanvasMode.chordEntry.requiresChordSelectionBeforeObjectActions)
+        XCTAssertTrue(EditorCanvasMode.chordEntry.requiresChordSelectionBeforeObjectActions)
         XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditBoxes)
-        XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
+        XCTAssertFalse(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
     }
 
     func testChordTargetingAcceptsInkAcrossFullRhythmSectionChordLane() throws {
@@ -107,14 +107,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(policy.chordMovePanEnabled)
         XCTAssertFalse(policy.chordEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
-        XCTAssertFalse(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
+        XCTAssertTrue(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
         XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
-        XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
+        XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
     func testToolModesRestrictPageScrollToOutsideMargins() {
         XCTAssertFalse(EditorCanvasMode.browse.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertTrue(EditorCanvasMode.repeatEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.timeSignatureEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.headerEntry.restrictsPageScrollToOutsideMargins)
@@ -142,11 +143,35 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(smooth, 0.06, accuracy: 0.001)
     }
 
-    func testFreehandTabTitleUsesFreeHandNameUntilActive() {
+    func testFreehandTabTitleStaysStableWhenActive() {
         XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.repeatEdit.freeHandTabTitle, "Free-Hand")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.freeHandTabTitle, "Free-Hand")
         XCTAssertEqual(EditorCanvasMode.headerEntry.freeHandTabTitle, "Free-Hand")
-        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Done")
+        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabSymbol, "pencil.and.scribble")
+    }
+
+    func testActiveToolControlsAreShownOutsideBrowseMode() {
+        XCTAssertFalse(EditorCanvasMode.browse.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.measureEdit.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.repeatEdit.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.timeSignatureEdit.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.headerEntry.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.chordEntry.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.noteEdit.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.freeHand.showsActiveToolControls)
+    }
+
+    func testActiveToolMetadataMatchesPrimaryEditorModes() {
+        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Select")
+        XCTAssertEqual(EditorCanvasMode.measureEdit.activeToolTitle, "Measures")
+        XCTAssertEqual(EditorCanvasMode.repeatEdit.activeToolTitle, "Repeats")
+        XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")
+        XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
+        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chord")
+        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Hand")
     }
 
     func testScrollMarginPolicyBlocksPaperGesturesOnlyWhenRestricted() {

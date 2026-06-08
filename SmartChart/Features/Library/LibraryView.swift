@@ -1,8 +1,263 @@
+import Foundation
 import SwiftUI
+
+private enum IChartHomeBrand {
+    static let paper = Color(red: 0.97, green: 0.95, blue: 0.92)
+    static let paperSecondary = Color(red: 0.93, green: 0.90, blue: 0.85)
+    static let ink = Color(red: 0.08, green: 0.10, blue: 0.12)
+    static let night = Color(red: 0.06, green: 0.09, blue: 0.11)
+    static let stage = Color(red: 0.06, green: 0.08, blue: 0.11)
+    static let blue = Color(red: 0.13, green: 0.42, blue: 0.54)
+    static let logoBlue = Color(red: 0.56, green: 0.83, blue: 0.90)
+    static let blueSoft = Color(red: 0.86, green: 0.93, blue: 0.95)
+    static let staffOnDark = Color.white.opacity(0.23)
+}
+
+private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var systemImageName: String {
+        switch self {
+        case .light:
+            "sun.max.fill"
+        case .dark:
+            "moon.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .light:
+            "Light mode"
+        case .dark:
+            "Dark mode"
+        }
+    }
+}
+
+private struct IChartHomeTheme {
+    let mode: IChartHomeAppearanceMode
+
+    var isDark: Bool {
+        mode == .dark
+    }
+
+    var workspaceTitle: Color {
+        isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink
+    }
+
+    var workspaceSecondary: Color {
+        isDark ? IChartHomeBrand.paper.opacity(0.66) : Color.secondary
+    }
+
+    var emptyStateBackground: Color {
+        isDark ? IChartHomeBrand.paper.opacity(0.10) : Color.white.opacity(0.68)
+    }
+
+    var panelBackground: Color {
+        isDark ? IChartHomeBrand.stage.opacity(0.82) : IChartHomeBrand.paper.opacity(0.84)
+    }
+
+    var panelTitle: Color {
+        isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink
+    }
+
+    var panelSecondary: Color {
+        isDark ? IChartHomeBrand.paper.opacity(0.68) : Color.secondary
+    }
+
+    var panelBorder: Color {
+        isDark ? Color.white.opacity(0.10) : IChartHomeBrand.ink.opacity(0.07)
+    }
+
+    var panelShadow: Color {
+        isDark ? Color.black.opacity(0.28) : IChartHomeBrand.ink.opacity(0.08)
+    }
+}
+
+private enum IChartLogoVariant: String {
+    case b47b
+    case b48a
+
+    static var homeScreenTrialDefault: IChartLogoVariant {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flagIndex = arguments.firstIndex(of: "-iChartLogoVariant"),
+              arguments.indices.contains(arguments.index(after: flagIndex)) else {
+            return .b48a
+        }
+
+        let requestedValue = arguments[arguments.index(after: flagIndex)].lowercased()
+        return IChartLogoVariant(rawValue: requestedValue) ?? .b48a
+    }
+
+    var iFontName: String {
+        switch self {
+        case .b47b:
+            return "FinaleMaestroText"
+        case .b48a:
+            return "FinaleMaestroText-Italic"
+        }
+    }
+
+    var iTrailingAdjustment: CGFloat {
+        switch self {
+        case .b47b:
+            return -0.07
+        case .b48a:
+            return -0.025
+        }
+    }
+
+    var iOffset: CGSize {
+        switch self {
+        case .b47b:
+            return .zero
+        case .b48a:
+            return CGSize(width: -0.055, height: 0)
+        }
+    }
+}
+
+private enum IChartHomeTab: String, CaseIterable, Identifiable {
+    case charts
+    case forums
+    case help
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .charts:
+            "Charts"
+        case .forums:
+            "Forums"
+        case .help:
+            "Help"
+        case .settings:
+            "Settings"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .charts:
+            "music.note.list"
+        case .forums:
+            "bubble.left.and.bubble.right"
+        case .help:
+            "questionmark.circle"
+        case .settings:
+            "gearshape"
+        }
+    }
+}
+
+private enum IChartHelpTopic: String, CaseIterable, Identifiable {
+    case faq
+    case userPolicy
+    case legal
+    case contactUs
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .faq:
+            "FAQ"
+        case .userPolicy:
+            "User Policy"
+        case .legal:
+            "Legal"
+        case .contactUs:
+            "Contact Us"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .faq:
+            "Common questions"
+        case .userPolicy:
+            "Use and conduct"
+        case .legal:
+            "Privacy and notices"
+        case .contactUs:
+            "Support placeholder"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .faq:
+            "questionmark.circle"
+        case .userPolicy:
+            "person.text.rectangle"
+        case .legal:
+            "doc.text"
+        case .contactUs:
+            "envelope"
+        }
+    }
+
+    var detailTitle: String {
+        switch self {
+        case .faq:
+            "Common Questions"
+        case .userPolicy:
+            "User Policy"
+        case .legal:
+            "Legal Notes"
+        case .contactUs:
+            "Contact Us"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .faq:
+            "Quick help for chart setup, handwriting tools, export, and saved charts will live here as V1 hardens."
+        case .userPolicy:
+            "Smart Chart should keep correction behavior local and contextual. Handwritten passes are validation evidence, not global recognizer training."
+        case .legal:
+            "Terms, privacy language, font attributions, and third-party notices are tracked here for the release hygiene sprint."
+        case .contactUs:
+            "A support contact path will live here for V1 feedback, bug reports, and account questions."
+        }
+    }
+}
+
+private enum IChartChartPreviewMode: String, CaseIterable, Identifiable {
+    case collapsed
+    case quick
+    case large
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .collapsed:
+            "Collapsed"
+        case .quick:
+            "Quick"
+        case .large:
+            "Large"
+        }
+    }
+}
 
 struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
+    @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
+    @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
+    @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
+    @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
+    @State private var selectedHomeTab: IChartHomeTab = .charts
+    @State private var selectedHelpTopic: IChartHelpTopic?
     @State private var showingLayoutPicker = false
     @State private var renameRequest: ChartRenameRequest?
     @State private var deleteRequest: ChartDeleteRequest?
@@ -12,32 +267,59 @@ struct LibraryView: View {
         return count == 1 ? "1 chart" : "\(count) charts"
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                LibraryHeaderView(
-                    chartCountText: chartCountText,
-                    capacityText: store.chartCapacityText,
-                    canCreateChart: store.canCreateChart,
-                    onCreateChart: {
-                        showingLayoutPicker = true
-                    }
-                )
-                projectsSection
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
-        }
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.97, green: 0.96, blue: 0.93),
-                    Color(red: 0.92, green: 0.94, blue: 0.97)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    private var homeAppearanceMode: IChartHomeAppearanceMode {
+        IChartHomeAppearanceMode(rawValue: homeAppearanceModeRawValue) ?? .light
+    }
+
+    private var homeAppearanceModeBinding: Binding<IChartHomeAppearanceMode> {
+        Binding(
+            get: { homeAppearanceMode },
+            set: { homeAppearanceModeRawValue = $0.rawValue }
         )
+    }
+
+    private var homeTheme: IChartHomeTheme {
+        IChartHomeTheme(mode: homeAppearanceMode)
+    }
+
+    private var chartPreviewMode: IChartChartPreviewMode {
+        IChartChartPreviewMode(rawValue: chartPreviewModeRawValue) ?? .collapsed
+    }
+
+    private var chartPreviewModeBinding: Binding<IChartChartPreviewMode> {
+        Binding(
+            get: { chartPreviewMode },
+            set: { chartPreviewModeRawValue = $0.rawValue }
+        )
+    }
+
+    private var freeChartUsageText: String? {
+        guard let limit = store.entitlements.localChartLimit else {
+            return nil
+        }
+
+        return "\(min(store.charts.count, limit)) of \(limit) free charts used"
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            IChartHomeSidebar(
+                logoVariant: logoVariant,
+                selectedTab: $selectedHomeTab,
+                appearanceMode: homeAppearanceModeBinding,
+                isCollapsed: $isSidebarCollapsed
+            )
+
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 1)
+
+            selectedHomeContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(IChartLibraryBackground(mode: homeAppearanceMode).ignoresSafeArea())
+        .tint(IChartHomeBrand.blue)
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showingLayoutPicker) {
             NewChartLayoutPickerView { layoutStyle in
                 showingLayoutPicker = false
@@ -66,17 +348,149 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
+    private var selectedHomeContent: some View {
+        switch selectedHomeTab {
+        case .charts:
+            chartsHomeContent
+        case .forums:
+            forumsHomeContent
+        case .help:
+            helpHomeContent
+        case .settings:
+            settingsHomeContent
+        }
+    }
+
+    private var chartsHomeContent: some View {
+        homeScroll {
+            VStack(alignment: .leading, spacing: 20) {
+                IChartNewChartControl(
+                    freeChartUsageText: freeChartUsageText,
+                    canCreateChart: store.canCreateChart,
+                    theme: homeTheme,
+                    onCreateChart: {
+                        showingLayoutPicker = true
+                    }
+                )
+
+                projectsSection
+            }
+        }
+    }
+
+    private var forumsHomeContent: some View {
+        homeScroll {
+            IChartHomePanel(
+                title: "Forums",
+                systemImageName: "bubble.left.and.bubble.right",
+                theme: homeTheme
+            ) {
+                ContentUnavailableView(
+                    "No Forum Posts",
+                    systemImage: "bubble.left.and.bubble.right"
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 48)
+            }
+        }
+    }
+
+    private var settingsHomeContent: some View {
+        homeScroll {
+            IChartHomePanel(
+                title: "Settings",
+                systemImageName: "gearshape",
+                theme: homeTheme
+            ) {
+                VStack(spacing: 0) {
+                    IChartSettingsRow(
+                        title: "Library",
+                        value: chartCountText,
+                        systemImageName: "doc.text",
+                        theme: homeTheme
+                    )
+
+                    Divider()
+                        .overlay(homeTheme.panelBorder)
+                        .padding(.leading, 44)
+
+                    IChartSettingsRow(
+                        title: "Storage",
+                        value: store.persistenceStatus.displayText,
+                        systemImageName: store.persistenceStatus.systemImageName,
+                        theme: homeTheme
+                    )
+
+                    Divider()
+                        .overlay(homeTheme.panelBorder)
+                        .padding(.leading, 44)
+
+                    IChartSettingsRow(
+                        title: "Plan",
+                        value: store.chartCapacityText,
+                        systemImageName: "person.crop.circle",
+                        theme: homeTheme
+                    )
+                }
+            }
+        }
+    }
+
+    private var helpHomeContent: some View {
+        homeScroll {
+            IChartHomePanel(
+                title: "Help",
+                systemImageName: "questionmark.circle",
+                theme: homeTheme
+            ) {
+                VStack(spacing: 0) {
+                    let activeTopic = selectedHelpTopic ?? .faq
+
+                    ForEach(IChartHelpTopic.allCases) { topic in
+                        IChartHelpTopicRow(
+                            topic: topic,
+                            isSelected: activeTopic == topic,
+                            theme: homeTheme,
+                            action: {
+                                selectedHelpTopic = topic
+                            }
+                        )
+
+                        if topic.id != IChartHelpTopic.allCases.last?.id {
+                            Divider()
+                                .overlay(homeTheme.panelBorder)
+                                .padding(.leading, 44)
+                        }
+                    }
+
+                    Divider()
+                        .overlay(homeTheme.panelBorder)
+                        .padding(.top, 8)
+
+                    IChartHelpTopicDetail(topic: activeTopic, theme: homeTheme)
+                        .padding(.top, 16)
+                }
+            }
+        }
+    }
+
+    private func homeScroll<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ScrollView {
+            content()
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+        }
+    }
+
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Charts")
-                    .font(.title3.weight(.semibold))
-
+            HStack(alignment: .center, spacing: 16) {
                 Spacer()
 
-                Text(chartCountText)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                IChartPreviewModePicker(selection: chartPreviewModeBinding, theme: homeTheme)
             }
 
             if store.charts.isEmpty {
@@ -87,15 +501,15 @@ struct LibraryView: View {
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
-                .background(Color.white.opacity(0.68))
+                .foregroundStyle(homeTheme.workspaceTitle)
+                .background(homeTheme.emptyStateBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(store.charts) { chart in
                         ProjectRowView(
-                            title: chart.title,
-                            summary: chartSummary(for: chart),
-                            updatedText: "Updated \(chart.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                            chart: chart,
+                            previewMode: chartPreviewMode,
                             isSelected: store.selectedChartID == chart.id,
                             canDuplicate: store.canCreateChart,
                             onOpen: {
@@ -126,10 +540,6 @@ struct LibraryView: View {
                 }
             }
         )
-    }
-
-    private func chartSummary(for chart: Chart) -> String {
-        chart.librarySummaryText
     }
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
@@ -238,7 +648,7 @@ private struct NewChartLayoutPickerView: View {
                             HStack(alignment: .top, spacing: 14) {
                                 Image(systemName: layoutStyle.systemImageName)
                                     .font(.title3.weight(.semibold))
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(IChartHomeBrand.blue)
                                     .frame(width: 28, height: 28)
 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -261,7 +671,7 @@ private struct NewChartLayoutPickerView: View {
                             }
                             .padding(16)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(uiColor: .secondarySystemBackground))
+                            .background(IChartHomeBrand.paper.opacity(0.82))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
@@ -283,67 +693,541 @@ private struct NewChartLayoutPickerView: View {
 
 }
 
-private struct LibraryHeaderView: View {
-    let chartCountText: String
-    let capacityText: String
+private struct IChartHomeSidebar: View {
+    private let expandedWidth: CGFloat = 208
+    private let collapsedWidth: CGFloat = 82
+
+    let logoVariant: IChartLogoVariant
+    @Binding var selectedTab: IChartHomeTab
+    @Binding var appearanceMode: IChartHomeAppearanceMode
+    @Binding var isCollapsed: Bool
+
+    var body: some View {
+        VStack(alignment: isCollapsed ? .center : .leading, spacing: isCollapsed ? 16 : 22) {
+            sidebarHeader
+
+            VStack(spacing: 8) {
+                ForEach(IChartHomeTab.allCases) { tab in
+                    IChartHomeSidebarButton(
+                        tab: tab,
+                        isSelected: selectedTab == tab,
+                        isCollapsed: isCollapsed,
+                        action: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                selectedTab = tab
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, isCollapsed ? 10 : 12)
+
+            Spacer()
+
+            IChartHomeAppearanceModeSwitch(selectedMode: $appearanceMode)
+                .padding(.horizontal, isCollapsed ? 10 : 12)
+                .padding(.bottom, 20)
+        }
+        .frame(width: isCollapsed ? collapsedWidth : expandedWidth)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                colors: [
+                    IChartHomeBrand.stage,
+                    IChartHomeBrand.night
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .animation(.easeInOut(duration: 0.20), value: isCollapsed)
+    }
+
+    private var sidebarHeader: some View {
+        VStack(spacing: isCollapsed ? 6 : 4) {
+            HStack {
+                Spacer()
+                collapseButton
+            }
+
+            IChartWordmarkView(variant: logoVariant, size: isCollapsed ? 34 : 72)
+                .frame(maxWidth: .infinity, minHeight: isCollapsed ? 42 : 70, alignment: .center)
+        }
+        .padding(.horizontal, isCollapsed ? 8 : 12)
+        .padding(.top, isCollapsed ? 12 : 16)
+    }
+
+    private var collapseButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.20)) {
+                isCollapsed.toggle()
+            }
+        } label: {
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.left")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(IChartHomeBrand.paper.opacity(0.70))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isCollapsed ? "Open sidebar" : "Collapse sidebar")
+    }
+}
+
+private struct IChartHomeAppearanceModeSwitch: View {
+    @Binding var selectedMode: IChartHomeAppearanceMode
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(IChartHomeAppearanceMode.allCases) { mode in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedMode = mode
+                    }
+                } label: {
+                    Image(systemName: mode.systemImageName)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundStyle(foregroundColor(for: mode))
+                        .background(backgroundColor(for: mode))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.accessibilityLabel)
+                .accessibilityAddTraits(selectedMode == mode ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    private func foregroundColor(for mode: IChartHomeAppearanceMode) -> Color {
+        selectedMode == mode ? IChartHomeBrand.paper : IChartHomeBrand.paper.opacity(0.62)
+    }
+
+    private func backgroundColor(for mode: IChartHomeAppearanceMode) -> Color {
+        selectedMode == mode ? IChartHomeBrand.logoBlue.opacity(0.22) : Color.clear
+    }
+}
+
+private struct IChartHomeSidebarButton: View {
+    let tab: IChartHomeTab
+    let isSelected: Bool
+    let isCollapsed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: tab.systemImageName)
+                    .font(.body.weight(.semibold))
+                    .frame(width: 24, height: 24)
+
+                if !isCollapsed {
+                    Text(tab.title)
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, isCollapsed ? 10 : 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .background(backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+    }
+
+    private var foregroundColor: Color {
+        isSelected ? IChartHomeBrand.paper : IChartHomeBrand.paper.opacity(0.70)
+    }
+
+    private var backgroundColor: Color {
+        isSelected ? IChartHomeBrand.logoBlue.opacity(0.18) : Color.clear
+    }
+
+    private var borderColor: Color {
+        isSelected ? IChartHomeBrand.logoBlue.opacity(0.28) : Color.clear
+    }
+}
+
+private struct IChartHelpTopicRow: View {
+    let topic: IChartHelpTopic
+    let isSelected: Bool
+    let theme: IChartHomeTheme
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: topic.systemImageName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(topic.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(topic.summary)
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                }
+
+                Spacer(minLength: 16)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(isSelected ? IChartHomeBrand.blue : theme.panelSecondary.opacity(0.7))
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 8)
+            .background(isSelected ? IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.72) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(topic.title)
+    }
+}
+
+private struct IChartHelpTopicDetail: View {
+    let topic: IChartHelpTopic
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(topic.detailTitle, systemImage: topic.systemImageName)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            Text(topic.detailText)
+                .font(.subheadline)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct IChartHomePanel<Content: View>: View {
+    let title: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+    let content: Content
+
+    init(
+        title: String,
+        systemImageName: String,
+        theme: IChartHomeTheme,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.systemImageName = systemImageName
+        self.theme = theme
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImageName)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 28, height: 28)
+
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+            }
+
+            content
+                .foregroundStyle(theme.panelTitle)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+        .shadow(color: theme.panelShadow, radius: 16, y: 8)
+    }
+}
+
+private struct IChartSettingsRow: View {
+    let title: String
+    let value: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            Spacer(minLength: 16)
+
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(theme.panelSecondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 14)
+    }
+}
+
+private struct IChartNewChartControl: View {
+    let freeChartUsageText: String?
     let canCreateChart: Bool
+    let theme: IChartHomeTheme
     let onCreateChart: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 16) {
-                    titleBlock
-
-                    Spacer(minLength: 24)
-
-                    newChartButton
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    titleBlock
-                    newChartButton
-                }
+        VStack(spacing: 8) {
+            Button(action: onCreateChart) {
+                Label("New Chart", systemImage: "square.and.pencil")
+                    .font(.headline.weight(.semibold))
+                    .frame(minWidth: 180)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(IChartHomeBrand.blue)
+            .disabled(!canCreateChart)
 
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label(chartCountText, systemImage: "doc.text")
+            if let freeChartUsageText {
+                Text(freeChartUsageText)
                     .font(.caption.weight(.medium))
-
-                Text(capacityText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .foregroundStyle(theme.workspaceTitle.opacity(0.68))
+                    .lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 2)
+        .padding(.bottom, 2)
     }
+}
 
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Local library")
-                .font(.title2.weight(.semibold))
+private struct IChartPreviewModePicker: View {
+    @Binding var selection: IChartChartPreviewMode
+    let theme: IChartHomeTheme
 
-            Text("Create, open, and export charts.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(IChartChartPreviewMode.allCases) { mode in
+                let isSelected = selection == mode
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selection = mode
+                    }
+                } label: {
+                    Text(mode.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(textColor(isSelected: isSelected))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(IChartHomeBrand.paper.opacity(0.95))
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(mode.title) preview")
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            }
+        }
+        .padding(3)
+        .frame(width: 280)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(controlBackground)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(controlBorder, lineWidth: 1)
         }
     }
 
-    private var newChartButton: some View {
-        Button(action: onCreateChart) {
-            Label("New Chart", systemImage: "square.and.pencil")
-                .frame(minWidth: 150)
+    private var controlBackground: Color {
+        theme.isDark ? Color.white.opacity(0.12) : Color.white.opacity(0.34)
+    }
+
+    private var controlBorder: Color {
+        theme.isDark ? Color.white.opacity(0.16) : IChartHomeBrand.ink.opacity(0.08)
+    }
+
+    private func textColor(isSelected: Bool) -> Color {
+        if isSelected {
+            return IChartHomeBrand.ink
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(!canCreateChart)
+
+        return theme.isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink.opacity(0.72)
+    }
+}
+
+private struct IChartWordmarkView: View {
+    let variant: IChartLogoVariant
+    let size: CGFloat
+
+    init(variant: IChartLogoVariant, size: CGFloat) {
+        self.variant = variant
+        self.size = size
+        #if canImport(UIKit)
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+        #endif
+    }
+
+    var body: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 0) {
+            Text("i")
+                .font(.custom(variant.iFontName, size: size * 0.58))
+                .foregroundStyle(IChartHomeBrand.paper)
+                .padding(.trailing, size * variant.iTrailingAdjustment)
+                .offset(
+                    x: size * variant.iOffset.width,
+                    y: size * variant.iOffset.height
+                )
+
+            staffWord
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .accessibilityLabel("iChart")
+    }
+
+    private var staffWord: some View {
+        HStack(alignment: .lastTextBaseline, spacing: -size * 0.035) {
+            Text("C")
+                .font(.custom("FinaleMaestroText", size: size))
+                .foregroundStyle(IChartHomeBrand.logoBlue)
+
+            Text("hart")
+                .font(.custom("FinaleMaestroText", size: size * 0.74))
+                .foregroundStyle(IChartHomeBrand.paper)
+                .baselineOffset(size * 0.01)
+        }
+        .padding(.trailing, size * 0.14)
+        .overlay {
+            IChartStaffMeasureLines()
+                .frame(height: size * 0.72)
+                .padding(.top, size * 0.08)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct IChartStaffMeasureLines: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let lineWidth = max(geometry.size.height * 0.018, 1)
+            let barSpacing = max(geometry.size.width * 0.024, 4)
+
+            Path { path in
+                for index in 0..<5 {
+                    let y = geometry.size.height * CGFloat(index) / 4
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: geometry.size.width, y: y))
+                }
+            }
+            .stroke(
+                IChartHomeBrand.staffOnDark,
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
+            )
+
+            Path { path in
+                let firstBarX = geometry.size.width - barSpacing
+                path.move(to: CGPoint(x: firstBarX, y: 0))
+                path.addLine(to: CGPoint(x: firstBarX, y: geometry.size.height))
+                path.move(to: CGPoint(x: geometry.size.width, y: 0))
+                path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height))
+            }
+            .stroke(
+                IChartHomeBrand.staffOnDark,
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
+            )
+        }
+    }
+}
+
+struct ChartLibraryPersistenceStatusBadge: View {
+    let status: ChartLibraryPersistenceStatus
+
+    var body: some View {
+        Label(status.displayText, systemImage: status.systemImageName)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(foregroundColor)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(backgroundColor)
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(borderColor, lineWidth: 1)
+            }
+            .accessibilityLabel(status.accessibilityText)
+    }
+
+    private var foregroundColor: Color {
+        switch status {
+        case .failed:
+            Color(red: 0.62, green: 0.18, blue: 0.12)
+        case .notTracking:
+            IChartHomeBrand.paper.opacity(0.70)
+        case .ready, .saved:
+            Color(red: 0.13, green: 0.38, blue: 0.20)
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch status {
+        case .failed:
+            Color(red: 1.0, green: 0.91, blue: 0.88)
+        case .notTracking:
+            Color.white.opacity(0.08)
+        case .ready, .saved:
+            Color(red: 0.90, green: 0.97, blue: 0.91)
+        }
+    }
+
+    private var borderColor: Color {
+        switch status {
+        case .failed:
+            Color(red: 0.78, green: 0.28, blue: 0.18).opacity(0.35)
+        case .notTracking:
+            Color.white.opacity(0.10)
+        case .ready, .saved:
+            Color(red: 0.21, green: 0.55, blue: 0.28).opacity(0.28)
+        }
     }
 }
 
 private struct ProjectRowView: View {
-    let title: String
-    let summary: String
-    let updatedText: String
+    let chart: Chart
+    let previewMode: IChartChartPreviewMode
     let isSelected: Bool
     let canDuplicate: Bool
     let onOpen: () -> Void
@@ -352,29 +1236,14 @@ private struct ProjectRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Button(action: onOpen) {
-                HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: previewMode == .collapsed ? 3 : 10) {
+                    rowText
 
-                        Text(summary)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Text(updatedText)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    if previewMode != .collapsed {
+                        IChartLibraryChartPreview(chart: chart, mode: previewMode)
                     }
-
-                    Spacer(minLength: 12)
-
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
                 }
                 .contentShape(Rectangle())
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -405,7 +1274,7 @@ private struct ProjectRowView: View {
             .accessibilityLabel("Chart actions")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, previewMode == .collapsed ? 13 : 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -429,11 +1298,230 @@ private struct ProjectRowView: View {
         }
     }
 
+    private var rowText: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(chart.title)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.ink)
+                .lineLimit(1)
+
+            Text(rowSubtitle)
+                .font(.subheadline)
+                .foregroundStyle(IChartHomeBrand.ink.opacity(0.58))
+                .lineLimit(1)
+        }
+    }
+
+    private var rowSubtitle: String {
+        let measureCount = chart.measures.count
+        let measureText = measureCount == 1 ? "1 measure" : "\(measureCount) measures"
+
+        return "\(chart.layoutStyle.displayText) · \(measureText)"
+    }
+
     private var cardBackground: Color {
-        isSelected ? Color.blue.opacity(0.10) : Color.white.opacity(0.72)
+        isSelected ? IChartHomeBrand.blueSoft.opacity(0.82) : IChartHomeBrand.paper.opacity(0.92)
     }
 
     private var cardBorderColor: Color {
-        isSelected ? Color.blue.opacity(0.35) : Color.black.opacity(0.06)
+        isSelected ? IChartHomeBrand.blue.opacity(0.35) : IChartHomeBrand.ink.opacity(0.07)
+    }
+}
+
+private struct IChartLibraryChartPreview: View {
+    let chart: Chart
+    let mode: IChartChartPreviewMode
+
+    private var previewHeight: CGFloat {
+        switch mode {
+        case .collapsed:
+            0
+        case .quick:
+            78
+        case .large:
+            174
+        }
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let rect = CGRect(origin: .zero, size: size)
+            context.fill(
+                Path(roundedRect: rect, cornerRadius: 6),
+                with: .color(IChartHomeBrand.paper)
+            )
+
+            drawSystems(in: rect.insetBy(dx: 14, dy: mode == .large ? 16 : 12), context: &context)
+
+            context.stroke(
+                Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 6),
+                with: .color(IChartHomeBrand.ink.opacity(0.08)),
+                lineWidth: 1
+            )
+        }
+        .frame(height: previewHeight)
+        .background(IChartHomeBrand.paper.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private func drawSystems(in rect: CGRect, context: inout GraphicsContext) {
+        let systemsToDraw = mode == .large ? 3 : 1
+        let systemGap = rect.height / CGFloat(max(systemsToDraw, 1))
+
+        for systemIndex in 0..<systemsToDraw {
+            let y = rect.minY + CGFloat(systemIndex) * systemGap + systemGap * 0.42
+            drawSystemLine(
+                in: CGRect(x: rect.minX, y: y, width: rect.width, height: systemGap * 0.45),
+                systemIndex: systemIndex,
+                context: &context
+            )
+        }
+    }
+
+    private func drawSystemLine(
+        in rect: CGRect,
+        systemIndex: Int,
+        context: inout GraphicsContext
+    ) {
+        let measuresPerSystem = min(max(chart.measures.count, 1), mode == .large ? 4 : 4)
+        let measureWidth = rect.width / CGFloat(measuresPerSystem)
+        let isSimple = chart.layoutStyle == .simpleChordSheet
+
+        if !isSimple {
+            var staffPath = Path()
+            for index in 0..<5 {
+                let y = rect.minY + CGFloat(index) * rect.height / 4
+                staffPath.move(to: CGPoint(x: rect.minX, y: y))
+                staffPath.addLine(to: CGPoint(x: rect.maxX, y: y))
+            }
+            context.stroke(staffPath, with: .color(IChartHomeBrand.ink.opacity(0.22)), lineWidth: 0.9)
+        }
+
+        var barPath = Path()
+        for measureIndex in 0...measuresPerSystem {
+            let x = rect.minX + CGFloat(measureIndex) * measureWidth
+            barPath.move(to: CGPoint(x: x, y: rect.minY - (isSimple ? 8 : 0)))
+            barPath.addLine(to: CGPoint(x: x, y: rect.maxY + (isSimple ? 8 : 0)))
+        }
+        context.stroke(barPath, with: .color(IChartHomeBrand.ink.opacity(0.72)), lineWidth: isSimple ? 1.4 : 1.0)
+
+        if isSimple {
+            drawSimpleChordMarks(in: rect, systemIndex: systemIndex, measureWidth: measureWidth, context: &context)
+        } else {
+            drawRhythmMarks(in: rect, systemIndex: systemIndex, measureWidth: measureWidth, context: &context)
+        }
+    }
+
+    private func drawSimpleChordMarks(
+        in rect: CGRect,
+        systemIndex: Int,
+        measureWidth: CGFloat,
+        context: inout GraphicsContext
+    ) {
+        let startIndex = systemIndex * 4
+        let measures = Array(chart.measures.dropFirst(startIndex).prefix(4))
+
+        for (index, measure) in measures.enumerated() {
+            guard let chord = measure.chordEvents.first else {
+                continue
+            }
+
+            let x = rect.minX + CGFloat(index) * measureWidth + 10
+            let y = rect.midY
+            context.draw(
+                Text(chord.symbol.displayText)
+                    .font(.system(size: mode == .large ? 17 : 14, weight: .regular))
+                    .foregroundStyle(IChartHomeBrand.ink),
+                at: CGPoint(x: x, y: y),
+                anchor: .leading
+            )
+        }
+    }
+
+    private func drawRhythmMarks(
+        in rect: CGRect,
+        systemIndex: Int,
+        measureWidth: CGFloat,
+        context: inout GraphicsContext
+    ) {
+        let startIndex = systemIndex * 4
+        let measures = Array(chart.measures.dropFirst(startIndex).prefix(4))
+
+        for (index, measure) in measures.enumerated() {
+            let x = rect.minX + CGFloat(index) * measureWidth + measureWidth * 0.42
+            let y = rect.midY
+            let markHeight = rect.height * 0.42
+
+            var stem = Path()
+            stem.move(to: CGPoint(x: x, y: y - markHeight * 0.5))
+            stem.addLine(to: CGPoint(x: x, y: y + markHeight * 0.5))
+            context.stroke(stem, with: .color(IChartHomeBrand.ink.opacity(0.62)), lineWidth: 1)
+
+            if !measure.chordEvents.isEmpty {
+                context.draw(
+                    Text(measure.chordEvents.first?.symbol.displayText ?? "")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(IChartHomeBrand.ink.opacity(0.70)),
+                    at: CGPoint(x: rect.minX + CGFloat(index) * measureWidth + 8, y: rect.minY - 10),
+                    anchor: .leading
+                )
+            }
+        }
+    }
+}
+
+private struct IChartLibraryBackground: View {
+    let mode: IChartHomeAppearanceMode
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: baseColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            LinearGradient(
+                colors: overlayColors,
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 260)
+        }
+    }
+
+    private var baseColors: [Color] {
+        switch mode {
+        case .light:
+            [
+                IChartHomeBrand.paper,
+                IChartHomeBrand.blueSoft,
+                IChartHomeBrand.paperSecondary
+            ]
+        case .dark:
+            [
+                IChartHomeBrand.night,
+                IChartHomeBrand.stage,
+                Color(red: 0.08, green: 0.11, blue: 0.13)
+            ]
+        }
+    }
+
+    private var overlayColors: [Color] {
+        switch mode {
+        case .light:
+            [
+                IChartHomeBrand.night.opacity(0.94),
+                IChartHomeBrand.night.opacity(0.58),
+                IChartHomeBrand.night.opacity(0)
+            ]
+        case .dark:
+            [
+                Color.black.opacity(0.48),
+                IChartHomeBrand.logoBlue.opacity(0.08),
+                Color.black.opacity(0)
+            ]
+        }
     }
 }

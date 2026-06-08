@@ -224,23 +224,47 @@ private struct ChartPDFRenderer {
             renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
         }
 
-        if let firstMeasure = system.measures.first,
-           !firstMeasure.repeatMarkerLayouts.contains(where: { $0.edge == .leading }) {
-            renderer.drawLeadingBarline(
-                firstMeasure.leadingBarline ?? .single,
-                at: firstMeasure.frame.minX,
-                from: firstMeasure.staffFrame.minY,
-                to: firstMeasure.staffFrame.maxY
-            )
+        var drawnRepeatMarkerIDs = Set<String>()
+        if let firstMeasure = system.measures.first {
+            let leadingMarkers = LeadSheetRepeatBoundaryPolicy.leadingMarkers(atStartOf: firstMeasure)
+            if leadingMarkers.isEmpty {
+                renderer.drawLeadingBarline(
+                    firstMeasure.leadingBarline ?? .single,
+                    at: firstMeasure.frame.minX,
+                    from: firstMeasure.staffFrame.minY,
+                    to: firstMeasure.staffFrame.maxY
+                )
+            } else {
+                drawRepeatMarkers(leadingMarkers, using: renderer)
+                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
+            }
         }
 
-        for measure in system.measures {
-            drawMeasure(measure, using: renderer)
+        for (measureIndex, measure) in system.measures.enumerated() {
+            let nextMeasureIndex = measureIndex + 1
+            let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
+                ? system.measures[nextMeasureIndex]
+                : nil
+            drawMeasure(
+                measure,
+                nextMeasure: nextMeasure,
+                drawnRepeatMarkerIDs: &drawnRepeatMarkerIDs,
+                using: renderer
+            )
         }
     }
 
-    private func drawMeasure(_ measure: LeadSheetMeasureLayout, using renderer: LeadSheetNotationRenderer) {
-        drawRepeatMarkers(measure.repeatMarkerLayouts.filter { $0.edge == .leading }, using: renderer)
+    private func drawMeasure(
+        _ measure: LeadSheetMeasureLayout,
+        nextMeasure: LeadSheetMeasureLayout?,
+        drawnRepeatMarkerIDs: inout Set<String>,
+        using renderer: LeadSheetNotationRenderer
+    ) {
+        let leadingMarkers = measure.repeatMarkerLayouts.filter {
+            $0.edge == .leading && !drawnRepeatMarkerIDs.contains($0.id)
+        }
+        drawRepeatMarkers(leadingMarkers, using: renderer)
+        drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
         for chordLayout in measure.chordLayouts {
             renderer.drawChord(chordLayout)
@@ -263,10 +287,20 @@ private struct ChartPDFRenderer {
 
         if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
             renderer.drawOpenMeasureHint(measure)
-        } else if measure.repeatMarkerLayouts.contains(where: { $0.edge == .trailing }) {
-            drawRepeatMarkers(measure.repeatMarkerLayouts.filter { $0.edge == .trailing }, using: renderer)
         } else {
-            renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+            let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy
+                .repeatMarkers(after: measure, before: nextMeasure)
+                .filter { !drawnRepeatMarkerIDs.contains($0.id) }
+
+            if !repeatBoundaryMarkers.isEmpty {
+                drawRepeatMarkers(repeatBoundaryMarkers, using: renderer)
+                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+            } else if LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                after: measure,
+                before: nextMeasure
+            ) {
+                renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+            }
         }
     }
 
@@ -274,9 +308,11 @@ private struct ChartPDFRenderer {
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
         using renderer: LeadSheetNotationRenderer
     ) {
-        for repeatMarker in repeatMarkers {
-            renderer.drawRepeatMarker(repeatMarker)
+        guard !repeatMarkers.isEmpty else {
+            return
         }
+
+        renderer.drawRepeatBoundary(repeatMarkers)
     }
 
     private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {

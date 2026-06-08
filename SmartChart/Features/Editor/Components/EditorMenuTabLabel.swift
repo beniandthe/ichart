@@ -7,9 +7,9 @@ struct EditorMenuTabLabel: View {
 
     var body: some View {
         Label(title, systemImage: systemImage)
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .foregroundStyle(isSelected ? Color.white : Color.primary)
             .background(
                 isSelected
@@ -26,9 +26,9 @@ struct EditorCodaTabLabel: View {
     var body: some View {
         codaGlyph
             .frame(width: 28, height: 28)
-            .frame(minWidth: 44)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .frame(minWidth: 40)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .background(
                 isSelected
                 ? Color(red: 0.16, green: 0.38, blue: 0.82)

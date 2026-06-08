@@ -128,7 +128,7 @@ extension ChartLayoutStyle {
             return ChartLayoutProfile(
                 layoutStyle: self,
                 toolbarEmphasis: .chordRoadmap,
-                primaryToolFocus: [.chordEntry, .sectionRoadmap, .measureLayout, .appearance],
+                primaryToolFocus: [.chordEntry, .sectionRoadmap, .cueText, .measureLayout, .appearance],
                 setupPolicy: ChartLayoutSetupPolicy(
                     includesKeySelection: false,
                     includesTimeSignatureSelection: true,
@@ -154,7 +154,7 @@ extension ChartLayoutStyle {
             return ChartLayoutProfile(
                 layoutStyle: self,
                 toolbarEmphasis: .rhythmAndHits,
-                primaryToolFocus: [.chordEntry, .rhythmNotation, .cueText, .measureLayout],
+                primaryToolFocus: [.chordEntry, .rhythmNotation, .sectionRoadmap, .cueText, .measureLayout, .appearance],
                 setupPolicy: ChartLayoutSetupPolicy(
                     includesKeySelection: false,
                     includesTimeSignatureSelection: true,

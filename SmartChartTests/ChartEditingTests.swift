@@ -905,7 +905,7 @@ final class ChartEditingTests: XCTestCase {
         let leadProfile = ChartLayoutStyle.leadSheet.profile
 
         XCTAssertEqual(chordProfile.toolbarEmphasis, .chordRoadmap)
-        XCTAssertEqual(chordProfile.primaryToolFocus, [.chordEntry, .sectionRoadmap, .measureLayout, .appearance])
+        XCTAssertEqual(chordProfile.primaryToolFocus, [.chordEntry, .sectionRoadmap, .cueText, .measureLayout, .appearance])
         XCTAssertEqual(chordProfile.setupPolicy.includesKeySelection, false)
         XCTAssertEqual(chordProfile.setupPolicy.includesTimeSignatureSelection, true)
         XCTAssertEqual(chordProfile.setupPolicy.includesStartingMeasureSelection, true)
@@ -922,7 +922,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chordProfile.measureDefaults.beatGridPreset, .simple)
 
         XCTAssertEqual(rhythmProfile.toolbarEmphasis, .rhythmAndHits)
-        XCTAssertEqual(rhythmProfile.primaryToolFocus, [.chordEntry, .rhythmNotation, .cueText, .measureLayout])
+        XCTAssertEqual(rhythmProfile.primaryToolFocus, [.chordEntry, .rhythmNotation, .sectionRoadmap, .cueText, .measureLayout, .appearance])
         XCTAssertEqual(rhythmProfile.setupPolicy.includesKeySelection, false)
         XCTAssertEqual(rhythmProfile.setupPolicy.includesTimeSignatureSelection, true)
         XCTAssertEqual(rhythmProfile.setupPolicy.includesStartingMeasureSelection, true)

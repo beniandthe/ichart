@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iChart Color Usage Rules</title>
+  <style>
+    :root {
+      --night: #10161c;
+      --stage: #0f151b;
+      --ink: #151a1f;
+      --paper: #f7f3ea;
+      --paper-2: #eee6d9;
+      --blue: #226c8a;
+      --light-blue: #8fd3e6;
+      --blue-soft: #dcecf1;
+      --staff: #484d51;
+      --green: #216133;
+      --green-soft: #e6f7e9;
+      --red: #9e2e1f;
+      --red-soft: #ffe8e1;
+      --amber: #8b5b16;
+      --amber-soft: #fff1cf;
+      --line: rgba(21, 26, 31, 0.13);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    main {
+      width: min(1500px, calc(100vw - 64px));
+      margin: 0 auto;
+      padding: 40px 0 52px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      padding-bottom: 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 44px;
+      line-height: 1;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    h3 {
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      max-width: 900px;
+      margin-top: 10px;
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 17px;
+      line-height: 1.42;
+    }
+
+    .pill {
+      border: 1px solid rgba(34, 108, 138, 0.22);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--blue);
+      background: var(--blue-soft);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    section {
+      padding-top: 30px;
+    }
+
+    .principle {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .statement {
+      padding: 28px;
+      border-radius: 8px;
+      color: var(--paper);
+      background: var(--stage);
+      box-shadow: 0 18px 48px rgba(21, 26, 31, 0.16);
+    }
+
+    .statement strong {
+      display: block;
+      max-width: 900px;
+      font-size: 40px;
+      line-height: 1.05;
+    }
+
+    .statement p {
+      max-width: 800px;
+      margin-top: 12px;
+      color: rgba(247, 243, 234, 0.72);
+      font-size: 16px;
+      line-height: 1.42;
+    }
+
+    .dont {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .dont h3 {
+      margin-bottom: 12px;
+      color: var(--red);
+    }
+
+    .dont ul,
+    .role ul {
+      padding-left: 20px;
+      margin: 0;
+      color: rgba(21, 26, 31, 0.74);
+      font-size: 15px;
+      line-height: 1.48;
+    }
+
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .role {
+      min-height: 220px;
+      padding: 18px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.70);
+      box-shadow: 0 14px 36px rgba(21, 26, 31, 0.08);
+    }
+
+    .role.dark {
+      color: var(--paper);
+      background: var(--stage);
+      border-color: rgba(255, 255, 255, 0.10);
+    }
+
+    .role.dark ul {
+      color: rgba(247, 243, 234, 0.72);
+    }
+
+    .role .chip {
+      display: inline-flex;
+      margin-bottom: 14px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .surface-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .surface {
+      min-height: 340px;
+      padding: 18px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 14px 36px rgba(21, 26, 31, 0.08);
+    }
+
+    .surface h3 {
+      margin-bottom: 14px;
+    }
+
+    .mini-home,
+    .mini-editor,
+    .mini-modal {
+      display: grid;
+      gap: 10px;
+    }
+
+    .home-hero {
+      height: 120px;
+      border-radius: 8px;
+      padding: 18px;
+      color: var(--paper);
+      background: var(--stage);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .wordmark {
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .wordmark span {
+      color: var(--light-blue);
+    }
+
+    .button {
+      border-radius: 999px;
+      padding: 12px 18px;
+      color: var(--paper);
+      background: var(--blue);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .row {
+      padding: 14px;
+      border: 1px solid rgba(21, 26, 31, 0.10);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .row.selected {
+      border-color: rgba(34, 108, 138, 0.38);
+      background: var(--blue-soft);
+    }
+
+    .chart-page {
+      height: 210px;
+      padding: 16px;
+      border: 1px solid rgba(21, 26, 31, 0.18);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .staff-lines {
+      display: grid;
+      gap: 26px;
+      margin-top: 14px;
+    }
+
+    .staff-lines span {
+      display: block;
+      height: 2px;
+      background: rgba(21, 26, 31, 0.58);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--paper-2);
+    }
+
+    .tool {
+      padding: 9px 12px;
+      border-radius: 8px;
+      background: var(--paper);
+      font-weight: 800;
+    }
+
+    .tool.active {
+      color: var(--paper);
+      background: var(--blue);
+    }
+
+    .modal-head {
+      padding: 16px;
+      border-radius: 8px 8px 0 0;
+      color: var(--paper);
+      background: var(--stage);
+    }
+
+    .modal-body {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 8px 8px;
+      background: var(--paper);
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .state {
+      padding: 18px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      min-height: 124px;
+    }
+
+    .state strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 17px;
+    }
+
+    .state p {
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 960px) {
+      header,
+      .principle,
+      .surface-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .role-grid,
+      .state-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>iChart color usage rules</h1>
+        <p class="subtitle">Role-based guidance for applying the palette across the app without losing the focused musician-workstation feel.</p>
+      </div>
+      <div class="pill">role-based color</div>
+    </header>
+
+    <section class="principle">
+      <div class="statement">
+        <strong>Dark frames the instrument. Paper holds the music.</strong>
+        <p>Ink carries information. iChart Blue means action. Light Blue belongs to the logo. Blue Soft means quiet selection.</p>
+      </div>
+      <div class="dont">
+        <h3>Do not drift into this</h3>
+        <ul>
+          <li>Dark editor canvas by default</li>
+          <li>Light Blue as link/control color on Paper</li>
+          <li>Blue notation for brand consistency</li>
+          <li>Low-contrast staff lines as functional UI</li>
+          <li>Gold/brass logo accents</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Core Roles</h2>
+      <div class="role-grid">
+        <article class="role dark">
+          <span class="chip" style="background:#10161c;color:#f7f3ea;border:1px solid rgba(255,255,255,.18)">Stage / Night</span>
+          <h3>Brand framing</h3>
+          <ul>
+            <li>Hero panels</li>
+            <li>Global chrome</li>
+            <li>Export/share frames</li>
+            <li>Brand-heavy modal headers</li>
+          </ul>
+        </article>
+        <article class="role">
+          <span class="chip" style="background:#f7f3ea;color:#151a1f;border:1px solid rgba(21,26,31,.12)">Paper</span>
+          <h3>Work surfaces</h3>
+          <ul>
+            <li>Chart canvas</li>
+            <li>Library rows</li>
+            <li>Forms and sheets</li>
+            <li>Reading/editing surfaces</li>
+          </ul>
+        </article>
+        <article class="role">
+          <span class="chip" style="background:#226c8a;color:#f7f3ea">iChart Blue</span>
+          <h3>Action and focus</h3>
+          <ul>
+            <li>Primary buttons</li>
+            <li>Active controls</li>
+            <li>Focus rings</li>
+            <li>Links on Paper</li>
+          </ul>
+        </article>
+        <article class="role">
+          <span class="chip" style="background:#8fd3e6;color:#151a1f">Light Blue</span>
+          <h3>Logo-only accent</h3>
+          <ul>
+            <li>Logo `C` on dark</li>
+            <li>Rare brand glints</li>
+            <li>Not controls</li>
+            <li>Not light-surface text</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Surface Examples</h2>
+      <div class="surface-grid">
+        <article class="surface">
+          <h3>Home / Library</h3>
+          <div class="mini-home">
+            <div class="home-hero">
+              <div class="wordmark">i<span>C</span>hart</div>
+              <div class="button">New Chart</div>
+            </div>
+            <div class="row selected"><strong>Selected chart</strong><br>Blue Soft fill, iChart Blue border</div>
+            <div class="row"><strong>Chart row</strong><br>Paper surface, Ink text</div>
+          </div>
+        </article>
+
+        <article class="surface">
+          <h3>Editor Canvas</h3>
+          <div class="mini-editor">
+            <div class="toolbar">
+              <div class="tool active">Write</div>
+              <div class="tool">Erase</div>
+              <div class="tool">Move</div>
+            </div>
+            <div class="chart-page">
+              <strong>Paper-first chart page</strong>
+              <div class="staff-lines">
+                <span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="surface">
+          <h3>Modal / Export</h3>
+          <div class="mini-modal">
+            <div class="modal-head"><strong>Export chart</strong><br>Brand frame allowed</div>
+            <div class="modal-body">
+              <div class="row"><strong>Paper body</strong><br>Keep setup readable</div>
+              <div class="button">Share PDF</div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Feedback States</h2>
+      <div class="state-grid">
+        <div class="state" style="background:#dcecf1;border-color:rgba(34,108,138,.35)">
+          <strong>Selected / pending</strong>
+          <p>Blue Soft fill with iChart Blue outline or icon.</p>
+        </div>
+        <div class="state" style="background:#e6f7e9;border-color:rgba(33,97,51,.28)">
+          <strong>Saved / accepted</strong>
+          <p>Quiet green with label or check icon.</p>
+        </div>
+        <div class="state" style="background:#fff1cf;border-color:rgba(139,91,22,.28)">
+          <strong>Warning / unsure</strong>
+          <p>Warm amber only when the user needs caution.</p>
+        </div>
+        <div class="state" style="background:#ffe8e1;border-color:rgba(158,46,31,.28)">
+          <strong>Error / destructive</strong>
+          <p>Red with text/icon and clear separation.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iChart Home Logo Comparison</title>
+  <style>
+    :root {
+      --paper: #f7f3ea;
+      --ink: #151a1f;
+      --blue: #226c8a;
+      --line: rgba(21, 26, 31, 0.12);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(120deg, rgba(34, 108, 138, 0.12), transparent 36%),
+        var(--paper);
+    }
+
+    main {
+      width: min(1280px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 34px 0 44px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 720px;
+      margin: 8px 0 0;
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 15px;
+      line-height: 1.42;
+    }
+
+    .pill {
+      flex: 0 0 auto;
+      border: 1px solid rgba(34, 108, 138, 0.22);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--blue);
+      background: rgba(220, 236, 241, 0.72);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+      padding-top: 24px;
+    }
+
+    article {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.7);
+      box-shadow: 0 18px 48px rgba(21, 26, 31, 0.10);
+    }
+
+    .label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      font-weight: 800;
+    }
+
+    .label span {
+      color: var(--blue);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      border-radius: 6px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>iChart home logo comparison</h1>
+        <p>Same home screen, palette, header, and layout. B4.8A-H1 is now the primary mark, with the italic i lifted into the high lead-in position.</p>
+      </div>
+      <div class="pill">home screen trial</div>
+    </header>
+
+    <section class="grid">
+      <article>
+        <div class="label">Maestro tighter <span>B4.7B</span></div>
+        <img src="screenshots/home-b47b.jpg" alt="iChart home screen with B4.7B wordmark">
+      </article>
+      <article>
+        <div class="label">High italic canon <span>B4.8A-H1</span></div>
+        <img src="screenshots/home-b48a-h1-canon.jpg" alt="iChart home screen with B4.8A-H1 wordmark">
+      </article>
+    </section>
+  </main>
+</body>
+</html>

@@ -1006,23 +1006,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
         }
 
-        if let firstMeasure = system.measures.first,
-           !firstMeasure.repeatMarkerLayouts.contains(where: { $0.edge == .leading }) {
-            renderer.drawLeadingBarline(
-                firstMeasure.leadingBarline ?? .single,
-                at: firstMeasure.frame.minX,
-                from: firstMeasure.staffFrame.minY,
-                to: firstMeasure.staffFrame.maxY
-            )
+        var drawnRepeatMarkerIDs = Set<String>()
+        if let firstMeasure = system.measures.first {
+            let leadingMarkers = LeadSheetRepeatBoundaryPolicy.leadingMarkers(atStartOf: firstMeasure)
+            if leadingMarkers.isEmpty {
+                renderer.drawLeadingBarline(
+                    firstMeasure.leadingBarline ?? .single,
+                    at: firstMeasure.frame.minX,
+                    from: firstMeasure.staffFrame.minY,
+                    to: firstMeasure.staffFrame.maxY
+                )
+            } else {
+                drawRepeatMarkers(leadingMarkers, using: renderer)
+                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
+            }
         }
 
-        for measure in system.measures {
+        for (measureIndex, measure) in system.measures.enumerated() {
             if interactionMode.allowsMeasureSelection,
                measure.sourceMeasureID == selectedMeasureID {
                 drawMeasureSelection(measure)
             }
 
-            drawRepeatMarkers(measure.repeatMarkerLayouts.filter { $0.edge == .leading }, using: renderer)
+            let leadingMarkers = measure.repeatMarkerLayouts.filter {
+                $0.edge == .leading && !drawnRepeatMarkerIDs.contains($0.id)
+            }
+            drawRepeatMarkers(leadingMarkers, using: renderer)
+            drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
             for chordLayout in measure.chordLayouts {
                 renderer.drawChord(chordLayout)
@@ -1053,10 +1063,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
                 renderer.drawOpenMeasureHint(measure)
-            } else if measure.repeatMarkerLayouts.contains(where: { $0.edge == .trailing }) {
-                drawRepeatMarkers(measure.repeatMarkerLayouts.filter { $0.edge == .trailing }, using: renderer)
             } else {
-                renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+                let nextMeasureIndex = measureIndex + 1
+                let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
+                    ? system.measures[nextMeasureIndex]
+                    : nil
+                let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy
+                    .repeatMarkers(after: measure, before: nextMeasure)
+                    .filter { !drawnRepeatMarkerIDs.contains($0.id) }
+
+                if !repeatBoundaryMarkers.isEmpty {
+                    drawRepeatMarkers(repeatBoundaryMarkers, using: renderer)
+                    drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+                } else if LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                    after: measure,
+                    before: nextMeasure
+                ) {
+                    renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+                }
             }
         }
     }
@@ -1065,9 +1089,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
         using renderer: LeadSheetNotationRenderer
     ) {
-        for repeatMarker in repeatMarkers {
-            renderer.drawRepeatMarker(repeatMarker)
+        guard !repeatMarkers.isEmpty else {
+            return
         }
+
+        renderer.drawRepeatBoundary(repeatMarkers)
     }
 
     private func drawMeasureSelection(_ measure: LeadSheetMeasureLayout) {
@@ -1513,7 +1539,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func editableOverlayHitTarget(at location: CGPoint) -> EditableOverlayHitTarget? {
-        if let chordTarget = chordEditOverlayHitTarget(at: location) {
+        if let chordTarget = chordEditHitTarget(at: location) {
             return .chord(chordTarget)
         }
 
@@ -1522,23 +1548,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         return nil
-    }
-
-    private func chordEditOverlayHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
-        guard let hitTarget = chordEditHitTarget(at: location) else {
-            return nil
-        }
-
-        if interactionMode.requiresChordSelectionBeforeObjectActions {
-            switch hitTarget.action {
-            case .select:
-                return nil
-            case .delete, .move, .review:
-                break
-            }
-        }
-
-        return hitTarget
     }
 
     private func freehandSymbolLayouts() -> [LeadSheetFreehandSymbolLayout] {

@@ -1,6 +1,52 @@
 import Combine
 import Foundation
 
+enum ChartLibraryPersistenceStatus: Equatable {
+    case notTracking
+    case ready
+    case saved(at: Date)
+    case failed(message: String)
+
+    var displayText: String {
+        switch self {
+        case .notTracking:
+            "Local preview"
+        case .ready:
+            "Autosave ready"
+        case .saved(let date):
+            "Saved locally \(date.formatted(date: .omitted, time: .shortened))"
+        case .failed:
+            "Save issue"
+        }
+    }
+
+    var accessibilityText: String {
+        switch self {
+        case .notTracking:
+            "Local preview state is not being saved."
+        case .ready:
+            "Autosave is ready."
+        case .saved(let date):
+            "Chart library saved locally at \(date.formatted(date: .omitted, time: .shortened))."
+        case .failed(let message):
+            "Chart library save issue. \(message)"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .notTracking:
+            "externaldrive"
+        case .ready:
+            "checkmark.circle"
+        case .saved:
+            "checkmark.circle.fill"
+        case .failed:
+            "exclamationmark.triangle.fill"
+        }
+    }
+}
+
 final class ChartLibraryStore: ObservableObject {
     @Published var charts: [Chart] {
         didSet { persistIfNeeded() }
@@ -11,6 +57,7 @@ final class ChartLibraryStore: ObservableObject {
     @Published var entitlements: AppEntitlements {
         didSet { persistIfNeeded() }
     }
+    @Published private(set) var persistenceStatus: ChartLibraryPersistenceStatus = .notTracking
 
     private let repository: ChartRepository?
     private let chordDiagnosticsResetter: (() -> Void)?
@@ -28,6 +75,7 @@ final class ChartLibraryStore: ObservableObject {
         self.selectedChartID = Self.sanitizedSelection(selectedChartID, charts: charts)
         self.repository = repository
         self.chordDiagnosticsResetter = chordDiagnosticsResetter
+        self.persistenceStatus = repository == nil ? .notTracking : .ready
         persistenceEnabled = true
     }
 
@@ -157,8 +205,18 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     static func live(repository: ChartRepository = FileChartRepository.live()) -> ChartLibraryStore {
-        let snapshot = (try? repository.loadSnapshot()) ?? .preview
-        return ChartLibraryStore(
+        let loadedSnapshot: ChartLibrarySnapshot?
+        let loadError: Error?
+        do {
+            loadedSnapshot = try repository.loadSnapshot()
+            loadError = nil
+        } catch {
+            loadedSnapshot = nil
+            loadError = error
+        }
+
+        let snapshot = loadedSnapshot ?? .preview
+        let store = ChartLibraryStore(
             charts: snapshot.charts,
             entitlements: snapshot.entitlements,
             selectedChartID: snapshot.selectedChartID,
@@ -167,6 +225,12 @@ final class ChartLibraryStore: ObservableObject {
                 try? ChordEntryDiagnosticsRecorder.live().reset()
             }
         )
+        if let loadError {
+            store.persistenceStatus = .failed(message: loadError.localizedDescription)
+        } else if loadedSnapshot != nil {
+            store.persistenceStatus = .saved(at: .now)
+        }
+        return store
     }
 
     static var preview: ChartLibraryStore {
@@ -174,14 +238,19 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     private func persistIfNeeded() {
-        guard persistenceEnabled, let repository else {
+        guard persistenceEnabled else {
+            return
+        }
+        guard let repository else {
+            persistenceStatus = .notTracking
             return
         }
 
         do {
             try repository.saveSnapshot(snapshot)
+            persistenceStatus = .saved(at: .now)
         } catch {
-            print("SmartChart persistence error: \(error)")
+            persistenceStatus = .failed(message: error.localizedDescription)
         }
     }
 

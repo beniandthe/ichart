@@ -33,8 +33,6 @@ struct EditorView: View {
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
     @State private var showingInkResponsivenessSheet = false
-    @State private var showingRhythmicNotationAcceptanceSheet = false
-    @State private var hasPresentedRhythmicNotationGuide = false
     @State private var isExporting = false
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
@@ -163,9 +161,6 @@ struct EditorView: View {
                     pendingMeasureStackInsertion = nil
                 }
             )
-        }
-        .sheet(isPresented: $showingRhythmicNotationAcceptanceSheet) {
-            RhythmicNotationAcceptanceSheetView()
         }
         .sheet(item: $pendingChordInkConfirmation) { confirmation in
             ChordInkConfirmationSheetView(
@@ -317,9 +312,26 @@ struct EditorView: View {
         )
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                toolStrip
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .center, spacing: 8) {
+                    toolStrip(minWidth: contentSize.width)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    ZStack(alignment: .center) {
+                        if canvasMode.showsActiveToolControls {
+                            activeToolControls(minWidth: contentSize.width)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
+                        HStack {
+                            Spacer(minLength: 12)
+                            ChartLibraryPersistenceStatusBadge(status: store.persistenceStatus)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .animation(.easeOut(duration: 0.16), value: canvasMode)
+                }
 
                 canvasView
                     .frame(width: contentSize.width, alignment: .topLeading)
@@ -331,9 +343,9 @@ struct EditorView: View {
         }
     }
 
-    private var toolStrip: some View {
+    private func toolStrip(minWidth: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 Menu {
                     if !chart.hasCompletedInitialSetup {
                         Button {
@@ -487,20 +499,29 @@ struct EditorView: View {
                 }
                 .buttonStyle(.plain)
 
-                if canvasMode == .measureEdit && !isMeasureMenuContinuationActive {
-                    Button {
-                        activateSelectTool()
-                    } label: {
-                        EditorMenuTabLabel(
-                            title: "Measures",
-                            systemImage: "rectangle.split.4x1",
-                            isSelected: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    measuresMenu
+                Button {
+                    handleMeasureEditRequested()
+                } label: {
+                    EditorMenuTabLabel(
+                        title: "Measures",
+                        systemImage: "rectangle.split.4x1",
+                        isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive
+                    )
                 }
+                .disabled(canvasMode.locksDocumentActions)
+                .buttonStyle(.plain)
+
+                Button {
+                    handleRepeatToolTapped()
+                } label: {
+                    EditorMenuTabLabel(
+                        title: "Repeats",
+                        systemImage: "repeat",
+                        isSelected: canvasMode == .repeatEdit || isRepeatContinuationActive
+                    )
+                }
+                .disabled(canvasMode.locksDocumentActions)
+                .buttonStyle(.plain)
 
                 Menu {
                     ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
@@ -587,7 +608,7 @@ struct EditorView: View {
                         handleRhythmicNotationTabTapped()
                     } label: {
                         EditorMenuTabLabel(
-                            title: "Rhythmic Notation",
+                            title: "Rhythm",
                             systemImage: "note.quarter",
                             isSelected: canvasMode == .rhythmicNotationEdit
                         )
@@ -628,218 +649,264 @@ struct EditorView: View {
                 )
                 .buttonStyle(.plain)
             }
-            .padding(10)
+            .padding(7)
             .background(Color.white.opacity(0.68))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.black.opacity(0.06), lineWidth: 1)
             )
+            .frame(minWidth: minWidth, alignment: .center)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private var measuresMenu: some View {
-        Menu {
-            Button {
-                handleMeasureEditRequested()
-            } label: {
-                Label("Edit Measures", systemImage: "slider.horizontal.3")
+    private func activeToolControls(minWidth: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+
+                if canvasMode.allowsAnyInkEditing {
+                    InkToolModeTab(mode: $inkToolMode)
+                }
+
+                if canvasMode == .measureEdit {
+                    measureActiveToolActions
+                }
+
+                if canvasMode == .repeatEdit {
+                    repeatActiveToolActions
+                }
+
+                Button {
+                    activateSelectTool()
+                } label: {
+                    Label("Done", systemImage: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .frame(height: 38)
+                        .foregroundStyle(Color.white)
+                        .background(Color(red: 0.16, green: 0.38, blue: 0.82))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Done")
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .frame(minWidth: minWidth, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var measureActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "Add",
+                systemImage: "plus.square",
+                action: handleAddMeasureAfterSelected
+            )
+
+            activeToolButton(
+                title: "Stack",
+                systemImage: "square.stack.3d.up",
+                action: handleAddMeasureStackAfterSelectedRequested
+            )
+
+            activeToolButton(
+                title: "First",
+                systemImage: "backward.end",
+                action: handleAddMeasureAtBeginning
+            )
+
+            activeToolButton(
+                title: "Double",
+                systemImage: "pause",
+                action: handleAddDoubleBarlineMeasure
+            )
+
+            activeToolButton(
+                title: canRemoveSystemBreakBeforeSelectedMeasure ? "Join" : "New Sys",
+                systemImage: canRemoveSystemBreakBeforeSelectedMeasure ? "arrow.up.to.line" : "arrow.down.to.line",
+                isDisabled: !canInsertSystemBreakBeforeSelectedMeasure && !canRemoveSystemBreakBeforeSelectedMeasure
+            ) {
+                if canRemoveSystemBreakBeforeSelectedMeasure {
+                    handleRemoveSystemBreakBeforeSelectedMeasure()
+                } else {
+                    handleNewSystemBeforeSelectedMeasure()
+                }
             }
 
-            Button {
-                handleAddMeasureAtBeginning()
-            } label: {
-                Label("Add Measure at Beginning", systemImage: "backward.end")
-            }
+            activeToolButton(
+                title: "Delete",
+                systemImage: "trash",
+                isDestructive: true,
+                isDisabled: !canDeleteSelectedMeasure,
+                action: handleDeleteSelectedMeasure
+            )
 
-            Button {
-                handleAddMeasureAfterSelected()
-            } label: {
-                Label("Add Measure After Selected", systemImage: "forward.end")
-            }
-
-            Button {
-                handleAddMeasureStackAfterSelectedRequested()
-            } label: {
-                Label("Add Measure Stack After Selected", systemImage: "plus.rectangle")
-            }
-
-            Button {
-                handleAddDoubleBarlineMeasure()
-            } label: {
-                Label("Add Double Barline Measure", systemImage: "pause")
-            }
-
-            Button(role: .destructive) {
-                handleDeleteSelectedMeasure()
-            } label: {
-                Label("Delete Selected Measure", systemImage: "trash")
-            }
-            .disabled(!canDeleteSelectedMeasure)
-
-            Button {
-                handleStartDeleteRangeHere()
-            } label: {
-                Label("Start Delete Range Here", systemImage: "trash.circle")
-            }
-
-            Button(role: .destructive) {
-                handleDeleteThroughHere()
-            } label: {
-                Label("Delete Through Here", systemImage: "checkmark.circle")
-            }
-            .disabled(pendingDeleteStartMeasureID == nil || !canDeleteThroughSelectedMeasure)
+            activeToolButton(
+                title: pendingDeleteStartMeasureID == nil ? "Range" : "Del Thru",
+                systemImage: pendingDeleteStartMeasureID == nil ? "trash.circle" : "checkmark.circle",
+                isDestructive: pendingDeleteStartMeasureID != nil,
+                isDisabled: pendingDeleteStartMeasureID == nil
+                    ? !canDeleteSelectedMeasure
+                    : !canDeleteThroughSelectedMeasure,
+                action: handleMeasureRangeDeleteTapped
+            )
 
             if pendingDeleteStartMeasureID != nil {
-                Button(role: .cancel) {
-                    pendingDeleteStartMeasureID = nil
-                } label: {
-                    Label("Clear Delete Start", systemImage: "xmark.circle")
-                }
+                activeToolButton(
+                    title: "Clear",
+                    systemImage: "xmark.circle",
+                    action: clearPendingMeasureDeleteState
+                )
             }
-
-            Divider()
-
-            Button {
-                handleNewSystemBeforeSelectedMeasure()
-            } label: {
-                Label("New System Before This Measure", systemImage: "arrow.down.to.line")
-            }
-            .disabled(!canInsertSystemBreakBeforeSelectedMeasure)
-
-            Button {
-                handleRemoveSystemBreakBeforeSelectedMeasure()
-            } label: {
-                Label("Remove System Break", systemImage: "arrow.up.to.line")
-            }
-            .disabled(!canRemoveSystemBreakBeforeSelectedMeasure)
-
-            Divider()
-
-            Button {
-                handleRepeatSelectedMeasure()
-            } label: {
-                Label("Repeat Selected Measure", systemImage: "repeat")
-            }
-
-            Button {
-                handleStartRepeatHere()
-            } label: {
-                Label("Start Repeat Here", systemImage: "repeat.circle")
-            }
-
-            Button {
-                handleEndRepeatHere()
-            } label: {
-                Label("End Repeat Here", systemImage: "checkmark.circle")
-            }
-            .disabled(pendingRepeatStartMeasureID == nil)
-
-            Button(role: .destructive) {
-                handleRemoveRepeatAtSelectedMeasure()
-            } label: {
-                Label("Remove Repeat at Selected Measure", systemImage: "trash")
-            }
-            .disabled(!canRemoveRepeatAtSelectedMeasure)
-
-            if pendingRepeatStartMeasureID != nil {
-                Button(role: .cancel) {
-                    pendingRepeatStartMeasureID = nil
-                } label: {
-                    Label("Clear Repeat Start", systemImage: "xmark.circle")
-                }
-            }
-
-            Divider()
-
-            Button {
-                handleEndingSelectedMeasure(.ending1)
-            } label: {
-                Label("1st Ending Selected Measure", systemImage: "textformat.123")
-            }
-
-            Button {
-                handleEndingSelectedMeasure(.ending2)
-            } label: {
-                Label("2nd Ending Selected Measure", systemImage: "textformat.123")
-            }
-
-            Button {
-                handleStartEndingHere(.ending1)
-            } label: {
-                Label("Start 1st Ending Here", systemImage: "1.circle")
-            }
-
-            Button {
-                handleStartEndingHere(.ending2)
-            } label: {
-                Label("Start 2nd Ending Here", systemImage: "2.circle")
-            }
-
-            Button {
-                handleEndEndingHere()
-            } label: {
-                Label("End Ending Here", systemImage: "checkmark.circle")
-            }
-            .disabled(pendingEndingStartMeasureID == nil || pendingEndingType == nil)
-
-            Button(role: .destructive) {
-                handleRemoveEndingAtSelectedMeasure()
-            } label: {
-                Label("Remove Ending at Selected Measure", systemImage: "trash")
-            }
-            .disabled(!canRemoveEndingAtSelectedMeasure)
-
-            if pendingEndingStartMeasureID != nil {
-                Button(role: .cancel) {
-                    pendingEndingStartMeasureID = nil
-                    pendingEndingType = nil
-                } label: {
-                    Label("Clear Ending Start", systemImage: "xmark.circle")
-                }
-            }
-        } label: {
-            EditorMenuTabLabel(
-                title: "Measures",
-                systemImage: "rectangle.split.4x1",
-                isSelected: canvasMode == .measureEdit
-            )
         }
-        .disabled(canvasMode.locksDocumentActions)
-        .buttonStyle(.plain)
     }
 
-    private var isMeasureMenuContinuationActive: Bool {
-        pendingRepeatStartMeasureID != nil
-            || pendingDeleteStartMeasureID != nil
-            || pendingEndingStartMeasureID != nil
+    private var repeatActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "One Bar",
+                systemImage: "repeat",
+                action: handleRepeatSelectedMeasure
+            )
+
+            activeToolButton(
+                title: "Start",
+                systemImage: "repeat.circle",
+                action: handleStartRepeatHere
+            )
+
+            activeToolButton(
+                title: "End Rep",
+                systemImage: "checkmark.circle",
+                isDisabled: pendingRepeatStartMeasureID == nil,
+                action: handleEndRepeatHere
+            )
+
+            activeToolButton(
+                title: pendingEndingButtonTitle(for: .ending1),
+                systemImage: "1.circle",
+                isDisabled: isEndingButtonDisabled(for: .ending1)
+            ) {
+                handleRepeatActiveEndingTapped(.ending1)
+            }
+
+            activeToolButton(
+                title: pendingEndingButtonTitle(for: .ending2),
+                systemImage: "2.circle",
+                isDisabled: isEndingButtonDisabled(for: .ending2)
+            ) {
+                handleRepeatActiveEndingTapped(.ending2)
+            }
+
+            activeToolButton(
+                title: "Rm Rep",
+                systemImage: "trash",
+                isDestructive: true,
+                isDisabled: !canRemoveRepeatAtSelectedMeasure,
+                action: handleRemoveRepeatAtSelectedMeasure
+            )
+
+            activeToolButton(
+                title: "Rm End",
+                systemImage: "trash",
+                isDestructive: true,
+                isDisabled: !canRemoveEndingAtSelectedMeasure,
+                action: handleRemoveEndingAtSelectedMeasure
+            )
+
+            if isRepeatContinuationActive {
+                activeToolButton(
+                    title: "Clear",
+                    systemImage: "xmark.circle",
+                    action: clearPendingRepeatState
+                )
+            }
+        }
+    }
+
+    private func activeToolButton(
+        title: String,
+        systemImage: String,
+        isDestructive: Bool = false,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(height: 34)
+                .foregroundStyle(isDestructive ? Color.red : Color.primary)
+                .background(Color(uiColor: .tertiarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+        .accessibilityLabel(title)
+    }
+
+    private var isMeasureDeleteContinuationActive: Bool {
+        pendingDeleteStartMeasureID != nil
+    }
+
+    private var isRepeatContinuationActive: Bool {
+        pendingRepeatStartMeasureID != nil || pendingEndingStartMeasureID != nil
+    }
+
+    private func pendingEndingButtonTitle(for type: RoadmapType) -> String {
+        pendingEndingType == type ? "End \(endingToolTitle(for: type))" : endingToolTitle(for: type)
+    }
+
+    private func endingToolTitle(for type: RoadmapType) -> String {
+        switch type {
+        case .ending1:
+            return "1st"
+        case .ending2:
+            return "2nd"
+        default:
+            return type.defaultDisplayText
+        }
+    }
+
+    private func isEndingButtonDisabled(for type: RoadmapType) -> Bool {
+        guard pendingEndingType != nil else {
+            return false
+        }
+
+        return pendingEndingType != type
     }
 
     @ViewBuilder
     private var canvasView: some View {
-        ZStack(alignment: .topLeading) {
-            LeadSheetCanvasHostView(
-                chart: $chart,
-                selectedMeasureID: $selectedMeasureID,
-                selectedNoteSelection: $selectedNoteSelection,
-                interactionMode: canvasMode,
-                inkToolMode: inkToolMode,
-                inkResponsivenessValue: inkResponsivenessValue,
-                onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
-                onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
-                onChordCorrectionRequested: handleChordCorrectionRequested,
-                onChordDeleted: handleChordDeleted,
-                onNoteSelectionChanged: handleNoteSelectionChanged
-            )
-
-            if canvasMode.allowsAnyInkEditing {
-                InkToolModeTab(mode: $inkToolMode)
-                    .padding(.leading, 10)
-                    .padding(.top, 18)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-        }
-        .animation(.easeOut(duration: 0.16), value: canvasMode.allowsAnyInkEditing)
+        LeadSheetCanvasHostView(
+            chart: $chart,
+            selectedMeasureID: $selectedMeasureID,
+            selectedNoteSelection: $selectedNoteSelection,
+            interactionMode: canvasMode,
+            inkToolMode: inkToolMode,
+            inkResponsivenessValue: inkResponsivenessValue,
+            onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
+            onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
+            onChordCorrectionRequested: handleChordCorrectionRequested,
+            onChordDeleted: handleChordDeleted,
+            onNoteSelectionChanged: handleNoteSelectionChanged
+        )
     }
 
     private var exportButtonTitle: String {
@@ -973,10 +1040,13 @@ struct EditorView: View {
             return false
         }
 
-        selectedMeasureID = nil
         selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
+        clearPendingRepeatState()
+        if selectedMeasureID == nil {
+            selectedMeasureID = chart.resolvedAuthoringMeasureID()
+        }
         canvasMode = .measureEdit
         return true
     }
@@ -988,6 +1058,34 @@ struct EditorView: View {
         }
 
         _ = enterMeasureEditMode()
+    }
+
+    @discardableResult
+    private func enterRepeatEditMode() -> Bool {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return false
+        }
+
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        if selectedMeasureID == nil {
+            selectedMeasureID = chart.resolvedAuthoringMeasureID()
+        }
+        canvasMode = .repeatEdit
+        return true
+    }
+
+    private func handleRepeatToolTapped() {
+        if canvasMode == .repeatEdit {
+            activateSelectTool()
+            return
+        }
+
+        _ = enterRepeatEditMode()
     }
 
     private func handleAddMeasureAtBeginning() {
@@ -1154,9 +1252,21 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
     }
 
+    private func handleMeasureRangeDeleteTapped() {
+        if pendingDeleteStartMeasureID == nil {
+            handleStartDeleteRangeHere()
+        } else {
+            handleDeleteThroughHere()
+        }
+    }
+
+    private func clearPendingMeasureDeleteState() {
+        pendingDeleteStartMeasureID = nil
+    }
+
     private func handleRepeatSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let targetMeasureID,
               chart.addRepeatSpan(startMeasureID: targetMeasureID, endMeasureID: targetMeasureID) != nil else {
             return
@@ -1171,7 +1281,7 @@ struct EditorView: View {
 
     private func handleStartRepeatHere() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let targetMeasureID else {
             return
         }
@@ -1185,7 +1295,7 @@ struct EditorView: View {
 
     private func handleEndRepeatHere() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let repeatStartMeasureID = pendingRepeatStartMeasureID,
               let targetMeasureID,
               let orderedBoundaryIDs = orderedRepeatBoundaryIDs(
@@ -1208,7 +1318,7 @@ struct EditorView: View {
 
     private func handleRemoveRepeatAtSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let targetMeasureID,
               chart.deleteRepeatSpans(attachedTo: targetMeasureID) > 0 else {
             return
@@ -1221,10 +1331,24 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
     }
 
+    private func handleRepeatActiveEndingTapped(_ type: RoadmapType) {
+        if pendingEndingType == type {
+            handleEndEndingHere()
+        } else {
+            handleStartEndingHere(type)
+        }
+    }
+
+    private func clearPendingRepeatState() {
+        pendingRepeatStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+    }
+
     private func handleEndingSelectedMeasure(_ type: RoadmapType) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard type.isEnding,
-              enterMeasureEditMode(),
+              enterRepeatEditMode(),
               let targetMeasureID,
               chart.addEndingSpan(type, startMeasureID: targetMeasureID, endMeasureID: targetMeasureID) != nil else {
             return
@@ -1240,7 +1364,7 @@ struct EditorView: View {
     private func handleStartEndingHere(_ type: RoadmapType) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard type.isEnding,
-              enterMeasureEditMode(),
+              enterRepeatEditMode(),
               let targetMeasureID else {
             return
         }
@@ -1254,7 +1378,7 @@ struct EditorView: View {
 
     private func handleEndEndingHere() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let endingStartMeasureID = pendingEndingStartMeasureID,
               let pendingEndingType,
               let targetMeasureID,
@@ -1279,7 +1403,7 @@ struct EditorView: View {
 
     private func handleRemoveEndingAtSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard enterRepeatEditMode(),
               let targetMeasureID,
               chart.deleteEndingSpans(attachedTo: targetMeasureID) > 0 else {
             return
@@ -1434,6 +1558,7 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
         selectedNoteSelection = nil
         canvasMode = .timeSignatureEdit
     }
@@ -1450,6 +1575,7 @@ struct EditorView: View {
             pendingTimeSignaturePlacement = nil
             pendingDeleteStartMeasureID = nil
             pendingMeasureStackInsertion = nil
+            clearPendingRepeatState()
             canvasMode = .browse
             return
         }
@@ -1458,6 +1584,7 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
         selectedNoteSelection = nil
 
         if canvasMode == .rhythmicNotationEdit {
@@ -1468,11 +1595,6 @@ struct EditorView: View {
         inkToolMode = .write
         selectedMeasureID = resolvedMeasureActionTargetID()
         canvasMode = .rhythmicNotationEdit
-
-        if !hasPresentedRhythmicNotationGuide {
-            showingRhythmicNotationAcceptanceSheet = true
-            hasPresentedRhythmicNotationGuide = true
-        }
     }
 
     private func activateSelectTool(clearsMeasureSelection: Bool = false) {
@@ -1569,6 +1691,7 @@ struct EditorView: View {
             selectedNoteSelection = nil
             pendingDeleteStartMeasureID = nil
             pendingMeasureStackInsertion = nil
+            clearPendingRepeatState()
             canvasMode = .browse
             return
         }
@@ -1577,6 +1700,7 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
         selectedNoteSelection = nil
         inkToolMode = .write
         canvasMode = .freeHand
@@ -1616,6 +1740,7 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
 
         if canvasMode == .chordEntry {
             activateSelectTool()
@@ -1642,6 +1767,7 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
 
         if canvasMode == .noteEdit {
             selectedNoteSelection = nil

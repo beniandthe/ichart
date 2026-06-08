@@ -160,6 +160,42 @@ struct LeadSheetRepeatMarkerLayout: Identifiable, Hashable {
     }
 }
 
+enum LeadSheetRepeatBoundaryPolicy {
+    static func leadingMarkers(atStartOf measure: LeadSheetMeasureLayout) -> [LeadSheetRepeatMarkerLayout] {
+        measure.repeatMarkerLayouts.filter { $0.edge == .leading }
+    }
+
+    static func repeatMarkers(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?
+    ) -> [LeadSheetRepeatMarkerLayout] {
+        var markers = measure.repeatMarkerLayouts.filter { $0.edge == .trailing }
+
+        if let nextMeasure {
+            markers.append(
+                contentsOf: nextMeasure.repeatMarkerLayouts.filter { $0.edge == .leading }
+            )
+        }
+
+        return markers
+    }
+
+    static func shouldDrawNormalTrailingBarline(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?
+    ) -> Bool {
+        repeatMarkers(after: measure, before: nextMeasure).isEmpty
+    }
+
+    static func markerIDs(_ repeatMarkers: [LeadSheetRepeatMarkerLayout]) -> Set<String> {
+        Set(repeatMarkers.map(\.id))
+    }
+
+    static func visibleBarlineCount(for repeatMarkers: [LeadSheetRepeatMarkerLayout]) -> Int {
+        repeatMarkers.isEmpty ? 0 : 2
+    }
+}
+
 struct LeadSheetEndingLayout: Identifiable, Hashable {
     var roadmapObjectID: UUID
     var systemIndex: Int
@@ -292,9 +328,9 @@ enum LeadSheetPageLayoutEngine {
         ) -> CGRect {
             CGRect(
                 x: systemFrame.minX + 3,
-                y: staffFrame.midY - 24,
-                width: max(22, leadingSignatureWidth - 10),
-                height: 48
+                y: staffFrame.midY - 28,
+                width: max(24, leadingSignatureWidth - 10),
+                height: 56
             )
         }
 
@@ -305,16 +341,11 @@ enum LeadSheetPageLayoutEngine {
             let isSimpleChordSheet = layoutStyle == .simpleChordSheet
             return CGRect(
                 x: measureFrame.minX + (isSimpleChordSheet ? 8 : 6),
-                y: isSimpleChordSheet ? staffFrame.midY - 22 : staffFrame.minY - 10,
-                width: isSimpleChordSheet ? 22 : 24,
-                height: 44
+                y: isSimpleChordSheet ? staffFrame.midY - 27 : staffFrame.minY - 12,
+                width: isSimpleChordSheet ? 24 : 24,
+                height: 54
             )
         }
-    }
-
-    private struct SimpleChordDisplayPlan {
-        var frame: CGRect
-        var horizontalCompressionScale: CGFloat
     }
 
     private static func paperHorizontalInset(for resolvedPageWidth: CGFloat) -> CGFloat {
@@ -549,7 +580,7 @@ enum LeadSheetPageLayoutEngine {
         let timeSignatureX = keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
         let timeSignatureFrame: CGRect?
         if shouldShowLeadingNotation {
-            timeSignatureFrame = CGRect(x: timeSignatureX, y: staffTop - 10, width: 24, height: 50)
+            timeSignatureFrame = CGRect(x: timeSignatureX, y: staffTop - 13, width: 24, height: 56)
         } else if shouldShowSimpleTimeSignature {
             timeSignatureFrame = visualPolicy.simpleInitialTimeSignatureFrame(
                 in: frame,
@@ -978,25 +1009,45 @@ enum LeadSheetPageLayoutEngine {
             systemIndex: 0
         )
         let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - systemTrailingPadding)
+        let preferredMeasuresPerSystem = max(
+            1,
+            chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem
+        )
+        let standardMeasureWidth = bodyWidth / CGFloat(preferredMeasuresPerSystem)
         var plans: [PackedLeadSheetSystemPlan] = []
 
         func appendPlan(for measures: [Measure], id: UUID) {
             let weights = measures.map {
                 simpleChordSheetMeasureWeight(for: $0, metrics: metrics)
             }
+            let measurePlans: [PackedLeadSheetMeasurePlan]
+            let rowBodyWidth: CGFloat
             let totalWeight = max(1, weights.reduce(0, +))
-            let measurePlans = zip(measures, weights).map { measure, weight in
-                PackedLeadSheetMeasurePlan(
-                    measure: measure,
-                    width: bodyWidth * weight / totalWeight
-                )
+
+            if measures.count <= preferredMeasuresPerSystem,
+               totalWeight <= CGFloat(preferredMeasuresPerSystem) {
+                measurePlans = zip(measures, weights).map { measure, weight in
+                    PackedLeadSheetMeasurePlan(
+                        measure: measure,
+                        width: standardMeasureWidth * weight
+                    )
+                }
+                rowBodyWidth = measurePlans.map(\.width).reduce(0, +)
+            } else {
+                measurePlans = zip(measures, weights).map { measure, weight in
+                    PackedLeadSheetMeasurePlan(
+                        measure: measure,
+                        width: bodyWidth * weight / totalWeight
+                    )
+                }
+                rowBodyWidth = bodyWidth
             }
 
             plans.append(
                 PackedLeadSheetSystemPlan(
                     id: id,
                     leadingSignatureWidth: leadingSignatureWidth,
-                    frameWidth: leadingSignatureWidth + bodyWidth + systemTrailingPadding,
+                    frameWidth: leadingSignatureWidth + rowBodyWidth + systemTrailingPadding,
                     measures: measurePlans
                 )
             )
@@ -1288,15 +1339,6 @@ enum LeadSheetPageLayoutEngine {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
                     ($1.startPosition.startOffset(in: meter) ?? 0)
             }
-        let simpleChordDisplayPlans = isSimpleChordSheet
-            ? simpleChordDisplayPlans(
-                for: displayedPlacements,
-                chart: chart,
-                chordBandFrame: chordBandFrame,
-                visualPolicy: visualPolicy
-            )
-            : [:]
-
         let chordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
             let nextPlacementIndex = placementIndex + 1
             let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
@@ -1309,10 +1351,7 @@ enum LeadSheetPageLayoutEngine {
                 meter: meter,
                 chordBandFrame: chordBandFrame,
                 staffFrame: staffFrame,
-                visualPolicy: visualPolicy,
-                placementIndex: placementIndex,
-                placementCount: displayedPlacements.count,
-                simpleChordDisplayPlan: simpleChordDisplayPlans[placement.chordEvent.id]
+                visualPolicy: visualPolicy
             )
         }
         let noteLayouts = isSimpleChordSheet ? [] : noteLayouts(
@@ -1365,10 +1404,7 @@ enum LeadSheetPageLayoutEngine {
         meter: Meter,
         chordBandFrame: CGRect,
         staffFrame: CGRect,
-        visualPolicy: VisualPolicy,
-        placementIndex: Int,
-        placementCount: Int,
-        simpleChordDisplayPlan: SimpleChordDisplayPlan?
+        visualPolicy: VisualPolicy
     ) -> LeadSheetChordLayout {
         let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent)
         let displayedText = displayedSymbol.displayText
@@ -1382,26 +1418,12 @@ enum LeadSheetPageLayoutEngine {
         )
 
         if visualPolicy.layoutStyle == .simpleChordSheet {
-            if let simpleChordDisplayPlan {
-                return LeadSheetChordLayout(
-                    id: placement.chordEvent.id,
-                    text: displayedText,
-                    symbol: displayedSymbol,
-                    frame: simpleChordDisplayPlan.frame,
-                    fitFrame: simpleChordDisplayPlan.frame,
-                    horizontalCompressionScale: simpleChordDisplayPlan.horizontalCompressionScale,
-                    snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
-                )
-            }
-
             let fitFrame = simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
-                visualPolicy: visualPolicy,
-                placementIndex: placementIndex,
-                placementCount: placementCount
+                visualPolicy: visualPolicy
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
@@ -1453,19 +1475,8 @@ enum LeadSheetPageLayoutEngine {
         nextPlacement: MeasureChordPlacement?,
         meter: Meter,
         chordBandFrame: CGRect,
-        visualPolicy: VisualPolicy,
-        placementIndex: Int,
-        placementCount: Int
+        visualPolicy: VisualPolicy
     ) -> CGRect {
-        if placementCount >= 3 {
-            return simpleChordEqualDivisionFitFrame(
-                placementIndex: placementIndex,
-                placementCount: placementCount,
-                chordBandFrame: chordBandFrame,
-                visualPolicy: visualPolicy
-            )
-        }
-
         let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
         let startOffset = min(
             measureLength,
@@ -1496,31 +1507,6 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func simpleChordEqualDivisionFitFrame(
-        placementIndex: Int,
-        placementCount: Int,
-        chordBandFrame: CGRect,
-        visualPolicy: VisualPolicy
-    ) -> CGRect {
-        let resolvedCount = max(1, placementCount)
-        let clampedIndex = min(max(0, placementIndex), resolvedCount - 1)
-        let slotWidth = chordBandFrame.width / CGFloat(resolvedCount)
-        let rawMinX = chordBandFrame.minX + slotWidth * CGFloat(clampedIndex)
-        let rawMaxX = clampedIndex == resolvedCount - 1
-            ? chordBandFrame.maxX
-            : rawMinX + slotWidth
-        let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, slotWidth / 4))
-        let minX = rawMinX + inset
-        let maxX = max(minX + 1, rawMaxX - inset)
-
-        return CGRect(
-            x: minX,
-            y: chordBandFrame.minY,
-            width: max(1, maxX - minX),
-            height: chordBandFrame.height
-        )
-    }
-
     private static func simpleChordDisplayFrame(
         symbol: ChordSymbol? = nil,
         text: String,
@@ -1537,74 +1523,13 @@ enum LeadSheetPageLayoutEngine {
             estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize)
                 * max(0.01, min(1, horizontalCompressionScale)) + 2
         )
+        let frameWidth = min(estimatedWidth, visualSlotFrame.width)
         return CGRect(
-            x: fitFrame.minX,
+            x: visualSlotFrame.minX,
             y: fitFrame.minY,
-            width: estimatedWidth,
+            width: frameWidth,
             height: fitFrame.height
         )
-    }
-
-    private static func simpleChordDisplayPlans(
-        for placements: [MeasureChordPlacement],
-        chart: Chart,
-        chordBandFrame: CGRect,
-        visualPolicy: VisualPolicy
-    ) -> [UUID: SimpleChordDisplayPlan] {
-        guard placements.count >= 3 else {
-            return [:]
-        }
-
-        let fontSize = preferredSimpleChordFontSize()
-        let naturalWidths = placements.map { placement -> (id: UUID, width: CGFloat) in
-            let symbol = chart.displayedChordSymbol(for: placement.chordEvent)
-            return (
-                placement.chordEvent.id,
-                max(
-                    1,
-                    estimatedSimpleChordTextWidth(
-                        for: symbol,
-                        fallbackText: symbol.displayText,
-                        fontSize: fontSize
-                    ) + 2
-                )
-            )
-        }
-        let naturalWidthTotal = naturalWidths.reduce(CGFloat(0)) { partialWidth, chord in
-            partialWidth + chord.width
-        }
-        let gapCount = CGFloat(placements.count + 1)
-        let minimumGap = min(
-            visualPolicy.simpleChordHorizontalInset,
-            max(2, chordBandFrame.width * 0.015)
-        )
-        let reservedGapWidth = minimumGap * gapCount
-        let compressedContentWidth = max(1, chordBandFrame.width - reservedGapWidth)
-        let horizontalCompressionScale = min(1, compressedContentWidth / max(1, naturalWidthTotal))
-        let scaledWidths = naturalWidths.map { chord in
-            (id: chord.id, width: chord.width * horizontalCompressionScale)
-        }
-        let scaledWidthTotal = scaledWidths.reduce(CGFloat(0)) { partialWidth, chord in
-            partialWidth + chord.width
-        }
-        let distributedGap = max(0, (chordBandFrame.width - scaledWidthTotal) / gapCount)
-        var nextX = chordBandFrame.minX + distributedGap
-        var plans: [UUID: SimpleChordDisplayPlan] = [:]
-
-        for chord in scaledWidths {
-            plans[chord.id] = SimpleChordDisplayPlan(
-                frame: CGRect(
-                    x: nextX,
-                    y: chordBandFrame.minY,
-                    width: chord.width,
-                    height: chordBandFrame.height
-                ),
-                horizontalCompressionScale: horizontalCompressionScale
-            )
-            nextX += chord.width + distributedGap
-        }
-
-        return plans
     }
 
     private static func simpleChordReservesTrailingWritingSpace(

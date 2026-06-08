@@ -4,15 +4,16 @@ struct InkToolModeTab: View {
     @Binding var mode: EditorInkToolMode
 
     var body: some View {
-        VStack(spacing: 4) {
+        HStack(spacing: 4) {
             ForEach(EditorInkToolMode.allCases, id: \.self) { toolMode in
                 Button {
                     mode = toolMode
                 } label: {
-                    Image(systemName: toolMode.systemImageName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .foregroundStyle(mode == toolMode ? Color.white : Color.black.opacity(0.72))
+                    Label(toolMode.accessibilityLabel, systemImage: toolMode.systemImageName)
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 42, height: 38)
+                        .foregroundStyle(mode == toolMode ? Color.white : Color.primary.opacity(0.74))
                         .background(buttonBackground(for: toolMode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
@@ -21,14 +22,13 @@ struct InkToolModeTab: View {
                 .accessibilityAddTraits(mode == toolMode ? [.isSelected] : [])
             }
         }
-        .padding(5)
-        .background(Color.white.opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(4)
+        .background(Color(uiColor: .tertiarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 3)
     }
 
     @ViewBuilder
