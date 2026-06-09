@@ -217,11 +217,23 @@ struct ChordInkConfirmationSheetView: View {
 
         return VStack(spacing: 8) {
             if candidates.isEmpty {
-                Text("No confident suggestions")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                VStack(spacing: 8) {
+                    Text("No confident suggestions")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+
+                    Button {
+                        focusManualEntry()
+                    } label: {
+                        Label("Keyboard", systemImage: "keyboard")
+                            .font(.headline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Open keyboard for manual chord entry")
+                }
+                .padding(.vertical, 4)
             } else {
                 Text("Top 3")
                     .font(.caption.weight(.semibold))
@@ -262,10 +274,24 @@ struct ChordInkConfirmationSheetView: View {
 
     private var manualEntry: some View {
         VStack(spacing: 8) {
-            Text("Manual entry")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Text("Manual entry")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    focusManualEntry()
+                } label: {
+                    Label("Keyboard", systemImage: "keyboard")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 32, height: 28)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Open keyboard for manual chord entry")
+            }
 
             TextField("Type chord", text: $manualCandidateText)
                 .font(.title3.weight(.semibold))
@@ -354,6 +380,10 @@ struct ChordInkConfirmationSheetView: View {
         }
 
         onAcceptCandidate(trimmedCandidateText)
+    }
+
+    private func focusManualEntry() {
+        isManualEntryFocused = true
     }
 }
 

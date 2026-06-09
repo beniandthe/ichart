@@ -255,6 +255,10 @@ struct LibraryView: View {
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
     @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
+    @AppStorage("iChartUserEmail") private var userEmail = ""
+    @AppStorage("iChartUserPhone") private var userPhone = ""
+    @AppStorage("iChartUserAddress") private var userAddress = ""
+    @AppStorage("iChartUserPaymentSummary") private var userPaymentSummary = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -398,38 +402,54 @@ struct LibraryView: View {
 
     private var settingsHomeContent: some View {
         homeScroll {
-            IChartHomePanel(
-                title: "Settings",
-                systemImageName: "gearshape",
-                theme: homeTheme
-            ) {
-                VStack(spacing: 0) {
-                    IChartSettingsRow(
-                        title: "Library",
-                        value: chartCountText,
-                        systemImageName: "doc.text",
-                        theme: homeTheme
-                    )
+            VStack(spacing: 18) {
+                IChartHomePanel(
+                    title: "Settings",
+                    systemImageName: "gearshape",
+                    theme: homeTheme
+                ) {
+                    VStack(spacing: 0) {
+                        IChartSettingsRow(
+                            title: "Library",
+                            value: chartCountText,
+                            systemImageName: "doc.text",
+                            theme: homeTheme
+                        )
 
-                    Divider()
-                        .overlay(homeTheme.panelBorder)
-                        .padding(.leading, 44)
+                        Divider()
+                            .overlay(homeTheme.panelBorder)
+                            .padding(.leading, 44)
 
-                    IChartSettingsRow(
-                        title: "Storage",
-                        value: store.persistenceStatus.displayText,
-                        systemImageName: store.persistenceStatus.systemImageName,
-                        theme: homeTheme
-                    )
+                        IChartSettingsRow(
+                            title: "Storage",
+                            value: store.persistenceStatus.displayText,
+                            systemImageName: store.persistenceStatus.systemImageName,
+                            theme: homeTheme
+                        )
 
-                    Divider()
-                        .overlay(homeTheme.panelBorder)
-                        .padding(.leading, 44)
+                        Divider()
+                            .overlay(homeTheme.panelBorder)
+                            .padding(.leading, 44)
 
-                    IChartSettingsRow(
-                        title: "Plan",
-                        value: store.chartCapacityText,
-                        systemImageName: "person.crop.circle",
+                        IChartSettingsRow(
+                            title: "Plan",
+                            value: store.chartCapacityText,
+                            systemImageName: "person.crop.circle",
+                            theme: homeTheme
+                        )
+                    }
+                }
+
+                IChartHomePanel(
+                    title: "User Info",
+                    systemImageName: "person.text.rectangle",
+                    theme: homeTheme
+                ) {
+                    IChartUserInfoSettings(
+                        email: $userEmail,
+                        phone: $userPhone,
+                        address: $userAddress,
+                        paymentSummary: $userPaymentSummary,
                         theme: homeTheme
                     )
                 }
@@ -994,6 +1014,125 @@ private struct IChartSettingsRow: View {
                 .multilineTextAlignment(.trailing)
         }
         .padding(.vertical, 14)
+    }
+}
+
+private struct IChartUserInfoSettings: View {
+    @Binding var email: String
+    @Binding var phone: String
+    @Binding var address: String
+    @Binding var paymentSummary: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            IChartSettingsTextFieldRow(
+                title: "Email",
+                placeholder: "name@example.com",
+                text: $email,
+                systemImageName: "envelope",
+                theme: theme
+            )
+
+            settingsDivider
+
+            IChartSettingsTextFieldRow(
+                title: "Phone",
+                placeholder: "(555) 555-5555",
+                text: $phone,
+                systemImageName: "phone",
+                theme: theme
+            )
+
+            settingsDivider
+
+            IChartSettingsTextFieldRow(
+                title: "Address",
+                placeholder: "Mailing address",
+                text: $address,
+                systemImageName: "house",
+                isMultiline: true,
+                theme: theme
+            )
+
+            settingsDivider
+
+            IChartSettingsTextFieldRow(
+                title: "Payment Info",
+                placeholder: "Payment method",
+                text: $paymentSummary,
+                systemImageName: "creditcard",
+                theme: theme
+            )
+
+            Text("Card details stay with the payment processor.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 44)
+                .padding(.top, 8)
+        }
+    }
+
+    private var settingsDivider: some View {
+        Divider()
+            .overlay(theme.panelBorder)
+            .padding(.leading, 44)
+    }
+}
+
+private struct IChartSettingsTextFieldRow: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    let systemImageName: String
+    var isMultiline = false
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(alignment: isMultiline ? .top : .center, spacing: 14) {
+            Image(systemName: systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+                .frame(minWidth: 104, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            field
+                .font(.subheadline)
+                .foregroundStyle(theme.panelTitle)
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 11)
+                .padding(.vertical, isMultiline ? 9 : 7)
+                .frame(maxWidth: 340, alignment: .trailing)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.emptyStateBackground)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.panelBorder, lineWidth: 1)
+                }
+        }
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        if isMultiline {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .lineLimit(2...4)
+        } else {
+            TextField(placeholder, text: $text)
+                .lineLimit(1)
+        }
     }
 }
 

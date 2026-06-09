@@ -38,4 +38,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("Launch Handwriting"))
         XCTAssertTrue(bundledLaunchSampleText.contains("\"strokes\""))
     }
+
+    func testChordConfirmationOffersKeyboardManualEntry() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+
+        XCTAssertTrue(sheetText.contains("No confident suggestions"))
+        XCTAssertTrue(sheetText.contains("Open keyboard for manual chord entry"))
+        XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
+    }
+
+    func testSettingsContainUserInfoAndPaymentInfo() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("iChartUserEmail"))
+        XCTAssertTrue(libraryText.contains("iChartUserPhone"))
+        XCTAssertTrue(libraryText.contains("iChartUserAddress"))
+        XCTAssertTrue(libraryText.contains("iChartUserPaymentSummary"))
+        XCTAssertTrue(libraryText.contains("User Info"))
+        XCTAssertTrue(libraryText.contains("Payment Info"))
+    }
 }
