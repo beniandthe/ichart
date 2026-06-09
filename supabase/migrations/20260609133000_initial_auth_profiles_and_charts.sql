@@ -29,6 +29,10 @@ create table public.chart_documents (
     title text not null default 'Untitled Chart',
     layout_style text not null check (layout_style in ('simpleChordSheet', 'rhythmSectionSheet', 'leadSheet')),
     latest_snapshot_id uuid,
+    deleted_at timestamptz,
+    remote_revision bigint not null default 0,
+    client_updated_at timestamptz,
+    last_snapshot_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -37,8 +41,9 @@ create table public.chart_snapshots (
     id uuid primary key default gen_random_uuid(),
     chart_id uuid not null references public.chart_documents(id) on delete cascade,
     owner_id uuid not null references auth.users(id) on delete cascade,
-    version integer not null check (version > 0),
+    version bigint not null check (version > 0),
     chart_json jsonb not null,
+    client_updated_at timestamptz,
     created_at timestamptz not null default now(),
     unique (chart_id, version)
 );
@@ -71,6 +76,8 @@ create table public.devices (
 );
 
 create index chart_documents_owner_id_idx on public.chart_documents(owner_id);
+create index chart_documents_owner_deleted_idx on public.chart_documents(owner_id, deleted_at);
+create index chart_documents_owner_revision_idx on public.chart_documents(owner_id, remote_revision desc);
 create index chart_snapshots_chart_id_version_idx on public.chart_snapshots(chart_id, version desc);
 create index chart_snapshots_owner_id_idx on public.chart_snapshots(owner_id);
 create index devices_owner_id_idx on public.devices(owner_id);
@@ -118,6 +125,7 @@ create policy "chart_documents_insert_own"
                 select 1
                 from public.chart_snapshots
                 where chart_snapshots.id = chart_documents.latest_snapshot_id
+                    and chart_snapshots.chart_id = chart_documents.id
                     and chart_snapshots.owner_id = auth.uid()
             )
         )
@@ -136,6 +144,7 @@ create policy "chart_documents_update_own"
                 select 1
                 from public.chart_snapshots
                 where chart_snapshots.id = chart_documents.latest_snapshot_id
+                    and chart_snapshots.chart_id = chart_documents.id
                     and chart_snapshots.owner_id = auth.uid()
             )
         )
@@ -166,27 +175,6 @@ create policy "chart_snapshots_insert_own"
                 and chart_documents.owner_id = auth.uid()
         )
     );
-
-create policy "chart_snapshots_update_own"
-    on public.chart_snapshots
-    for update
-    to authenticated
-    using (auth.uid() = owner_id)
-    with check (
-        auth.uid() = owner_id
-        and exists (
-            select 1
-            from public.chart_documents
-            where chart_documents.id = chart_snapshots.chart_id
-                and chart_documents.owner_id = auth.uid()
-        )
-    );
-
-create policy "chart_snapshots_delete_own"
-    on public.chart_snapshots
-    for delete
-    to authenticated
-    using (auth.uid() = owner_id);
 
 create policy "subscriptions_select_own"
     on public.subscriptions

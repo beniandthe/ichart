@@ -62,6 +62,8 @@ private protocol IChartAccountServicing {
     func signIn(email: String, password: String) async throws -> IChartAuthState
     func signOut() async throws
     func resendVerificationEmail(email: String) async throws
+    func requestPasswordReset(email: String) async throws
+    func handleAuthCallback(url: URL) async throws -> IChartAuthState
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile?
     func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile
 }
@@ -82,12 +84,12 @@ final class IChartAuthStore: ObservableObject {
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
-    static func live() -> IChartAuthStore {
-        guard let configuration = IChartSupabaseConfiguration.current() else {
+    static func live(client: SupabaseClient? = IChartSupabaseClientFactory.liveClient()) -> IChartAuthStore {
+        guard let client else {
             return IChartAuthStore(service: IChartUnconfiguredAccountService())
         }
 
-        return IChartAuthStore(service: IChartSupabaseAccountService(configuration: configuration))
+        return IChartAuthStore(service: IChartSupabaseAccountService(client: client))
     }
 
     func bootstrap() async {
@@ -136,6 +138,19 @@ final class IChartAuthStore: ObservableObject {
 
         await run("Verification email sent.") {
             try await service.resendVerificationEmail(email: email)
+        }
+    }
+
+    func requestPasswordReset(email: String) async {
+        await run("Password reset email sent.") {
+            try await service.requestPasswordReset(email: email)
+        }
+    }
+
+    func handleAuthCallback(url: URL) async {
+        await run("Account session refreshed.") {
+            state = try await service.handleAuthCallback(url: url)
+            try await loadProfileIfSignedIn()
         }
     }
 
@@ -220,6 +235,12 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
 
     func resendVerificationEmail(email: String) async throws {}
 
+    func requestPasswordReset(email: String) async throws {}
+
+    func handleAuthCallback(url: URL) async throws -> IChartAuthState {
+        .unconfigured
+    }
+
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile? {
         nil
     }
@@ -233,11 +254,8 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
     let isConfigured = true
     private let client: SupabaseClient
 
-    init(configuration: IChartSupabaseConfiguration) {
-        client = SupabaseClient(
-            supabaseURL: configuration.url,
-            supabaseKey: configuration.publishableKey
-        )
+    init(client: SupabaseClient) {
+        self.client = client
     }
 
     func restoreSession() async throws -> IChartAuthState {
@@ -268,7 +286,11 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             return .pendingEmailVerification(email: user.email ?? normalized(email))
         }
 
-        return state(for: user)
+        let session = try await client.auth.signIn(
+            email: normalized(email),
+            password: password
+        )
+        return state(for: session.user)
     }
 
     func signIn(email: String, password: String) async throws -> IChartAuthState {
@@ -286,6 +308,15 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     func resendVerificationEmail(email: String) async throws {
         try await client.auth.resend(email: normalized(email), type: .signup)
+    }
+
+    func requestPasswordReset(email: String) async throws {
+        try await client.auth.resetPasswordForEmail(normalized(email))
+    }
+
+    func handleAuthCallback(url: URL) async throws -> IChartAuthState {
+        let session = try await client.auth.session(from: url)
+        return state(for: session.user)
     }
 
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile? {

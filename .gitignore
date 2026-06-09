@@ -39,5 +39,10 @@ fastlane/test_output
 # Local secrets and signing assets
 .env
 .env.*
+!.env.example
 *.p8
 *.mobileprovision
+
+# Supabase local runtime state
+supabase/.branches/
+supabase/.temp/

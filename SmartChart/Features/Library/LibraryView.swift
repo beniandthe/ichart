@@ -252,6 +252,7 @@ private enum IChartChartPreviewMode: String, CaseIterable, Identifiable {
 struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var authStore: IChartAuthStore
+    @EnvironmentObject private var cloudSyncStore: ChartCloudSyncStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -326,7 +327,12 @@ struct LibraryView: View {
         .tint(IChartHomeBrand.blue)
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
+            cloudSyncStore.authStateChanged(authStore.state)
+        }
+        .onChange(of: authStore.state) { _, state in
+            cloudSyncStore.authStateChanged(state)
         }
         .onChange(of: authStore.profile) { _, profile in
             apply(profile: profile)
@@ -453,6 +459,14 @@ struct LibraryView: View {
                     theme: homeTheme
                 ) {
                     IChartAccountSettings(authStore: authStore, theme: homeTheme)
+                }
+
+                IChartHomePanel(
+                    title: "Chart Sync",
+                    systemImageName: "icloud.and.arrow.up",
+                    theme: homeTheme
+                ) {
+                    IChartCloudSyncSettings(syncStore: cloudSyncStore, theme: homeTheme)
                 }
 
                 IChartHomePanel(
@@ -1078,6 +1092,11 @@ private struct IChartAccountSettings: View {
             && !authStore.isWorking
     }
 
+    private var canRequestPasswordReset: Bool {
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !authStore.isWorking
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -1109,6 +1128,7 @@ private struct IChartAccountSettings: View {
             case .signedOut:
                 credentialsForm
                 actionRow
+                passwordResetRow
             case .pendingEmailVerification:
                 verificationRow
             case .signedIn:
@@ -1164,6 +1184,18 @@ private struct IChartAccountSettings: View {
             .buttonStyle(.bordered)
             .disabled(!canSubmit)
         }
+    }
+
+    private var passwordResetRow: some View {
+        Button {
+            Task {
+                await authStore.requestPasswordReset(email: email)
+            }
+        } label: {
+            Label("Reset Password", systemImage: "key")
+        }
+        .buttonStyle(.bordered)
+        .disabled(!canRequestPasswordReset)
     }
 
     private var verificationRow: some View {
@@ -1257,6 +1289,55 @@ private struct IChartAccountSettings: View {
         case .signedIn(let session):
             return session.email ?? "Signed in to iChart."
         }
+    }
+}
+
+private struct IChartCloudSyncSettings: View {
+    @ObservedObject var syncStore: ChartCloudSyncStore
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Image(systemName: syncStore.state.systemImageName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(syncStore.state.displayText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(syncStore.state.detailText)
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+            }
+
+            if let lastRemoteBackupAt = syncStore.lastRemoteBackupAt {
+                IChartSettingsRow(
+                    title: "Last Backup",
+                    value: lastRemoteBackupAt.formatted(date: .abbreviated, time: .shortened),
+                    systemImageName: "clock.arrow.circlepath",
+                    theme: theme
+                )
+            }
+
+            Button {
+                syncStore.syncNow()
+            } label: {
+                Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(syncStore.isWorking || syncStore.state == .unconfigured || syncStore.state == .signedOut)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

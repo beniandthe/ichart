@@ -387,6 +387,45 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(savedSnapshot.selectedChartID)
     }
 
+    func testDeleteChartCreatesLocalTombstoneForCloudSync() throws {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Cloud Delete")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+
+        XCTAssertTrue(store.deleteChart(id: chart.id))
+
+        let tombstone = try XCTUnwrap(store.deletionTombstones.first)
+        XCTAssertEqual(tombstone.chartID, chart.id)
+        let savedTombstone = try XCTUnwrap(repository.savedSnapshots.last?.deletionTombstones.first)
+        XCTAssertEqual(savedTombstone.chartID, chart.id)
+    }
+
+    func testSyncedSnapshotAppliesQuietlyWithoutSchedulingUpload() {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(charts: [], repository: repository)
+        var scheduledUploadCount = 0
+        store.onSnapshotSaved = { _ in
+            scheduledUploadCount += 1
+        }
+        let chart = Chart.blank(title: "Remote Chart")
+        let snapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: .free,
+            cloudMetadata: ChartCloudMetadata(lastSyncAt: Date(), lastRemoteBackupAt: Date())
+        )
+
+        store.applySyncedSnapshot(snapshot)
+
+        XCTAssertEqual(store.charts.map(\.id), [chart.id])
+        XCTAssertEqual(repository.savedSnapshots.last?.charts.map(\.id), [chart.id])
+        XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
     func testV1NewChartOptionsExposeOnlyActiveReleaseStyles() {
         XCTAssertEqual(ChartLayoutStyle.v1NewChartOptions, [.simpleChordSheet, .rhythmSectionSheet])
         XCTAssertTrue(ChartLayoutStyle.allCases.contains(.leadSheet))
@@ -483,6 +522,29 @@ final class ChartLibraryStoreTests: XCTestCase {
         let store = ChartLibraryStore(snapshot: snapshot)
 
         XCTAssertEqual(store.selectedChartID, charts.last?.id)
+    }
+
+    func testLegacySnapshotDecodingDefaultsCloudSyncFields() throws {
+        struct LegacySnapshot: Encodable {
+            let charts: [Chart]
+            let selectedChartID: Chart.ID?
+            let entitlements: AppEntitlements
+        }
+
+        let chart = Chart.blank(title: "Legacy")
+        let legacySnapshot = LegacySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: .free
+        )
+        let data = try ChartPersistenceCoders.encoder.encode(legacySnapshot)
+
+        let decoded = try ChartPersistenceCoders.decoder.decode(ChartLibrarySnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.charts.map(\.id), [chart.id])
+        XCTAssertTrue(decoded.deletionTombstones.isEmpty)
+        XCTAssertNil(decoded.cloudMetadata.lastSyncAt)
+        XCTAssertNil(decoded.cloudMetadata.lastRemoteBackupAt)
     }
 
     func testUniversalRhythmGuideSupportsExpectedReferenceSymbols() {

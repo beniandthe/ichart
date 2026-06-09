@@ -9,8 +9,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let projectFile = projectRoot.appendingPathComponent("project.yml")
         let projectText = try String(contentsOf: projectFile)
 
-        XCTAssertTrue(projectText.contains("INFOPLIST_KEY_UIRequiresFullScreen: true"))
-        XCTAssertTrue(projectText.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad:"))
+        XCTAssertTrue(projectText.contains("UIRequiresFullScreen: true"))
+        XCTAssertTrue(projectText.contains("UISupportedInterfaceOrientations~ipad:"))
         XCTAssertTrue(projectText.contains("UIInterfaceOrientationPortrait"))
         XCTAssertTrue(projectText.contains("UIInterfaceOrientationPortraitUpsideDown"))
         XCTAssertTrue(projectText.contains("UIInterfaceOrientationLandscapeLeft"))
@@ -87,19 +87,45 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Auth/IChartAuthStore.swift")
         )
+        let syncServiceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Sync/ChartCloudSyncService.swift")
+        )
+        let clientFactoryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseClientFactory.swift")
+        )
+        let authStorageText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseAuthLocalStorage.swift")
+        )
 
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
-        XCTAssertTrue(projectText.contains("INFOPLIST_KEY_SupabaseURL"))
-        XCTAssertTrue(projectText.contains("INFOPLIST_KEY_SupabasePublishableKey"))
-        XCTAssertTrue(projectText.contains("INFOPLIST_KEY_SupabaseAnonKey"))
-        XCTAssertTrue(appText.contains("IChartAuthStore.live()"))
+        XCTAssertTrue(projectText.contains("path: SmartChart/App/Info.plist"))
+        XCTAssertTrue(projectText.contains("SupabaseURL: \"$(SUPABASE_URL)\""))
+        XCTAssertTrue(projectText.contains("SupabasePublishableKey: \"$(SUPABASE_PUBLISHABLE_KEY)\""))
+        XCTAssertTrue(projectText.contains("SupabaseAnonKey: \"$(SUPABASE_ANON_KEY)\""))
+        XCTAssertTrue(projectText.contains("CFBundleURLTypes:"))
+        XCTAssertTrue(projectText.contains("ichart"))
+        XCTAssertTrue(appText.contains("IChartAuthStore.live(client:"))
+        XCTAssertTrue(appText.contains("ChartCloudSyncStore.live(client:"))
         XCTAssertTrue(configurationText.contains("SUPABASE_URL"))
         XCTAssertTrue(configurationText.contains("SUPABASE_PUBLISHABLE_KEY"))
         XCTAssertTrue(configurationText.contains("SUPABASE_ANON_KEY"))
-        XCTAssertTrue(authStoreText.contains("SupabaseClient("))
+        XCTAssertTrue(clientFactoryText.contains("SupabaseClient("))
+        XCTAssertTrue(clientFactoryText.contains("IChartSupabaseAuthLocalStorage"))
+        XCTAssertTrue(clientFactoryText.contains("ichart://auth-callback"))
+        XCTAssertTrue(authStorageText.contains("KeychainLocalStorage"))
+        XCTAssertTrue(authStorageText.contains("UserDefaults"))
         XCTAssertTrue(authStoreText.contains("signUp(email:"))
+        XCTAssertTrue(authStoreText.contains("let session = try await client.auth.signIn("))
         XCTAssertTrue(authStoreText.contains("resendVerificationEmail"))
+        XCTAssertTrue(authStoreText.contains("resetPasswordForEmail"))
+        XCTAssertTrue(authStoreText.contains("session(from:"))
+        XCTAssertTrue(syncServiceText.contains("existingSnapshotID(chartID:"))
+        XCTAssertTrue(syncServiceText.contains("ignoreDuplicates: true"))
+        XCTAssertTrue(syncServiceText.contains(".eq(\"version\", value: String(version))"))
         XCTAssertFalse(configurationText.contains("eyJ"))
     }
 
@@ -117,11 +143,65 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("create table public.chart_snapshots"))
         XCTAssertTrue(migrationText.contains("create table public.subscriptions"))
         XCTAssertTrue(migrationText.contains("create table public.devices"))
+        XCTAssertTrue(migrationText.contains("deleted_at timestamptz"))
+        XCTAssertTrue(migrationText.contains("remote_revision bigint"))
+        XCTAssertTrue(migrationText.contains("client_updated_at timestamptz"))
         XCTAssertTrue(migrationText.contains("enable row level security"))
         XCTAssertTrue(migrationText.contains("auth.uid() = owner_id"))
         XCTAssertTrue(migrationText.contains("auth.uid() = id"))
+        XCTAssertTrue(migrationText.contains("chart_snapshots.chart_id = chart_documents.id"))
         XCTAssertTrue(migrationText.contains("handle_new_auth_user"))
         XCTAssertTrue(migrationText.contains("stripe_customer_id"))
+        XCTAssertFalse(migrationText.contains("chart_snapshots_update_own"))
         XCTAssertFalse(migrationText.contains("card_number"))
+    }
+
+    func testSupabaseRunbookAndRlsSmokeTestsArePresent() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let gitignoreText = try String(contentsOf: projectRoot.appendingPathComponent(".gitignore"))
+        let envExampleText = try String(contentsOf: projectRoot.appendingPathComponent(".env.example"))
+        let runbookText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-integration-runbook.md")
+        )
+        let rlsTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/tests/rls_smoke.sql")
+        )
+        let supabaseConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
+        )
+        let integrationTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChartTests/SupabaseIntegrationTests.swift")
+        )
+        let qaScriptText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("scripts/run_supabase_local_qa.sh")
+        )
+
+        XCTAssertTrue(gitignoreText.contains("!.env.example"))
+        XCTAssertTrue(envExampleText.contains("SUPABASE_URL"))
+        XCTAssertTrue(envExampleText.contains("SUPABASE_PUBLISHABLE_KEY"))
+        XCTAssertFalse(envExampleText.contains("eyJ"))
+        XCTAssertTrue(runbookText.contains("supabase db reset"))
+        XCTAssertTrue(runbookText.contains("supabase db push"))
+        XCTAssertTrue(runbookText.contains("ichart://auth-callback"))
+        XCTAssertTrue(supabaseConfigText.contains("project_id = \"smart-chart\""))
+        XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
+        XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = false"))
+        XCTAssertTrue(rlsTestText.contains("owner can insert own chart document"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update subscription rows"))
+        XCTAssertTrue(rlsTestText.contains("latest snapshot pointer cannot reference a missing snapshot"))
+        XCTAssertTrue(integrationTestText.contains("SMART_CHART_SUPABASE_INTEGRATION"))
+        XCTAssertTrue(integrationTestText.contains("SUPABASE_PUBLISHABLE_KEY"))
+        XCTAssertTrue(integrationTestText.contains("latest_snapshot_id"))
+        XCTAssertFalse(integrationTestText.contains("SERVICE_ROLE"))
+        XCTAssertTrue(qaScriptText.contains("supabase db reset"))
+        XCTAssertTrue(qaScriptText.contains("supabase test db"))
+        XCTAssertTrue(qaScriptText.contains("--filter SupabaseIntegrationTests"))
     }
 }

@@ -57,22 +57,35 @@ final class ChartLibraryStore: ObservableObject {
     @Published var entitlements: AppEntitlements {
         didSet { persistIfNeeded() }
     }
+    @Published var deletionTombstones: [ChartDeletionTombstone] {
+        didSet { persistIfNeeded() }
+    }
+    @Published var cloudMetadata: ChartCloudMetadata {
+        didSet { persistIfNeeded() }
+    }
     @Published private(set) var persistenceStatus: ChartLibraryPersistenceStatus = .notTracking
+
+    var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
 
     private let repository: ChartRepository?
     private let chordDiagnosticsResetter: (() -> Void)?
     private var persistenceEnabled = false
+    private var cloudSyncNotificationsEnabled = true
 
     init(
         charts: [Chart],
         entitlements: AppEntitlements = .free,
         selectedChartID: Chart.ID? = nil,
+        deletionTombstones: [ChartDeletionTombstone] = [],
+        cloudMetadata: ChartCloudMetadata = ChartCloudMetadata(),
         repository: ChartRepository? = nil,
         chordDiagnosticsResetter: (() -> Void)? = nil
     ) {
         self.charts = charts
         self.entitlements = entitlements
         self.selectedChartID = Self.sanitizedSelection(selectedChartID, charts: charts)
+        self.deletionTombstones = Self.normalizedTombstones(deletionTombstones)
+        self.cloudMetadata = cloudMetadata
         self.repository = repository
         self.chordDiagnosticsResetter = chordDiagnosticsResetter
         self.persistenceStatus = repository == nil ? .notTracking : .ready
@@ -84,6 +97,8 @@ final class ChartLibraryStore: ObservableObject {
             charts: snapshot.charts,
             entitlements: snapshot.entitlements,
             selectedChartID: snapshot.selectedChartID,
+            deletionTombstones: snapshot.deletionTombstones,
+            cloudMetadata: snapshot.cloudMetadata,
             repository: repository
         )
     }
@@ -173,8 +188,10 @@ final class ChartLibraryStore: ObservableObject {
             : updatedCharts.last?.id
         let proposedSelection = selectedChartID == chartID ? fallbackSelection : selectedChartID
 
+        let deletedAt = Date()
         performPersistedBatch {
             charts = updatedCharts
+            upsertTombstone(chartID: chartID, deletedAt: deletedAt)
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
         }
         return true
@@ -200,8 +217,32 @@ final class ChartLibraryStore: ObservableObject {
         ChartLibrarySnapshot(
             charts: charts,
             selectedChartID: selectedChartID,
-            entitlements: entitlements
+            entitlements: entitlements,
+            deletionTombstones: deletionTombstones,
+            cloudMetadata: cloudMetadata
         )
+    }
+
+    func applySyncedSnapshot(_ snapshot: ChartLibrarySnapshot) {
+        performPersistedBatch(notifyCloudSync: false) {
+            charts = snapshot.charts
+            entitlements = snapshot.entitlements
+            deletionTombstones = Self.normalizedTombstones(snapshot.deletionTombstones)
+            cloudMetadata = snapshot.cloudMetadata
+            selectedChartID = Self.sanitizedSelection(snapshot.selectedChartID, charts: snapshot.charts)
+        }
+    }
+
+    func updateCloudMetadataFromSync(lastSyncAt: Date, lastRemoteBackupAt: Date?) {
+        var updatedMetadata = cloudMetadata
+        updatedMetadata.lastSyncAt = lastSyncAt
+        if let lastRemoteBackupAt {
+            updatedMetadata.lastRemoteBackupAt = lastRemoteBackupAt
+        }
+
+        performPersistedBatch(notifyCloudSync: false) {
+            cloudMetadata = updatedMetadata
+        }
     }
 
     static func live(repository: ChartRepository = FileChartRepository.live()) -> ChartLibraryStore {
@@ -249,17 +290,30 @@ final class ChartLibraryStore: ObservableObject {
         do {
             try repository.saveSnapshot(snapshot)
             persistenceStatus = .saved(at: .now)
+            if cloudSyncNotificationsEnabled {
+                onSnapshotSaved?(snapshot)
+            }
         } catch {
             persistenceStatus = .failed(message: error.localizedDescription)
         }
     }
 
-    private func performPersistedBatch(_ mutation: () -> Void) {
+    private func performPersistedBatch(notifyCloudSync: Bool = true, _ mutation: () -> Void) {
         let wasPersistenceEnabled = persistenceEnabled
+        let wasCloudSyncNotificationsEnabled = cloudSyncNotificationsEnabled
         persistenceEnabled = false
+        cloudSyncNotificationsEnabled = notifyCloudSync
         mutation()
         persistenceEnabled = wasPersistenceEnabled
+        cloudSyncNotificationsEnabled = wasCloudSyncNotificationsEnabled && notifyCloudSync
         persistIfNeeded()
+        cloudSyncNotificationsEnabled = wasCloudSyncNotificationsEnabled
+    }
+
+    private func upsertTombstone(chartID: Chart.ID, deletedAt: Date) {
+        deletionTombstones.removeAll { $0.chartID == chartID }
+        deletionTombstones.append(ChartDeletionTombstone(chartID: chartID, deletedAt: deletedAt))
+        deletionTombstones = Self.normalizedTombstones(deletionTombstones)
     }
 
     private static func duplicateTitle(for title: String, existingTitles: Set<String>) -> String {
@@ -283,5 +337,13 @@ final class ChartLibraryStore: ObservableObject {
         }
 
         return charts.first?.id
+    }
+
+    private static func normalizedTombstones(
+        _ tombstones: [ChartDeletionTombstone]
+    ) -> [ChartDeletionTombstone] {
+        Dictionary(grouping: tombstones, by: \.chartID)
+            .compactMap { _, grouped in grouped.max { $0.deletedAt < $1.deletedAt } }
+            .sorted { $0.deletedAt > $1.deletedAt }
     }
 }
