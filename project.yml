@@ -12,11 +12,15 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: com.smartchart.app
     TARGETED_DEVICE_FAMILY: "2"
     SWIFT_VERSION: "5.10"
+    ALWAYS_SEARCH_USER_PATHS: false
     GENERATE_INFOPLIST_FILE: true
     INFOPLIST_KEY_CFBundleDisplayName: Smart Chart
     INFOPLIST_KEY_UILaunchScreen_Generation: true
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
     INFOPLIST_KEY_UIRequiresFullScreen: true
+    INFOPLIST_KEY_SupabaseURL: "$(SUPABASE_URL)"
+    INFOPLIST_KEY_SupabasePublishableKey: "$(SUPABASE_PUBLISHABLE_KEY)"
+    INFOPLIST_KEY_SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad:
       - UIInterfaceOrientationPortrait
       - UIInterfaceOrientationPortraitUpsideDown
@@ -26,6 +30,12 @@ settings:
   configs:
     Debug:
       ENABLE_TESTABILITY: true
+      ONLY_ACTIVE_ARCH: true
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift.git
+    from: 2.0.0
 
 targets:
   SmartChart:
@@ -42,6 +52,9 @@ targets:
         buildPhase: resources
         excludes:
           - "**/metadata.json"
+    dependencies:
+      - package: Supabase
+        product: Supabase
   SmartChartTests:
     type: bundle.unit-test
     platform: iOS

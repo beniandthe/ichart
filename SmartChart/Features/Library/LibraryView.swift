@@ -251,6 +251,7 @@ private enum IChartChartPreviewMode: String, CaseIterable, Identifiable {
 
 struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
+    @EnvironmentObject private var authStore: IChartAuthStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -324,6 +325,12 @@ struct LibraryView: View {
         .background(IChartLibraryBackground(mode: homeAppearanceMode).ignoresSafeArea())
         .tint(IChartHomeBrand.blue)
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            await authStore.bootstrap()
+        }
+        .onChange(of: authStore.profile) { _, profile in
+            apply(profile: profile)
+        }
         .sheet(isPresented: $showingLayoutPicker) {
             NewChartLayoutPickerView { layoutStyle in
                 showingLayoutPicker = false
@@ -441,6 +448,14 @@ struct LibraryView: View {
                 }
 
                 IChartHomePanel(
+                    title: "Account",
+                    systemImageName: "person.crop.circle.badge.checkmark",
+                    theme: homeTheme
+                ) {
+                    IChartAccountSettings(authStore: authStore, theme: homeTheme)
+                }
+
+                IChartHomePanel(
                     title: "User Info",
                     systemImageName: "person.text.rectangle",
                     theme: homeTheme
@@ -450,7 +465,19 @@ struct LibraryView: View {
                         phone: $userPhone,
                         address: $userAddress,
                         paymentSummary: $userPaymentSummary,
-                        theme: homeTheme
+                        theme: homeTheme,
+                        authState: authStore.state,
+                        isSaving: authStore.isWorking,
+                        onSaveProfile: {
+                            Task {
+                                await authStore.saveProfile(
+                                    email: userEmail,
+                                    phone: userPhone,
+                                    mailingAddress: userAddress,
+                                    paymentSummary: userPaymentSummary
+                                )
+                            }
+                        }
                     )
                 }
             }
@@ -568,6 +595,28 @@ struct LibraryView: View {
         }
 
         onOpenChart(chartID, .browse)
+    }
+
+    private func apply(profile: IChartUserProfile?) {
+        guard let profile else {
+            return
+        }
+
+        if let email = profile.email {
+            userEmail = email
+        }
+
+        if let phone = profile.phone {
+            userPhone = phone
+        }
+
+        if let mailingAddress = profile.mailingAddress {
+            userAddress = mailingAddress
+        }
+
+        if let paymentSummary = profile.paymentSummary {
+            userPaymentSummary = paymentSummary
+        }
     }
 }
 
@@ -1017,12 +1066,287 @@ private struct IChartSettingsRow: View {
     }
 }
 
+private struct IChartAccountSettings: View {
+    @ObservedObject var authStore: IChartAuthStore
+    let theme: IChartHomeTheme
+    @State private var email = ""
+    @State private var password = ""
+
+    private var canSubmit: Bool {
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && password.count >= 8
+            && !authStore.isWorking
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Image(systemName: iconName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(authStore.state.statusText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(detailText)
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+            }
+
+            switch authStore.state {
+            case .unconfigured:
+                Text("Add SupabaseURL and SupabasePublishableKey to the build, or pass SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in the scheme environment.")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .signedOut:
+                credentialsForm
+                actionRow
+            case .pendingEmailVerification:
+                verificationRow
+            case .signedIn:
+                signedInRow
+            }
+
+            statusFooter
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var credentialsForm: some View {
+        VStack(spacing: 10) {
+            IChartAccountTextField(
+                title: "Email",
+                placeholder: "name@example.com",
+                text: $email,
+                systemImageName: "envelope",
+                keyboardType: .emailAddress,
+                theme: theme
+            )
+
+            IChartAccountSecureField(
+                title: "Password",
+                placeholder: "8 characters minimum",
+                text: $password,
+                systemImageName: "lock",
+                theme: theme
+            )
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task {
+                    await authStore.createAccount(email: email, password: password)
+                }
+            } label: {
+                Label("Create Account", systemImage: "person.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(!canSubmit)
+
+            Button {
+                Task {
+                    await authStore.signIn(email: email, password: password)
+                }
+            } label: {
+                Label("Sign In", systemImage: "person.crop.circle")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canSubmit)
+        }
+    }
+
+    private var verificationRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task {
+                    await authStore.resendVerificationEmail()
+                }
+            } label: {
+                Label("Resend Email", systemImage: "envelope.badge")
+            }
+            .buttonStyle(.bordered)
+            .disabled(authStore.isWorking)
+
+            Button {
+                Task {
+                    await authStore.refreshSession()
+                }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(authStore.isWorking)
+        }
+    }
+
+    private var signedInRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task {
+                    await authStore.refreshSession()
+                }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(authStore.isWorking)
+
+            Button(role: .destructive) {
+                Task {
+                    await authStore.signOut()
+                }
+            } label: {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(.bordered)
+            .disabled(authStore.isWorking)
+        }
+    }
+
+    @ViewBuilder
+    private var statusFooter: some View {
+        if authStore.isWorking {
+            ProgressView()
+                .controlSize(.small)
+        } else if let errorMessage = authStore.errorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(Color(red: 0.62, green: 0.18, blue: 0.12))
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let statusMessage = authStore.statusMessage {
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var iconName: String {
+        switch authStore.state {
+        case .unconfigured:
+            return "wifi.slash"
+        case .signedOut:
+            return "person.crop.circle.badge.plus"
+        case .pendingEmailVerification:
+            return "envelope.badge"
+        case .signedIn:
+            return "checkmark.seal"
+        }
+    }
+
+    private var detailText: String {
+        switch authStore.state {
+        case .unconfigured:
+            return "This build needs Supabase configuration."
+        case .signedOut:
+            return "Create an account or sign in to sync profile and chart data."
+        case .pendingEmailVerification(let email):
+            return "We sent a verification email to \(email)."
+        case .signedIn(let session):
+            return session.email ?? "Signed in to iChart."
+        }
+    }
+}
+
+private struct IChartAccountTextField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    let systemImageName: String
+    let keyboardType: UIKeyboardType
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+                .frame(width: 86, alignment: .leading)
+
+            TextField(placeholder, text: $text)
+                .keyboardType(keyboardType)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.subheadline)
+                .foregroundStyle(theme.panelTitle)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.emptyStateBackground)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.panelBorder, lineWidth: 1)
+                }
+        }
+    }
+}
+
+private struct IChartAccountSecureField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+                .frame(width: 86, alignment: .leading)
+
+            SecureField(placeholder, text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.subheadline)
+                .foregroundStyle(theme.panelTitle)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.emptyStateBackground)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.panelBorder, lineWidth: 1)
+                }
+        }
+    }
+}
+
 private struct IChartUserInfoSettings: View {
     @Binding var email: String
     @Binding var phone: String
     @Binding var address: String
     @Binding var paymentSummary: String
     let theme: IChartHomeTheme
+    let authState: IChartAuthState
+    let isSaving: Bool
+    let onSaveProfile: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1071,6 +1395,17 @@ private struct IChartUserInfoSettings: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 44)
                 .padding(.top, 8)
+
+            Button {
+                onSaveProfile()
+            } label: {
+                Label("Save Profile", systemImage: "icloud.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(authState.signedInSession == nil || isSaving)
+            .padding(.top, 14)
         }
     }
 
