@@ -104,6 +104,44 @@ enum LeadSheetScrollMarginPolicy {
             .insetBy(dx: -paperHitSlop, dy: -paperHitSlop)
             .contains(point)
     }
+
+    static func dragAreaFrames(in bounds: CGRect, paperFrame: CGRect?) -> [CGRect] {
+        guard let paperFrame,
+              !bounds.isEmpty,
+              !bounds.isNull else {
+            return []
+        }
+
+        let protectedFrame = paperFrame.insetBy(dx: -paperHitSlop, dy: -paperHitSlop)
+        let candidates = [
+            CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: max(0, protectedFrame.minX - bounds.minX),
+                height: bounds.height
+            ),
+            CGRect(
+                x: protectedFrame.maxX,
+                y: bounds.minY,
+                width: max(0, bounds.maxX - protectedFrame.maxX),
+                height: bounds.height
+            ),
+            CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: bounds.width,
+                height: max(0, protectedFrame.minY - bounds.minY)
+            ),
+            CGRect(
+                x: bounds.minX,
+                y: protectedFrame.maxY,
+                width: bounds.width,
+                height: max(0, bounds.maxY - protectedFrame.maxY)
+            )
+        ]
+
+        return candidates.filter { $0.width > 1 && $0.height > 1 }
+    }
 }
 
 enum LeadSheetChordMoveScrollLockPolicy {

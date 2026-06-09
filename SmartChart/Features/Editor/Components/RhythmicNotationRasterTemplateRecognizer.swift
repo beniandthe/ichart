@@ -104,7 +104,7 @@ extension RhythmicNotationQuantizer {
                 )
             }
         }
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         guard naturalPath.units < rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
               let exactPath = bestMeasureAlignedPath(from: candidateGroups, meter: meter),
               exactPath.values != naturalPath.values,
@@ -187,7 +187,7 @@ extension RhythmicNotationQuantizer {
         guard !candidateGroups.isEmpty else {
             return nil
         }
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         let phrase = rasterTemplatePhraseHypothesis(
             input: input,
             crops: crops,
@@ -304,7 +304,7 @@ extension RhythmicNotationQuantizer {
                 return nil
             }
             let exactPath = overflowUnits == 1
-                ? bestReviewOnlyExactPath(from: candidateGroups, targetUnits: targetUnits)
+                ? bestReviewOnlyExactPath(from: candidateGroups, targetUnits: targetUnits, meter: meter)
                 : bestMeasureAlignedPath(from: candidateGroups, meter: meter)
             if let exactPath,
                RhythmicNotationCompendium.accepts(exactPath.values, in: meter) {
@@ -352,7 +352,8 @@ extension RhythmicNotationQuantizer {
 
     private static func bestReviewOnlyExactPath(
         from candidateGroups: [[RhythmCandidate]],
-        targetUnits: Int
+        targetUnits: Int,
+        meter: Meter
     ) -> CandidatePath? {
         var states: [Int: CandidatePath] = [
             0: CandidatePath(values: [], score: 0, units: 0)
@@ -366,7 +367,7 @@ extension RhythmicNotationQuantizer {
                         continue
                     }
 
-                    let nextUnits = state.units + rhythmUnits(for: candidate.value)
+                    let nextUnits = state.units + rhythmUnits(for: candidate.value, meter: meter)
                     guard nextUnits <= targetUnits else {
                         continue
                     }
@@ -779,7 +780,7 @@ extension RhythmicNotationQuantizer {
 
         let onlyLengthensExistingCandidates = zip(naturalPath.values, exactPath.values)
             .allSatisfy { naturalValue, exactValue in
-                rhythmUnits(for: exactValue) >= rhythmUnits(for: naturalValue)
+                rhythmUnits(for: exactValue, meter: meter) >= rhythmUnits(for: naturalValue, meter: meter)
             }
         guard onlyLengthensExistingCandidates else {
             return false
@@ -1557,7 +1558,7 @@ struct RhythmRenderComparison: Hashable {
     ) -> CGFloat {
         let startOffset = slot.startPosition.startOffset(in: meter) ?? 0
         let attackLaneLength = min(
-            max(0, slot.duration.wholeNoteLength),
+            max(0, slot.duration.wholeNoteLength(in: meter)),
             meter.beatUnitWholeNoteLength
         )
         let attackCenterOffset = min(

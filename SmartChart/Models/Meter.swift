@@ -154,6 +154,16 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         }
     }
 
+    func wholeNoteLength(in meter: Meter) -> Double {
+        switch self {
+        case .slash:
+            return meter.beatUnitWholeNoteLength
+        case .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
+                .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+            return wholeNoteLength
+        }
+    }
+
     var isRest: Bool {
         switch self {
         case .eighthRest, .quarterRest, .halfRest, .wholeRest:

@@ -160,7 +160,7 @@ enum RhythmicNotationQuantizer {
         drawingFrame: CGRect
     ) -> RhythmRecognitionDecision {
         let candidateGroups = recognition.candidateGroups
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         let orderedStrokes = strokeObservations.sortedByVisualPosition()
         let phrase = phraseHypothesis(
             source: .visual,
@@ -245,7 +245,7 @@ enum RhythmicNotationQuantizer {
             return .keepWriting(.unsupported, nil)
         }
 
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         let phrase = phraseHypothesis(
             source: .legacyFallback,
             primitives: primitives,
@@ -535,9 +535,9 @@ enum RhythmicNotationQuantizer {
         }
 
         let expectedBeats = meter.measureLengthInWholeNotes / meter.beatUnitWholeNoteLength
-        let values = bestNaturalValues(from: candidateGroups)
+        let values = bestNaturalValues(from: candidateGroups, meter: meter)
         let actualBeats = values.reduce(0) { partialResult, value in
-            partialResult + value.wholeNoteLength / meter.beatUnitWholeNoteLength
+            partialResult + value.wholeNoteLength(in: meter) / meter.beatUnitWholeNoteLength
         }
         let delta = actualBeats - expectedBeats
 
@@ -560,7 +560,7 @@ enum RhythmicNotationQuantizer {
         meter: Meter,
         includeExtendedStability: Bool
     ) -> RhythmicNotationMeasureProposal {
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         return RhythmicNotationMeasureProposal(
             values: exactPath.values,
             safety: proposalSafety(
@@ -706,12 +706,12 @@ enum RhythmicNotationQuantizer {
         }
 
         let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         if naturalPath.units == targetUnits {
             return naturalPath
         }
 
-        guard let exactPath = bestExactPath(from: candidateGroups, targetUnits: targetUnits) else {
+        guard let exactPath = bestExactPath(from: candidateGroups, targetUnits: targetUnits, meter: meter) else {
             return nil
         }
 
@@ -723,11 +723,11 @@ enum RhythmicNotationQuantizer {
         return exactPath
     }
 
-    private static func bestNaturalValues(from candidateGroups: [[RhythmCandidate]]) -> [RhythmValue] {
-        bestNaturalPath(from: candidateGroups).values
+    private static func bestNaturalValues(from candidateGroups: [[RhythmCandidate]], meter: Meter) -> [RhythmValue] {
+        bestNaturalPath(from: candidateGroups, meter: meter).values
     }
 
-    static func bestNaturalPath(from candidateGroups: [[RhythmCandidate]]) -> CandidatePath {
+    static func bestNaturalPath(from candidateGroups: [[RhythmCandidate]], meter: Meter? = nil) -> CandidatePath {
         candidateGroups.reduce(CandidatePath(values: [], score: 0, units: 0)) { partialResult, candidates in
             guard let bestCandidate = candidates.min(by: { $0.score < $1.score }) else {
                 return partialResult
@@ -736,14 +736,15 @@ enum RhythmicNotationQuantizer {
             return CandidatePath(
                 values: partialResult.values + [bestCandidate.value],
                 score: partialResult.score + bestCandidate.score,
-                units: partialResult.units + rhythmUnits(for: bestCandidate.value)
+                units: partialResult.units + rhythmUnits(for: bestCandidate.value, meter: meter)
             )
         }
     }
 
     private static func bestExactPath(
         from candidateGroups: [[RhythmCandidate]],
-        targetUnits: Int
+        targetUnits: Int,
+        meter: Meter? = nil
     ) -> CandidatePath? {
         var states: [Int: CandidatePath] = [
             0: CandidatePath(values: [], score: 0, units: 0)
@@ -757,7 +758,7 @@ enum RhythmicNotationQuantizer {
                         continue
                     }
 
-                    let nextUnits = state.units + rhythmUnits(for: candidate.value)
+                    let nextUnits = state.units + rhythmUnits(for: candidate.value, meter: meter)
                     guard nextUnits <= targetUnits else {
                         continue
                     }
@@ -783,7 +784,8 @@ enum RhythmicNotationQuantizer {
 
     private static func rankedExactPaths(
         from candidateGroups: [[RhythmCandidate]],
-        targetUnits: Int
+        targetUnits: Int,
+        meter: Meter? = nil
     ) -> [CandidatePath] {
         var states: [Int: [CandidatePath]] = [
             0: [CandidatePath(values: [], score: 0, units: 0)]
@@ -798,7 +800,7 @@ enum RhythmicNotationQuantizer {
                             continue
                         }
 
-                        let nextUnits = state.units + rhythmUnits(for: candidate.value)
+                        let nextUnits = state.units + rhythmUnits(for: candidate.value, meter: meter)
                         guard nextUnits <= targetUnits else {
                             continue
                         }
@@ -847,6 +849,14 @@ enum RhythmicNotationQuantizer {
 
     static func rhythmUnits(for value: RhythmValue) -> Int {
         rhythmUnits(forWholeNotes: value.wholeNoteLength)
+    }
+
+    static func rhythmUnits(for value: RhythmValue, meter: Meter?) -> Int {
+        guard let meter else {
+            return rhythmUnits(for: value)
+        }
+
+        return rhythmUnits(forWholeNotes: value.wholeNoteLength(in: meter))
     }
 
     static func rhythmUnits(forWholeNotes wholeNotes: Double) -> Int {
@@ -908,7 +918,7 @@ enum RhythmicNotationQuantizer {
             }
         }
 
-        let naturalPath = bestNaturalPath(from: candidateGroups)
+        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
         if exactPath.values != naturalPath.values {
             let stretchTolerance = max(0.35, Double(candidateGroups.count) * 0.18)
             if exactPath.score > naturalPath.score + stretchTolerance {
@@ -917,7 +927,7 @@ enum RhythmicNotationQuantizer {
         }
 
         let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        let rankedPaths = rankedExactPaths(from: candidateGroups, targetUnits: targetUnits)
+        let rankedPaths = rankedExactPaths(from: candidateGroups, targetUnits: targetUnits, meter: meter)
         if let bestPath = rankedPaths.first,
            bestPath.values == exactPath.values,
            let alternatePath = rankedPaths.dropFirst().first {
@@ -948,7 +958,7 @@ enum RhythmicNotationQuantizer {
         let exactPath = CandidatePath(
             values: exactValues,
             score: exactScore,
-            units: exactValues.reduce(0) { $0 + rhythmUnits(for: $1) }
+            units: exactValues.reduce(0) { $0 + rhythmUnits(for: $1, meter: meter) }
         )
         return manualReviewReason(for: exactPath, candidateGroups: candidateGroups, meter: meter)
     }

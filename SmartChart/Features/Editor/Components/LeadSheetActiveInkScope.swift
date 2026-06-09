@@ -2,10 +2,21 @@
 import Foundation
 import UIKit
 
+struct LeadSheetActiveInkRegion: Equatable {
+    var frame: CGRect
+    var inputFrames: [CGRect]
+
+    var localInputFrames: [CGRect] {
+        inputFrames.map { inputFrame in
+            inputFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        }
+    }
+}
+
 enum LeadSheetActiveInkScope {
     case page(frame: CGRect)
     case header(frame: CGRect)
-    case chords(frame: CGRect)
+    case chords(frame: CGRect, inputFrames: [CGRect])
     case rhythmicMeasure(measureID: UUID, frame: CGRect)
     case noteSelection(frame: CGRect)
     case freehandSymbols(frame: CGRect)
@@ -14,11 +25,31 @@ enum LeadSheetActiveInkScope {
         switch self {
         case .page(let frame),
              .header(let frame),
-             .chords(let frame),
              .rhythmicMeasure(_, let frame),
              .noteSelection(let frame),
              .freehandSymbols(let frame):
             return frame
+        case .chords(let frame, _):
+            return frame
+        }
+    }
+
+    var inputFrames: [CGRect] {
+        switch self {
+        case .chords(_, let inputFrames):
+            return inputFrames
+        case .page,
+             .header,
+             .rhythmicMeasure,
+             .noteSelection,
+             .freehandSymbols:
+            return [frame]
+        }
+    }
+
+    var localInputFrames: [CGRect] {
+        inputFrames.map { inputFrame in
+            inputFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
         }
     }
 
@@ -51,7 +82,8 @@ enum LeadSheetActiveInkScope {
 
         if interactionMode.allowsChordInkEditing,
            let pageLayout {
-            return .chords(frame: chordWritingFrame(for: pageLayout))
+            let region = chordWritingRegion(for: pageLayout)
+            return .chords(frame: region.frame, inputFrames: region.inputFrames)
         }
 
         guard interactionMode.allowsPageInkEditing,
@@ -76,7 +108,41 @@ enum LeadSheetActiveInkScope {
     }
 
     static func chordWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {
-        pageLayout.paperFrame.insetBy(dx: 10, dy: 10)
+        chordWritingRegion(for: pageLayout).frame
+    }
+
+    static func chordWritingInputFrames(for pageLayout: LeadSheetPageLayout) -> [CGRect] {
+        chordWritingRegion(for: pageLayout).inputFrames
+    }
+
+    static func chordWritingRegion(for pageLayout: LeadSheetPageLayout) -> LeadSheetActiveInkRegion {
+        let laneFrames = pageLayout.systems
+            .flatMap(\.measures)
+            .compactMap { measure -> CGRect? in
+                guard measure.sourceMeasureID != nil else {
+                    return nil
+                }
+
+                let expandedLane = measure.chordWritingFrame.insetBy(dx: -4, dy: -4)
+                let boundedLane = expandedLane.intersection(pageLayout.paperFrame)
+                return boundedLane.isNull || boundedLane.isEmpty ? nil : boundedLane
+            }
+
+        guard let firstFrame = laneFrames.first else {
+            let fallbackFrame = pageWritingFrame(for: pageLayout)
+            return LeadSheetActiveInkRegion(frame: fallbackFrame, inputFrames: [fallbackFrame])
+        }
+
+        let frame = laneFrames
+            .dropFirst()
+            .reduce(firstFrame) { partialFrame, laneFrame in
+                partialFrame.union(laneFrame)
+            }
+            .insetBy(dx: -2, dy: -2)
+            .intersection(pageLayout.paperFrame)
+
+        let resolvedFrame = frame.isNull || frame.isEmpty ? firstFrame : frame
+        return LeadSheetActiveInkRegion(frame: resolvedFrame, inputFrames: laneFrames)
     }
 
     static func freehandSymbolWritingFrame(

@@ -15,14 +15,7 @@ struct PendingChordInkConfirmation: Identifiable {
     let bestCandidateText: String?
 
     static func candidateTexts(for result: ChordInkRecognitionResult) -> [String] {
-        let rankedCandidateTexts = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
-            .compactMap(\.displayText)
-        let primaryCandidateTexts = [result.match?.displayText].compactMap { $0 }
-        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
-
-        return ChordRecognitionCompendium.userFacingCandidateTexts(
-            from: rankedCandidateTexts + primaryCandidateTexts + ocrCandidateTexts
-        )
+        ChordInkRenderResolutionPolicy.candidateTexts(for: result)
     }
 
     init(
@@ -34,7 +27,8 @@ struct PendingChordInkConfirmation: Identifiable {
         recognitionTiming: ChordInkRecognitionTiming? = nil,
         proposalDecisionMilliseconds: Double? = nil,
         primaryDecision: ChordInkRecognitionDecision,
-        decision: ChordInkRecognitionDecision
+        decision: ChordInkRecognitionDecision,
+        candidateTexts: [String]? = nil
     ) {
         self.measureID = measureID
         self.measureIndex = measureIndex
@@ -46,7 +40,7 @@ struct PendingChordInkConfirmation: Identifiable {
         self.primaryDecision = primaryDecision
         self.decision = decision
 
-        let userFacingCandidateTexts = Self.candidateTexts(for: result)
+        let userFacingCandidateTexts = candidateTexts ?? Self.candidateTexts(for: result)
         self.candidateTexts = userFacingCandidateTexts
         self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first
     }
@@ -122,7 +116,6 @@ struct ChordInkConfirmationSheetView: View {
     let showsFixtureCaptureTools: Bool
     let onAcceptCandidate: (String) -> Void
     let onCopyFixtureJSON: (String) -> ChordInkFixtureCopyResult
-    let onKeepInk: () -> Void
     let onClearAndRewrite: () -> Void
     @State private var manualCandidateText: String
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
@@ -133,35 +126,31 @@ struct ChordInkConfirmationSheetView: View {
         showsFixtureCaptureTools: Bool = false,
         onAcceptCandidate: @escaping (String) -> Void,
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
-        onKeepInk: @escaping () -> Void,
         onClearAndRewrite: @escaping () -> Void
     ) {
         self.confirmation = confirmation
         self.showsFixtureCaptureTools = showsFixtureCaptureTools
         self.onAcceptCandidate = onAcceptCandidate
         self.onCopyFixtureJSON = onCopyFixtureJSON
-        self.onKeepInk = onKeepInk
         self.onClearAndRewrite = onClearAndRewrite
         _manualCandidateText = State(initialValue: confirmation.bestCandidateText ?? "")
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    selectedChordSummary
-                    candidateChoices
-                    manualEntry
-                    chartActions
-                    if showsFixtureCaptureTools {
-                        captureActions
-                    }
+            VStack(spacing: 14) {
+                selectedChordSummary
+                candidateChoices
+                manualEntry
+                manualActions
+                if showsFixtureCaptureTools {
+                    captureActions
                 }
-                .frame(maxWidth: 430)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 26)
             }
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(confirmation.requiresDirectEntry ? "Enter Chord" : "Choose Chord")
             .navigationBarTitleDisplayMode(.inline)
@@ -202,13 +191,13 @@ struct ChordInkConfirmationSheetView: View {
     }
 
     private var selectedChordSummary: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 5) {
             Text("Measure \(confirmation.displayMeasureNumber)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .font(.system(.title, design: .rounded).weight(.bold))
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
@@ -226,13 +215,13 @@ struct ChordInkConfirmationSheetView: View {
     private var candidateChoices: some View {
         let candidates = Array(confirmation.visibleCandidateTexts.prefix(3))
 
-        return VStack(spacing: 9) {
+        return VStack(spacing: 8) {
             if candidates.isEmpty {
                 Text("No confident suggestions")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 8)
             } else {
                 Text("Top 3")
                     .font(.caption.weight(.semibold))
@@ -245,27 +234,26 @@ struct ChordInkConfirmationSheetView: View {
                 ) {
                     ForEach(Array(candidates.enumerated()), id: \.element) { index, candidate in
                         Button {
-                            manualCandidateText = candidate
-                            fixtureCopyStatus = nil
+                            onAcceptCandidate(candidate)
                         } label: {
                             Text(candidate)
                                 .font(.headline.weight(.semibold))
-                                .foregroundStyle(candidate == trimmedCandidateText ? Color.white : Color.primary)
+                                .foregroundStyle(Color.primary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.55)
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .frame(maxWidth: .infinity, minHeight: 46)
                                 .padding(.horizontal, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(candidate == trimmedCandidateText ? Color.blue : Color(uiColor: .secondarySystemGroupedBackground))
+                                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
                                 )
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(candidate == trimmedCandidateText ? Color.blue.opacity(0.45) : Color.black.opacity(0.06), lineWidth: 1)
+                                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Suggestion \(index + 1), \(candidate)")
+                        .accessibilityLabel("Accept suggestion \(index + 1), \(candidate)")
                     }
                 }
             }
@@ -307,35 +295,24 @@ struct ChordInkConfirmationSheetView: View {
         }
     }
 
-    private var chartActions: some View {
-        VStack(spacing: 10) {
+    private var manualActions: some View {
+        HStack(spacing: 10) {
             Button {
                 acceptTrimmedCandidate()
             } label: {
-                Text("Accept Chord")
-                    .font(.headline.weight(.semibold))
+                Text("Learn Chord")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .disabled(trimmedCandidateText.isEmpty)
 
-            HStack(spacing: 10) {
-                Button {
-                    onKeepInk()
-                } label: {
-                    Text("Keep Ink")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button(role: .destructive) {
-                    onClearAndRewrite()
-                } label: {
-                    Text("Rewrite Ink")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+            Button(role: .destructive) {
+                onClearAndRewrite()
+            } label: {
+                Text("Rewrite Ink")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
         }
     }
 

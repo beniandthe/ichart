@@ -2,6 +2,17 @@ import XCTest
 @testable import SmartChart
 
 final class MeasureRhythmMappingTests: XCTestCase {
+    func testSlashRhythmMapUsesMeterNumeratorAsBeatCount() {
+        let meter = Meter(numerator: 3, denominator: 8)
+        let rhythmMap = MeasureRhythmMap(values: [.slash, .slash, .slash])
+        let slots = rhythmMap.resolvedSlots(for: meter)
+
+        XCTAssertEqual(rhythmMap.status(for: meter), .exact)
+        XCTAssertEqual(slots?.map(\.startPosition.beat), [1, 2, 3])
+        XCTAssertEqual(slots?.map(\.duration), [.slash, .slash, .slash])
+        XCTAssertEqual(rhythmMap.totalWholeNoteLength(in: meter), meter.measureLengthInWholeNotes, accuracy: 0.0001)
+    }
+
     func testSingleChordAtMeasureStartWithoutRhythmMapAutoFillsMeasure() {
         let meter = Meter(numerator: 3, denominator: 4)
         let measure = Measure(

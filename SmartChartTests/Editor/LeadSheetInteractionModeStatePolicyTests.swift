@@ -99,6 +99,112 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(target.fraction, 1)
     }
 
+    func testChordActiveInkScopeUsesExpandedChordLanesInsteadOfWholePage() throws {
+        let chart = Chart.blank(title: "Scoped Chord Lane", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+
+        let scope = LeadSheetActiveInkScope.resolve(
+            interactionMode: .chordEntry,
+            chartLayoutStyle: chart.layoutStyle,
+            selectedMeasureID: nil,
+            selectedMeasureLayout: nil,
+            pageLayout: layout
+        )
+
+        guard case .chords(let frame, let inputFrames) = scope else {
+            XCTFail("Chord mode should resolve a scoped chord ink region.")
+            return
+        }
+
+        XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
+        XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
+        XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
+        XCTAssertFalse(inputFrames.contains { $0.contains(CGPoint(x: firstMeasure.staffFrame.midX, y: firstMeasure.frame.maxY - 2)) })
+    }
+
+    func testChordWritingBandContainsExpandedLaneOutsideRenderedBand() throws {
+        let chart = Chart.blank(title: "Simple Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let expandedLanePoint = CGPoint(
+            x: measure.chordWritingFrame.midX,
+            y: (measure.chordWritingFrame.minY + measure.chordBandFrame.minY) / 2
+        )
+
+        XCTAssertTrue(measure.chordWritingFrame.contains(expandedLanePoint))
+        XCTAssertFalse(measure.chordBandFrame.contains(expandedLanePoint))
+        XCTAssertTrue(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(expandedLanePoint, in: layout))
+    }
+
+    func testSmallOutsideChordLaneDragConfirmsWaitingChordInk() {
+        let chart = Chart.blank(title: "Confirm Drag", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let outsideLaneStart = CGPoint(x: layout.paperFrame.midX, y: layout.paperFrame.maxY - 28)
+        let smallDragEnd = CGPoint(x: outsideLaneStart.x + 10, y: outsideLaneStart.y + 8)
+        let largeDragEnd = CGPoint(x: outsideLaneStart.x + 120, y: outsideLaneStart.y)
+        let insideLaneStart = CGPoint(
+            x: layout.systems[0].measures[0].chordWritingFrame.midX,
+            y: layout.systems[0].measures[0].chordWritingFrame.midY
+        )
+
+        XCTAssertTrue(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+                location: outsideLaneStart,
+                pageLayout: layout,
+                hasChordInk: true
+            )
+        )
+        XCTAssertFalse(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+                location: insideLaneStart,
+                pageLayout: layout,
+                hasChordInk: true
+            )
+        )
+        XCTAssertTrue(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
+                startLocation: outsideLaneStart,
+                currentLocation: smallDragEnd,
+                pageLayout: layout,
+                hasChordInk: true
+            )
+        )
+        XCTAssertFalse(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
+                startLocation: outsideLaneStart,
+                currentLocation: largeDragEnd,
+                pageLayout: layout,
+                hasChordInk: true
+            )
+        )
+        XCTAssertFalse(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
+                startLocation: insideLaneStart,
+                currentLocation: CGPoint(x: insideLaneStart.x + 4, y: insideLaneStart.y + 4),
+                pageLayout: layout,
+                hasChordInk: true
+            )
+        )
+        XCTAssertFalse(
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
+                startLocation: outsideLaneStart,
+                currentLocation: smallDragEnd,
+                pageLayout: layout,
+                hasChordInk: false
+            )
+        )
+    }
+
     func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvas() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
@@ -112,11 +218,44 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
-    func testToolModesRestrictPageScrollToOutsideMargins() {
+    func testBrowseSelectModeRoutesHeaderTapsToHeaderAuthoring() {
+        let chart = Chart.blank(title: "Header Tap", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let headerPoint = CGPoint(
+            x: layout.header.handwrittenFrame.midX,
+            y: layout.header.handwrittenFrame.midY
+        )
+        let measurePoint = CGPoint(
+            x: layout.systems[0].measures[0].frame.midX,
+            y: layout.systems[0].measures[0].frame.midY
+        )
+
+        XCTAssertTrue(EditorCanvasMode.browse.allowsHeaderAuthoringSelection)
+        XCTAssertFalse(EditorCanvasMode.measureEdit.allowsHeaderAuthoringSelection)
+        XCTAssertFalse(EditorCanvasMode.headerEntry.allowsHeaderAuthoringSelection)
+        XCTAssertTrue(
+            LeadSheetCanvasInteractionTargeting.headerAuthoringContains(headerPoint, in: layout)
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasInteractionTargeting.headerAuthoringContains(measurePoint, in: layout)
+        )
+    }
+
+    func testBrowseSelectModeCanPromoteFreehandInstancesIntoFreehandTool() {
+        XCTAssertTrue(EditorCanvasMode.browse.allowsFreehandObjectSelection)
+        XCTAssertTrue(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
+        XCTAssertFalse(EditorCanvasMode.measureEdit.allowsFreehandObjectSelection)
+        XCTAssertFalse(EditorCanvasMode.chordEntry.allowsFreehandObjectSelection)
+    }
+
+    func testOnlyInkModesRestrictPageScrollToOutsideMargins() {
         XCTAssertFalse(EditorCanvasMode.browse.restrictsPageScrollToOutsideMargins)
-        XCTAssertTrue(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
-        XCTAssertTrue(EditorCanvasMode.repeatEdit.restrictsPageScrollToOutsideMargins)
-        XCTAssertTrue(EditorCanvasMode.timeSignatureEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertFalse(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertFalse(EditorCanvasMode.repeatEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertFalse(EditorCanvasMode.timeSignatureEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.headerEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.chordEntry.restrictsPageScrollToOutsideMargins)
@@ -207,6 +346,23 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testScrollMarginPolicyExposesVisibleDragAreaFramesOutsidePaper() {
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 600)
+        let paperFrame = CGRect(x: 100, y: 80, width: 300, height: 420)
+
+        let dragAreaFrames = LeadSheetScrollMarginPolicy.dragAreaFrames(
+            in: bounds,
+            paperFrame: paperFrame
+        )
+
+        XCTAssertTrue(dragAreaFrames.contains { $0.contains(CGPoint(x: 40, y: 300)) })
+        XCTAssertTrue(dragAreaFrames.contains { $0.contains(CGPoint(x: 460, y: 300)) })
+        XCTAssertTrue(dragAreaFrames.contains { $0.contains(CGPoint(x: 250, y: 40)) })
+        XCTAssertTrue(dragAreaFrames.contains { $0.contains(CGPoint(x: 250, y: 560)) })
+        XCTAssertFalse(dragAreaFrames.contains { $0.contains(CGPoint(x: 250, y: 300)) })
+        XCTAssertFalse(dragAreaFrames.contains { $0.intersects(paperFrame) })
+    }
+
     func testChordMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
         XCTAssertFalse(
             LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
@@ -231,7 +387,10 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testInkCanvasSyncPolicyPreservesDirtyChordInkFromStaleModelReload() {
         XCTAssertTrue(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
-                activeInkScope: .chords(frame: CGRect(x: 0, y: 0, width: 100, height: 40)),
+                activeInkScope: .chords(
+                    frame: CGRect(x: 0, y: 0, width: 100, height: 40),
+                    inputFrames: [CGRect(x: 0, y: 0, width: 100, height: 40)]
+                ),
                 interactionMode: .chordEntry,
                 sessionState: dirtyInkSessionState(.chord),
                 currentDrawingData: Data([0x01]),

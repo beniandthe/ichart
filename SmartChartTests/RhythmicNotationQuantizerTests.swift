@@ -180,6 +180,30 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertTrue(phrase.isNaturalExactFit)
     }
 
+    func testV4DecisionCommitsSlashCountToMeterNumeratorInThreeEight() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: [
+            rhythmSlash(x: 24),
+            rhythmSlash(x: 84),
+            rhythmSlash(x: 144)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 3, denominator: 8),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected three slashes to commit in 3/8, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.slash, .slash, .slash])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
     func testV4DecisionCommitsLooseAndShortSlashPhraseThroughRasterTemplateGate() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
         let drawing = PKDrawing(strokes: [

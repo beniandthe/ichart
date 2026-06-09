@@ -1,7 +1,7 @@
 import Foundation
 import PencilKit
 
-enum LeadSheetChordInkRecognitionScheduling {
+enum ChordInkAutomaticRecognitionPolicy {
     static let defaultIdleDelay: TimeInterval = 0.75
     static let defaultContinuationGraceDelay: TimeInterval = 1.2
     static let rootOnlyContinuationGraceDelay: TimeInterval = 0.4
@@ -29,6 +29,27 @@ enum LeadSheetChordInkRecognitionScheduling {
     }
 
     static func shouldGiveContinuationGrace(
+        flow: ChordInkRecognitionFlow,
+        previousDrawingData: Data?,
+        drawingData: Data,
+        timing: ChordInkRecognitionTiming,
+        idleDelay: TimeInterval,
+        result: ChordInkRecognitionResult
+    ) -> Bool {
+        guard flow.allowsContinuationGrace else {
+            return false
+        }
+
+        return shouldGiveContinuationGrace(
+            previousDrawingData: previousDrawingData,
+            drawingData: drawingData,
+            timing: timing,
+            idleDelay: idleDelay,
+            result: result
+        )
+    }
+
+    static func shouldGiveContinuationGrace(
         previousDrawingData: Data?,
         drawingData: Data,
         timing: ChordInkRecognitionTiming,
@@ -47,3 +68,6 @@ enum LeadSheetChordInkRecognitionScheduling {
         return true
     }
 }
+
+@available(*, deprecated, renamed: "ChordInkAutomaticRecognitionPolicy")
+typealias LeadSheetChordInkRecognitionScheduling = ChordInkAutomaticRecognitionPolicy

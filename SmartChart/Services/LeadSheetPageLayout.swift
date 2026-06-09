@@ -66,12 +66,15 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
 
 extension LeadSheetMeasureLayout {
     var chordWritingFrame: CGRect {
-        guard chordBandFrame.minY < staffFrame.minY else {
-            return chordBandFrame
+        if chordBandFrame.minY >= staffFrame.minY {
+            return frame.insetBy(dx: 2, dy: 2)
         }
 
         let topY = frame.minY
-        let bottomY = max(staffFrame.minY, chordBandFrame.maxY)
+        let bottomY = min(
+            frame.maxY - 2,
+            max(staffFrame.minY + 18, chordBandFrame.maxY)
+        )
         return CGRect(
             x: frame.minX + 2,
             y: topY,
@@ -2133,7 +2136,7 @@ enum LeadSheetPageLayoutEngine {
 
         let currentStart = slots[index].startPosition.startOffset(in: meter) ?? 0
         let nextStart = slots[index + 1].startPosition.startOffset(in: meter) ?? 0
-        guard abs((currentStart + slots[index].duration.wholeNoteLength) - nextStart) < 0.0001 else {
+        guard abs((currentStart + slots[index].duration.wholeNoteLength(in: meter)) - nextStart) < 0.0001 else {
             return nil
         }
         guard slots[index].startPosition.beat == slots[index + 1].startPosition.beat else {
@@ -2202,7 +2205,7 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func slashAttackLaneLength(for duration: RhythmValue, meter: Meter) -> Double {
-        let durationLength = max(0, duration.wholeNoteLength)
+        let durationLength = max(0, duration.wholeNoteLength(in: meter))
         guard durationLength > 0 else {
             return meter.beatUnitWholeNoteLength
         }
@@ -2224,7 +2227,7 @@ enum LeadSheetPageLayoutEngine {
 
         let previousStart = slots[index - 1].startPosition.startOffset(in: meter) ?? 0
         let currentStart = slots[index].startPosition.startOffset(in: meter) ?? 0
-        return abs((previousStart + slots[index - 1].duration.wholeNoteLength) - currentStart) < 0.0001
+        return abs((previousStart + slots[index - 1].duration.wholeNoteLength(in: meter)) - currentStart) < 0.0001
     }
 
     private static func wholeRestLayout(

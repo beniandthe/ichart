@@ -3,29 +3,29 @@ import PencilKit
 import XCTest
 @testable import SmartChart
 
-final class LeadSheetChordInkRecognitionSchedulingTests: XCTestCase {
+final class ChordInkAutomaticRecognitionPolicyTests: XCTestCase {
     func testIdleDelayCurrentlyUsesConfiguredDefault() {
         XCTAssertEqual(
-            LeadSheetChordInkRecognitionScheduling.idleDelay(
+            ChordInkAutomaticRecognitionPolicy.idleDelay(
                 for: PKDrawing(),
-                defaultDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay
+                defaultDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay
             ),
             0.75
         )
     }
 
     func testClearRootUsesShortContinuationGraceBeforeProposal() throws {
-        let idleDelay = LeadSheetChordInkRecognitionScheduling.defaultIdleDelay
-        let continuationGraceDelay = LeadSheetChordInkRecognitionScheduling.continuationGraceDelay(
+        let idleDelay = ChordInkAutomaticRecognitionPolicy.defaultIdleDelay
+        let continuationGraceDelay = ChordInkAutomaticRecognitionPolicy.continuationGraceDelay(
             for: try recognitionResult(for: "C", confidence: 4.5),
-            defaultDelay: LeadSheetChordInkRecognitionScheduling.defaultContinuationGraceDelay
+            defaultDelay: ChordInkAutomaticRecognitionPolicy.defaultContinuationGraceDelay
         )
         let result = try recognitionResult(for: "C", confidence: 4.5)
         let drawingData = Data([0x43])
         let timing = recognitionTiming(requestedDelay: idleDelay, strokeCount: 1)
 
         XCTAssertTrue(
-            LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+            ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
                 previousDrawingData: nil,
                 drawingData: drawingData,
                 timing: timing,
@@ -37,25 +37,41 @@ final class LeadSheetChordInkRecognitionSchedulingTests: XCTestCase {
         XCTAssertEqual(idleDelay + continuationGraceDelay, 1.15, accuracy: 0.001)
     }
 
+    func testTapToConfirmFlowBypassesContinuationGrace() throws {
+        XCTAssertFalse(
+            ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
+                flow: .tapToConfirm,
+                previousDrawingData: nil,
+                drawingData: Data([0x43]),
+                timing: recognitionTiming(
+                    requestedDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
+                    strokeCount: 1
+                ),
+                idleDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
+                result: try recognitionResult(for: "C", confidence: 4.5)
+            )
+        )
+    }
+
     func testExtensionPrefixKeepsFullContinuationGrace() throws {
         let result = try recognitionResult(for: "A9", confidence: 4.5)
 
         XCTAssertTrue(
-            LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+            ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
                 previousDrawingData: nil,
                 drawingData: Data([0x41, 0x39]),
                 timing: recognitionTiming(
-                    requestedDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                    requestedDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
                     strokeCount: 4
                 ),
-                idleDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                idleDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
                 result: result
             )
         )
         XCTAssertEqual(
-            LeadSheetChordInkRecognitionScheduling.continuationGraceDelay(
+            ChordInkAutomaticRecognitionPolicy.continuationGraceDelay(
                 for: result,
-                defaultDelay: LeadSheetChordInkRecognitionScheduling.defaultContinuationGraceDelay
+                defaultDelay: ChordInkAutomaticRecognitionPolicy.defaultContinuationGraceDelay
             ),
             1.2
         )
@@ -66,14 +82,14 @@ final class LeadSheetChordInkRecognitionSchedulingTests: XCTestCase {
         let drawingData = Data([0x43])
 
         XCTAssertFalse(
-            LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+            ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
                 previousDrawingData: drawingData,
                 drawingData: drawingData,
                 timing: recognitionTiming(
-                    requestedDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                    requestedDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
                     strokeCount: 1
                 ),
-                idleDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                idleDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
                 result: result
             )
         )
@@ -81,18 +97,18 @@ final class LeadSheetChordInkRecognitionSchedulingTests: XCTestCase {
 
     func testSlashAndAlteredChordsDoNotUseContinuationGrace() throws {
         let timing = recognitionTiming(
-            requestedDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+            requestedDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
             strokeCount: 6
         )
         let drawingData = Data([0x01])
 
         for chord in ["G/B", "Db7(b9)"] {
             XCTAssertFalse(
-                LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+                ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
                     previousDrawingData: nil,
                     drawingData: drawingData,
                     timing: timing,
-                    idleDelay: LeadSheetChordInkRecognitionScheduling.defaultIdleDelay,
+                    idleDelay: ChordInkAutomaticRecognitionPolicy.defaultIdleDelay,
                     result: try recognitionResult(for: chord, confidence: 4.5)
                 ),
                 chord

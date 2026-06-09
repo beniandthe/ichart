@@ -12,10 +12,12 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     let inkToolMode: EditorInkToolMode
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
-    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming) -> Void)? = nil
+    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
+    var onHeaderAuthoringRequested: (() -> Void)? = nil
+    var onFreehandSymbolSelected: ((UUID) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -57,6 +59,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
+        view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
+        view.onFreehandSymbolSelected = onFreehandSymbolSelected
     }
 
     final class Coordinator {
@@ -225,6 +229,43 @@ struct LeadSheetInkAuthoringSessionState {
 
     func isDirty(_ role: LeadSheetInkAuthoringSessionRole) -> Bool {
         dirtyRoles.contains(role)
+    }
+}
+
+private final class LeadSheetScopedInkCanvasView: PKCanvasView {
+    var localInputFrames: [CGRect] = [] {
+        didSet {
+            guard oldValue != localInputFrames else {
+                return
+            }
+
+            setNeedsLayout()
+        }
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else {
+            return false
+        }
+        guard !localInputFrames.isEmpty else {
+            return true
+        }
+
+        return localInputFrames.contains { inputFrame in
+            inputFrame.insetBy(dx: -2, dy: -2).contains(point)
+        }
+    }
+}
+
+private final class LeadSheetChordInkConfirmOverlayView: UIView {
+    var containsConfirmSurface: ((CGPoint) -> Bool)?
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard !isHidden, isUserInteractionEnabled else {
+            return false
+        }
+
+        return containsConfirmSurface?(point) ?? false
     }
 }
 
@@ -643,6 +684,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var restrictsParentScrollToOutsideMargins: Bool = false {
         didSet {
             parentScrollGestureGate.updateCanvasView(self)
+            setNeedsDisplay()
         }
     }
     var interactionMode: EditorCanvasMode = .browse {
@@ -683,13 +725,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onMeasureSelectionChanged: ((UUID?) -> Void)?
     var onChartChanged: ((Chart) -> Void)?
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
-    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming) -> Void)?
+    var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
+    var onHeaderAuthoringRequested: (() -> Void)?
+    var onFreehandSymbolSelected: ((UUID) -> Void)?
 
     private var pageLayout: LeadSheetPageLayout?
-    private let pageInkCanvasView = PKCanvasView()
+    private let pageInkCanvasView = LeadSheetScopedInkCanvasView()
+    private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
     private let rhythmicNotationFeedbackOverlayView = RhythmicNotationFeedbackOverlayView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
@@ -706,8 +751,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return .live
     }
     private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
-    private let chordInkIdleDelay = LeadSheetChordInkRecognitionScheduling.defaultIdleDelay
-    private let chordInkContinuationGraceDelay = LeadSheetChordInkRecognitionScheduling.defaultContinuationGraceDelay
+    private let chordInkIdleDelay = ChordInkAutomaticRecognitionPolicy.defaultIdleDelay
+    private let chordInkContinuationGraceDelay = ChordInkAutomaticRecognitionPolicy.defaultContinuationGraceDelay
     private let chordInkRecognitionQueue = DispatchQueue(
         label: "com.smartchart.chord-ink-recognition",
         qos: .userInitiated
@@ -737,6 +782,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleChordEditTap(_:))
     )
+    private lazy var chordInkConfirmTapRecognizer = UITapGestureRecognizer(
+        target: self,
+        action: #selector(handleChordInkConfirmTap(_:))
+    )
+    private lazy var chordInkConfirmPanRecognizer = UIPanGestureRecognizer(
+        target: self,
+        action: #selector(handleChordInkConfirmPan(_:))
+    )
     private var isSyncingInkCanvasFromModel = false
     private var inkAuthoringSessionState = LeadSheetInkAuthoringSessionState()
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
@@ -756,6 +809,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
+    private var chordInkConfirmPanStartLocation: CGPoint?
     private var selectedFreehandSymbolID: UUID?
     private var activeFreehandSymbolEditDrag: ActiveFreehandSymbolEditDrag?
     private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
@@ -783,6 +837,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        chordInkConfirmOverlayView.frame = bounds
         chordEditHitOverlayView.frame = bounds
         rhythmicNotationFeedbackOverlayView.frame = bounds
         invalidateLayout()
@@ -798,6 +853,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let renderer = notationRenderer
         context.clear(rect)
         renderer.drawPaper(pageLayout.paperFrame, in: context)
+        if restrictsParentScrollToOutsideMargins {
+            drawPageScrollDragAreas(pageLayout)
+        }
         renderer.drawHeader(pageLayout.header)
 
         if !interactionMode.allowsHeaderInkEditing,
@@ -866,6 +924,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.addGestureRecognizer(inkSelectionTapRecognizer)
         pageInkCanvasView.isHidden = true
         addSubview(pageInkCanvasView)
+
+        chordInkConfirmOverlayView.backgroundColor = .clear
+        chordInkConfirmOverlayView.isOpaque = false
+        chordInkConfirmOverlayView.isHidden = true
+        chordInkConfirmOverlayView.containsConfirmSurface = { [weak self] location in
+            self?.chordInkConfirmSurfaceContains(location) ?? false
+        }
+        chordInkConfirmTapRecognizer.delegate = self
+        chordInkConfirmTapRecognizer.cancelsTouchesInView = false
+        chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmTapRecognizer)
+        chordInkConfirmPanRecognizer.delegate = self
+        chordInkConfirmPanRecognizer.cancelsTouchesInView = false
+        chordInkConfirmPanRecognizer.delaysTouchesBegan = false
+        chordInkConfirmPanRecognizer.delaysTouchesEnded = false
+        chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmPanRecognizer)
+        addSubview(chordInkConfirmOverlayView)
 
         rhythmicNotationFeedbackOverlayView.backgroundColor = .clear
         rhythmicNotationFeedbackOverlayView.isOpaque = false
@@ -1208,18 +1282,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func drawChordWritingLanes(_ pageLayout: LeadSheetPageLayout) {
-        for system in pageLayout.systems {
-            let measureFrames = system.measures.map(\.chordWritingFrame)
-            guard let firstFrame = measureFrames.first else {
-                continue
-            }
-
-            let laneFrame = measureFrames
-                .dropFirst()
-                .reduce(firstFrame) { partialFrame, measureFrame in
-                    partialFrame.union(measureFrame)
-                }
-                .insetBy(dx: -2, dy: -2)
+        for laneFrame in LeadSheetActiveInkScope.chordWritingInputFrames(for: pageLayout) {
             let lanePath = UIBezierPath(roundedRect: laneFrame, cornerRadius: 7)
             UIColor(red: 0.18, green: 0.36, blue: 0.78, alpha: 0.06).setFill()
             lanePath.fill()
@@ -1243,6 +1306,97 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     lanePath.stroke()
                 }
             }
+        }
+    }
+
+    private func drawPageScrollDragAreas(_ pageLayout: LeadSheetPageLayout) {
+        let dragAreaFrames = LeadSheetScrollMarginPolicy.dragAreaFrames(
+            in: bounds,
+            paperFrame: pageLayout.paperFrame
+        )
+
+        for dragAreaFrame in dragAreaFrames {
+            let areaPath = UIBezierPath(rect: dragAreaFrame)
+            UIColor(red: 0.13, green: 0.34, blue: 0.78, alpha: 0.025).setFill()
+            areaPath.fill()
+
+            guard let railFrame = scrollDragRailFrame(
+                in: dragAreaFrame,
+                around: pageLayout.paperFrame
+            ) else {
+                continue
+            }
+
+            let railPath = UIBezierPath(roundedRect: railFrame, cornerRadius: min(6, min(railFrame.width, railFrame.height) / 2))
+            UIColor(red: 0.13, green: 0.34, blue: 0.78, alpha: 0.055).setFill()
+            railPath.fill()
+            UIColor(red: 0.13, green: 0.34, blue: 0.78, alpha: 0.20).setStroke()
+            railPath.lineWidth = 1
+            railPath.stroke()
+            drawScrollDragDots(in: railFrame)
+        }
+    }
+
+    private func scrollDragRailFrame(
+        in dragAreaFrame: CGRect,
+        around paperFrame: CGRect
+    ) -> CGRect? {
+        let isVerticalRail = dragAreaFrame.height >= dragAreaFrame.width
+        let minimumThickness: CGFloat = 8
+        guard dragAreaFrame.width >= minimumThickness || dragAreaFrame.height >= minimumThickness else {
+            return nil
+        }
+
+        if isVerticalRail {
+            let railWidth = min(max(6, dragAreaFrame.width * 0.42), 12)
+            let railHeight = min(max(72, dragAreaFrame.height * 0.16), 150)
+            let railX = dragAreaFrame.midX - railWidth / 2
+            let preferredY = paperFrame.midY - railHeight / 2
+            let railY = min(
+                max(preferredY, dragAreaFrame.minY + 18),
+                max(dragAreaFrame.minY + 18, dragAreaFrame.maxY - railHeight - 18)
+            )
+            return CGRect(x: railX, y: railY, width: railWidth, height: railHeight)
+        }
+
+        let railWidth = min(max(88, dragAreaFrame.width * 0.18), 170)
+        let railHeight = min(max(6, dragAreaFrame.height * 0.42), 12)
+        let preferredX = paperFrame.midX - railWidth / 2
+        let railX = min(
+            max(preferredX, dragAreaFrame.minX + 18),
+            max(dragAreaFrame.minX + 18, dragAreaFrame.maxX - railWidth - 18)
+        )
+        let railY = dragAreaFrame.midY - railHeight / 2
+        return CGRect(x: railX, y: railY, width: railWidth, height: railHeight)
+    }
+
+    private func drawScrollDragDots(in railFrame: CGRect) {
+        let isVerticalRail = railFrame.height >= railFrame.width
+        let dotDiameter: CGFloat = 3
+        let spacing: CGFloat = 8
+        UIColor(red: 0.13, green: 0.34, blue: 0.78, alpha: 0.34).setFill()
+
+        for offsetIndex in -1...1 {
+            let center: CGPoint
+            if isVerticalRail {
+                center = CGPoint(
+                    x: railFrame.midX,
+                    y: railFrame.midY + CGFloat(offsetIndex) * spacing
+                )
+            } else {
+                center = CGPoint(
+                    x: railFrame.midX + CGFloat(offsetIndex) * spacing,
+                    y: railFrame.midY
+                )
+            }
+            UIBezierPath(
+                ovalIn: CGRect(
+                    x: center.x - dotDiameter / 2,
+                    y: center.y - dotDiameter / 2,
+                    width: dotDiameter,
+                    height: dotDiameter
+                )
+            ).fill()
         }
     }
 
@@ -1559,12 +1713,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func freehandSymbolEditHitTarget(at location: CGPoint) -> FreehandSymbolEditHitTarget? {
-        guard interactionMode.allowsPageInkEditing,
+        guard interactionMode.allowsFreehandObjectSelection,
               !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty else {
             return nil
         }
 
         let symbolLayouts = freehandSymbolLayouts()
+        guard interactionMode.allowsPageInkEditing else {
+            for symbolLayout in symbolLayouts.reversed() {
+                if LeadSheetFreehandSymbolEditOverlayGeometry.editHitFrame(for: symbolLayout).contains(location) {
+                    return FreehandSymbolEditHitTarget(symbolID: symbolLayout.id, action: .select)
+                }
+            }
+
+            return nil
+        }
+
         if let selectedFreehandSymbolID,
            let selectedLayout = symbolLayouts.first(where: { $0.id == selectedFreehandSymbolID }),
            let selectedHitTarget = LeadSheetFreehandSymbolEditOverlayGeometry.hitTarget(
@@ -1605,6 +1769,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        updateChordInkConfirmOverlayVisibility()
+
         if let role = activeInkAuthoringSessionRole() {
             inkAuthoringSessionState.markDirty(role)
         }
@@ -1640,6 +1806,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: self)
+        if interactionMode.allowsHeaderAuthoringSelection,
+           LeadSheetCanvasInteractionTargeting.headerAuthoringContains(location, in: pageLayout) {
+            onHeaderAuthoringRequested?()
+            return
+        }
+
         let tappedMeasure = LeadSheetCanvasInteractionTargeting.measure(at: location, in: pageLayout)
         let tappedMeasureID = tappedMeasure?.sourceMeasureID
 
@@ -1687,6 +1859,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if interactionMode == .browse,
+           let hitTarget = freehandSymbolEditHitTarget(at: location) {
+            selectedFreehandSymbolID = hitTarget.symbolID
+            onFreehandSymbolSelected?(hitTarget.symbolID)
+            setNeedsDisplay()
+            return
+        }
+
         guard let hitTarget = chordEditHitTarget(at: location) else {
             return
         }
@@ -1724,9 +1904,101 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout) {
+        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout),
+           !shouldConfirmChordInkTap(at: location) {
             return
         }
+
+        confirmChordInkFromUserTapIfNeeded()
+    }
+
+    @objc
+    private func handleChordInkConfirmTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              chordInkConfirmSurfaceContains(recognizer.location(in: self)) else {
+            return
+        }
+
+        confirmChordInkFromUserTapIfNeeded()
+    }
+
+    @objc
+    private func handleChordInkConfirmPan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            chordInkConfirmPanStartLocation = recognizer.location(in: self)
+        case .ended:
+            defer {
+                chordInkConfirmPanStartLocation = nil
+            }
+
+            guard let startLocation = chordInkConfirmPanStartLocation,
+                  ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
+                    startLocation: startLocation,
+                    currentLocation: recognizer.location(in: self),
+                    pageLayout: pageLayout,
+                    hasChordInk: currentCanvasDrawingData() != nil
+                  ) else {
+                return
+            }
+
+            confirmChordInkFromUserTapIfNeeded()
+        case .cancelled, .failed:
+            chordInkConfirmPanStartLocation = nil
+        default:
+            break
+        }
+    }
+
+    private func chordInkConfirmSurfaceContains(_ location: CGPoint) -> Bool {
+        guard interactionMode.allowsChordInkEditing,
+              ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+                location: location,
+                pageLayout: pageLayout,
+                hasChordInk: currentCanvasDrawingData() != nil
+              ),
+              editableOverlayHitTarget(at: location) == nil else {
+            return false
+        }
+
+        return bounds.contains(location)
+    }
+
+    private func shouldConfirmChordInkTap(at location: CGPoint) -> Bool {
+        guard currentCanvasDrawingData() != nil,
+              let inkBounds = currentChordInkBoundsInView() else {
+            return false
+        }
+
+        return !inkBounds.insetBy(dx: -18, dy: -18).contains(location)
+    }
+
+    private func currentChordInkBoundsInView() -> CGRect? {
+        guard let activeInkScope = activeInkScope(),
+              case .chords(let chordFrame, _) = activeInkScope else {
+            return nil
+        }
+
+        let inkBounds = LeadSheetChordInkImageRenderer.renderBounds(for: pageInkCanvasView.drawing)
+        guard !inkBounds.isNull else {
+            return nil
+        }
+
+        return inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
+    }
+
+    private func confirmChordInkFromUserTapIfNeeded() {
+        guard interactionMode.allowsChordInkEditing,
+              currentCanvasDrawingData() != nil else {
+            return
+        }
+
+        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
+        scheduleChordInkRecognition(
+            after: 0,
+            scheduledInkSnapshot: currentCanvasInkSnapshot(),
+            flow: .tapToConfirm
+        )
     }
 
     private func deleteChordEvent(_ chordID: UUID) {
@@ -1988,11 +2260,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if !interactionMode.allowsAnyInkEditing {
                 pageInkCanvasView.isHidden = true
                 pageInkCanvasView.isUserInteractionEnabled = false
+                pageInkCanvasView.localInputFrames = []
+                updateChordInkConfirmOverlayVisibility()
                 return
             }
 
             persistActiveInkIfNeeded()
             pageInkCanvasView.isHidden = true
+            pageInkCanvasView.localInputFrames = []
+            updateChordInkConfirmOverlayVisibility()
             return
         }
 
@@ -2000,6 +2276,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.isUserInteractionEnabled = true
         pageInkCanvasView.frame = activeInkScope.frame
         pageInkCanvasView.contentSize = activeInkScope.frame.size
+        pageInkCanvasView.localInputFrames = activeInkScope.localInputFrames
+        updateChordInkConfirmOverlayVisibility()
 
         let desiredData = activeInkScope.drawingData(in: chart)
         let currentData = currentCanvasDrawingData()
@@ -2026,7 +2304,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageInkCanvasView.drawing = PKDrawing()
         }
         isSyncingInkCanvasFromModel = false
+        updateChordInkConfirmOverlayVisibility()
         pageInkCanvasView.becomeFirstResponder()
+    }
+
+    private func updateChordInkConfirmOverlayVisibility() {
+        let isConfirmSurfaceAvailable = interactionMode.allowsChordInkEditing
+            && currentCanvasDrawingData() != nil
+        chordInkConfirmOverlayView.isHidden = !isConfirmSurfaceAvailable
+        chordInkConfirmOverlayView.isUserInteractionEnabled = isConfirmSurfaceAvailable
     }
 
     private func schedulePersistActiveInk() {
@@ -2120,17 +2406,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func scheduleChordInkRecognition() {
         scheduleChordInkRecognition(
-            after: LeadSheetChordInkRecognitionScheduling.idleDelay(
+            after: ChordInkAutomaticRecognitionPolicy.idleDelay(
                 for: pageInkCanvasView.drawing,
                 defaultDelay: chordInkIdleDelay
             ),
-            scheduledInkSnapshot: currentCanvasInkSnapshot()
+            scheduledInkSnapshot: currentCanvasInkSnapshot(),
+            flow: .automaticPreview
         )
     }
 
     private func scheduleChordInkRecognition(
         after requestedDelay: TimeInterval,
-        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
+        flow: ChordInkRecognitionFlow
     ) {
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
@@ -2142,7 +2430,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 requestID: requestID,
                 scheduledAt: scheduledAt,
                 requestedDelay: requestedDelay,
-                scheduledInkSnapshot: scheduledInkSnapshot
+                scheduledInkSnapshot: scheduledInkSnapshot,
+                flow: flow
             )
         }
         chordInkRecognitionRequestState.schedule(requestID: requestID, workItem: workItem)
@@ -2189,7 +2478,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         requestID: UUID,
         scheduledAt: Date,
         requestedDelay: TimeInterval,
-        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
+        flow: ChordInkRecognitionFlow
     ) {
         chordInkRecognitionRequestState.markPendingWorkStarted()
 
@@ -2207,7 +2497,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         guard interactionMode.allowsChordInkEditing,
               let activeInkScope = activeInkScope(),
-              case .chords(let chordFrame) = activeInkScope else {
+              case .chords(let chordFrame, _) = activeInkScope else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
         }
@@ -2220,7 +2510,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
+        guard flow == .tapToConfirm
+                || drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
         }
@@ -2255,11 +2546,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
         )
         chordInkRecognitionSession.start(request: sessionRequest) { [weak self] payload in
-            self?.finishChordInkRecognition(payload)
+            self?.finishChordInkRecognition(payload, flow: flow)
         }
     }
 
-    private func finishChordInkRecognition(_ payload: ChordInkRecognitionProposalPayload) {
+    private func finishChordInkRecognition(
+        _ payload: ChordInkRecognitionProposalPayload,
+        flow: ChordInkRecognitionFlow
+    ) {
         guard chordInkRecognitionRequestState.finishActiveRequest(payload.requestID) else {
             return
         }
@@ -2272,38 +2566,47 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if shouldGiveChordInkContinuationGrace(
+            flow: flow,
             result: payload.result,
             drawingData: payload.drawingData,
             timing: payload.timing
         ) {
             chordInkRecognitionRequestState.continuationGraceDrawingData = payload.drawingData
             scheduleChordInkRecognition(
-                after: LeadSheetChordInkRecognitionScheduling.continuationGraceDelay(
+                after: ChordInkAutomaticRecognitionPolicy.continuationGraceDelay(
                     for: payload.result,
                     defaultDelay: chordInkContinuationGraceDelay
                 ),
-                scheduledInkSnapshot: currentCanvasInkSnapshot()
+                scheduledInkSnapshot: currentCanvasInkSnapshot(),
+                flow: .automaticPreview
             )
             return
         }
 
         chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        chordInkRecognitionRequestState.lastRecognizedDrawingData = payload.drawingData
+        if flow.recordsPreviewSnapshot {
+            chordInkRecognitionRequestState.lastRecognizedDrawingData = payload.drawingData
+        } else {
+            chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
+        }
         onChordInkRecognitionProposal?(
             payload.target.measureID,
             payload.result,
             payload.drawingData,
             payload.target.fraction,
-            payload.timing
+            payload.timing,
+            flow
         )
     }
 
     private func shouldGiveChordInkContinuationGrace(
+        flow: ChordInkRecognitionFlow,
         result: ChordInkRecognitionResult,
         drawingData: Data,
         timing: ChordInkRecognitionTiming
     ) -> Bool {
-        LeadSheetChordInkRecognitionScheduling.shouldGiveContinuationGrace(
+        ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
+            flow: flow,
             previousDrawingData: chordInkRecognitionRequestState.continuationGraceDrawingData,
             drawingData: drawingData,
             timing: timing,
@@ -2966,6 +3269,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageInkCanvasView.resignFirstResponder()
         }
 
+        updateChordInkConfirmOverlayVisibility()
     }
 
     private func clearNoteSelectionInk() {
@@ -3028,6 +3332,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return measureResizeHandleHitTarget(at: location) != nil
         }
 
+        if gestureRecognizer === selectionTapRecognizer,
+           chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self)) {
+            return false
+        }
+
+        if gestureRecognizer === chordInkConfirmTapRecognizer {
+            return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
+        }
+
+        if gestureRecognizer === chordInkConfirmPanRecognizer {
+            return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
+        }
+
         if gestureRecognizer === chordMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
             if interactionMode.allowsPageInkEditing,
@@ -3058,6 +3375,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             || otherGestureRecognizer === chordMovePanRecognizer
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
+        let involvesChordInkConfirmPan = gestureRecognizer === chordInkConfirmPanRecognizer
+            || otherGestureRecognizer === chordInkConfirmPanRecognizer
+        if involvesChordInkConfirmPan {
+            return true
+        }
         if !LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
             involvesChordMove: involvesChordMove,
             involvesParentScroll: involvesParentScroll

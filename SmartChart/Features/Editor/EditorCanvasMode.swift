@@ -129,6 +129,14 @@ enum EditorCanvasMode: Hashable {
         self == .browse || self == .chordEntry
     }
 
+    var allowsHeaderAuthoringSelection: Bool {
+        self == .browse
+    }
+
+    var allowsFreehandObjectSelection: Bool {
+        self == .browse || allowsPageInkEditing
+    }
+
     var requiresChordSelectionBeforeObjectActions: Bool {
         self == .browse || self == .chordEntry
     }
@@ -158,6 +166,6 @@ enum EditorCanvasMode: Hashable {
     }
 
     var restrictsPageScrollToOutsideMargins: Bool {
-        self != .browse
+        allowsAnyInkEditing
     }
 }

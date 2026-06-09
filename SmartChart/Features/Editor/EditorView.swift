@@ -172,9 +172,6 @@ struct EditorView: View {
                 onCopyFixtureJSON: { candidateText in
                     handleChordInkFixtureCopyRequested(candidateText, confirmation: confirmation)
                 },
-                onKeepInk: {
-                    pendingChordInkConfirmation = nil
-                },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
                 }
@@ -681,6 +678,10 @@ struct EditorView: View {
                     repeatActiveToolActions
                 }
 
+                if canvasMode == .headerEntry {
+                    headerActiveToolActions
+                }
+
                 Button {
                     activateSelectTool()
                 } label: {
@@ -837,6 +838,25 @@ struct EditorView: View {
         }
     }
 
+    private var headerActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "Typed",
+                systemImage: "keyboard"
+            ) {
+                chart.setHeaderInputMode(.typed)
+                showingHeaderSheet = true
+            }
+
+            activeToolButton(
+                title: "Handwritten",
+                systemImage: "pencil.and.scribble"
+            ) {
+                activateHeaderWritingTool()
+            }
+        }
+    }
+
     private func activeToolButton(
         title: String,
         systemImage: String,
@@ -905,7 +925,9 @@ struct EditorView: View {
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
-            onNoteSelectionChanged: handleNoteSelectionChanged
+            onNoteSelectionChanged: handleNoteSelectionChanged,
+            onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
+            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas
         )
     }
 
@@ -1728,6 +1750,31 @@ struct EditorView: View {
         canvasMode = .headerEntry
     }
 
+    private func handleHeaderAuthoringRequestedFromCanvas() {
+        activateHeaderWritingTool()
+    }
+
+    private func handleFreehandSymbolSelectedFromCanvas(_: UUID) {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+        guard chart.layoutStyle.profile.allowsFreehandSymbolInk else {
+            activateSelectTool(clearsMeasureSelection: true)
+            return
+        }
+
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        inkToolMode = .write
+        canvasMode = .freeHand
+    }
+
     private func handleChordTabTapped() {
         guard chart.hasCompletedInitialSetup else {
             showingSetupSheet = true
@@ -1811,7 +1858,8 @@ struct EditorView: View {
         result: ChordInkRecognitionResult,
         drawingData: Data,
         targetFraction: Double?,
-        timing: ChordInkRecognitionTiming
+        timing: ChordInkRecognitionTiming,
+        flow: ChordInkRecognitionFlow
     ) {
         #if DEBUG || targetEnvironment(simulator)
         let proposalReceivedAt = Date()
@@ -1824,22 +1872,11 @@ struct EditorView: View {
 
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
-        var decision = ChordRecognitionTrustArbiter.decision(for: result)
-        let candidateTexts = PendingChordInkConfirmation.candidateTexts(for: result)
-        if decision.action == .autoRender,
-           let acceptedText = decision.acceptedText,
-           chordInkUserCorrectionMemory.shouldBlockAutoRender(
-               acceptedText: acceptedText,
-               drawingData: drawingData,
-               candidateTexts: candidateTexts
-           ) {
-            decision.action = .confirm
-            decision.reason = "This ink previously rendered as \(acceptedText) and was deleted. Choose the intended chord, or type it in."
-            decision.isCloseRace = false
-            decision.competingCandidateText = nil
-            decision.confidenceGap = nil
-        }
+        let resolution = ChordInkRenderResolutionPolicy.resolution(
+            for: result,
+            drawingData: drawingData,
+            correctionMemory: chordInkUserCorrectionMemory
+        )
         #if DEBUG || targetEnvironment(simulator)
         let proposalDecisionMilliseconds = Date().timeIntervalSince(proposalReceivedAt) * 1_000
         #else
@@ -1853,21 +1890,30 @@ struct EditorView: View {
             targetFraction: targetFraction,
             recognitionTiming: timing,
             proposalDecisionMilliseconds: proposalDecisionMilliseconds,
-            primaryDecision: primaryDecision,
-            decision: decision
+            primaryDecision: resolution.primaryDecision,
+            decision: resolution.decision,
+            candidateTexts: resolution.candidateTexts
         )
 
         #if DEBUG || targetEnvironment(simulator)
         logChordInkProposalTiming(
             result: result,
-            primaryDecision: primaryDecision,
-            decision: decision,
+            primaryDecision: resolution.primaryDecision,
+            decision: resolution.decision,
             decisionMilliseconds: proposalDecisionMilliseconds
         )
         #endif
 
-        if decision.action == .autoRender,
-           let acceptedText = decision.acceptedText {
+        guard flow.canRenderChord else {
+            return
+        }
+
+        handleTapConfirmedChordRecognition(confirmation)
+    }
+
+    private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
+        if confirmation.decision.action == .autoRender,
+           let acceptedText = confirmation.decision.acceptedText {
             _ = commitChordInkCandidate(
                 acceptedText,
                 confirmation: confirmation,
@@ -1877,8 +1923,8 @@ struct EditorView: View {
         }
 
         let isCompleteFailure = ChordInkUserCorrectionMemoryPolicy.isCompleteFailure(
-            result: result,
-            decision: decision,
+            result: confirmation.result,
+            decision: confirmation.decision,
             candidateTexts: confirmation.candidateTexts
         )
 
@@ -1889,7 +1935,7 @@ struct EditorView: View {
         if !isCompleteFailure,
            let preferredCandidate = chordInkUserCorrectionMemory.preferredCandidate(
                for: confirmation.candidateTexts,
-               decision: decision
+               decision: confirmation.decision
            ) {
             if commitChordInkCandidate(
                 preferredCandidate,
