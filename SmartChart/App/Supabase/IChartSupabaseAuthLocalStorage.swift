@@ -4,13 +4,16 @@ import Supabase
 struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     private let primary: any AuthLocalStorage
     private let fallback: IChartUserDefaultsAuthLocalStorage
+    private let allowsInsecureFallback: Bool
 
     init(
         primary: any AuthLocalStorage = KeychainLocalStorage(),
-        fallback: IChartUserDefaultsAuthLocalStorage = IChartUserDefaultsAuthLocalStorage()
+        fallback: IChartUserDefaultsAuthLocalStorage = IChartUserDefaultsAuthLocalStorage(),
+        allowsInsecureFallback: Bool = Self.defaultAllowsInsecureFallback
     ) {
         self.primary = primary
         self.fallback = fallback
+        self.allowsInsecureFallback = allowsInsecureFallback
     }
 
     func store(key: String, value: Data) throws {
@@ -18,13 +21,27 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
             try primary.store(key: key, value: value)
             try? fallback.remove(key: key)
         } catch {
+            guard allowsInsecureFallback else {
+                throw error
+            }
+
             try fallback.store(key: key, value: value)
         }
     }
 
     func retrieve(key: String) throws -> Data? {
-        if let value = try? primary.retrieve(key: key) {
-            return value
+        do {
+            if let value = try primary.retrieve(key: key) {
+                return value
+            }
+        } catch {
+            guard allowsInsecureFallback else {
+                throw error
+            }
+        }
+
+        guard allowsInsecureFallback else {
+            return nil
         }
 
         return try fallback.retrieve(key: key)
@@ -33,6 +50,14 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     func remove(key: String) throws {
         try? primary.remove(key: key)
         try fallback.remove(key: key)
+    }
+
+    private static var defaultAllowsInsecureFallback: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
     }
 }
 

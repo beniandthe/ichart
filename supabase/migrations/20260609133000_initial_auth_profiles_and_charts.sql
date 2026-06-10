@@ -88,6 +88,21 @@ alter table public.chart_snapshots enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.devices enable row level security;
 
+revoke all on table public.profiles from anon, authenticated;
+revoke all on table public.chart_documents from anon, authenticated;
+revoke all on table public.chart_snapshots from anon, authenticated;
+revoke all on table public.subscriptions from anon, authenticated;
+revoke all on table public.devices from anon, authenticated;
+
+grant select on table public.profiles to authenticated;
+grant insert (id, email, phone, mailing_address, payment_summary) on table public.profiles to authenticated;
+grant update (id, email, phone, mailing_address, payment_summary) on table public.profiles to authenticated;
+
+grant select, insert, update, delete on table public.chart_documents to authenticated;
+grant select, insert on table public.chart_snapshots to authenticated;
+grant select on table public.subscriptions to authenticated;
+grant select, insert, update, delete on table public.devices to authenticated;
+
 create policy "profiles_select_own"
     on public.profiles
     for select

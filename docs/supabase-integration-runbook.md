@@ -14,6 +14,8 @@ Status: Sprint 1-5 implementation guide for iChart account/profile and single-us
 6. Run database tests when the CLI is available: `supabase test db`
 7. Run the local QA harness: `scripts/run_supabase_local_qa.sh`
 
+The checked-in local config keeps email confirmations and secure password changes enabled. Local integration tests confirm throwaway signup accounts through Mailpit before signing in.
+
 ## App Configuration
 
 The app reads these values from the Xcode scheme environment or generated Info.plist build settings:
@@ -28,6 +30,7 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 
 - Enable email/password auth.
 - Keep email verification enabled for production.
+- Keep secure password changes enabled.
 - Add `ichart://auth-callback` to Supabase Auth redirect URLs.
 - Use the anon/publishable key in the app only.
 - Keep the service-role key server-side only for future webhooks/admin jobs.

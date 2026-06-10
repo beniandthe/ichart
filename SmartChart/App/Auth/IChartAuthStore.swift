@@ -55,6 +55,41 @@ struct IChartUserProfile: Codable, Equatable {
     }
 }
 
+private struct IChartUserProfileUpdate: Encodable {
+    let id: UUID
+    var email: String?
+    var phone: String?
+    var mailingAddress: String?
+    var paymentSummary: String?
+
+    init(profile: IChartUserProfile) {
+        id = profile.id
+        email = profile.email
+        phone = profile.phone
+        mailingAddress = profile.mailingAddress
+        paymentSummary = profile.paymentSummary
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case phone
+        case mailingAddress = "mailing_address"
+        case paymentSummary = "payment_summary"
+    }
+}
+
+enum IChartAuthError: LocalizedError {
+    case invalidAuthCallback
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidAuthCallback:
+            return "This sign-in link is not an iChart account callback."
+        }
+    }
+}
+
 private protocol IChartAccountServicing {
     var isConfigured: Bool { get }
     func restoreSession() async throws -> IChartAuthState
@@ -148,6 +183,10 @@ final class IChartAuthStore: ObservableObject {
     }
 
     func handleAuthCallback(url: URL) async {
+        guard IChartSupabaseClientFactory.isAuthCallbackURL(url) else {
+            return
+        }
+
         await run("Account session refreshed.") {
             state = try await service.handleAuthCallback(url: url)
             try await loadProfileIfSignedIn()
@@ -311,10 +350,17 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
     }
 
     func requestPasswordReset(email: String) async throws {
-        try await client.auth.resetPasswordForEmail(normalized(email))
+        try await client.auth.resetPasswordForEmail(
+            normalized(email),
+            redirectTo: IChartSupabaseClientFactory.authCallbackURL
+        )
     }
 
     func handleAuthCallback(url: URL) async throws -> IChartAuthState {
+        guard IChartSupabaseClientFactory.isAuthCallbackURL(url) else {
+            throw IChartAuthError.invalidAuthCallback
+        }
+
         let session = try await client.auth.session(from: url)
         return state(for: session.user)
     }
@@ -331,9 +377,10 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
     }
 
     func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile {
+        let update = IChartUserProfileUpdate(profile: profile)
         let profiles: [IChartUserProfile] = try await client
             .from("profiles")
-            .upsert(profile, onConflict: "id")
+            .upsert(update, onConflict: "id")
             .select()
             .execute()
             .value

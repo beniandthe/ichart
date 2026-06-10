@@ -1,6 +1,6 @@
 begin;
 
-select plan(12);
+select plan(16);
 
 insert into auth.users (id, email)
 values
@@ -130,13 +130,60 @@ select is(
     'owner can read own subscription row created by trigger'
 );
 
-select is_empty(
+select lives_ok(
+    $$
+    update public.profiles
+    set payment_summary = 'Processor reference only'
+    where id = '00000000-0000-0000-0000-000000000001'
+    $$,
+    'owner can update client-writable profile fields'
+);
+
+select throws_ok(
+    $$
+    update public.profiles
+    set stripe_customer_id = 'cus_client_controlled'
+    where id = '00000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update stripe customer id on profile'
+);
+
+select throws_ok(
+    $$
+    insert into public.subscriptions (
+        owner_id,
+        plan,
+        status
+    ) values (
+        '00000000-0000-0000-0000-000000000001',
+        'studioSubscription',
+        'active'
+    )
+    $$,
+    '42501',
+    null,
+    'client cannot insert subscription rows'
+);
+
+select throws_ok(
     $$
     update public.subscriptions
     set plan = 'studioSubscription'
-    returning id
     $$,
+    '42501',
+    null,
     'client cannot update subscription rows'
+);
+
+select throws_ok(
+    $$
+    delete from public.subscriptions
+    $$,
+    '42501',
+    null,
+    'client cannot delete subscription rows'
 );
 
 select lives_ok(

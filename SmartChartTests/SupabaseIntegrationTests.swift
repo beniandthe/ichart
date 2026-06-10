@@ -102,6 +102,18 @@ private struct SupabaseIntegrationConfiguration {
     let baseURL: URL
     let publishableKey: String
 
+    var isLocalSupabase: Bool {
+        baseURL.host == "127.0.0.1" || baseURL.host == "localhost"
+    }
+
+    var mailpitBaseURL: URL? {
+        guard isLocalSupabase else {
+            return nil
+        }
+
+        return URL(string: "http://127.0.0.1:54324")
+    }
+
     static func current() throws -> SupabaseIntegrationConfiguration {
         let environment = ProcessInfo.processInfo.environment
         guard environment["SMART_CHART_SUPABASE_INTEGRATION"] == "1" else {
@@ -143,15 +155,36 @@ private struct SupabaseRESTClient {
             accessToken: nil,
             body: body
         )
-        guard let user = response["user"] as? [String: Any],
-              let userID = user["id"] as? String else {
-            throw XCTSkip("Supabase sign-up did not return a user id.")
+
+        if let session = session(from: response) {
+            return session
         }
-        guard let accessToken = response["access_token"] as? String else {
+
+        guard configuration.isLocalSupabase else {
             throw XCTSkip("Supabase sign-up requires email verification before integration tests can continue.")
         }
 
-        return SupabaseIntegrationSession(userID: userID, accessToken: accessToken)
+        try await confirmLocalSignupEmail(email: email)
+        return try await signIn(email: email, password: password)
+    }
+
+    func signIn(email: String, password: String) async throws -> SupabaseIntegrationSession {
+        let response = try await request(
+            path: "auth/v1/token",
+            method: "POST",
+            queryItems: [URLQueryItem(name: "grant_type", value: "password")],
+            accessToken: nil,
+            body: [
+                "email": email,
+                "password": password
+            ]
+        )
+
+        guard let session = session(from: response) else {
+            throw XCTSkip("Supabase sign-in did not return a session.")
+        }
+
+        return session
     }
 
     func upsertProfile(
@@ -365,6 +398,101 @@ private struct SupabaseRESTClient {
 
         return data
     }
+
+    private func session(from response: [String: Any]) -> SupabaseIntegrationSession? {
+        guard let accessToken = response["access_token"] as? String else {
+            return nil
+        }
+
+        let user = response["user"] as? [String: Any]
+        let userID = user?["id"] as? String ?? response["id"] as? String
+        guard let userID else {
+            return nil
+        }
+
+        return SupabaseIntegrationSession(userID: userID, accessToken: accessToken)
+    }
+
+    private func confirmLocalSignupEmail(email: String) async throws {
+        guard let confirmationURL = try await localSignupConfirmationURL(email: email) else {
+            throw XCTSkip("Local Supabase did not send a signup confirmation email.")
+        }
+
+        try await requestConfirmationLink(confirmationURL)
+    }
+
+    private func localSignupConfirmationURL(email: String) async throws -> URL? {
+        for _ in 0..<20 {
+            if let confirmationURL = try await latestLocalSignupConfirmationURL(email: email) {
+                return confirmationURL
+            }
+
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        return nil
+    }
+
+    private func latestLocalSignupConfirmationURL(email: String) async throws -> URL? {
+        guard let mailpitBaseURL = configuration.mailpitBaseURL else {
+            return nil
+        }
+
+        let data = try await URLSession.shared.data(from: mailpitBaseURL.appendingPathComponent("api/v1/messages")).0
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let messages = (payload["messages"] as? [[String: Any]]) ?? []
+
+        for message in messages {
+            guard let subject = message["Subject"] as? String,
+                  subject.localizedCaseInsensitiveContains("confirm"),
+                  messageIsAddressed(to: email, message: message),
+                  let id = message["ID"] as? String
+            else {
+                continue
+            }
+
+            let detailData = try await URLSession.shared
+                .data(from: mailpitBaseURL.appendingPathComponent("api/v1/message/\(id)")).0
+            let detail = try XCTUnwrap(JSONSerialization.jsonObject(with: detailData) as? [String: Any])
+            let text = (detail["Text"] as? String) ?? (detail["HTML"] as? String) ?? ""
+            if let url = firstVerificationURL(in: text) {
+                return url
+            }
+        }
+
+        return nil
+    }
+
+    private func messageIsAddressed(to email: String, message: [String: Any]) -> Bool {
+        let recipients = (message["To"] as? [[String: Any]]) ?? []
+        return recipients.contains { recipient in
+            (recipient["Address"] as? String)?.caseInsensitiveCompare(email) == .orderedSame
+        }
+    }
+
+    private func firstVerificationURL(in text: String) -> URL? {
+        let pattern = #"http://127\.0\.0\.1:54321/auth/v1/verify\?[^\s\)"]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text)
+        else {
+            return nil
+        }
+
+        let candidate = text[range].replacingOccurrences(of: "&amp;", with: "&")
+        return URL(string: candidate)
+    }
+
+    private func requestConfirmationLink(_ url: URL) async throws {
+        let delegate = SupabaseNoRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        let (_, response) = try await session.data(from: url)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        XCTAssertTrue(
+            (200..<400).contains(statusCode),
+            "Local Supabase confirmation failed with \(statusCode)."
+        )
+    }
 }
 
 private extension ISO8601DateFormatter {
@@ -373,4 +501,16 @@ private extension ISO8601DateFormatter {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+}
+
+private final class SupabaseNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
 }

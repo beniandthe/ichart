@@ -4,6 +4,10 @@ import Supabase
 enum IChartSupabaseClientFactory {
     static let authCallbackURL = URL(string: "ichart://auth-callback")!
 
+    static func isAuthCallbackURL(_ url: URL) -> Bool {
+        url.scheme == authCallbackURL.scheme && url.host == authCallbackURL.host
+    }
+
     static func liveClient() -> SupabaseClient? {
         guard let configuration = IChartSupabaseConfiguration.current() else {
             return nil
