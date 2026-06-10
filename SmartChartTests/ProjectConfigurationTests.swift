@@ -125,6 +125,14 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Sync/ChartCloudSyncService.swift")
         )
+        let syncStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Sync/ChartCloudSyncStore.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
         let clientFactoryText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseClientFactory.swift")
@@ -192,6 +200,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(syncServiceText.contains(".eq(\"version\", value: String(version))"))
         XCTAssertTrue(syncServiceText.contains("sessionProvider.currentUserID()"))
         XCTAssertFalse(syncServiceText.contains("client.auth.currentUser"))
+        XCTAssertTrue(syncServiceText.contains("Cloud backup unavailable"))
+        XCTAssertTrue(syncServiceText.contains("Sign in to back up"))
+        XCTAssertTrue(syncServiceText.contains("Local edits are saved. Reconnect to back up."))
+        XCTAssertTrue(syncServiceText.contains("manualSyncTitle"))
+        XCTAssertTrue(syncServiceText.contains("Retry Sync"))
+        XCTAssertTrue(syncServiceText.contains("Sync Now"))
+        XCTAssertTrue(syncServiceText.contains("manualSyncDisabledReason"))
+        XCTAssertTrue(syncStoreText.contains("lastSyncAttemptAt"))
+        XCTAssertTrue(syncStoreText.contains("cancelPendingSyncWork()"))
+        XCTAssertTrue(syncStoreText.contains(".notConnectedToInternet"))
+        XCTAssertTrue(syncStoreText.contains("Sign in again to resume cloud backup."))
+        XCTAssertTrue(syncStoreText.contains("Cloud permissions blocked backup. Sign in again, then retry."))
+        XCTAssertTrue(syncStoreText.contains("We could not finish cloud backup. Retry when you are ready."))
+        XCTAssertTrue(libraryText.contains("IChartCloudSyncSettings"))
+        XCTAssertTrue(libraryText.contains("Last Checked"))
+        XCTAssertTrue(libraryText.contains("syncStore.state.manualSyncTitle"))
+        XCTAssertTrue(libraryText.contains("syncStore.state.manualSyncDisabledReason"))
+        XCTAssertTrue(libraryText.contains("statusTint"))
         XCTAssertFalse(configurationText.contains("eyJ"))
     }
 

@@ -1300,7 +1300,7 @@ private struct IChartCloudSyncSettings: View {
             HStack(spacing: 14) {
                 Image(systemName: syncStore.state.systemImageName)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(statusTint)
                     .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -1326,17 +1326,69 @@ private struct IChartCloudSyncSettings: View {
                 )
             }
 
+            if let lastSyncAttemptAt = syncStore.lastSyncAttemptAt,
+               shouldShowLastChecked {
+                IChartSettingsRow(
+                    title: "Last Checked",
+                    value: lastSyncAttemptAt.formatted(date: .omitted, time: .shortened),
+                    systemImageName: "arrow.triangle.2.circlepath",
+                    theme: theme
+                )
+            }
+
             Button {
                 syncStore.syncNow()
             } label: {
-                Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                Label(syncStore.state.manualSyncTitle, systemImage: syncStore.state.manualSyncSystemImageName)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(IChartHomeBrand.blue)
-            .disabled(syncStore.isWorking || syncStore.state == .unconfigured || syncStore.state == .signedOut)
+            .tint(statusTint)
+            .disabled(!canRunManualSync)
+            .accessibilityHint(syncStore.state.manualSyncDisabledReason ?? "")
+
+            if let disabledReason = disabledReason {
+                Text(disabledReason)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var canRunManualSync: Bool {
+        syncStore.state.allowsManualSync && !syncStore.isWorking
+    }
+
+    private var disabledReason: String? {
+        guard !syncStore.isWorking else {
+            return nil
+        }
+
+        return syncStore.state.manualSyncDisabledReason
+    }
+
+    private var shouldShowLastChecked: Bool {
+        switch syncStore.state {
+        case .offline, .failed:
+            return true
+        case .unconfigured, .signedOut, .syncing, .synced:
+            return false
+        }
+    }
+
+    private var statusTint: Color {
+        switch syncStore.state {
+        case .synced:
+            return Color(red: 0.16, green: 0.48, blue: 0.24)
+        case .offline:
+            return Color(red: 0.76, green: 0.48, blue: 0.12)
+        case .failed:
+            return Color(red: 0.72, green: 0.18, blue: 0.12)
+        case .syncing, .signedOut, .unconfigured:
+            return IChartHomeBrand.blue
+        }
     }
 }
 

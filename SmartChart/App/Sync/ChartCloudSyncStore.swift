@@ -1,9 +1,11 @@
 import Foundation
+import Supabase
 
 @MainActor
 final class ChartCloudSyncStore: ObservableObject {
     @Published private(set) var state: ChartSyncState
     @Published private(set) var lastRemoteBackupAt: Date?
+    @Published private(set) var lastSyncAttemptAt: Date?
     @Published private(set) var isWorking = false
 
     private let service: ChartCloudSyncService?
@@ -44,6 +46,7 @@ final class ChartCloudSyncStore: ObservableObject {
 
     func authStateChanged(_ authState: IChartAuthState) {
         guard service != nil else {
+            cancelPendingSyncWork()
             state = .unconfigured
             isSignedIn = false
             return
@@ -54,9 +57,11 @@ final class ChartCloudSyncStore: ObservableObject {
             isSignedIn = true
             syncNow()
         case .unconfigured:
+            cancelPendingSyncWork()
             isSignedIn = false
             state = .unconfigured
         case .signedOut, .pendingEmailVerification:
+            cancelPendingSyncWork()
             isSignedIn = false
             state = .signedOut
         }
@@ -93,6 +98,7 @@ final class ChartCloudSyncStore: ObservableObject {
 
     private func runFullSync(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
         isWorking = true
+        lastSyncAttemptAt = Date()
         state = .syncing
 
         do {
@@ -101,7 +107,7 @@ final class ChartCloudSyncStore: ObservableObject {
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
         } catch {
-            state = syncFailureState(for: error)
+            state = Self.failureState(for: error)
         }
 
         isWorking = false
@@ -114,6 +120,7 @@ final class ChartCloudSyncStore: ObservableObject {
         }
 
         isWorking = true
+        lastSyncAttemptAt = Date()
         state = .syncing
 
         do {
@@ -122,18 +129,80 @@ final class ChartCloudSyncStore: ObservableObject {
             lastRemoteBackupAt = backupAt
             state = .synced(Date())
         } catch {
-            state = syncFailureState(for: error)
+            state = Self.failureState(for: error)
         }
 
         isWorking = false
     }
 
-    private func syncFailureState(for error: Error) -> ChartSyncState {
+    private func cancelPendingSyncWork() {
+        queuedUploadTask?.cancel()
+        queuedUploadTask = nil
+        syncTask?.cancel()
+        syncTask = nil
+        isWorking = false
+    }
+
+    nonisolated static func failureState(for error: Error) -> ChartSyncState {
         if let urlError = error as? URLError,
            [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return .offline
         }
 
-        return .failed(error.localizedDescription)
+        if error is IChartSupabaseSessionError {
+            return .failed("Sign in again to resume cloud backup.")
+        }
+
+        if let postgrestError = error as? PostgrestError {
+            let text = normalizedErrorText(
+                postgrestError.message,
+                postgrestError.detail,
+                postgrestError.hint,
+                postgrestError.code
+            )
+            return failureState(forNormalizedText: text)
+        }
+
+        if let authError = error as? AuthError {
+            return failureState(forNormalizedText: normalizedErrorText(authError.localizedDescription))
+        }
+
+        return failureState(forNormalizedText: normalizedErrorText(error.localizedDescription))
+    }
+
+    private nonisolated static func failureState(forNormalizedText text: String) -> ChartSyncState {
+        if text.contains("not connected")
+            || text.contains("network connection")
+            || text.contains("cannot find host")
+            || text.contains("cannot connect") {
+            return .offline
+        }
+
+        if text.contains("missing session")
+            || text.contains("session missing")
+            || text.contains("session expired")
+            || text.contains("auth session")
+            || text.contains("jwt")
+            || text.contains("401")
+            || text.contains("authorization") {
+            return .failed("Sign in again to resume cloud backup.")
+        }
+
+        if text.contains("permission denied")
+            || text.contains("row-level security")
+            || text.contains("rls")
+            || text.contains("403") {
+            return .failed("Cloud permissions blocked backup. Sign in again, then retry.")
+        }
+
+        return .failed("We could not finish cloud backup. Retry when you are ready.")
+    }
+
+    private nonisolated static func normalizedErrorText(_ values: String?...) -> String {
+        values
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
     }
 }

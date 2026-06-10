@@ -12,9 +12,9 @@ enum ChartSyncState: Equatable {
     var displayText: String {
         switch self {
         case .unconfigured:
-            return "Cloud sync offline"
+            return "Cloud backup unavailable"
         case .signedOut:
-            return "Sign in to sync"
+            return "Sign in to back up"
         case .offline:
             return "Offline"
         case .syncing:
@@ -22,22 +22,22 @@ enum ChartSyncState: Equatable {
         case .synced(let date):
             return "Synced \(date.formatted(date: .omitted, time: .shortened))"
         case .failed:
-            return "Sync issue"
+            return "Sync needs attention"
         }
     }
 
     var detailText: String {
         switch self {
         case .unconfigured:
-            return "Add Supabase configuration to enable chart backup."
+            return "Add Supabase configuration to enable cloud backup."
         case .signedOut:
-            return "Charts stay local until an account is signed in."
+            return "Charts stay local until you sign in."
         case .offline:
-            return "Local edits are safe and will retry when the network returns."
+            return "Local edits are saved. Reconnect to back up."
         case .syncing:
-            return "Backing up local chart changes."
+            return "Checking cloud backup and uploading local changes."
         case .synced:
-            return "Latest local chart library has a remote backup."
+            return "Charts are backed up."
         case .failed(let message):
             return message
         }
@@ -57,6 +57,56 @@ enum ChartSyncState: Equatable {
             return "icloud.and.arrow.up.fill"
         case .failed:
             return "exclamationmark.icloud"
+        }
+    }
+
+    var manualSyncTitle: String {
+        switch self {
+        case .unconfigured:
+            return "Unavailable"
+        case .signedOut:
+            return "Sign In First"
+        case .offline, .failed:
+            return "Retry Sync"
+        case .syncing:
+            return "Syncing"
+        case .synced:
+            return "Sync Now"
+        }
+    }
+
+    var manualSyncSystemImageName: String {
+        switch self {
+        case .offline:
+            return "wifi.exclamationmark"
+        case .failed:
+            return "arrow.clockwise"
+        case .syncing:
+            return "arrow.triangle.2.circlepath"
+        default:
+            return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    var allowsManualSync: Bool {
+        switch self {
+        case .offline, .synced, .failed:
+            return true
+        case .unconfigured, .signedOut, .syncing:
+            return false
+        }
+    }
+
+    var manualSyncDisabledReason: String? {
+        switch self {
+        case .unconfigured:
+            return "Cloud backup is not configured in this build."
+        case .signedOut:
+            return "Sign in to enable cloud backup."
+        case .syncing:
+            return nil
+        case .offline, .synced, .failed:
+            return nil
         }
     }
 }
