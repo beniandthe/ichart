@@ -56,6 +56,10 @@ final class ChartCloudSyncStore: ObservableObject {
         case .signedIn:
             isSignedIn = true
             syncNow()
+        case .temporarilyOffline:
+            cancelPendingSyncWork()
+            isSignedIn = true
+            state = .offline
         case .unconfigured:
             cancelPendingSyncWork()
             isSignedIn = false

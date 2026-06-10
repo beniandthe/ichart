@@ -1130,6 +1130,8 @@ private struct IChartAccountSettings: View {
                 credentialsForm
                 actionRow
                 passwordResetRow
+            case .temporarilyOffline:
+                offlineRow
             case .pendingEmailVerification:
                 verificationRow
             case .signedIn:
@@ -1222,6 +1224,21 @@ private struct IChartAccountSettings: View {
         }
     }
 
+    private var offlineRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task {
+                    await authStore.refreshSession()
+                }
+            } label: {
+                Label("Reconnect", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(authStore.isWorking)
+        }
+    }
+
     private var signedInRow: some View {
         HStack(spacing: 10) {
             Button {
@@ -1270,6 +1287,8 @@ private struct IChartAccountSettings: View {
             return "wifi.slash"
         case .signedOut:
             return "person.crop.circle.badge.plus"
+        case .temporarilyOffline:
+            return "wifi.exclamationmark"
         case .pendingEmailVerification:
             return "envelope.badge"
         case .signedIn:
@@ -1283,6 +1302,12 @@ private struct IChartAccountSettings: View {
             return "This build needs Supabase configuration."
         case .signedOut:
             return "Create an account or sign in to sync profile and chart data."
+        case .temporarilyOffline(let session):
+            if let email = session.email {
+                return "Using local charts for \(email). Reconnect to back up."
+            }
+
+            return "Using local charts. Reconnect to back up."
         case .pendingEmailVerification(let email):
             return "Open the verification link sent to \(email), then sign in."
         case .signedIn(let session):

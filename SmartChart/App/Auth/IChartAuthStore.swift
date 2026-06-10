@@ -12,6 +12,7 @@ struct IChartAccountSession: Equatable, Identifiable {
 enum IChartAuthState: Equatable {
     case unconfigured
     case signedOut
+    case temporarilyOffline(IChartAccountSession)
     case pendingEmailVerification(email: String)
     case signedIn(IChartAccountSession)
 
@@ -21,6 +22,8 @@ enum IChartAuthState: Equatable {
             return "Account services offline"
         case .signedOut:
             return "Signed out"
+        case .temporarilyOffline:
+            return "Temporarily offline"
         case .pendingEmailVerification:
             return "Verify email"
         case .signedIn(let session):
@@ -271,7 +274,11 @@ final class IChartAuthStore: ObservableObject {
 
         do {
             try await operation()
-            statusMessage = successMessage
+            if case .temporarilyOffline = state {
+                statusMessage = "Account is offline. Local charts remain available."
+            } else {
+                statusMessage = successMessage
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -462,15 +469,17 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         return profiles.first ?? profile
     }
 
-    private func state(for user: User) -> IChartAuthState {
-        .signedIn(
-            IChartAccountSession(
-                id: user.id,
-                email: user.email,
-                phone: user.phone,
-                isEmailVerified: user.emailConfirmedAt != nil || user.confirmedAt != nil
-            )
+    private func accountSession(for user: User) -> IChartAccountSession {
+        IChartAccountSession(
+            id: user.id,
+            email: user.email,
+            phone: user.phone,
+            isEmailVerified: user.emailConfirmedAt != nil || user.confirmedAt != nil
         )
+    }
+
+    private func state(for user: User) -> IChartAuthState {
+        .signedIn(accountSession(for: user))
     }
 
     private func persistSession(_ session: Session) async throws {
@@ -510,6 +519,11 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             )
             return try await restoreState(from: restoredSession)
         } catch {
+            if Self.isConnectivityError(error) {
+                await sessionStore.update(session)
+                return .temporarilyOffline(accountSession(for: session.user))
+            }
+
             try? persistentSessionStore.clear()
             await sessionStore.clear()
             return .signedOut
@@ -518,6 +532,26 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     private func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isConnectivityError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [
+                .notConnectedToInternet,
+                .networkConnectionLost,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .timedOut
+            ].contains(urlError.code)
+        }
+
+        let text = error.localizedDescription.lowercased()
+        return text.contains("not connected")
+            || text.contains("network connection")
+            || text.contains("cannot find host")
+            || text.contains("cannot connect")
+            || text.contains("could not connect")
+            || text.contains("timed out")
     }
 
     private func tokenHashCallback(from url: URL) -> (tokenHash: String, type: EmailOTPType)? {

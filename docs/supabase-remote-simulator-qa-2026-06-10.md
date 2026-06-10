@@ -50,8 +50,10 @@ Failure/recovery smoke:
 - Relaunched with a deliberately unreachable Supabase URL.
 - Local chart library remained available with 4 charts.
 - Settings stayed readable and did not expose raw backend errors.
-- Because auth restore could not reach the endpoint, the account state showed `Signed out` and Chart Sync showed `Sign in to back up`, not the sync-specific `Offline` state.
+- Initial bug-chase result: because auth restore could not reach the endpoint, the account state showed `Signed out` and Chart Sync showed `Sign in to back up`, not the sync-specific `Offline` state.
 - Relaunched with the correct remote URL and the app recovered to `Verified` and `Synced 10:44 AM`.
+- Follow-up fix: endpoint/auth-restore connectivity failures now keep the stored session as `Temporarily offline` and allow Chart Sync to report `Offline` instead of implying an intentional sign-out.
+- Verified follow-up: bad endpoint showed `Temporarily offline`, `Reconnect`, and Chart Sync `Offline`; correct endpoint recovered to `Verified` and `Synced 2:00 PM`.
 
 Disposable create/delete propagation:
 
@@ -63,5 +65,5 @@ Disposable create/delete propagation:
 
 ## Notes
 
-- The bad-endpoint pass suggests a future UX decision: endpoint/auth-restore failures currently surface as signed-out account state before chart sync can report `Offline`.
+- Endpoint/auth-restore connectivity failures are now treated as temporary offline state rather than signed-out state.
 - No service-role key, database password, JWT secret, SMTP credential, or Stripe secret was used in the app or committed.
