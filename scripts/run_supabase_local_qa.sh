@@ -3,14 +3,27 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! command -v supabase >/dev/null 2>&1; then
-  echo "Supabase CLI is required. Install it with: brew install supabase/tap/supabase" >&2
+if [[ -d "$HOME/.orbstack/bin" ]]; then
+  export PATH="$HOME/.orbstack/bin:$PATH"
+fi
+
+SUPABASE_CMD=()
+if command -v supabase >/dev/null 2>&1; then
+  SUPABASE_CMD=(supabase)
+elif command -v npx >/dev/null 2>&1; then
+  SUPABASE_CMD=(npx --yes supabase)
+else
+  echo "Supabase CLI is required. Install it with 'brew install supabase/tap/supabase' or run through npx." >&2
   exit 127
 fi
 
+supabase_cli() {
+  "${SUPABASE_CMD[@]}" "$@"
+}
+
 load_local_supabase_env() {
   local status_env api_url publishable_key anon_key
-  status_env="$(supabase status -o env 2>/dev/null || true)"
+  status_env="$(supabase_cli status -o env 2>/dev/null || true)"
   api_url="$(printf '%s\n' "$status_env" | awk -F= '/^API_URL=/{ gsub(/"/, "", $2); print $2; exit }')"
   publishable_key="$(printf '%s\n' "$status_env" | awk -F= '/^PUBLISHABLE_KEY=/{ gsub(/"/, "", $2); print $2; exit }')"
   anon_key="$(printf '%s\n' "$status_env" | awk -F= '/^ANON_KEY=/{ gsub(/"/, "", $2); print $2; exit }')"
@@ -38,20 +51,20 @@ wait_for_auth() {
   return 1
 }
 
-if ! supabase db reset; then
+if ! supabase_cli db reset; then
   echo "Supabase db reset hit a local gateway readiness error; restarting local stack before verification..."
-  supabase stop >/tmp/smart-chart-supabase-stop.log 2>&1
-  supabase start >/tmp/smart-chart-supabase-start.log 2>&1
+  supabase_cli stop >/tmp/smart-chart-supabase-stop.log 2>&1
+  supabase_cli start >/tmp/smart-chart-supabase-start.log 2>&1
 fi
 
 load_local_supabase_env
 
-supabase test db
+supabase_cli test db
 
 if ! wait_for_auth; then
   echo "Restarting local Supabase stack so the gateway refreshes Auth routing..."
-  supabase stop >/tmp/smart-chart-supabase-stop.log 2>&1
-  supabase start >/tmp/smart-chart-supabase-start.log 2>&1
+  supabase_cli stop >/tmp/smart-chart-supabase-stop.log 2>&1
+  supabase_cli start >/tmp/smart-chart-supabase-start.log 2>&1
   wait_for_auth
 fi
 

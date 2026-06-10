@@ -7,6 +7,7 @@ Status: Sprint 1-5 implementation guide for iChart account/profile and single-us
 1. Install the Supabase CLI:
    - Homebrew: `brew install supabase/tap/supabase`
    - Or use the official package manager instructions from Supabase.
+   - The local QA script can also fall back to `npx --yes supabase` when a global CLI is not installed.
 2. Copy `.env.example` to `.env` and fill in local or project keys.
 3. Confirm `supabase/config.toml` exists. It defines the local API/database ports and allows `ichart://auth-callback`.
 4. Start local services: `supabase start`
@@ -49,6 +50,8 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 6. Confirm no raw card data exists in database tables.
 
 ## QA Checklist
+
+Use `docs/supabase-production-readiness-checklist.md` as the release-candidate checklist. Use `scripts/run_supabase_production_readiness.sh` for the secret-free automated gate, and add `SMART_CHART_RUN_LOCAL_SUPABASE_QA=1` when the local Supabase stack is ready for reset/RLS/integration verification.
 
 - Unconfigured build launches and edits charts locally.
 - Create account, resend verification, sign in, refresh session, and sign out.

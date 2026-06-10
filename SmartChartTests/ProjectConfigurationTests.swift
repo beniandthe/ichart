@@ -267,6 +267,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("docs/supabase-integration-runbook.md")
         )
+        let productionReadinessText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-production-readiness-checklist.md")
+        )
         let rlsTestText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/tests/rls_smoke.sql")
@@ -283,6 +287,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("scripts/run_supabase_local_qa.sh")
         )
+        let productionReadinessScriptText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("scripts/run_supabase_production_readiness.sh")
+        )
 
         XCTAssertTrue(gitignoreText.contains("!.env.example"))
         XCTAssertTrue(envExampleText.contains("SUPABASE_URL"))
@@ -295,6 +303,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(runbookText.contains("custom SMTP"))
         XCTAssertTrue(runbookText.contains("supabase status -o env"))
         XCTAssertTrue(runbookText.contains("remote project settings cannot accidentally redirect local RLS/integration tests"))
+        XCTAssertTrue(runbookText.contains("scripts/run_supabase_production_readiness.sh"))
+        XCTAssertTrue(runbookText.contains("docs/supabase-production-readiness-checklist.md"))
+        XCTAssertTrue(productionReadinessText.contains("Auth email/password provider is enabled"))
+        XCTAssertTrue(productionReadinessText.contains("ichart://auth-callback"))
+        XCTAssertTrue(productionReadinessText.contains("Email templates keep a confirmation link flow"))
+        XCTAssertTrue(productionReadinessText.contains("service-role keys"))
+        XCTAssertTrue(productionReadinessText.contains("Sync Now"))
+        XCTAssertTrue(productionReadinessText.contains("Retry Sync"))
+        XCTAssertTrue(productionReadinessText.contains("Restore/Reinstall Gate"))
+        XCTAssertTrue(productionReadinessText.contains("Data And RLS Gate"))
         XCTAssertTrue(supabaseConfigText.contains("project_id = \"smart-chart\""))
         XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
         XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
@@ -311,11 +329,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(integrationTestText.contains("over_email_send_rate_limit"))
         XCTAssertTrue(integrationTestText.contains("latest_snapshot_id"))
         XCTAssertFalse(integrationTestText.contains("SERVICE_ROLE"))
-        XCTAssertTrue(qaScriptText.contains("supabase db reset"))
-        XCTAssertTrue(qaScriptText.contains("supabase status -o env"))
+        XCTAssertTrue(qaScriptText.contains("SUPABASE_CMD"))
+        XCTAssertTrue(qaScriptText.contains("npx --yes supabase"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli db reset"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli status -o env"))
         XCTAssertTrue(qaScriptText.contains("API_URL"))
         XCTAssertTrue(qaScriptText.contains("PUBLISHABLE_KEY"))
-        XCTAssertTrue(qaScriptText.contains("supabase test db"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli test db"))
         XCTAssertTrue(qaScriptText.contains("--filter SupabaseIntegrationTests"))
+        XCTAssertTrue(productionReadinessScriptText.contains("git diff --check"))
+        XCTAssertTrue(productionReadinessScriptText.contains("scan_for_secrets"))
+        XCTAssertTrue(productionReadinessScriptText.contains("SMART_CHART_RUN_LOCAL_SUPABASE_QA"))
+        XCTAssertTrue(productionReadinessScriptText.contains("scripts/run_supabase_local_qa.sh"))
+        XCTAssertTrue(productionReadinessScriptText.contains("ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests"))
+        XCTAssertTrue(productionReadinessScriptText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertTrue(productionReadinessScriptText.contains("Manual simulator/cloud gate still required"))
     }
 }
