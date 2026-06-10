@@ -1,6 +1,34 @@
 import Foundation
 import Supabase
 
+struct IChartSupabasePersistentSessionStore: Sendable {
+    private static let sessionKey = "iChart.supabase.session.v1"
+    private let storage: any AuthLocalStorage
+
+    init(storage: any AuthLocalStorage = IChartSupabaseAuthLocalStorage()) {
+        self.storage = storage
+    }
+
+    func store(_ session: Session) throws {
+        try storage.store(
+            key: Self.sessionKey,
+            value: JSONEncoder().encode(session)
+        )
+    }
+
+    func load() throws -> Session? {
+        guard let data = try storage.retrieve(key: Self.sessionKey) else {
+            return nil
+        }
+
+        return try JSONDecoder().decode(Session.self, from: data)
+    }
+
+    func clear() throws {
+        try storage.remove(key: Self.sessionKey)
+    }
+}
+
 struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     private let primary: any AuthLocalStorage
     private let fallback: IChartUserDefaultsAuthLocalStorage
@@ -53,7 +81,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     }
 
     private static var defaultAllowsInsecureFallback: Bool {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         true
         #else
         false

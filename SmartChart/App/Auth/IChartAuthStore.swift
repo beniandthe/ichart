@@ -338,25 +338,26 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
     private let authClient: SupabaseClient
     private let dataClient: SupabaseClient
     private let sessionStore: IChartSupabaseSessionStore
+    private let persistentSessionStore: IChartSupabasePersistentSessionStore
 
     init(
         authClient: SupabaseClient,
         dataClient: SupabaseClient,
-        sessionStore: IChartSupabaseSessionStore
+        sessionStore: IChartSupabaseSessionStore,
+        persistentSessionStore: IChartSupabasePersistentSessionStore = IChartSupabasePersistentSessionStore()
     ) {
         self.authClient = authClient
         self.dataClient = dataClient
         self.sessionStore = sessionStore
+        self.persistentSessionStore = persistentSessionStore
     }
 
     func restoreSession() async throws -> IChartAuthState {
         do {
             let session = try await authClient.auth.session
-            await sessionStore.update(session)
-            return state(for: session.user)
+            return try await restoreState(from: session)
         } catch {
-            await sessionStore.clear()
-            return .signedOut
+            return try await restoreStoredSession()
         }
     }
 
@@ -397,6 +398,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     func signOut() async throws {
         try await authClient.auth.signOut()
+        try? persistentSessionStore.clear()
         await sessionStore.clear()
     }
 
@@ -472,11 +474,46 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
     }
 
     private func persistSession(_ session: Session) async throws {
-        _ = try await authClient.auth.setSession(
+        let persistedSession = try await authClient.auth.setSession(
             accessToken: session.accessToken,
             refreshToken: session.refreshToken
         )
+        try persistentSessionStore.store(persistedSession)
+        await sessionStore.update(persistedSession)
+    }
+
+    private func restoreState(from session: Session) async throws -> IChartAuthState {
+        try persistentSessionStore.store(session)
         await sessionStore.update(session)
+        return state(for: session.user)
+    }
+
+    private func restoreStoredSession() async throws -> IChartAuthState {
+        let storedSession: Session?
+        do {
+            storedSession = try persistentSessionStore.load()
+        } catch {
+            try? persistentSessionStore.clear()
+            await sessionStore.clear()
+            return .signedOut
+        }
+
+        guard let session = storedSession else {
+            await sessionStore.clear()
+            return .signedOut
+        }
+
+        do {
+            let restoredSession = try await authClient.auth.setSession(
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken
+            )
+            return try await restoreState(from: restoredSession)
+        } catch {
+            try? persistentSessionStore.clear()
+            await sessionStore.clear()
+            return .signedOut
+        }
     }
 
     private func normalized(_ value: String) -> String {
