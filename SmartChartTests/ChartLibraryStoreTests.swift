@@ -158,6 +158,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(store.selectedChartID)
         XCTAssertEqual(store.entitlements, .free)
         XCTAssertTrue(store.deletionTombstones.isEmpty)
+        XCTAssertNil(store.cloudMetadata.ownerID)
         XCTAssertNil(store.cloudMetadata.lastSyncAt)
         XCTAssertNil(store.cloudMetadata.lastRemoteBackupAt)
         XCTAssertTrue(repository.savedSnapshots.isEmpty)
@@ -448,6 +449,30 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(scheduledUploadCount, 0)
     }
 
+    func testCloudMetadataSyncUpdatePersistsOwnerWithoutSchedulingUpload() throws {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(charts: [], repository: repository)
+        var scheduledUploadCount = 0
+        store.onSnapshotSaved = { _ in
+            scheduledUploadCount += 1
+        }
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+        let syncDate = Date(timeIntervalSinceReferenceDate: 8_000)
+        let backupDate = Date(timeIntervalSinceReferenceDate: 8_100)
+
+        store.updateCloudMetadataFromSync(
+            ownerID: ownerID,
+            lastSyncAt: syncDate,
+            lastRemoteBackupAt: backupDate
+        )
+
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.cloudMetadata.ownerID, ownerID)
+        XCTAssertEqual(savedSnapshot.cloudMetadata.lastSyncAt, syncDate)
+        XCTAssertEqual(savedSnapshot.cloudMetadata.lastRemoteBackupAt, backupDate)
+        XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
     func testV1NewChartOptionsExposeOnlyActiveReleaseStyles() {
         XCTAssertEqual(ChartLayoutStyle.v1NewChartOptions, [.simpleChordSheet, .rhythmSectionSheet])
         XCTAssertTrue(ChartLayoutStyle.allCases.contains(.leadSheet))
@@ -565,6 +590,7 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         XCTAssertEqual(decoded.charts.map(\.id), [chart.id])
         XCTAssertTrue(decoded.deletionTombstones.isEmpty)
+        XCTAssertNil(decoded.cloudMetadata.ownerID)
         XCTAssertNil(decoded.cloudMetadata.lastSyncAt)
         XCTAssertNil(decoded.cloudMetadata.lastRemoteBackupAt)
     }

@@ -104,4 +104,87 @@ final class ChartCloudMergeTests: XCTestCase {
         XCTAssertTrue(merged.charts.isEmpty)
         XCTAssertNil(merged.selectedChartID)
     }
+
+    func testMergeStampsOwnerMetadataWhenProvided() {
+        let date = Date(timeIntervalSinceReferenceDate: 5_000)
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+        let local = ChartLibrarySnapshot(
+            charts: [],
+            selectedChartID: nil,
+            entitlements: .free
+        )
+        let remote = ChartCloudRemoteLibrary(
+            charts: [],
+            deletionTombstones: [],
+            lastRemoteBackupAt: date.addingTimeInterval(30)
+        )
+
+        let merged = ChartCloudMerge.mergedSnapshot(local: local, remote: remote, ownerID: ownerID, now: date)
+
+        XCTAssertEqual(merged.cloudMetadata.ownerID, ownerID)
+        XCTAssertEqual(merged.cloudMetadata.lastSyncAt, date)
+        XCTAssertEqual(merged.cloudMetadata.lastRemoteBackupAt, date.addingTimeInterval(30))
+    }
+
+    func testOwnerlessLocalSnapshotIsPreservedForFirstSync() {
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+        let chart = Chart.blank(title: "First Backup")
+        let snapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: .free
+        )
+
+        let scoped = ChartCloudMerge.localSnapshotForSync(snapshot, ownerID: ownerID)
+
+        XCTAssertEqual(scoped.charts.map(\.id), [chart.id])
+        XCTAssertEqual(scoped.selectedChartID, chart.id)
+        XCTAssertNil(scoped.cloudMetadata.ownerID)
+    }
+
+    func testLocalSnapshotForDifferentOwnerClearsChartsAndTombstones() {
+        let previousOwnerID = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
+        let nextOwnerID = UUID(uuidString: "00000000-0000-0000-0000-000000000204")!
+        let chart = Chart.blank(title: "Previous Owner")
+        let tombstone = ChartDeletionTombstone(chartID: UUID(), deletedAt: Date(timeIntervalSinceReferenceDate: 6_000))
+        let snapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: AppEntitlements(activePlan: .proLifetime),
+            deletionTombstones: [tombstone],
+            cloudMetadata: ChartCloudMetadata(ownerID: previousOwnerID, lastSyncAt: Date(), lastRemoteBackupAt: Date())
+        )
+
+        let scoped = ChartCloudMerge.localSnapshotForSync(snapshot, ownerID: nextOwnerID)
+
+        XCTAssertTrue(scoped.charts.isEmpty)
+        XCTAssertNil(scoped.selectedChartID)
+        XCTAssertEqual(scoped.entitlements, AppEntitlements(activePlan: .proLifetime))
+        XCTAssertTrue(scoped.deletionTombstones.isEmpty)
+        XCTAssertEqual(scoped.cloudMetadata.ownerID, nextOwnerID)
+        XCTAssertNil(scoped.cloudMetadata.lastSyncAt)
+        XCTAssertNil(scoped.cloudMetadata.lastRemoteBackupAt)
+    }
+
+    func testEmptySnapshotForOwnerPreservesEntitlementsOnly() {
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000205")!
+        let chart = Chart.blank(title: "Legacy Cloud")
+        let snapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: AppEntitlements(activePlan: .studioSubscription),
+            deletionTombstones: [
+                ChartDeletionTombstone(chartID: UUID(), deletedAt: Date(timeIntervalSinceReferenceDate: 7_000))
+            ],
+            cloudMetadata: ChartCloudMetadata(lastSyncAt: Date(), lastRemoteBackupAt: Date())
+        )
+
+        let empty = ChartCloudMerge.emptySnapshotForOwner(basedOn: snapshot, ownerID: ownerID)
+
+        XCTAssertTrue(empty.charts.isEmpty)
+        XCTAssertNil(empty.selectedChartID)
+        XCTAssertEqual(empty.entitlements, AppEntitlements(activePlan: .studioSubscription))
+        XCTAssertTrue(empty.deletionTombstones.isEmpty)
+        XCTAssertEqual(empty.cloudMetadata.ownerID, ownerID)
+    }
 }

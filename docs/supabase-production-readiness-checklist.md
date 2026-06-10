@@ -60,12 +60,15 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 5. Create a new account with email/password.
 6. Open the verification email. If the browser ends on a blank deep-link page, return to the app and sign in with the same email/password.
 7. Confirm Settings shows `Verified`.
-8. Save email, phone, address, and payment summary profile fields. Payment summary must remain text/customer-reference only.
-9. Tap `Sync Now` and confirm Chart Sync returns to `Synced` with an updated Last Backup time.
-10. Create a Simple Chord Sheet, edit at least one chord, and wait for sync to return to `Synced`.
-11. Create a Rhythm Section chart, add visible chart content, and wait for sync to return to `Synced`.
-12. Delete one disposable QA chart and confirm it does not return after relaunch.
-13. Sign out, relaunch, sign back in, and confirm the expected charts restore.
+8. Request a password reset from the signed-out Account panel.
+9. Open the reset email through a path that can hand `ichart://auth-callback` to the simulator/app.
+10. Confirm Settings shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
+11. Save email, phone, address, and payment summary profile fields. Payment summary must remain text/customer-reference only.
+12. Tap `Sync Now` and confirm Chart Sync returns to `Synced` with an updated Last Backup time.
+13. Create a Simple Chord Sheet, edit at least one chord, and wait for sync to return to `Synced`.
+14. Create a Rhythm Section chart, add visible chart content, and wait for sync to return to `Synced`.
+15. Delete one disposable QA chart and confirm it does not return after relaunch.
+16. Sign out, relaunch, sign back in, and confirm the expected charts restore.
 
 ## Restore/Reinstall Gate
 

@@ -233,8 +233,9 @@ final class ChartLibraryStore: ObservableObject {
         }
     }
 
-    func updateCloudMetadataFromSync(lastSyncAt: Date, lastRemoteBackupAt: Date?) {
+    func updateCloudMetadataFromSync(ownerID: UUID, lastSyncAt: Date, lastRemoteBackupAt: Date?) {
         var updatedMetadata = cloudMetadata
+        updatedMetadata.ownerID = ownerID
         updatedMetadata.lastSyncAt = lastSyncAt
         if let lastRemoteBackupAt {
             updatedMetadata.lastRemoteBackupAt = lastRemoteBackupAt

@@ -53,7 +53,7 @@ final class ChartCloudSyncStore: ObservableObject {
         }
 
         switch authState {
-        case .signedIn:
+        case .signedIn, .passwordRecovery:
             isSignedIn = true
             syncNow()
         case .temporarilyOffline:
@@ -128,9 +128,13 @@ final class ChartCloudSyncStore: ObservableObject {
         state = .syncing
 
         do {
-            let backupAt = try await service.pushLocalSnapshot(snapshot)
-            libraryStore?.updateCloudMetadataFromSync(lastSyncAt: Date(), lastRemoteBackupAt: backupAt)
-            lastRemoteBackupAt = backupAt
+            let result = try await service.pushLocalSnapshot(snapshot)
+            libraryStore?.updateCloudMetadataFromSync(
+                ownerID: result.ownerID,
+                lastSyncAt: Date(),
+                lastRemoteBackupAt: result.lastRemoteBackupAt
+            )
+            lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
         } catch {
             state = Self.failureState(for: error)

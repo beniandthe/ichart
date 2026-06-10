@@ -1086,6 +1086,7 @@ private struct IChartAccountSettings: View {
     let theme: IChartHomeTheme
     @State private var email = ""
     @State private var password = ""
+    @State private var newPassword = ""
 
     private var canSubmit: Bool {
         !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1096,6 +1097,10 @@ private struct IChartAccountSettings: View {
     private var canRequestPasswordReset: Bool {
         !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !authStore.isWorking
+    }
+
+    private var canUpdateRecoveryPassword: Bool {
+        newPassword.count >= 8 && !authStore.isWorking
     }
 
     var body: some View {
@@ -1134,6 +1139,8 @@ private struct IChartAccountSettings: View {
                 offlineRow
             case .pendingEmailVerification:
                 verificationRow
+            case .passwordRecovery:
+                passwordRecoveryRow
             case .signedIn:
                 signedInRow
             }
@@ -1224,6 +1231,43 @@ private struct IChartAccountSettings: View {
         }
     }
 
+    private var passwordRecoveryRow: some View {
+        VStack(spacing: 10) {
+            IChartAccountSecureField(
+                title: "New Password",
+                placeholder: "8 characters minimum",
+                text: $newPassword,
+                systemImageName: "key",
+                theme: theme
+            )
+
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        await authStore.updatePassword(newPassword)
+                        newPassword = ""
+                    }
+                } label: {
+                    Label("Save Password", systemImage: "checkmark.seal")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(IChartHomeBrand.blue)
+                .disabled(!canUpdateRecoveryPassword)
+
+                Button {
+                    Task {
+                        await authStore.dismissPasswordRecovery()
+                        newPassword = ""
+                    }
+                } label: {
+                    Label("Cancel", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(authStore.isWorking)
+            }
+        }
+    }
+
     private var offlineRow: some View {
         HStack(spacing: 10) {
             Button {
@@ -1291,6 +1335,8 @@ private struct IChartAccountSettings: View {
             return "wifi.exclamationmark"
         case .pendingEmailVerification:
             return "envelope.badge"
+        case .passwordRecovery:
+            return "key"
         case .signedIn:
             return "checkmark.seal"
         }
@@ -1310,6 +1356,12 @@ private struct IChartAccountSettings: View {
             return "Using local charts. Reconnect to back up."
         case .pendingEmailVerification(let email):
             return "Open the verification link sent to \(email), then sign in."
+        case .passwordRecovery(let session):
+            if let email = session.email {
+                return "Enter a new password for \(email)."
+            }
+
+            return "Enter a new password to finish account recovery."
         case .signedIn(let session):
             return session.email ?? "Signed in to iChart."
         }
@@ -1435,7 +1487,9 @@ private struct IChartAccountTextField: View {
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
-                .frame(width: 86, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 104, alignment: .leading)
 
             TextField(placeholder, text: $text)
                 .keyboardType(keyboardType)
@@ -1474,7 +1528,9 @@ private struct IChartAccountSecureField: View {
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
-                .frame(width: 86, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 104, alignment: .leading)
 
             SecureField(placeholder, text: $text)
                 .textInputAutocapitalization(.never)

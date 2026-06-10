@@ -5,6 +5,11 @@ struct ChartCloudSyncResult: Equatable {
     var lastRemoteBackupAt: Date?
 }
 
+struct ChartCloudPushResult: Equatable {
+    var ownerID: UUID
+    var lastRemoteBackupAt: Date
+}
+
 struct ChartCloudRemoteLibrary: Equatable {
     var charts: [Chart]
     var deletionTombstones: [ChartDeletionTombstone]
@@ -15,6 +20,7 @@ enum ChartCloudMerge {
     static func mergedSnapshot(
         local: ChartLibrarySnapshot,
         remote: ChartCloudRemoteLibrary,
+        ownerID: UUID? = nil,
         now: Date = Date()
     ) -> ChartLibrarySnapshot {
         var chartsByID: [Chart.ID: Chart] = Dictionary(uniqueKeysWithValues: local.charts.map { ($0.id, $0) })
@@ -69,9 +75,35 @@ enum ChartCloudMerge {
             entitlements: local.entitlements,
             deletionTombstones: mergedTombstones,
             cloudMetadata: ChartCloudMetadata(
+                ownerID: ownerID ?? local.cloudMetadata.ownerID,
                 lastSyncAt: now,
                 lastRemoteBackupAt: remote.lastRemoteBackupAt ?? local.cloudMetadata.lastRemoteBackupAt
             )
+        )
+    }
+
+    static func localSnapshotForSync(
+        _ snapshot: ChartLibrarySnapshot,
+        ownerID: UUID
+    ) -> ChartLibrarySnapshot {
+        guard let previousOwnerID = snapshot.cloudMetadata.ownerID,
+              previousOwnerID != ownerID else {
+            return snapshot
+        }
+
+        return emptySnapshotForOwner(basedOn: snapshot, ownerID: ownerID)
+    }
+
+    static func emptySnapshotForOwner(
+        basedOn snapshot: ChartLibrarySnapshot,
+        ownerID: UUID
+    ) -> ChartLibrarySnapshot {
+        ChartLibrarySnapshot(
+            charts: [],
+            selectedChartID: nil,
+            entitlements: snapshot.entitlements,
+            deletionTombstones: [],
+            cloudMetadata: ChartCloudMetadata(ownerID: ownerID)
         )
     }
 

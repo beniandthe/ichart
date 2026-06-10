@@ -126,19 +126,58 @@ actor ChartCloudSyncService {
     }
 
     func syncNow(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
-        let remoteLibrary = try await pullRemoteSnapshot()
-        let mergedSnapshot = ChartCloudMerge.mergedSnapshot(local: localSnapshot, remote: remoteLibrary)
-        let lastBackupAt = try await pushLocalSnapshot(mergedSnapshot)
-        var updatedSnapshot = mergedSnapshot
+        let ownerID = try await currentUserID()
+        let scopedLocalSnapshot = ChartCloudMerge.localSnapshotForSync(localSnapshot, ownerID: ownerID)
+        let remoteLibrary = try await pullRemoteSnapshot(ownerID: ownerID)
+        let mergedSnapshot = ChartCloudMerge.mergedSnapshot(
+            local: scopedLocalSnapshot,
+            remote: remoteLibrary,
+            ownerID: ownerID
+        )
+        let lastBackupAt: Date
+        let snapshotToReturn: ChartLibrarySnapshot
+        do {
+            lastBackupAt = try await pushLocalSnapshot(mergedSnapshot, ownerID: ownerID)
+            snapshotToReturn = mergedSnapshot
+        } catch {
+            guard Self.shouldRestoreRemoteForLegacyOwnerlessSnapshot(
+                after: error,
+                localSnapshot: localSnapshot,
+                scopedLocalSnapshot: scopedLocalSnapshot
+            ) else {
+                throw error
+            }
+
+            let ownerScopedEmptySnapshot = ChartCloudMerge.emptySnapshotForOwner(
+                basedOn: localSnapshot,
+                ownerID: ownerID
+            )
+            let remoteOnlySnapshot = ChartCloudMerge.mergedSnapshot(
+                local: ownerScopedEmptySnapshot,
+                remote: remoteLibrary,
+                ownerID: ownerID
+            )
+            lastBackupAt = try await pushLocalSnapshot(remoteOnlySnapshot, ownerID: ownerID)
+            snapshotToReturn = remoteOnlySnapshot
+        }
+
+        var updatedSnapshot = snapshotToReturn
         updatedSnapshot.cloudMetadata.lastRemoteBackupAt = lastBackupAt
         updatedSnapshot.cloudMetadata.lastSyncAt = Date()
+        updatedSnapshot.cloudMetadata.ownerID = ownerID
         return ChartCloudSyncResult(snapshot: updatedSnapshot, lastRemoteBackupAt: lastBackupAt)
     }
 
     @discardableResult
-    func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot) async throws -> Date {
+    func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot) async throws -> ChartCloudPushResult {
         let ownerID = try await currentUserID()
+        let scopedSnapshot = ChartCloudMerge.localSnapshotForSync(snapshot, ownerID: ownerID)
+        let lastBackupAt = try await pushLocalSnapshot(scopedSnapshot, ownerID: ownerID)
+        return ChartCloudPushResult(ownerID: ownerID, lastRemoteBackupAt: lastBackupAt)
+    }
 
+    @discardableResult
+    private func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, ownerID: UUID) async throws -> Date {
         for chart in snapshot.charts {
             try await push(chart: chart, ownerID: ownerID)
         }
@@ -156,6 +195,10 @@ actor ChartCloudSyncService {
 
     func pullRemoteSnapshot() async throws -> ChartCloudRemoteLibrary {
         let ownerID = try await currentUserID()
+        return try await pullRemoteSnapshot(ownerID: ownerID)
+    }
+
+    private func pullRemoteSnapshot(ownerID: UUID) async throws -> ChartCloudRemoteLibrary {
         let documents: [ChartCloudDocumentRow] = try await client
             .from("chart_documents")
             .select()
@@ -305,6 +348,50 @@ actor ChartCloudSyncService {
 
     private static func remoteTimestamp(from date: Date) -> String {
         timestampFormatter.string(from: date)
+    }
+
+    private static func shouldRestoreRemoteForLegacyOwnerlessSnapshot(
+        after error: Error,
+        localSnapshot: ChartLibrarySnapshot,
+        scopedLocalSnapshot: ChartLibrarySnapshot
+    ) -> Bool {
+        localSnapshot.cloudMetadata.ownerID == nil
+            && localSnapshot.cloudMetadata.lastRemoteBackupAt != nil
+            && scopedLocalSnapshot.cloudMetadata.ownerID == nil
+            && isPermissionDeniedError(error)
+    }
+
+    private static func isPermissionDeniedError(_ error: Error) -> Bool {
+        if let postgrestError = error as? PostgrestError {
+            let text = normalizedErrorText(
+                postgrestError.message,
+                postgrestError.detail,
+                postgrestError.hint,
+                postgrestError.code
+            )
+            return isPermissionDeniedText(text)
+        }
+
+        if let authError = error as? AuthError {
+            return isPermissionDeniedText(normalizedErrorText(authError.localizedDescription))
+        }
+
+        return isPermissionDeniedText(normalizedErrorText(error.localizedDescription))
+    }
+
+    private static func isPermissionDeniedText(_ text: String) -> Bool {
+        text.contains("permission denied")
+            || text.contains("row-level security")
+            || text.contains("rls")
+            || text.contains("403")
+    }
+
+    private static func normalizedErrorText(_ values: String?...) -> String {
+        values
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
     }
 
     private static let timestampFormatter: ISO8601DateFormatter = {

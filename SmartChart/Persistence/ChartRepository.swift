@@ -70,10 +70,12 @@ struct ChartDeletionTombstone: Codable, Hashable, Identifiable {
 }
 
 struct ChartCloudMetadata: Codable, Hashable {
+    var ownerID: UUID?
     var lastSyncAt: Date?
     var lastRemoteBackupAt: Date?
 
-    init(lastSyncAt: Date? = nil, lastRemoteBackupAt: Date? = nil) {
+    init(ownerID: UUID? = nil, lastSyncAt: Date? = nil, lastRemoteBackupAt: Date? = nil) {
+        self.ownerID = ownerID
         self.lastSyncAt = lastSyncAt
         self.lastRemoteBackupAt = lastRemoteBackupAt
     }

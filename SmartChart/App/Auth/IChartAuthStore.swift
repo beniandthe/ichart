@@ -14,6 +14,7 @@ enum IChartAuthState: Equatable {
     case signedOut
     case temporarilyOffline(IChartAccountSession)
     case pendingEmailVerification(email: String)
+    case passwordRecovery(IChartAccountSession)
     case signedIn(IChartAccountSession)
 
     var statusText: String {
@@ -26,6 +27,8 @@ enum IChartAuthState: Equatable {
             return "Temporarily offline"
         case .pendingEmailVerification:
             return "Verify email"
+        case .passwordRecovery:
+            return "Set new password"
         case .signedIn(let session):
             return session.isEmailVerified ? "Verified" : "Signed in"
         }
@@ -102,6 +105,7 @@ private protocol IChartAccountServicing {
     func resendVerificationEmail(email: String) async throws
     func requestPasswordReset(email: String) async throws
     func handleAuthCallback(url: URL) async throws -> IChartAuthState
+    func updatePassword(_ password: String) async throws -> IChartAuthState
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile?
     func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile
 }
@@ -220,6 +224,23 @@ final class IChartAuthStore: ObservableObject {
         }
     }
 
+    func updatePassword(_ password: String) async {
+        await run("Password updated. You're signed in.") {
+            let nextState = try await service.updatePassword(password)
+            try await applyAuthState(nextState)
+        }
+    }
+
+    func dismissPasswordRecovery() async {
+        guard case .passwordRecovery(let session) = state else {
+            return
+        }
+
+        await run("Signed in.") {
+            try await applyAuthState(.signedIn(session))
+        }
+    }
+
     func saveProfile(
         email: String,
         phone: String,
@@ -276,6 +297,8 @@ final class IChartAuthStore: ObservableObject {
             try await operation()
             if case .temporarilyOffline = state {
                 statusMessage = "Account is offline. Local charts remain available."
+            } else if case .passwordRecovery = state {
+                statusMessage = "Enter a new password to finish reset."
             } else {
                 statusMessage = successMessage
             }
@@ -328,6 +351,10 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
     func requestPasswordReset(email: String) async throws {}
 
     func handleAuthCallback(url: URL) async throws -> IChartAuthState {
+        .unconfigured
+    }
+
+    func updatePassword(_ password: String) async throws -> IChartAuthState {
         .unconfigured
     }
 
@@ -429,6 +456,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             throw IChartAuthError.invalidAuthCallback
         }
 
+        let callbackType = callbackType(from: url)
         if let tokenHashCallback = tokenHashCallback(from: url) {
             let response = try await authClient.auth.verifyOTP(
                 tokenHash: tokenHashCallback.tokenHash,
@@ -438,12 +466,19 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             guard let session = response.session else { return .signedOut }
 
             try await persistSession(session)
-            return state(for: session.user)
+            return authState(for: session.user, callbackType: callbackType)
         }
 
         let session = try await authClient.auth.session(from: url)
         try await persistSession(session)
-        return state(for: session.user)
+        return authState(for: session.user, callbackType: callbackType)
+    }
+
+    func updatePassword(_ password: String) async throws -> IChartAuthState {
+        let updatedUser = try await authClient.auth.update(user: UserAttributes(password: password))
+        let session = try await authClient.auth.session
+        try await persistSession(session)
+        return state(for: updatedUser)
     }
 
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile? {
@@ -480,6 +515,14 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     private func state(for user: User) -> IChartAuthState {
         .signedIn(accountSession(for: user))
+    }
+
+    private func authState(for user: User, callbackType: String?) -> IChartAuthState {
+        if callbackType == "recovery" {
+            return .passwordRecovery(accountSession(for: user))
+        }
+
+        return state(for: user)
     }
 
     private func persistSession(_ session: Session) async throws {
@@ -564,6 +607,24 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
         let rawType = queryItems.first(where: { $0.name == "type" })?.value
         return (tokenHash, emailOTPType(from: rawType) ?? .email)
+    }
+
+    private func callbackType(from url: URL) -> String? {
+        if let queryType = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "type" })?
+            .value {
+            return normalized(queryType)
+        }
+
+        guard let fragment = url.fragment,
+              let fragmentItems = URLComponents(string: "https://ichart.local/callback?\(fragment)")?.queryItems,
+              let fragmentType = fragmentItems.first(where: { $0.name == "type" })?.value
+        else {
+            return nil
+        }
+
+        return normalized(fragmentType)
     }
 
     private func emailOTPType(from value: String?) -> EmailOTPType? {

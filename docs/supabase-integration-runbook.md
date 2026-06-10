@@ -37,6 +37,7 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 - Add `ichart://auth-callback` to Supabase Auth redirect URLs.
 - Supabase rejects hosted email-template edits on free/default email provider projects. Configure custom SMTP before customizing production email templates.
 - During simulator QA, the verification link may open a blank browser page if it redirects to `ichart://auth-callback` outside the simulator. After opening the link, return to iChart and sign in with the same email/password.
+- During password-reset QA, a blank desktop browser page is not enough. The reset link must be opened through a simulator/app path that delivers `ichart://auth-callback` to iChart, then Settings should show `Set new password` before saving the replacement password.
 - Use the anon/publishable key in the app only.
 - Keep the service-role key server-side only for future webhooks/admin jobs.
 
