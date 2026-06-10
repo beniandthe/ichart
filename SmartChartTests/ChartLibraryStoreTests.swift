@@ -126,10 +126,17 @@ final class ChartLibraryStoreTests: XCTestCase {
 
     func testLiveStoreMarksLoadedSnapshotAsSaved() {
         let chart = Chart.blank(title: "Saved Chart")
+        let tombstone = ChartDeletionTombstone(chartID: UUID(), deletedAt: Date(timeIntervalSince1970: 100))
+        let cloudMetadata = ChartCloudMetadata(
+            lastSyncAt: Date(timeIntervalSince1970: 200),
+            lastRemoteBackupAt: Date(timeIntervalSince1970: 300)
+        )
         let snapshot = ChartLibrarySnapshot(
             charts: [chart],
             selectedChartID: chart.id,
-            entitlements: AppEntitlements(activePlan: .proLifetime)
+            entitlements: AppEntitlements(activePlan: .proLifetime),
+            deletionTombstones: [tombstone],
+            cloudMetadata: cloudMetadata
         )
         let repository = RecordingChartRepository()
         repository.snapshotToLoad = snapshot
@@ -140,6 +147,21 @@ final class ChartLibraryStoreTests: XCTestCase {
         guard case .saved = store.persistenceStatus else {
             return XCTFail("Expected loaded live store to be marked saved, got \(store.persistenceStatus)")
         }
+    }
+
+    func testLiveStoreStartsEmptyWhenNoSavedSnapshotExists() {
+        let repository = RecordingChartRepository()
+
+        let store = ChartLibraryStore.live(repository: repository)
+
+        XCTAssertTrue(store.charts.isEmpty)
+        XCTAssertNil(store.selectedChartID)
+        XCTAssertEqual(store.entitlements, .free)
+        XCTAssertTrue(store.deletionTombstones.isEmpty)
+        XCTAssertNil(store.cloudMetadata.lastSyncAt)
+        XCTAssertNil(store.cloudMetadata.lastRemoteBackupAt)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertEqual(store.persistenceStatus, .ready)
     }
 
     func testLiveStoreReportsLoadFailureWithoutPersistingPreviewFallback() {

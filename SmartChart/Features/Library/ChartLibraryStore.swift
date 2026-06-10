@@ -256,11 +256,13 @@ final class ChartLibraryStore: ObservableObject {
             loadError = error
         }
 
-        let snapshot = loadedSnapshot ?? .preview
+        let snapshot = loadedSnapshot ?? (loadError == nil ? .empty : .preview)
         let store = ChartLibraryStore(
             charts: snapshot.charts,
             entitlements: snapshot.entitlements,
             selectedChartID: snapshot.selectedChartID,
+            deletionTombstones: snapshot.deletionTombstones,
+            cloudMetadata: snapshot.cloudMetadata,
             repository: repository,
             chordDiagnosticsResetter: {
                 try? ChordEntryDiagnosticsRecorder.live().reset()

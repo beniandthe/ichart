@@ -30,6 +30,14 @@ struct ChartLibrarySnapshot: Codable, Hashable {
         )
     }
 
+    static var empty: ChartLibrarySnapshot {
+        ChartLibrarySnapshot(
+            charts: [],
+            selectedChartID: nil,
+            entitlements: .free
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case charts
         case selectedChartID
