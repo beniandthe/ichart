@@ -72,6 +72,38 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
 
+    func testHomeShellPrimaryControlsKeepExplicitHitAreas() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains(".frame(minWidth: 180, minHeight: 44)"))
+        XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
+        XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
+        XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+    }
+
+    func testEditorExitUsesExplicitNavigationRoute() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("SmartChart/App/AppRootView.swift"))
+        let editorText = try String(contentsOf: projectRoot.appendingPathComponent("SmartChart/Features/Editor/EditorView.swift"))
+
+        XCTAssertTrue(appRootText.contains("EditorView(chart: chart, initialCanvasMode: initialCanvasMode)"))
+        XCTAssertTrue(appRootText.contains("projectPath.removeAll()"))
+        XCTAssertTrue(editorText.contains("private let onExit"))
+        XCTAssertTrue(editorText.contains("exitEditor()"))
+        XCTAssertTrue(editorText.contains("editorNavigationChrome"))
+        XCTAssertTrue(editorText.contains("editorToolChrome"))
+        XCTAssertTrue(editorText.contains(".toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertTrue(editorText.contains(".frame(width: 44, height: 44)"))
+    }
+
     func testSupabasePackageAndConfigurationAreWired() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

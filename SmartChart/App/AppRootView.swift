@@ -18,7 +18,10 @@ struct AppRootView: View {
                     switch route {
                     case .chart(let chartID, let initialCanvasMode):
                         if let chart = chartBinding(for: chartID) {
-                            EditorView(chart: chart, initialCanvasMode: initialCanvasMode)
+                            EditorView(chart: chart, initialCanvasMode: initialCanvasMode) {
+                                store.selectedChartID = nil
+                                projectPath.removeAll()
+                            }
                         } else {
                             ContentUnavailableView(
                                 "Chart Not Found",

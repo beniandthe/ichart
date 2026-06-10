@@ -65,16 +65,19 @@ struct EditorView: View {
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
+    private let onExit: (() -> Void)?
 
     init(
         chart: Binding<Chart>,
         exporter: any ChartExporting = PDFChartExporter.live(),
         chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore = .live(),
-        initialCanvasMode: EditorCanvasMode = .browse
+        initialCanvasMode: EditorCanvasMode = .browse,
+        onExit: (() -> Void)? = nil
     ) {
         self._chart = chart
         self.exporter = exporter
         self.chordInkUserCorrectionMemoryStore = chordInkUserCorrectionMemoryStore
+        self.onExit = onExit
         _canvasMode = State(initialValue: initialCanvasMode)
         _chordInkUserCorrectionMemory = State(
             initialValue: (try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory()
@@ -82,8 +85,12 @@ struct EditorView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            editorSurface(availableSize: proxy.size)
+        VStack(spacing: 0) {
+            editorNavigationChrome
+
+            GeometryReader { proxy in
+                editorSurface(availableSize: proxy.size)
+            }
         }
         .background(
             LinearGradient(
@@ -98,32 +105,7 @@ struct EditorView: View {
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.headline)
-                }
-                .accessibilityLabel("Exit Chart")
-            }
-
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    activateSelectTool(clearsMeasureSelection: true)
-                    handleExportTapped()
-                } label: {
-                    if isExporting {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                    } else {
-                        Label(exportButtonTitle, systemImage: "square.and.arrow.up")
-                    }
-                }
-                .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .upgrade(let feature):
@@ -299,6 +281,45 @@ struct EditorView: View {
         }
     }
 
+    private var editorNavigationChrome: some View {
+        HStack(spacing: 12) {
+            Button {
+                exitEditor()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.headline)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Exit Chart")
+
+            Text(chart.title)
+                .font(.headline.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                handleExportTapped()
+            } label: {
+                if isExporting {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                } else {
+                    Label(exportButtonTitle, systemImage: "square.and.arrow.up")
+                }
+            }
+            .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
     @ViewBuilder
     private func editorSurface(availableSize: CGSize) -> some View {
         let horizontalPadding = editorHorizontalPadding(for: availableSize.width)
@@ -308,35 +329,42 @@ struct EditorView: View {
             height: max(1, availableSize.height - verticalPadding * 2)
         )
 
-        ScrollView {
-            VStack(alignment: .center, spacing: 18) {
-                VStack(alignment: .center, spacing: 8) {
-                    toolStrip(minWidth: contentSize.width)
-                        .frame(maxWidth: .infinity, alignment: .center)
+        VStack(spacing: 0) {
+            editorToolChrome(minWidth: contentSize.width)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
 
-                    ZStack(alignment: .center) {
-                        if canvasMode.showsActiveToolControls {
-                            activeToolControls(minWidth: contentSize.width)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-
-                        HStack {
-                            Spacer(minLength: 12)
-                            ChartLibraryPersistenceStatusBadge(status: store.persistenceStatus)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .animation(.easeOut(duration: 0.16), value: canvasMode)
-                }
-
+            ScrollView {
                 canvasView
                     .frame(width: contentSize.width, alignment: .topLeading)
                     .frame(minHeight: canvasHeight(for: contentSize), alignment: .topLeading)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.bottom, verticalPadding)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
+        }
+    }
+
+    private func editorToolChrome(minWidth: CGFloat) -> some View {
+        VStack(alignment: .center, spacing: 8) {
+            toolStrip(minWidth: minWidth)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            ZStack(alignment: .center) {
+                if canvasMode.showsActiveToolControls {
+                    activeToolControls(minWidth: minWidth)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                HStack {
+                    Spacer(minLength: 12)
+                    ChartLibraryPersistenceStatusBadge(status: store.persistenceStatus)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .animation(.easeOut(duration: 0.16), value: canvasMode)
         }
     }
 
@@ -929,6 +957,13 @@ struct EditorView: View {
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas
         )
+    }
+
+    private func exitEditor() {
+        if let onExit {
+            onExit()
+        }
+        dismiss()
     }
 
     private var exportButtonTitle: String {

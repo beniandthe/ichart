@@ -922,6 +922,7 @@ private struct IChartHomeSidebarButton: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .background(backgroundColor)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(borderColor, lineWidth: 1)
@@ -1561,7 +1562,8 @@ private struct IChartNewChartControl: View {
             Button(action: onCreateChart) {
                 Label("New Chart", systemImage: "square.and.pencil")
                     .font(.headline.weight(.semibold))
-                    .frame(minWidth: 180)
+                    .frame(minWidth: 180, minHeight: 44)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
