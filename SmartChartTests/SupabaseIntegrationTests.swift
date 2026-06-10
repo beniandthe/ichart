@@ -145,6 +145,16 @@ private struct SupabaseRESTClient {
     let configuration: SupabaseIntegrationConfiguration
 
     func signUp(email: String, password: String) async throws -> SupabaseIntegrationSession {
+        do {
+            return try await requestSignUp(email: email, password: password)
+        } catch let error as SupabaseRequestError
+            where configuration.isLocalSupabase && error.isEmailSendRateLimit {
+            try await Task.sleep(nanoseconds: 65_000_000_000)
+            return try await requestSignUp(email: email, password: password)
+        }
+    }
+
+    private func requestSignUp(email: String, password: String) async throws -> SupabaseIntegrationSession {
         let body: [String: Any] = [
             "email": email,
             "password": password
@@ -392,8 +402,12 @@ private struct SupabaseRESTClient {
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "<empty response>"
-            XCTFail("Supabase request \(method) \(path) failed with \(statusCode): \(message)")
-            throw URLError(.badServerResponse)
+            throw SupabaseRequestError(
+                method: method,
+                path: path,
+                statusCode: statusCode,
+                message: message
+            )
         }
 
         return data
@@ -492,6 +506,21 @@ private struct SupabaseRESTClient {
             (200..<400).contains(statusCode),
             "Local Supabase confirmation failed with \(statusCode)."
         )
+    }
+}
+
+private struct SupabaseRequestError: LocalizedError {
+    let method: String
+    let path: String
+    let statusCode: Int
+    let message: String
+
+    var isEmailSendRateLimit: Bool {
+        statusCode == 429 && message.contains("over_email_send_rate_limit")
+    }
+
+    var errorDescription: String? {
+        "Supabase request \(method) \(path) failed with \(statusCode): \(message)"
     }
 }
 

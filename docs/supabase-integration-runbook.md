@@ -16,6 +16,8 @@ Status: Sprint 1-5 implementation guide for iChart account/profile and single-us
 
 The checked-in local config keeps email confirmations and secure password changes enabled. Local integration tests confirm throwaway signup accounts through Mailpit before signing in.
 
+The local QA harness intentionally derives `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `supabase status -o env` after the local stack is running. It does not use `.env`, so remote project settings cannot accidentally redirect local RLS/integration tests.
+
 ## App Configuration
 
 The app reads these values from the Xcode scheme environment or generated Info.plist build settings:
@@ -67,3 +69,5 @@ swift test --filter SupabaseIntegrationTests
 ```
 
 The integration test creates a throwaway account, saves a profile, creates a chart document, inserts a whole-chart snapshot, points the document to that snapshot, then tombstones the document. It does not use or require a service-role key.
+
+If local Auth reports the email-send rate limit during repeated QA runs, the integration test waits out the local one-minute window and retries once.
