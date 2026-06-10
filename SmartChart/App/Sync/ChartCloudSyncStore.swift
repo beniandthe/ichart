@@ -1,5 +1,4 @@
 import Foundation
-import Supabase
 
 @MainActor
 final class ChartCloudSyncStore: ObservableObject {
@@ -18,8 +17,15 @@ final class ChartCloudSyncStore: ObservableObject {
         state = service == nil ? .unconfigured : .signedOut
     }
 
-    static func live(client: SupabaseClient?) -> ChartCloudSyncStore {
-        ChartCloudSyncStore(service: client.map(ChartCloudSyncService.init(client:)))
+    static func live(clients: IChartSupabaseClients?) -> ChartCloudSyncStore {
+        ChartCloudSyncStore(
+            service: clients.map {
+                ChartCloudSyncService(
+                    client: $0.dataClient,
+                    sessionProvider: $0.sessionStore
+                )
+            }
+        )
     }
 
     func attach(libraryStore: ChartLibraryStore) {

@@ -63,10 +63,12 @@ enum ChartSyncState: Equatable {
 
 actor ChartCloudSyncService {
     private let client: SupabaseClient
+    private let sessionProvider: any IChartSupabaseSessionProviding
     private var lastIssuedRevision: Int64 = 0
 
-    init(client: SupabaseClient) {
+    init(client: SupabaseClient, sessionProvider: any IChartSupabaseSessionProviding) {
         self.client = client
+        self.sessionProvider = sessionProvider
     }
 
     func bootstrap(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
@@ -238,12 +240,7 @@ actor ChartCloudSyncService {
     }
 
     private func currentUserID() async throws -> UUID {
-        if let userID = client.auth.currentUser?.id {
-            return userID
-        }
-
-        let session = try await client.auth.session
-        return session.user.id
+        try await sessionProvider.currentUserID()
     }
 
     private func nextRevision(after date: Date) -> Int64 {

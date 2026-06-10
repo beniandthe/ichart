@@ -68,6 +68,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("iChartUserPaymentSummary"))
         XCTAssertTrue(libraryText.contains("User Info"))
         XCTAssertTrue(libraryText.contains("Payment Info"))
+        XCTAssertTrue(libraryText.contains("Resend Email"))
+        XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
 
     func testSupabasePackageAndConfigurationAreWired() throws {
@@ -95,6 +97,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseClientFactory.swift")
         )
+        let sessionStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseSessionStore.swift")
+        )
         let authStorageText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Supabase/IChartSupabaseAuthLocalStorage.swift")
@@ -108,30 +114,47 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("SupabaseAnonKey: \"$(SUPABASE_ANON_KEY)\""))
         XCTAssertTrue(projectText.contains("CFBundleURLTypes:"))
         XCTAssertTrue(projectText.contains("ichart"))
-        XCTAssertTrue(appText.contains("IChartAuthStore.live(client:"))
-        XCTAssertTrue(appText.contains("ChartCloudSyncStore.live(client:"))
+        XCTAssertTrue(appText.contains("IChartSupabaseClientFactory.liveClients()"))
+        XCTAssertTrue(appText.contains("IChartAuthStore.live(clients:"))
+        XCTAssertTrue(appText.contains("ChartCloudSyncStore.live(clients:"))
         XCTAssertTrue(configurationText.contains("SUPABASE_URL"))
         XCTAssertTrue(configurationText.contains("SUPABASE_PUBLISHABLE_KEY"))
         XCTAssertTrue(configurationText.contains("SUPABASE_ANON_KEY"))
         XCTAssertTrue(clientFactoryText.contains("SupabaseClient("))
         XCTAssertTrue(clientFactoryText.contains("IChartSupabaseAuthLocalStorage"))
+        XCTAssertTrue(clientFactoryText.contains("IChartSupabaseSessionStore"))
+        XCTAssertTrue(clientFactoryText.contains("accessToken:"))
         XCTAssertTrue(clientFactoryText.contains("ichart://auth-callback"))
         XCTAssertTrue(clientFactoryText.contains("isAuthCallbackURL"))
+        XCTAssertTrue(sessionStoreText.contains("IChartSupabaseSessionProviding"))
+        XCTAssertTrue(sessionStoreText.contains("Auth session missing."))
         XCTAssertTrue(authStorageText.contains("KeychainLocalStorage"))
         XCTAssertTrue(authStorageText.contains("UserDefaults"))
         XCTAssertTrue(authStorageText.contains("allowsInsecureFallback"))
         XCTAssertTrue(authStorageText.contains("#if DEBUG"))
         XCTAssertTrue(authStoreText.contains("signUp(email:"))
-        XCTAssertTrue(authStoreText.contains("let session = try await client.auth.signIn("))
+        XCTAssertTrue(authStoreText.contains("let session = try await authClient.auth.signIn("))
         XCTAssertTrue(authStoreText.contains("resendVerificationEmail"))
         XCTAssertTrue(authStoreText.contains("resetPasswordForEmail"))
+        XCTAssertTrue(authStoreText.contains("verifyOTP("))
+        XCTAssertTrue(authStoreText.contains("tokenHash:"))
+        XCTAssertTrue(authStoreText.contains("token_hash"))
+        XCTAssertTrue(authStoreText.contains("iChartPendingVerificationEmail"))
+        XCTAssertTrue(authStoreText.contains("applyAuthState"))
+        XCTAssertTrue(authStoreText.contains("dataClient"))
+        XCTAssertTrue(authStoreText.contains("sessionStore.update"))
+        XCTAssertTrue(authStoreText.contains("setSession("))
         XCTAssertTrue(authStoreText.contains("redirectTo: IChartSupabaseClientFactory.authCallbackURL"))
+        XCTAssertTrue(authStoreText.contains("emailRedirectTo: IChartSupabaseClientFactory.authCallbackURL"))
         XCTAssertTrue(authStoreText.contains("IChartUserProfileUpdate"))
         XCTAssertTrue(authStoreText.contains("IChartAuthError.invalidAuthCallback"))
         XCTAssertTrue(authStoreText.contains("session(from:"))
+        XCTAssertFalse(authStoreText.contains("client.auth.currentUser"))
         XCTAssertTrue(syncServiceText.contains("existingSnapshotID(chartID:"))
         XCTAssertTrue(syncServiceText.contains("ignoreDuplicates: true"))
         XCTAssertTrue(syncServiceText.contains(".eq(\"version\", value: String(version))"))
+        XCTAssertTrue(syncServiceText.contains("sessionProvider.currentUserID()"))
+        XCTAssertFalse(syncServiceText.contains("client.auth.currentUser"))
         XCTAssertFalse(configurationText.contains("eyJ"))
     }
 
@@ -142,6 +165,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let migrationText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260609133000_initial_auth_profiles_and_charts.sql")
+        )
+        let configText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
         )
 
         XCTAssertTrue(migrationText.contains("create table public.profiles"))
@@ -163,6 +190,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
         XCTAssertFalse(migrationText.contains("chart_snapshots_update_own"))
         XCTAssertFalse(migrationText.contains("card_number"))
+        XCTAssertTrue(configText.contains("max_frequency = \"1m\""))
+        XCTAssertTrue(configText.contains("otp_length = 6"))
     }
 
     func testSupabaseRunbookAndRlsSmokeTestsArePresent() throws {
@@ -199,10 +228,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(runbookText.contains("supabase db reset"))
         XCTAssertTrue(runbookText.contains("supabase db push"))
         XCTAssertTrue(runbookText.contains("ichart://auth-callback"))
+        XCTAssertTrue(runbookText.contains("blank browser page"))
+        XCTAssertTrue(runbookText.contains("custom SMTP"))
         XCTAssertTrue(supabaseConfigText.contains("project_id = \"smart-chart\""))
         XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
         XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
         XCTAssertTrue(supabaseConfigText.contains("secure_password_change = true"))
+        XCTAssertTrue(supabaseConfigText.contains("max_frequency = \"1m\""))
+        XCTAssertTrue(supabaseConfigText.contains("otp_length = 6"))
         XCTAssertTrue(rlsTestText.contains("owner can insert own chart document"))
         XCTAssertTrue(rlsTestText.contains("client cannot update subscription rows"))
         XCTAssertTrue(rlsTestText.contains("client cannot update stripe customer id on profile"))

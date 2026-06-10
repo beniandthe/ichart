@@ -8,11 +8,11 @@ struct SmartChartApp: App {
 
     init() {
         let libraryStore = ChartLibraryStore.live()
-        let supabaseClient = IChartSupabaseClientFactory.liveClient()
+        let supabaseClients = IChartSupabaseClientFactory.liveClients()
         libraryStore.onSnapshotSaved = nil
         _store = StateObject(wrappedValue: libraryStore)
-        _authStore = StateObject(wrappedValue: IChartAuthStore.live(client: supabaseClient))
-        _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(client: supabaseClient))
+        _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
+        _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()

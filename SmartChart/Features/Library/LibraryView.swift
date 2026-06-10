@@ -1211,11 +1211,9 @@ private struct IChartAccountSettings: View {
             .disabled(authStore.isWorking)
 
             Button {
-                Task {
-                    await authStore.refreshSession()
-                }
+                authStore.returnToSignIn()
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Sign In", systemImage: "person.crop.circle")
             }
             .buttonStyle(.borderedProminent)
             .tint(IChartHomeBrand.blue)
@@ -1285,7 +1283,7 @@ private struct IChartAccountSettings: View {
         case .signedOut:
             return "Create an account or sign in to sync profile and chart data."
         case .pendingEmailVerification(let email):
-            return "We sent a verification email to \(email)."
+            return "Open the verification link sent to \(email), then sign in."
         case .signedIn(let session):
             return session.email ?? "Signed in to iChart."
         }

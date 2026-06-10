@@ -113,18 +113,25 @@ final class IChartAuthStore: ObservableObject {
 
     private let service: IChartAccountServicing
     private var hasBootstrapped = false
+    private static let pendingVerificationEmailKey = "iChartPendingVerificationEmail"
 
     private init(service: IChartAccountServicing) {
         self.service = service
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
-    static func live(client: SupabaseClient? = IChartSupabaseClientFactory.liveClient()) -> IChartAuthStore {
-        guard let client else {
+    static func live(clients: IChartSupabaseClients?) -> IChartAuthStore {
+        guard let clients else {
             return IChartAuthStore(service: IChartUnconfiguredAccountService())
         }
 
-        return IChartAuthStore(service: IChartSupabaseAccountService(client: client))
+        return IChartAuthStore(
+            service: IChartSupabaseAccountService(
+                authClient: clients.authClient,
+                dataClient: clients.dataClient,
+                sessionStore: clients.sessionStore
+            )
+        )
     }
 
     func bootstrap() async {
@@ -138,23 +145,26 @@ final class IChartAuthStore: ObservableObject {
 
     func refreshSession() async {
         await run("Account session refreshed.") {
-            let restoredState = try await service.restoreSession()
-            state = restoredState
-            try await loadProfileIfSignedIn()
+            var restoredState = try await service.restoreSession()
+            if case .signedOut = restoredState,
+               let email = rememberedPendingVerificationEmail {
+                restoredState = .pendingEmailVerification(email: email)
+            }
+            try await applyAuthState(restoredState)
         }
     }
 
     func createAccount(email: String, password: String) async {
         await run("Account created. Check your email to finish verification.") {
-            state = try await service.signUp(email: email, password: password)
-            try await loadProfileIfSignedIn()
+            let nextState = try await service.signUp(email: email, password: password)
+            try await applyAuthState(nextState)
         }
     }
 
     func signIn(email: String, password: String) async {
         await run("Signed in.") {
-            state = try await service.signIn(email: email, password: password)
-            try await loadProfileIfSignedIn()
+            let nextState = try await service.signIn(email: email, password: password)
+            try await applyAuthState(nextState)
         }
     }
 
@@ -163,7 +173,21 @@ final class IChartAuthStore: ObservableObject {
             try await service.signOut()
             state = service.isConfigured ? .signedOut : .unconfigured
             profile = nil
+            rememberPendingVerificationEmailIfNeeded()
         }
+    }
+
+    func returnToSignIn() {
+        guard service.isConfigured else {
+            state = .unconfigured
+            return
+        }
+
+        state = .signedOut
+        profile = nil
+        statusMessage = nil
+        errorMessage = nil
+        rememberPendingVerificationEmailIfNeeded()
     }
 
     func resendVerificationEmail() async {
@@ -188,8 +212,8 @@ final class IChartAuthStore: ObservableObject {
         }
 
         await run("Account session refreshed.") {
-            state = try await service.handleAuthCallback(url: url)
-            try await loadProfileIfSignedIn()
+            let nextState = try await service.handleAuthCallback(url: url)
+            try await applyAuthState(nextState)
         }
     }
 
@@ -218,13 +242,19 @@ final class IChartAuthStore: ObservableObject {
         }
     }
 
-    private func loadProfileIfSignedIn() async throws {
-        guard let session = state.signedInSession else {
-            profile = nil
-            return
+    private func applyAuthState(_ nextState: IChartAuthState) async throws {
+        let nextProfile = try await loadedProfile(for: nextState)
+        state = nextState
+        profile = nextProfile
+        rememberPendingVerificationEmailIfNeeded()
+    }
+
+    private func loadedProfile(for authState: IChartAuthState) async throws -> IChartUserProfile? {
+        guard case .signedIn(let session) = authState else {
+            return nil
         }
 
-        profile = try await service.loadProfile(for: session.id)
+        return try await service.loadProfile(for: session.id)
     }
 
     private func run(_ successMessage: String, operation: () async throws -> Void) async {
@@ -252,6 +282,20 @@ final class IChartAuthStore: ObservableObject {
     private func sanitized(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var rememberedPendingVerificationEmail: String? {
+        let email = UserDefaults.standard.string(forKey: Self.pendingVerificationEmailKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return email.isEmpty ? nil : email
+    }
+
+    private func rememberPendingVerificationEmailIfNeeded() {
+        if case .pendingEmailVerification(let email) = state {
+            UserDefaults.standard.set(email, forKey: Self.pendingVerificationEmailKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.pendingVerificationEmailKey)
+        }
     }
 }
 
@@ -291,32 +335,40 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
 
 private struct IChartSupabaseAccountService: IChartAccountServicing {
     let isConfigured = true
-    private let client: SupabaseClient
+    private let authClient: SupabaseClient
+    private let dataClient: SupabaseClient
+    private let sessionStore: IChartSupabaseSessionStore
 
-    init(client: SupabaseClient) {
-        self.client = client
+    init(
+        authClient: SupabaseClient,
+        dataClient: SupabaseClient,
+        sessionStore: IChartSupabaseSessionStore
+    ) {
+        self.authClient = authClient
+        self.dataClient = dataClient
+        self.sessionStore = sessionStore
     }
 
     func restoreSession() async throws -> IChartAuthState {
-        if let currentUser = client.auth.currentUser {
-            return state(for: currentUser)
-        }
-
         do {
-            let session = try await client.auth.session
+            let session = try await authClient.auth.session
+            await sessionStore.update(session)
             return state(for: session.user)
         } catch {
+            await sessionStore.clear()
             return .signedOut
         }
     }
 
     func signUp(email: String, password: String) async throws -> IChartAuthState {
-        let response = try await client.auth.signUp(
+        let response = try await authClient.auth.signUp(
             email: normalized(email),
-            password: password
+            password: password,
+            redirectTo: IChartSupabaseClientFactory.authCallbackURL
         )
 
         if let session = response.session {
+            try await persistSession(session)
             return state(for: session.user)
         }
 
@@ -325,32 +377,39 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             return .pendingEmailVerification(email: user.email ?? normalized(email))
         }
 
-        let session = try await client.auth.signIn(
+        let session = try await authClient.auth.signIn(
             email: normalized(email),
             password: password
         )
+        try await persistSession(session)
         return state(for: session.user)
     }
 
     func signIn(email: String, password: String) async throws -> IChartAuthState {
-        let session = try await client.auth.signIn(
+        let session = try await authClient.auth.signIn(
             email: normalized(email),
             password: password
         )
 
+        try await persistSession(session)
         return state(for: session.user)
     }
 
     func signOut() async throws {
-        try await client.auth.signOut()
+        try await authClient.auth.signOut()
+        await sessionStore.clear()
     }
 
     func resendVerificationEmail(email: String) async throws {
-        try await client.auth.resend(email: normalized(email), type: .signup)
+        try await authClient.auth.resend(
+            email: normalized(email),
+            type: .signup,
+            emailRedirectTo: IChartSupabaseClientFactory.authCallbackURL
+        )
     }
 
     func requestPasswordReset(email: String) async throws {
-        try await client.auth.resetPasswordForEmail(
+        try await authClient.auth.resetPasswordForEmail(
             normalized(email),
             redirectTo: IChartSupabaseClientFactory.authCallbackURL
         )
@@ -361,12 +420,25 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             throw IChartAuthError.invalidAuthCallback
         }
 
-        let session = try await client.auth.session(from: url)
+        if let tokenHashCallback = tokenHashCallback(from: url) {
+            let response = try await authClient.auth.verifyOTP(
+                tokenHash: tokenHashCallback.tokenHash,
+                type: tokenHashCallback.type
+            )
+
+            guard let session = response.session else { return .signedOut }
+
+            try await persistSession(session)
+            return state(for: session.user)
+        }
+
+        let session = try await authClient.auth.session(from: url)
+        try await persistSession(session)
         return state(for: session.user)
     }
 
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile? {
-        let profiles: [IChartUserProfile] = try await client
+        let profiles: [IChartUserProfile] = try await dataClient
             .from("profiles")
             .select()
             .eq("id", value: userID)
@@ -378,7 +450,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile {
         let update = IChartUserProfileUpdate(profile: profile)
-        let profiles: [IChartUserProfile] = try await client
+        let profiles: [IChartUserProfile] = try await dataClient
             .from("profiles")
             .upsert(update, onConflict: "id")
             .select()
@@ -399,7 +471,46 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         )
     }
 
+    private func persistSession(_ session: Session) async throws {
+        _ = try await authClient.auth.setSession(
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken
+        )
+        await sessionStore.update(session)
+    }
+
     private func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func tokenHashCallback(from url: URL) -> (tokenHash: String, type: EmailOTPType)? {
+        guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+              let tokenHash = queryItems.first(where: { $0.name == "token_hash" })?.value,
+              !tokenHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+
+        let rawType = queryItems.first(where: { $0.name == "type" })?.value
+        return (tokenHash, emailOTPType(from: rawType) ?? .email)
+    }
+
+    private func emailOTPType(from value: String?) -> EmailOTPType? {
+        switch normalized(value ?? "") {
+        case "signup":
+            return .signup
+        case "invite":
+            return .invite
+        case "magiclink":
+            return .magiclink
+        case "recovery":
+            return .recovery
+        case "email_change":
+            return .emailChange
+        case "email":
+            return .email
+        default:
+            return nil
+        }
     }
 }
