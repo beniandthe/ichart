@@ -599,7 +599,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     private func tokenHashCallback(from url: URL) -> (tokenHash: String, type: EmailOTPType)? {
         guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-              let tokenHash = queryItems.first(where: { $0.name == "token_hash" })?.value,
+              let tokenHash = tokenHashValue(from: queryItems),
               !tokenHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             return nil
@@ -607,6 +607,11 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
         let rawType = queryItems.first(where: { $0.name == "type" })?.value
         return (tokenHash, emailOTPType(from: rawType) ?? .email)
+    }
+
+    private func tokenHashValue(from queryItems: [URLQueryItem]) -> String? {
+        queryItems.first(where: { $0.name == "token_hash" })?.value
+            ?? queryItems.first(where: { $0.name == "token" })?.value
     }
 
     private func callbackType(from url: URL) -> String? {

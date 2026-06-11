@@ -84,12 +84,12 @@ Fresh-account cloud gate:
 Password reset recovery:
 
 - Requested password reset from the signed-out Account panel. The app showed `Password reset email sent.`
-- Clicking the hosted reset link from the desktop browser opened a blank page and did not produce a visible simulator callback.
 - Follow-up fix: the app now has an explicit `passwordRecovery` account state. Valid `ichart://auth-callback` recovery links show a compact new-password panel in Settings and save with Supabase `auth.update(user: UserAttributes(password: ...))`.
-- Remaining manual QA: open the reset link inside the simulator/app deep-link path, confirm the new-password panel appears, save a new password, sign out, and sign back in with the new password.
+- Follow-up hardening: recovery callbacks now accept either `token_hash` or Supabase's default hosted-link `token` value when that token is delivered directly to `ichart://auth-callback`, so simulator QA can bypass Safari consuming the one-time `/verify` URL.
+- Hosted project requirement: set the Reset password email template to `ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery` before production QA. This avoids email-provider or browser prefetch of the default `{{ .ConfirmationURL }}` link.
+- Verified recovery QA: opened the direct `ichart://auth-callback` recovery link in the iPad simulator, confirmed Settings showed `Set new password`, saved a replacement password, signed out, and signed back in with the replacement password. The app returned to `Verified`, `Signed in.`, and `Synced`, and Supabase auth logs showed `/verify`, `/user`, `/logout`, and `/token` success responses for the flow.
 
 ## Notes
 
 - Endpoint/auth-restore connectivity failures are now treated as temporary offline state rather than signed-out state.
-- Opening a custom-scheme callback from the desktop browser can appear as a blank page if it is not routed into the iOS simulator. This is a simulator-link routing issue, not proof that the app handled the callback.
 - No service-role key, database password, JWT secret, SMTP credential, or Stripe secret was used in the app or committed.

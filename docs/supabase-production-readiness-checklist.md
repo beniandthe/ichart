@@ -28,6 +28,10 @@ Required production settings:
 - URL Configuration allows `ichart://auth-callback`.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.
 - Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
+- Reset password template uses a direct app recovery link, not the default prefetch-prone hosted verify link:
+  ```html
+  <a href="ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery">Reset password in iChart</a>
+  ```
 - Custom SMTP is configured before relying on branded production emails or high-volume QA.
 - No service-role key, database password, JWT secret, or Stripe secret is copied into Xcode settings, `.env.example`, docs, or app code.
 
@@ -61,7 +65,7 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 6. Open the verification email. If the browser ends on a blank deep-link page, return to the app and sign in with the same email/password.
 7. Confirm Settings shows `Verified`.
 8. Request a password reset from the signed-out Account panel.
-9. Open the reset email through a path that can hand `ichart://auth-callback` to the simulator/app.
+9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.
 10. Confirm Settings shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
 11. Save email, phone, address, and payment summary profile fields. Payment summary must remain text/customer-reference only.
 12. Tap `Sync Now` and confirm Chart Sync returns to `Synced` with an updated Last Backup time.

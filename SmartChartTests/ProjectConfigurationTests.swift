@@ -187,6 +187,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authStoreText.contains("verifyOTP("))
         XCTAssertTrue(authStoreText.contains("tokenHash:"))
         XCTAssertTrue(authStoreText.contains("token_hash"))
+        XCTAssertTrue(authStoreText.contains("tokenHashValue(from:"))
+        XCTAssertTrue(authStoreText.contains("\"token\""))
         XCTAssertTrue(authStoreText.contains("iChartPendingVerificationEmail"))
         XCTAssertTrue(authStoreText.contains("applyAuthState"))
         XCTAssertTrue(authStoreText.contains("dataClient"))

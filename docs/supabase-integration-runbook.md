@@ -36,8 +36,16 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 - Keep secure password changes enabled.
 - Add `ichart://auth-callback` to Supabase Auth redirect URLs.
 - Supabase rejects hosted email-template edits on free/default email provider projects. Configure custom SMTP before customizing production email templates.
+- Configure the Reset password email template to avoid one-time HTTPS link prefetch/consumption:
+  ```html
+  <h2>Reset your password</h2>
+  <p>We received a request to reset your iChart password.</p>
+  <p><a href="ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery">Reset password in iChart</a></p>
+  <p>If you did not request this, you can safely ignore this email.</p>
+  ```
 - During simulator QA, the verification link may open a blank browser page if it redirects to `ichart://auth-callback` outside the simulator. After opening the link, return to iChart and sign in with the same email/password.
-- During password-reset QA, a blank desktop browser page is not enough. The reset link must be opened through a simulator/app path that delivers `ichart://auth-callback` to iChart, then Settings should show `Set new password` before saving the replacement password.
+- During password-reset QA, use the direct app recovery link. Settings should show `Set new password` before saving the replacement password.
+- Temporary hosted-link fallback: if a reset email still contains the default `https://.../auth/v1/verify?token=...&type=recovery` link while the dashboard template is being updated, do not open it in a desktop browser first. Extract the `token` value, open `ichart://auth-callback?token=<token>&type=recovery` in the simulator, and let iChart verify it through Supabase Auth.
 - Use the anon/publishable key in the app only.
 - Keep the service-role key server-side only for future webhooks/admin jobs.
 
