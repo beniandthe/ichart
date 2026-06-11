@@ -8,11 +8,11 @@ enum SmartChartPlan: String, Codable, CaseIterable, Hashable {
     var displayText: String {
         switch self {
         case .free:
-            return "Free"
+            return "Basic"
         case .proLifetime:
             return "Pro"
         case .studioSubscription:
-            return "Studio"
+            return "Pro"
         }
     }
 
@@ -27,6 +27,7 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
     case advancedRhythmEditing
     case syncedChartOrganization
     case cloudBackup
+    case forums
     case sharedBandLibraries
     case setlistsAndVersionHistory
     case aiRecognitionCleanup
@@ -49,6 +50,8 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
             return "Cross-Device Organization"
         case .cloudBackup:
             return "Cloud Backup"
+        case .forums:
+            return "Forums"
         case .sharedBandLibraries:
             return "Shared Band Libraries"
         case .setlistsAndVersionHistory:
@@ -61,23 +64,24 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
     var upgradeMessage: String {
         switch self {
         case .pdfExport:
-            return "PDF export is part of Pro so the free tier can stay easy to try while clean shareable output remains part of the owned local tool."
+            return "PDF export is included in Basic because exporting charts is core to the local writing workflow."
         case .documentTransposition:
-            return "Concert, Bb, and Eb views are part of Pro because they are core ownership features for working charts."
+            return "Transposition views are included in Basic because readable gig charts are core to iChart."
         case .fontPresets:
-            return "Additional document-wide font presets live in Pro along with the rest of the full local authoring tool."
+            return "Font presets are included in Basic because local chart appearance is part of the writing tool."
         case .roadmapNotationTools:
-            return "Special notation tools such as Coda, Segno, and D.S./D.C. are part of the Pro authoring tier."
+            return "Special notation tools are included in Basic because roadmap editing is essential chart work."
         case .advancedRhythmEditing:
-            return "More advanced rhythm-aware editing belongs in Pro so the free tier stays lightweight while serious chart work stays permanently unlocked."
+            return "Rhythm-aware editing is included in Basic because rhythm charts are a core iChart format."
         case .unlimitedLocalCharts:
-            return "Unlimited local chart ownership is part of the one-time Pro unlock, not a subscription."
+            return "Unlimited local chart capacity is part of the Pro account experience."
         case .syncedChartOrganization,
              .cloudBackup,
+             .forums,
              .sharedBandLibraries,
              .setlistsAndVersionHistory,
              .aiRecognitionCleanup:
-            return "This is reserved for a later Studio subscription because it depends on real ongoing-service value."
+            return "This is reserved for active Pro because it depends on ongoing cloud service value."
         }
     }
 }
@@ -87,9 +91,9 @@ extension EntitledFeature: Identifiable {
 }
 
 struct AppEntitlements: Codable, Hashable {
-    static let recommendedFreeChartLimit = 5
+    static let recommendedBasicChartLimit = 3
+    static let recommendedFreeChartLimit = recommendedBasicChartLimit
     static let free = AppEntitlements(activePlan: .free)
-    static let pdfExportAvailableBeforeStoreKit = true
 
     var activePlan: SmartChartPlan
 
@@ -106,15 +110,16 @@ struct AppEntitlements: Codable, Hashable {
         switch activePlan {
         case .free:
             switch feature {
-            case .pdfExport:
-                return Self.pdfExportAvailableBeforeStoreKit
-            case .unlimitedLocalCharts,
+            case .pdfExport,
                  .documentTransposition,
                  .fontPresets,
                  .roadmapNotationTools,
-                 .advancedRhythmEditing,
+                 .advancedRhythmEditing:
+                return true
+            case .unlimitedLocalCharts,
                  .syncedChartOrganization,
                  .cloudBackup,
+                 .forums,
                  .sharedBandLibraries,
                  .setlistsAndVersionHistory,
                  .aiRecognitionCleanup:
@@ -131,6 +136,7 @@ struct AppEntitlements: Codable, Hashable {
                 return true
             case .syncedChartOrganization,
                  .cloudBackup,
+                 .forums,
                  .sharedBandLibraries,
                  .setlistsAndVersionHistory,
                  .aiRecognitionCleanup:
@@ -162,10 +168,10 @@ struct AppEntitlements: Codable, Hashable {
             let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount) ?? 0
 
             if remainingSlots == 0 {
-                return "Free limit reached: \(localChartLimit) local charts. Pro removes the cap."
+                return "Basic limit reached: \(localChartLimit) local charts. Pro removes the cap."
             }
 
-            return "\(remainingSlots) of \(localChartLimit) free chart slots left."
+            return "\(remainingSlots) of \(localChartLimit) Basic chart slots left."
         }
 
         return "Unlimited local charts."

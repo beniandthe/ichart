@@ -4,6 +4,7 @@ import Supabase
 enum ChartSyncState: Equatable {
     case unconfigured
     case signedOut
+    case requiresPro
     case offline
     case syncing
     case synced(Date)
@@ -15,6 +16,8 @@ enum ChartSyncState: Equatable {
             return "Cloud backup unavailable"
         case .signedOut:
             return "Sign in to back up"
+        case .requiresPro:
+            return "Cloud backup requires Pro"
         case .offline:
             return "Offline"
         case .syncing:
@@ -32,6 +35,8 @@ enum ChartSyncState: Equatable {
             return "Add Supabase configuration to enable cloud backup."
         case .signedOut:
             return "Charts stay local until you sign in."
+        case .requiresPro:
+            return "Charts are saved locally. Upgrade to Pro to back up and restore from cloud."
         case .offline:
             return "Local edits are saved. Reconnect to back up."
         case .syncing:
@@ -49,6 +54,8 @@ enum ChartSyncState: Equatable {
             return "icloud.slash"
         case .signedOut:
             return "person.crop.circle.badge.exclamationmark"
+        case .requiresPro:
+            return "lock.icloud"
         case .offline:
             return "wifi.slash"
         case .syncing:
@@ -66,6 +73,8 @@ enum ChartSyncState: Equatable {
             return "Unavailable"
         case .signedOut:
             return "Sign In First"
+        case .requiresPro:
+            return "Requires Pro"
         case .offline, .failed:
             return "Retry Sync"
         case .syncing:
@@ -92,7 +101,7 @@ enum ChartSyncState: Equatable {
         switch self {
         case .offline, .synced, .failed:
             return true
-        case .unconfigured, .signedOut, .syncing:
+        case .unconfigured, .signedOut, .requiresPro, .syncing:
             return false
         }
     }
@@ -103,6 +112,8 @@ enum ChartSyncState: Equatable {
             return "Cloud backup is not configured in this build."
         case .signedOut:
             return "Sign in to enable cloud backup."
+        case .requiresPro:
+            return "Cloud backup and restore require Pro."
         case .syncing:
             return nil
         case .offline, .synced, .failed:

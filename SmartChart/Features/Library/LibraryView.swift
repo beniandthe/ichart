@@ -299,12 +299,16 @@ struct LibraryView: View {
         )
     }
 
-    private var freeChartUsageText: String? {
+    private var chartUsageText: String? {
         guard let limit = store.entitlements.localChartLimit else {
             return nil
         }
 
-        return "\(min(store.charts.count, limit)) of \(limit) free charts used"
+        guard store.canCreateChart else {
+            return store.chartCapacityText
+        }
+
+        return "\(min(store.charts.count, limit)) of \(limit) Basic charts used"
     }
 
     var body: some View {
@@ -383,13 +387,24 @@ struct LibraryView: View {
         homeScroll {
             VStack(alignment: .leading, spacing: 20) {
                 IChartNewChartControl(
-                    freeChartUsageText: freeChartUsageText,
+                    chartUsageText: chartUsageText,
                     canCreateChart: store.canCreateChart,
                     theme: homeTheme,
                     onCreateChart: {
                         showingLayoutPicker = true
                     }
                 )
+
+                if store.requiresLocalChartPruningForCurrentPlan {
+                    IChartBasicChartPruningPanel(
+                        charts: store.charts,
+                        overflowCount: store.localChartOverflowCount,
+                        theme: homeTheme,
+                        onRemoveLocalChart: { chartID in
+                            store.pruneLocalChartForCurrentPlan(id: chartID)
+                        }
+                    )
+                }
 
                 projectsSection
             }
@@ -403,12 +418,21 @@ struct LibraryView: View {
                 systemImageName: "bubble.left.and.bubble.right",
                 theme: homeTheme
             ) {
-                ContentUnavailableView(
-                    "No Forum Posts",
-                    systemImage: "bubble.left.and.bubble.right"
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
+                if store.canUse(.forums) {
+                    ContentUnavailableView(
+                        "No Forum Posts",
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
+                } else {
+                    IChartLockedFeatureView(
+                        title: "Forums require Pro",
+                        message: "Upgrade to Pro to join iChart Forums.",
+                        systemImageName: "lock.icloud",
+                        theme: homeTheme
+                    )
+                }
             }
         }
     }
@@ -774,6 +798,74 @@ private struct NewChartLayoutPickerView: View {
         }
     }
 
+}
+
+private struct IChartBasicChartPruningPanel: View {
+    let charts: [Chart]
+    let overflowCount: Int
+    let theme: IChartHomeTheme
+    let onRemoveLocalChart: (Chart.ID) -> Void
+
+    var body: some View {
+        IChartHomePanel(
+            title: "Basic Chart Limit",
+            systemImageName: "exclamationmark.triangle",
+            theme: theme
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Choose \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") to remove so Basic can keep 3 charts on this iPad. Removed local charts stay in cloud backup until the Pro grace period ends.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(spacing: 8) {
+                    ForEach(charts) { chart in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(chart.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(theme.panelTitle)
+
+                                Text(chart.librarySummaryText)
+                                    .font(.caption)
+                                    .foregroundStyle(theme.panelSecondary)
+                            }
+
+                            Spacer(minLength: 12)
+
+                            Button(role: .destructive) {
+                                onRemoveLocalChart(chart.id)
+                            } label: {
+                                Label("Remove Local", systemImage: "minus.circle")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(12)
+                        .background(theme.emptyStateBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct IChartLockedFeatureView: View {
+    let title: String
+    let message: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        ContentUnavailableView(
+            title,
+            systemImage: systemImageName,
+            description: Text(message)
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .foregroundStyle(theme.panelSecondary)
+    }
 }
 
 private struct IChartHomeSidebar: View {
@@ -1347,7 +1439,7 @@ private struct IChartAccountSettings: View {
         case .unconfigured:
             return "This build needs Supabase configuration."
         case .signedOut:
-            return "Create an account or sign in to sync profile and chart data."
+            return "Create an account or sign in to manage your profile and subscription."
         case .temporarilyOffline(let session):
             if let email = session.email {
                 return "Using local charts for \(email). Reconnect to back up."
@@ -1450,7 +1542,7 @@ private struct IChartCloudSyncSettings: View {
         switch syncStore.state {
         case .offline, .failed:
             return true
-        case .unconfigured, .signedOut, .syncing, .synced:
+        case .unconfigured, .signedOut, .requiresPro, .syncing, .synced:
             return false
         }
     }
@@ -1463,6 +1555,8 @@ private struct IChartCloudSyncSettings: View {
             return Color(red: 0.76, green: 0.48, blue: 0.12)
         case .failed:
             return Color(red: 0.72, green: 0.18, blue: 0.12)
+        case .requiresPro:
+            return Color(red: 0.62, green: 0.40, blue: 0.10)
         case .syncing, .signedOut, .unconfigured:
             return IChartHomeBrand.blue
         }
@@ -1685,7 +1779,7 @@ private struct IChartSettingsTextFieldRow: View {
 }
 
 private struct IChartNewChartControl: View {
-    let freeChartUsageText: String?
+    let chartUsageText: String?
     let canCreateChart: Bool
     let theme: IChartHomeTheme
     let onCreateChart: () -> Void
@@ -1703,8 +1797,8 @@ private struct IChartNewChartControl: View {
             .tint(IChartHomeBrand.blue)
             .disabled(!canCreateChart)
 
-            if let freeChartUsageText {
-                Text(freeChartUsageText)
+            if let chartUsageText {
+                Text(chartUsageText)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(theme.workspaceTitle.opacity(0.68))
                     .lineLimit(1)

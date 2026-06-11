@@ -24,9 +24,9 @@ struct UpgradeSheetView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     benefitRow("Unlimited local charts")
-                    benefitRow("PDF export and sharing")
-                    benefitRow("Concert, Bb, and Eb views")
-                    benefitRow("Font presets, notation tools, and advanced editing")
+                    benefitRow("Cloud backup and restore")
+                    benefitRow("Cross-device sync when available")
+                    benefitRow("Forums access")
                 }
 
                 #if DEBUG || targetEnvironment(simulator)
@@ -40,7 +40,7 @@ struct UpgradeSheetView: View {
                 VStack(spacing: 12) {
                     #if DEBUG || targetEnvironment(simulator)
                     Button {
-                        store.setPlan(.proLifetime)
+                        store.setPlan(.studioSubscription)
                         dismiss()
                     } label: {
                         Label("Use Pro Preview", systemImage: "star.fill")

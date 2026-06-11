@@ -111,6 +111,26 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.chartCapacityText(currentChartCount: charts.count)
     }
 
+    var localChartLimit: Int? {
+        entitlements.localChartLimit
+    }
+
+    var requiresLocalChartPruningForCurrentPlan: Bool {
+        guard let localChartLimit else {
+            return false
+        }
+
+        return charts.count > localChartLimit
+    }
+
+    var localChartOverflowCount: Int {
+        guard let localChartLimit else {
+            return 0
+        }
+
+        return max(0, charts.count - localChartLimit)
+    }
+
     func canUse(_ feature: EntitledFeature) -> Bool {
         entitlements.includes(feature)
     }
@@ -193,6 +213,24 @@ final class ChartLibraryStore: ObservableObject {
             charts = updatedCharts
             upsertTombstone(chartID: chartID, deletedAt: deletedAt)
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
+        }
+        return true
+    }
+
+    @discardableResult
+    func pruneLocalChartForCurrentPlan(id chartID: Chart.ID) -> Bool {
+        guard requiresLocalChartPruningForCurrentPlan,
+              charts.contains(where: { $0.id == chartID }) else {
+            return false
+        }
+
+        let proposedSelection = selectedChartID == chartID
+            ? charts.first(where: { $0.id != chartID })?.id
+            : selectedChartID
+
+        performPersistedBatch(notifyCloudSync: false) {
+            charts.removeAll { $0.id == chartID }
+            selectedChartID = Self.sanitizedSelection(proposedSelection, charts: charts)
         }
         return true
     }

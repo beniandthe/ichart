@@ -118,25 +118,30 @@ Exit criteria:
 ## Milestone 8 — Monetization foundation
 
 Deliverables:
+- mandatory account/auth/profile foundation for Basic and Pro users
 - local entitlement state
-- free chart-cap messaging in the library
-- Pro gating hooks for PDF export and advanced local editing tools
-- purchase restoration path planned behind a StoreKit boundary
-- subscription tier reserved for later service-backed features only
+- Basic 3-chart cap messaging in the library
+- Pro gating hooks for cloud chart backup/sync/restore
+- Pro gating hooks for Forums
+- Basic 3-chart cap with complete local tool and PDF/export access
+- downgrade flow that lets users prune selected local charts down to the 3-chart Basic cap
+- local-only downgrade pruning that does not create cloud deletion tombstones
+- purchase/subscription restoration path planned behind a StoreKit boundary
+- chart cloud services reserved for active Pro entitlement
 
 Exit criteria:
-- the app can express Free, Pro, and later Studio rules cleanly without tying core editing to billing code
+- the app can express Basic account and Pro subscription rules cleanly without making local chart editing, local save, or export depend on cloud chart sync
 
 ## Release-critical guardrails
 
 Do not block the prototype or v1 on:
 - multi-page perfection
 - collaboration
-- accounts/backend
+- full cloud chart sync if the account/auth foundation is in place and chart sync can stay Pro-gated
 - playback
 - full notation
 - non-iPad platforms
-- shipping a recurring subscription before real service features exist
+- cloud chart dependency in the editor
 
 ## Current recommended next step
 

@@ -22,7 +22,7 @@ This is not a handwriting training pass. Do not add fixtures, tune scores, or ex
 
 - `PDFChartExporter` now renders through `LeadSheetPageLayoutEngine` and `LeadSheetNotationRenderer`.
 - Export should produce a portrait full lead-sheet page with header, systems, staff lines, chords, rhythmic notation, saved page ink, saved chord ink, and saved rhythmic-notation ink when present.
-- Free/local field-test builds can reach PDF export before StoreKit through `AppEntitlements.pdfExportAvailableBeforeStoreKit`.
+- Basic/local builds can reach PDF export; export/share is not a Pro-only feature.
 - Sprint 44 GitHub Actions passed on `2501fdf`.
 
 ## Test Setup

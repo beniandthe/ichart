@@ -171,7 +171,8 @@ Feedback:
   for prototype speed, but StoreKit wiring should probably introduce a clearer
   purchase/entitlement adapter rather than letting the library store become a
   commerce hub.
-- Free vs Pro gating already exists for chart count and PDF export. The current
+- Basic vs Pro gating now applies to chart capacity and cloud/service access;
+  PDF export remains part of the Basic local writing workflow. The current
   "Use Pro Preview" flow is explicitly a prototype local entitlement switch.
 - Persistence errors are printed, not surfaced. That is tolerable during
   prototype work, but it is not enough for production chart ownership.

@@ -41,6 +41,7 @@ In practical use, that means:
 Smart Chart is:
 - an iPad-first chart editor for working musicians
 - a stylus-first, local-first authoring tool
+- an account-backed product with recoverable identity, profile, and subscription state
 - a structured chord and roadmap chart builder
 - a rhythm-aware chart tool that can show chord placement and implied hits
 - a fast rehearsal and gig-prep utility with clean PDF export
@@ -108,10 +109,11 @@ Finger input should still support navigation, selection, editing, and simple fal
 The pricing model must respect that musicians expect to own their local charts.
 
 That means:
-- the free tier should let users feel the product before paying
-- the one-time Pro tier should unlock the full local editing tool
-- recurring billing should be reserved for ongoing-service features such as sync, shared libraries, version history, or AI-assisted services
-- local chart ownership should not disappear when a subscription ends
+- the Basic account tier should let users feel the product before paying
+- Basic should include the complete local chart-writing tool, PDF/export, and local autosave with a 3-chart cap
+- account/auth/profile/subscription identity should be a base trust layer, not a paid feature
+- Pro subscription should fund unlimited chart capacity, cloud chart backup/sync/restore, Forums, and other ongoing-service features
+- local chart ownership should not disappear when Pro expires
 
 ## Primary users
 
@@ -154,22 +156,25 @@ Explicitly out of scope for v1:
 - collaboration
 - desktop app
 - iPhone-first authoring
-- required cloud backend
+- cloud-dependent chart authoring
+- required chart cloud sync for local editing
 
 ## Monetization principles
 
 Recommended launch business model:
-- free download
-- one-time Pro unlock for the full local tool
-- no required subscription for v1
-
-Recommended later business model:
-- optional Studio subscription only after Smart Chart includes real service-backed features
+- mandatory account for both Basic and Pro users
+- Basic account tier for local-first chart authoring and local persistence
+- Pro subscription for cloud chart backup/sync/restore and other service-backed features
 
 The product should treat these as launch truths unless later user testing proves they are wrong:
-- local chart ownership belongs in Pro, not in a subscription
-- subscriptions should fund cloud sync, cross-device organization, shared libraries, setlists, version history, and AI-assisted cleanup if those features are built
-- the app should remain useful offline and without an account
+- account/auth/profile/subscription identity is the base trust layer, not the paywall
+- local chart authoring and local save should remain usable without chart cloud sync
+- Basic should include all essential chart tools plus PDF/export, limited by a 3-chart local library cap
+- subscriptions should fund unlimited chart capacity, cloud chart services, Forums, cross-device organization, shared libraries, setlists, version history, and AI-assisted cleanup if those features are built
+- Pro expiration should pause cloud backup/sync and Forums clearly
+- downgraded accounts with more than 3 local charts should choose which local charts to remove until only 3 remain
+- downgrade pruning should delete user-selected overflow charts locally without creating cloud deletion tombstones; cloud backups remain recoverable until the grace period ends
+- the app should remain useful offline after account/session state has been established
 
 ## Release-critical success criteria
 

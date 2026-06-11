@@ -39,7 +39,7 @@ final class ChartCloudSyncStore: ObservableObject {
         lastRemoteBackupAt = libraryStore.cloudMetadata.lastRemoteBackupAt
         libraryStore.onSnapshotSaved = { [weak self] snapshot in
             Task { @MainActor in
-                self?.queueUpload(snapshot)
+                self?.handleSavedSnapshot(snapshot)
             }
         }
     }
@@ -55,11 +55,17 @@ final class ChartCloudSyncStore: ObservableObject {
         switch authState {
         case .signedIn, .passwordRecovery:
             isSignedIn = true
+            guard isCloudSyncEntitled else {
+                cancelPendingSyncWork()
+                state = .requiresPro
+                return
+            }
+
             syncNow()
         case .temporarilyOffline:
             cancelPendingSyncWork()
             isSignedIn = true
-            state = .offline
+            state = isCloudSyncEntitled ? .offline : .requiresPro
         case .unconfigured:
             cancelPendingSyncWork()
             isSignedIn = false
@@ -77,6 +83,12 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        guard isCloudSyncEntitled else {
+            cancelPendingSyncWork()
+            state = .requiresPro
+            return
+        }
+
         queuedUploadTask?.cancel()
         syncTask?.cancel()
         let snapshot = libraryStore.snapshot
@@ -87,6 +99,12 @@ final class ChartCloudSyncStore: ObservableObject {
 
     private func queueUpload(_ snapshot: ChartLibrarySnapshot) {
         guard isSignedIn, let service else {
+            return
+        }
+
+        guard snapshot.entitlements.includes(.cloudBackup) else {
+            cancelPendingSyncWork()
+            state = .requiresPro
             return
         }
 
@@ -149,6 +167,24 @@ final class ChartCloudSyncStore: ObservableObject {
         syncTask?.cancel()
         syncTask = nil
         isWorking = false
+    }
+
+    private var isCloudSyncEntitled: Bool {
+        libraryStore?.canUse(.cloudBackup) == true
+    }
+
+    private func handleSavedSnapshot(_ snapshot: ChartLibrarySnapshot) {
+        guard isSignedIn else {
+            return
+        }
+
+        guard snapshot.entitlements.includes(.cloudBackup) else {
+            cancelPendingSyncWork()
+            state = .requiresPro
+            return
+        }
+
+        queueUpload(snapshot)
     }
 
     nonisolated static func failureState(for error: Error) -> ChartSyncState {

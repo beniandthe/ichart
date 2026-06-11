@@ -1,6 +1,22 @@
 # Supabase Integration Runbook
 
-Status: Sprint 1-5 implementation guide for iChart account/profile and single-user chart backup/sync.
+Status: Sprint 1-5 implementation guide for iChart account/profile and Pro cloud chart backup/sync.
+
+Plan policy authority: `docs/ichart-plan-policy-source-of-truth.md`
+
+## Product Access Model
+
+- Account creation/sign-in is mandatory for production Basic and Pro users.
+- Auth, email verification, password recovery, profile, and subscription identity are the base trust layer.
+- Chart authoring, local save, and export remain local-first and must not depend on chart cloud sync.
+- Basic includes the complete local chart-writing tool, PDF/export, and a 3-chart local library cap.
+- Cloud chart backup/sync/restore is a Pro subscription feature because it carries storage, security, support, and operational cost.
+- Forums access is Pro-only.
+- Until StoreKit/subscription entitlement wiring is implemented, the current signed-in chart sync path is an interim QA path. Before production rollout, gate `ChartCloudSyncService` and Forums behind active Pro entitlement.
+- If Pro expires, cloud backup/sync and Forums should pause clearly.
+- If a downgraded Basic account has more than 3 local charts, the app should prompt the user to choose which local charts to remove until only 3 remain.
+- Downgrade pruning is local-only and must not enqueue cloud deletion tombstones.
+- Remote chart backups should receive a clear grace period, recommended default 30 days, before cloud retention cleanup. Charts removed locally during downgrade pruning remain in cloud backup until the grace period ends.
 
 ## Local Setup
 
@@ -27,10 +43,22 @@ The app reads these values from the Xcode scheme environment or generated Info.p
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_ANON_KEY` as a temporary legacy fallback
 
+For simulator QA, make sure the values reach the launched app process, not only the xcodebuild environment. With XcodeBuildMCP, `build_run_sim CODE_SIGNING_ALLOWED=NO` is enough to compile/install, but remote-account QA should relaunch the installed app with explicit runtime env:
+
+```json
+{
+  "SUPABASE_URL": "https://<project-ref>.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "<publishable-key>"
+}
+```
+
+If Settings shows `Account services offline` and Chart Sync shows `Cloud backup unavailable`, the app is running unconfigured. Relaunch with runtime env before treating account/sync behavior as a product failure.
+
 Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboard export files.
 
 ## Dashboard Settings
 
+- Parked follow-up: after the iChart domain and custom SMTP sender are configured, update the hosted Reset password template to use the direct app recovery link below and repeat password-reset QA from a fresh email.
 - Enable email/password auth.
 - Keep email verification enabled for production.
 - Keep secure password changes enabled.
@@ -66,7 +94,10 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 - Create account, resend verification, sign in, refresh session, and sign out.
 - Request password reset and return to the app through `ichart://auth-callback`.
 - Save profile fields to `profiles`.
-- Create, edit, delete, relaunch, sync, and restore charts after reinstall/sign-in.
+- With active Pro entitlement, create, edit, delete, relaunch, sync, and restore charts after reinstall/sign-in.
+- Without active Pro entitlement, confirm charts save locally, PDF/export remains available, Chart Sync clearly reports that cloud backup requires Pro, and Forums are locked.
+- When a Basic account already has more than 3 local charts from a prior Pro period, confirm the app requires user-selected local pruning down to 3 charts.
+- Confirm downgrade-pruned local charts do not create remote deletion tombstones and remain restorable from cloud snapshots until the grace period ends.
 - Make offline edits, regain network, tap Sync Now, and confirm state recovers.
 
 ## Opt-In Integration Tests

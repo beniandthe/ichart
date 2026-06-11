@@ -58,9 +58,9 @@ Failure/recovery smoke:
 Disposable create/delete propagation:
 
 - Created a disposable Simple Chord Sheet through the real `New Chart` flow.
-- Library moved from `4 of 5 free charts used` to `5 of 5 free charts used`.
+- Library moved through the active Basic chart counter during the disposable chart create flow.
 - Deleted the top newly-created disposable chart through `Chart actions > Delete`.
-- Library returned to `4 of 5 free charts used`.
+- Library returned to the prior Basic chart counter after the disposable delete.
 - Settings showed `Verified`, `4 charts`, and `Synced 10:45 AM`.
 
 Fresh-account cloud gate:
@@ -86,10 +86,11 @@ Password reset recovery:
 - Requested password reset from the signed-out Account panel. The app showed `Password reset email sent.`
 - Follow-up fix: the app now has an explicit `passwordRecovery` account state. Valid `ichart://auth-callback` recovery links show a compact new-password panel in Settings and save with Supabase `auth.update(user: UserAttributes(password: ...))`.
 - Follow-up hardening: recovery callbacks now accept either `token_hash` or Supabase's default hosted-link `token` value when that token is delivered directly to `ichart://auth-callback`, so simulator QA can bypass Safari consuming the one-time `/verify` URL.
-- Hosted project requirement: set the Reset password email template to `ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery` before production QA. This avoids email-provider or browser prefetch of the default `{{ .ConfirmationURL }}` link.
+- Hosted project requirement after domain/custom SMTP setup: set the Reset password email template to `ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery` before production QA. Supabase blocks hosted template edits on the current free/default email-provider path, so this remains parked until SMTP unlocks template customization. This avoids email-provider or browser prefetch of the default `{{ .ConfirmationURL }}` link.
 - Verified recovery QA: opened the direct `ichart://auth-callback` recovery link in the iPad simulator, confirmed Settings showed `Set new password`, saved a replacement password, signed out, and signed back in with the replacement password. The app returned to `Verified`, `Signed in.`, and `Synced`, and Supabase auth logs showed `/verify`, `/user`, `/logout`, and `/token` success responses for the flow.
 
 ## Notes
 
+- Product direction after this QA: account/auth/profile remain mandatory for Basic and Pro users. Basic includes the complete local chart-writing tool, PDF/export, local autosave, and a 3-chart local cap. Chart cloud backup/sync/restore and Forums become Pro entitlements before production cloud rollout. The signed-in sync path exercised here is interim QA coverage until StoreKit/subscription gating is wired.
 - Endpoint/auth-restore connectivity failures are now treated as temporary offline state rather than signed-out state.
 - No service-role key, database password, JWT secret, SMTP credential, or Stripe secret was used in the app or committed.

@@ -967,15 +967,10 @@ struct EditorView: View {
     }
 
     private var exportButtonTitle: String {
-        store.canUse(.pdfExport) ? "Export PDF" : "Export PDF (Pro)"
+        "Export PDF"
     }
 
     private func handleExportTapped() {
-        guard store.canUse(.pdfExport) else {
-            activeSheet = .upgrade(.pdfExport)
-            return
-        }
-
         let chartToExport = chart
         isExporting = true
 

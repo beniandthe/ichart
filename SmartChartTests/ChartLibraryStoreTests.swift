@@ -37,7 +37,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
     }
 
-    func testFreePlanPreventsCreatingPastTheChartLimit() {
+    func testBasicAccountPreventsCreatingPastTheChartLimit() {
         let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
@@ -49,7 +49,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.charts.count, AppEntitlements.recommendedFreeChartLimit)
     }
 
-    func testProPlanAllowsCreatingMoreCharts() {
+    func testLegacyLocalProAllowsCreatingMoreCharts() {
         let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
@@ -331,7 +331,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(duplicate.title, "Gig Chart Copy 2")
     }
 
-    func testDuplicateChartRespectsFreePlanLimit() {
+    func testDuplicateChartRespectsBasicAccountLimit() {
         let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
@@ -425,6 +425,48 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(tombstone.chartID, chart.id)
         let savedTombstone = try XCTUnwrap(repository.savedSnapshots.last?.deletionTombstones.first)
         XCTAssertEqual(savedTombstone.chartID, chart.id)
+    }
+
+    func testDowngradePruneRemovesSelectedLocalChartWithoutCloudTombstoneOrUpload() throws {
+        let repository = RecordingChartRepository()
+        let charts = (1...4).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(
+            charts: charts,
+            entitlements: .free,
+            selectedChartID: charts[3].id,
+            repository: repository
+        )
+        var scheduledUploadCount = 0
+        store.onSnapshotSaved = { (_: ChartLibrarySnapshot) in
+            scheduledUploadCount += 1
+        }
+
+        XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertEqual(store.localChartOverflowCount, 1)
+
+        let didPrune = store.pruneLocalChartForCurrentPlan(id: charts[3].id)
+
+        XCTAssertTrue(didPrune)
+        XCTAssertEqual(store.charts.map { $0.id }, [charts[0].id, charts[1].id, charts[2].id])
+        XCTAssertEqual(store.selectedChartID, charts[0].id)
+        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertTrue(store.deletionTombstones.isEmpty)
+        XCTAssertEqual(repository.savedSnapshots.last?.charts.map { $0.id }, [charts[0].id, charts[1].id, charts[2].id])
+        XCTAssertTrue(repository.savedSnapshots.last?.deletionTombstones.isEmpty ?? false)
+        XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
+    func testDowngradePruneIsUnavailableWhenLibraryIsAtBasicCap() {
+        let charts = (1...AppEntitlements.recommendedBasicChartLimit).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+
+        XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[0].id))
+        XCTAssertEqual(store.charts.map(\.id), charts.map(\.id))
+        XCTAssertTrue(store.deletionTombstones.isEmpty)
     }
 
     func testSyncedSnapshotAppliesQuietlyWithoutSchedulingUpload() {

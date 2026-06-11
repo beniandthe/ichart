@@ -55,7 +55,7 @@ The product should feel like a serious musician's workstation: dark brand framin
 - Put the Light/Dark mode switch at the bottom of the sidebar.
 - Keep FAQ, User Policy, Legal, and Contact Us inside the Help surface instead of duplicating them under the mode switch.
 - Keep the Charts tab work-first: the universal logo stays in the sidebar, the redundant tab header is removed, and `New Chart` is centered as the primary action.
-- Show free-tier chart usage near `New Chart` only when a chart cap applies.
+- Show Basic chart usage near `New Chart` only when a chart cap applies.
 - Keep chart rows simple by default, with user-selectable `Collapsed`, `Quick`, and `Large` preview density.
 - Use iChart Blue for `New Chart` and other primary library actions.
 - Use Paper or Paper 2 for chart rows.

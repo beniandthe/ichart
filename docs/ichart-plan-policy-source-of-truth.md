@@ -1,0 +1,235 @@
+# iChart Plan Policy Source Of Truth
+
+Status: Active product policy for v1 implementation
+Last updated: 2026-06-11
+
+This document is the hard source of truth for iChart account, Basic, Pro, cloud sync, Forums, downgrade, and subscription policy. If another planning document conflicts with this file, this file wins for plan and entitlement behavior.
+
+## 1. Product Principle
+
+iChart should feel like a complete, trustworthy chart-writing app before a user pays.
+
+The paid plan should not unlock the basic ability to write, edit, save, or export charts. Pro exists because some features create ongoing service cost, security responsibility, storage cost, moderation cost, support burden, or multi-device value.
+
+## 2. Account Policy
+
+- Account creation/sign-in is mandatory for production Basic and Pro users.
+- Account/auth is not the paywall.
+- Email verification, password recovery, profile, subscription identity, and support identity are part of the base trust layer.
+- Production auth starts with email/password plus email verification.
+- Magic links, Apple Sign-In, social login, and other auth methods are post-v1 unless explicitly reprioritized.
+- Domain/custom SMTP setup is still parked. Until that is complete, hosted Auth email-template changes remain a dashboard follow-up rather than an app-code dependency.
+
+## 3. Plan Structure
+
+### Basic
+
+Basic is the default mandatory-account tier.
+
+Basic includes:
+
+- complete local chart-writing tool access
+- all essential Simple Chord Sheet and Rhythm Section authoring tools
+- local autosave
+- local library access
+- PDF export and sharing
+- account/profile/password recovery
+- 3 local charts
+
+Basic excludes:
+
+- cloud chart backup
+- chart restore after reinstall from cloud
+- cross-device chart sync
+- Forums
+- future service-heavy features such as version history, shared libraries, setlists, cloud organization, or AI-assisted cleanup
+
+### Pro
+
+Pro is an auto-renewing subscription surface, offered as monthly and annual plans.
+
+Pro includes:
+
+- unlimited local chart creation
+- cloud chart backup
+- chart restore after reinstall or new iPad sign-in
+- future cross-device chart sync
+- Forums access
+- future cloud-backed organization
+- future service-heavy features if built
+
+No one-time Pro purchase is planned for launch. A one-time purchase can be reconsidered later only for permanent local features with no ongoing service cost.
+
+## 4. Paywall Policy
+
+Do not gate core local authoring behind Pro.
+
+Core local authoring includes:
+
+- creating charts within the current plan limit
+- editing existing charts
+- local autosave
+- chord writing and correction
+- rhythm chart authoring
+- measure/repeat/page tools required for normal chart work
+- typography and appearance controls required for readable charts
+- PDF export and sharing
+
+Pro gates ongoing-service and community surfaces:
+
+- unlimited chart capacity
+- cloud backup/sync/restore
+- Forums
+- future service-backed features
+
+## 5. Chart Limit Policy
+
+- Basic users can create up to 3 local charts.
+- Pro users can create unlimited local charts.
+- The chart cap applies to active local chart documents in the local library.
+- Creating and duplicating charts must respect the cap.
+- After the Basic library is at or below the cap, editing, opening, renaming, deleting, and exporting those local charts must not be blocked by the cap.
+
+## 6. Downgrade And Expiration Policy
+
+When Pro expires, is canceled, or cannot be verified:
+
+- users must resolve the local Basic cap if the library has more than 3 charts
+- Forums lock
+- cloud backup/sync/restore pauses
+- Settings should clearly explain that cloud backup and Forums require Pro, and that the local library must be reduced to 3 charts for Basic
+
+If a downgraded Basic account has more than 3 local charts:
+
+- the app must prompt the user to choose which local charts to keep or remove until only 3 local charts remain
+- charts removed during this downgrade flow are deleted from the local library
+- downgrade pruning is local-only and must not create cloud deletion tombstones
+- downgrade pruning must not delete remote chart documents or snapshots while the cloud grace period is active
+- local chart editing/export continues for the remaining 3 Basic charts
+- new chart creation and duplication stay blocked until the local library is reduced to 3 charts or Pro is restored
+
+This policy gives Pro clear value while preserving recoverability through the cloud grace window.
+
+## 7. Cloud Backup Retention Policy
+
+Pro expiration should hard-stop cloud service access, not local user work.
+
+Recommended v1 retention behavior:
+
+- Cloud backup/sync pauses immediately when Pro is inactive.
+- The app reminds users before cancellation/expiration, where possible, to export critical charts.
+- Remote chart backups receive a clear grace period after Pro expiration.
+- Recommended default grace period: 30 days.
+- After the grace period, remote backups may be deleted or archived according to the published retention policy.
+- Charts removed locally during downgrade pruning remain in cloud backup until the grace period ends.
+- If Pro is restored before the grace period ends, cloud-backed charts can be restored from the remote snapshots.
+- Local device charts are not affected by remote backup retention cleanup beyond the user's explicit downgrade-pruning choices.
+
+The app must explain this plainly in Settings or the subscription management surface before production launch.
+
+## 8. Cloud Sync Policy
+
+The editor remains local-first.
+
+- `FileChartRepository` remains the runtime source of truth for local editing.
+- Cloud sync must never block launch, chart editing, local save, or export.
+- `ChartCloudSyncService` is gated behind active Pro entitlement before production cloud rollout.
+- Signed-in chart sync behavior before entitlement wiring is only interim QA coverage.
+- Sync uses whole-chart snapshots and last-writer-wins current state for this phase.
+- Operation-level collaboration and merge logic are out of scope.
+- Delete propagation uses tombstones so older devices do not resurrect deleted charts.
+
+Chart sync states should communicate the user's real situation:
+
+- unconfigured build
+- signed out
+- Basic cloud backup requires Pro
+- offline
+- syncing
+- synced at time
+- failed with retry
+
+## 9. Forums Policy
+
+- Forums are Pro-only.
+- Forums may remain visible in the sidebar for Basic users, but the content should be locked with clear upgrade copy.
+- Forums should not block access to Charts, Help, or Settings.
+- Forums access should be controlled by the same active Pro entitlement boundary as cloud services.
+
+## 10. Subscription And Payment Policy
+
+- Pro should launch as monthly and annual auto-renewing subscriptions.
+- Annual should be positioned as the best value if pricing supports it.
+- No raw card data is collected or stored by iChart.
+- App-side payment fields remain text/customer-reference summaries only until real billing integration defines a safer flow.
+- StoreKit owns Apple subscription purchase/restore.
+- Supabase subscription rows are read-only from the app.
+- Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
+- Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
+
+## 11. Security And Database Policy
+
+- Owner-scoped data must be protected by RLS.
+- The iOS app uses only publishable/anon client keys.
+- The app must never authorize privileged behavior from user-editable metadata.
+- Subscription or entitlement authority should come from trusted purchase/subscription state, not client-editable profile fields.
+- `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices` must keep RLS coverage.
+- `subscriptions` remains client read-only.
+- Account deletion must be user-initiated and handled separately from Pro expiration.
+
+## 12. Implementation Policy
+
+Before production cloud rollout:
+
+- Rename user-facing `Free` wording to `Basic`.
+- Keep legacy enum names only where needed for backward compatibility.
+- Set Basic local chart cap to 3.
+- Keep PDF/export available in Basic.
+- Keep local authoring tools available in Basic.
+- Add a cloud-sync state for inactive Pro, such as `requiresPro`.
+- Gate `ChartCloudSyncStore` / `ChartCloudSyncService` by active Pro.
+- Gate Forums by active Pro.
+- Add an explicit downgrade-pruning flow for users over the 3-chart Basic cap.
+- Keep downgrade pruning separate from normal chart delete so it does not enqueue remote tombstones.
+- Add tests for Basic cap, Pro unlimited charts, Basic export availability, Pro sync access, Basic sync lock, Forums lock, downgrade-pruning behavior, and cloud grace preservation.
+
+## 13. QA Acceptance Policy
+
+Minimum acceptance before calling the plan implementation ready:
+
+- Basic account can create exactly 3 local charts.
+- Basic account cannot create a 4th chart.
+- Basic account can edit, rename, delete, and export its charts.
+- Basic account can use all essential local chart tools.
+- Basic account sees cloud backup/sync as Pro-required.
+- Basic account sees Forums as Pro-required.
+- Pro account can create more than 3 charts.
+- Pro account can sync/backup/restore charts.
+- Pro account can access Forums.
+- Expired/downgraded Pro with more than 3 local charts is prompted to choose local charts to remove until 3 remain.
+- Downgrade-pruned charts are removed locally but remain in cloud backup until the grace period ends.
+- Downgrade pruning does not create remote tombstones.
+- The remaining 3 local Basic charts can open/edit/export.
+- Remote backup grace-period messaging is visible before cloud retention cleanup ships.
+
+## 14. Parked Follow-Ups
+
+These are intentionally not blockers for the immediate entitlement pass:
+
+- domain setup
+- custom SMTP setup
+- hosted Auth email-template customization
+- final monthly/annual price points
+- StoreKit production products
+- App Store subscription metadata
+- server-side subscription webhook processing
+- real Forums backend implementation
+- final remote backup retention automation
+
+## 15. Short Rule
+
+Basic is the real local app with 3 charts.
+
+Pro is unlimited capacity plus cloud, restore, sync, Forums, and future services.
+
+Downgrade removes user-selected local overflow charts, but cloud backups remain recoverable until the grace period ends.
