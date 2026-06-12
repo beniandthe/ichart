@@ -47,6 +47,8 @@ struct IChartUserProfile: Codable, Equatable {
     let id: UUID
     var email: String?
     var phone: String?
+    var firstName: String?
+    var lastName: String?
     var mailingAddress: String?
     var paymentSummary: String?
     var stripeCustomerID: String?
@@ -55,6 +57,8 @@ struct IChartUserProfile: Codable, Equatable {
         case id
         case email
         case phone
+        case firstName = "first_name"
+        case lastName = "last_name"
         case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
         case stripeCustomerID = "stripe_customer_id"
@@ -65,6 +69,8 @@ private struct IChartUserProfileUpdate: Encodable {
     let id: UUID
     var email: String?
     var phone: String?
+    var firstName: String?
+    var lastName: String?
     var mailingAddress: String?
     var paymentSummary: String?
 
@@ -72,6 +78,8 @@ private struct IChartUserProfileUpdate: Encodable {
         id = profile.id
         email = profile.email
         phone = profile.phone
+        firstName = profile.firstName
+        lastName = profile.lastName
         mailingAddress = profile.mailingAddress
         paymentSummary = profile.paymentSummary
     }
@@ -80,6 +88,8 @@ private struct IChartUserProfileUpdate: Encodable {
         case id
         case email
         case phone
+        case firstName = "first_name"
+        case lastName = "last_name"
         case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
     }
@@ -99,7 +109,12 @@ enum IChartAuthError: LocalizedError {
 private protocol IChartAccountServicing {
     var isConfigured: Bool { get }
     func restoreSession() async throws -> IChartAuthState
-    func signUp(email: String, password: String) async throws -> IChartAuthState
+    func signUp(
+        email: String,
+        password: String,
+        firstName: String?,
+        lastName: String?
+    ) async throws -> IChartAuthState
     func signIn(email: String, password: String) async throws -> IChartAuthState
     func signOut() async throws
     func resendVerificationEmail(email: String) async throws
@@ -147,11 +162,15 @@ final class IChartAuthStore: ObservableObject {
         }
 
         hasBootstrapped = true
-        await refreshSession()
+        await restoreSession(successMessage: nil)
     }
 
     func refreshSession() async {
-        await run("Account session refreshed.") {
+        await restoreSession(successMessage: "Account session refreshed.")
+    }
+
+    private func restoreSession(successMessage: String?) async {
+        await run(successMessage) {
             var restoredState = try await service.restoreSession()
             if case .signedOut = restoredState,
                let email = rememberedPendingVerificationEmail {
@@ -161,9 +180,19 @@ final class IChartAuthStore: ObservableObject {
         }
     }
 
-    func createAccount(email: String, password: String) async {
+    func createAccount(
+        email: String,
+        password: String,
+        firstName: String? = nil,
+        lastName: String? = nil
+    ) async {
         await run("Account created. Check your email to finish verification.") {
-            let nextState = try await service.signUp(email: email, password: password)
+            let nextState = try await service.signUp(
+                email: email,
+                password: password,
+                firstName: sanitized(firstName ?? ""),
+                lastName: sanitized(lastName ?? "")
+            )
             try await applyAuthState(nextState)
         }
     }
@@ -244,8 +273,7 @@ final class IChartAuthStore: ObservableObject {
     func saveProfile(
         email: String,
         phone: String,
-        mailingAddress: String,
-        paymentSummary: String
+        mailingAddress: String
     ) async {
         guard let session = state.signedInSession else {
             errorMessage = "Sign in before saving profile info."
@@ -256,8 +284,10 @@ final class IChartAuthStore: ObservableObject {
             id: session.id,
             email: sanitized(email) ?? session.email,
             phone: sanitized(phone) ?? session.phone,
+            firstName: self.profile?.firstName,
+            lastName: self.profile?.lastName,
             mailingAddress: sanitized(mailingAddress),
-            paymentSummary: sanitized(paymentSummary),
+            paymentSummary: self.profile?.paymentSummary,
             stripeCustomerID: self.profile?.stripeCustomerID
         )
 
@@ -281,7 +311,7 @@ final class IChartAuthStore: ObservableObject {
         return try await service.loadProfile(for: session.id)
     }
 
-    private func run(_ successMessage: String, operation: () async throws -> Void) async {
+    private func run(_ successMessage: String?, operation: () async throws -> Void) async {
         guard service.isConfigured else {
             state = .unconfigured
             statusMessage = nil
@@ -299,8 +329,10 @@ final class IChartAuthStore: ObservableObject {
                 statusMessage = "Account is offline. Local charts remain available."
             } else if case .passwordRecovery = state {
                 statusMessage = "Enter a new password to finish reset."
-            } else {
+            } else if let successMessage {
                 statusMessage = successMessage
+            } else {
+                statusMessage = nil
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -336,7 +368,12 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
         .unconfigured
     }
 
-    func signUp(email: String, password: String) async throws -> IChartAuthState {
+    func signUp(
+        email: String,
+        password: String,
+        firstName: String?,
+        lastName: String?
+    ) async throws -> IChartAuthState {
         .unconfigured
     }
 
@@ -395,10 +432,16 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         }
     }
 
-    func signUp(email: String, password: String) async throws -> IChartAuthState {
+    func signUp(
+        email: String,
+        password: String,
+        firstName: String?,
+        lastName: String?
+    ) async throws -> IChartAuthState {
         let response = try await authClient.auth.signUp(
             email: normalized(email),
             password: password,
+            data: signupMetadata(firstName: firstName, lastName: lastName),
             redirectTo: IChartSupabaseClientFactory.authCallbackURL
         )
 
@@ -575,6 +618,20 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     private func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func signupMetadata(firstName: String?, lastName: String?) -> [String: AnyJSON] {
+        var metadata: [String: AnyJSON] = [:]
+
+        if let firstName = firstName.map(normalized), !firstName.isEmpty {
+            metadata["first_name"] = .string(firstName)
+        }
+
+        if let lastName = lastName.map(normalized), !lastName.isEmpty {
+            metadata["last_name"] = .string(lastName)
+        }
+
+        return metadata
     }
 
     private static func isConnectivityError(_ error: Error) -> Bool {

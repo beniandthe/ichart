@@ -296,19 +296,44 @@ enum KeyMode: String, Codable, CaseIterable, Hashable {
     }
 }
 
-enum TranspositionView: String, Codable, CaseIterable, Hashable {
+enum TranspositionView: String, Codable, CaseIterable, Hashable, Identifiable {
     case concert
     case bb
     case eb
+    case f
+
+    var id: String { rawValue }
+
+    static let instrumentOptions: [TranspositionView] = [
+        .concert,
+        .bb,
+        .eb,
+        .f
+    ]
 
     var displayText: String {
         switch self {
         case .concert:
             return "Concert"
         case .bb:
-            return "Bb"
+            return "Bb Horn"
         case .eb:
-            return "Eb"
+            return "Eb Horn"
+        case .f:
+            return "F Horn"
+        }
+    }
+
+    var intervalDisplayText: String {
+        switch self {
+        case .concert:
+            return "No transpose"
+        case .bb:
+            return "+M2"
+        case .eb:
+            return "+M6"
+        case .f:
+            return "+P5"
         }
     }
 
@@ -320,6 +345,8 @@ enum TranspositionView: String, Codable, CaseIterable, Hashable {
             return 2
         case .eb:
             return 9
+        case .f:
+            return 7
         }
     }
 }
@@ -331,14 +358,50 @@ extension Chart {
     }
 
     var chordTranspositionDisplayText: String {
-        switch chordTranspositionSemitones {
+        Self.intervalDisplayText(forNormalizedSemitones: chordTranspositionSemitones)
+    }
+
+    var libraryTranspositionText: String {
+        guard chordTranspositionSemitones != 0 else {
+            return defaultTranspositionView.displayText
+        }
+
+        return "\(defaultTranspositionView.displayText) · \(chordTranspositionDisplayText)"
+    }
+
+    static func intervalDisplayText(forNormalizedSemitones semitones: Int) -> String {
+        switch normalizedChordTranspositionSemitones(semitones) {
         case 0:
             return "Written"
         case 1:
-            return "+1 half step"
+            return "+m2"
+        case 2:
+            return "+M2"
+        case 3:
+            return "+m3"
+        case 4:
+            return "+M3"
+        case 5:
+            return "+P4"
+        case 6:
+            return "+tritone"
+        case 7:
+            return "+P5"
+        case 8:
+            return "+m6"
+        case 9:
+            return "+M6"
+        case 10:
+            return "+m7"
         default:
-            return "+\(chordTranspositionSemitones) half steps"
+            return "+M7"
         }
+    }
+
+    mutating func setInstrumentTranspositionView(_ view: TranspositionView) {
+        defaultTranspositionView = view
+        chordTranspositionSemitones = 0
+        updatedAt = .now
     }
 
     func displayedChordSymbol(for chordEvent: ChordEvent) -> ChordSymbol {

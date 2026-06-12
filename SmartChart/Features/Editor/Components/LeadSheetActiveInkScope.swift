@@ -168,7 +168,7 @@ enum LeadSheetActiveInkScope {
             .reduce(firstFrame) { partialFrame, laneFrame in
                 partialFrame.union(laneFrame)
             }
-            .insetBy(dx: -8, dy: -8)
+            .insetBy(dx: -14, dy: -14)
     }
 
     func drawingData(in chart: Chart) -> Data? {

@@ -30,17 +30,13 @@ extension Chart {
 
         let measureSummary = measures.isEmpty ? "blank page" : "\(measures.count) measures"
         let visibleSetupParts = layoutStyle.visibleLibrarySetupSummaryParts(for: self)
-        return ([layoutStyle.displayText] + visibleSetupParts + [measureSummary]).joined(separator: " · ")
+        return ([layoutStyle.displayText, libraryTranspositionText] + visibleSetupParts + [measureSummary]).joined(separator: " · ")
     }
 }
 
 private extension ChartLayoutStyle {
     func visibleLibrarySetupSummaryParts(for chart: Chart) -> [String] {
         var parts = [String]()
-
-        if profile.setupPolicy.includesKeySelection {
-            parts.append(chart.documentKey.displayText)
-        }
 
         if profile.setupPolicy.includesTimeSignatureSelection {
             parts.append(chart.defaultMeter.displayText)

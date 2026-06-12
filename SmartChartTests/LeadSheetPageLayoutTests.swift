@@ -787,6 +787,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
         XCTAssertEqual(freehandBelowFrame.minY, firstMeasure.staffFrame.maxY + 4, accuracy: 0.001)
         XCTAssertEqual(freehandBelowFrame.maxY, firstMeasure.frame.maxY, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(freehandBelowFrame.height, 40)
     }
 
     func testRhythmSectionManualSystemBreakControlsRenderedRows() throws {

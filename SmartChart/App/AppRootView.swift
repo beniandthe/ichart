@@ -4,12 +4,26 @@ import SwiftUI
 struct AppRootView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @State private var projectPath: [ProjectRoute] = []
-    @State private var isLaunchAnimationVisible = true
+    @State private var isLaunchAnimationVisible: Bool
+
+    private static let hasSeenAccountLandingKey = "iChartHasSeenAccountLanding"
+
+    init() {
+        _isLaunchAnimationVisible = State(
+            initialValue: UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)
+        )
+    }
 
     var body: some View {
         ZStack {
             NavigationStack(path: $projectPath) {
                 LibraryView { chartID, initialCanvasMode in
+                    guard store.canOpenChartsForEditing else {
+                        store.selectedChartID = nil
+                        projectPath.removeAll()
+                        return
+                    }
+
                     store.selectedChartID = chartID
                     projectPath = [.chart(chartID, initialCanvasMode)]
                 }
@@ -17,7 +31,13 @@ struct AppRootView: View {
                 .navigationDestination(for: ProjectRoute.self) { route in
                     switch route {
                     case .chart(let chartID, let initialCanvasMode):
-                        if let chart = chartBinding(for: chartID) {
+                        if store.isChartEditingLockedByCurrentPlan {
+                            ContentUnavailableView(
+                                "Resolve Basic Limit",
+                                systemImage: "lock.doc",
+                                description: Text("Remove local charts until the library has 3 Basic charts, or restore Pro to keep editing.")
+                            )
+                        } else if let chart = chartBinding(for: chartID) {
                             EditorView(chart: chart, initialCanvasMode: initialCanvasMode) {
                                 store.selectedChartID = nil
                                 projectPath.removeAll()
@@ -30,6 +50,14 @@ struct AppRootView: View {
                             )
                         }
                     }
+                }
+                .onChange(of: store.isChartEditingLockedByCurrentPlan) { _, isLocked in
+                    guard isLocked else {
+                        return
+                    }
+
+                    store.selectedChartID = nil
+                    projectPath.removeAll()
                 }
             }
 
@@ -62,7 +90,7 @@ private enum ProjectRoute: Hashable {
     case chart(UUID, EditorCanvasMode)
 }
 
-private struct IChartLaunchScreenView: View {
+struct IChartLaunchScreenView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let capturedHandwritingSample: IChartLaunchHandwritingSample?
     let onFinished: () -> Void

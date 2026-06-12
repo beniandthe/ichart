@@ -53,7 +53,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
     }
 
-    func testSettingsContainUserInfoAndPaymentInfo() throws {
+    func testSettingsContainUserInfoWithoutPaymentInfo() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -65,11 +65,99 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("iChartUserEmail"))
         XCTAssertTrue(libraryText.contains("iChartUserPhone"))
         XCTAssertTrue(libraryText.contains("iChartUserAddress"))
-        XCTAssertTrue(libraryText.contains("iChartUserPaymentSummary"))
         XCTAssertTrue(libraryText.contains("User Info"))
-        XCTAssertTrue(libraryText.contains("Payment Info"))
+        XCTAssertFalse(libraryText.contains("iChartUserPaymentSummary"))
+        XCTAssertFalse(libraryText.contains("Payment Info"))
         XCTAssertTrue(libraryText.contains("Resend Email"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
+    }
+
+    func testManualTextEntryPopoutsExposeKeyboardButtons() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+        let headerSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Editor/Components/ChartHeaderSheetView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Editor/EditorView.swift")
+        )
+        let chordSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("IChartKeyboardFocusButton"))
+        XCTAssertTrue(libraryText.contains("field: .firstName"))
+        XCTAssertTrue(libraryText.contains("accessibilityLabel: \"Open keyboard for \\(title)\""))
+        XCTAssertTrue(libraryText.contains("Open keyboard for chart title"))
+        XCTAssertTrue(libraryText.contains("Open keyboard for project title"))
+        XCTAssertTrue(libraryText.contains("Open keyboard for variant title"))
+        XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
+        XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
+        XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
+        XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
+    }
+
+    func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+        let appRootText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/AppRootView.swift")
+        )
+        let authStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Auth/IChartAuthStore.swift")
+        )
+        let profileNamesMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260612182458_add_profile_names.sql")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(libraryText.contains("IChartFirstRunAccountLandingView"))
+        XCTAssertTrue(libraryText.contains("requiresNameForSignup: true"))
+        XCTAssertTrue(libraryText.contains("First Name"))
+        XCTAssertTrue(libraryText.contains("Last Name"))
+        XCTAssertTrue(libraryText.contains(".fullScreenCover(isPresented: $showingAccountLanding)"))
+        XCTAssertTrue(libraryText.contains(".frame(maxWidth: 640)"))
+        XCTAssertTrue(libraryText.contains(".frame(minHeight: proxy.size.height, alignment: .center)"))
+        XCTAssertTrue(libraryText.contains(".interactiveDismissDisabled(true)"))
+        XCTAssertTrue(libraryText.contains("showsSignedInActions: false"))
+        XCTAssertTrue(libraryText.contains("authStore.state.isVerifiedSignedIn"))
+        XCTAssertTrue(libraryText.contains("Label(\"Continue\", systemImage: \"arrow.right\")"))
+        XCTAssertTrue(libraryText.contains("IChartLaunchScreenView("))
+        XCTAssertTrue(libraryText.contains("IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()"))
+        XCTAssertTrue(libraryText.contains("completeFirstRunAccountLanding"))
+        XCTAssertTrue(libraryText.contains("hasSeenAccountLanding = true"))
+        XCTAssertFalse(libraryText.contains("Continue to Charts"))
+        XCTAssertFalse(libraryText.contains("Button(\"Close\")"))
+        XCTAssertTrue(appRootText.contains("hasSeenAccountLandingKey"))
+        XCTAssertTrue(appRootText.contains("UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)"))
+        XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
+        XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
+        XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
+        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
+        XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists first_name text"))
+        XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists last_name text"))
+        XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'first_name'"))
+        XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'last_name'"))
+        XCTAssertTrue(planPolicyText.contains("First-launch account creation requires first name, last name, email, and password"))
     }
 
     func testHomeShellPrimaryControlsKeepExplicitHitAreas() throws {
@@ -85,6 +173,22 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+    }
+
+    func testChartConsolidationUsesSingleDeleteList() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("IChartChartConsolidationNotice"))
+        XCTAssertTrue(libraryText.contains("activeChartPreviewMode"))
+        XCTAssertTrue(libraryText.contains("Label(\"Delete Local\", systemImage: \"trash\")"))
+        XCTAssertFalse(libraryText.contains("IChartBasicChartPruningPanel"))
+        XCTAssertFalse(libraryText.contains("Label(\"Remove Local\""))
     }
 
     func testEditorExitUsesExplicitNavigationRoute() throws {
@@ -175,7 +279,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authStorageText.contains("targetEnvironment(simulator)"))
         XCTAssertTrue(authStorageText.contains("IChartSupabasePersistentSessionStore"))
         XCTAssertTrue(authStorageText.contains("iChart.supabase.session.v1"))
-        XCTAssertTrue(authStoreText.contains("signUp(email:"))
+        XCTAssertTrue(authStoreText.contains("func signUp("))
+        XCTAssertTrue(authStoreText.contains("signupMetadata(firstName:"))
         XCTAssertTrue(authStoreText.contains("let session = try await authClient.auth.signIn("))
         XCTAssertTrue(authStoreText.contains("resendVerificationEmail"))
         XCTAssertTrue(authStoreText.contains("resetPasswordForEmail"))

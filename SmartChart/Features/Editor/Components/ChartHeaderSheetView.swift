@@ -4,10 +4,17 @@ struct ChartHeaderSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
 
+    private enum Field: Hashable {
+        case title
+        case composerCredit
+        case styleNote
+    }
+
     @State private var draftTitle: String
     @State private var draftComposerCredit: String
     @State private var draftStyleNote: String
     @State private var draftHeaderInputMode: ChartHeaderInputMode
+    @FocusState private var focusedField: Field?
 
     init(chart: Binding<Chart>) {
         self._chart = chart
@@ -31,9 +38,21 @@ struct ChartHeaderSheetView: View {
                 }
 
                 Section("Chart") {
-                    TextField("Title", text: $draftTitle)
-                    TextField("Composer / Credit", text: $draftComposerCredit)
-                    TextField("Style Note", text: $draftStyleNote)
+                    headerTextField(
+                        title: "Title",
+                        text: $draftTitle,
+                        field: .title
+                    )
+                    headerTextField(
+                        title: "Composer / Credit",
+                        text: $draftComposerCredit,
+                        field: .composerCredit
+                    )
+                    headerTextField(
+                        title: "Style Note",
+                        text: $draftStyleNote,
+                        field: .styleNote
+                    )
                 }
             }
             .navigationTitle("Header")
@@ -58,6 +77,32 @@ struct ChartHeaderSheetView: View {
                     }
                 }
             }
+        }
+        .task {
+            focusedField = .title
+        }
+    }
+
+    private func headerTextField(
+        title: String,
+        text: Binding<String>,
+        field: Field
+    ) -> some View {
+        HStack(spacing: 10) {
+            TextField(title, text: text)
+                .focused($focusedField, equals: field)
+                .textInputAutocapitalization(.words)
+
+            Button {
+                focusedField = field
+            } label: {
+                Image(systemName: "keyboard")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Open keyboard for \(title)")
         }
     }
 

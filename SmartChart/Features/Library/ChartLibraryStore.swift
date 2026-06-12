@@ -133,6 +133,14 @@ final class ChartLibraryStore: ObservableObject {
         return charts.count > localChartLimit
     }
 
+    var isChartEditingLockedByCurrentPlan: Bool {
+        requiresLocalChartPruningForCurrentPlan
+    }
+
+    var canOpenChartsForEditing: Bool {
+        !isChartEditingLockedByCurrentPlan
+    }
+
     var localChartOverflowCount: Int {
         guard let localChartLimit else {
             return 0
@@ -202,6 +210,7 @@ final class ChartLibraryStore: ObservableObject {
         id chartID: Chart.ID,
         title proposedTitle: String? = nil,
         documentKey: DocumentKey? = nil,
+        transpositionView: TranspositionView? = nil,
         projectID: ChartProject.ID? = nil
     ) -> Chart.ID? {
         guard canCreateChart,
@@ -216,6 +225,9 @@ final class ChartLibraryStore: ObservableObject {
             ?? Self.duplicateTitle(for: duplicate.title, existingTitles: Set(charts.map(\.title)))
         if let documentKey {
             duplicate.documentKey = documentKey
+        }
+        if let transpositionView {
+            duplicate.setInstrumentTranspositionView(transpositionView)
         }
         duplicate.createdAt = now
         duplicate.updatedAt = now

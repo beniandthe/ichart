@@ -81,7 +81,16 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
 }
 
 enum LeadSheetPassiveInkPersistencePolicy {
-    static let idleDelay: TimeInterval = 0.95
+    static let defaultIdleDelay: TimeInterval = 0.95
+    static let freehandSymbolIdleDelay: TimeInterval = 0.38
+
+    static func idleDelay(for activeInkScope: LeadSheetActiveInkScope?) -> TimeInterval {
+        if case .freehandSymbols = activeInkScope {
+            return freehandSymbolIdleDelay
+        }
+
+        return defaultIdleDelay
+    }
 }
 
 enum LeadSheetInkResponsivenessPolicy {
@@ -782,6 +791,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleChordEditTap(_:))
     )
+    private lazy var chordEditDoubleTapRecognizer = UITapGestureRecognizer(
+        target: self,
+        action: #selector(handleChordEditDoubleTap(_:))
+    )
     private lazy var chordInkConfirmTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleChordInkConfirmTap(_:))
@@ -956,6 +969,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return hitTarget != nil
         }
         chordEditTapRecognizer.delegate = self
+        chordEditDoubleTapRecognizer.delegate = self
+        chordEditDoubleTapRecognizer.numberOfTapsRequired = 2
+        chordEditTapRecognizer.require(toFail: chordEditDoubleTapRecognizer)
+        chordEditHitOverlayView.addGestureRecognizer(chordEditDoubleTapRecognizer)
         chordEditHitOverlayView.addGestureRecognizer(chordEditTapRecognizer)
         chordMovePanRecognizer.delegate = self
         addGestureRecognizer(chordMovePanRecognizer)
@@ -1683,8 +1700,20 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return LeadSheetChordObjectInteractionPolicy.resolvedMoveTarget(
             LeadSheetChordEditOverlayGeometry.moveHitTarget(at: location, in: pageLayout),
             selectedChordID: selectedChordID,
-            requiresSelectionBeforeMove: interactionMode.requiresChordSelectionBeforeObjectActions
+            requiresSelectionBeforeMove: false
         )
+    }
+
+    private func chordReviewHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
+        guard interactionMode.allowsChordObjectEditing,
+              !isChordObjectEditingTemporarilySuppressed(),
+              let pageLayout,
+              let hitTarget = LeadSheetChordEditOverlayGeometry.hitTarget(at: location, in: pageLayout),
+              hitTarget.action == .review else {
+            return nil
+        }
+
+        return hitTarget
     }
 
     private enum EditableOverlayHitTarget {
@@ -1880,8 +1909,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         case .move:
             break
         case .review:
-            onChordCorrectionRequested?(hitTarget.chordID)
+            selectedChordID = hitTarget.chordID
+            setNeedsDisplay()
         }
+    }
+
+    @objc
+    private func handleChordEditDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else {
+            return
+        }
+
+        let location = recognizer.location(in: chordEditHitOverlayView)
+        guard let hitTarget = chordReviewHitTarget(at: location) else {
+            return
+        }
+
+        selectedChordID = hitTarget.chordID
+        onChordCorrectionRequested?(hitTarget.chordID)
+        setNeedsDisplay()
     }
 
     private func handleChordEntryTap(at location: CGPoint) {
@@ -1899,7 +1945,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             case .move:
                 break
             case .review:
-                onChordCorrectionRequested?(hitTarget.chordID)
+                selectedChordID = hitTarget.chordID
+                setNeedsDisplay()
             }
             return
         }
@@ -2346,13 +2393,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pendingInkPersistWorkItem?.cancel()
             pendingRhythmicNotationCommitWorkItem?.cancel()
             pendingRhythmicNotationCommitWorkItem = nil
+            let activeInkScope = activeInkScope()
             let scheduledInkSnapshot = currentCanvasInkSnapshot()
             let workItem = DispatchWorkItem { [weak self] in
                 self?.persistPassiveInkIfStable(scheduledInkSnapshot: scheduledInkSnapshot)
             }
             pendingInkPersistWorkItem = workItem
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + LeadSheetPassiveInkPersistencePolicy.idleDelay,
+                deadline: .now() + LeadSheetPassiveInkPersistencePolicy.idleDelay(for: activeInkScope),
                 execute: workItem
             )
             return
@@ -3157,12 +3205,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             if let aboveFrame = measure.freehandAboveFrame,
-               aboveFrame.contains(pagePoint) {
+               aboveFrame.insetBy(dx: -10, dy: -10).contains(pagePoint) {
                 return (measureID, .aboveMeasure, aboveFrame, measure.frame)
             }
 
             if let belowFrame = measure.freehandBelowFrame,
-               belowFrame.contains(pagePoint) {
+               belowFrame.insetBy(dx: -10, dy: -10).contains(pagePoint) {
                 return (measureID, .belowMeasure, belowFrame, measure.frame)
             }
         }
@@ -3244,6 +3292,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         inkSelectionTapRecognizer.isEnabled = policy.inkSelectionTapEnabled
         measureResizePanRecognizer.isEnabled = policy.measureResizePanEnabled
         chordEditTapRecognizer.isEnabled = policy.chordEditTapEnabled
+        chordEditDoubleTapRecognizer.isEnabled = policy.chordEditTapEnabled
         chordMovePanRecognizer.isEnabled = policy.chordMovePanEnabled
         chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
         chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled

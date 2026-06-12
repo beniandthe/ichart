@@ -41,14 +41,7 @@ struct ExportedPDF: Identifiable, Hashable {
     }
 
     private var chordTranspositionDisplayText: String {
-        switch Chart.normalizedChordTranspositionSemitones(chordTranspositionSemitones) {
-        case 0:
-            return "Written"
-        case 1:
-            return "+1 half step"
-        default:
-            return "+\(Chart.normalizedChordTranspositionSemitones(chordTranspositionSemitones)) half steps"
-        }
+        Chart.intervalDisplayText(forNormalizedSemitones: chordTranspositionSemitones)
     }
 }
 

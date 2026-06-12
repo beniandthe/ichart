@@ -421,6 +421,26 @@ struct EditorView: View {
                     }
 
                     Menu {
+                        ForEach(TranspositionView.instrumentOptions) { view in
+                            Button {
+                                activateSelectTool(clearsMeasureSelection: true)
+                                chart.setInstrumentTranspositionView(view)
+                            } label: {
+                                notationMenuLabel(
+                                    "\(view.displayText) (\(view.intervalDisplayText))",
+                                    isSelected: chart.defaultTranspositionView == view
+                                        && chart.chordTranspositionSemitones == 0
+                                )
+                            }
+                        }
+                    } label: {
+                        Label(
+                            "Instrument (\(chart.defaultTranspositionView.displayText))",
+                            systemImage: "music.note"
+                        )
+                    }
+
+                    Menu {
                         Button {
                             activateSelectTool(clearsMeasureSelection: true)
                             chart.transposeChordsByHalfSteps(1)
@@ -457,7 +477,7 @@ struct EditorView: View {
                         }
                     } label: {
                         Label(
-                            "Transpose Chords (\(chart.chordTranspositionDisplayText))",
+                            "Manual Transpose (\(chart.chordTranspositionDisplayText))",
                             systemImage: "arrow.up.arrow.down"
                         )
                     }
@@ -2553,14 +2573,7 @@ struct EditorView: View {
     }
 
     private func chordTranspositionOptionTitle(_ semitones: Int) -> String {
-        switch semitones {
-        case 0:
-            return "Written"
-        case 1:
-            return "+1 half step"
-        default:
-            return "+\(semitones) half steps"
-        }
+        Chart.intervalDisplayText(forNormalizedSemitones: semitones)
     }
 
     private func formattedBeatCount(_ value: Double) -> String {
@@ -2940,6 +2953,7 @@ private struct CueTextEntrySheetView: View {
     @Binding var text: String
     let onAdd: () -> Void
     let onCancel: () -> Void
+    @FocusState private var isTextFocused: Bool
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2948,9 +2962,23 @@ private struct CueTextEntrySheetView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                TextField("Text", text: $text, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...4)
+                HStack(alignment: .top, spacing: 10) {
+                    TextField("Text", text: $text, axis: .vertical)
+                        .focused($isTextFocused)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(2...4)
+
+                    Button {
+                        isTextFocused = true
+                    } label: {
+                        Image(systemName: "keyboard")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Open keyboard for text entry")
+                }
 
                 Spacer(minLength: 0)
             }
@@ -2974,6 +3002,9 @@ private struct CueTextEntrySheetView: View {
             }
         }
         .presentationDetents([.height(190)])
+        .task {
+            isTextFocused = true
+        }
     }
 }
 

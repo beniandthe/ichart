@@ -7,7 +7,7 @@ struct LeadSheetChordEditControlFrames {
 }
 
 struct ChordEditHitTarget {
-    enum Action {
+    enum Action: Equatable {
         case select
         case delete
         case move

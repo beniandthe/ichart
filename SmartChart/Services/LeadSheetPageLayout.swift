@@ -1600,7 +1600,7 @@ enum LeadSheetPageLayoutEngine {
             partialWidth + estimatedChordCharacterWidth(character)
         }
         let suffixGap = parts.suffix.isEmpty ? CGFloat(0) : ChartTypographyResolver.simpleChordTokenGapWidth
-        let simpleChordFontWidthScale: CGFloat = 0.84
+        let simpleChordFontWidthScale = ChartTypographyResolver.simpleChordEstimatedWidthScale
         return max(16, rootBaseWidth * (fontSize / 18) * simpleChordFontWidthScale)
             + suffixGap
             + suffixBaseWidth * (suffixFontSize / 18) * simpleChordFontWidthScale
@@ -2574,7 +2574,7 @@ private extension EngravingPreset {
         case .wide:
             return LeadSheetEngravingMetrics(
                 measureWidthScale: 1.18,
-                systemHeight: 140,
+                systemHeight: 156,
                 systemSpacing: 26,
                 staffLineSpacing: 11.2,
                 chordBandHeight: 56,

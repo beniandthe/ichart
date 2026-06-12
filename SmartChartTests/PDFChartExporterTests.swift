@@ -143,10 +143,10 @@ final class PDFChartExporterTests: XCTestCase {
 
         XCTAssertEqual(
             exportedPDF.fileName,
-            "Almost Like Being In Love - Simple Chord Sheet - Concert - +2 half steps.pdf"
+            "Almost Like Being In Love - Simple Chord Sheet - Concert - +M2.pdf"
         )
         XCTAssertEqual(exportedPDF.url.lastPathComponent, exportedPDF.fileName)
-        XCTAssertEqual(exportedPDF.transpositionText, "Concert · +2 half steps")
+        XCTAssertEqual(exportedPDF.transpositionText, "Concert · +M2")
         XCTAssertEqual(exportedPDF.pageCountText, "1 page")
         XCTAssertFalse(exportedPDF.fileSizeText.isEmpty)
     }

@@ -105,8 +105,42 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.localChartLimit, 3)
         XCTAssertEqual(store.localChartOverflowCount, 1)
         XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
+        XCTAssertFalse(store.canOpenChartsForEditing)
         XCTAssertFalse(store.canUse(.cloudBackup))
         XCTAssertFalse(store.canUse(.forums))
+    }
+
+    func testChartEditingUnlocksAfterExpiredOverCapLibraryIsPrunedToBasicLimit() {
+        let charts = (1...4).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(
+            charts: charts,
+            entitlements: AppEntitlements(subscription: .proExpired())
+        )
+
+        XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
+        XCTAssertFalse(store.canOpenChartsForEditing)
+
+        XCTAssertTrue(store.pruneLocalChartForCurrentPlan(id: charts[3].id))
+
+        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
+        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertEqual(store.charts.count, AppEntitlements.recommendedBasicChartLimit)
+    }
+
+    func testBasicLibraryAtChartLimitCanStillOpenChartsForEditing() {
+        let charts = (1...AppEntitlements.recommendedBasicChartLimit).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+
+        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
+        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertFalse(store.canCreateChart)
     }
 
     func testProjectsRequireActiveProSubscription() {
@@ -138,7 +172,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.charts(in: project).first?.documentKey, .bFlatMajor)
     }
 
-    func testProjectDuplicateVariantCanChangeTitleAndKey() throws {
+    func testProjectDuplicateVariantCanChangeTitleAndInstrumentTransposition() throws {
         let sourceChart = Chart.blank(title: "Song Rhythm", key: .cMajor)
         let store = ChartLibraryStore(
             charts: [sourceChart],
@@ -150,14 +184,16 @@ final class ChartLibraryStoreTests: XCTestCase {
             store.duplicateChart(
                 id: sourceChart.id,
                 title: "Song Horns",
-                documentKey: .eFlatMajor,
+                transpositionView: .bb,
                 projectID: projectID
             )
         )
 
         let duplicate = try XCTUnwrap(store.charts.first { $0.id == duplicateID })
         XCTAssertEqual(duplicate.title, "Song Horns")
-        XCTAssertEqual(duplicate.documentKey, .eFlatMajor)
+        XCTAssertEqual(duplicate.documentKey, .cMajor)
+        XCTAssertEqual(duplicate.defaultTranspositionView, .bb)
+        XCTAssertEqual(duplicate.chordTranspositionSemitones, 0)
         XCTAssertEqual(store.projects.first?.chartIDs, [sourceChart.id, duplicateID])
     }
 
@@ -621,7 +657,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertFalse(ChartLayoutStyle.v1NewChartOptions.contains(.leadSheet))
     }
 
-    func testLibrarySummaryHidesKeyForStylesThatDoNotExposeKeySetup() {
+    func testLibrarySummaryUsesInstrumentTranspositionInsteadOfDocumentKey() {
         var simpleChart = Chart.blank(
             title: "Simple",
             key: .bFlatMajor,
@@ -643,9 +679,11 @@ final class ChartLibraryStoreTests: XCTestCase {
             layoutStyle: .leadSheet
         )
 
-        XCTAssertEqual(simpleChart.librarySummaryText, "Simple Chord Sheet · 3/4 · 4 measures")
-        XCTAssertEqual(rhythmChart.librarySummaryText, "Rhythm Section Sheet · 6/8 · 8 measures")
-        XCTAssertEqual(leadChart.librarySummaryText, "Lead Sheet · Bb major · 4/4 · 4 measures")
+        rhythmChart.setInstrumentTranspositionView(.bb)
+
+        XCTAssertEqual(simpleChart.librarySummaryText, "Simple Chord Sheet · Concert · 3/4 · 4 measures")
+        XCTAssertEqual(rhythmChart.librarySummaryText, "Rhythm Section Sheet · Bb Horn · 6/8 · 8 measures")
+        XCTAssertEqual(leadChart.librarySummaryText, "Lead Sheet · Concert · 4/4 · 4 measures")
     }
 
     func testLibrarySummaryUsesSetupPendingForUnconfiguredDraft() {

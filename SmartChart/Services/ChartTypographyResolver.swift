@@ -18,6 +18,7 @@ struct ChartTypographyResolver: Hashable {
     static let simpleChordSuffixScale: CGFloat = 0.54
     static let simpleChordSlashBassScale: CGFloat = 0.56
     static let simpleChordTokenGapWidth: CGFloat = 2
+    static let simpleChordEstimatedWidthScale: CGFloat = 0.90
     static let structuredChordPrimaryFontSize: CGFloat = 18
     static let structuredChordSuffixScale: CGFloat = 0.68
     static let structuredChordSlashBassScale: CGFloat = 0.70
@@ -155,7 +156,7 @@ struct ChartTypographyResolver: Hashable {
             }
         }
 
-        return max(16, rawWidth * 0.84 + gapWidth)
+        return max(16, rawWidth * simpleChordEstimatedWidthScale + gapWidth)
     }
 
     private static func normalizedQualityText(for quality: String) -> String {

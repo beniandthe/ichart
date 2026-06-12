@@ -278,7 +278,6 @@ struct LibraryView: View {
     @AppStorage("iChartUserEmail") private var userEmail = ""
     @AppStorage("iChartUserPhone") private var userPhone = ""
     @AppStorage("iChartUserAddress") private var userAddress = ""
-    @AppStorage("iChartUserPaymentSummary") private var userPaymentSummary = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -291,6 +290,10 @@ struct LibraryView: View {
     @State private var renameProjectRequest: ChartProjectRenameRequest?
     @State private var addChartsRequest: ChartProjectAddChartsRequest?
     @State private var duplicateVariantRequest: ChartProjectDuplicateVariantRequest?
+
+    init(onOpenChart: @escaping (Chart.ID, EditorCanvasMode) -> Void) {
+        self.onOpenChart = onOpenChart
+    }
 
     private var chartCountText: String {
         let count = store.charts.count
@@ -314,6 +317,10 @@ struct LibraryView: View {
 
     private var chartPreviewMode: IChartChartPreviewMode {
         IChartChartPreviewMode(rawValue: chartPreviewModeRawValue) ?? .collapsed
+    }
+
+    private var activeChartPreviewMode: IChartChartPreviewMode {
+        store.isChartEditingLockedByCurrentPlan ? .collapsed : chartPreviewMode
     }
 
     private var chartPreviewModeBinding: Binding<IChartChartPreviewMode> {
@@ -346,6 +353,14 @@ struct LibraryView: View {
         return "\(min(store.charts.count, limit)) of \(limit) Basic charts used"
     }
 
+    private var chartEditingLockMessage: String {
+        if store.localChartOverflowCount == 1 {
+            return "Delete 1 local chart to edit in Basic."
+        }
+
+        return "Delete \(store.localChartOverflowCount) local charts to edit in Basic."
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             IChartHomeSidebar(
@@ -373,10 +388,7 @@ struct LibraryView: View {
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
-            if case .signedIn = state {
-                hasSeenAccountLanding = true
-                showingAccountLanding = false
-            } else {
+            if !hasSeenAccountLanding {
                 updateAccountLandingPresentation()
             }
         }
@@ -392,15 +404,13 @@ struct LibraryView: View {
                 createNewChart(layoutStyle: layoutStyle)
             }
         }
-        .sheet(isPresented: $showingAccountLanding) {
+        .fullScreenCover(isPresented: $showingAccountLanding) {
             IChartFirstRunAccountLandingView(
                 authStore: authStore,
                 theme: homeTheme,
-                onDismiss: {
-                    hasSeenAccountLanding = true
-                    showingAccountLanding = false
-                }
+                onContinue: completeFirstRunAccountLanding
             )
+            .interactiveDismissDisabled(true)
         }
         .sheet(isPresented: $showingCreateProject) {
             IChartProjectFormSheet(
@@ -440,11 +450,11 @@ struct LibraryView: View {
             IChartProjectDuplicateVariantSheet(
                 request: request,
                 theme: homeTheme
-            ) { chartID, projectID, title, key in
+            ) { chartID, projectID, title, transpositionView in
                 store.duplicateChart(
                     id: chartID,
                     title: title,
-                    documentKey: key,
+                    transpositionView: transpositionView,
                     projectID: projectID
                 )
             }
@@ -508,13 +518,9 @@ struct LibraryView: View {
             )
 
             if store.requiresLocalChartPruningForCurrentPlan {
-                IChartBasicChartPruningPanel(
-                    charts: store.charts,
+                IChartChartConsolidationNotice(
                     overflowCount: store.localChartOverflowCount,
-                    theme: homeTheme,
-                    onRemoveLocalChart: { chartID in
-                        store.pruneLocalChartForCurrentPlan(id: chartID)
-                    }
+                    theme: homeTheme
                 )
             }
 
@@ -551,10 +557,12 @@ struct LibraryView: View {
                                 project: project,
                                 charts: store.charts(in: project),
                                 canCreateChart: store.canCreateChart,
+                                canOpenCharts: store.canOpenChartsForEditing,
                                 availableCharts: store.charts,
+                                chartEditingLockMessage: chartEditingLockMessage,
                                 theme: homeTheme,
                                 onOpenChart: { chartID in
-                                    onOpenChart(chartID, .browse)
+                                    openChartIfAllowed(chartID, initialCanvasMode: .browse)
                                 },
                                 onNewChart: { projectID in
                                     pendingProjectForNewChart = projectID
@@ -691,7 +699,6 @@ struct LibraryView: View {
                         email: $userEmail,
                         phone: $userPhone,
                         address: $userAddress,
-                        paymentSummary: $userPaymentSummary,
                         theme: homeTheme,
                         authState: authStore.state,
                         isSaving: authStore.isWorking,
@@ -700,8 +707,7 @@ struct LibraryView: View {
                                 await authStore.saveProfile(
                                     email: userEmail,
                                     phone: userPhone,
-                                    mailingAddress: userAddress,
-                                    paymentSummary: userPaymentSummary
+                                    mailingAddress: userAddress
                                 )
                             }
                         }
@@ -761,10 +767,12 @@ struct LibraryView: View {
 
     private var chartListSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 16) {
-                Spacer()
+            if store.canOpenChartsForEditing {
+                HStack(alignment: .center, spacing: 16) {
+                    Spacer()
 
-                IChartPreviewModePicker(selection: chartPreviewModeBinding, theme: homeTheme)
+                    IChartPreviewModePicker(selection: chartPreviewModeBinding, theme: homeTheme)
+                }
             }
 
             if store.charts.isEmpty {
@@ -783,17 +791,22 @@ struct LibraryView: View {
                     ForEach(store.charts) { chart in
                         ProjectRowView(
                             chart: chart,
-                            previewMode: chartPreviewMode,
+                            previewMode: activeChartPreviewMode,
                             isSelected: store.selectedChartID == chart.id,
                             canDuplicate: store.canCreateChart,
+                            canOpenForEditing: store.canOpenChartsForEditing,
+                            lockMessage: chartEditingLockMessage,
                             onOpen: {
-                                onOpenChart(chart.id, .browse)
+                                openChartIfAllowed(chart.id, initialCanvasMode: .browse)
                             },
                             onRename: {
                                 renameRequest = ChartRenameRequest(chart: chart)
                             },
                             onDuplicate: {
                                 store.duplicateChart(id: chart.id)
+                            },
+                            onRemoveLocal: {
+                                store.pruneLocalChartForCurrentPlan(id: chart.id)
                             },
                             onDelete: {
                                 deleteRequest = ChartDeleteRequest(chart: chart)
@@ -814,6 +827,19 @@ struct LibraryView: View {
                 }
             }
         )
+    }
+
+    private func openChartIfAllowed(_ chartID: Chart.ID, initialCanvasMode: EditorCanvasMode) {
+        guard store.canOpenChartsForEditing else {
+            store.selectedChartID = nil
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedHomeTab = .charts
+                chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+            }
+            return
+        }
+
+        onOpenChart(chartID, initialCanvasMode)
     }
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
@@ -838,6 +864,15 @@ struct LibraryView: View {
         showingAccountLanding = true
     }
 
+    private func completeFirstRunAccountLanding() {
+        guard authStore.state.isVerifiedSignedIn else {
+            return
+        }
+
+        hasSeenAccountLanding = true
+        showingAccountLanding = false
+    }
+
     private func apply(profile: IChartUserProfile?) {
         guard let profile else {
             return
@@ -853,10 +888,6 @@ struct LibraryView: View {
 
         if let mailingAddress = profile.mailingAddress {
             userAddress = mailingAddress
-        }
-
-        if let paymentSummary = profile.paymentSummary {
-            userPaymentSummary = paymentSummary
         }
     }
 
@@ -924,6 +955,7 @@ private struct RenameChartSheetView: View {
     let request: ChartRenameRequest
     let onSave: (Chart.ID, String) -> Void
     @State private var title: String
+    @FocusState private var isTitleFocused: Bool
 
     init(
         request: ChartRenameRequest,
@@ -938,10 +970,19 @@ private struct RenameChartSheetView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Chart title", text: $title)
-                        .textInputAutocapitalization(.words)
-                        .submitLabel(.done)
-                        .onSubmit(save)
+                    HStack(spacing: 10) {
+                        TextField("Chart title", text: $title)
+                            .focused($isTitleFocused)
+                            .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                            .onSubmit(save)
+
+                        IChartKeyboardFocusButton(
+                            accessibilityLabel: "Open keyboard for chart title"
+                        ) {
+                            isTitleFocused = true
+                        }
+                    }
                 }
             }
             .navigationTitle("Rename Chart")
@@ -960,6 +1001,9 @@ private struct RenameChartSheetView: View {
                     .disabled(sanitizedTitle.isEmpty)
                 }
             }
+        }
+        .task {
+            isTitleFocused = true
         }
     }
 
@@ -1045,6 +1089,7 @@ private struct IChartProjectFormSheet: View {
     let theme: IChartHomeTheme
     let onSave: (String) -> Void
     @State private var projectTitle: String
+    @FocusState private var isProjectTitleFocused: Bool
 
     init(
         title: String,
@@ -1065,10 +1110,19 @@ private struct IChartProjectFormSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Song or project title", text: $projectTitle)
-                        .textInputAutocapitalization(.words)
-                        .submitLabel(.done)
-                        .onSubmit(save)
+                    HStack(spacing: 10) {
+                        TextField("Song or project title", text: $projectTitle)
+                            .focused($isProjectTitleFocused)
+                            .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                            .onSubmit(save)
+
+                        IChartKeyboardFocusButton(
+                            accessibilityLabel: "Open keyboard for project title"
+                        ) {
+                            isProjectTitleFocused = true
+                        }
+                    }
                 }
             }
             .navigationTitle(title)
@@ -1087,6 +1141,9 @@ private struct IChartProjectFormSheet: View {
                     .disabled(sanitizedTitle.isEmpty)
                 }
             }
+        }
+        .task {
+            isProjectTitleFocused = true
         }
     }
 
@@ -1141,7 +1198,7 @@ private struct IChartProjectAddChartsSheet: View {
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.primary)
 
-                                    Text("\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText)")
+                                    Text(chart.librarySummaryText)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -1172,20 +1229,21 @@ private struct IChartProjectDuplicateVariantSheet: View {
     @Environment(\.dismiss) private var dismiss
     let request: ChartProjectDuplicateVariantRequest
     let theme: IChartHomeTheme
-    let onSave: (Chart.ID, ChartProject.ID, String, DocumentKey) -> Chart.ID?
+    let onSave: (Chart.ID, ChartProject.ID, String, TranspositionView) -> Chart.ID?
     @State private var title: String
-    @State private var selectedKey: DocumentKey
+    @State private var selectedTranspositionView: TranspositionView
+    @FocusState private var isTitleFocused: Bool
 
     init(
         request: ChartProjectDuplicateVariantRequest,
         theme: IChartHomeTheme,
-        onSave: @escaping (Chart.ID, ChartProject.ID, String, DocumentKey) -> Chart.ID?
+        onSave: @escaping (Chart.ID, ChartProject.ID, String, TranspositionView) -> Chart.ID?
     ) {
         self.request = request
         self.theme = theme
         self.onSave = onSave
         _title = State(initialValue: "\(request.chart.title) Copy")
-        _selectedKey = State(initialValue: request.chart.documentKey)
+        _selectedTranspositionView = State(initialValue: request.chart.defaultTranspositionView)
     }
 
     var body: some View {
@@ -1196,7 +1254,7 @@ private struct IChartProjectDuplicateVariantSheet: View {
                         Text(request.chart.title)
                             .font(.headline.weight(.semibold))
 
-                        Text("\(request.chart.layoutStyle.displayText) · \(request.chart.documentKey.displayText)")
+                        Text(request.chart.librarySummaryText)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -1205,29 +1263,44 @@ private struct IChartProjectDuplicateVariantSheet: View {
                         Text("Variant Title")
                             .font(.headline)
 
-                        TextField("Horn section chart", text: $title)
-                            .textInputAutocapitalization(.words)
-                            .padding(12)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        HStack(spacing: 10) {
+                            TextField("Horn section chart", text: $title)
+                                .focused($isTitleFocused)
+                                .textInputAutocapitalization(.words)
+                                .padding(12)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                            IChartKeyboardFocusButton(
+                                accessibilityLabel: "Open keyboard for variant title"
+                            ) {
+                                isTitleFocused = true
+                            }
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Key")
+                        Text("Instrument View")
                             .font(.headline)
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
-                            ForEach(DocumentKey.commonCreationKeys, id: \.self) { key in
+                            ForEach(TranspositionView.instrumentOptions) { view in
                                 Button {
-                                    selectedKey = key
+                                    selectedTranspositionView = view
                                 } label: {
-                                    Text(key.displayText)
-                                        .font(.subheadline.weight(.semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
+                                    VStack(spacing: 4) {
+                                        Text(view.displayText)
+                                            .font(.subheadline.weight(.semibold))
+
+                                        Text(view.intervalDisplayText)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(selectedKey == key ? IChartHomeBrand.blue : .secondary.opacity(0.3))
+                                .tint(selectedTranspositionView == view ? IChartHomeBrand.blue : .secondary.opacity(0.3))
                             }
                         }
                     }
@@ -1249,7 +1322,7 @@ private struct IChartProjectDuplicateVariantSheet: View {
                             request.chart.id,
                             request.project.id,
                             title,
-                            selectedKey
+                            selectedTranspositionView
                         ) != nil else {
                             return
                         }
@@ -1259,55 +1332,26 @@ private struct IChartProjectDuplicateVariantSheet: View {
                 }
             }
         }
+        .task {
+            isTitleFocused = true
+        }
     }
 }
 
-private struct IChartBasicChartPruningPanel: View {
-    let charts: [Chart]
+private struct IChartChartConsolidationNotice: View {
     let overflowCount: Int
     let theme: IChartHomeTheme
-    let onRemoveLocalChart: (Chart.ID) -> Void
 
     var body: some View {
         IChartHomePanel(
-            title: "Basic Chart Limit",
-            systemImageName: "exclamationmark.triangle",
+            title: "Consolidate Charts",
+            systemImageName: "trash",
             theme: theme
         ) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Choose \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") to remove so Basic can keep 3 charts on this iPad. Removed local charts stay in cloud backup until the Pro grace period ends.")
-                    .font(.subheadline)
-                    .foregroundStyle(theme.panelSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                VStack(spacing: 8) {
-                    ForEach(charts) { chart in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(chart.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(theme.panelTitle)
-
-                                Text(chart.librarySummaryText)
-                                    .font(.caption)
-                                    .foregroundStyle(theme.panelSecondary)
-                            }
-
-                            Spacer(minLength: 12)
-
-                            Button(role: .destructive) {
-                                onRemoveLocalChart(chart.id)
-                            } label: {
-                                Label("Remove Local", systemImage: "minus.circle")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        .padding(12)
-                        .background(theme.emptyStateBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                }
-            }
+            Text("Delete \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") from the list below to continue in Basic. Editing unlocks when 3 charts remain. Cloud backups stay available through the Pro grace period.")
+                .font(.subheadline)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1638,70 +1682,138 @@ private struct IChartSettingsRow: View {
 private struct IChartFirstRunAccountLandingView: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
-    let onDismiss: () -> Void
+    let onContinue: () -> Void
+    @State private var isLaunchAnimationVisible = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Welcome to iChart", systemImage: "music.note.list")
-                            .font(.largeTitle.weight(.semibold))
-                            .foregroundStyle(theme.panelTitle)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack {
+                        VStack(alignment: .center, spacing: 20) {
+                            VStack(alignment: .center, spacing: 10) {
+                                Label("Welcome to iChart", systemImage: "music.note.list")
+                                    .font(.largeTitle.weight(.semibold))
+                                    .foregroundStyle(theme.panelTitle)
+                                    .frame(maxWidth: .infinity, alignment: .center)
 
-                        Text("Create your account to keep profile, recovery, and subscription access tied to you from the start.")
-                            .font(.body)
-                            .foregroundStyle(theme.panelSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                                Text("Create your account to keep profile, recovery, and subscription access tied to you from the start.")
+                                    .font(.body)
+                                    .foregroundStyle(theme.panelSecondary)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: 520)
+                            }
 
-                    IChartHomePanel(
-                        title: "Account",
-                        systemImageName: "person.crop.circle.badge.plus",
-                        theme: theme
-                    ) {
-                        IChartAccountSettings(authStore: authStore, theme: theme)
-                    }
+                            IChartHomePanel(
+                                title: "Account",
+                                systemImageName: "person.crop.circle.badge.plus",
+                                theme: theme
+                            ) {
+                                IChartAccountSettings(
+                                    authStore: authStore,
+                                    theme: theme,
+                                    requiresNameForSignup: true,
+                                    showsSignedInActions: false
+                                )
+                            }
 
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Label("Continue to Charts", systemImage: "arrow.right")
-                            .frame(maxWidth: .infinity)
+                            if authStore.state.isVerifiedSignedIn {
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        isLaunchAnimationVisible = true
+                                    }
+                                } label: {
+                                    Label("Continue", systemImage: "arrow.right")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .tint(IChartHomeBrand.blue)
+                                .disabled(isLaunchAnimationVisible)
+                            }
+                        }
+                        .frame(maxWidth: 640)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 44)
                     }
-                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height, alignment: .center)
                 }
-                .padding(24)
+                .scrollIndicators(.hidden)
             }
             .background(IChartLibraryBackground(mode: theme.mode).ignoresSafeArea())
-            .navigationTitle("Get Started")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onDismiss()
-                    }
-                }
+            .navigationBarBackButtonHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
+            .interactiveDismissDisabled(true)
+        }
+        .overlay {
+            if isLaunchAnimationVisible {
+                IChartLaunchScreenView(
+                    capturedHandwritingSample: IChartLaunchHandwritingSample.bundledCanonicalLaunchSample(),
+                    onFinished: onContinue
+                )
+                .transition(.opacity)
+                .zIndex(2)
             }
         }
     }
 }
 
+private struct IChartKeyboardFocusButton: View {
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "keyboard")
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 34, height: 34)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private enum IChartAccountInputField: Hashable {
+    case firstName
+    case lastName
+    case email
+    case password
+    case newPassword
+}
+
 private struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
+    var requiresNameForSignup = false
+    var showsSignedInActions = true
+    @State private var firstName = ""
+    @State private var lastName = ""
     @State private var email = ""
     @State private var password = ""
     @State private var newPassword = ""
+    @FocusState private var focusedField: IChartAccountInputField?
 
-    private var canSubmit: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var canSubmitCredentials: Bool {
+        !trimmed(email).isEmpty
             && password.count >= 8
             && !authStore.isWorking
     }
 
+    private var canCreateAccount: Bool {
+        canSubmitCredentials
+            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty))
+    }
+
+    private var canSignIn: Bool {
+        canSubmitCredentials
+    }
+
     private var canRequestPasswordReset: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !trimmed(email).isEmpty
             && !authStore.isWorking
     }
 
@@ -1747,24 +1859,59 @@ private struct IChartAccountSettings: View {
                 verificationRow
             case .passwordRecovery:
                 passwordRecoveryRow
-            case .signedIn:
+            case .signedIn where showsSignedInActions:
                 signedInRow
+            case .signedIn:
+                EmptyView()
             }
 
             statusFooter
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: authStore.state.statusText) {
+            focusDefaultInputIfNeeded()
+        }
     }
 
     private var credentialsForm: some View {
         VStack(spacing: 10) {
+            if requiresNameForSignup {
+                IChartAccountTextField(
+                    title: "First Name",
+                    placeholder: "First name",
+                    text: $firstName,
+                    systemImageName: "person",
+                    keyboardType: .default,
+                    theme: theme,
+                    focusedField: $focusedField,
+                    field: .firstName,
+                    textInputAutocapitalization: .words,
+                    autocorrectionDisabled: false
+                )
+
+                IChartAccountTextField(
+                    title: "Last Name",
+                    placeholder: "Last name",
+                    text: $lastName,
+                    systemImageName: "person.text.rectangle",
+                    keyboardType: .default,
+                    theme: theme,
+                    focusedField: $focusedField,
+                    field: .lastName,
+                    textInputAutocapitalization: .words,
+                    autocorrectionDisabled: false
+                )
+            }
+
             IChartAccountTextField(
                 title: "Email",
                 placeholder: "name@example.com",
                 text: $email,
                 systemImageName: "envelope",
                 keyboardType: .emailAddress,
-                theme: theme
+                theme: theme,
+                focusedField: $focusedField,
+                field: .email
             )
 
             IChartAccountSecureField(
@@ -1772,7 +1919,9 @@ private struct IChartAccountSettings: View {
                 placeholder: "8 characters minimum",
                 text: $password,
                 systemImageName: "lock",
-                theme: theme
+                theme: theme,
+                focusedField: $focusedField,
+                field: .password
             )
         }
     }
@@ -1781,14 +1930,19 @@ private struct IChartAccountSettings: View {
         HStack(spacing: 10) {
             Button {
                 Task {
-                    await authStore.createAccount(email: email, password: password)
+                    await authStore.createAccount(
+                        email: email,
+                        password: password,
+                        firstName: firstName,
+                        lastName: lastName
+                    )
                 }
             } label: {
                 Label("Create Account", systemImage: "person.badge.plus")
             }
             .buttonStyle(.borderedProminent)
             .tint(IChartHomeBrand.blue)
-            .disabled(!canSubmit)
+            .disabled(!canCreateAccount)
 
             Button {
                 Task {
@@ -1798,7 +1952,7 @@ private struct IChartAccountSettings: View {
                 Label("Sign In", systemImage: "person.crop.circle")
             }
             .buttonStyle(.bordered)
-            .disabled(!canSubmit)
+            .disabled(!canSignIn)
         }
     }
 
@@ -1844,7 +1998,9 @@ private struct IChartAccountSettings: View {
                 placeholder: "8 characters minimum",
                 text: $newPassword,
                 systemImageName: "key",
-                theme: theme
+                theme: theme,
+                focusedField: $focusedField,
+                field: .newPassword
             )
 
             HStack(spacing: 10) {
@@ -1972,14 +2128,41 @@ private struct IChartAccountSettings: View {
             return session.email ?? "Signed in to iChart."
         }
     }
+
+    private func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func focusDefaultInputIfNeeded() {
+        guard !authStore.isWorking else {
+            return
+        }
+
+        switch authStore.state {
+        case .signedOut:
+            focusedField = requiresNameForSignup ? .firstName : .email
+        case .passwordRecovery:
+            focusedField = .newPassword
+        case .unconfigured, .temporarilyOffline, .pendingEmailVerification, .signedIn:
+            break
+        }
+    }
 }
 
 private extension IChartAuthState {
+    var isVerifiedSignedIn: Bool {
+        guard case .signedIn(let session) = self else {
+            return false
+        }
+
+        return session.isEmailVerified
+    }
+
     var shouldPresentFirstRunAccountLanding: Bool {
         switch self {
-        case .signedOut, .pendingEmailVerification:
+        case .signedOut, .pendingEmailVerification, .signedIn:
             return true
-        case .unconfigured, .temporarilyOffline, .passwordRecovery, .signedIn:
+        case .unconfigured, .temporarilyOffline, .passwordRecovery:
             return false
         }
     }
@@ -2097,7 +2280,7 @@ private struct IChartPlanSettings: View {
             }
 
             if store.requiresLocalChartPruningForCurrentPlan {
-                Text("Choose \(store.localChartOverflowCount) local chart\(store.localChartOverflowCount == 1 ? "" : "s") to remove from the Charts tab before Basic can create new charts.")
+                Text("Choose \(store.localChartOverflowCount) local chart\(store.localChartOverflowCount == 1 ? "" : "s") to remove from the Charts tab before Basic can open charts for editing or create new charts.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2319,6 +2502,10 @@ private struct IChartAccountTextField: View {
     let systemImageName: String
     let keyboardType: UIKeyboardType
     let theme: IChartHomeTheme
+    let focusedField: FocusState<IChartAccountInputField?>.Binding
+    let field: IChartAccountInputField
+    var textInputAutocapitalization: TextInputAutocapitalization = .never
+    var autocorrectionDisabled = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -2335,9 +2522,10 @@ private struct IChartAccountTextField: View {
                 .frame(width: 104, alignment: .leading)
 
             TextField(placeholder, text: $text)
+                .focused(focusedField, equals: field)
                 .keyboardType(keyboardType)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .textInputAutocapitalization(textInputAutocapitalization)
+                .autocorrectionDisabled(autocorrectionDisabled)
                 .font(.subheadline)
                 .foregroundStyle(theme.panelTitle)
                 .padding(.horizontal, 11)
@@ -2350,6 +2538,12 @@ private struct IChartAccountTextField: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.panelBorder, lineWidth: 1)
                 }
+
+            IChartKeyboardFocusButton(
+                accessibilityLabel: "Open keyboard for \(title)"
+            ) {
+                focusedField.wrappedValue = field
+            }
         }
     }
 }
@@ -2360,6 +2554,8 @@ private struct IChartAccountSecureField: View {
     @Binding var text: String
     let systemImageName: String
     let theme: IChartHomeTheme
+    let focusedField: FocusState<IChartAccountInputField?>.Binding
+    let field: IChartAccountInputField
 
     var body: some View {
         HStack(spacing: 12) {
@@ -2376,6 +2572,7 @@ private struct IChartAccountSecureField: View {
                 .frame(width: 104, alignment: .leading)
 
             SecureField(placeholder, text: $text)
+                .focused(focusedField, equals: field)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .font(.subheadline)
@@ -2390,6 +2587,12 @@ private struct IChartAccountSecureField: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.panelBorder, lineWidth: 1)
                 }
+
+            IChartKeyboardFocusButton(
+                accessibilityLabel: "Open keyboard for \(title)"
+            ) {
+                focusedField.wrappedValue = field
+            }
         }
     }
 }
@@ -2398,7 +2601,6 @@ private struct IChartUserInfoSettings: View {
     @Binding var email: String
     @Binding var phone: String
     @Binding var address: String
-    @Binding var paymentSummary: String
     let theme: IChartHomeTheme
     let authState: IChartAuthState
     let isSaving: Bool
@@ -2411,6 +2613,7 @@ private struct IChartUserInfoSettings: View {
                 placeholder: "name@example.com",
                 text: $email,
                 systemImageName: "envelope",
+                keyboardType: .emailAddress,
                 theme: theme
             )
 
@@ -2421,6 +2624,7 @@ private struct IChartUserInfoSettings: View {
                 placeholder: "(555) 555-5555",
                 text: $phone,
                 systemImageName: "phone",
+                keyboardType: .phonePad,
                 theme: theme
             )
 
@@ -2434,23 +2638,6 @@ private struct IChartUserInfoSettings: View {
                 isMultiline: true,
                 theme: theme
             )
-
-            settingsDivider
-
-            IChartSettingsTextFieldRow(
-                title: "Payment Info",
-                placeholder: "Payment method",
-                text: $paymentSummary,
-                systemImageName: "creditcard",
-                theme: theme
-            )
-
-            Text("Card details stay with the payment processor.")
-                .font(.caption)
-                .foregroundStyle(theme.panelSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 44)
-                .padding(.top, 8)
 
             Button {
                 onSaveProfile()
@@ -2477,8 +2664,10 @@ private struct IChartSettingsTextFieldRow: View {
     let placeholder: String
     @Binding var text: String
     let systemImageName: String
+    var keyboardType: UIKeyboardType = .default
     var isMultiline = false
     let theme: IChartHomeTheme
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(alignment: isMultiline ? .top : .center, spacing: 14) {
@@ -2495,6 +2684,8 @@ private struct IChartSettingsTextFieldRow: View {
             Spacer(minLength: 12)
 
             field
+                .focused($isFocused)
+                .keyboardType(keyboardType)
                 .font(.subheadline)
                 .foregroundStyle(theme.panelTitle)
                 .multilineTextAlignment(.trailing)
@@ -2511,6 +2702,12 @@ private struct IChartSettingsTextFieldRow: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.panelBorder, lineWidth: 1)
                 }
+
+            IChartKeyboardFocusButton(
+                accessibilityLabel: "Open keyboard for \(title)"
+            ) {
+                isFocused = true
+            }
         }
         .padding(.vertical, 12)
     }
@@ -2647,7 +2844,9 @@ private struct IChartProjectCard: View {
     let project: ChartProject
     let charts: [Chart]
     let canCreateChart: Bool
+    let canOpenCharts: Bool
     let availableCharts: [Chart]
+    let chartEditingLockMessage: String
     let theme: IChartHomeTheme
     let onOpenChart: (Chart.ID) -> Void
     let onNewChart: (ChartProject.ID) -> Void
@@ -2686,6 +2885,8 @@ private struct IChartProjectCard: View {
                                 chart: chart,
                                 theme: theme,
                                 canDuplicate: canCreateChart,
+                                canOpenForEditing: canOpenCharts,
+                                lockMessage: chartEditingLockMessage,
                                 onOpen: {
                                     onOpenChart(chart.id)
                                 },
@@ -2749,6 +2950,8 @@ private struct IChartProjectChartRow: View {
     let chart: Chart
     let theme: IChartHomeTheme
     let canDuplicate: Bool
+    let canOpenForEditing: Bool
+    let lockMessage: String
     let onOpen: () -> Void
     let onDuplicateVariant: () -> Void
     let onRemove: () -> Void
@@ -2762,15 +2965,24 @@ private struct IChartProjectChartRow: View {
                         .foregroundStyle(theme.panelTitle)
                         .lineLimit(1)
 
-                    Text("\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText)")
+                    Text(chart.librarySummaryText)
                         .font(.caption)
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
+
+                    if !canOpenForEditing {
+                        Label(lockMessage, systemImage: "lock.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(IChartHomeBrand.blue)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!canOpenForEditing)
+            .accessibilityHint(canOpenForEditing ? "" : lockMessage)
 
             Menu {
                 Button(action: onDuplicateVariant) {
@@ -2997,9 +3209,12 @@ private struct ProjectRowView: View {
     let previewMode: IChartChartPreviewMode
     let isSelected: Bool
     let canDuplicate: Bool
+    let canOpenForEditing: Bool
+    let lockMessage: String
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDuplicate: () -> Void
+    let onRemoveLocal: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -3016,7 +3231,45 @@ private struct ProjectRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .disabled(!canOpenForEditing)
+            .accessibilityHint(canOpenForEditing ? "" : lockMessage)
 
+            rowActionControl
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, previewMode == .collapsed ? 13 : 15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(cardBorderColor, lineWidth: 1)
+        }
+        .contextMenu {
+            if canOpenForEditing {
+                Button(action: onRename) {
+                    Label("Rename", systemImage: "pencil")
+                }
+
+                Button(action: onDuplicate) {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                .disabled(!canDuplicate)
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            } else {
+                Button(role: .destructive, action: onRemoveLocal) {
+                    Label("Delete Local", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rowActionControl: some View {
+        if canOpenForEditing {
             Menu {
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
@@ -3039,29 +3292,16 @@ private struct ProjectRowView: View {
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel("Chart actions")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, previewMode == .collapsed ? 13 : 15)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(cardBorderColor, lineWidth: 1)
-        }
-        .contextMenu {
-            Button(action: onRename) {
-                Label("Rename", systemImage: "pencil")
+        } else {
+            Button(role: .destructive, action: onRemoveLocal) {
+                Label("Delete Local", systemImage: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
             }
-
-            Button(action: onDuplicate) {
-                Label("Duplicate", systemImage: "plus.square.on.square")
-            }
-            .disabled(!canDuplicate)
-
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
-            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Delete local chart")
+            .accessibilityHint(lockMessage)
         }
     }
 
@@ -3076,14 +3316,18 @@ private struct ProjectRowView: View {
                 .font(.subheadline)
                 .foregroundStyle(IChartHomeBrand.ink.opacity(0.58))
                 .lineLimit(1)
+
+            if !canOpenForEditing {
+                Label(lockMessage, systemImage: "lock.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .lineLimit(1)
+            }
         }
     }
 
     private var rowSubtitle: String {
-        let measureCount = chart.measures.count
-        let measureText = measureCount == 1 ? "1 measure" : "\(measureCount) measures"
-
-        return "\(chart.layoutStyle.displayText) · \(measureText)"
+        chart.librarySummaryText
     }
 
     private var cardBackground: Color {

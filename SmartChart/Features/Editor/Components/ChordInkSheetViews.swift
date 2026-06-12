@@ -534,10 +534,13 @@ struct ChordCorrectionSheetView: View {
                 Button {
                     isCandidateFocused = true
                 } label: {
-                    Image(systemName: "cursorarrow.rays")
+                    Label("Keyboard", systemImage: "keyboard")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 34, height: 30)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Focus chord entry")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Open keyboard for chord correction")
             }
 
             HStack(spacing: 10) {

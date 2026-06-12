@@ -14,6 +14,8 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 ## 2. Account Policy
 
 - Account creation/sign-in is mandatory for production Basic and Pro users.
+- First-launch account creation requires first name, last name, email, and password before entering the chart library.
+- First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
 - Account/auth is not the paywall.
 - Email verification, password recovery, profile, subscription identity, and support identity are part of the base trust layer.
 - Production auth starts with email/password plus email verification.
@@ -52,6 +54,7 @@ Pro is an auto-renewing subscription surface, offered as monthly and annual plan
 Pro includes:
 
 - Projects for keeping every chart for the same song together
+- Project chart variants for Concert, Bb Horn, Eb Horn, F Horn, and other interval-based instrument views as added
 - unlimited local chart creation
 - cloud chart backup
 - chart restore after reinstall or new iPad sign-in
@@ -81,6 +84,7 @@ Pro gates ongoing-service and community surfaces:
 
 - unlimited chart capacity
 - Projects
+- Project-level instrument variants
 - cloud backup/sync/restore
 - Forums
 - future service-backed features
@@ -92,6 +96,7 @@ Pro gates ongoing-service and community surfaces:
 - The chart cap applies to active local chart documents in the local library.
 - Creating and duplicating charts must respect the cap.
 - After the Basic library is at or below the cap, editing, opening, renaming, deleting, and exporting those local charts must not be blocked by the cap.
+- If an inactive Pro account is over the Basic cap, chart opening/editing stays locked until the user removes local charts back to the cap or restores Pro.
 
 ## 6. Downgrade And Expiration Policy
 
@@ -108,6 +113,7 @@ If a downgraded Basic account has more than 3 local charts:
 - charts removed during this downgrade flow are deleted from the local library
 - downgrade pruning is local-only and must not create cloud deletion tombstones
 - downgrade pruning must not delete remote chart documents or snapshots while the cloud grace period is active
+- chart opening/editing is locked while the downgraded local library is above the Basic cap
 - local chart editing/export continues for the remaining 3 Basic charts
 - new chart creation and duplication stay blocked until the local library is reduced to 3 charts or Pro is restored
 
@@ -164,7 +170,8 @@ Chart sync states should communicate the user's real situation:
 - Pro should launch as monthly and annual auto-renewing subscriptions.
 - Annual should be positioned as the best value if pricing supports it.
 - No raw card data is collected or stored by iChart.
-- App-side payment fields remain text/customer-reference summaries only until real billing integration defines a safer flow.
+- Settings should not expose user-editable payment fields.
+- Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only.
 - StoreKit owns Apple subscription purchase/restore.
 - Supabase subscription rows are read-only from the app.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
@@ -195,6 +202,7 @@ Before production cloud rollout:
 - Gate `ChartCloudSyncStore` / `ChartCloudSyncService` by active Pro.
 - Gate Forums by active Pro.
 - Add an explicit downgrade-pruning flow for users over the 3-chart Basic cap.
+- Lock chart opening/editing while the local library remains above the Basic cap.
 - Keep downgrade pruning separate from normal chart delete so it does not enqueue remote tombstones.
 - Add tests for Basic cap, Pro unlimited charts, Basic export availability, Pro sync access, Basic sync lock, Forums lock, downgrade-pruning behavior, and cloud grace preservation.
 
@@ -212,6 +220,7 @@ Minimum acceptance before calling the plan implementation ready:
 - Pro account can sync/backup/restore charts.
 - Pro account can access Forums.
 - Expired/downgraded Pro with more than 3 local charts is prompted to choose local charts to remove until 3 remain.
+- Expired/downgraded Pro with more than 3 local charts cannot open charts for editing until local pruning is complete or Pro is restored.
 - Downgrade-pruned charts are removed locally but remain in cloud backup until the grace period ends.
 - Downgrade pruning does not create remote tombstones.
 - The remaining 3 local Basic charts can open/edit/export.

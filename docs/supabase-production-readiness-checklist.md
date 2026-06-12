@@ -80,7 +80,7 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 8. Request a password reset from the signed-out Account panel.
 9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.
 10. Confirm Settings shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
-11. Save email, phone, address, and payment summary profile fields. Payment summary must remain text/customer-reference only.
+11. Save email, phone, and address profile fields. Confirm Settings does not expose user-editable payment fields.
 12. With Basic entitlement, confirm PDF/export remains available, Chart Sync explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
 13. With active Pro entitlement, tap `Sync Now` and confirm Chart Sync returns to `Synced` with an updated Last Backup time.
 14. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for sync to return to `Synced`.

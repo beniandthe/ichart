@@ -735,18 +735,40 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(displayedKey.displayText, "Cb major")
     }
 
+    func testInstrumentTranspositionViewsExposeInstrumentLabelsAndIntervals() {
+        XCTAssertEqual(TranspositionView.concert.displayText, "Concert")
+        XCTAssertEqual(TranspositionView.concert.intervalDisplayText, "No transpose")
+        XCTAssertEqual(TranspositionView.bb.displayText, "Bb Horn")
+        XCTAssertEqual(TranspositionView.bb.intervalDisplayText, "+M2")
+        XCTAssertEqual(TranspositionView.eb.displayText, "Eb Horn")
+        XCTAssertEqual(TranspositionView.eb.intervalDisplayText, "+M6")
+        XCTAssertEqual(TranspositionView.f.displayText, "F Horn")
+        XCTAssertEqual(TranspositionView.f.intervalDisplayText, "+P5")
+    }
+
     func testChordTranspositionSemitonesNormalizeForChartDisplay() {
         var chart = Chart.blank(title: "Transposition", measureCount: 1, layoutStyle: .simpleChordSheet)
 
         chart.setChordTranspositionSemitones(14)
 
         XCTAssertEqual(chart.chordTranspositionSemitones, 2)
-        XCTAssertEqual(chart.chordTranspositionDisplayText, "+2 half steps")
+        XCTAssertEqual(chart.chordTranspositionDisplayText, "+M2")
 
         chart.transposeChordsByHalfSteps(-3)
 
         XCTAssertEqual(chart.chordTranspositionSemitones, 11)
-        XCTAssertEqual(chart.chordTranspositionDisplayText, "+11 half steps")
+        XCTAssertEqual(chart.chordTranspositionDisplayText, "+M7")
+    }
+
+    func testInstrumentTranspositionPresetResetsManualOffset() {
+        var chart = Chart.blank(title: "Transposition", measureCount: 1, layoutStyle: .simpleChordSheet)
+
+        chart.setChordTranspositionSemitones(5)
+        chart.setInstrumentTranspositionView(.bb)
+
+        XCTAssertEqual(chart.defaultTranspositionView, .bb)
+        XCTAssertEqual(chart.chordTranspositionSemitones, 0)
+        XCTAssertEqual(chart.libraryTranspositionText, "Bb Horn")
     }
 
     func testDisplayedChordSymbolAppliesChartTranspositionWithoutMutatingSourceChord() throws {
