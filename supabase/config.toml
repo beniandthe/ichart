@@ -26,3 +26,11 @@ enable_confirmations = true
 secure_password_change = true
 max_frequency = "1m"
 otp_length = 6
+
+[functions.app-store-server-notifications]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/app-store-server-notifications/index.mjs"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/app-store-server-notifications/*.html" ]

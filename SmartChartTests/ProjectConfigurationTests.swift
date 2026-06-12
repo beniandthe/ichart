@@ -458,9 +458,70 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitRunbookText.contains("App Store Server Notifications"))
         XCTAssertTrue(storeKitRunbookText.contains("App Store Server API"))
         XCTAssertTrue(storeKitRunbookText.contains("Settings and the upgrade sheet expose Manage Subscription"))
-        XCTAssertTrue(storeKitRunbookText.contains("Have the server write the subscription authority metadata in `subscriptions`; the iOS app remains select-only."))
+        XCTAssertTrue(storeKitRunbookText.contains("Have the verified server path write the subscription authority metadata in `subscriptions`; the iOS app remains select-only."))
         XCTAssertTrue(storeKitRunbookText.contains("StoreKit is an entitlement source"))
         XCTAssertTrue(storeKitRunbookText.contains("Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git."))
+    }
+
+    func testAppStoreServerNotificationFunctionIsLockedUntilVerificationIsWired() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let supabaseConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
+        )
+        let functionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/app-store-server-notifications/index.mjs")
+        )
+        let authorityText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.mjs")
+        )
+        let authorityTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.test.mjs")
+        )
+        let storeKitRunbookText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-storekit-subscription-runbook.md")
+        )
+        let productionReadinessText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-production-readiness-checklist.md")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(supabaseConfigText.contains("[functions.app-store-server-notifications]"))
+        XCTAssertTrue(supabaseConfigText.contains("verify_jwt = false"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/app-store-server-notifications/index.mjs\""))
+        XCTAssertFalse(supabaseConfigText.contains("app-store-server-notifications/index.ts"))
+        XCTAssertFalse(supabaseConfigText.contains("@supabase/server"))
+        XCTAssertTrue(functionText.contains("handleAppStoreServerNotificationRequest"))
+        XCTAssertFalse(functionText.contains("Hello from Functions"))
+        XCTAssertFalse(functionText.contains("withSupabase"))
+        XCTAssertTrue(authorityText.contains("com.smartchart.app.pro.monthly"))
+        XCTAssertTrue(authorityText.contains("com.smartchart.app.pro.annual"))
+        XCTAssertTrue(authorityText.contains("App Store signedPayload verification is not configured."))
+        XCTAssertTrue(authorityText.contains("writeSubscriptionAuthority"))
+        XCTAssertTrue(authorityText.contains("Missing App Store signedPayload."))
+        XCTAssertTrue(authorityText.contains("Nested App Store signed payload verification is not configured."))
+        XCTAssertTrue(authorityText.contains("Verified App Store payload is missing subscription identity fields."))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses to process signedPayload without verifier"))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses nested signed payloads until nested verifiers are configured"))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses verified payloads without subscription identity fields"))
+        XCTAssertTrue(authorityTestText.contains("unknown products never unlock pro"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/app-store-server-notifications/index.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("verify the App Store Server Notification `signedPayload`"))
+        XCTAssertTrue(productionReadinessText.contains("App Store Server Notifications are received by `app-store-server-notifications`."))
+        XCTAssertTrue(productionReadinessText.contains("The committed scaffold does not instantiate a service-role/admin database writer"))
+        XCTAssertTrue(productionReadinessText.contains("Nested App Store transaction/renewal payloads must also be verified"))
+        XCTAssertTrue(planPolicyText.contains("rejects unverified `signedPayload` input"))
     }
 
     func testSupabaseMigrationCreatesProtectedAccountAndChartTables() throws {
@@ -600,6 +661,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(qaScriptText.contains("--filter SupabaseIntegrationTests"))
         XCTAssertTrue(productionReadinessScriptText.contains("git diff --check"))
         XCTAssertTrue(productionReadinessScriptText.contains("scan_for_secrets"))
+        XCTAssertTrue(productionReadinessScriptText.contains("node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
         XCTAssertTrue(productionReadinessScriptText.contains("SMART_CHART_RUN_LOCAL_SUPABASE_QA"))
         XCTAssertTrue(productionReadinessScriptText.contains("scripts/run_supabase_local_qa.sh"))
         XCTAssertTrue(productionReadinessScriptText.contains("ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests"))

@@ -35,6 +35,21 @@ Required production settings:
 - Custom SMTP is configured before relying on branded production emails, custom hosted Auth templates, or high-volume QA.
 - No service-role key, database password, JWT secret, or Stripe secret is copied into Xcode settings, `.env.example`, docs, or app code.
 
+## Edge Function Configuration
+
+- App Store Server Notifications are received by `app-store-server-notifications`.
+- `supabase/config.toml` sets `verify_jwt = false` for that function because Apple does not send a Supabase user JWT.
+- Public webhook access does not imply trust: the function must reject missing or unverified `signedPayload` input.
+- The committed scaffold does not instantiate a service-role/admin database writer and does not mutate `subscriptions` from raw webhook JSON.
+- Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
+- Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
+- Before production deployment, Apple JWS verification must be wired for the outer `signedPayload` and nested `signedTransactionInfo` / `signedRenewalInfo` payloads.
+- Server-only Supabase credentials and App Store Connect secrets must be set as Edge Function secrets, never committed and never bundled into the iOS app.
+- Local mapping coverage can run without Deno:
+  ```sh
+  node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs
+  ```
+
 ## Product Entitlement Configuration
 
 - Account/auth/profile is mandatory for Basic and Pro users.
@@ -126,6 +141,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
 - `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
+- App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
 
 ## Evidence To Keep With The Release Candidate
 
@@ -133,6 +149,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - Supabase project ref.
 - `scripts/run_supabase_production_readiness.sh` result.
 - Local Supabase QA result, when run.
+- App Store Server Notification function test result.
 - iPad simulator build/run result.
 - Screenshot or UI snapshot of unconfigured Settings.
 - Screenshot or UI snapshot of configured `Verified` and `Synced` Settings.

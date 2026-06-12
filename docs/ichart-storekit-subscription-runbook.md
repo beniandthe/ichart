@@ -61,6 +61,44 @@ Primary Apple references:
 - [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
 - [App Store Server Notifications](https://developer.apple.com/documentation/appstoreservernotifications)
 
+## App Store Server Notification Function
+
+The first server-side subscription endpoint is scaffolded at:
+
+- `supabase/functions/app-store-server-notifications/index.mjs`
+- `supabase/functions/_shared/app_store_subscription_authority.mjs`
+- `supabase/functions/_shared/app_store_subscription_authority.test.mjs`
+
+`supabase/config.toml` sets `[functions.app-store-server-notifications]` with `verify_jwt = false` because Apple webhook delivery will not include a Supabase user JWT. That makes Apple signed-payload verification mandatory before any database write.
+
+Current behavior is intentionally locked:
+
+- non-POST requests are rejected
+- missing `signedPayload` is rejected
+- unverified `signedPayload` returns a not-configured response
+- nested signed transaction/renewal payloads must be verified before write attempts
+- verified notifications missing StoreKit product/original-transaction identity are rejected
+- no service-role/admin Supabase writer is instantiated
+- no subscription row is mutated from unverified input
+
+The shared authority reducer is testable with Node so the mapping rules can be verified before Deno is installed locally:
+
+```sh
+node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs
+```
+
+Before this endpoint becomes production authority:
+
+- verify the App Store Server Notification `signedPayload` with Apple's signed-data verifier or an equivalent JWS certificate-chain verification path
+- verify/decode nested `signedTransactionInfo` and `signedRenewalInfo` before mapping subscription status
+- map only `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual` to active Pro
+- add the server-only Supabase writer that updates `subscriptions` by trusted owner/original-transaction mapping
+- store service-role/admin keys, App Store Connect API keys, webhook secrets, and Apple signing material only as Supabase Edge Function secrets
+- deploy with the linked project after verification is complete:
+  ```sh
+  supabase functions deploy app-store-server-notifications
+  ```
+
 ## App Flow
 
 StoreKit is an entitlement source, not a scattered feature gate.
@@ -85,6 +123,6 @@ Before production launch:
 - Confirm App Store Connect product IDs match the code and local StoreKit file.
 - Configure App Store Connect pricing to the current target: $7.99 monthly and $64.99 annual, unless launch pricing changes before release.
 - Replace or sync the local StoreKit configuration if App Store Connect product metadata becomes the source.
-- Add server-side receipt/subscription verification or App Store Server Notification handling before trusting Supabase subscription rows as production authority.
-- Have the server write the subscription authority metadata in `subscriptions`; the iOS app remains select-only.
+- Complete Apple signed-payload verification and server-only App Store Server Notification handling before trusting Supabase subscription rows as production authority.
+- Have the verified server path write the subscription authority metadata in `subscriptions`; the iOS app remains select-only.
 - Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git.
