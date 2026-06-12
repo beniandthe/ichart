@@ -111,6 +111,10 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.chartCapacityText(currentChartCount: charts.count)
     }
 
+    var subscriptionState: IChartSubscriptionEntitlement {
+        entitlements.subscription
+    }
+
     var localChartLimit: Int? {
         entitlements.localChartLimit
     }
@@ -137,7 +141,13 @@ final class ChartLibraryStore: ObservableObject {
 
     func setPlan(_ plan: SmartChartPlan) {
         var updatedEntitlements = entitlements
-        updatedEntitlements.activePlan = plan
+        updatedEntitlements.applyLegacyPlan(plan)
+        entitlements = updatedEntitlements
+    }
+
+    func applySubscriptionState(_ subscription: IChartSubscriptionEntitlement) {
+        var updatedEntitlements = entitlements
+        updatedEntitlements.applySubscription(subscription)
         entitlements = updatedEntitlements
     }
 

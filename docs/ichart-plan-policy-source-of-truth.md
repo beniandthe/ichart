@@ -1,7 +1,7 @@
 # iChart Plan Policy Source Of Truth
 
 Status: Active product policy for v1 implementation
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 This document is the hard source of truth for iChart account, Basic, Pro, cloud sync, Forums, downgrade, and subscription policy. If another planning document conflicts with this file, this file wins for plan and entitlement behavior.
 
@@ -184,6 +184,8 @@ Before production cloud rollout:
 - Rename user-facing `Free` wording to `Basic`.
 - Keep legacy enum names only where needed for backward compatibility.
 - Set Basic local chart cap to 3.
+- Treat subscription authority as a first-class state separate from legacy plan names: Basic, active Pro, grace, expired, and unavailable.
+- Map only active Pro to cloud-service entitlement. Grace, expired, and unavailable states use Basic local limits while preserving cloud-retention messaging.
 - Keep PDF/export available in Basic.
 - Keep local authoring tools available in Basic.
 - Add a cloud-sync state for inactive Pro, such as `requiresPro`.

@@ -95,7 +95,31 @@ struct AppEntitlements: Codable, Hashable {
     static let recommendedFreeChartLimit = recommendedBasicChartLimit
     static let free = AppEntitlements(activePlan: .free)
 
-    var activePlan: SmartChartPlan
+    private(set) var activePlan: SmartChartPlan
+    private(set) var subscription: IChartSubscriptionEntitlement
+
+    init(
+        activePlan: SmartChartPlan,
+        subscription: IChartSubscriptionEntitlement? = nil
+    ) {
+        let resolvedSubscription = subscription ?? IChartSubscriptionEntitlement.legacyStatus(for: activePlan)
+        self.activePlan = resolvedSubscription.effectivePlan
+        self.subscription = resolvedSubscription
+    }
+
+    init(subscription: IChartSubscriptionEntitlement) {
+        self.activePlan = subscription.effectivePlan
+        self.subscription = subscription
+    }
+
+    mutating func applySubscription(_ subscription: IChartSubscriptionEntitlement) {
+        self.subscription = subscription
+        activePlan = subscription.effectivePlan
+    }
+
+    mutating func applyLegacyPlan(_ plan: SmartChartPlan) {
+        applySubscription(IChartSubscriptionEntitlement.legacyStatus(for: plan))
+    }
 
     var localChartLimit: Int? {
         switch activePlan {
@@ -175,5 +199,26 @@ struct AppEntitlements: Codable, Hashable {
         }
 
         return "Unlimited local charts."
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case activePlan
+        case subscription
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedPlan = try container.decode(SmartChartPlan.self, forKey: .activePlan)
+        let decodedSubscription = try container.decodeIfPresent(
+            IChartSubscriptionEntitlement.self,
+            forKey: .subscription
+        ) ?? IChartSubscriptionEntitlement.legacyStatus(for: decodedPlan)
+        self.init(activePlan: decodedPlan, subscription: decodedSubscription)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(activePlan, forKey: .activePlan)
+        try container.encode(subscription, forKey: .subscription)
     }
 }

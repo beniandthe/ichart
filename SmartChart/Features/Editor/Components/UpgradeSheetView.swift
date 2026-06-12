@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct UpgradeSheetView: View {
@@ -40,7 +41,7 @@ struct UpgradeSheetView: View {
                 VStack(spacing: 12) {
                     #if DEBUG || targetEnvironment(simulator)
                     Button {
-                        store.setPlan(.studioSubscription)
+                        store.applySubscriptionState(.activePro(verifiedAt: Date()))
                         dismiss()
                     } label: {
                         Label("Use Pro Preview", systemImage: "star.fill")

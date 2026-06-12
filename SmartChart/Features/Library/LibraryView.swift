@@ -338,6 +338,9 @@ struct LibraryView: View {
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
         }
+        .onChange(of: store.entitlements) { _, _ in
+            cloudSyncStore.authStateChanged(authStore.state)
+        }
         .onChange(of: authStore.profile) { _, profile in
             apply(profile: profile)
         }
@@ -463,18 +466,19 @@ struct LibraryView: View {
                             systemImageName: store.persistenceStatus.systemImageName,
                             theme: homeTheme
                         )
-
-                        Divider()
-                            .overlay(homeTheme.panelBorder)
-                            .padding(.leading, 44)
-
-                        IChartSettingsRow(
-                            title: "Plan",
-                            value: store.chartCapacityText,
-                            systemImageName: "person.crop.circle",
-                            theme: homeTheme
-                        )
                     }
+                }
+
+                IChartHomePanel(
+                    title: "Plan",
+                    systemImageName: store.subscriptionState.systemImageName,
+                    theme: homeTheme
+                ) {
+                    IChartPlanSettings(
+                        store: store,
+                        theme: homeTheme,
+                        onSelectSubscriptionState: apply(subscriptionPreview:)
+                    )
                 }
 
                 IChartHomePanel(
@@ -655,6 +659,13 @@ struct LibraryView: View {
         if let paymentSummary = profile.paymentSummary {
             userPaymentSummary = paymentSummary
         }
+    }
+
+    private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            store.applySubscriptionState(subscriptionPreview)
+        }
+        cloudSyncStore.authStateChanged(authStore.state)
     }
 }
 
@@ -1458,6 +1469,230 @@ private struct IChartAccountSettings: View {
             return session.email ?? "Signed in to iChart."
         }
     }
+}
+
+private enum IChartDebugPlanPreview: String, CaseIterable, Identifiable {
+    case basic
+    case pro
+    case grace
+    case expired
+    case unavailable
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .basic:
+            return "Basic"
+        case .pro:
+            return "Pro"
+        case .grace:
+            return "Grace"
+        case .expired:
+            return "Expired"
+        case .unavailable:
+            return "Offline"
+        }
+    }
+
+    static func preview(for subscription: IChartSubscriptionEntitlement) -> IChartDebugPlanPreview {
+        switch subscription.status {
+        case .basic:
+            return .basic
+        case .proActive, .legacyLocalPro:
+            return .pro
+        case .proGrace:
+            return .grace
+        case .proExpired:
+            return .expired
+        case .unavailable:
+            return .unavailable
+        }
+    }
+
+    func subscriptionState(now: Date = Date()) -> IChartSubscriptionEntitlement {
+        switch self {
+        case .basic:
+            return .basic
+        case .pro:
+            return .activePro(verifiedAt: now)
+        case .grace:
+            let graceEndsAt = Calendar.current.date(
+                byAdding: .day,
+                value: 30,
+                to: now
+            ) ?? now.addingTimeInterval(30 * 24 * 60 * 60)
+            return .proGrace(graceEndsAt: graceEndsAt, verifiedAt: now)
+        case .expired:
+            return .proExpired(verifiedAt: now)
+        case .unavailable:
+            return .unavailable
+        }
+    }
+}
+
+private struct IChartPlanSettings: View {
+    @ObservedObject var store: ChartLibraryStore
+    let theme: IChartHomeTheme
+    let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
+
+    #if DEBUG || targetEnvironment(simulator)
+    @State private var debugPreview: IChartDebugPlanPreview = .basic
+    #endif
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            planHeader
+
+            VStack(spacing: 0) {
+                IChartSettingsRow(
+                    title: "Local Charts",
+                    value: localChartCapacityValue,
+                    systemImageName: "doc.on.doc",
+                    theme: theme
+                )
+
+                planDivider
+
+                IChartSettingsRow(
+                    title: "Cloud Backup",
+                    value: store.subscriptionState.cloudAccessText,
+                    systemImageName: "icloud.and.arrow.up",
+                    theme: theme
+                )
+
+                planDivider
+
+                IChartSettingsRow(
+                    title: "Forums",
+                    value: store.subscriptionState.forumsAccessText,
+                    systemImageName: "bubble.left.and.bubble.right",
+                    theme: theme
+                )
+
+                if let graceEndsAt = store.subscriptionState.graceEndsAt {
+                    planDivider
+
+                    IChartSettingsRow(
+                        title: "Grace Ends",
+                        value: graceEndsAt.formatted(date: .abbreviated, time: .omitted),
+                        systemImageName: "calendar.badge.clock",
+                        theme: theme
+                    )
+                }
+            }
+
+            if store.requiresLocalChartPruningForCurrentPlan {
+                Text("Choose \(store.localChartOverflowCount) local chart\(store.localChartOverflowCount == 1 ? "" : "s") to remove from the Charts tab before Basic can create new charts.")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            #if DEBUG || targetEnvironment(simulator)
+            debugControls
+            #endif
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #if DEBUG || targetEnvironment(simulator)
+        .onAppear {
+            debugPreview = IChartDebugPlanPreview.preview(for: store.subscriptionState)
+        }
+        .onChange(of: store.entitlements.subscription) { _, subscription in
+            let nextPreview = IChartDebugPlanPreview.preview(for: subscription)
+            if debugPreview != nextPreview {
+                debugPreview = nextPreview
+            }
+        }
+        #endif
+    }
+
+    private var planHeader: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: store.subscriptionState.systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(statusTint)
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(store.subscriptionState.displayTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+
+                Text(store.subscriptionState.detailText)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Text(store.subscriptionState.badgeText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(statusTint)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(statusTint.opacity(theme.isDark ? 0.18 : 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var planDivider: some View {
+        Divider()
+            .overlay(theme.panelBorder)
+            .padding(.leading, 44)
+    }
+
+    private var localChartCapacityValue: String {
+        guard let limit = store.localChartLimit else {
+            return "Unlimited"
+        }
+
+        return "\(min(store.charts.count, limit)) of \(limit) used"
+    }
+
+    private var statusTint: Color {
+        switch store.subscriptionState.status {
+        case .proActive:
+            return Color(red: 0.16, green: 0.48, blue: 0.24)
+        case .proGrace:
+            return Color(red: 0.76, green: 0.48, blue: 0.12)
+        case .proExpired:
+            return Color(red: 0.72, green: 0.18, blue: 0.12)
+        case .unavailable:
+            return Color(red: 0.48, green: 0.48, blue: 0.50)
+        case .basic, .legacyLocalPro:
+            return IChartHomeBrand.blue
+        }
+    }
+
+    #if DEBUG || targetEnvironment(simulator)
+    private var debugControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+                .overlay(theme.panelBorder)
+
+            Text("Plan Preview")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            Picker("Plan Preview", selection: $debugPreview) {
+                ForEach(IChartDebugPlanPreview.allCases) { preview in
+                    Text(preview.title).tag(preview)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: debugPreview) { _, preview in
+                onSelectSubscriptionState(preview.subscriptionState())
+            }
+
+            Text("Simulator control for StoreKit/Supabase entitlement QA. Production authority will come from trusted subscription state.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    #endif
 }
 
 private struct IChartCloudSyncSettings: View {

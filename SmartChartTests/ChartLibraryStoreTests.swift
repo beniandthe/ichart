@@ -71,7 +71,42 @@ final class ChartLibraryStoreTests: XCTestCase {
         store.setPlan(.studioSubscription)
 
         XCTAssertEqual(store.entitlements.activePlan, .studioSubscription)
+        XCTAssertEqual(store.entitlements.subscription.status, .proActive)
         XCTAssertTrue(store.canUse(.cloudBackup))
+    }
+
+    func testApplySubscriptionStatePersistsEntitlementsSnapshot() {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(
+            charts: ChartSamples.previewCharts,
+            repository: repository
+        )
+
+        store.applySubscriptionState(.activePro(verifiedAt: Date(timeIntervalSinceReferenceDate: 42)))
+
+        XCTAssertEqual(store.entitlements.activePlan, .studioSubscription)
+        XCTAssertEqual(store.entitlements.subscription.status, .proActive)
+        XCTAssertTrue(store.canUse(.cloudBackup))
+        XCTAssertEqual(repository.savedSnapshots.last?.entitlements.subscription.status, .proActive)
+    }
+
+    func testExpiredSubscriptionRequiresBasicChartPruningWithoutCloudAccess() {
+        let charts = (1...4).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(
+            charts: charts,
+            entitlements: AppEntitlements(subscription: .activePro())
+        )
+
+        store.applySubscriptionState(.proExpired(verifiedAt: Date(timeIntervalSinceReferenceDate: 42)))
+
+        XCTAssertEqual(store.entitlements.activePlan, .free)
+        XCTAssertEqual(store.localChartLimit, 3)
+        XCTAssertEqual(store.localChartOverflowCount, 1)
+        XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertFalse(store.canUse(.cloudBackup))
+        XCTAssertFalse(store.canUse(.forums))
     }
 
     func testCreateBlankChartPersistsUpdatedSnapshot() {
@@ -598,6 +633,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         store.setPlan(.proLifetime)
 
         XCTAssertEqual(repository.savedSnapshots.last?.entitlements.activePlan, .proLifetime)
+        XCTAssertEqual(repository.savedSnapshots.last?.entitlements.subscription.status, .legacyLocalPro)
     }
 
     func testSnapshotInitializerPreservesValidSelection() {
