@@ -342,6 +342,60 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(configurationText.contains("eyJ"))
     }
 
+    func testStoreKitSubscriptionAuthorityIsWired() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/SmartChartApp.swift")
+        )
+        let catalogText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Models/IChartStoreKitProductCatalog.swift")
+        )
+        let storeKitText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+        let upgradeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(catalogText.contains("com.smartchart.app.pro.monthly"))
+        XCTAssertTrue(catalogText.contains("com.smartchart.app.pro.annual"))
+        XCTAssertTrue(catalogText.contains("IChartStoreKitEntitlementResolver"))
+        XCTAssertTrue(storeKitText.contains("Product.products(for: productIDs)"))
+        XCTAssertTrue(storeKitText.contains("Transaction.currentEntitlements"))
+        XCTAssertTrue(storeKitText.contains("Transaction.updates"))
+        XCTAssertTrue(storeKitText.contains("product.purchase()"))
+        XCTAssertTrue(storeKitText.contains("AppStore.sync()"))
+        XCTAssertTrue(storeKitText.contains("IChartStoreKitEntitlementResolver.entitlement"))
+        XCTAssertTrue(appText.contains("@StateObject private var subscriptionStore"))
+        XCTAssertTrue(appText.contains("IChartStoreKitSubscriptionStore.live()"))
+        XCTAssertTrue(appText.contains("await subscriptionStore.bootstrap()"))
+        XCTAssertTrue(appText.contains("store.applySubscriptionState(subscriptionStore.entitlement)"))
+        XCTAssertTrue(appText.contains(".environmentObject(subscriptionStore)"))
+        XCTAssertTrue(libraryText.contains("@EnvironmentObject private var subscriptionStore"))
+        XCTAssertTrue(libraryText.contains("Pro Subscription"))
+        XCTAssertTrue(libraryText.contains("Restore Purchases"))
+        XCTAssertTrue(libraryText.contains("subscriptionStore.purchase(product)"))
+        XCTAssertTrue(upgradeText.contains("@EnvironmentObject private var subscriptionStore"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.purchase(product)"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.restorePurchases()"))
+        XCTAssertFalse(upgradeText.contains("until StoreKit is wired"))
+        XCTAssertTrue(planPolicyText.contains("StoreKit owns Apple subscription purchase/restore."))
+    }
+
     func testSupabaseMigrationCreatesProtectedAccountAndChartTables() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

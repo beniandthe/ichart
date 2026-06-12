@@ -173,6 +173,8 @@ Chart sync states should communicate the user's real situation:
 - Settings should not expose user-editable payment fields.
 - Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only.
 - StoreKit owns Apple subscription purchase/restore.
+- First App Store product IDs are `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual`.
+- StoreKit purchase/restore state feeds `IChartSubscriptionEntitlement`; the rest of the app must continue reading capability from `AppEntitlements` rather than from StoreKit UI directly.
 - Supabase subscription rows are read-only from the app.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
 - Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
@@ -196,6 +198,7 @@ Before production cloud rollout:
 - Set Basic local chart cap to 3.
 - Treat subscription authority as a first-class state separate from legacy plan names: Basic, active Pro, grace, expired, and unavailable.
 - Map only active Pro to cloud-service entitlement. Grace, expired, and unavailable states use Basic local limits while preserving cloud-retention messaging.
+- Wire StoreKit as an entitlement source, not a feature gate scattered through UI surfaces.
 - Keep PDF/export available in Basic.
 - Keep local authoring tools available in Basic.
 - Add a cloud-sync state for inactive Pro, such as `requiresPro`.

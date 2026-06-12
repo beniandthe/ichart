@@ -1,4 +1,5 @@
 import Foundation
+import StoreKit
 import SwiftUI
 
 private enum IChartHomeBrand {
@@ -269,6 +270,7 @@ struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var authStore: IChartAuthStore
     @EnvironmentObject private var cloudSyncStore: ChartCloudSyncStore
+    @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -669,6 +671,7 @@ struct LibraryView: View {
                 ) {
                     IChartPlanSettings(
                         store: store,
+                        subscriptionStore: subscriptionStore,
                         theme: homeTheme,
                         onSelectSubscriptionState: apply(subscriptionPreview:)
                     )
@@ -2230,6 +2233,7 @@ private enum IChartDebugPlanPreview: String, CaseIterable, Identifiable {
 
 private struct IChartPlanSettings: View {
     @ObservedObject var store: ChartLibraryStore
+    @ObservedObject var subscriptionStore: IChartStoreKitSubscriptionStore
     let theme: IChartHomeTheme
     let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
 
@@ -2285,6 +2289,8 @@ private struct IChartPlanSettings: View {
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            storeKitControls
 
             #if DEBUG || targetEnvironment(simulator)
             debugControls
@@ -2360,6 +2366,68 @@ private struct IChartPlanSettings: View {
             return Color(red: 0.48, green: 0.48, blue: 0.50)
         case .basic, .legacyLocalPro:
             return IChartHomeBrand.blue
+        }
+    }
+
+    private var storeKitControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+                .overlay(theme.panelBorder)
+
+            Text("Pro Subscription")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            if subscriptionStore.products.isEmpty {
+                Text("StoreKit products are unavailable. Add the Pro monthly and annual product IDs in App Store Connect or a StoreKit configuration to test purchase buttons.")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(subscriptionStore.products, id: \.id) { product in
+                    Button {
+                        Task {
+                            await subscriptionStore.purchase(product)
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(product.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(product.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer(minLength: 12)
+
+                            Text(product.displayPrice)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(IChartHomeBrand.blue)
+                    .disabled(subscriptionStore.state.isWorking)
+                }
+            }
+
+            Button {
+                Task {
+                    await subscriptionStore.restorePurchases()
+                }
+            } label: {
+                Label("Restore Purchases", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+
+            Text(subscriptionStore.state.statusText)
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

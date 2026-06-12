@@ -93,4 +93,44 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(decoded.includes(.unlimitedLocalCharts))
     }
 
+    func testStoreKitProductCatalogDefinesMonthlyAndAnnualProProducts() {
+        XCTAssertEqual(
+            IChartStoreKitProductCatalog.proProductIDs,
+            [
+                "com.smartchart.app.pro.monthly",
+                "com.smartchart.app.pro.annual"
+            ]
+        )
+        XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.pro.monthly"))
+        XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.pro.annual"))
+        XCTAssertFalse(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.basic"))
+    }
+
+    func testStoreKitEntitlementResolverOnlyActivatesProForActiveSubscription() {
+        let verifiedAt = Date(timeIntervalSinceReferenceDate: 200)
+
+        let active = IChartStoreKitEntitlementResolver.entitlement(
+            hasActiveProSubscription: true,
+            sawExpiredProTransaction: false,
+            verifiedAt: verifiedAt
+        )
+        let expired = IChartStoreKitEntitlementResolver.entitlement(
+            hasActiveProSubscription: false,
+            sawExpiredProTransaction: true,
+            verifiedAt: verifiedAt
+        )
+        let basic = IChartStoreKitEntitlementResolver.entitlement(
+            hasActiveProSubscription: false,
+            sawExpiredProTransaction: false,
+            verifiedAt: verifiedAt
+        )
+
+        XCTAssertEqual(active.status, .proActive)
+        XCTAssertEqual(active.lastVerifiedAt, verifiedAt)
+        XCTAssertEqual(expired.status, .proExpired)
+        XCTAssertEqual(expired.lastVerifiedAt, verifiedAt)
+        XCTAssertEqual(basic.status, .basic)
+        XCTAssertNil(basic.lastVerifiedAt)
+    }
+
 }

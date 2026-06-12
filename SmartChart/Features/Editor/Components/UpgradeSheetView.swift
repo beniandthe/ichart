@@ -1,10 +1,12 @@
 import Foundation
+import StoreKit
 import SwiftUI
 
 struct UpgradeSheetView: View {
     let feature: EntitledFeature
 
     @EnvironmentObject private var store: ChartLibraryStore
+    @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -30,8 +32,10 @@ struct UpgradeSheetView: View {
                     benefitRow("Forums access")
                 }
 
+                storeKitPurchaseControls
+
                 #if DEBUG || targetEnvironment(simulator)
-                Text("Debug build: this switches local entitlement state until StoreKit is wired.")
+                Text("Debug build: this switches local entitlement state for simulator entitlement QA.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 #endif
@@ -50,6 +54,21 @@ struct UpgradeSheetView: View {
                     .buttonStyle(.borderedProminent)
                     #endif
 
+                    Button {
+                        Task {
+                            await subscriptionStore.restorePurchases()
+                            store.applySubscriptionState(subscriptionStore.entitlement)
+                            if subscriptionStore.entitlement.status == .proActive {
+                                dismiss()
+                            }
+                        }
+                    } label: {
+                        Label("Restore Purchases", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(subscriptionStore.state.isWorking)
+
                     Button("Not Now") {
                         dismiss()
                     }
@@ -59,6 +78,51 @@ struct UpgradeSheetView: View {
             .padding(24)
             .navigationTitle("Upgrade")
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var storeKitPurchaseControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if subscriptionStore.products.isEmpty {
+                Text("Pro purchases are not available yet. Add the monthly and annual product IDs in App Store Connect or a StoreKit configuration.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(subscriptionStore.products, id: \.id) { product in
+                    Button {
+                        Task {
+                            await subscriptionStore.purchase(product)
+                            store.applySubscriptionState(subscriptionStore.entitlement)
+                            if subscriptionStore.entitlement.status == .proActive {
+                                dismiss()
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(product.displayName)
+                                    .font(.headline)
+                                Text(product.description)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer(minLength: 12)
+
+                            Text(product.displayPrice)
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(subscriptionStore.state.isWorking)
+                }
+            }
+
+            Text(subscriptionStore.state.statusText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
