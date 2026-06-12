@@ -104,6 +104,14 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.pro.monthly"))
         XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.pro.annual"))
         XCTAssertFalse(IChartStoreKitProductCatalog.isProProductID("com.smartchart.app.basic"))
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetMonthlyPriceCents, 799)
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetAnnualPriceCents, 6_499)
+        XCTAssertEqual(IChartStoreKitProductCatalog.annualSavingsPercent, 32)
+        XCTAssertEqual(
+            IChartStoreKitProductCatalog.valueBadge(for: "com.smartchart.app.pro.annual"),
+            "Save 32%"
+        )
+        XCTAssertNil(IChartStoreKitProductCatalog.valueBadge(for: "com.smartchart.app.pro.monthly"))
     }
 
     func testStoreKitEntitlementResolverOnlyActivatesProForActiveSubscription() {

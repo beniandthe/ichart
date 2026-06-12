@@ -2402,8 +2402,16 @@ private struct IChartPlanSettings: View {
 
                             Spacer(minLength: 12)
 
-                            Text(product.displayPrice)
-                                .font(.subheadline.weight(.semibold))
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(product.displayPrice)
+                                    .font(.subheadline.weight(.semibold))
+
+                                if let valueBadge = product.valueBadge {
+                                    Text(valueBadge)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(Color(red: 0.16, green: 0.48, blue: 0.24))
+                                }
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -2419,6 +2427,17 @@ private struct IChartPlanSettings: View {
                 }
             } label: {
                 Label("Restore Purchases", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+
+            Button {
+                Task {
+                    await subscriptionStore.manageSubscriptions()
+                }
+            } label: {
+                Label("Manage Subscription", systemImage: "person.crop.circle")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)

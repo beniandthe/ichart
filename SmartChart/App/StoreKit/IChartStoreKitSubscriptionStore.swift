@@ -1,18 +1,22 @@
 import Foundation
 import StoreKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 enum IChartStoreKitSubscriptionState: Equatable {
     case idle
     case loading
     case purchasing
     case restoring
+    case managing
     case ready
     case localPreviewActive
     case unavailable(String)
 
     var isWorking: Bool {
         switch self {
-        case .loading, .purchasing, .restoring:
+        case .loading, .purchasing, .restoring, .managing:
             return true
         case .idle, .ready, .localPreviewActive, .unavailable:
             return false
@@ -29,6 +33,8 @@ enum IChartStoreKitSubscriptionState: Equatable {
             return "Opening purchase..."
         case .restoring:
             return "Restoring purchases..."
+        case .managing:
+            return "Opening subscription management..."
         case .ready:
             return "Subscription check complete."
         case .localPreviewActive:
@@ -172,6 +178,28 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         }
     }
 
+    func manageSubscriptions() async {
+        #if canImport(UIKit)
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) else {
+            state = .unavailable("Subscription management is unavailable from this window.")
+            return
+        }
+
+        state = .managing
+
+        do {
+            try await AppStore.showManageSubscriptions(in: scene)
+            await refreshEntitlements()
+        } catch {
+            state = .unavailable("Could not open subscription management.")
+        }
+        #else
+        state = .unavailable("Subscription management is unavailable on this platform.")
+        #endif
+    }
+
     #if DEBUG || targetEnvironment(simulator)
     func applyLocalPreview(_ entitlement: IChartSubscriptionEntitlement) {
         self.entitlement = entitlement
@@ -191,7 +219,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     id: product.id,
                     displayName: product.displayName,
                     description: product.description,
-                    displayPrice: product.displayPrice
+                    displayPrice: product.displayPrice,
+                    valueBadge: IChartStoreKitProductCatalog.valueBadge(for: product.id)
                 )
             }
 
@@ -235,7 +264,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     id: subscription.productID,
                     displayName: subscription.localizedDisplayName,
                     description: subscription.localizedDescription,
-                    displayPrice: subscription.localizedDisplayPrice
+                    displayPrice: subscription.localizedDisplayPrice,
+                    valueBadge: IChartStoreKitProductCatalog.valueBadge(for: subscription.productID)
                 )
             }
 

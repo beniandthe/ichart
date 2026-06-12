@@ -69,6 +69,21 @@ struct UpgradeSheetView: View {
                     .buttonStyle(.bordered)
                     .disabled(subscriptionStore.state.isWorking)
 
+                    Button {
+                        Task {
+                            await subscriptionStore.manageSubscriptions()
+                            store.applySubscriptionState(subscriptionStore.entitlement)
+                            if subscriptionStore.entitlement.status == .proActive {
+                                dismiss()
+                            }
+                        }
+                    } label: {
+                        Label("Manage Subscription", systemImage: "person.crop.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(subscriptionStore.state.isWorking)
+
                     Button("Not Now") {
                         dismiss()
                     }
@@ -110,8 +125,16 @@ struct UpgradeSheetView: View {
 
                             Spacer(minLength: 12)
 
-                            Text(product.displayPrice)
-                                .font(.headline)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(product.displayPrice)
+                                    .font(.headline)
+
+                                if let valueBadge = product.valueBadge {
+                                    Text(valueBadge)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.green)
+                                }
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }

@@ -33,6 +33,34 @@ Xcode's normal Run action reads the scheme StoreKit configuration and should exe
 
 Do not initialize `StoreKitTest.SKTestSession` inside the app process. It expects an XCTest configuration and aborts the app when launched normally.
 
+## App Store Connect Production Gate
+
+Before App Store/TestFlight subscription QA, configure the Apple-side products:
+
+- Create one subscription group for iChart Pro.
+- Create the monthly auto-renewable subscription with product ID `com.smartchart.app.pro.monthly`.
+- Create the annual auto-renewable subscription with product ID `com.smartchart.app.pro.annual`.
+- Add product display names, descriptions, durations, review metadata, screenshots if required by App Review, and localization records.
+- Set the monthly starting price to $7.99 and the annual starting price to $64.99 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
+- Leave both products in a state where StoreKit can fetch them in sandbox/TestFlight before removing the local StoreKit configuration from the run scheme.
+- Allow for App Store Connect metadata propagation; Apple notes product metadata changes can take up to 1 hour to appear in the sandbox environment.
+
+Production entitlement authority should not stop at the iOS client:
+
+- Keep `Product.products(for:)`, `Product.purchase()`, `Transaction.currentEntitlements`, `Transaction.updates`, and `AppStore.sync()` as the in-app StoreKit surface.
+- Add a server-owned subscription pipeline before trusting Supabase `subscriptions` rows as production authority.
+- Use App Store Server Notifications for real-time lifecycle changes such as renewals, failed renewals, refunds, grace/billing retry changes, and churn.
+- Use the App Store Server API from a server/Edge Function only; never bundle App Store Connect API keys, signing keys, webhook secrets, or service-role keys in the app.
+- Keep `subscriptions` read-only from the app and update it only from trusted server-side purchase verification/notification handling.
+- Settings and the upgrade sheet expose Manage Subscription through Apple's system subscription management UI.
+
+Primary Apple references:
+
+- [Auto-renewable subscriptions](https://developer.apple.com/app-store/subscriptions/)
+- [Manage pricing for auto-renewable subscriptions](https://developer.apple.com/help/app-store-connect/manage-subscriptions/manage-pricing-for-auto-renewable-subscriptions/)
+- [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
+- [App Store Server Notifications](https://developer.apple.com/documentation/appstoreservernotifications)
+
 ## App Flow
 
 StoreKit is an entitlement source, not a scattered feature gate.
