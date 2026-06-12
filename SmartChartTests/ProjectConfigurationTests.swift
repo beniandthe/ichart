@@ -229,6 +229,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Sync/ChartCloudSyncService.swift")
         )
+        let syncStateText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Models/ChartSyncState.swift")
+        )
         let syncStoreText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/App/Sync/ChartCloudSyncStore.swift")
@@ -318,13 +322,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(syncServiceText.contains("localSnapshotForSync"))
         XCTAssertTrue(syncServiceText.contains("shouldRestoreRemoteForLegacyOwnerlessSnapshot"))
         XCTAssertFalse(syncServiceText.contains("client.auth.currentUser"))
-        XCTAssertTrue(syncServiceText.contains("Cloud backup unavailable"))
-        XCTAssertTrue(syncServiceText.contains("Sign in to back up"))
-        XCTAssertTrue(syncServiceText.contains("Local edits are saved. Reconnect to back up."))
-        XCTAssertTrue(syncServiceText.contains("manualSyncTitle"))
-        XCTAssertTrue(syncServiceText.contains("Retry Sync"))
-        XCTAssertTrue(syncServiceText.contains("Sync Now"))
-        XCTAssertTrue(syncServiceText.contains("manualSyncDisabledReason"))
+        XCTAssertFalse(syncServiceText.contains("enum ChartSyncState"))
+        XCTAssertTrue(syncStateText.contains("enum ChartSyncState"))
+        XCTAssertTrue(syncStateText.contains("Cloud backup unavailable"))
+        XCTAssertTrue(syncStateText.contains("Sign in to back up"))
+        XCTAssertTrue(syncStateText.contains("Cloud backup requires Pro"))
+        XCTAssertTrue(syncStateText.contains("Local edits are saved. Reconnect to back up."))
+        XCTAssertTrue(syncStateText.contains("manualSyncTitle"))
+        XCTAssertTrue(syncStateText.contains("Retry Sync"))
+        XCTAssertTrue(syncStateText.contains("Sync Now"))
+        XCTAssertTrue(syncStateText.contains("manualSyncDisabledReason"))
         XCTAssertTrue(syncStoreText.contains("lastSyncAttemptAt"))
         XCTAssertTrue(syncStoreText.contains("cancelPendingSyncWork()"))
         XCTAssertTrue(syncStoreText.contains("case .temporarilyOffline"))
