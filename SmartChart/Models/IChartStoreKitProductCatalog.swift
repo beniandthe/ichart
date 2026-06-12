@@ -1,8 +1,16 @@
 import Foundation
 
+struct IChartStoreKitProductOption: Equatable, Identifiable {
+    let id: String
+    let displayName: String
+    let description: String
+    let displayPrice: String
+}
+
 enum IChartStoreKitProductCatalog {
     static let proMonthlyProductID = "com.smartchart.app.pro.monthly"
     static let proAnnualProductID = "com.smartchart.app.pro.annual"
+    static let localStoreKitConfigurationFileName = "iChartProSubscriptions.storekit"
 
     static let proProductIDs: [String] = [
         proMonthlyProductID,

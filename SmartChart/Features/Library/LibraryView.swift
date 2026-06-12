@@ -2378,13 +2378,13 @@ private struct IChartPlanSettings: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            if subscriptionStore.products.isEmpty {
+            if subscriptionStore.productOptions.isEmpty {
                 Text("StoreKit products are unavailable. Add the Pro monthly and annual product IDs in App Store Connect or a StoreKit configuration to test purchase buttons.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                ForEach(subscriptionStore.products, id: \.id) { product in
+                ForEach(subscriptionStore.productOptions) { product in
                     Button {
                         Task {
                             await subscriptionStore.purchase(product)
@@ -2448,7 +2448,9 @@ private struct IChartPlanSettings: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: debugPreview) { _, preview in
-                onSelectSubscriptionState(preview.subscriptionState())
+                let subscriptionState = preview.subscriptionState()
+                subscriptionStore.applyLocalPreview(subscriptionState)
+                onSelectSubscriptionState(subscriptionState)
             }
 
             Text("Simulator control for StoreKit/Supabase entitlement QA. Production authority will come from trusted subscription state.")

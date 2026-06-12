@@ -83,12 +83,12 @@ struct UpgradeSheetView: View {
 
     private var storeKitPurchaseControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if subscriptionStore.products.isEmpty {
+            if subscriptionStore.productOptions.isEmpty {
                 Text("Pro purchases are not available yet. Add the monthly and annual product IDs in App Store Connect or a StoreKit configuration.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(subscriptionStore.products, id: \.id) { product in
+                ForEach(subscriptionStore.productOptions) { product in
                     Button {
                         Task {
                             await subscriptionStore.purchase(product)
