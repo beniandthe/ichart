@@ -66,10 +66,13 @@ Primary Apple references:
 The first server-side subscription endpoint is scaffolded at:
 
 - `supabase/functions/app-store-server-notifications/index.mjs`
+- `supabase/functions/storekit-subscription-claims/index.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.test.mjs`
 
 `supabase/config.toml` sets `[functions.app-store-server-notifications]` with `verify_jwt = false` because Apple webhook delivery will not include a Supabase user JWT. That makes Apple signed-payload verification mandatory before any database write.
+
+`supabase/config.toml` also sets `[functions.storekit-subscription-claims]` with `verify_jwt = true` because this endpoint is for signed-in iChart users after purchase/restore. It is the future path that lets the app send a StoreKit signed transaction to the server so the server can map Apple `originalTransactionId` to the current account before later App Store Server Notifications arrive.
 
 Current behavior is intentionally locked:
 
@@ -78,6 +81,10 @@ Current behavior is intentionally locked:
 - unverified `signedPayload` returns a not-configured response
 - nested signed transaction/renewal payloads must be verified before write attempts
 - verified notifications missing StoreKit product/original-transaction identity are rejected
+- transaction claims require a signed-in account bearer token
+- transaction claims require `signedTransactionInfo`
+- transaction claims reject non-Pro products and missing original transaction identity
+- transaction claims return a not-configured response until StoreKit transaction verification, authenticated-user resolution, and server-only writes are wired
 - no service-role/admin Supabase writer is instantiated
 - no subscription row is mutated from unverified input
 
@@ -91,12 +98,16 @@ Before this endpoint becomes production authority:
 
 - verify the App Store Server Notification `signedPayload` with Apple's signed-data verifier or an equivalent JWS certificate-chain verification path
 - verify/decode nested `signedTransactionInfo` and `signedRenewalInfo` before mapping subscription status
+- verify the app-submitted StoreKit `signedTransactionInfo` before claiming an original transaction for an account
 - map only `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual` to active Pro
+- add authenticated user resolution for `storekit-subscription-claims`
 - add the server-only Supabase writer that updates `subscriptions` by trusted owner/original-transaction mapping
+- have the iOS StoreKit store call the authenticated claim function after successful purchase/restore
 - store service-role/admin keys, App Store Connect API keys, webhook secrets, and Apple signing material only as Supabase Edge Function secrets
 - deploy with the linked project after verification is complete:
   ```sh
   supabase functions deploy app-store-server-notifications
+  supabase functions deploy storekit-subscription-claims
   ```
 
 ## App Flow
@@ -108,6 +119,8 @@ The flow is:
 ```text
 StoreKit transaction/current entitlement
 -> IChartStoreKitSubscriptionStore
+-> authenticated StoreKit transaction claim function
+-> Supabase subscription owner/original-transaction mapping
 -> IChartSubscriptionEntitlement
 -> AppEntitlements
 -> Library, Projects, cloud sync, Forums, chart-cap behavior

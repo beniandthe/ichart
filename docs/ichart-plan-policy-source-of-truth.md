@@ -180,6 +180,7 @@ Chart sync states should communicate the user's real situation:
 - Supabase subscription rows are read-only from the app and may mirror server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
 - App Store Server Notification handling starts as a Supabase Edge Function scaffold that rejects unverified `signedPayload` input; it cannot write subscription authority until Apple JWS verification and server-only owner mapping are implemented.
+- StoreKit transaction claiming starts as a separate authenticated Edge Function scaffold; it cannot map an Apple original transaction to an iChart account until signed transaction verification, authenticated user resolution, and server-only writes are implemented.
 - Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
 
 ## 11. Security And Database Policy

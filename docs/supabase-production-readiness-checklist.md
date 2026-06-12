@@ -40,9 +40,13 @@ Required production settings:
 - App Store Server Notifications are received by `app-store-server-notifications`.
 - `supabase/config.toml` sets `verify_jwt = false` for that function because Apple does not send a Supabase user JWT.
 - Public webhook access does not imply trust: the function must reject missing or unverified `signedPayload` input.
+- StoreKit transaction claims are received by `storekit-subscription-claims`.
+- `supabase/config.toml` sets `verify_jwt = true` for the claim function because it is invoked by signed-in app users.
+- The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, and missing original transaction identity.
 - The committed scaffold does not instantiate a service-role/admin database writer and does not mutate `subscriptions` from raw webhook JSON.
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
+- Verified transaction claims still need authenticated-user resolution and a server-only writer before they can persist owner/original-transaction mapping.
 - Before production deployment, Apple JWS verification must be wired for the outer `signedPayload` and nested `signedTransactionInfo` / `signedRenewalInfo` payloads.
 - Server-only Supabase credentials and App Store Connect secrets must be set as Edge Function secrets, never committed and never bundled into the iOS app.
 - Local mapping coverage can run without Deno:
@@ -142,6 +146,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
 - `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
 - App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
+- StoreKit transaction-claim events cannot update `subscriptions` unless the server first verifies the Apple signed transaction and resolves the authenticated account owner.
 
 ## Evidence To Keep With The Release Candidate
 

@@ -178,6 +178,60 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
   };
 }
 
+export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionInfo, options = {}) {
+  if (!transactionInfo || typeof transactionInfo !== "object") {
+    throw new TypeError("A verified StoreKit transaction object is required.");
+  }
+
+  const now = dateFromInput(options.now ?? new Date());
+  const nowISOString = now.toISOString();
+  const productID = normalizedString(
+    transactionInfo.productId
+      ?? transactionInfo.productID
+      ?? transactionInfo.product_id
+  );
+  const originalTransactionID = normalizedString(
+    transactionInfo.originalTransactionId
+      ?? transactionInfo.originalTransactionID
+      ?? transactionInfo.original_transaction_id
+  );
+  const transactionID = normalizedString(
+    transactionInfo.transactionId
+      ?? transactionInfo.transactionID
+      ?? transactionInfo.transaction_id
+  );
+  const environment = normalizeStoreKitEnvironment(transactionInfo.environment);
+  const expiresAt = appleDateToISOString(
+    transactionInfo.expiresDate
+      ?? transactionInfo.expiresDateMs
+      ?? transactionInfo.expirationDate
+  );
+  const revokedAt = appleDateToISOString(transactionInfo.revocationDate);
+  const appStoreStatus = revokedAt !== null
+    ? "revoked"
+    : isFuture(expiresAt, now.getTime()) ? "active" : "expired";
+  const grantsActivePro = isIChartProProductID(productID)
+    && appStoreStatus === "active"
+    && isFuture(expiresAt, now.getTime());
+
+  return {
+    provider: storeKitProvider,
+    plan: grantsActivePro ? "studioSubscription" : "free",
+    status: grantsActivePro ? "active" : "inactive",
+    storekit_product_id: productID.length > 0 ? productID : null,
+    storekit_original_transaction_id: originalTransactionID.length > 0 ? originalTransactionID : null,
+    storekit_environment: environment,
+    app_store_status: appStoreStatus,
+    app_store_notification_type: normalizedString(options.source) || "TRANSACTION_CLAIM",
+    app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
+    current_period_end: expiresAt,
+    entitlement_expires_at: expiresAt,
+    grace_period_expires_at: null,
+    revoked_at: revokedAt,
+    last_verified_at: nowISOString,
+  };
+}
+
 export async function handleAppStoreServerNotificationRequest(request, dependencies = {}) {
   if (request.method !== "POST") {
     return jsonResponse(405, {
@@ -274,6 +328,110 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
   });
 }
 
+export async function handleStoreKitSubscriptionClaimRequest(request, dependencies = {}) {
+  if (request.method !== "POST") {
+    return jsonResponse(405, {
+      accepted: false,
+      error: "Use POST to claim a StoreKit subscription transaction.",
+    });
+  }
+
+  if (!hasBearerAuthorization(request)) {
+    return jsonResponse(401, {
+      accepted: false,
+      error: "A signed-in iChart account is required.",
+    });
+  }
+
+  const body = await readJSON(request);
+  if (!body.ok) {
+    return jsonResponse(400, {
+      accepted: false,
+      error: "Request body must be valid JSON.",
+    });
+  }
+
+  const signedTransactionInfo = body.value?.signedTransactionInfo;
+  if (typeof signedTransactionInfo !== "string" || signedTransactionInfo.trim().length === 0) {
+    return jsonResponse(400, {
+      accepted: false,
+      error: "Missing StoreKit signedTransactionInfo.",
+    });
+  }
+
+  if (typeof dependencies.verifyAndDecodeTransaction !== "function") {
+    return jsonResponse(501, {
+      accepted: false,
+      error: "StoreKit signed transaction verification is not configured.",
+    });
+  }
+
+  let transactionInfo;
+  try {
+    transactionInfo = await dependencies.verifyAndDecodeTransaction(signedTransactionInfo);
+  } catch {
+    return jsonResponse(401, {
+      accepted: false,
+      error: "StoreKit signed transaction verification failed.",
+    });
+  }
+
+  const authorityUpdate = subscriptionAuthorityUpdateFromVerifiedTransaction(
+    transactionInfo,
+    { now: dependencies.now ?? new Date() }
+  );
+
+  if (!isIChartProProductID(authorityUpdate.storekit_product_id)) {
+    return jsonResponse(422, {
+      accepted: false,
+      error: "Verified StoreKit transaction is not an iChart Pro subscription.",
+    });
+  }
+
+  if (
+    authorityUpdate.storekit_product_id === null
+    || authorityUpdate.storekit_original_transaction_id === null
+  ) {
+    return jsonResponse(422, {
+      accepted: false,
+      error: "Verified StoreKit transaction is missing subscription identity fields.",
+    });
+  }
+
+  if (typeof dependencies.authenticatedUserID !== "function") {
+    return jsonResponse(501, {
+      accepted: false,
+      error: "Authenticated user resolver is not configured.",
+    });
+  }
+
+  const ownerID = await dependencies.authenticatedUserID(request);
+  if (typeof ownerID !== "string" || ownerID.trim().length === 0) {
+    return jsonResponse(401, {
+      accepted: false,
+      error: "A signed-in iChart account is required.",
+    });
+  }
+
+  if (typeof dependencies.writeSubscriptionAuthorityClaim !== "function") {
+    return jsonResponse(501, {
+      accepted: false,
+      error: "Subscription authority claim writer is not configured.",
+      app_store_status: authorityUpdate.app_store_status,
+    });
+  }
+
+  await dependencies.writeSubscriptionAuthorityClaim({
+    ownerID: ownerID.trim(),
+    authorityUpdate,
+  });
+
+  return jsonResponse(202, {
+    accepted: true,
+    app_store_status: authorityUpdate.app_store_status,
+  });
+}
+
 async function decodeNestedSignedPayload(signedPayload, decoder, fallback) {
   if (typeof signedPayload === "string" && signedPayload.length > 0) {
     if (typeof decoder !== "function") {
@@ -307,6 +465,11 @@ function jsonResponse(status, body) {
       "Cache-Control": "no-store",
     },
   });
+}
+
+function hasBearerAuthorization(request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  return /^Bearer\s+\S+/i.test(authorization);
 }
 
 function normalizedString(value) {
