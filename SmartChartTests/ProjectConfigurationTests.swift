@@ -487,6 +487,18 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.test.mjs")
         )
+        let signedVerifierText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_signed_data_verifier.mjs")
+        )
+        let verifierConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_verifier_config.mjs")
+        )
+        let verifierConfigTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_verifier_config.test.mjs")
+        )
         let storeKitRunbookText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("docs/ichart-storekit-subscription-runbook.md")
@@ -510,6 +522,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(supabaseConfigText.contains("@supabase/server"))
         XCTAssertTrue(functionText.contains("handleAppStoreServerNotificationRequest"))
         XCTAssertTrue(claimFunctionText.contains("handleStoreKitSubscriptionClaimRequest"))
+        XCTAssertTrue(functionText.contains("createAppStoreSignedDataVerifiers"))
+        XCTAssertTrue(claimFunctionText.contains("createAppStoreSignedDataVerifiers"))
         XCTAssertFalse(functionText.contains("Hello from Functions"))
         XCTAssertFalse(functionText.contains("withSupabase"))
         XCTAssertFalse(claimFunctionText.contains("withSupabase"))
@@ -530,18 +544,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authorityTestText.contains("transaction claim refuses to process without verifier"))
         XCTAssertTrue(authorityTestText.contains("transaction claim writes only after user and transaction are verified"))
         XCTAssertTrue(authorityTestText.contains("unknown products never unlock pro"))
+        XCTAssertTrue(signedVerifierText.contains("@apple/app-store-server-library@3.1.0"))
+        XCTAssertTrue(signedVerifierText.contains("SignedDataVerifier"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeNotification"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeTransaction"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeRenewalInfo"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_BUNDLE_ID"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_ENVIRONMENT"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_APP_APPLE_ID"))
+        XCTAssertTrue(verifierConfigTestText.contains("requires App Apple ID for production verification"))
+        XCTAssertTrue(verifierConfigTestText.contains("allows sandbox configuration without an App Apple ID"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/app-store-server-notifications/index.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/storekit-subscription-claims/index.mjs"))
-        XCTAssertTrue(storeKitRunbookText.contains("node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
-        XCTAssertTrue(storeKitRunbookText.contains("verify the App Store Server Notification `signedPayload`"))
-        XCTAssertTrue(storeKitRunbookText.contains("verify the app-submitted StoreKit `signedTransactionInfo`"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_signed_data_verifier.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_APP_APPLE_ID"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("Apple's official `@apple/app-store-server-library` `SignedDataVerifier`"))
+        XCTAssertTrue(storeKitRunbookText.contains("invalid Apple signatures are rejected before mapping or writing"))
         XCTAssertTrue(productionReadinessText.contains("App Store Server Notifications are received by `app-store-server-notifications`."))
         XCTAssertTrue(productionReadinessText.contains("StoreKit transaction claims are received by `storekit-subscription-claims`."))
         XCTAssertTrue(productionReadinessText.contains("The committed scaffold does not instantiate a service-role/admin database writer"))
         XCTAssertTrue(productionReadinessText.contains("Nested App Store transaction/renewal payloads must also be verified"))
         XCTAssertTrue(productionReadinessText.contains("Verified transaction claims still need authenticated-user resolution"))
-        XCTAssertTrue(planPolicyText.contains("rejects unverified `signedPayload` input"))
-        XCTAssertTrue(planPolicyText.contains("StoreKit transaction claiming starts as a separate authenticated Edge Function scaffold"))
+        XCTAssertTrue(productionReadinessText.contains("Apple JWS verification is wired through Apple's `SignedDataVerifier`"))
+        XCTAssertTrue(productionReadinessText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(planPolicyText.contains("uses Apple's signed-data verifier when Edge secrets are configured"))
+        XCTAssertTrue(planPolicyText.contains("StoreKit transaction claiming is a separate authenticated Edge Function scaffold"))
     }
 
     func testSupabaseMigrationCreatesProtectedAccountAndChartTables() throws {
@@ -681,7 +712,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(qaScriptText.contains("--filter SupabaseIntegrationTests"))
         XCTAssertTrue(productionReadinessScriptText.contains("git diff --check"))
         XCTAssertTrue(productionReadinessScriptText.contains("scan_for_secrets"))
-        XCTAssertTrue(productionReadinessScriptText.contains("node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
         XCTAssertTrue(productionReadinessScriptText.contains("SMART_CHART_RUN_LOCAL_SUPABASE_QA"))
         XCTAssertTrue(productionReadinessScriptText.contains("scripts/run_supabase_local_qa.sh"))
         XCTAssertTrue(productionReadinessScriptText.contains("ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests"))

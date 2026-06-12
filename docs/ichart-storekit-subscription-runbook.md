@@ -69,16 +69,38 @@ The first server-side subscription endpoint is scaffolded at:
 - `supabase/functions/storekit-subscription-claims/index.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.test.mjs`
+- `supabase/functions/_shared/app_store_signed_data_verifier.mjs`
+- `supabase/functions/_shared/app_store_verifier_config.mjs`
+- `supabase/functions/_shared/app_store_verifier_config.test.mjs`
 
 `supabase/config.toml` sets `[functions.app-store-server-notifications]` with `verify_jwt = false` because Apple webhook delivery will not include a Supabase user JWT. That makes Apple signed-payload verification mandatory before any database write.
 
 `supabase/config.toml` also sets `[functions.storekit-subscription-claims]` with `verify_jwt = true` because this endpoint is for signed-in iChart users after purchase/restore. It is the future path that lets the app send a StoreKit signed transaction to the server so the server can map Apple `originalTransactionId` to the current account before later App Store Server Notifications arrive.
 
+Both Edge Function entrypoints create verifier dependencies through Apple's official `@apple/app-store-server-library` `SignedDataVerifier`. The dependency factory reads only Edge Function environment secrets and returns no verifier functions when required Apple configuration is missing or malformed, so both endpoints fail closed with the existing not-configured responses.
+
+Required Edge Function verifier secrets:
+
+- `APP_STORE_BUNDLE_ID`: the iChart bundle identifier.
+- `APP_STORE_ENVIRONMENT`: `Sandbox` for sandbox/TestFlight verification, `Production` for production App Store traffic.
+- `APP_STORE_ROOT_CERTIFICATES_PEM`: Apple Root Certificate PEM blocks from the Apple PKI site, stored as an Edge Function secret.
+- `APP_STORE_APP_APPLE_ID`: App Store app identifier. Required for `Production`; omitted for `Sandbox`.
+
+Set secrets from the operator machine, never in git:
+
+```sh
+supabase secrets set APP_STORE_BUNDLE_ID=<bundle-id>
+supabase secrets set APP_STORE_ENVIRONMENT=Sandbox
+supabase secrets set APP_STORE_ROOT_CERTIFICATES_PEM="$(cat /secure/path/apple-root-certificates.pem)"
+supabase secrets set APP_STORE_APP_APPLE_ID=<numeric-app-apple-id>
+```
+
 Current behavior is intentionally locked:
 
 - non-POST requests are rejected
 - missing `signedPayload` is rejected
-- unverified `signedPayload` returns a not-configured response
+- unconfigured verifier secrets return a not-configured response
+- invalid Apple signatures are rejected before mapping or writing
 - nested signed transaction/renewal payloads must be verified before write attempts
 - verified notifications missing StoreKit product/original-transaction identity are rejected
 - transaction claims require a signed-in account bearer token
@@ -91,14 +113,15 @@ Current behavior is intentionally locked:
 The shared authority reducer is testable with Node so the mapping rules can be verified before Deno is installed locally:
 
 ```sh
-node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs
+node --test \
+  supabase/functions/_shared/app_store_subscription_authority.test.mjs \
+  supabase/functions/_shared/app_store_verifier_config.test.mjs
 ```
 
 Before this endpoint becomes production authority:
 
-- verify the App Store Server Notification `signedPayload` with Apple's signed-data verifier or an equivalent JWS certificate-chain verification path
-- verify/decode nested `signedTransactionInfo` and `signedRenewalInfo` before mapping subscription status
-- verify the app-submitted StoreKit `signedTransactionInfo` before claiming an original transaction for an account
+- configure Apple verifier Edge Function secrets for the target environment
+- deploy both functions after secrets are configured and smoke-test missing/invalid signed payload behavior
 - map only `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual` to active Pro
 - add authenticated user resolution for `storekit-subscription-claims`
 - add the server-only Supabase writer that updates `subscriptions` by trusted owner/original-transaction mapping
@@ -136,6 +159,6 @@ Before production launch:
 - Confirm App Store Connect product IDs match the code and local StoreKit file.
 - Configure App Store Connect pricing to the current target: $7.99 monthly and $64.99 annual, unless launch pricing changes before release.
 - Replace or sync the local StoreKit configuration if App Store Connect product metadata becomes the source.
-- Complete Apple signed-payload verification and server-only App Store Server Notification handling before trusting Supabase subscription rows as production authority.
+- Configure and validate Apple signed-payload verification plus server-only App Store Server Notification handling before trusting Supabase subscription rows as production authority.
 - Have the verified server path write the subscription authority metadata in `subscriptions`; the iOS app remains select-only.
 - Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git.

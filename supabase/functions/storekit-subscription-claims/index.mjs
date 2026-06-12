@@ -1,3 +1,6 @@
 import { handleStoreKitSubscriptionClaimRequest } from "../_shared/app_store_subscription_authority.mjs";
+import { createAppStoreSignedDataVerifiers } from "../_shared/app_store_signed_data_verifier.mjs";
 
-Deno.serve((request) => handleStoreKitSubscriptionClaimRequest(request));
+const verifierDependencies = createAppStoreSignedDataVerifiers();
+
+Deno.serve((request) => handleStoreKitSubscriptionClaimRequest(request, verifierDependencies));

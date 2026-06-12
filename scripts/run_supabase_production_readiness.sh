@@ -79,7 +79,9 @@ echo
 echo "==> Scanning tracked and non-ignored files for key-shaped secrets"
 scan_for_secrets
 
-run node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs
+run node --test \
+  supabase/functions/_shared/app_store_subscription_authority.test.mjs \
+  supabase/functions/_shared/app_store_verifier_config.test.mjs
 
 run swift test \
   --scratch-path /tmp/SmartChartSwiftBuild-supabase-readiness-focused \

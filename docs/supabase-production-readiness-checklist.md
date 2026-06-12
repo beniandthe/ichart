@@ -47,11 +47,14 @@ Required production settings:
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
 - Verified transaction claims still need authenticated-user resolution and a server-only writer before they can persist owner/original-transaction mapping.
-- Before production deployment, Apple JWS verification must be wired for the outer `signedPayload` and nested `signedTransactionInfo` / `signedRenewalInfo` payloads.
+- Apple JWS verification is wired through Apple's `SignedDataVerifier`; missing or malformed verifier secrets must keep the functions in a fail-closed not-configured state.
+- Required verifier secrets are `APP_STORE_BUNDLE_ID`, `APP_STORE_ENVIRONMENT`, `APP_STORE_ROOT_CERTIFICATES_PEM`, and production-only `APP_STORE_APP_APPLE_ID`.
 - Server-only Supabase credentials and App Store Connect secrets must be set as Edge Function secrets, never committed and never bundled into the iOS app.
 - Local mapping coverage can run without Deno:
   ```sh
-  node --test supabase/functions/_shared/app_store_subscription_authority.test.mjs
+  node --test \
+    supabase/functions/_shared/app_store_subscription_authority.test.mjs \
+    supabase/functions/_shared/app_store_verifier_config.test.mjs
   ```
 
 ## Product Entitlement Configuration
