@@ -1,6 +1,6 @@
 begin;
 
-select plan(16);
+select plan(18);
 
 insert into auth.users (id, email)
 values
@@ -130,6 +130,16 @@ select is(
     'owner can read own subscription row created by trigger'
 );
 
+select is(
+    (
+        select provider || ':' || coalesce(app_store_status, 'none')
+        from public.subscriptions
+        where owner_id = '00000000-0000-0000-0000-000000000001'
+    ),
+    'none:none',
+    'owner can read server-owned subscription authority fields'
+);
+
 select lives_ok(
     $$
     update public.profiles
@@ -175,6 +185,20 @@ select throws_ok(
     '42501',
     null,
     'client cannot update subscription rows'
+);
+
+select throws_ok(
+    $$
+    update public.subscriptions
+    set provider = 'storekit',
+        storekit_product_id = 'com.smartchart.app.pro.monthly',
+        storekit_original_transaction_id = '1000000000000001',
+        app_store_status = 'active',
+        last_verified_at = now()
+    $$,
+    '42501',
+    null,
+    'client cannot update app store subscription authority fields'
 );
 
 select throws_ok(

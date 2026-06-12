@@ -122,6 +122,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - Anonymous reads/writes to owner-scoped tables are denied.
 - A signed-in user can read and write only their own `profiles`, `chart_documents`, `chart_snapshots`, and `devices` rows.
 - The app can read but not write subscription rows.
+- Subscription rows include server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata.
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
 - `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.

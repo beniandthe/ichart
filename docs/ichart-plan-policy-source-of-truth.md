@@ -177,7 +177,7 @@ Chart sync states should communicate the user's real situation:
 - First App Store product IDs are `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual`.
 - StoreKit purchase/restore state feeds `IChartSubscriptionEntitlement`; the rest of the app must continue reading capability from `AppEntitlements` rather than from StoreKit UI directly.
 - Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `SmartChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority.
-- Supabase subscription rows are read-only from the app.
+- Supabase subscription rows are read-only from the app and may mirror server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
 - Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
 

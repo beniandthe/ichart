@@ -446,6 +446,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(upgradeText.contains("until StoreKit is wired"))
         XCTAssertTrue(planPolicyText.contains("StoreKit owns Apple subscription purchase/restore."))
         XCTAssertTrue(planPolicyText.contains("StoreKit/iChartProSubscriptions.storekit"))
+        XCTAssertTrue(planPolicyText.contains("Supabase subscription rows are read-only from the app and may mirror server-owned provider"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.monthly"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.annual"))
         XCTAssertTrue(storeKitRunbookText.contains("$7.99/month"))
@@ -457,6 +458,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitRunbookText.contains("App Store Server Notifications"))
         XCTAssertTrue(storeKitRunbookText.contains("App Store Server API"))
         XCTAssertTrue(storeKitRunbookText.contains("Settings and the upgrade sheet expose Manage Subscription"))
+        XCTAssertTrue(storeKitRunbookText.contains("Have the server write the subscription authority metadata in `subscriptions`; the iOS app remains select-only."))
         XCTAssertTrue(storeKitRunbookText.contains("StoreKit is an entitlement source"))
         XCTAssertTrue(storeKitRunbookText.contains("Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git."))
     }
@@ -468,6 +470,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let migrationText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260609133000_initial_auth_profiles_and_charts.sql")
+        )
+        let appStoreSubscriptionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260612213658_harden_app_store_subscription_authority.sql")
         )
         let configText = try String(
             contentsOf: projectRoot
@@ -491,6 +497,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
         XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_environment text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_status text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_notification_type text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_last_transaction_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("entitlement_expires_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("grace_period_expires_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("last_verified_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("subscriptions_provider_check"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("subscriptions_storekit_original_transaction_id_idx"))
         XCTAssertFalse(migrationText.contains("chart_snapshots_update_own"))
         XCTAssertFalse(migrationText.contains("card_number"))
         XCTAssertTrue(configText.contains("max_frequency = \"1m\""))
@@ -553,6 +571,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessText.contains("Retry Sync"))
         XCTAssertTrue(productionReadinessText.contains("Restore/Reinstall Gate"))
         XCTAssertTrue(productionReadinessText.contains("Data And RLS Gate"))
+        XCTAssertTrue(productionReadinessText.contains("Subscription rows include server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata."))
         XCTAssertTrue(supabaseConfigText.contains("project_id = \"smart-chart\""))
         XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
         XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
@@ -561,6 +580,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(supabaseConfigText.contains("otp_length = 6"))
         XCTAssertTrue(rlsTestText.contains("owner can insert own chart document"))
         XCTAssertTrue(rlsTestText.contains("client cannot update subscription rows"))
+        XCTAssertTrue(rlsTestText.contains("owner can read server-owned subscription authority fields"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update app store subscription authority fields"))
         XCTAssertTrue(rlsTestText.contains("client cannot update stripe customer id on profile"))
         XCTAssertTrue(rlsTestText.contains("latest snapshot pointer cannot reference a missing snapshot"))
         XCTAssertTrue(integrationTestText.contains("SMART_CHART_SUPABASE_INTEGRATION"))

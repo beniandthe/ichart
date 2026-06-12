@@ -51,7 +51,7 @@ Production entitlement authority should not stop at the iOS client:
 - Add a server-owned subscription pipeline before trusting Supabase `subscriptions` rows as production authority.
 - Use App Store Server Notifications for real-time lifecycle changes such as renewals, failed renewals, refunds, grace/billing retry changes, and churn.
 - Use the App Store Server API from a server/Edge Function only; never bundle App Store Connect API keys, signing keys, webhook secrets, or service-role keys in the app.
-- Keep `subscriptions` read-only from the app and update it only from trusted server-side purchase verification/notification handling.
+- Keep `subscriptions` read-only from the app and update provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata only from trusted server-side purchase verification/notification handling.
 - Settings and the upgrade sheet expose Manage Subscription through Apple's system subscription management UI.
 
 Primary Apple references:
@@ -86,4 +86,5 @@ Before production launch:
 - Configure App Store Connect pricing to the current target: $7.99 monthly and $64.99 annual, unless launch pricing changes before release.
 - Replace or sync the local StoreKit configuration if App Store Connect product metadata becomes the source.
 - Add server-side receipt/subscription verification or App Store Server Notification handling before trusting Supabase subscription rows as production authority.
+- Have the server write the subscription authority metadata in `subscriptions`; the iOS app remains select-only.
 - Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git.
