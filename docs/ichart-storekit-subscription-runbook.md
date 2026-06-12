@@ -7,8 +7,8 @@ Created: 2026-06-12
 
 The first Pro subscription products are:
 
-- `com.smartchart.app.pro.monthly`
-- `com.smartchart.app.pro.annual`
+- `com.smartchart.app.pro.monthly`: $7.99/month
+- `com.smartchart.app.pro.annual`: $64.99/year
 
 These IDs must match:
 
@@ -27,7 +27,7 @@ Local simulator purchase testing uses:
 
 Run `xcodegen generate` after changing the StoreKit file or project spec. The generated `SmartChart` scheme should include a `StoreKitConfigurationFileReference` for `StoreKit/iChartProSubscriptions.storekit`.
 
-Local prices in the `.storekit` file are placeholders for simulator testing only. Final launch pricing lives in App Store Connect and should be documented separately before release.
+Local prices in the `.storekit` file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority. At $7.99 monthly and $64.99 annual, the annual plan is roughly 32% less than twelve monthly payments.
 
 Xcode's normal Run action reads the scheme StoreKit configuration and should exercise real local StoreKit purchase dialogs. Command-line/MCP simulator launches build and launch the app outside that Run action, so the Debug simulator app also bundles the `.storekit` file, reads it for product button metadata, and treats fallback button taps as a local Pro entitlement preview. That fallback is compile-gated to Debug simulator builds and is not a production entitlement source.
 
@@ -55,7 +55,7 @@ Before production launch:
 
 - Create monthly and annual auto-renewing subscription products in App Store Connect.
 - Confirm App Store Connect product IDs match the code and local StoreKit file.
-- Decide final monthly and annual pricing.
+- Configure App Store Connect pricing to the current target: $7.99 monthly and $64.99 annual, unless launch pricing changes before release.
 - Replace or sync the local StoreKit configuration if App Store Connect product metadata becomes the source.
 - Add server-side receipt/subscription verification or App Store Server Notification handling before trusting Supabase subscription rows as production authority.
 - Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git.

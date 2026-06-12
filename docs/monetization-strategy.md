@@ -102,7 +102,7 @@ For v1, keep the implementation honest and local-first:
 
 These values can be adjusted after early beta feedback:
 
-- Pro monthly and annual pricing
+- Pro monthly and annual pricing, currently targeted at $7.99/month and $64.99/year
 - remote-backup grace period length
 - whether unlimited local charts belongs only to active Pro or later gets a permanent local unlock
 - which future service-heavy Pro features join cloud chart services and Forums after launch

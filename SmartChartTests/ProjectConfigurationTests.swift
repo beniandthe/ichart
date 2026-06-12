@@ -395,6 +395,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(catalogText.contains("IChartStoreKitEntitlementResolver"))
         XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.smartchart.app.pro.monthly\""))
         XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.smartchart.app.pro.annual\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"7.99\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"64.99\""))
         XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1M\""))
         XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1Y\""))
         XCTAssertEqual(
@@ -431,6 +433,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(planPolicyText.contains("StoreKit/iChartProSubscriptions.storekit"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.monthly"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.annual"))
+        XCTAssertTrue(storeKitRunbookText.contains("$7.99/month"))
+        XCTAssertTrue(storeKitRunbookText.contains("$64.99/year"))
         XCTAssertTrue(storeKitRunbookText.contains("StoreKit/iChartProSubscriptions.storekit"))
         XCTAssertTrue(storeKitRunbookText.contains("StoreKit is an entitlement source"))
         XCTAssertTrue(storeKitRunbookText.contains("Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git."))

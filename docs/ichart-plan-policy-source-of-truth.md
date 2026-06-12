@@ -168,14 +168,15 @@ Chart sync states should communicate the user's real situation:
 ## 10. Subscription And Payment Policy
 
 - Pro should launch as monthly and annual auto-renewing subscriptions.
-- Annual should be positioned as the best value if pricing supports it.
+- Current target launch pricing is $7.99 monthly and $64.99 annual.
+- Annual should be positioned as the best value at roughly 32% savings against twelve monthly payments.
 - No raw card data is collected or stored by iChart.
 - Settings should not expose user-editable payment fields.
 - Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only.
 - StoreKit owns Apple subscription purchase/restore.
 - First App Store product IDs are `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual`.
 - StoreKit purchase/restore state feeds `IChartSubscriptionEntitlement`; the rest of the app must continue reading capability from `AppEntitlements` rather than from StoreKit UI directly.
-- Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `SmartChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file are placeholders for testing and are not launch pricing decisions.
+- Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `SmartChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority.
 - Supabase subscription rows are read-only from the app.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
 - Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
