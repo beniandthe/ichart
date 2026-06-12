@@ -14,7 +14,7 @@ struct SmartChartApp: App {
         _store = StateObject(wrappedValue: libraryStore)
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
         _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
-        _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live())
+        _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
@@ -37,10 +37,19 @@ struct SmartChartApp: App {
                     store.applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
                 }
+                .onChange(of: authStore.state) { _, state in
+                    cloudSyncStore.authStateChanged(state)
+                    Task {
+                        await subscriptionStore.refreshEntitlements()
+                        store.applySubscriptionState(subscriptionStore.entitlement)
+                    }
+                }
                 .onOpenURL { url in
                     Task {
                         await authStore.handleAuthCallback(url: url)
                         cloudSyncStore.authStateChanged(authStore.state)
+                        await subscriptionStore.refreshEntitlements()
+                        store.applySubscriptionState(subscriptionStore.entitlement)
                     }
                 }
         }

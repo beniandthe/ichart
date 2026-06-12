@@ -1,5 +1,6 @@
 import Foundation
 import StoreKit
+import Supabase
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -7,6 +8,7 @@ import UIKit
 enum IChartStoreKitSubscriptionState: Equatable {
     case idle
     case loading
+    case claiming
     case purchasing
     case restoring
     case managing
@@ -16,7 +18,7 @@ enum IChartStoreKitSubscriptionState: Equatable {
 
     var isWorking: Bool {
         switch self {
-        case .loading, .purchasing, .restoring, .managing:
+        case .loading, .claiming, .purchasing, .restoring, .managing:
             return true
         case .idle, .ready, .localPreviewActive, .unavailable:
             return false
@@ -29,6 +31,8 @@ enum IChartStoreKitSubscriptionState: Equatable {
             return "Subscription check ready."
         case .loading:
             return "Checking subscription..."
+        case .claiming:
+            return "Verifying subscription with iChart..."
         case .purchasing:
             return "Opening purchase..."
         case .restoring:
@@ -53,23 +57,27 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     @Published private(set) var state: IChartStoreKitSubscriptionState = .idle
 
     private let productIDs: [String]
+    private let subscriptionClaimService: IChartStoreKitSubscriptionClaiming?
     private var productsByID: [String: Product] = [:]
     private var transactionUpdatesTask: Task<Void, Never>?
 
-    init(
+    private init(
         productIDs: [String] = IChartStoreKitProductCatalog.proProductIDs,
-        entitlement: IChartSubscriptionEntitlement = .basic
+        entitlement: IChartSubscriptionEntitlement = .basic,
+        subscriptionClaimService: IChartStoreKitSubscriptionClaiming? = nil
     ) {
         self.productIDs = productIDs
         self.entitlement = entitlement
+        self.subscriptionClaimService = subscriptionClaimService
     }
 
     deinit {
         transactionUpdatesTask?.cancel()
     }
 
-    static func live() -> IChartStoreKitSubscriptionStore {
-        IChartStoreKitSubscriptionStore()
+    static func live(clients: IChartSupabaseClients? = nil) -> IChartStoreKitSubscriptionStore {
+        let claimService = clients.map { IChartSupabaseStoreKitSubscriptionClaimService(client: $0.dataClient) }
+        return IChartStoreKitSubscriptionStore(subscriptionClaimService: claimService)
     }
 
     func bootstrap() async {
@@ -85,10 +93,65 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func refreshEntitlements() async {
+        await refreshEntitlements(preferredSignedTransactionInfo: nil)
+    }
+
+    private func refreshEntitlements(preferredSignedTransactionInfo: String?) async {
         state = .loading
+        let localEvaluation = await evaluateLocalStoreKitEntitlements(
+            preferredSignedTransactionInfo: preferredSignedTransactionInfo
+        )
+
+        if let subscriptionClaimService {
+            if let signedTransactionInfo = localEvaluation.signedTransactionInfo {
+                state = .claiming
+
+                do {
+                    if let claimedEntitlement = try await subscriptionClaimService.claim(
+                        signedTransactionInfo: signedTransactionInfo
+                    ) {
+                        entitlement = claimedEntitlement
+                        state = .ready
+                        return
+                    }
+                } catch {
+                    applyClaimFailureFallback(localEvaluation.entitlement)
+                    return
+                }
+            }
+
+            do {
+                if let remoteEntitlement = try await subscriptionClaimService.loadRemoteSubscriptionEntitlement(
+                    now: Date()
+                ) {
+                    entitlement = remoteEntitlement
+                    state = .ready
+                    return
+                }
+            } catch {
+                if localEvaluation.entitlement.status != .proActive {
+                    entitlement = localEvaluation.entitlement
+                    state = .ready
+                    return
+                }
+
+                applyClaimFailureFallback(localEvaluation.entitlement)
+                return
+            }
+        }
+
+        entitlement = localEvaluation.entitlement
+        state = localEvaluation.state
+    }
+
+    private func evaluateLocalStoreKitEntitlements(
+        preferredSignedTransactionInfo: String?
+    ) async -> StoreKitEntitlementEvaluation {
+        let now = Date()
 
         var activeProExpiration: Date?
         var sawExpiredProTransaction = false
+        var latestSignedTransactionInfo = preferredSignedTransactionInfo
 
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,
@@ -104,21 +167,27 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             if let expirationDate = transaction.expirationDate {
                 if expirationDate > Date() {
                     activeProExpiration = max(activeProExpiration ?? expirationDate, expirationDate)
+                    latestSignedTransactionInfo = result.jwsRepresentation
                 } else {
                     sawExpiredProTransaction = true
                 }
             } else {
                 activeProExpiration = .distantFuture
+                latestSignedTransactionInfo = result.jwsRepresentation
             }
         }
 
-        entitlement = IChartStoreKitEntitlementResolver.entitlement(
+        let entitlement = IChartStoreKitEntitlementResolver.entitlement(
             hasActiveProSubscription: activeProExpiration != nil,
             sawExpiredProTransaction: sawExpiredProTransaction,
-            verifiedAt: Date()
+            verifiedAt: now
         )
 
-        state = .ready
+        return StoreKitEntitlementEvaluation(
+            entitlement: entitlement,
+            signedTransactionInfo: activeProExpiration == nil ? nil : latestSignedTransactionInfo,
+            state: .ready
+        )
     }
 
     func purchase(_ product: Product) async {
@@ -135,8 +204,9 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     return
                 }
 
+                let signedTransactionInfo = verification.jwsRepresentation
                 await transaction.finish()
-                await refreshEntitlements()
+                await refreshEntitlements(preferredSignedTransactionInfo: signedTransactionInfo)
             case .pending:
                 state = .unavailable("Purchase is pending approval.")
             case .userCancelled:
@@ -171,7 +241,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
         do {
             try await AppStore.sync()
-            await refreshEntitlements()
+            await refreshEntitlements(preferredSignedTransactionInfo: nil)
         } catch {
             entitlement = .unavailable
             state = .unavailable("Restore failed. Try again when you are online.")
@@ -191,7 +261,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
         do {
             try await AppStore.showManageSubscriptions(in: scene)
-            await refreshEntitlements()
+            await refreshEntitlements(preferredSignedTransactionInfo: nil)
         } catch {
             state = .unavailable("Could not open subscription management.")
         }
@@ -292,16 +362,87 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 }
 
                 if IChartStoreKitProductCatalog.isProProductID(transaction.productID) {
+                    let signedTransactionInfo = result.jwsRepresentation
                     await transaction.finish()
-                    await self?.refreshEntitlements()
+                    await self?.refreshEntitlements(preferredSignedTransactionInfo: signedTransactionInfo)
                 }
             }
         }
     }
 
+    private func applyClaimFailureFallback(_ localEntitlement: IChartSubscriptionEntitlement) {
+        #if DEBUG && targetEnvironment(simulator)
+        entitlement = localEntitlement
+        state = localEntitlement.status == .proActive
+            ? .localPreviewActive
+            : .unavailable("Subscription server verification is unavailable. Using local simulator entitlement.")
+        #else
+        entitlement = .unavailable
+        state = .unavailable("Subscription could not be verified with iChart. Try again when you are online.")
+        #endif
+    }
+
     private func markTransactionVerificationUnavailable() {
         entitlement = .unavailable
         state = .unavailable("Subscription transaction could not be verified.")
+    }
+}
+
+private struct StoreKitEntitlementEvaluation {
+    let entitlement: IChartSubscriptionEntitlement
+    let signedTransactionInfo: String?
+    let state: IChartStoreKitSubscriptionState
+}
+
+private protocol IChartStoreKitSubscriptionClaiming: Sendable {
+    func claim(signedTransactionInfo: String) async throws -> IChartSubscriptionEntitlement?
+    func loadRemoteSubscriptionEntitlement(now: Date) async throws -> IChartSubscriptionEntitlement?
+}
+
+private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSubscriptionClaiming {
+    let client: SupabaseClient
+
+    func claim(signedTransactionInfo: String) async throws -> IChartSubscriptionEntitlement? {
+        let response: StoreKitSubscriptionClaimResponse = try await client.functions.invoke(
+            "storekit-subscription-claims",
+            options: FunctionInvokeOptions(
+                method: .post,
+                body: StoreKitSubscriptionClaimRequest(signedTransactionInfo: signedTransactionInfo)
+            )
+        )
+
+        return response.subscription?.entitlement()
+    }
+
+    func loadRemoteSubscriptionEntitlement(now: Date) async throws -> IChartSubscriptionEntitlement? {
+        let rows: [IChartRemoteSubscriptionRecord] = try await client
+            .from("subscriptions")
+            .select()
+            .limit(1)
+            .execute()
+            .value
+
+        return rows.first?.entitlement(now: now)
+    }
+}
+
+private struct StoreKitSubscriptionClaimRequest: Encodable {
+    let signedTransactionInfo: String
+}
+
+private struct StoreKitSubscriptionClaimResponse: Decodable {
+    let accepted: Bool
+    let appStoreStatus: String?
+    let stored: Bool?
+    let mappingStatus: String?
+    let subscription: IChartRemoteSubscriptionRecord?
+
+    private enum CodingKeys: String, CodingKey {
+        case accepted
+        case appStoreStatus = "app_store_status"
+        case stored
+        case mappingStatus = "mapping_status"
+        case subscription
     }
 }
 

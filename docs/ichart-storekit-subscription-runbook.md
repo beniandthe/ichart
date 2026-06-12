@@ -63,21 +63,25 @@ Primary Apple references:
 
 ## App Store Server Notification Function
 
-The first server-side subscription endpoint is scaffolded at:
+The server-side subscription authority path is wired at:
 
 - `supabase/functions/app-store-server-notifications/index.mjs`
 - `supabase/functions/storekit-subscription-claims/index.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.mjs`
 - `supabase/functions/_shared/app_store_subscription_authority.test.mjs`
 - `supabase/functions/_shared/app_store_signed_data_verifier.mjs`
+- `supabase/functions/_shared/supabase_subscription_authority_store.mjs`
+- `supabase/functions/_shared/supabase_subscription_authority_store.test.mjs`
 - `supabase/functions/_shared/app_store_verifier_config.mjs`
 - `supabase/functions/_shared/app_store_verifier_config.test.mjs`
 
 `supabase/config.toml` sets `[functions.app-store-server-notifications]` with `verify_jwt = false` because Apple webhook delivery will not include a Supabase user JWT. That makes Apple signed-payload verification mandatory before any database write.
 
-`supabase/config.toml` also sets `[functions.storekit-subscription-claims]` with `verify_jwt = true` because this endpoint is for signed-in iChart users after purchase/restore. It is the future path that lets the app send a StoreKit signed transaction to the server so the server can map Apple `originalTransactionId` to the current account before later App Store Server Notifications arrive.
+`supabase/config.toml` also sets `[functions.storekit-subscription-claims]` with `verify_jwt = true` because this endpoint is for signed-in iChart users after purchase/restore. The authenticated claim endpoint creates the trusted account-to-original-transaction mapping before later App Store Server Notifications arrive.
 
 Both Edge Function entrypoints create verifier dependencies through Apple's official `@apple/app-store-server-library` `SignedDataVerifier`. The dependency factory reads only Edge Function environment secrets and returns no verifier functions when required Apple configuration is missing or malformed, so both endpoints fail closed with the existing not-configured responses.
+
+Both entrypoints also create the Supabase subscription authority store from Edge-only secrets. The writer uses `SUPABASE_SECRET_KEYS` when available, or the legacy Supabase service-role secret name as a fallback, and never runs inside the iOS app. The iOS app reads `subscriptions`; it does not write them directly.
 
 Required Edge Function verifier secrets:
 
@@ -106,16 +110,19 @@ Current behavior is intentionally locked:
 - transaction claims require a signed-in account bearer token
 - transaction claims require `signedTransactionInfo`
 - transaction claims reject non-Pro products and missing original transaction identity
-- transaction claims return a not-configured response until StoreKit transaction verification, authenticated-user resolution, and server-only writes are wired
-- no service-role/admin Supabase writer is instantiated
+- transaction claims resolve the signed-in Supabase user before writing owner mapping
+- transaction claims upsert `subscriptions` by `owner_id` after Apple verification succeeds
+- verified notifications update only previously claimed `storekit_original_transaction_id` rows
+- unmapped notifications are accepted without assigning ownership
 - no subscription row is mutated from unverified input
 
-The shared authority reducer is testable with Node so the mapping rules can be verified before Deno is installed locally:
+The shared authority reducer and Supabase writer are testable with Node so the mapping rules can be verified before Deno is installed locally:
 
 ```sh
 node --test \
   supabase/functions/_shared/app_store_subscription_authority.test.mjs \
-  supabase/functions/_shared/app_store_verifier_config.test.mjs
+  supabase/functions/_shared/app_store_verifier_config.test.mjs \
+  supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
 ```
 
 Before this endpoint becomes production authority:
@@ -123,9 +130,6 @@ Before this endpoint becomes production authority:
 - configure Apple verifier Edge Function secrets for the target environment
 - deploy both functions after secrets are configured and smoke-test missing/invalid signed payload behavior
 - map only `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual` to active Pro
-- add authenticated user resolution for `storekit-subscription-claims`
-- add the server-only Supabase writer that updates `subscriptions` by trusted owner/original-transaction mapping
-- have the iOS StoreKit store call the authenticated claim function after successful purchase/restore
 - store service-role/admin keys, App Store Connect API keys, webhook secrets, and Apple signing material only as Supabase Edge Function secrets
 - deploy with the linked project after verification is complete:
   ```sh

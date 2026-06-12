@@ -43,10 +43,11 @@ Required production settings:
 - StoreKit transaction claims are received by `storekit-subscription-claims`.
 - `supabase/config.toml` sets `verify_jwt = true` for the claim function because it is invoked by signed-in app users.
 - The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, and missing original transaction identity.
-- The committed scaffold does not instantiate a service-role/admin database writer and does not mutate `subscriptions` from raw webhook JSON.
+- The server-only subscription writer reads Edge Function secrets and never runs in the iOS app.
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
-- Verified transaction claims still need authenticated-user resolution and a server-only writer before they can persist owner/original-transaction mapping.
+- Verified webhook events update only existing original-transaction mappings; unmapped notifications are accepted without assigning account ownership.
+- Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping.
 - Apple JWS verification is wired through Apple's `SignedDataVerifier`; missing or malformed verifier secrets must keep the functions in a fail-closed not-configured state.
 - Required verifier secrets are `APP_STORE_BUNDLE_ID`, `APP_STORE_ENVIRONMENT`, `APP_STORE_ROOT_CERTIFICATES_PEM`, and production-only `APP_STORE_APP_APPLE_ID`.
 - Server-only Supabase credentials and App Store Connect secrets must be set as Edge Function secrets, never committed and never bundled into the iOS app.
@@ -54,7 +55,8 @@ Required production settings:
   ```sh
   node --test \
     supabase/functions/_shared/app_store_subscription_authority.test.mjs \
-    supabase/functions/_shared/app_store_verifier_config.test.mjs
+    supabase/functions/_shared/app_store_verifier_config.test.mjs \
+    supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
   ```
 
 ## Product Entitlement Configuration

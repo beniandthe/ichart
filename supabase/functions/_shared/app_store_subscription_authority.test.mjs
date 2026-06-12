@@ -287,6 +287,14 @@ test("webhook writes only after verification dependencies succeed", async () => 
       }),
       writeSubscriptionAuthority: async (update) => {
         writtenUpdate = update;
+        return {
+          stored: true,
+          mapping_status: "updated",
+          subscription: {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            provider: "storekit",
+          },
+        };
       },
     }
   );
@@ -294,8 +302,47 @@ test("webhook writes only after verification dependencies succeed", async () => 
 
   assert.equal(response.status, 202);
   assert.equal(body.accepted, true);
+  assert.equal(body.stored, true);
+  assert.equal(body.mapping_status, "updated");
+  assert.equal(body.subscription.provider, "storekit");
   assert.equal(writtenUpdate.provider, "storekit");
   assert.equal(writtenUpdate.plan, "studioSubscription");
+});
+
+test("webhook accepts verified unmapped transactions without inventing ownership", async () => {
+  const response = await handleAppStoreServerNotificationRequest(
+    new Request(
+      "https://example.test/functions/v1/app-store-server-notifications",
+      {
+        method: "POST",
+        body: JSON.stringify({ signedPayload: "opaque-apple-signed-payload" }),
+      }
+    ),
+    {
+      now,
+      verifyAndDecodeNotification: async () => ({
+        notificationType: "DID_RENEW",
+        environment: "Sandbox",
+        transactionInfo: {
+          productId: iChartProProductIDs[0],
+          originalTransactionId: "1000000000000999",
+          transactionId: "1000000000001000",
+          expiresDate: futureExpiration,
+        },
+      }),
+      writeSubscriptionAuthority: async () => ({
+        stored: false,
+        mapping_status: "unmapped_original_transaction",
+      }),
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 202);
+  assert.equal(body.accepted, true);
+  assert.equal(body.stored, false);
+  assert.equal(body.mapping_status, "unmapped_original_transaction");
+  assert.equal(body.subscription, null);
 });
 
 test("transaction claim requires signed-in account bearer header", async () => {
@@ -470,6 +517,16 @@ test("transaction claim writes only after user and transaction are verified", as
       }),
       writeSubscriptionAuthorityClaim: async (claim) => {
         writtenClaim = claim;
+        return {
+          stored: true,
+          mapping_status: "claimed",
+          subscription: {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            provider: "storekit",
+            plan: "studioSubscription",
+            status: "active",
+          },
+        };
       },
     }
   );
@@ -477,6 +534,9 @@ test("transaction claim writes only after user and transaction are verified", as
 
   assert.equal(response.status, 202);
   assert.equal(body.accepted, true);
+  assert.equal(body.stored, true);
+  assert.equal(body.mapping_status, "claimed");
+  assert.equal(body.subscription.plan, "studioSubscription");
   assert.equal(writtenClaim.ownerID, "00000000-0000-4000-8000-000000000001");
   assert.equal(writtenClaim.authorityUpdate.plan, "studioSubscription");
 });

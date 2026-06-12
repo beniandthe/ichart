@@ -320,11 +320,14 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     });
   }
 
-  await dependencies.writeSubscriptionAuthority(authorityUpdate);
+  const writeResult = await dependencies.writeSubscriptionAuthority(authorityUpdate);
 
   return jsonResponse(202, {
     accepted: true,
     app_store_status: authorityUpdate.app_store_status,
+    stored: writeResult?.stored ?? true,
+    mapping_status: writeResult?.mapping_status ?? "updated",
+    subscription: writeResult?.subscription ?? null,
   });
 }
 
@@ -421,7 +424,7 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
     });
   }
 
-  await dependencies.writeSubscriptionAuthorityClaim({
+  const claimResult = await dependencies.writeSubscriptionAuthorityClaim({
     ownerID: ownerID.trim(),
     authorityUpdate,
   });
@@ -429,6 +432,9 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
   return jsonResponse(202, {
     accepted: true,
     app_store_status: authorityUpdate.app_store_status,
+    stored: claimResult?.stored ?? true,
+    mapping_status: claimResult?.mapping_status ?? "claimed",
+    subscription: claimResult?.subscription ?? null,
   });
 }
 

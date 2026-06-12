@@ -422,9 +422,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitText.contains("AppStore.showManageSubscriptions(in: scene)"))
         XCTAssertTrue(storeKitText.contains("Opening subscription management..."))
         XCTAssertTrue(storeKitText.contains("IChartStoreKitEntitlementResolver.entitlement"))
+        XCTAssertTrue(storeKitText.contains("FunctionInvokeOptions"))
+        XCTAssertTrue(storeKitText.contains("jwsRepresentation"))
+        XCTAssertTrue(storeKitText.contains("\"storekit-subscription-claims\""))
+        XCTAssertTrue(storeKitText.contains("loadRemoteSubscriptionEntitlement"))
         XCTAssertTrue(appText.contains("@StateObject private var subscriptionStore"))
-        XCTAssertTrue(appText.contains("IChartStoreKitSubscriptionStore.live()"))
+        XCTAssertTrue(appText.contains("IChartStoreKitSubscriptionStore.live(clients: supabaseClients)"))
         XCTAssertTrue(appText.contains("await subscriptionStore.bootstrap()"))
+        XCTAssertTrue(appText.contains("await subscriptionStore.refreshEntitlements()"))
         XCTAssertTrue(appText.contains("store.applySubscriptionState(subscriptionStore.entitlement)"))
         XCTAssertTrue(appText.contains(".environmentObject(subscriptionStore)"))
         XCTAssertTrue(libraryText.contains("@EnvironmentObject private var subscriptionStore"))
@@ -446,7 +451,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(upgradeText.contains("until StoreKit is wired"))
         XCTAssertTrue(planPolicyText.contains("StoreKit owns Apple subscription purchase/restore."))
         XCTAssertTrue(planPolicyText.contains("StoreKit/iChartProSubscriptions.storekit"))
-        XCTAssertTrue(planPolicyText.contains("Supabase subscription rows are read-only from the app and may mirror server-owned provider"))
+        XCTAssertTrue(planPolicyText.contains("Supabase subscription rows are read-only from the app and are updated only by trusted server-side purchase verification"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.monthly"))
         XCTAssertTrue(storeKitRunbookText.contains("com.smartchart.app.pro.annual"))
         XCTAssertTrue(storeKitRunbookText.contains("$7.99/month"))
@@ -463,7 +468,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitRunbookText.contains("Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git."))
     }
 
-    func testAppStoreServerNotificationFunctionIsLockedUntilVerificationIsWired() throws {
+    func testAppStoreServerNotificationFunctionIsLockedBehindVerificationAndServerWrites() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -483,9 +488,17 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.mjs")
         )
+        let authorityStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/supabase_subscription_authority_store.mjs")
+        )
         let authorityTestText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.test.mjs")
+        )
+        let authorityStoreTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/supabase_subscription_authority_store.test.mjs")
         )
         let signedVerifierText = try String(
             contentsOf: projectRoot
@@ -524,6 +537,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(claimFunctionText.contains("handleStoreKitSubscriptionClaimRequest"))
         XCTAssertTrue(functionText.contains("createAppStoreSignedDataVerifiers"))
         XCTAssertTrue(claimFunctionText.contains("createAppStoreSignedDataVerifiers"))
+        XCTAssertTrue(functionText.contains("createSupabaseSubscriptionAuthorityDependencies"))
+        XCTAssertTrue(claimFunctionText.contains("createSupabaseSubscriptionAuthorityDependencies"))
         XCTAssertFalse(functionText.contains("Hello from Functions"))
         XCTAssertFalse(functionText.contains("withSupabase"))
         XCTAssertFalse(claimFunctionText.contains("withSupabase"))
@@ -538,12 +553,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authorityText.contains("writeSubscriptionAuthorityClaim"))
         XCTAssertTrue(authorityText.contains("Verified StoreKit transaction is not an iChart Pro subscription."))
         XCTAssertTrue(authorityText.contains("Authenticated user resolver is not configured."))
+        XCTAssertTrue(authorityText.contains("mapping_status"))
+        XCTAssertTrue(authorityStoreText.contains("SUPABASE_SECRET_KEYS"))
+        XCTAssertTrue(authorityStoreText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertTrue(authorityStoreText.contains("authenticatedUserIDFromBearer"))
+        XCTAssertTrue(authorityStoreText.contains("on_conflict"))
+        XCTAssertTrue(authorityStoreText.contains("storekit_original_transaction_id"))
+        XCTAssertTrue(authorityStoreText.contains("unmapped_original_transaction"))
         XCTAssertTrue(authorityTestText.contains("webhook refuses to process signedPayload without verifier"))
         XCTAssertTrue(authorityTestText.contains("webhook refuses nested signed payloads until nested verifiers are configured"))
         XCTAssertTrue(authorityTestText.contains("webhook refuses verified payloads without subscription identity fields"))
         XCTAssertTrue(authorityTestText.contains("transaction claim refuses to process without verifier"))
         XCTAssertTrue(authorityTestText.contains("transaction claim writes only after user and transaction are verified"))
+        XCTAssertTrue(authorityTestText.contains("webhook accepts verified unmapped transactions without inventing ownership"))
         XCTAssertTrue(authorityTestText.contains("unknown products never unlock pro"))
+        XCTAssertTrue(authorityStoreTestText.contains("claim writer upserts subscription authority by owner"))
+        XCTAssertTrue(authorityStoreTestText.contains("notification writer patches only previously claimed original transactions"))
+        XCTAssertTrue(authorityStoreTestText.contains("authenticated user resolver validates bearer token"))
         XCTAssertTrue(signedVerifierText.contains("@apple/app-store-server-library@3.1.0"))
         XCTAssertTrue(signedVerifierText.contains("SignedDataVerifier"))
         XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeNotification"))
@@ -558,21 +584,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/app-store-server-notifications/index.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/storekit-subscription-claims/index.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_signed_data_verifier.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/supabase_subscription_authority_store.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
         XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_APP_APPLE_ID"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/supabase_subscription_authority_store.test.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("Apple's official `@apple/app-store-server-library` `SignedDataVerifier`"))
         XCTAssertTrue(storeKitRunbookText.contains("invalid Apple signatures are rejected before mapping or writing"))
+        XCTAssertTrue(storeKitRunbookText.contains("The authenticated claim endpoint creates the trusted account-to-original-transaction mapping"))
+        XCTAssertTrue(storeKitRunbookText.contains("unmapped notifications are accepted without assigning ownership"))
         XCTAssertTrue(productionReadinessText.contains("App Store Server Notifications are received by `app-store-server-notifications`."))
         XCTAssertTrue(productionReadinessText.contains("StoreKit transaction claims are received by `storekit-subscription-claims`."))
-        XCTAssertTrue(productionReadinessText.contains("The committed scaffold does not instantiate a service-role/admin database writer"))
+        XCTAssertTrue(productionReadinessText.contains("The server-only subscription writer reads Edge Function secrets and never runs in the iOS app."))
         XCTAssertTrue(productionReadinessText.contains("Nested App Store transaction/renewal payloads must also be verified"))
-        XCTAssertTrue(productionReadinessText.contains("Verified transaction claims still need authenticated-user resolution"))
+        XCTAssertTrue(productionReadinessText.contains("Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping."))
         XCTAssertTrue(productionReadinessText.contains("Apple JWS verification is wired through Apple's `SignedDataVerifier`"))
         XCTAssertTrue(productionReadinessText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
-        XCTAssertTrue(planPolicyText.contains("uses Apple's signed-data verifier when Edge secrets are configured"))
-        XCTAssertTrue(planPolicyText.contains("StoreKit transaction claiming is a separate authenticated Edge Function scaffold"))
+        XCTAssertTrue(planPolicyText.contains("uses Apple's signed-data verifier and an Edge-only Supabase writer when secrets are configured"))
+        XCTAssertTrue(planPolicyText.contains("StoreKit transaction claiming is the authenticated path that maps an Apple original transaction to an iChart account"))
     }
 
     func testSupabaseMigrationCreatesProtectedAccountAndChartTables() throws {
