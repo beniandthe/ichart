@@ -31,6 +31,7 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
     case sharedBandLibraries
     case setlistsAndVersionHistory
     case aiRecognitionCleanup
+    case projects
 
     var displayText: String {
         switch self {
@@ -58,6 +59,8 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
             return "Setlists and Version History"
         case .aiRecognitionCleanup:
             return "AI-Assisted Cleanup"
+        case .projects:
+            return "Projects"
         }
     }
 
@@ -75,6 +78,8 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
             return "Rhythm-aware editing is included in Basic because rhythm charts are a core iChart format."
         case .unlimitedLocalCharts:
             return "Unlimited local chart capacity is part of the Pro account experience."
+        case .projects:
+            return "Projects are reserved for active Pro so one song can hold multiple section charts, keys, and variants together."
         case .syncedChartOrganization,
              .cloudBackup,
              .forums,
@@ -146,7 +151,8 @@ struct AppEntitlements: Codable, Hashable {
                  .forums,
                  .sharedBandLibraries,
                  .setlistsAndVersionHistory,
-                 .aiRecognitionCleanup:
+                 .aiRecognitionCleanup,
+                 .projects:
                 return false
             }
         case .proLifetime:
@@ -163,7 +169,8 @@ struct AppEntitlements: Codable, Hashable {
                  .forums,
                  .sharedBandLibraries,
                  .setlistsAndVersionHistory,
-                 .aiRecognitionCleanup:
+                 .aiRecognitionCleanup,
+                 .projects:
                 return false
             }
         case .studioSubscription:

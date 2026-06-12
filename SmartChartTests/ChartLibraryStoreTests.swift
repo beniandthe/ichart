@@ -109,6 +109,71 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertFalse(store.canUse(.forums))
     }
 
+    func testProjectsRequireActiveProSubscription() {
+        let store = ChartLibraryStore(charts: ChartSamples.previewCharts, entitlements: .free)
+
+        XCTAssertNil(store.createProject(title: "Song Folder"))
+
+        store.applySubscriptionState(.activePro(verifiedAt: Date(timeIntervalSinceReferenceDate: 42)))
+        let projectID = store.createProject(title: "Song Folder")
+
+        XCTAssertNotNil(projectID)
+        XCTAssertEqual(store.projects.first?.title, "Song Folder")
+    }
+
+    func testProjectCanAddExistingChartAndCreateNewChartInsideProject() throws {
+        let sourceChart = Chart.blank(title: "Song", key: .cMajor)
+        let store = ChartLibraryStore(
+            charts: [sourceChart],
+            entitlements: AppEntitlements(subscription: .activePro())
+        )
+        let projectID = try XCTUnwrap(store.createProject(title: "Song"))
+
+        XCTAssertTrue(store.addChartToProject(chartID: sourceChart.id, projectID: projectID))
+        XCTAssertTrue(store.createBlankChart(in: .bFlatMajor, layoutStyle: .rhythmSectionSheet, projectID: projectID))
+
+        let project = try XCTUnwrap(store.projects.first)
+        XCTAssertEqual(project.chartIDs.count, 2)
+        XCTAssertTrue(project.chartIDs.contains(sourceChart.id))
+        XCTAssertEqual(store.charts(in: project).first?.documentKey, .bFlatMajor)
+    }
+
+    func testProjectDuplicateVariantCanChangeTitleAndKey() throws {
+        let sourceChart = Chart.blank(title: "Song Rhythm", key: .cMajor)
+        let store = ChartLibraryStore(
+            charts: [sourceChart],
+            entitlements: AppEntitlements(subscription: .activePro())
+        )
+        let projectID = try XCTUnwrap(store.createProject(title: "Song", chartIDs: [sourceChart.id]))
+
+        let duplicateID = try XCTUnwrap(
+            store.duplicateChart(
+                id: sourceChart.id,
+                title: "Song Horns",
+                documentKey: .eFlatMajor,
+                projectID: projectID
+            )
+        )
+
+        let duplicate = try XCTUnwrap(store.charts.first { $0.id == duplicateID })
+        XCTAssertEqual(duplicate.title, "Song Horns")
+        XCTAssertEqual(duplicate.documentKey, .eFlatMajor)
+        XCTAssertEqual(store.projects.first?.chartIDs, [sourceChart.id, duplicateID])
+    }
+
+    func testDeletingChartRemovesItFromProjects() throws {
+        let sourceChart = Chart.blank(title: "Song", key: .cMajor)
+        let store = ChartLibraryStore(
+            charts: [sourceChart],
+            entitlements: AppEntitlements(subscription: .activePro())
+        )
+        let projectID = try XCTUnwrap(store.createProject(title: "Song", chartIDs: [sourceChart.id]))
+
+        XCTAssertTrue(store.deleteChart(id: sourceChart.id))
+
+        XCTAssertEqual(store.projects.first { $0.id == projectID }?.chartIDs, [])
+    }
+
     func testCreateBlankChartPersistsUpdatedSnapshot() {
         let repository = RecordingChartRepository()
         let store = ChartLibraryStore(
@@ -671,6 +736,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(decoded.cloudMetadata.ownerID)
         XCTAssertNil(decoded.cloudMetadata.lastSyncAt)
         XCTAssertNil(decoded.cloudMetadata.lastRemoteBackupAt)
+        XCTAssertTrue(decoded.projects.isEmpty)
     }
 
     func testUniversalRhythmGuideSupportsExpectedReferenceSymbols() {

@@ -16,6 +16,7 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(entitlements.includes(.advancedRhythmEditing))
         XCTAssertFalse(entitlements.includes(.cloudBackup))
         XCTAssertFalse(entitlements.includes(.forums))
+        XCTAssertFalse(entitlements.includes(.projects))
     }
 
     func testLegacyLocalProUnlocksLocalAuthoringFeatures() {
@@ -28,6 +29,7 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(entitlements.includes(.advancedRhythmEditing))
         XCTAssertFalse(entitlements.includes(.cloudBackup))
         XCTAssertFalse(entitlements.includes(.forums))
+        XCTAssertFalse(entitlements.includes(.projects))
     }
 
     func testLegacyCloudEntitlementAddsServiceBackedFeaturesOnTopOfLocalPro() {
@@ -37,6 +39,7 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(entitlements.includes(.syncedChartOrganization))
         XCTAssertTrue(entitlements.includes(.cloudBackup))
         XCTAssertTrue(entitlements.includes(.forums))
+        XCTAssertTrue(entitlements.includes(.projects))
         XCTAssertTrue(entitlements.includes(.sharedBandLibraries))
         XCTAssertTrue(entitlements.includes(.setlistsAndVersionHistory))
         XCTAssertTrue(entitlements.includes(.aiRecognitionCleanup))
@@ -50,6 +53,7 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(entitlements.includes(.cloudBackup))
         XCTAssertTrue(entitlements.includes(.forums))
         XCTAssertTrue(entitlements.includes(.unlimitedLocalCharts))
+        XCTAssertTrue(entitlements.includes(.projects))
     }
 
     func testInactiveSubscriptionStatesUseBasicLocalLimits() {
@@ -70,6 +74,7 @@ final class AppEntitlementsTests: XCTestCase {
             XCTAssertFalse(entitlements.includes(.cloudBackup))
             XCTAssertFalse(entitlements.includes(.forums))
             XCTAssertFalse(entitlements.includes(.unlimitedLocalCharts))
+            XCTAssertFalse(entitlements.includes(.projects))
         }
     }
 

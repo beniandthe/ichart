@@ -249,6 +249,22 @@ private enum IChartChartPreviewMode: String, CaseIterable, Identifiable {
     }
 }
 
+private enum IChartChartsWorkspaceMode: String, CaseIterable, Identifiable {
+    case charts
+    case projects
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .charts:
+            return "Charts"
+        case .projects:
+            return "Projects"
+        }
+    }
+}
+
 struct LibraryView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var authStore: IChartAuthStore
@@ -257,6 +273,8 @@ struct LibraryView: View {
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
     @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
+    @AppStorage("iChartChartsWorkspaceMode") private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+    @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
     @AppStorage("iChartUserEmail") private var userEmail = ""
     @AppStorage("iChartUserPhone") private var userPhone = ""
     @AppStorage("iChartUserAddress") private var userAddress = ""
@@ -265,8 +283,14 @@ struct LibraryView: View {
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
     @State private var showingLayoutPicker = false
+    @State private var pendingProjectForNewChart: ChartProject.ID?
+    @State private var showingAccountLanding = false
+    @State private var showingCreateProject = false
     @State private var renameRequest: ChartRenameRequest?
     @State private var deleteRequest: ChartDeleteRequest?
+    @State private var renameProjectRequest: ChartProjectRenameRequest?
+    @State private var addChartsRequest: ChartProjectAddChartsRequest?
+    @State private var duplicateVariantRequest: ChartProjectDuplicateVariantRequest?
 
     private var chartCountText: String {
         let count = store.charts.count
@@ -296,6 +320,17 @@ struct LibraryView: View {
         Binding(
             get: { chartPreviewMode },
             set: { chartPreviewModeRawValue = $0.rawValue }
+        )
+    }
+
+    private var chartsWorkspaceMode: IChartChartsWorkspaceMode {
+        IChartChartsWorkspaceMode(rawValue: chartsWorkspaceModeRawValue) ?? .charts
+    }
+
+    private var chartsWorkspaceModeBinding: Binding<IChartChartsWorkspaceMode> {
+        Binding(
+            get: { chartsWorkspaceMode },
+            set: { chartsWorkspaceModeRawValue = $0.rawValue }
         )
     }
 
@@ -334,9 +369,16 @@ struct LibraryView: View {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
             cloudSyncStore.authStateChanged(authStore.state)
+            updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
+            if case .signedIn = state {
+                hasSeenAccountLanding = true
+                showingAccountLanding = false
+            } else {
+                updateAccountLandingPresentation()
+            }
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
@@ -350,9 +392,61 @@ struct LibraryView: View {
                 createNewChart(layoutStyle: layoutStyle)
             }
         }
+        .sheet(isPresented: $showingAccountLanding) {
+            IChartFirstRunAccountLandingView(
+                authStore: authStore,
+                theme: homeTheme,
+                onDismiss: {
+                    hasSeenAccountLanding = true
+                    showingAccountLanding = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingCreateProject) {
+            IChartProjectFormSheet(
+                title: "New Project",
+                initialTitle: "",
+                saveTitle: "Create",
+                theme: homeTheme
+            ) { title in
+                store.createProject(title: title)
+            }
+        }
         .sheet(item: $renameRequest) { request in
             RenameChartSheetView(request: request) { chartID, title in
                 store.renameChart(id: chartID, to: title)
+            }
+        }
+        .sheet(item: $renameProjectRequest) { request in
+            IChartProjectFormSheet(
+                title: "Rename Project",
+                initialTitle: request.currentTitle,
+                saveTitle: "Save",
+                theme: homeTheme
+            ) { title in
+                store.renameProject(id: request.projectID, to: title)
+            }
+        }
+        .sheet(item: $addChartsRequest) { request in
+            IChartProjectAddChartsSheet(
+                request: request,
+                charts: store.charts,
+                theme: homeTheme
+            ) { chartID, projectID in
+                store.addChartToProject(chartID: chartID, projectID: projectID)
+            }
+        }
+        .sheet(item: $duplicateVariantRequest) { request in
+            IChartProjectDuplicateVariantSheet(
+                request: request,
+                theme: homeTheme
+            ) { chartID, projectID, title, key in
+                store.duplicateChart(
+                    id: chartID,
+                    title: title,
+                    documentKey: key,
+                    projectID: projectID
+                )
             }
         }
         .alert(
@@ -389,27 +483,118 @@ struct LibraryView: View {
     private var chartsHomeContent: some View {
         homeScroll {
             VStack(alignment: .leading, spacing: 20) {
-                IChartNewChartControl(
-                    chartUsageText: chartUsageText,
-                    canCreateChart: store.canCreateChart,
+                IChartChartsWorkspaceModePicker(selection: chartsWorkspaceModeBinding, theme: homeTheme)
+
+                switch chartsWorkspaceMode {
+                case .charts:
+                    chartsListHomeContent
+                case .projects:
+                    chartProjectsHomeContent
+                }
+            }
+        }
+    }
+
+    private var chartsListHomeContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            IChartNewChartControl(
+                chartUsageText: chartUsageText,
+                canCreateChart: store.canCreateChart,
+                theme: homeTheme,
+                onCreateChart: {
+                    pendingProjectForNewChart = nil
+                    showingLayoutPicker = true
+                }
+            )
+
+            if store.requiresLocalChartPruningForCurrentPlan {
+                IChartBasicChartPruningPanel(
+                    charts: store.charts,
+                    overflowCount: store.localChartOverflowCount,
                     theme: homeTheme,
-                    onCreateChart: {
-                        showingLayoutPicker = true
+                    onRemoveLocalChart: { chartID in
+                        store.pruneLocalChartForCurrentPlan(id: chartID)
+                    }
+                )
+            }
+
+            chartListSection
+        }
+    }
+
+    private var chartProjectsHomeContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if store.canUse(.projects) {
+                IChartProjectCreateControl(
+                    projectCount: store.projects.count,
+                    theme: homeTheme,
+                    onCreateProject: {
+                        showingCreateProject = true
                     }
                 )
 
-                if store.requiresLocalChartPruningForCurrentPlan {
-                    IChartBasicChartPruningPanel(
-                        charts: store.charts,
-                        overflowCount: store.localChartOverflowCount,
-                        theme: homeTheme,
-                        onRemoveLocalChart: { chartID in
-                            store.pruneLocalChartForCurrentPlan(id: chartID)
+                if store.projects.isEmpty {
+                    ContentUnavailableView(
+                        "No Projects Yet",
+                        systemImage: "folder.badge.plus",
+                        description: Text("Create a project to keep every chart for the same song together.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                    .foregroundStyle(homeTheme.workspaceTitle)
+                    .background(homeTheme.emptyStateBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(store.projects) { project in
+                            IChartProjectCard(
+                                project: project,
+                                charts: store.charts(in: project),
+                                canCreateChart: store.canCreateChart,
+                                availableCharts: store.charts,
+                                theme: homeTheme,
+                                onOpenChart: { chartID in
+                                    onOpenChart(chartID, .browse)
+                                },
+                                onNewChart: { projectID in
+                                    pendingProjectForNewChart = projectID
+                                    showingLayoutPicker = true
+                                },
+                                onAddExisting: { project in
+                                    addChartsRequest = ChartProjectAddChartsRequest(project: project)
+                                },
+                                onDuplicateVariant: { chart, project in
+                                    duplicateVariantRequest = ChartProjectDuplicateVariantRequest(
+                                        project: project,
+                                        chart: chart
+                                    )
+                                },
+                                onRemoveChart: { chartID, projectID in
+                                    store.removeChartFromProject(chartID: chartID, projectID: projectID)
+                                },
+                                onRenameProject: { project in
+                                    renameProjectRequest = ChartProjectRenameRequest(project: project)
+                                },
+                                onDeleteProject: { projectID in
+                                    store.deleteProject(id: projectID)
+                                }
+                            )
                         }
+                    }
+                }
+            } else {
+                IChartHomePanel(
+                    title: "Projects",
+                    systemImageName: "folder.badge.plus",
+                    theme: homeTheme
+                ) {
+                    IChartLockedFeatureView(
+                        title: "Projects require Pro",
+                        message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate keys together.",
+                        systemImageName: "lock.folder",
+                        theme: homeTheme
                     )
                 }
-
-                projectsSection
             }
         }
     }
@@ -574,7 +759,7 @@ struct LibraryView: View {
         }
     }
 
-    private var projectsSection: some View {
+    private var chartListSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 16) {
                 Spacer()
@@ -632,11 +817,25 @@ struct LibraryView: View {
     }
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
-        guard store.createBlankChart(layoutStyle: layoutStyle), let chartID = store.selectedChartID else {
+        let targetProjectID = pendingProjectForNewChart
+        pendingProjectForNewChart = nil
+
+        guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
+              let chartID = store.selectedChartID else {
             return
         }
 
         onOpenChart(chartID, .browse)
+    }
+
+    private func updateAccountLandingPresentation() {
+        guard !hasSeenAccountLanding,
+              !showingAccountLanding,
+              authStore.state.shouldPresentFirstRunAccountLanding else {
+            return
+        }
+
+        showingAccountLanding = true
     }
 
     private func apply(profile: IChartUserProfile?) {
@@ -690,6 +889,33 @@ private struct ChartDeleteRequest: Identifiable, Hashable {
     init(chart: Chart) {
         chartID = chart.id
         title = chart.title
+    }
+}
+
+private struct ChartProjectRenameRequest: Identifiable, Hashable {
+    let projectID: ChartProject.ID
+    let currentTitle: String
+
+    var id: ChartProject.ID { projectID }
+
+    init(project: ChartProject) {
+        projectID = project.id
+        currentTitle = project.title
+    }
+}
+
+private struct ChartProjectAddChartsRequest: Identifiable, Hashable {
+    let project: ChartProject
+
+    var id: ChartProject.ID { project.id }
+}
+
+private struct ChartProjectDuplicateVariantRequest: Identifiable, Hashable {
+    let project: ChartProject
+    let chart: Chart
+
+    var id: String {
+        "\(project.id.uuidString)-\(chart.id.uuidString)"
     }
 }
 
@@ -809,6 +1035,231 @@ private struct NewChartLayoutPickerView: View {
         }
     }
 
+}
+
+private struct IChartProjectFormSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let initialTitle: String
+    let saveTitle: String
+    let theme: IChartHomeTheme
+    let onSave: (String) -> Void
+    @State private var projectTitle: String
+
+    init(
+        title: String,
+        initialTitle: String,
+        saveTitle: String,
+        theme: IChartHomeTheme,
+        onSave: @escaping (String) -> Void
+    ) {
+        self.title = title
+        self.initialTitle = initialTitle
+        self.saveTitle = saveTitle
+        self.theme = theme
+        self.onSave = onSave
+        _projectTitle = State(initialValue: initialTitle)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Song or project title", text: $projectTitle)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saveTitle) {
+                        save()
+                    }
+                    .disabled(sanitizedTitle.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var sanitizedTitle: String {
+        projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func save() {
+        guard !sanitizedTitle.isEmpty else {
+            return
+        }
+
+        onSave(sanitizedTitle)
+        dismiss()
+    }
+}
+
+private struct IChartProjectAddChartsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: ChartProjectAddChartsRequest
+    let charts: [Chart]
+    let theme: IChartHomeTheme
+    let onAddChart: (Chart.ID, ChartProject.ID) -> Void
+
+    private var availableCharts: [Chart] {
+        charts.filter { !request.project.chartIDs.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if availableCharts.isEmpty {
+                    ContentUnavailableView(
+                        "No Charts To Add",
+                        systemImage: "doc.badge.plus",
+                        description: Text("Every local chart is already in this project.")
+                    )
+                    .padding(.vertical, 32)
+                } else {
+                    ForEach(availableCharts) { chart in
+                        Button {
+                            onAddChart(chart.id, request.project.id)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: chart.layoutStyle.systemImageName)
+                                    .foregroundStyle(IChartHomeBrand.blue)
+                                    .frame(width: 28, height: 28)
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(chart.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+
+                                    Text("\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer(minLength: 12)
+
+                                Image(systemName: "plus.circle")
+                                    .foregroundStyle(IChartHomeBrand.blue)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add To \(request.project.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct IChartProjectDuplicateVariantSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: ChartProjectDuplicateVariantRequest
+    let theme: IChartHomeTheme
+    let onSave: (Chart.ID, ChartProject.ID, String, DocumentKey) -> Chart.ID?
+    @State private var title: String
+    @State private var selectedKey: DocumentKey
+
+    init(
+        request: ChartProjectDuplicateVariantRequest,
+        theme: IChartHomeTheme,
+        onSave: @escaping (Chart.ID, ChartProject.ID, String, DocumentKey) -> Chart.ID?
+    ) {
+        self.request = request
+        self.theme = theme
+        self.onSave = onSave
+        _title = State(initialValue: "\(request.chart.title) Copy")
+        _selectedKey = State(initialValue: request.chart.documentKey)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(request.chart.title)
+                            .font(.headline.weight(.semibold))
+
+                        Text("\(request.chart.layoutStyle.displayText) · \(request.chart.documentKey.displayText)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Variant Title")
+                            .font(.headline)
+
+                        TextField("Horn section chart", text: $title)
+                            .textInputAutocapitalization(.words)
+                            .padding(12)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Key")
+                            .font(.headline)
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
+                            ForEach(DocumentKey.commonCreationKeys, id: \.self) { key in
+                                Button {
+                                    selectedKey = key
+                                } label: {
+                                    Text(key.displayText)
+                                        .font(.subheadline.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(selectedKey == key ? IChartHomeBrand.blue : .secondary.opacity(0.3))
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+            }
+            .navigationTitle("Duplicate Variant")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        guard onSave(
+                            request.chart.id,
+                            request.project.id,
+                            title,
+                            selectedKey
+                        ) != nil else {
+                            return
+                        }
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
 }
 
 private struct IChartBasicChartPruningPanel: View {
@@ -1184,6 +1635,58 @@ private struct IChartSettingsRow: View {
     }
 }
 
+private struct IChartFirstRunAccountLandingView: View {
+    @ObservedObject var authStore: IChartAuthStore
+    let theme: IChartHomeTheme
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Welcome to iChart", systemImage: "music.note.list")
+                            .font(.largeTitle.weight(.semibold))
+                            .foregroundStyle(theme.panelTitle)
+
+                        Text("Create your account to keep profile, recovery, and subscription access tied to you from the start.")
+                            .font(.body)
+                            .foregroundStyle(theme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    IChartHomePanel(
+                        title: "Account",
+                        systemImageName: "person.crop.circle.badge.plus",
+                        theme: theme
+                    ) {
+                        IChartAccountSettings(authStore: authStore, theme: theme)
+                    }
+
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Label("Continue to Charts", systemImage: "arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(24)
+            }
+            .background(IChartLibraryBackground(mode: theme.mode).ignoresSafeArea())
+            .navigationTitle("Get Started")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        onDismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
@@ -1467,6 +1970,17 @@ private struct IChartAccountSettings: View {
             return "Enter a new password to finish account recovery."
         case .signedIn(let session):
             return session.email ?? "Signed in to iChart."
+        }
+    }
+}
+
+private extension IChartAuthState {
+    var shouldPresentFirstRunAccountLanding: Bool {
+        switch self {
+        case .signedOut, .pendingEmailVerification:
+            return true
+        case .unconfigured, .temporarilyOffline, .passwordRecovery, .signedIn:
+            return false
         }
     }
 }
@@ -2042,6 +2556,242 @@ private struct IChartNewChartControl: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, 2)
         .padding(.bottom, 2)
+    }
+}
+
+private struct IChartChartsWorkspaceModePicker: View {
+    @Binding var selection: IChartChartsWorkspaceMode
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(IChartChartsWorkspaceMode.allCases) { mode in
+                let isSelected = selection == mode
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selection = mode
+                    }
+                } label: {
+                    Text(mode.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(textColor(isSelected: isSelected))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(IChartHomeBrand.paper.opacity(0.95))
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.title)
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            }
+        }
+        .padding(3)
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(theme.isDark ? Color.white.opacity(0.12) : Color.white.opacity(0.34))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(theme.isDark ? Color.white.opacity(0.16) : IChartHomeBrand.ink.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func textColor(isSelected: Bool) -> Color {
+        if isSelected {
+            return IChartHomeBrand.ink
+        }
+
+        return theme.isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink.opacity(0.72)
+    }
+}
+
+private struct IChartProjectCreateControl: View {
+    let projectCount: Int
+    let theme: IChartHomeTheme
+    let onCreateProject: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(projectCount == 1 ? "1 project" : "\(projectCount) projects")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.workspaceTitle)
+
+                Text("Group every chart for the same song.")
+                    .font(.caption)
+                    .foregroundStyle(theme.workspaceSecondary)
+            }
+
+            Spacer(minLength: 16)
+
+            Button(action: onCreateProject) {
+                Label("New Project", systemImage: "folder.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+        }
+        .padding(16)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct IChartProjectCard: View {
+    let project: ChartProject
+    let charts: [Chart]
+    let canCreateChart: Bool
+    let availableCharts: [Chart]
+    let theme: IChartHomeTheme
+    let onOpenChart: (Chart.ID) -> Void
+    let onNewChart: (ChartProject.ID) -> Void
+    let onAddExisting: (ChartProject) -> Void
+    let onDuplicateVariant: (Chart, ChartProject) -> Void
+    let onRemoveChart: (Chart.ID, ChartProject.ID) -> Void
+    let onRenameProject: (ChartProject) -> Void
+    let onDeleteProject: (ChartProject.ID) -> Void
+
+    var body: some View {
+        IChartHomePanel(
+            title: project.title,
+            systemImageName: "folder",
+            theme: theme
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Label(project.chartCountText, systemImage: "doc.on.doc")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.panelSecondary)
+
+                    Spacer(minLength: 12)
+
+                    projectMenu
+                }
+
+                if charts.isEmpty {
+                    Text("Add an existing chart or create the first chart for this song.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(charts) { chart in
+                            IChartProjectChartRow(
+                                chart: chart,
+                                theme: theme,
+                                canDuplicate: canCreateChart,
+                                onOpen: {
+                                    onOpenChart(chart.id)
+                                },
+                                onDuplicateVariant: {
+                                    onDuplicateVariant(chart, project)
+                                },
+                                onRemove: {
+                                    onRemoveChart(chart.id, project.id)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        onAddExisting(project)
+                    } label: {
+                        Label("Add Existing", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(availableCharts.isEmpty)
+
+                    Button {
+                        onNewChart(project.id)
+                    } label: {
+                        Label("New Chart", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(IChartHomeBrand.blue)
+                    .disabled(!canCreateChart)
+                }
+            }
+        }
+    }
+
+    private var projectMenu: some View {
+        Menu {
+            Button {
+                onRenameProject(project)
+            } label: {
+                Label("Rename Project", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                onDeleteProject(project.id)
+            } label: {
+                Label("Delete Project", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(theme.panelSecondary)
+                .frame(width: 36, height: 36)
+        }
+        .accessibilityLabel("Project actions")
+    }
+}
+
+private struct IChartProjectChartRow: View {
+    let chart: Chart
+    let theme: IChartHomeTheme
+    let canDuplicate: Bool
+    let onOpen: () -> Void
+    let onDuplicateVariant: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(chart.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+                        .lineLimit(1)
+
+                    Text("\(chart.layoutStyle.displayText) · \(chart.documentKey.displayText)")
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                Button(action: onDuplicateVariant) {
+                    Label("Duplicate Variant", systemImage: "plus.square.on.square")
+                }
+                .disabled(!canDuplicate)
+
+                Button(role: .destructive, action: onRemove) {
+                    Label("Remove From Project", systemImage: "minus.circle")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+                    .frame(width: 34, height: 34)
+            }
+            .accessibilityLabel("Project chart actions")
+        }
+        .padding(12)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

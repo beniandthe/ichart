@@ -22,10 +22,15 @@ final class FileChartRepositoryTests: XCTestCase {
         let repository = FileChartRepository(
             url: temporaryDirectory.appendingPathComponent("library-state.json")
         )
+        let project = ChartProject(
+            title: "Session Charts",
+            chartIDs: [ChartSamples.previewCharts.first?.id].compactMap { $0 }
+        )
         let snapshot = ChartLibrarySnapshot(
             charts: ChartSamples.previewCharts,
             selectedChartID: ChartSamples.previewCharts.last?.id,
-            entitlements: AppEntitlements(activePlan: .proLifetime)
+            entitlements: AppEntitlements(activePlan: .proLifetime),
+            projects: [project]
         )
 
         defer {

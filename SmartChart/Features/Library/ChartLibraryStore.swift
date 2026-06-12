@@ -63,6 +63,9 @@ final class ChartLibraryStore: ObservableObject {
     @Published var cloudMetadata: ChartCloudMetadata {
         didSet { persistIfNeeded() }
     }
+    @Published var projects: [ChartProject] {
+        didSet { persistIfNeeded() }
+    }
     @Published private(set) var persistenceStatus: ChartLibraryPersistenceStatus = .notTracking
 
     var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
@@ -78,6 +81,7 @@ final class ChartLibraryStore: ObservableObject {
         selectedChartID: Chart.ID? = nil,
         deletionTombstones: [ChartDeletionTombstone] = [],
         cloudMetadata: ChartCloudMetadata = ChartCloudMetadata(),
+        projects: [ChartProject] = [],
         repository: ChartRepository? = nil,
         chordDiagnosticsResetter: (() -> Void)? = nil
     ) {
@@ -86,6 +90,7 @@ final class ChartLibraryStore: ObservableObject {
         self.selectedChartID = Self.sanitizedSelection(selectedChartID, charts: charts)
         self.deletionTombstones = Self.normalizedTombstones(deletionTombstones)
         self.cloudMetadata = cloudMetadata
+        self.projects = Self.normalizedProjects(projects, charts: charts)
         self.repository = repository
         self.chordDiagnosticsResetter = chordDiagnosticsResetter
         self.persistenceStatus = repository == nil ? .notTracking : .ready
@@ -99,6 +104,7 @@ final class ChartLibraryStore: ObservableObject {
             selectedChartID: snapshot.selectedChartID,
             deletionTombstones: snapshot.deletionTombstones,
             cloudMetadata: snapshot.cloudMetadata,
+            projects: snapshot.projects,
             repository: repository
         )
     }
@@ -139,6 +145,10 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.includes(feature)
     }
 
+    var projectChartIDSet: Set<Chart.ID> {
+        Set(projects.flatMap(\.chartIDs))
+    }
+
     func setPlan(_ plan: SmartChartPlan) {
         var updatedEntitlements = entitlements
         updatedEntitlements.applyLegacyPlan(plan)
@@ -154,15 +164,21 @@ final class ChartLibraryStore: ObservableObject {
     @discardableResult
     func createBlankChart(
         in key: DocumentKey = .cMajor,
-        layoutStyle: ChartLayoutStyle = .leadSheet
+        layoutStyle: ChartLayoutStyle = .leadSheet,
+        projectID: ChartProject.ID? = nil
     ) -> Bool {
         guard canCreateChart else {
             return false
         }
 
         let newChart = Chart.draft(title: "Untitled Chart", key: key, layoutStyle: layoutStyle)
-        charts.insert(newChart, at: 0)
-        selectedChartID = newChart.id
+        performPersistedBatch {
+            charts.insert(newChart, at: 0)
+            if let projectID {
+                addChartToProjectInPlace(chartID: newChart.id, projectID: projectID, atFront: true)
+            }
+            selectedChartID = newChart.id
+        }
         return true
     }
 
@@ -182,7 +198,12 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     @discardableResult
-    func duplicateChart(id chartID: Chart.ID) -> Chart.ID? {
+    func duplicateChart(
+        id chartID: Chart.ID,
+        title proposedTitle: String? = nil,
+        documentKey: DocumentKey? = nil,
+        projectID: ChartProject.ID? = nil
+    ) -> Chart.ID? {
         guard canCreateChart,
               let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
             return nil
@@ -191,18 +212,94 @@ final class ChartLibraryStore: ObservableObject {
         var duplicate = charts[chartIndex]
         let now = Date()
         duplicate.id = UUID()
-        duplicate.title = Self.duplicateTitle(
-            for: duplicate.title,
-            existingTitles: Set(charts.map(\.title))
-        )
+        duplicate.title = proposedTitle.flatMap(Self.sanitizedTitle)
+            ?? Self.duplicateTitle(for: duplicate.title, existingTitles: Set(charts.map(\.title)))
+        if let documentKey {
+            duplicate.documentKey = documentKey
+        }
         duplicate.createdAt = now
         duplicate.updatedAt = now
 
         performPersistedBatch {
             charts.insert(duplicate, at: min(chartIndex + 1, charts.endIndex))
+            if let projectID {
+                addChartToProjectInPlace(chartID: duplicate.id, projectID: projectID, atFront: false)
+            }
             selectedChartID = duplicate.id
         }
         return duplicate.id
+    }
+
+    @discardableResult
+    func createProject(title proposedTitle: String, chartIDs: [Chart.ID] = []) -> ChartProject.ID? {
+        guard canUse(.projects),
+              let title = ChartProject.sanitizedTitle(proposedTitle) else {
+            return nil
+        }
+
+        let availableChartIDs = Set(charts.map(\.id))
+        let validChartIDs = ChartProject.uniqueChartIDs(chartIDs).filter { availableChartIDs.contains($0) }
+        let now = Date()
+        let project = ChartProject(
+            title: title,
+            chartIDs: validChartIDs,
+            createdAt: now,
+            updatedAt: now
+        )
+        projects.insert(project, at: 0)
+        return project.id
+    }
+
+    @discardableResult
+    func renameProject(id projectID: ChartProject.ID, to proposedTitle: String) -> Bool {
+        guard canUse(.projects),
+              let title = ChartProject.sanitizedTitle(proposedTitle),
+              let projectIndex = projects.firstIndex(where: { $0.id == projectID }) else {
+            return false
+        }
+
+        projects[projectIndex].title = title
+        projects[projectIndex].updatedAt = Date()
+        return true
+    }
+
+    @discardableResult
+    func deleteProject(id projectID: ChartProject.ID) -> Bool {
+        guard canUse(.projects),
+              projects.contains(where: { $0.id == projectID }) else {
+            return false
+        }
+
+        projects.removeAll { $0.id == projectID }
+        return true
+    }
+
+    @discardableResult
+    func addChartToProject(chartID: Chart.ID, projectID: ChartProject.ID) -> Bool {
+        guard canUse(.projects),
+              charts.contains(where: { $0.id == chartID }) else {
+            return false
+        }
+
+        return addChartToProjectInPlace(chartID: chartID, projectID: projectID, atFront: false)
+    }
+
+    @discardableResult
+    func removeChartFromProject(chartID: Chart.ID, projectID: ChartProject.ID) -> Bool {
+        guard canUse(.projects),
+              let projectIndex = projects.firstIndex(where: { $0.id == projectID }),
+              projects[projectIndex].chartIDs.contains(chartID) else {
+            return false
+        }
+
+        projects[projectIndex].removeChart(chartID)
+        return true
+    }
+
+    func charts(in project: ChartProject) -> [Chart] {
+        project.chartIDs.compactMap { chartID in
+            charts.first { $0.id == chartID }
+        }
     }
 
     @discardableResult
@@ -221,6 +318,7 @@ final class ChartLibraryStore: ObservableObject {
         let deletedAt = Date()
         performPersistedBatch {
             charts = updatedCharts
+            removeChartFromAllProjectsInPlace(chartID)
             upsertTombstone(chartID: chartID, deletedAt: deletedAt)
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
         }
@@ -240,6 +338,7 @@ final class ChartLibraryStore: ObservableObject {
 
         performPersistedBatch(notifyCloudSync: false) {
             charts.removeAll { $0.id == chartID }
+            removeChartFromAllProjectsInPlace(chartID)
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: charts)
         }
         return true
@@ -267,7 +366,8 @@ final class ChartLibraryStore: ObservableObject {
             selectedChartID: selectedChartID,
             entitlements: entitlements,
             deletionTombstones: deletionTombstones,
-            cloudMetadata: cloudMetadata
+            cloudMetadata: cloudMetadata,
+            projects: projects
         )
     }
 
@@ -277,6 +377,7 @@ final class ChartLibraryStore: ObservableObject {
             entitlements = snapshot.entitlements
             deletionTombstones = Self.normalizedTombstones(snapshot.deletionTombstones)
             cloudMetadata = snapshot.cloudMetadata
+            projects = Self.normalizedProjects(snapshot.projects, charts: snapshot.charts)
             selectedChartID = Self.sanitizedSelection(snapshot.selectedChartID, charts: snapshot.charts)
         }
     }
@@ -312,6 +413,7 @@ final class ChartLibraryStore: ObservableObject {
             selectedChartID: snapshot.selectedChartID,
             deletionTombstones: snapshot.deletionTombstones,
             cloudMetadata: snapshot.cloudMetadata,
+            projects: snapshot.projects,
             repository: repository,
             chordDiagnosticsResetter: {
                 try? ChordEntryDiagnosticsRecorder.live().reset()
@@ -367,6 +469,31 @@ final class ChartLibraryStore: ObservableObject {
         deletionTombstones = Self.normalizedTombstones(deletionTombstones)
     }
 
+    @discardableResult
+    private func addChartToProjectInPlace(
+        chartID: Chart.ID,
+        projectID: ChartProject.ID,
+        atFront: Bool
+    ) -> Bool {
+        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }) else {
+            return false
+        }
+
+        projects[projectIndex].addChart(chartID, atFront: atFront)
+        return true
+    }
+
+    private func removeChartFromAllProjectsInPlace(_ chartID: Chart.ID) {
+        for projectIndex in projects.indices {
+            projects[projectIndex].removeChart(chartID)
+        }
+    }
+
+    private static func sanitizedTitle(_ proposedTitle: String) -> String? {
+        let sanitizedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitizedTitle.isEmpty ? nil : sanitizedTitle
+    }
+
     private static func duplicateTitle(for title: String, existingTitles: Set<String>) -> String {
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidateBase = baseTitle.isEmpty ? "Untitled Chart Copy" : "\(baseTitle) Copy"
@@ -396,5 +523,21 @@ final class ChartLibraryStore: ObservableObject {
         Dictionary(grouping: tombstones, by: \.chartID)
             .compactMap { _, grouped in grouped.max { $0.deletedAt < $1.deletedAt } }
             .sorted { $0.deletedAt > $1.deletedAt }
+    }
+
+    private static func normalizedProjects(_ projects: [ChartProject], charts: [Chart]) -> [ChartProject] {
+        let availableChartIDs = Set(charts.map(\.id))
+        var seenProjectIDs = Set<ChartProject.ID>()
+
+        return projects.compactMap { project in
+            guard seenProjectIDs.insert(project.id).inserted else {
+                return nil
+            }
+
+            var normalizedProject = project
+            normalizedProject.chartIDs = ChartProject.uniqueChartIDs(project.chartIDs)
+                .filter { availableChartIDs.contains($0) }
+            return normalizedProject
+        }
     }
 }

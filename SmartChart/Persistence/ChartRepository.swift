@@ -6,19 +6,22 @@ struct ChartLibrarySnapshot: Codable, Hashable {
     var entitlements: AppEntitlements
     var deletionTombstones: [ChartDeletionTombstone]
     var cloudMetadata: ChartCloudMetadata
+    var projects: [ChartProject]
 
     init(
         charts: [Chart],
         selectedChartID: Chart.ID?,
         entitlements: AppEntitlements,
         deletionTombstones: [ChartDeletionTombstone] = [],
-        cloudMetadata: ChartCloudMetadata = ChartCloudMetadata()
+        cloudMetadata: ChartCloudMetadata = ChartCloudMetadata(),
+        projects: [ChartProject] = []
     ) {
         self.charts = charts
         self.selectedChartID = selectedChartID
         self.entitlements = entitlements
         self.deletionTombstones = deletionTombstones
         self.cloudMetadata = cloudMetadata
+        self.projects = projects
     }
 
     static var preview: ChartLibrarySnapshot {
@@ -44,6 +47,7 @@ struct ChartLibrarySnapshot: Codable, Hashable {
         case entitlements
         case deletionTombstones
         case cloudMetadata
+        case projects
     }
 
     init(from decoder: Decoder) throws {
@@ -59,6 +63,7 @@ struct ChartLibrarySnapshot: Codable, Hashable {
             ChartCloudMetadata.self,
             forKey: .cloudMetadata
         ) ?? ChartCloudMetadata()
+        projects = try container.decodeIfPresent([ChartProject].self, forKey: .projects) ?? []
     }
 }
 

@@ -38,6 +38,7 @@ Basic includes:
 
 Basic excludes:
 
+- Projects for grouping multiple charts under one song
 - cloud chart backup
 - chart restore after reinstall from cloud
 - cross-device chart sync
@@ -50,6 +51,7 @@ Pro is an auto-renewing subscription surface, offered as monthly and annual plan
 
 Pro includes:
 
+- Projects for keeping every chart for the same song together
 - unlimited local chart creation
 - cloud chart backup
 - chart restore after reinstall or new iPad sign-in
@@ -78,6 +80,7 @@ Core local authoring includes:
 Pro gates ongoing-service and community surfaces:
 
 - unlimited chart capacity
+- Projects
 - cloud backup/sync/restore
 - Forums
 - future service-backed features
