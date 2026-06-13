@@ -4,6 +4,8 @@ Status: StoreKit/Supabase authority loop wired; App Store Connect sandbox gate p
 Created: 2026-06-12
 Last updated: 2026-06-13
 
+Resume trigger: when the user says "Apple developer account is setup", run `scripts/resume_apple_developer_gate.sh` before continuing sandbox purchase QA.
+
 ## Product IDs
 
 The first Pro subscription products are:
