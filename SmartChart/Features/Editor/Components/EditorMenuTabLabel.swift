@@ -35,7 +35,7 @@ struct EditorCodaTabLabel: View {
                 : Color(uiColor: .secondarySystemBackground)
             )
             .clipShape(Capsule())
-            .accessibilityLabel("Roadmap")
+            .accessibilityLabel("Coda")
     }
 
     private var symbolColor: Color {

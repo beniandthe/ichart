@@ -41,7 +41,6 @@ struct ChartSetupSheetView: View {
                     if !setupPolicy.clefOptions.isEmpty {
                         clefSection
                     }
-                    notationSection
                 }
                 .padding(24)
             }
@@ -188,34 +187,6 @@ struct ChartSetupSheetView: View {
                 }
             }
             .pickerStyle(.segmented)
-        }
-    }
-
-    private var notationSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Notation")
-                .font(.headline)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Jazz Chord Notation")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    Text("Locked for now so the whole app stays focused on one real-book style page workflow.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 

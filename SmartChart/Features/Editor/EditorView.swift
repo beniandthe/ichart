@@ -14,6 +14,185 @@ private struct PendingMeasureStackInsertion: Identifiable {
     let anchorMeasureID: UUID
 }
 
+private enum IChartEditorGuidedTourStep: String, Identifiable {
+    case setup
+    case chordWrite
+    case chordConfirm
+    case chordDone
+    case page
+    case measures
+    case measuresActive
+    case repeatsActive
+    case coda
+    case freeHandActive
+    case select
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .setup:
+            "Create The Page"
+        case .chordWrite:
+            "Write A Chord"
+        case .chordConfirm:
+            "Confirm The Chord"
+        case .chordDone:
+            "Leave Chord Mode"
+        case .page:
+            "Page Tool"
+        case .measures:
+            "Measures Tool"
+        case .measuresActive:
+            "Measures Row"
+        case .repeatsActive:
+            "Repeat Row"
+        case .coda:
+            "Coda Tool"
+        case .freeHandActive:
+            "Free-Hand"
+        case .select:
+            "Select And Finish"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .setup:
+            "Confirm the starting options, then iChart will make a blank Simple Chord Sheet for the tour."
+        case .chordWrite:
+            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it."
+        case .chordConfirm:
+            "Tap the chord you meant. If iChart is unsure, use the keyboard or rewrite the ink."
+        case .chordDone:
+            "Tap Done to return to the main tool row."
+        case .page:
+            "Open Page for setup, header options, instrument view, manual transpose, style, fonts, pen responsiveness, engraving, and export."
+        case .measures:
+            "Create single measures or stacks, move measures to new systems, resize rows, split lines, or delete measures."
+        case .measuresActive:
+            "Use this row for add, stack, break, delete, width, and fill actions."
+        case .repeatsActive:
+            "Add repeat barlines and first or second endings."
+        case .coda:
+            "Add Coda, To Coda, Segno, D.S., D.C., Fine, N.C., and roadmap links from the Coda tool."
+        case .freeHandActive:
+            "Free-Hand is for quick notes, rehearsal marks, and cues you want to leave as ink. Tap Done when you are finished."
+        case .select:
+            "Select is where you move, edit, delete, scroll, and head back to setup or export."
+        }
+    }
+
+    var targetText: String? {
+        switch self {
+        case .setup:
+            "Tap Create Blank Page"
+        case .chordWrite:
+            "Write a chord, then tap to read it"
+        case .chordConfirm:
+            "Tap a chord choice"
+        case .chordDone:
+            "Tap Done"
+        case .page:
+            "Tap Page"
+        case .measures:
+            "Tap Measures"
+        case .measuresActive:
+            "Tap Repeats"
+        case .repeatsActive:
+            "Tap Coda"
+        case .coda:
+            "Tap Free-Hand"
+        case .freeHandActive:
+            "Tap Done"
+        case .select:
+            nil
+        }
+    }
+
+    var contentPromptAlignment: Alignment {
+        switch self {
+        case .setup:
+            .topTrailing
+        case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
+            .bottomTrailing
+        }
+    }
+
+    var contentPromptPadding: EdgeInsets {
+        switch self {
+        case .setup:
+            EdgeInsets(top: 72, leading: 24, bottom: 24, trailing: 24)
+        case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
+            EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24)
+        }
+    }
+}
+
+private struct IChartEditorGuidedTourPrompt: View {
+    let step: IChartEditorGuidedTourStep
+    let onFinish: () -> Void
+
+    private let accent = Color(red: 0.13, green: 0.42, blue: 0.54)
+    private let paper = Color(red: 0.97, green: 0.95, blue: 0.92)
+    private let ink = Color(red: 0.08, green: 0.10, blue: 0.12)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(accent)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(step.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(ink)
+
+                    Text(step.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let targetText = step.targetText {
+                Label(targetText, systemImage: "hand.tap")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.86, green: 0.93, blue: 0.95))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            HStack(spacing: 10) {
+                if step == .select {
+                    Button("Finish Tour", action: onFinish)
+                        .buttonStyle(.borderedProminent)
+                        .tint(accent)
+                }
+
+                Button("Skip Tour", action: onFinish)
+                    .buttonStyle(.bordered)
+                    .tint(accent)
+            }
+        }
+        .padding(16)
+        .frame(width: 360, alignment: .leading)
+        .background(paper.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(ink.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: ink.opacity(0.12), radius: 16, y: 8)
+        .accessibilityElement(children: .contain)
+    }
+}
+
 struct EditorView: View {
     private static let supportedTimeSignatureChoices = [
         Meter(numerator: 4, denominator: 4),
@@ -60,7 +239,9 @@ struct EditorView: View {
     @State private var showingCueTextEntry = false
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
+    @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
+    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
     @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
@@ -102,6 +283,15 @@ struct EditorView: View {
                 endPoint: .bottomTrailing
             )
         )
+        .overlay(alignment: editorGuidedTourStep?.contentPromptAlignment ?? .topTrailing) {
+            if let editorGuidedTourStep, editorGuidedTourStep != .setup {
+                IChartEditorGuidedTourPrompt(
+                    step: editorGuidedTourStep,
+                    onFinish: finishEditorGuidedTour
+                )
+                .padding(editorGuidedTourStep.contentPromptPadding)
+            }
+        }
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -116,7 +306,18 @@ struct EditorView: View {
             }
         }
         .sheet(isPresented: $showingSetupSheet) {
-            ChartSetupSheetView(chart: $chart)
+            ZStack(alignment: .topTrailing) {
+                ChartSetupSheetView(chart: $chart)
+
+                if editorGuidedTourStep == .setup {
+                    IChartEditorGuidedTourPrompt(
+                        step: .setup,
+                        onFinish: finishEditorGuidedTour
+                    )
+                    .padding(.top, 72)
+                    .padding(.trailing, 24)
+                }
+            }
         }
         .sheet(isPresented: $showingHeaderSheet) {
             ChartHeaderSheetView(chart: $chart)
@@ -259,9 +460,11 @@ struct EditorView: View {
             if mode.allowsAnyInkEditing {
                 inkToolMode = .write
             }
+            advanceEditorGuidedTourIfNeeded(for: mode)
         }
         .onChange(of: chart) { _, updatedChart in
             scheduleChordEntryDiagnosticReconciliation(for: updatedChart)
+            advanceEditorGuidedTourAfterSetupIfNeeded(updatedChart)
             #if DEBUG || targetEnvironment(simulator)
             recordPendingChordRenderHandoff()
             #endif
@@ -271,6 +474,8 @@ struct EditorView: View {
             pendingChordDiagnosticReconciliationWorkItem = nil
         }
         .task {
+            startPendingSimpleChartTourIfNeeded()
+
             if chart.staffStyle != .fiveLine {
                 chart.staffStyle = .fiveLine
                 chart.updatedAt = .now
@@ -278,6 +483,75 @@ struct EditorView: View {
             if !chart.hasCompletedInitialSetup {
                 showingSetupSheet = true
             }
+        }
+    }
+
+    private func startPendingSimpleChartTourIfNeeded() {
+        guard pendingSimpleChartTour,
+              chart.layoutStyle == .simpleChordSheet else {
+            return
+        }
+
+        pendingSimpleChartTour = false
+        if chart.hasCompletedInitialSetup {
+            canvasMode = .chordEntry
+            editorGuidedTourStep = .chordWrite
+        } else {
+            editorGuidedTourStep = .setup
+        }
+    }
+
+    private func advanceEditorGuidedTourIfNeeded(for mode: EditorCanvasMode) {
+        switch (editorGuidedTourStep, mode) {
+        case (.chordDone, .browse):
+            editorGuidedTourStep = .page
+        case (.page, .measureEdit):
+            editorGuidedTourStep = .measuresActive
+        case (.page, .browse):
+            editorGuidedTourStep = .measures
+        case (.measures, .measureEdit):
+            editorGuidedTourStep = .measuresActive
+        case (.measuresActive, .repeatEdit):
+            editorGuidedTourStep = .repeatsActive
+        case (.coda, .freeHand):
+            editorGuidedTourStep = .freeHandActive
+        case (.freeHandActive, .browse):
+            editorGuidedTourStep = .select
+        default:
+            break
+        }
+    }
+
+    private func advanceEditorGuidedTourAfterPageToolTapIfNeeded() {
+        guard editorGuidedTourStep == .page else {
+            return
+        }
+
+        editorGuidedTourStep = .measures
+    }
+
+    private func advanceEditorGuidedTourAfterCodaToolTapIfNeeded() {
+        guard editorGuidedTourStep == .repeatsActive else {
+            return
+        }
+
+        editorGuidedTourStep = .coda
+    }
+
+    private func advanceEditorGuidedTourAfterSetupIfNeeded(_ updatedChart: Chart) {
+        guard editorGuidedTourStep == .setup,
+              updatedChart.hasCompletedInitialSetup else {
+            return
+        }
+
+        canvasMode = .chordEntry
+        editorGuidedTourStep = .chordWrite
+    }
+
+    private func finishEditorGuidedTour() {
+        pendingSimpleChartTour = false
+        withAnimation(.easeInOut(duration: 0.18)) {
+            editorGuidedTourStep = nil
         }
     }
 
@@ -529,6 +803,11 @@ struct EditorView: View {
                         systemImage: "doc.text",
                         isSelected: canvasMode == .headerEntry
                     )
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            advanceEditorGuidedTourAfterPageToolTapIfNeeded()
+                        }
+                    )
                 }
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
@@ -603,6 +882,11 @@ struct EditorView: View {
                     .disabled(!canRemovePointRoadmapMarkerAtSelectedMeasure)
                 } label: {
                     EditorCodaTabLabel(isSelected: false)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
+                            }
+                        )
                 }
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
@@ -1962,7 +2246,15 @@ struct EditorView: View {
     }
 
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
-        if confirmation.decision.action == .autoRender,
+        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
+            || editorGuidedTourStep == .chordConfirm
+
+        if editorGuidedTourStep == .chordWrite {
+            editorGuidedTourStep = .chordConfirm
+        }
+
+        if !isGuidedChordConfirmation,
+           confirmation.decision.action == .autoRender,
            let acceptedText = confirmation.decision.acceptedText {
             _ = commitChordInkCandidate(
                 acceptedText,
@@ -1982,7 +2274,8 @@ struct EditorView: View {
             chordInkAutomaticRewriteFailures.reset()
         }
 
-        if !isCompleteFailure,
+        if !isGuidedChordConfirmation,
+           !isCompleteFailure,
            let preferredCandidate = chordInkUserCorrectionMemory.preferredCandidate(
                for: confirmation.candidateTexts,
                decision: confirmation.decision
@@ -2099,6 +2392,9 @@ struct EditorView: View {
         selectedNoteSelection = nil
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
+        if editorGuidedTourStep == .chordWrite || editorGuidedTourStep == .chordConfirm {
+            editorGuidedTourStep = .chordDone
+        }
 
         #if DEBUG || targetEnvironment(simulator)
         logChordInkCommitTiming(

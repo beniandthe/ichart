@@ -158,6 +158,7 @@ private enum IChartHomeTab: String, CaseIterable, Identifiable {
 }
 
 private enum IChartHelpTopic: String, CaseIterable, Identifiable {
+    case tutorial
     case faq
     case userPolicy
     case legal
@@ -167,6 +168,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .tutorial:
+            "Tutorial"
         case .faq:
             "FAQ"
         case .userPolicy:
@@ -180,6 +183,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
+        case .tutorial:
+            "App walkthrough"
         case .faq:
             "Common questions"
         case .userPolicy:
@@ -193,6 +198,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
 
     var systemImageName: String {
         switch self {
+        case .tutorial:
+            "graduationcap"
         case .faq:
             "questionmark.circle"
         case .userPolicy:
@@ -206,6 +213,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
 
     var detailTitle: String {
         switch self {
+        case .tutorial:
+            "iChart Tutorial"
         case .faq:
             "Common Questions"
         case .userPolicy:
@@ -219,6 +228,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
 
     var detailText: String {
         switch self {
+        case .tutorial:
+            "A quick reference for the main iChart areas, plus a hands-on tour when you want to try the flow."
         case .faq:
             "Quick help for chart setup, handwriting tools, export, and saved charts will live here as V1 hardens."
         case .userPolicy:
@@ -227,6 +238,266 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
             "Terms, privacy language, font attributions, and third-party notices are tracked here for the release hygiene sprint."
         case .contactUs:
             "A support contact path will live here for V1 feedback, bug reports, and account questions."
+        }
+    }
+}
+
+private struct IChartTutorialSection: Identifiable {
+    let id: String
+    let title: String
+    let summary: String
+    let systemImageName: String
+    let steps: [IChartTutorialStep]
+
+    static let all: [IChartTutorialSection] = [
+        IChartTutorialSection(
+            id: "getting-started",
+            title: "Getting Started",
+            summary: "Create the account, verify email, then land on Charts.",
+            systemImageName: "person.crop.circle.badge.checkmark",
+            steps: [
+                IChartTutorialStep(
+                    id: "account",
+                    title: "Account",
+                    detail: "First launch asks for your name, email, and password. Verify the email, then continue into iChart."
+                ),
+                IChartTutorialStep(
+                    id: "new-chart",
+                    title: "New Chart",
+                    detail: "Open Charts, tap New Chart, then choose Simple Chord Sheet or Rhythm Section Sheet."
+                ),
+                IChartTutorialStep(
+                    id: "local-save",
+                    title: "Local Save",
+                    detail: "Charts save locally while you write. Pro cloud sync can back them up and restore them later."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "page-tool",
+            title: "Page Tool",
+            summary: "Setup, header, transposition, styling, pen, and export controls.",
+            systemImageName: "doc.text",
+            steps: [
+                IChartTutorialStep(
+                    id: "setup-header",
+                    title: "Setup And Header",
+                    detail: "Open setup options, choose typed or handwritten header input, and clear handwritten header ink."
+                ),
+                IChartTutorialStep(
+                    id: "transpose",
+                    title: "Instrument And Transpose",
+                    detail: "Choose the instrument view, move the chart by half step, or select a manual transposition interval."
+                ),
+                IChartTutorialStep(
+                    id: "style-export",
+                    title: "Style And Export",
+                    detail: "Adjust style, fonts, engraving, pen responsiveness, and export the chart as a PDF."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "coda-tool",
+            title: "Coda Tool",
+            summary: "Coda, Segno, D.S., D.C., Fine, and roadmap links.",
+            systemImageName: "scope",
+            steps: [
+                IChartTutorialStep(
+                    id: "markings",
+                    title: "Markings",
+                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. markings."
+                ),
+                IChartTutorialStep(
+                    id: "links",
+                    title: "Links",
+                    detail: "Link roadmap markers at the selected measure, clear links, or remove roadmap markings."
+                ),
+                IChartTutorialStep(
+                    id: "placement",
+                    title: "Placement",
+                    detail: "Select a measure first, then choose the roadmap marking from the Coda tool."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "charts-projects",
+            title: "Charts And Projects",
+            summary: "Use Charts for single files and Projects for song folders.",
+            systemImageName: "folder.badge.plus",
+            steps: [
+                IChartTutorialStep(
+                    id: "basic-cap",
+                    title: "Basic Charts",
+                    detail: "Basic keeps the full authoring toolset and PDF export with a three-chart local limit."
+                ),
+                IChartTutorialStep(
+                    id: "project-grouping",
+                    title: "Projects",
+                    detail: "Pro Projects keep every version of a song together: Concert, Bb Horn, Eb Horn, rhythm, and rehearsal copies."
+                ),
+                IChartTutorialStep(
+                    id: "variants",
+                    title: "Variants",
+                    detail: "Duplicate a chart inside a project, choose the transposition interval, and edit the new part without touching the original."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "editor-navigation",
+            title: "Editor Navigation",
+            summary: "Move between tools, Select mode, and page scrolling.",
+            systemImageName: "hand.tap",
+            steps: [
+                IChartTutorialStep(
+                    id: "tools",
+                    title: "Tools",
+                    detail: "Switch tools from the top row. Ink tools write in their lanes; non-ink tools let the Pencil scroll anywhere."
+                ),
+                IChartTutorialStep(
+                    id: "margins",
+                    title: "Margins",
+                    detail: "When an ink tool is active, use the visible page margins as the drag area for vertical scrolling."
+                ),
+                IChartTutorialStep(
+                    id: "select",
+                    title: "Select",
+                    detail: "Select mode is the hub for moving, editing, and jumping into the right tool. Tap headers, freehand marks, text, or chords to work on that item."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "simple-chart",
+            title: "Simple Chord Sheet",
+            summary: "Write chords, shape measures, add repeats, and export.",
+            systemImageName: "music.note.list",
+            steps: [
+                IChartTutorialStep(
+                    id: "chords",
+                    title: "Chords",
+                    detail: "Write in the chord lane, tap to read it, then tap the chord you meant. Keyboard entry and Rewrite Ink are there when you need them."
+                ),
+                IChartTutorialStep(
+                    id: "move-edit",
+                    title: "Move And Edit",
+                    detail: "Drag a chord inside its box to move it. Double tap the chord box when you want to edit the chord."
+                ),
+                IChartTutorialStep(
+                    id: "measures-repeats",
+                    title: "Measures And Repeats",
+                    detail: "Use Measures for add, stack, break, delete, width, and fill actions. Use Repeats for repeat barlines and endings."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "rhythm-chart",
+            title: "Rhythm Section Sheet",
+            summary: "Capture slash notation, rhythmic figures, and quick freehand notes.",
+            systemImageName: "metronome",
+            steps: [
+                IChartTutorialStep(
+                    id: "slashes",
+                    title: "Slash Notation",
+                    detail: "Slash count follows the top time-signature number. A 3/8 measure expects three slashes."
+                ),
+                IChartTutorialStep(
+                    id: "freehand",
+                    title: "Freehand Lane",
+                    detail: "Use Freehand for fast notes, cues, and rehearsal markings that should stay as ink."
+                ),
+                IChartTutorialStep(
+                    id: "repeat-roadmap",
+                    title: "Coda Tool",
+                    detail: "Use the Coda tool for Coda, To Coda, Segno, D.S., D.C., Fine, N.C., and roadmap links."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "export-pro",
+            title: "Export And Pro",
+            summary: "Export stays free. Pro adds backup, Projects, and Forums.",
+            systemImageName: "square.and.arrow.up",
+            steps: [
+                IChartTutorialStep(
+                    id: "export",
+                    title: "PDF Export",
+                    detail: "PDF export and the chart-writing tools are available on Basic and Pro."
+                ),
+                IChartTutorialStep(
+                    id: "cloud-sync",
+                    title: "Cloud Sync",
+                    detail: "Pro cloud sync backs up charts and can restore them after reinstall or sign-in on another device."
+                ),
+                IChartTutorialStep(
+                    id: "forums",
+                    title: "Forums",
+                    detail: "Forums are part of Pro."
+                )
+            ]
+        )
+    ]
+
+    static let defaultID = "getting-started"
+}
+
+private struct IChartTutorialStep: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+}
+
+private enum IChartGuidedTourStep: String, Identifiable {
+    case welcome
+    case charts
+    case newChart
+    case simpleChart
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .welcome:
+            "Welcome To iChart"
+        case .charts:
+            "Start With Charts"
+        case .newChart:
+            "Create Your First Chart"
+        case .simpleChart:
+            "Choose Simple Chord Sheet"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .welcome:
+            "Write the chart. Share with the band. Take a quick tour, or jump straight into the app."
+        case .charts:
+            "Tap Charts in the sidebar. This is where saved charts and new chart creation live."
+        case .newChart:
+            "Tap New Chart to choose what kind of chart you want to make."
+        case .simpleChart:
+            "Choose Simple Chord Sheet for a chord-first page. Rhythm Section Sheet gives you more room for slashes, hits, and groove cues."
+        }
+    }
+
+    var primaryActionTitle: String? {
+        switch self {
+        case .welcome:
+            "Start Tour"
+        case .charts, .newChart, .simpleChart:
+            nil
+        }
+    }
+
+    var targetText: String? {
+        switch self {
+        case .welcome:
+            nil
+        case .charts:
+            "Tap Charts"
+        case .newChart:
+            "Tap New Chart"
+        case .simpleChart:
+            "Tap Simple Chord Sheet"
         }
     }
 }
@@ -277,12 +548,15 @@ struct LibraryView: View {
     @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
     @AppStorage("iChartChartsWorkspaceMode") private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
     @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
+    @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
+    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
     @AppStorage("iChartUserEmail") private var userEmail = ""
     @AppStorage("iChartUserPhone") private var userPhone = ""
     @AppStorage("iChartUserAddress") private var userAddress = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
+    @State private var guidedTourStep: IChartGuidedTourStep?
     @State private var showingLayoutPicker = false
     @State private var pendingProjectForNewChart: ChartProject.ID?
     @State private var showingAccountLanding = false
@@ -369,7 +643,8 @@ struct LibraryView: View {
                 logoVariant: logoVariant,
                 selectedTab: $selectedHomeTab,
                 appearanceMode: homeAppearanceModeBinding,
-                isCollapsed: $isSidebarCollapsed
+                isCollapsed: $isSidebarCollapsed,
+                onSelectTab: handleHomeTabSelection
             )
 
             Rectangle()
@@ -382,6 +657,18 @@ struct LibraryView: View {
         .background(IChartLibraryBackground(mode: homeAppearanceMode).ignoresSafeArea())
         .tint(IChartHomeBrand.blue)
         .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .topTrailing) {
+            if let guidedTourStep, guidedTourStep != .simpleChart {
+                IChartGuidedTourPrompt(
+                    step: guidedTourStep,
+                    theme: homeTheme,
+                    onPrimaryAction: beginGuidedTour,
+                    onSkip: finishGuidedTour
+                )
+                .padding(.top, 28)
+                .padding(.trailing, 28)
+            }
+        }
         .task {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
@@ -401,7 +688,9 @@ struct LibraryView: View {
             apply(profile: profile)
         }
         .sheet(isPresented: $showingLayoutPicker) {
-            NewChartLayoutPickerView { layoutStyle in
+            NewChartLayoutPickerView(
+                tourStep: guidedTourStep == .simpleChart ? .simpleChart : nil
+            ) { layoutStyle in
                 showingLayoutPicker = false
                 createNewChart(layoutStyle: layoutStyle)
             }
@@ -514,8 +803,7 @@ struct LibraryView: View {
                 canCreateChart: store.canCreateChart,
                 theme: homeTheme,
                 onCreateChart: {
-                    pendingProjectForNewChart = nil
-                    showingLayoutPicker = true
+                    requestNewChart(projectID: nil)
                 }
             )
 
@@ -567,8 +855,7 @@ struct LibraryView: View {
                                     openChartIfAllowed(chartID, initialCanvasMode: .browse)
                                 },
                                 onNewChart: { projectID in
-                                    pendingProjectForNewChart = projectID
-                                    showingLayoutPicker = true
+                                    requestNewChart(projectID: projectID)
                                 },
                                 onAddExisting: { project in
                                     addChartsRequest = ChartProjectAddChartsRequest(project: project)
@@ -728,7 +1015,7 @@ struct LibraryView: View {
                 theme: homeTheme
             ) {
                 VStack(spacing: 0) {
-                    let activeTopic = selectedHelpTopic ?? .faq
+                    let activeTopic = selectedHelpTopic ?? .tutorial
 
                     ForEach(IChartHelpTopic.allCases) { topic in
                         IChartHelpTopicRow(
@@ -751,7 +1038,11 @@ struct LibraryView: View {
                         .overlay(homeTheme.panelBorder)
                         .padding(.top, 8)
 
-                    IChartHelpTopicDetail(topic: activeTopic, theme: homeTheme)
+                    IChartHelpTopicDetail(
+                        topic: activeTopic,
+                        theme: homeTheme,
+                        onStartGuidedTour: startGuidedTourFromHelp
+                    )
                         .padding(.top, 16)
                 }
             }
@@ -832,6 +1123,31 @@ struct LibraryView: View {
         )
     }
 
+    private func handleHomeTabSelection(_ tab: IChartHomeTab) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedHomeTab = tab
+        }
+
+        guard guidedTourStep == .charts, tab == .charts else {
+            return
+        }
+
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        withAnimation(.easeInOut(duration: 0.18)) {
+            guidedTourStep = .newChart
+        }
+    }
+
+    private func requestNewChart(projectID: ChartProject.ID?) {
+        pendingProjectForNewChart = projectID
+
+        if guidedTourStep == .newChart {
+            guidedTourStep = .simpleChart
+        }
+
+        showingLayoutPicker = true
+    }
+
     private func openChartIfAllowed(_ chartID: Chart.ID, initialCanvasMode: EditorCanvasMode) {
         guard store.canOpenChartsForEditing else {
             store.selectedChartID = nil
@@ -847,6 +1163,7 @@ struct LibraryView: View {
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
         let targetProjectID = pendingProjectForNewChart
+        let startsGuidedSimpleChartTour = guidedTourStep == .simpleChart && layoutStyle == .simpleChordSheet
         pendingProjectForNewChart = nil
 
         guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
@@ -854,7 +1171,15 @@ struct LibraryView: View {
             return
         }
 
-        onOpenChart(chartID, .browse)
+        if guidedTourStep == .simpleChart {
+            guidedTourStep = nil
+        }
+
+        if startsGuidedSimpleChartTour {
+            pendingSimpleChartTour = true
+        }
+
+        onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
     }
 
     private func updateAccountLandingPresentation() {
@@ -874,6 +1199,14 @@ struct LibraryView: View {
 
         hasSeenAccountLanding = true
         showingAccountLanding = false
+
+        guard !hasSeenGuidedTourOffer else {
+            return
+        }
+
+        selectedHomeTab = .charts
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        guidedTourStep = .welcome
     }
 
     private func apply(profile: IChartUserProfile?) {
@@ -899,6 +1232,33 @@ struct LibraryView: View {
             store.applySubscriptionState(subscriptionPreview)
         }
         cloudSyncStore.authStateChanged(authStore.state)
+    }
+
+    private func beginGuidedTour() {
+        hasSeenGuidedTourOffer = true
+        selectedHomeTab = .charts
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        withAnimation(.easeInOut(duration: 0.18)) {
+            guidedTourStep = .newChart
+        }
+    }
+
+    private func startGuidedTourFromHelp() {
+        hasSeenGuidedTourOffer = true
+        selectedHelpTopic = .tutorial
+        selectedHomeTab = .charts
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        withAnimation(.easeInOut(duration: 0.18)) {
+            guidedTourStep = .newChart
+        }
+    }
+
+    private func finishGuidedTour() {
+        hasSeenGuidedTourOffer = true
+        pendingSimpleChartTour = false
+        withAnimation(.easeInOut(duration: 0.18)) {
+            guidedTourStep = nil
+        }
     }
 }
 
@@ -1026,12 +1386,17 @@ private struct RenameChartSheetView: View {
 
 private struct NewChartLayoutPickerView: View {
     @Environment(\.dismiss) private var dismiss
+    let tourStep: IChartGuidedTourStep?
     let onSelect: (ChartLayoutStyle) -> Void
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if let tourStep {
+                        IChartGuidedTourSheetCallout(step: tourStep)
+                    }
+
                     ForEach(ChartLayoutStyle.v1NewChartOptions) { layoutStyle in
                         Button {
                             onSelect(layoutStyle)
@@ -1082,6 +1447,94 @@ private struct NewChartLayoutPickerView: View {
         }
     }
 
+}
+
+private struct IChartGuidedTourPrompt: View {
+    let step: IChartGuidedTourStep
+    let theme: IChartHomeTheme
+    let onPrimaryAction: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(step.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(step.message)
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let targetText = step.targetText {
+                Label(targetText, systemImage: "hand.tap")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.16 : 0.76))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            HStack(spacing: 10) {
+                if let primaryActionTitle = step.primaryActionTitle {
+                    Button(primaryActionTitle, action: onPrimaryAction)
+                        .buttonStyle(.borderedProminent)
+                        .tint(IChartHomeBrand.blue)
+                }
+
+                Button("Skip Tour", action: onSkip)
+                    .buttonStyle(.bordered)
+                    .tint(IChartHomeBrand.blue)
+            }
+        }
+        .padding(16)
+        .frame(width: 360, alignment: .leading)
+        .background(theme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+        .shadow(color: theme.panelShadow, radius: 16, y: 8)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct IChartGuidedTourSheetCallout: View {
+    let step: IChartGuidedTourStep
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(step.title, systemImage: "hand.tap")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.ink)
+
+            Text(step.message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(IChartHomeBrand.blueSoft.opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(IChartHomeBrand.blue.opacity(0.16), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
 
 private struct IChartProjectFormSheet: View {
@@ -1385,6 +1838,7 @@ private struct IChartHomeSidebar: View {
     @Binding var selectedTab: IChartHomeTab
     @Binding var appearanceMode: IChartHomeAppearanceMode
     @Binding var isCollapsed: Bool
+    let onSelectTab: (IChartHomeTab) -> Void
 
     var body: some View {
         VStack(alignment: isCollapsed ? .center : .leading, spacing: isCollapsed ? 16 : 22) {
@@ -1397,9 +1851,7 @@ private struct IChartHomeSidebar: View {
                         isSelected: selectedTab == tab,
                         isCollapsed: isCollapsed,
                         action: {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                selectedTab = tab
-                            }
+                            onSelectTab(tab)
                         }
                     )
                 }
@@ -1590,20 +2042,163 @@ private struct IChartHelpTopicRow: View {
 private struct IChartHelpTopicDetail: View {
     let topic: IChartHelpTopic
     let theme: IChartHomeTheme
+    let onStartGuidedTour: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        switch topic {
+        case .tutorial:
+            IChartTutorialGuide(theme: theme, onStartGuidedTour: onStartGuidedTour)
+        case .faq, .userPolicy, .legal, .contactUs:
+            VStack(alignment: .leading, spacing: 8) {
+                Label(topic.detailTitle, systemImage: topic.systemImageName)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+
+                Text(topic.detailText)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+private struct IChartTutorialGuide: View {
+    let theme: IChartHomeTheme
+    let onStartGuidedTour: () -> Void
+    @State private var selectedSectionID = IChartTutorialSection.defaultID
+
+    private var selectedSection: IChartTutorialSection {
+        IChartTutorialSection.all.first { $0.id == selectedSectionID } ?? IChartTutorialSection.all[0]
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(topic.detailTitle, systemImage: topic.systemImageName)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(theme.panelTitle)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("iChart Tutorial", systemImage: "graduationcap")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
 
-            Text(topic.detailText)
-                .font(.subheadline)
-                .foregroundStyle(theme.panelSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    Text("Choose a system below for a compact reference, or start the hands-on tour from the live app.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Button(action: onStartGuidedTour) {
+                    Label("Start Hands-On Tour", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(IChartHomeBrand.blue)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(IChartTutorialSection.all) { section in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                selectedSectionID = section.id
+                            }
+                        } label: {
+                            Label(section.title, systemImage: section.systemImageName)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .foregroundStyle(section.id == selectedSectionID ? IChartHomeBrand.paper : theme.panelTitle)
+                                .background(section.id == selectedSectionID ? IChartHomeBrand.blue : theme.emptyStateBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(theme.panelBorder, lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Show \(section.title)")
+                    }
+                }
+            }
+
+            IChartTutorialSectionCard(section: selectedSection, theme: theme)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct IChartTutorialSectionCard: View {
+    let section: IChartTutorialSection
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: section.systemImageName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(section.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(section.summary)
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(section.steps.enumerated()), id: \.element.id) { index, step in
+                    IChartTutorialStepRow(number: index + 1, step: step, theme: theme)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct IChartTutorialStepRow: View {
+    let number: Int
+    let step: IChartTutorialStep
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(number)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 22, height: 22)
+                .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.82))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+
+                Text(step.detail)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
