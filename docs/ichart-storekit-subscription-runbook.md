@@ -1,7 +1,8 @@
 # iChart StoreKit Subscription Runbook
 
-Status: local StoreKit QA baseline
+Status: StoreKit/Supabase authority loop wired; App Store Connect sandbox gate pending
 Created: 2026-06-12
+Last updated: 2026-06-13
 
 ## Product IDs
 
@@ -40,6 +41,8 @@ Before App Store/TestFlight subscription QA, configure the Apple-side products:
 - Create one subscription group for iChart Pro.
 - Create the monthly auto-renewable subscription with product ID `com.smartchart.app.pro.monthly`.
 - Create the annual auto-renewable subscription with product ID `com.smartchart.app.pro.annual`.
+- Use app bundle ID `com.smartchart.app`.
+- Set App Store Server Notifications Version 2 sandbox URL to `https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/app-store-server-notifications`.
 - Add product display names, descriptions, durations, review metadata, screenshots if required by App Review, and localization records.
 - Set the monthly starting price to $7.99 and the annual starting price to $64.99 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
 - Leave both products in a state where StoreKit can fetch them in sandbox/TestFlight before removing the local StoreKit configuration from the run scheme.
@@ -58,6 +61,7 @@ Primary Apple references:
 
 - [Auto-renewable subscriptions](https://developer.apple.com/app-store/subscriptions/)
 - [Manage pricing for auto-renewable subscriptions](https://developer.apple.com/help/app-store-connect/manage-subscriptions/manage-pricing-for-auto-renewable-subscriptions/)
+- [Enter server URLs for App Store Server Notifications](https://developer.apple.com/help/app-store-connect/configure-in-app-purchase-settings/enter-server-urls-for-app-store-server-notifications)
 - [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
 - [App Store Server Notifications](https://developer.apple.com/documentation/appstoreservernotifications)
 
@@ -85,19 +89,28 @@ Both entrypoints also create the Supabase subscription authority store from Edge
 
 Required Edge Function verifier secrets:
 
-- `APP_STORE_BUNDLE_ID`: the iChart bundle identifier.
+- `APP_STORE_BUNDLE_ID`: `com.smartchart.app`.
 - `APP_STORE_ENVIRONMENT`: `Sandbox` for sandbox/TestFlight verification, `Production` for production App Store traffic.
 - `APP_STORE_ROOT_CERTIFICATES_PEM`: Apple Root Certificate PEM blocks from the Apple PKI site, stored as an Edge Function secret.
 - `APP_STORE_APP_APPLE_ID`: App Store app identifier. Required for `Production`; omitted for `Sandbox`.
 
-Set secrets from the operator machine, never in git:
+Prepare the public Apple root certificate bundle locally:
 
 ```sh
-supabase secrets set APP_STORE_BUNDLE_ID=<bundle-id>
-supabase secrets set APP_STORE_ENVIRONMENT=Sandbox
-supabase secrets set APP_STORE_ROOT_CERTIFICATES_PEM="$(cat /secure/path/apple-root-certificates.pem)"
-supabase secrets set APP_STORE_APP_APPLE_ID=<numeric-app-apple-id>
+scripts/prepare_apple_root_certificates.sh /tmp/ichart-apple-root-certificates.pem
 ```
+
+Set secrets from the operator machine or Supabase Dashboard, never in git:
+
+```sh
+supabase secrets set APP_STORE_BUNDLE_ID=com.smartchart.app
+supabase secrets set APP_STORE_ENVIRONMENT=Sandbox
+supabase secrets set APP_STORE_ROOT_CERTIFICATES_PEM="$(cat /tmp/ichart-apple-root-certificates.pem)"
+# Production only:
+# supabase secrets set APP_STORE_APP_APPLE_ID=<numeric-app-apple-id>
+```
+
+Supabase hosted Edge Functions expose `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` by default. The secret key is server-only and must never be copied into the iOS app, docs, `.env.example`, or chat.
 
 Current behavior is intentionally locked:
 
