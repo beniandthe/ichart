@@ -842,4 +842,70 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessScriptText.contains("SUPABASE_SERVICE_ROLE_KEY"))
         XCTAssertTrue(productionReadinessScriptText.contains("Manual simulator/cloud gate still required"))
     }
+
+    func testForumCommunityLibraryInfrastructureIsProOnlyAndSnapshotBased() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let forumMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260613175920_forum_community_library.sql")
+        )
+        let rlsTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/tests/rls_smoke.sql")
+        )
+        let forumStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/App/Forum/IChartForumStore.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Features/Library/LibraryView.swift")
+        )
+        let exporterText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Services/ChartExporting.swift")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_songs"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_chart_posts"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_comments"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_votes"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_reports"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_author_badges"))
+        XCTAssertTrue(forumMigrationText.contains("public.current_user_has_active_pro()"))
+        XCTAssertTrue(forumMigrationText.contains("storage.buckets"))
+        XCTAssertTrue(forumMigrationText.contains("'forum_chart_pdfs'"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_insert_active_pro_owner_folder"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_select_active_pro_visible_post"))
+        XCTAssertTrue(forumMigrationText.contains("revoke all on schema private from public"))
+        XCTAssertTrue(forumMigrationText.contains("private.refresh_forum_chart_post_quality"))
+        XCTAssertFalse(forumMigrationText.contains("chart_json"))
+        XCTAssertTrue(rlsTestText.contains("inactive Basic user cannot insert forum songs"))
+        XCTAssertTrue(rlsTestText.contains("active Pro can publish forum chart post metadata"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update forum moderation status"))
+        XCTAssertTrue(rlsTestText.contains("client cannot self-award forum badges"))
+        XCTAssertTrue(forumStoreText.contains("static func live(clients:"))
+        XCTAssertTrue(forumStoreText.contains(".requiresPro"))
+        XCTAssertTrue(forumStoreText.contains("client.storage"))
+        XCTAssertTrue(forumStoreText.contains(".upload("))
+        XCTAssertTrue(forumStoreText.contains(".download(path:"))
+        XCTAssertTrue(forumStoreText.contains("ChartPDFExportContext("))
+        XCTAssertFalse(forumStoreText.contains("chart_json"))
+        XCTAssertTrue(libraryText.contains("IChartForumHomeView"))
+        XCTAssertTrue(libraryText.contains("Share To Forum"))
+        XCTAssertTrue(libraryText.contains("PDF snapshots only"))
+        XCTAssertTrue(libraryText.contains("No editable chart files"))
+        XCTAssertTrue(libraryText.contains("Forums require Pro"))
+        XCTAssertTrue(exporterText.contains("ForumPDFCredit"))
+        XCTAssertTrue(exporterText.contains("Shared from iChart Forums"))
+        XCTAssertTrue(planPolicyText.contains("community chart library"))
+        XCTAssertTrue(planPolicyText.contains("editable chart JSON, source ink, and local authoring state are not shared in V1"))
+        XCTAssertTrue(planPolicyText.contains("users cannot self-award badges"))
+    }
 }

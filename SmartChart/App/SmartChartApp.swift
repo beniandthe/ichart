@@ -6,6 +6,7 @@ struct SmartChartApp: App {
     @StateObject private var authStore: IChartAuthStore
     @StateObject private var cloudSyncStore: ChartCloudSyncStore
     @StateObject private var subscriptionStore: IChartStoreKitSubscriptionStore
+    @StateObject private var forumStore: IChartForumStore
 
     init() {
         let libraryStore = ChartLibraryStore.live()
@@ -15,6 +16,7 @@ struct SmartChartApp: App {
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
         _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
         _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
+        _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
@@ -28,20 +30,26 @@ struct SmartChartApp: App {
                 .environmentObject(authStore)
                 .environmentObject(cloudSyncStore)
                 .environmentObject(subscriptionStore)
+                .environmentObject(forumStore)
                 .task {
                     await subscriptionStore.bootstrap()
                     store.applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
+                    await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     store.applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
+                    Task {
+                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+                    }
                 }
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)
                     Task {
                         await subscriptionStore.refreshEntitlements()
                         store.applySubscriptionState(subscriptionStore.entitlement)
+                        await forumStore.refresh(authState: state, entitlements: store.entitlements)
                     }
                 }
                 .onOpenURL { url in
@@ -50,6 +58,7 @@ struct SmartChartApp: App {
                         cloudSyncStore.authStateChanged(authStore.state)
                         await subscriptionStore.refreshEntitlements()
                         store.applySubscriptionState(subscriptionStore.entitlement)
+                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                     }
                 }
         }

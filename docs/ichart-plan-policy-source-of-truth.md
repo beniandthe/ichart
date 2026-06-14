@@ -164,6 +164,13 @@ Chart sync states should communicate the user's real situation:
 - Forums may remain visible in the sidebar for Basic users, but the content should be locked with clear upgrade copy.
 - Forums should not block access to Charts, Help, or Settings.
 - Forums access should be controlled by the same active Pro entitlement boundary as cloud services.
+- Forums are a community chart library, not an anonymous social feed.
+- Forum publishing creates a fixed PDF snapshot with creator credit and source metadata; editable chart JSON, source ink, and local authoring state are not shared in V1.
+- Every post, comment, vote, report, and badge must be tied to a verified account identity.
+- Forum chart posts require song title, artist, chart title, arranger/creator credit, layout style, and optional tags/version notes.
+- Community quality uses votes, report thresholds, ranking scores, and moderation states such as `published`, `flagged`, `hidden`, and `removed`.
+- Users may vote, comment, report, download PDFs, and publish visible chart posts when active Pro is verified; users cannot self-award badges or directly mutate moderation status, aggregate counters, subscription state, or another user's content.
+- Forum charts should remain chords/rhythm-chart focused in V1 and avoid lyrics/melody-sharing features.
 
 ## 10. Subscription And Payment Policy
 

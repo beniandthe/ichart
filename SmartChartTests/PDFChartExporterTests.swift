@@ -171,6 +171,35 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertEqual(exportedPDF.navigationTitle, "Smart Chart - Rhythm Section Sheet - Concert")
     }
 
+    func testForumPDFExportIncludesFixedCreatorCreditFooter() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        let postID = UUID(uuidString: "40000000-0000-0000-0000-000000000001")!
+        let chart = Chart.blank(title: "Forum Export Proof", measureCount: 4)
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedURL = try await exporter.exportPDF(
+            for: chart,
+            context: ChartPDFExportContext(
+                forumCredit: ForumPDFCredit(
+                    creatorDisplayName: "Beni Rossman",
+                    forumPostID: postID,
+                    exportedAt: Date(timeIntervalSince1970: 1_781_308_800)
+                )
+            )
+        ).url
+        let documentText = PDFDocument(url: exportedURL)?.string ?? ""
+
+        XCTAssertTrue(documentText.contains("Shared from iChart Forums"))
+        XCTAssertTrue(documentText.contains("Creator: Beni Rossman"))
+        XCTAssertTrue(documentText.contains(postID.uuidString))
+        XCTAssertTrue(documentText.contains("Exported: 2026-06-13"))
+    }
+
     private func makeSimpleChordSheetExportProofChart() throws -> Chart {
         var chart = Chart.blank(
             title: "Simple Export Proof",

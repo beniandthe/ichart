@@ -1,6 +1,6 @@
 begin;
 
-select plan(18);
+select plan(38);
 
 insert into auth.users (id, email)
 values
@@ -240,6 +240,319 @@ select throws_ok(
     '42501',
     null,
     'latest snapshot pointer cannot reference a missing snapshot'
+);
+
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+
+select throws_ok(
+    $$
+    insert into public.forum_songs (
+        id,
+        song_title,
+        artist_name,
+        normalized_song_title,
+        normalized_artist_name,
+        created_by
+    ) values (
+        '30000000-0000-0000-0000-000000000002',
+        'Hidden Tune',
+        'Other Artist',
+        'hidden tune',
+        'other artist',
+        '00000000-0000-0000-0000-000000000002'
+    )
+    $$,
+    '42501',
+    null,
+    'inactive Basic user cannot insert forum songs'
+);
+
+select is(
+    (select count(*)::integer from public.forum_songs),
+    0,
+    'inactive Basic user cannot read forum songs'
+);
+
+reset role;
+
+update public.subscriptions
+set plan = 'studioSubscription',
+    status = 'active',
+    provider = 'manual',
+    entitlement_expires_at = now() + interval '30 days',
+    revoked_at = null
+where owner_id = '00000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select lives_ok(
+    $$
+    insert into public.forum_songs (
+        id,
+        song_title,
+        artist_name,
+        normalized_song_title,
+        normalized_artist_name,
+        created_by
+    ) values (
+        '30000000-0000-0000-0000-000000000001',
+        'Blue Bossa',
+        'Kenny Dorham',
+        'blue bossa',
+        'kenny dorham',
+        '00000000-0000-0000-0000-000000000001'
+    )
+    $$,
+    'active Pro can insert forum song metadata'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_chart_posts (
+        id,
+        song_id,
+        owner_id,
+        local_chart_id,
+        chart_title,
+        arranger_credit,
+        creator_display_name,
+        tags,
+        version_note,
+        layout_style,
+        pdf_storage_path
+    ) values (
+        '40000000-0000-0000-0000-000000000001',
+        '30000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        '10000000-0000-0000-0000-000000000001',
+        'Blue Bossa Rhythm Chart',
+        'Beni Rossman',
+        'Beni Rossman',
+        array['rhythm section', 'standard'],
+        'Studio form',
+        'rhythmSectionSheet',
+        '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
+    )
+    $$,
+    'active Pro can publish forum chart post metadata'
+);
+
+select is(
+    (select count(*)::integer from public.forum_songs),
+    1,
+    'active Pro can read visible forum song metadata'
+);
+
+select is(
+    (select count(*)::integer from public.forum_chart_posts),
+    1,
+    'active Pro can read visible forum chart posts'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_votes (
+        id,
+        post_id,
+        owner_id,
+        vote_value
+    ) values (
+        '50000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        1
+    )
+    $$,
+    'active Pro can vote on visible forum post'
+);
+
+select is(
+    (
+        select vote_up_count
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    1,
+    'forum vote trigger updates upvote aggregate'
+);
+
+select lives_ok(
+    $$
+    update public.forum_votes
+    set vote_value = -1
+    where id = '50000000-0000-0000-0000-000000000001'
+    $$,
+    'active Pro can change own vote'
+);
+
+select is(
+    (
+        select vote_down_count
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    1,
+    'forum vote trigger updates downvote aggregate'
+);
+
+select throws_ok(
+    $$
+    insert into public.forum_votes (
+        post_id,
+        owner_id,
+        vote_value
+    ) values (
+        '40000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        1
+    )
+    $$,
+    '23505',
+    null,
+    'one user cannot create duplicate votes on one forum post'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_comments (
+        id,
+        post_id,
+        owner_id,
+        body
+    ) values (
+        '60000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        'Clean form and readable hits.'
+    )
+    $$,
+    'active Pro can comment on visible forum post'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_reports (
+        id,
+        owner_id,
+        target_type,
+        post_id,
+        reason,
+        detail
+    ) values (
+        '70000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        'post',
+        '40000000-0000-0000-0000-000000000001',
+        'wrongChords',
+        'Needs one turnaround correction.'
+    )
+    $$,
+    'active Pro can report a visible forum post'
+);
+
+select is(
+    (
+        select report_count
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    1,
+    'forum report trigger updates post report aggregate'
+);
+
+select throws_ok(
+    $$
+    update public.forum_chart_posts
+    set status = 'hidden'
+    where id = '40000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update forum moderation status'
+);
+
+select throws_ok(
+    $$
+    update public.forum_chart_posts
+    set vote_up_count = 99
+    where id = '40000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update forum aggregate counters'
+);
+
+select throws_ok(
+    $$
+    insert into public.forum_author_badges (
+        owner_id,
+        badge_type
+    ) values (
+        '00000000-0000-0000-0000-000000000001',
+        'communityExpert'
+    )
+    $$,
+    '42501',
+    null,
+    'client cannot self-award forum badges'
+);
+
+select throws_ok(
+    $$
+    insert into public.forum_chart_posts (
+        song_id,
+        owner_id,
+        chart_title,
+        arranger_credit,
+        creator_display_name,
+        layout_style,
+        pdf_storage_path
+    ) values (
+        '30000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000002',
+        'Cross Owner Chart',
+        'Other',
+        'Other',
+        'simpleChordSheet',
+        '00000000-0000-0000-0000-000000000002/cross-owner.pdf'
+    )
+    $$,
+    '42501',
+    null,
+    'active Pro cannot publish forum post for another owner'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_reports (
+        id,
+        owner_id,
+        target_type,
+        comment_id,
+        reason
+    ) values (
+        '70000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000001',
+        'comment',
+        '60000000-0000-0000-0000-000000000001',
+        'other'
+    )
+    $$,
+    'active Pro can report a visible forum comment'
+);
+
+select is(
+    (
+        select report_count
+        from public.forum_comments
+        where id = '60000000-0000-0000-0000-000000000001'
+    ),
+    1,
+    'forum report trigger updates comment report aggregate'
 );
 
 select * from finish();

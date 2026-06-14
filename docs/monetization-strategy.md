@@ -64,7 +64,7 @@ Recommended Pro access:
 - cloud chart backup
 - chart restore after reinstall or new iPad sign-in
 - future cross-device chart sync
-- Forums access
+- Forums access as a Pro-only community chart library for PDF chart snapshots, voting, comments, reports, and trusted contributor badges
 - future cloud-backed chart organization
 - unlimited local charts if the subscription is active
 - future service-heavy features such as sharing, version history, setlists, or AI-assisted cleanup if built

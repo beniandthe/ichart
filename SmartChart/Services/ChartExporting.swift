@@ -45,6 +45,32 @@ struct ExportedPDF: Identifiable, Hashable {
     }
 }
 
+struct ForumPDFCredit: Hashable {
+    let creatorDisplayName: String
+    let forumPostID: UUID
+    let exportedAt: Date
+
+    var footerText: String {
+        let dateText = Self.dateFormatter.string(from: exportedAt)
+        return "Shared from iChart Forums - Creator: \(creatorDisplayName) - Post: \(forumPostID.uuidString) - Exported: \(dateText)"
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+}
+
+struct ChartPDFExportContext: Hashable {
+    var forumCredit: ForumPDFCredit?
+
+    static let standard = ChartPDFExportContext(forumCredit: nil)
+}
+
 protocol ChartExporting {
     func exportPDF(for chart: Chart) async throws -> ExportedPDF
 }
@@ -73,6 +99,10 @@ struct PDFChartExporter: ChartExporting {
     }
 
     func exportPDF(for chart: Chart) async throws -> ExportedPDF {
+        try await exportPDF(for: chart, context: .standard)
+    }
+
+    func exportPDF(for chart: Chart, context: ChartPDFExportContext) async throws -> ExportedPDF {
         try fileManager.createDirectory(
             at: exportDirectory,
             withIntermediateDirectories: true,
@@ -80,7 +110,7 @@ struct PDFChartExporter: ChartExporting {
         )
 
         let outputURL = exportDirectory.appendingPathComponent(exportFileName(for: chart), isDirectory: false)
-        let renderer = ChartPDFRenderer(chart: chart)
+        let renderer = ChartPDFRenderer(chart: chart, exportContext: context)
         let pdfData = await MainActor.run {
             renderer.render()
         }
@@ -132,6 +162,7 @@ struct PDFChartExporter: ChartExporting {
 
 private struct ChartPDFRenderer {
     let chart: Chart
+    let exportContext: ChartPDFExportContext
 
     private let layoutCanvasWidth: CGFloat = 932
     private let minimumLayoutCanvasHeight: CGFloat = 1_100
@@ -150,8 +181,8 @@ private struct ChartPDFRenderer {
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
 
-        return renderer.pdfData { context in
-            context.beginPage()
+        return renderer.pdfData { rendererContext in
+            rendererContext.beginPage()
             UIColor.white.setFill()
             UIBezierPath(rect: pageRect).fill()
 
@@ -166,7 +197,30 @@ private struct ChartPDFRenderer {
             )
             drawLeadSheetPage(pageLayout, in: cgContext)
             cgContext.restoreGState()
+            drawForumCreditFooter(in: pageRect)
         }
+    }
+
+    private func drawForumCreditFooter(in pageRect: CGRect) {
+        guard let forumCredit = exportContext.forumCredit else {
+            return
+        }
+
+        let footerRect = CGRect(
+            x: pageRect.minX + 46,
+            y: pageRect.maxY - 34,
+            width: pageRect.width - 92,
+            height: 18
+        )
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8, weight: .medium),
+            .foregroundColor: UIColor.black.withAlphaComponent(0.45),
+            .paragraphStyle: paragraphStyle
+        ]
+
+        NSString(string: forumCredit.footerText).draw(in: footerRect, withAttributes: attributes)
     }
 
     private func drawLeadSheetPage(_ pageLayout: LeadSheetPageLayout, in context: CGContext) {
