@@ -87,4 +87,42 @@ final class ForumCommunityTests: XCTestCase {
             "00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf"
         )
     }
+
+    func testForumPostModerationStatusControlsCommunityActions() {
+        var post = forumPost(status: .published)
+        XCTAssertTrue(post.acceptsCommunityActions)
+
+        post.status = .flagged
+        XCTAssertTrue(post.acceptsCommunityActions)
+        XCTAssertEqual(post.qualityStatus, .needsReview)
+
+        post.status = .hidden
+        XCTAssertFalse(post.acceptsCommunityActions)
+        XCTAssertEqual(post.qualityStatus, .hidden)
+
+        post.status = .removed
+        XCTAssertFalse(post.acceptsCommunityActions)
+        XCTAssertEqual(post.qualityStatus, .removed)
+    }
+
+    private func forumPost(status: ForumPostModerationStatus) -> ForumChartPost {
+        ForumChartPost(
+            id: UUID(),
+            songID: UUID(),
+            ownerID: UUID(),
+            chartTitle: "Community Chart",
+            arrangerCredit: "Beni Rossman",
+            creatorDisplayName: "Beni",
+            tags: ["standard"],
+            versionNote: nil,
+            layoutStyle: .simpleChordSheet,
+            pdfStoragePath: "owner/post.pdf",
+            status: status,
+            voteUpCount: 0,
+            voteDownCount: 0,
+            reportCount: 0,
+            rankingScore: 0,
+            publishedAt: Date()
+        )
+    }
 }

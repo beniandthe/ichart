@@ -130,6 +130,15 @@ struct ForumChartPost: Identifiable, Codable, Equatable, Hashable {
     var voteSummaryText: String {
         ForumQualityPolicy.voteSummaryText(upVotes: voteUpCount, downVotes: voteDownCount)
     }
+
+    var acceptsCommunityActions: Bool {
+        switch status {
+        case .published, .flagged:
+            return true
+        case .hidden, .removed:
+            return false
+        }
+    }
 }
 
 struct ForumComment: Identifiable, Codable, Equatable, Hashable {

@@ -98,8 +98,9 @@ final class IChartForumStore: ObservableObject {
     }
 
     func openPost(_ post: ForumChartPost, song: ForumSong) async {
+        selectedDetail = nil
         await run {
-            selectedDetail = try await service.loadPostDetail(postID: post.id, song: song)
+            try await refreshSelectedDetail(postID: post.id, song: song)
         }
     }
 
@@ -122,7 +123,7 @@ final class IChartForumStore: ObservableObject {
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
         await run {
             try await service.vote(postID: detail.post.id, vote: vote)
-            selectedDetail = try await service.loadPostDetail(postID: detail.post.id, song: detail.song)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
             state = .loaded(try await service.loadHome(query: lastQuery))
         }
     }
@@ -130,21 +131,21 @@ final class IChartForumStore: ObservableObject {
     func addComment(_ body: String, to detail: IChartForumPostDetail) async {
         await run {
             try await service.addComment(postID: detail.post.id, body: body)
-            selectedDetail = try await service.loadPostDetail(postID: detail.post.id, song: detail.song)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
 
     func reportPost(_ reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
         await run(successMessage: "Report sent.") {
             try await service.reportPost(postID: detail.post.id, reason: reason, detail: detailText)
-            selectedDetail = try await service.loadPostDetail(postID: detail.post.id, song: detail.song)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
 
     func reportComment(_ comment: ForumComment, reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
         await run(successMessage: "Report sent.") {
             try await service.reportComment(commentID: comment.id, reason: reason, detail: detailText)
-            selectedDetail = try await service.loadPostDetail(postID: detail.post.id, song: detail.song)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
 
@@ -180,6 +181,19 @@ final class IChartForumStore: ObservableObject {
             }
         }
         isWorking = false
+    }
+
+    private func refreshSelectedDetail(postID: UUID, song: ForumSong) async throws {
+        do {
+            selectedDetail = try await service.loadPostDetail(postID: postID, song: song)
+        } catch IChartForumServiceError.missingForumPost {
+            selectedDetail = nil
+            downloadedPDF = nil
+            if let summaries = try? await service.loadHome(query: lastQuery) {
+                state = .loaded(summaries)
+            }
+            throw IChartForumServiceError.missingForumPost
+        }
     }
 
     private static func displayText(for error: Error) -> String {

@@ -1,6 +1,6 @@
 begin;
 
-select plan(44);
+select plan(49);
 
 insert into auth.users (id, email)
 values
@@ -633,6 +633,69 @@ select is(
     ),
     1,
     'forum report trigger updates comment report aggregate'
+);
+
+reset role;
+
+update public.forum_chart_posts
+set status = 'hidden'
+where id = '40000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    0,
+    'active Pro cannot read hidden forum posts'
+);
+
+select lives_ok(
+    $$
+    update public.forum_votes
+    set vote_value = 1
+    where id = '50000000-0000-0000-0000-000000000001'
+    $$,
+    'vote update against hidden forum post is filtered without error'
+);
+
+reset role;
+
+select is(
+    (
+        select vote_value::integer
+        from public.forum_votes
+        where id = '50000000-0000-0000-0000-000000000001'
+    ),
+    -1,
+    'hidden forum post keeps existing vote value frozen'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select lives_ok(
+    $$
+    delete from public.forum_votes
+    where id = '50000000-0000-0000-0000-000000000001'
+    $$,
+    'vote delete against hidden forum post is filtered without error'
+);
+
+reset role;
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_votes
+        where id = '50000000-0000-0000-0000-000000000001'
+    ),
+    1,
+    'hidden forum post keeps existing vote row frozen'
 );
 
 select * from finish();

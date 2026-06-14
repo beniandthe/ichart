@@ -2413,6 +2413,7 @@ private struct IChartForumPostDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     header
+                    moderationNotice
                     actionRow
                     comments
                 }
@@ -2499,6 +2500,18 @@ private struct IChartForumPostDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var moderationNotice: some View {
+        if let message = moderationNoticeText {
+            IChartForumStatusBanner(
+                text: message,
+                systemImageName: detail.post.acceptsCommunityActions ? "exclamationmark.triangle.fill" : "lock.fill",
+                color: detail.post.acceptsCommunityActions ? .orange : .red,
+                theme: theme
+            )
+        }
+    }
+
     private var actionRow: some View {
         HStack(spacing: 10) {
             Button {
@@ -2532,7 +2545,7 @@ private struct IChartForumPostDetailView: View {
             }
             .buttonStyle(.bordered)
         }
-        .disabled(isWorking)
+        .disabled(isWorking || !detail.post.acceptsCommunityActions)
     }
 
     private var comments: some View {
@@ -2541,29 +2554,36 @@ private struct IChartForumPostDetailView: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            HStack(alignment: .top, spacing: 8) {
-                TextField("Add a comment", text: $commentText, axis: .vertical)
-                    .lineLimit(2...5)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isCommentFocused)
+            if detail.post.acceptsCommunityActions {
+                HStack(alignment: .top, spacing: 8) {
+                    TextField("Add a comment", text: $commentText, axis: .vertical)
+                        .lineLimit(2...5)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isCommentFocused)
 
-                IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for forum comment") {
-                    isCommentFocused = true
-                }
-
-                Button {
-                    let body = ForumPublishDraft.normalizedDisplayText(commentText)
-                    guard !body.isEmpty else {
-                        return
+                    IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for forum comment") {
+                        isCommentFocused = true
                     }
-                    commentText = ""
-                    onComment(body)
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
+
+                    Button {
+                        let body = ForumPublishDraft.normalizedDisplayText(commentText)
+                        guard !body.isEmpty else {
+                            return
+                        }
+                        commentText = ""
+                        onComment(body)
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                    }
+                    .disabled(isWorking)
+                    .accessibilityLabel("Post comment")
                 }
-                .disabled(isWorking)
-                .accessibilityLabel("Post comment")
+            } else {
+                Text("Discussion is closed for this chart.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .padding(.vertical, 8)
             }
 
             if detail.comments.isEmpty {
@@ -2590,6 +2610,21 @@ private struct IChartForumPostDetailView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(theme.panelBorder, lineWidth: 1)
+        }
+    }
+
+    private var moderationNoticeText: String? {
+        switch detail.post.status {
+        case .published:
+            return detail.post.qualityStatus == .needsReview
+                ? "This chart has been flagged for community review."
+                : nil
+        case .flagged:
+            return "This chart is under community review."
+        case .hidden:
+            return "This chart is hidden while it is reviewed."
+        case .removed:
+            return "This chart is no longer available in Forums."
         }
     }
 }
