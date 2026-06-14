@@ -850,10 +850,13 @@ final class ProjectConfigurationTests: XCTestCase {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let forumMigrationText = try String(
-            contentsOf: projectRoot
-                .appendingPathComponent("supabase/migrations/20260614145320_forum_community_library.sql")
-        )
+        let migrationDirectory = projectRoot.appendingPathComponent("supabase/migrations")
+        let forumMigrationText = try FileManager.default
+            .contentsOfDirectory(at: migrationDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "sql" && $0.lastPathComponent.contains("forum") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { try String(contentsOf: $0) }
+            .joined(separator: "\n")
         let rlsTestText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/tests/rls_smoke.sql")
@@ -886,6 +889,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(forumMigrationText.contains("'forum_chart_pdfs'"))
         XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_insert_active_pro_owner_folder"))
         XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_select_active_pro_visible_post"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_delete_unattached_owner_upload"))
         XCTAssertTrue(forumMigrationText.contains("revoke all on schema private from public"))
         XCTAssertTrue(forumMigrationText.contains("private.refresh_forum_chart_post_quality"))
         XCTAssertFalse(forumMigrationText.contains("chart_json"))
@@ -897,6 +901,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(forumStoreText.contains(".requiresPro"))
         XCTAssertTrue(forumStoreText.contains("client.storage"))
         XCTAssertTrue(forumStoreText.contains(".upload("))
+        XCTAssertTrue(forumStoreText.contains(".remove(paths:"))
         XCTAssertTrue(forumStoreText.contains(".download(path:"))
         XCTAssertTrue(forumStoreText.contains("ChartPDFExportContext("))
         XCTAssertFalse(forumStoreText.contains("chart_json"))

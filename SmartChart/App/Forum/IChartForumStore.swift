@@ -395,24 +395,34 @@ private actor IChartSupabaseForumService: IChartForumServicing {
                 )
             )
 
-        let song = try await resolvedSong(for: draft, ownerID: ownerID)
-        let postInsert = ForumChartPostInsert(
-            id: postID,
-            songID: song.id,
-            ownerID: ownerID,
-            localChartID: chart.id,
-            chartTitle: ForumPublishDraft.normalizedDisplayText(draft.chartTitle),
-            arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
-            creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
-            tags: draft.sanitizedTags,
-            versionNote: ForumPublishDraft.normalizedDisplayText(draft.versionNote).nilIfEmpty,
-            layoutStyle: chart.layoutStyle.rawValue,
-            pdfStoragePath: storagePath
-        )
-        try await client
-            .from("forum_chart_posts")
-            .insert(postInsert)
-            .execute()
+        let song: ForumSong
+        var shouldRollbackUploadedPDF = true
+        do {
+            song = try await resolvedSong(for: draft, ownerID: ownerID)
+            let postInsert = ForumChartPostInsert(
+                id: postID,
+                songID: song.id,
+                ownerID: ownerID,
+                localChartID: chart.id,
+                chartTitle: ForumPublishDraft.normalizedDisplayText(draft.chartTitle),
+                arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
+                creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
+                tags: draft.sanitizedTags,
+                versionNote: ForumPublishDraft.normalizedDisplayText(draft.versionNote).nilIfEmpty,
+                layoutStyle: chart.layoutStyle.rawValue,
+                pdfStoragePath: storagePath
+            )
+            try await client
+                .from("forum_chart_posts")
+                .insert(postInsert)
+                .execute()
+            shouldRollbackUploadedPDF = false
+        } catch {
+            if shouldRollbackUploadedPDF {
+                await rollbackUploadedForumPDF(at: storagePath)
+            }
+            throw error
+        }
 
         return try await loadPostDetail(postID: postID, song: song)
     }
@@ -512,6 +522,16 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             fileSizeBytes: data.count,
             exportedAt: Date()
         )
+    }
+
+    private func rollbackUploadedForumPDF(at path: String) async {
+        do {
+            try await client.storage
+                .from(bucketID)
+                .remove(paths: [path])
+        } catch {
+            // Keep the original publish error visible; cleanup can also fail if the object was already attached.
+        }
     }
 
     private func resolvedSong(for draft: ForumPublishDraft, ownerID: UUID) async throws -> ForumSong {

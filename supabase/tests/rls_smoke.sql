@@ -1,6 +1,6 @@
 begin;
 
-select plan(38);
+select plan(44);
 
 insert into auth.users (id, email)
 values
@@ -351,6 +351,86 @@ select is(
     (select count(*)::integer from public.forum_chart_posts),
     1,
     'active Pro can read visible forum chart posts'
+);
+
+select lives_ok(
+    $$
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
+        '80000000-0000-0000-0000-000000000001',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/orphan.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    )
+    $$,
+    'active Pro can upload forum PDF metadata in own folder'
+);
+
+set local storage.allow_delete_query = 'true';
+
+select lives_ok(
+    $$
+    delete from storage.objects
+    where bucket_id = 'forum_chart_pdfs'
+        and name = '00000000-0000-0000-0000-000000000001/orphan.pdf'
+    $$,
+    'active Pro can delete unattached forum PDF metadata for publish rollback'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from storage.objects
+        where bucket_id = 'forum_chart_pdfs'
+            and name = '00000000-0000-0000-0000-000000000001/orphan.pdf'
+    ),
+    0,
+    'unattached forum PDF metadata is removed by publish rollback'
+);
+
+select lives_ok(
+    $$
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
+        '80000000-0000-0000-0000-000000000002',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    )
+    $$,
+    'active Pro can upload forum PDF metadata for published post'
+);
+
+select lives_ok(
+    $$
+    delete from storage.objects
+    where bucket_id = 'forum_chart_pdfs'
+        and name = '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
+    $$,
+    'active Pro delete attempt against attached forum PDF metadata does not error'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from storage.objects
+        where bucket_id = 'forum_chart_pdfs'
+            and name = '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
+    ),
+    1,
+    'attached forum PDF metadata remains frozen after delete attempt'
 );
 
 select lives_ok(
