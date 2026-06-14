@@ -849,7 +849,7 @@ final class ProjectConfigurationTests: XCTestCase {
             .deletingLastPathComponent()
         let forumMigrationText = try String(
             contentsOf: projectRoot
-                .appendingPathComponent("supabase/migrations/20260613175920_forum_community_library.sql")
+                .appendingPathComponent("supabase/migrations/20260614145320_forum_community_library.sql")
         )
         let rlsTestText = try String(
             contentsOf: projectRoot
