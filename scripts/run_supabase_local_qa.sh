@@ -22,17 +22,24 @@ supabase_cli() {
 }
 
 load_local_supabase_env() {
-  local status_env api_url publishable_key anon_key
+  local status_env api_url publishable_key anon_key service_role_key
   status_env="$(supabase_cli status -o env 2>/dev/null || true)"
   api_url="$(printf '%s\n' "$status_env" | awk -F= '/^API_URL=/{ gsub(/"/, "", $2); print $2; exit }')"
   publishable_key="$(printf '%s\n' "$status_env" | awk -F= '/^PUBLISHABLE_KEY=/{ gsub(/"/, "", $2); print $2; exit }')"
   anon_key="$(printf '%s\n' "$status_env" | awk -F= '/^ANON_KEY=/{ gsub(/"/, "", $2); print $2; exit }')"
+  service_role_key="$(printf '%s\n' "$status_env" | awk -F= '/^SERVICE_ROLE_KEY=/{ gsub(/"/, "", $2); print $2; exit }')"
 
   export SUPABASE_URL="${api_url:-http://127.0.0.1:54321}"
   export SUPABASE_PUBLISHABLE_KEY="${publishable_key:-$anon_key}"
+  export SUPABASE_SERVICE_ROLE_KEY="$service_role_key"
 
   if [[ -z "${SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
     echo "Local Supabase publishable key was not available from 'supabase status'." >&2
+    exit 1
+  fi
+
+  if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+    echo "Local Supabase service role key was not available from 'supabase status'." >&2
     exit 1
   fi
 }
@@ -71,6 +78,7 @@ fi
 SMART_CHART_SUPABASE_INTEGRATION=1 \
 SUPABASE_URL="$SUPABASE_URL" \
 SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" \
+SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
 swift test \
   --scratch-path /tmp/SmartChartSwiftBuild-supabase-integration \
   --filter SupabaseIntegrationTests

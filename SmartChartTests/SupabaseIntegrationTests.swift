@@ -86,6 +86,167 @@ final class SupabaseIntegrationTests: XCTestCase {
         XCTAssertTrue(tombstone["latest_snapshot_id"] is NSNull)
         XCTAssertEqual(integralValue(tombstone["remote_revision"]), 2)
     }
+
+    func testLiveSupabaseForumPublishVoteCommentReportAndStorageFlow() async throws {
+        let configuration = try SupabaseIntegrationConfiguration.current()
+        guard let adminKey = configuration.adminKey else {
+            throw XCTSkip("SUPABASE_SERVICE_ROLE_KEY is required for Pro forum integration tests.")
+        }
+
+        let client = SupabaseRESTClient(configuration: configuration)
+        let testID = UUID().uuidString.lowercased()
+        let proEmail = "smart-chart-forum-pro-\(testID)@example.com"
+        let basicEmail = "smart-chart-forum-basic-\(testID)@example.com"
+        let password = "SmartChart-\(testID)-Forum1!"
+        var proUserID: String?
+        var basicUserID: String?
+        var storagePath: String?
+
+        do {
+            proUserID = try await client.adminCreateConfirmedUser(
+                email: proEmail,
+                password: password,
+                adminKey: adminKey
+            )
+            basicUserID = try await client.adminCreateConfirmedUser(
+                email: basicEmail,
+                password: password,
+                adminKey: adminKey
+            )
+
+            let proSession = try await client.signIn(email: proEmail, password: password)
+            let basicSession = try await client.signIn(email: basicEmail, password: password)
+            XCTAssertEqual(proSession.userID, proUserID)
+            XCTAssertEqual(basicSession.userID, basicUserID)
+
+            try await client.grantProForumEntitlement(
+                userID: proSession.userID,
+                adminKey: adminKey
+            )
+
+            let basicSongID = UUID().uuidString.lowercased()
+            do {
+                try await client.insertForumSong(
+                    songID: basicSongID,
+                    userID: basicSession.userID,
+                    accessToken: basicSession.accessToken,
+                    title: "Denied Forum Tune",
+                    artist: "Denied Artist"
+                )
+                XCTFail("Inactive Basic account unexpectedly inserted forum song metadata.")
+            } catch let error as SupabaseRequestError {
+                XCTAssertTrue(
+                    [401, 403].contains(error.statusCode),
+                    "Expected Basic forum denial, got \(error.statusCode): \(error.message)"
+                )
+            }
+
+            let songID = UUID().uuidString.lowercased()
+            let postID = UUID().uuidString.lowercased()
+            let voteID = UUID().uuidString.lowercased()
+            let commentID = UUID().uuidString.lowercased()
+            let reportID = UUID().uuidString.lowercased()
+            let path = "\(proSession.userID)/\(postID).pdf"
+            storagePath = path
+
+            try await client.uploadForumPDF(
+                path: path,
+                accessToken: proSession.accessToken,
+                data: Data("%PDF-1.4\n% iChart forum integration\n%%EOF\n".utf8)
+            )
+            try await client.insertForumSong(
+                songID: songID,
+                userID: proSession.userID,
+                accessToken: proSession.accessToken,
+                title: "Forum Integration Tune",
+                artist: "iChart QA"
+            )
+            try await client.insertForumPost(
+                postID: postID,
+                songID: songID,
+                userID: proSession.userID,
+                accessToken: proSession.accessToken,
+                chartTitle: "Forum Integration Chart",
+                storagePath: path
+            )
+
+            let downloadedPDF = try await client.downloadForumPDF(
+                path: path,
+                accessToken: proSession.accessToken
+            )
+            XCTAssertTrue(downloadedPDF.starts(with: Data("%PDF".utf8)))
+
+            try await client.insertForumVote(
+                voteID: voteID,
+                postID: postID,
+                userID: proSession.userID,
+                accessToken: proSession.accessToken,
+                value: 1
+            )
+            try await client.insertForumComment(
+                commentID: commentID,
+                postID: postID,
+                userID: proSession.userID,
+                accessToken: proSession.accessToken,
+                body: "Clean forum integration comment."
+            )
+            try await client.insertForumPostReport(
+                reportID: reportID,
+                postID: postID,
+                userID: proSession.userID,
+                accessToken: proSession.accessToken
+            )
+
+            let postRows = try await client.rows(
+                path: "forum_chart_posts",
+                queryItems: [
+                    URLQueryItem(name: "id", value: "eq.\(postID)"),
+                    URLQueryItem(name: "select", value: "id,vote_up_count,vote_down_count,report_count,status,pdf_storage_path")
+                ],
+                accessToken: proSession.accessToken
+            )
+            let post: [String: Any] = try XCTUnwrap(postRows.first)
+            XCTAssertEqual(integralValue(post["vote_up_count"]), 1)
+            XCTAssertEqual(integralValue(post["vote_down_count"]), 0)
+            XCTAssertEqual(integralValue(post["report_count"]), 1)
+            XCTAssertEqual(post["status"] as? String, "published")
+            XCTAssertEqual(post["pdf_storage_path"] as? String, path)
+
+            let comments = try await client.rows(
+                path: "forum_comments",
+                queryItems: [
+                    URLQueryItem(name: "post_id", value: "eq.\(postID)"),
+                    URLQueryItem(name: "select", value: "id,body,report_count")
+                ],
+                accessToken: proSession.accessToken
+            )
+            XCTAssertEqual(comments.count, 1)
+            XCTAssertEqual(comments.first?["body"] as? String, "Clean forum integration comment.")
+        } catch {
+            await client.cleanupForumIntegrationUser(
+                userID: proUserID,
+                storagePath: storagePath,
+                adminKey: adminKey
+            )
+            await client.cleanupForumIntegrationUser(
+                userID: basicUserID,
+                storagePath: nil,
+                adminKey: adminKey
+            )
+            throw error
+        }
+
+        await client.cleanupForumIntegrationUser(
+            userID: proUserID,
+            storagePath: storagePath,
+            adminKey: adminKey
+        )
+        await client.cleanupForumIntegrationUser(
+            userID: basicUserID,
+            storagePath: nil,
+            adminKey: adminKey
+        )
+    }
 }
 
 private func integralValue(_ value: Any?) -> Int? {
@@ -101,6 +262,7 @@ private func integralValue(_ value: Any?) -> Int? {
 private struct SupabaseIntegrationConfiguration {
     let baseURL: URL
     let publishableKey: String
+    let adminKey: String?
 
     var isLocalSupabase: Bool {
         baseURL.host == "127.0.0.1" || baseURL.host == "localhost"
@@ -132,7 +294,15 @@ private struct SupabaseIntegrationConfiguration {
             throw XCTSkip("SUPABASE_PUBLISHABLE_KEY or SUPABASE_ANON_KEY is required.")
         }
 
-        return SupabaseIntegrationConfiguration(baseURL: url, publishableKey: key)
+        let adminKeyCandidate = environment["SUPABASE_SERVICE_ROLE_KEY"]
+            ?? environment["SUPABASE_SECRET_KEY"]
+        let adminKey = adminKeyCandidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return SupabaseIntegrationConfiguration(
+            baseURL: url,
+            publishableKey: key,
+            adminKey: adminKey?.isEmpty == false ? adminKey : nil
+        )
     }
 }
 
@@ -143,6 +313,57 @@ private struct SupabaseIntegrationSession {
 
 private struct SupabaseRESTClient {
     let configuration: SupabaseIntegrationConfiguration
+
+    func adminCreateConfirmedUser(
+        email: String,
+        password: String,
+        adminKey: String
+    ) async throws -> String {
+        let response = try await request(
+            path: "auth/v1/admin/users",
+            method: "POST",
+            accessToken: adminKey,
+            body: [
+                "email": email,
+                "password": password,
+                "email_confirm": true
+            ]
+        )
+
+        return try XCTUnwrap(response["id"] as? String)
+    }
+
+    func deleteAuthUser(userID: String, adminKey: String) async throws {
+        _ = try await requestData(
+            path: "auth/v1/admin/users/\(userID)",
+            method: "DELETE",
+            queryItems: [],
+            accessToken: adminKey,
+            prefer: nil,
+            body: nil
+        )
+    }
+
+    func grantProForumEntitlement(userID: String, adminKey: String) async throws {
+        let now = Date()
+        let expiry = now.addingTimeInterval(3_600)
+        _ = try await requestArray(
+            path: "rest/v1/subscriptions",
+            method: "POST",
+            queryItems: [URLQueryItem(name: "on_conflict", value: "owner_id")],
+            accessToken: adminKey,
+            prefer: "resolution=merge-duplicates,return=representation",
+            body: [
+                "owner_id": userID,
+                "plan": "studioSubscription",
+                "status": "active",
+                "provider": "manual",
+                "entitlement_expires_at": ISO8601DateFormatter.smartChartIntegration.string(from: expiry),
+                "revoked_at": NSNull(),
+                "last_verified_at": ISO8601DateFormatter.smartChartIntegration.string(from: now)
+            ]
+        )
+    }
 
     func signUp(email: String, password: String) async throws -> SupabaseIntegrationSession {
         do {
@@ -309,6 +530,166 @@ private struct SupabaseRESTClient {
         )
     }
 
+    func insertForumSong(
+        songID: String,
+        userID: String,
+        accessToken: String,
+        title: String,
+        artist: String
+    ) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_songs",
+            method: "POST",
+            accessToken: accessToken,
+            prefer: "return=representation",
+            body: [
+                "id": songID,
+                "song_title": title,
+                "artist_name": artist,
+                "normalized_song_title": title.lowercased(),
+                "normalized_artist_name": artist.lowercased(),
+                "created_by": userID
+            ]
+        )
+    }
+
+    func insertForumPost(
+        postID: String,
+        songID: String,
+        userID: String,
+        accessToken: String,
+        chartTitle: String,
+        storagePath: String
+    ) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_chart_posts",
+            method: "POST",
+            accessToken: accessToken,
+            prefer: "return=representation",
+            body: [
+                "id": postID,
+                "song_id": songID,
+                "owner_id": userID,
+                "chart_title": chartTitle,
+                "arranger_credit": "iChart Integration",
+                "creator_display_name": "iChart Integration",
+                "tags": ["integration", "forum"],
+                "version_note": "Automated integration smoke",
+                "layout_style": "simpleChordSheet",
+                "pdf_storage_path": storagePath
+            ]
+        )
+    }
+
+    func insertForumVote(
+        voteID: String,
+        postID: String,
+        userID: String,
+        accessToken: String,
+        value: Int
+    ) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_votes",
+            method: "POST",
+            accessToken: accessToken,
+            prefer: "return=representation",
+            body: [
+                "id": voteID,
+                "post_id": postID,
+                "owner_id": userID,
+                "vote_value": value
+            ]
+        )
+    }
+
+    func insertForumComment(
+        commentID: String,
+        postID: String,
+        userID: String,
+        accessToken: String,
+        body: String
+    ) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_comments",
+            method: "POST",
+            accessToken: accessToken,
+            prefer: "return=representation",
+            body: [
+                "id": commentID,
+                "post_id": postID,
+                "owner_id": userID,
+                "body": body
+            ]
+        )
+    }
+
+    func insertForumPostReport(
+        reportID: String,
+        postID: String,
+        userID: String,
+        accessToken: String
+    ) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_reports",
+            method: "POST",
+            accessToken: accessToken,
+            prefer: "return=representation",
+            body: [
+                "id": reportID,
+                "owner_id": userID,
+                "target_type": "post",
+                "post_id": postID,
+                "reason": "other",
+                "detail": "Automated integration smoke"
+            ]
+        )
+    }
+
+    func uploadForumPDF(path: String, accessToken: String, data: Data) async throws {
+        _ = try await storageObjectData(
+            method: "POST",
+            path: path,
+            accessToken: accessToken,
+            contentType: "application/pdf",
+            body: data
+        )
+    }
+
+    func downloadForumPDF(path: String, accessToken: String) async throws -> Data {
+        try await storageObjectData(
+            method: "GET",
+            path: path,
+            accessToken: accessToken,
+            authenticatedRead: true,
+            contentType: nil,
+            body: nil
+        )
+    }
+
+    func deleteForumPDF(path: String, adminKey: String) async throws {
+        _ = try await storageObjectData(
+            method: "DELETE",
+            path: path,
+            accessToken: adminKey,
+            contentType: nil,
+            body: nil
+        )
+    }
+
+    func cleanupForumIntegrationUser(
+        userID: String?,
+        storagePath: String?,
+        adminKey: String
+    ) async {
+        if let storagePath {
+            try? await deleteForumPDF(path: storagePath, adminKey: adminKey)
+        }
+
+        if let userID {
+            try? await deleteAuthUser(userID: userID, adminKey: adminKey)
+        }
+    }
+
     func rows(
         path: String,
         queryItems: [URLQueryItem],
@@ -384,7 +765,7 @@ private struct SupabaseRESTClient {
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
         var request = URLRequest(url: try XCTUnwrap(components?.url))
         request.httpMethod = method
-        request.setValue(configuration.publishableKey, forHTTPHeaderField: "apikey")
+        request.setValue(apiKey(for: accessToken), forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -411,6 +792,52 @@ private struct SupabaseRESTClient {
         }
 
         return data
+    }
+
+    private func storageObjectData(
+        method: String,
+        path: String,
+        accessToken: String,
+        authenticatedRead: Bool = false,
+        contentType: String?,
+        body: Data?
+    ) async throws -> Data {
+        let pathPrefix = authenticatedRead
+            ? "storage/v1/object/authenticated/forum_chart_pdfs"
+            : "storage/v1/object/forum_chart_pdfs"
+        let baseURL = configuration.baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = try XCTUnwrap(URL(string: "\(baseURL)/\(pathPrefix)/\(path)"))
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue(apiKey(for: accessToken), forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard (200..<300).contains(statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "<empty response>"
+            throw SupabaseRequestError(
+                method: method,
+                path: pathPrefix,
+                statusCode: statusCode,
+                message: message
+            )
+        }
+
+        return data
+    }
+
+    private func apiKey(for accessToken: String?) -> String {
+        if let adminKey = configuration.adminKey,
+           accessToken == adminKey {
+            return adminKey
+        }
+
+        return configuration.publishableKey
     }
 
     private func session(from response: [String: Any]) -> SupabaseIntegrationSession? {
