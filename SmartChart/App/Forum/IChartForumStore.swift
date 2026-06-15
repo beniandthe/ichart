@@ -42,12 +42,19 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var statusMessage: String?
     @Published private(set) var errorMessage: String?
     @Published private(set) var downloadedPDF: ExportedPDF?
+    @Published private(set) var isQASampleDataEnabled: Bool
 
     private let service: IChartForumServicing
+    private let qaSampleService = IChartForumQASampleService()
     private var lastQuery = ""
 
     private init(service: IChartForumServicing) {
         self.service = service
+        #if DEBUG || targetEnvironment(simulator)
+        isQASampleDataEnabled = UserDefaults.standard.bool(forKey: Self.qaSampleDataStorageKey)
+        #else
+        isQASampleDataEnabled = false
+        #endif
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
@@ -68,18 +75,31 @@ final class IChartForumStore: ObservableObject {
         )
     }
 
+    static let qaSampleDataStorageKey = "iChartForumQASampleDataEnabled"
+
+    func setQASampleDataEnabled(_ isEnabled: Bool) {
+        #if DEBUG || targetEnvironment(simulator)
+        guard isQASampleDataEnabled != isEnabled else {
+            return
+        }
+
+        isQASampleDataEnabled = isEnabled
+        UserDefaults.standard.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
+        selectedDetail = nil
+        downloadedPDF = nil
+        statusMessage = isEnabled ? "Forum QA samples loaded." : nil
+        errorMessage = nil
+        #else
+        isQASampleDataEnabled = false
+        #endif
+    }
+
     func refresh(
         authState: IChartAuthState,
         entitlements: AppEntitlements,
         query: String? = nil
     ) async {
-        guard service.isConfigured else {
-            state = .unconfigured
-            selectedDetail = nil
-            return
-        }
-
-        guard authState.signedInSession != nil else {
+        guard let signedInSession = authState.signedInSession else {
             state = .signedOut
             selectedDetail = nil
             return
@@ -91,11 +111,22 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
+        if isQASampleDataEnabled {
+            await qaSampleService.setCurrentUserID(signedInSession.id)
+        }
+
+        let requestService = activeService
+        guard requestService.isConfigured else {
+            state = .unconfigured
+            selectedDetail = nil
+            return
+        }
+
         let nextQuery = query ?? lastQuery
         lastQuery = nextQuery
         state = .loading
         await run {
-            let summaries = try await service.loadHome(query: nextQuery)
+            let summaries = try await requestService.loadHome(query: nextQuery)
             state = .loaded(summaries)
         }
     }
@@ -112,10 +143,11 @@ final class IChartForumStore: ObservableObject {
         statusMessage = nil
         errorMessage = nil
         do {
-            let detail = try await service.publish(chart: chart, draft: draft)
+            let requestService = activeService
+            let detail = try await requestService.publish(chart: chart, draft: draft)
             selectedDetail = detail
             statusMessage = "Forum chart submitted for review."
-            let summaries = try await service.loadHome(query: lastQuery)
+            let summaries = try await requestService.loadHome(query: lastQuery)
             state = .loaded(summaries)
         } catch {
             errorMessage = Self.displayText(for: error)
@@ -125,29 +157,30 @@ final class IChartForumStore: ObservableObject {
 
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
         await run {
-            try await service.vote(postID: detail.post.id, vote: vote)
+            let requestService = activeService
+            try await requestService.vote(postID: detail.post.id, vote: vote)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
-            state = .loaded(try await service.loadHome(query: lastQuery))
+            state = .loaded(try await requestService.loadHome(query: lastQuery))
         }
     }
 
     func addComment(_ body: String, to detail: IChartForumPostDetail) async {
         await run {
-            try await service.addComment(postID: detail.post.id, body: body)
+            try await activeService.addComment(postID: detail.post.id, body: body)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
 
     func reportPost(_ reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
         await run(successMessage: "Report sent.") {
-            try await service.reportPost(postID: detail.post.id, reason: reason, detail: detailText)
+            try await activeService.reportPost(postID: detail.post.id, reason: reason, detail: detailText)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
 
     func reportComment(_ comment: ForumComment, reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
         await run(successMessage: "Report sent.") {
-            try await service.reportComment(commentID: comment.id, reason: reason, detail: detailText)
+            try await activeService.reportComment(commentID: comment.id, reason: reason, detail: detailText)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
         }
     }
@@ -156,7 +189,7 @@ final class IChartForumStore: ObservableObject {
     func downloadPDF(for detail: IChartForumPostDetail) async -> ExportedPDF? {
         var downloadedPDF: ExportedPDF?
         await run {
-            let pdf = try await service.downloadPDF(for: detail.post)
+            let pdf = try await activeService.downloadPDF(for: detail.post)
             self.downloadedPDF = pdf
             downloadedPDF = pdf
         }
@@ -201,15 +234,19 @@ final class IChartForumStore: ObservableObject {
 
     private func refreshSelectedDetail(postID: UUID, song: ForumSong) async throws {
         do {
-            selectedDetail = try await service.loadPostDetail(postID: postID, song: song)
+            selectedDetail = try await activeService.loadPostDetail(postID: postID, song: song)
         } catch IChartForumServiceError.missingForumPost {
             selectedDetail = nil
             downloadedPDF = nil
-            if let summaries = try? await service.loadHome(query: lastQuery) {
+            if let summaries = try? await activeService.loadHome(query: lastQuery) {
                 state = .loaded(summaries)
             }
             throw IChartForumServiceError.missingForumPost
         }
+    }
+
+    private var activeService: IChartForumServicing {
+        isQASampleDataEnabled ? qaSampleService : service
     }
 
     private static func displayText(for error: Error) -> String {
@@ -268,6 +305,508 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
         throw IChartForumServiceError.unconfigured
     }
+}
+
+private actor IChartForumQASampleService: IChartForumServicing {
+    let isConfigured = true
+
+    private var currentUserID = UUID(uuidString: "90000000-0000-0000-0000-000000000001")!
+    private var submittedSongs: [ForumSong] = []
+    private var submittedPosts: [UUID: ForumChartPost] = [:]
+    private var addedCommentsByPostID: [UUID: [ForumComment]] = [:]
+    private var voteOverridesByPostID: [UUID: ForumVoteValue] = [:]
+    private var reportAdjustmentsByPostID: [UUID: Int] = [:]
+
+    func setCurrentUserID(_ userID: UUID) {
+        currentUserID = userID
+    }
+
+    func loadHome(query: String) async throws -> [IChartForumSongSummary] {
+        let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
+        let songs = allSongs()
+        let postsBySongID = Dictionary(
+            grouping: allPosts().filter { $0.status != .pending },
+            by: \.songID
+        )
+
+        return songs
+            .compactMap { song in
+                let topPosts = Array(
+                    (postsBySongID[song.id] ?? [])
+                        .sorted(by: Self.ranksBefore)
+                        .prefix(3)
+                )
+
+                guard !topPosts.isEmpty else {
+                    return nil
+                }
+
+                guard normalizedQuery.isEmpty || Self.matches(query: normalizedQuery, song: song, posts: topPosts) else {
+                    return nil
+                }
+
+                return IChartForumSongSummary(song: song, topPosts: topPosts)
+            }
+            .sorted { lhs, rhs in
+                let lhsTopScore = lhs.topPosts.first?.rankingScore ?? 0
+                let rhsTopScore = rhs.topPosts.first?.rankingScore ?? 0
+                if lhsTopScore == rhsTopScore {
+                    return lhs.song.songTitle.localizedCaseInsensitiveCompare(rhs.song.songTitle) == .orderedAscending
+                }
+                return lhsTopScore > rhsTopScore
+            }
+    }
+
+    func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
+        guard let post = allPosts().first(where: { $0.id == postID }) else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        let resolvedSong = allSongs().first(where: { $0.id == post.songID }) ?? song
+        return IChartForumPostDetail(
+            song: resolvedSong,
+            post: post,
+            comments: comments(for: postID),
+            authorBadges: badges(for: post.ownerID),
+            currentUserVote: voteOverridesByPostID[postID]
+        )
+    }
+
+    func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail {
+        let validationErrors = draft.validationErrors(availableChartIDs: [chart.id])
+        guard validationErrors.isEmpty else {
+            throw IChartForumServiceError.invalidPublishDraft(
+                validationErrors.map(\.message).joined(separator: " ")
+            )
+        }
+
+        let song = resolvedSong(for: draft)
+        let postID = UUID()
+        let post = ForumChartPost(
+            id: postID,
+            songID: song.id,
+            ownerID: currentUserID,
+            chartTitle: draft.resolvedChartTitle,
+            arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
+            creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
+            tags: draft.sanitizedTags,
+            versionNote: ForumPublishDraft.normalizedDisplayText(draft.versionNote).nilIfEmpty,
+            layoutStyle: chart.layoutStyle,
+            pdfStoragePath: "qa-samples/\(postID.uuidString.lowercased()).pdf",
+            status: .pending,
+            voteUpCount: 0,
+            voteDownCount: 0,
+            reportCount: 0,
+            rankingScore: 0,
+            publishedAt: Date()
+        )
+        submittedPosts[post.id] = post
+
+        return try await loadPostDetail(postID: post.id, song: song)
+    }
+
+    func vote(postID: UUID, vote: ForumVoteValue) async throws {
+        guard allPosts().contains(where: { $0.id == postID }) else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        voteOverridesByPostID[postID] = vote
+    }
+
+    func addComment(postID: UUID, body: String) async throws {
+        let sanitizedBody = ForumPublishDraft.normalizedDisplayText(body)
+        guard !sanitizedBody.isEmpty else {
+            return
+        }
+
+        guard allPosts().contains(where: { $0.id == postID }) else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        let comment = ForumComment(
+            id: UUID(),
+            postID: postID,
+            ownerID: currentUserID,
+            creatorDisplayName: "You",
+            body: sanitizedBody,
+            createdAt: Date()
+        )
+        addedCommentsByPostID[postID, default: []].append(comment)
+    }
+
+    func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws {
+        guard allPosts().contains(where: { $0.id == postID }) else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        reportAdjustmentsByPostID[postID, default: 0] += 1
+    }
+
+    func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws {
+        guard commentsByID()[commentID] != nil else {
+            throw IChartForumServiceError.missingForumPost
+        }
+    }
+
+    func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("iChartForumQASamplePDFs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(
+            "\(PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle)) - QA Forum.pdf"
+        )
+        let data = Self.samplePDFData(title: post.chartTitle, creator: post.creatorDisplayName)
+        try data.write(to: url, options: .atomic)
+
+        return ExportedPDF(
+            url: url,
+            chartTitle: post.chartTitle,
+            layoutStyle: post.layoutStyle,
+            transpositionView: .concert,
+            chordTranspositionSemitones: 0,
+            pageCount: 1,
+            fileSizeBytes: data.count,
+            exportedAt: Date()
+        )
+    }
+
+    private func resolvedSong(for draft: ForumPublishDraft) -> ForumSong {
+        let normalizedSongTitle = draft.normalizedSongTitle
+        let normalizedArtistName = draft.normalizedArtistName
+
+        if let existing = allSongs().first(where: {
+            ForumPublishDraft.normalizedIdentityText($0.songTitle) == normalizedSongTitle
+                && ForumPublishDraft.normalizedIdentityText($0.artistName) == normalizedArtistName
+        }) {
+            return existing
+        }
+
+        let song = ForumSong(
+            id: UUID(),
+            songTitle: ForumPublishDraft.normalizedDisplayText(draft.songTitle),
+            artistName: ForumPublishDraft.normalizedDisplayText(draft.artistName)
+        )
+        submittedSongs.append(song)
+        return song
+    }
+
+    private func allSongs() -> [ForumSong] {
+        sampleSongs + submittedSongs
+    }
+
+    private var sampleSongs: [ForumSong] {
+        [
+            ForumSong(id: Self.blueBossaSongID, songTitle: "Blue Bossa", artistName: "Kenny Dorham"),
+            ForumSong(id: Self.cantaloupeSongID, songTitle: "Cantaloupe Island", artistName: "Herbie Hancock"),
+            ForumSong(id: Self.justFriendsSongID, songTitle: "Just Friends", artistName: "John Klenner"),
+            ForumSong(id: Self.anotherYouSongID, songTitle: "There Will Never Be Another You", artistName: "Harry Warren"),
+            ForumSong(id: Self.actualProofSongID, songTitle: "Actual Proof", artistName: "Herbie Hancock")
+        ]
+    }
+
+    private func allPosts() -> [ForumChartPost] {
+        (samplePosts + Array(submittedPosts.values))
+            .map(applyingLocalAdjustments)
+    }
+
+    private var samplePosts: [ForumChartPost] {
+        let now = Date()
+        return [
+            post(
+                id: Self.blueBossaRhythmPostID,
+                songID: Self.blueBossaSongID,
+                ownerID: currentUserID,
+                chartTitle: "Blue Bossa - Rhythm Section Roadmap",
+                arrangerCredit: "iChart QA",
+                creatorDisplayName: "Beni R.",
+                tags: ["standard", "bossa", "rhythm section"],
+                versionNote: "Clean rehearsal map with hits, repeats, and a short tag.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .published,
+                upVotes: 24,
+                downVotes: 2,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-2 * 60 * 60)
+            ),
+            post(
+                id: Self.blueBossaHornsPostID,
+                songID: Self.blueBossaSongID,
+                ownerID: Self.mayaOwnerID,
+                chartTitle: "Blue Bossa - Horn Friendly Changes",
+                arrangerCredit: "Maya Torres",
+                creatorDisplayName: "Maya T.",
+                tags: ["horns", "concert", "standard"],
+                versionNote: "Compact chart for horn players reading with rhythm section.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 11,
+                downVotes: 3,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-18 * 60 * 60)
+            ),
+            post(
+                id: Self.cantaloupePostID,
+                songID: Self.cantaloupeSongID,
+                ownerID: Self.jamalOwnerID,
+                chartTitle: "Cantaloupe Island - Pocket Hits",
+                arrangerCredit: "Jamal Reed",
+                creatorDisplayName: "Jamal R.",
+                tags: ["funk", "hits", "rhythm section"],
+                versionNote: "Big form markers and simple hit language for a fast rehearsal.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .published,
+                upVotes: 19,
+                downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-4 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.justFriendsPostID,
+                songID: Self.justFriendsSongID,
+                ownerID: Self.sophieOwnerID,
+                chartTitle: "Just Friends - Jam Session Form",
+                arrangerCredit: "Sophie Lane",
+                creatorDisplayName: "Sophie L.",
+                tags: ["standard", "jam session", "medium swing"],
+                versionNote: nil,
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 8,
+                downVotes: 1,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-11 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.anotherYouPostID,
+                songID: Self.anotherYouSongID,
+                ownerID: Self.nateOwnerID,
+                chartTitle: "Another You - Gig Key Roadmap",
+                arrangerCredit: "Nate Coleman",
+                creatorDisplayName: "Nate C.",
+                tags: ["standard", "gig book"],
+                versionNote: "Short and clean for a singer-key rehearsal packet.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 4,
+                downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-45 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.actualProofPostID,
+                songID: Self.actualProofSongID,
+                ownerID: Self.eliOwnerID,
+                chartTitle: "Actual Proof - Alt Form Check",
+                arrangerCredit: "Eli Park",
+                creatorDisplayName: "Eli P.",
+                tags: ["fusion", "needs check"],
+                versionNote: "Intentionally included as a QA example for review states.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .flagged,
+                upVotes: 2,
+                downVotes: 7,
+                reports: 2,
+                publishedAt: now.addingTimeInterval(-20 * 24 * 60 * 60)
+            )
+        ]
+    }
+
+    private func post(
+        id: UUID,
+        songID: UUID,
+        ownerID: UUID,
+        chartTitle: String,
+        arrangerCredit: String,
+        creatorDisplayName: String,
+        tags: [String],
+        versionNote: String?,
+        layoutStyle: ChartLayoutStyle,
+        status: ForumPostModerationStatus,
+        upVotes: Int,
+        downVotes: Int,
+        reports: Int,
+        publishedAt: Date
+    ) -> ForumChartPost {
+        ForumChartPost(
+            id: id,
+            songID: songID,
+            ownerID: ownerID,
+            chartTitle: chartTitle,
+            arrangerCredit: arrangerCredit,
+            creatorDisplayName: creatorDisplayName,
+            tags: tags,
+            versionNote: versionNote,
+            layoutStyle: layoutStyle,
+            pdfStoragePath: "qa-samples/\(id.uuidString.lowercased()).pdf",
+            status: status,
+            voteUpCount: upVotes,
+            voteDownCount: downVotes,
+            reportCount: reports,
+            rankingScore: ForumQualityPolicy.rankingScore(upVotes: upVotes, downVotes: downVotes, reports: reports),
+            publishedAt: publishedAt
+        )
+    }
+
+    private func applyingLocalAdjustments(to post: ForumChartPost) -> ForumChartPost {
+        var adjustedPost = post
+        if let vote = voteOverridesByPostID[post.id] {
+            switch vote {
+            case .up:
+                adjustedPost.voteUpCount += 1
+            case .down:
+                adjustedPost.voteDownCount += 1
+            }
+        }
+        adjustedPost.reportCount += reportAdjustmentsByPostID[post.id, default: 0]
+        adjustedPost.rankingScore = ForumQualityPolicy.rankingScore(
+            upVotes: adjustedPost.voteUpCount,
+            downVotes: adjustedPost.voteDownCount,
+            reports: adjustedPost.reportCount
+        )
+        return adjustedPost
+    }
+
+    private func comments(for postID: UUID) -> [ForumComment] {
+        (sampleCommentsByPostID[postID] ?? []) + addedCommentsByPostID[postID, default: []]
+    }
+
+    private func commentsByID() -> [UUID: ForumComment] {
+        Dictionary(
+            uniqueKeysWithValues: (sampleCommentsByPostID.values.flatMap { $0 } + addedCommentsByPostID.values.flatMap { $0 })
+                .map { ($0.id, $0) }
+        )
+    }
+
+    private var sampleCommentsByPostID: [UUID: [ForumComment]] {
+        [
+            Self.blueBossaRhythmPostID: [
+                comment(id: Self.blueBossaCommentOneID, postID: Self.blueBossaRhythmPostID, ownerID: Self.mayaOwnerID, creator: "Maya T.", body: "This one reads clean on a loud stage. The ending is easy to catch."),
+                comment(id: Self.blueBossaCommentTwoID, postID: Self.blueBossaRhythmPostID, ownerID: Self.jamalOwnerID, creator: "Jamal R.", body: "Good roadmap for rhythm section. I would keep the tag exactly like this.")
+            ],
+            Self.cantaloupePostID: [
+                comment(id: Self.cantaloupeCommentOneID, postID: Self.cantaloupePostID, ownerID: Self.sophieOwnerID, creator: "Sophie L.", body: "The hit layout is quick to scan. Nice for rehearsal.")
+            ],
+            Self.actualProofPostID: [
+                comment(id: Self.actualProofCommentOneID, postID: Self.actualProofPostID, ownerID: Self.nateOwnerID, creator: "Nate C.", body: "Form might need review around the bridge.")
+            ]
+        ]
+    }
+
+    private func comment(id: UUID, postID: UUID, ownerID: UUID, creator: String, body: String) -> ForumComment {
+        ForumComment(
+            id: id,
+            postID: postID,
+            ownerID: ownerID,
+            creatorDisplayName: creator,
+            body: body,
+            createdAt: Date().addingTimeInterval(-24 * 60 * 60)
+        )
+    }
+
+    private func badges(for ownerID: UUID) -> [ForumAuthorBadge] {
+        let badgeType: ForumAuthorBadgeType?
+        if ownerID == currentUserID {
+            badgeType = .trustedArranger
+        } else if ownerID == Self.jamalOwnerID {
+            badgeType = .communityExpert
+        } else if ownerID == Self.mayaOwnerID {
+            badgeType = .verifiedContributor
+        } else {
+            badgeType = nil
+        }
+
+        guard let badgeType else {
+            return []
+        }
+
+        return [
+            ForumAuthorBadge(
+                id: UUID(uuidString: "70000000-0000-0000-0000-\(ownerID.uuidString.suffix(12))") ?? UUID(),
+                ownerID: ownerID,
+                badgeType: badgeType,
+                awardedAt: Date().addingTimeInterval(-30 * 24 * 60 * 60)
+            )
+        ]
+    }
+
+    private static func ranksBefore(lhs: ForumChartPost, rhs: ForumChartPost) -> Bool {
+        if lhs.rankingScore == rhs.rankingScore {
+            return lhs.publishedAt > rhs.publishedAt
+        }
+
+        return lhs.rankingScore > rhs.rankingScore
+    }
+
+    private static func matches(query: String, song: ForumSong, posts: [ForumChartPost]) -> Bool {
+        let searchable = (
+            [
+                song.songTitle,
+                song.artistName
+            ]
+            + posts.flatMap { post in
+                [post.chartTitle, post.arrangerCredit, post.creatorDisplayName] + post.tags
+            }
+        )
+        .map(ForumPublishDraft.normalizedIdentityText)
+        .joined(separator: " ")
+
+        return searchable.contains(query)
+    }
+
+    private static func samplePDFData(title: String, creator: String) -> Data {
+        let stream = "BT /F1 18 Tf 36 156 Td (\(escapedPDFText(title))) Tj 0 -28 Td /F1 12 Tf (iChart Forum QA Preview - \(escapedPDFText(creator))) Tj ET"
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 240] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        ]
+        var pdf = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        for (index, object) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let xrefOffset = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+        for offset in offsets {
+            pdf += String(format: "%010d 00000 n \n", offset)
+        }
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xrefOffset)\n%%EOF\n"
+        return Data(pdf.utf8)
+    }
+
+    private static func escapedPDFText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "(", with: "\\(")
+            .replacingOccurrences(of: ")", with: "\\)")
+    }
+
+    private static let blueBossaSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000001")!
+    private static let cantaloupeSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000002")!
+    private static let justFriendsSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000003")!
+    private static let anotherYouSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000004")!
+    private static let actualProofSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000005")!
+
+    private static let blueBossaRhythmPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000001")!
+    private static let blueBossaHornsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000002")!
+    private static let cantaloupePostID = UUID(uuidString: "62000000-0000-0000-0000-000000000003")!
+    private static let justFriendsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000004")!
+    private static let anotherYouPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000005")!
+    private static let actualProofPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000006")!
+
+    private static let blueBossaCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000001")!
+    private static let blueBossaCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000002")!
+    private static let cantaloupeCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000003")!
+    private static let actualProofCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000004")!
+
+    private static let mayaOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000001")!
+    private static let jamalOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000002")!
+    private static let sophieOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000003")!
+    private static let nateOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000004")!
+    private static let eliOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000005")!
 }
 
 private enum IChartForumServiceError: LocalizedError {
