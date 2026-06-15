@@ -1,23 +1,7 @@
 import Foundation
 import Supabase
 
-enum IChartSupabaseSessionError: LocalizedError {
-    case missingSession
-
-    var errorDescription: String? {
-        switch self {
-        case .missingSession:
-            return "Auth session missing."
-        }
-    }
-}
-
-protocol IChartSupabaseSessionProviding: Sendable {
-    func accessToken() async throws -> String?
-    func currentUserID() async throws -> UUID
-}
-
-actor IChartSupabaseSessionStore: IChartSupabaseSessionProviding {
+actor IChartSupabaseSessionStore {
     private var session: Session?
 
     func update(_ session: Session) {
@@ -31,13 +15,29 @@ actor IChartSupabaseSessionStore: IChartSupabaseSessionProviding {
     func accessToken() async throws -> String? {
         session?.accessToken
     }
+}
 
-    func currentUserID() async throws -> UUID {
-        guard let session else {
-            throw IChartSupabaseSessionError.missingSession
-        }
+struct IChartSupabaseSessionRefresher {
+    private let authClient: SupabaseClient
+    private let sessionStore: IChartSupabaseSessionStore
+    private let persistentSessionStore: IChartSupabasePersistentSessionStore
 
-        return session.user.id
+    init(
+        authClient: SupabaseClient,
+        sessionStore: IChartSupabaseSessionStore,
+        persistentSessionStore: IChartSupabasePersistentSessionStore = IChartSupabasePersistentSessionStore()
+    ) {
+        self.authClient = authClient
+        self.sessionStore = sessionStore
+        self.persistentSessionStore = persistentSessionStore
+    }
+
+    @discardableResult
+    func refreshIfNeeded() async throws -> Session {
+        let session = try await authClient.auth.session
+        try persistentSessionStore.store(session)
+        await sessionStore.update(session)
+        return session
     }
 }
 

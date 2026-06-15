@@ -1,6 +1,6 @@
 begin;
 
-select plan(49);
+select plan(52);
 
 insert into auth.users (id, email)
 values
@@ -158,6 +158,18 @@ select throws_ok(
     '42501',
     null,
     'client cannot update stripe customer id on profile'
+);
+
+select throws_ok(
+    $$
+    update public.profiles
+    set first_name = 'Changed',
+        last_name = 'Name'
+    where id = '00000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update locked profile name fields'
 );
 
 select throws_ok(
@@ -338,7 +350,17 @@ select lives_ok(
         '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
     )
     $$,
-    'active Pro can publish forum chart post metadata'
+    'active Pro can submit forum chart post metadata for review'
+);
+
+select is(
+    (
+        select status
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    'pending',
+    'new forum chart posts start pending review'
 );
 
 select is(
@@ -350,8 +372,40 @@ select is(
 select is(
     (select count(*)::integer from public.forum_chart_posts),
     1,
-    'active Pro can read visible forum chart posts'
+    'active Pro can read own pending forum chart posts'
 );
+
+reset role;
+
+update public.subscriptions
+set plan = 'studioSubscription',
+    status = 'active',
+    provider = 'manual',
+    entitlement_expires_at = now() + interval '30 days',
+    revoked_at = null
+where owner_id = '00000000-0000-0000-0000-000000000002';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    0,
+    'another active Pro cannot read pending forum chart posts'
+);
+
+reset role;
+
+update public.forum_chart_posts
+set status = 'published'
+where id = '40000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
 select lives_ok(
     $$

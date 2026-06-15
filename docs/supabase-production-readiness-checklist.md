@@ -7,7 +7,7 @@ Status: Sprint 5 checklist for iChart account verification, profile sync, and Pr
 - Product: iChart / Smart Chart.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`.
 - Remote URL shape: `https://pausvvwoazbvmzyrebwl.supabase.co`.
-- The iOS app may receive only the project URL and publishable/anon client key.
+- The iOS app embeds only the project URL and publishable client key.
 - Database passwords, JWT secrets, service-role keys, SMTP credentials, Stripe secrets, and webhook signing secrets stay out of the app and out of git.
 
 ## Dashboard Configuration

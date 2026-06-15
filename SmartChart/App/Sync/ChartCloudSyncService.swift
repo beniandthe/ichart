@@ -3,12 +3,12 @@ import Supabase
 
 actor ChartCloudSyncService {
     private let client: SupabaseClient
-    private let sessionProvider: any IChartSupabaseSessionProviding
+    private let sessionRefresher: IChartSupabaseSessionRefresher
     private var lastIssuedRevision: Int64 = 0
 
-    init(client: SupabaseClient, sessionProvider: any IChartSupabaseSessionProviding) {
+    init(client: SupabaseClient, sessionRefresher: IChartSupabaseSessionRefresher) {
         self.client = client
-        self.sessionProvider = sessionProvider
+        self.sessionRefresher = sessionRefresher
     }
 
     func bootstrap(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
@@ -223,7 +223,8 @@ actor ChartCloudSyncService {
     }
 
     private func currentUserID() async throws -> UUID {
-        try await sessionProvider.currentUserID()
+        let session = try await sessionRefresher.refreshIfNeeded()
+        return session.user.id
     }
 
     private func nextRevision(after date: Date) -> Int64 {

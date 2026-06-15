@@ -1,6 +1,7 @@
 import Foundation
 
 enum ForumPostModerationStatus: String, Codable, CaseIterable, Hashable, Identifiable {
+    case pending
     case published
     case flagged
     case hidden
@@ -10,6 +11,7 @@ enum ForumPostModerationStatus: String, Codable, CaseIterable, Hashable, Identif
 }
 
 enum ForumPostQualityStatus: String, Codable, CaseIterable, Hashable, Identifiable {
+    case pendingReview
     case new
     case topRated
     case active
@@ -21,6 +23,8 @@ enum ForumPostQualityStatus: String, Codable, CaseIterable, Hashable, Identifiab
 
     var displayText: String {
         switch self {
+        case .pendingReview:
+            return "Pending Review"
         case .new:
             return "New"
         case .topRated:
@@ -135,7 +139,7 @@ struct ForumChartPost: Identifiable, Codable, Equatable, Hashable {
         switch status {
         case .published, .flagged:
             return true
-        case .hidden, .removed:
+        case .pending, .hidden, .removed:
             return false
         }
     }
@@ -155,6 +159,20 @@ struct ForumAuthorBadge: Identifiable, Codable, Equatable, Hashable {
     var ownerID: UUID
     var badgeType: ForumAuthorBadgeType
     var awardedAt: Date
+}
+
+enum ForumAuthorDisplayNamePolicy {
+    static func displayName(firstName: String?, lastName: String?) -> String {
+        let first = ForumPublishDraft.normalizedDisplayText(firstName ?? "")
+        let last = ForumPublishDraft.normalizedDisplayText(lastName ?? "")
+
+        guard !first.isEmpty,
+              let lastInitial = last.first else {
+            return ""
+        }
+
+        return "\(first) \(String(lastInitial).uppercased())."
+    }
 }
 
 struct ForumPublishDraft: Equatable, Hashable {
@@ -205,10 +223,6 @@ struct ForumPublishDraft: Equatable, Hashable {
             errors.append(.missingArtistName)
         }
 
-        if Self.normalizedDisplayText(chartTitle).isEmpty {
-            errors.append(.missingChartTitle)
-        }
-
         if Self.normalizedDisplayText(arrangerCredit).isEmpty {
             errors.append(.missingArrangerCredit)
         }
@@ -222,6 +236,16 @@ struct ForumPublishDraft: Equatable, Hashable {
 
     func storagePath(ownerID: UUID, postID: UUID) -> String {
         "\(ownerID.uuidString.lowercased())/\(postID.uuidString.lowercased()).pdf"
+    }
+
+    var resolvedChartTitle: String {
+        let enteredChartTitle = Self.normalizedDisplayText(chartTitle)
+        if !enteredChartTitle.isEmpty {
+            return enteredChartTitle
+        }
+
+        let songTitle = Self.normalizedDisplayText(songTitle)
+        return songTitle.isEmpty ? "Forum Chart" : songTitle
     }
 
     static func normalizedDisplayText(_ text: String) -> String {
@@ -239,7 +263,6 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
     case missingChart
     case missingSongTitle
     case missingArtistName
-    case missingChartTitle
     case missingArrangerCredit
     case missingCreatorDisplayName
 
@@ -248,17 +271,15 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
     var message: String {
         switch self {
         case .missingChart:
-            return "Choose a chart to publish."
+            return "Choose a local iChart chart."
         case .missingSongTitle:
             return "Add the song title."
         case .missingArtistName:
             return "Add the artist."
-        case .missingChartTitle:
-            return "Add the chart title."
         case .missingArrangerCredit:
             return "Add arranger credit."
         case .missingCreatorDisplayName:
-            return "Add your display name."
+            return "Finish account first and last name before posting."
         }
     }
 }
@@ -289,6 +310,8 @@ enum ForumQualityPolicy {
         reports: Int
     ) -> ForumPostQualityStatus {
         switch moderationStatus {
+        case .pending:
+            return .pendingReview
         case .hidden:
             return .hidden
         case .removed:

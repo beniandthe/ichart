@@ -14,7 +14,8 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 ## 2. Account Policy
 
 - Account creation/sign-in is mandatory for production Basic and Pro users.
-- First-launch account creation requires first name, last name, email, and password before entering the chart library.
+- In-app account creation requires first name, last name, email, and password before entering the chart library.
+- First and last name are locked account identity fields after signup so forum attribution and support identity stay stable.
 - First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
 - Account/auth is not the paywall.
 - Email verification, password recovery, profile, subscription identity, and support identity are part of the base trust layer.
@@ -35,6 +36,7 @@ Basic includes:
 - local autosave
 - local library access
 - PDF export and sharing
+- local PDF Library for app-generated exports
 - account/profile/password recovery
 - 3 local charts
 
@@ -79,6 +81,7 @@ Core local authoring includes:
 - measure/repeat/page tools required for normal chart work
 - typography and appearance controls required for readable charts
 - PDF export and sharing
+- local PDF Library access for exports and forum downloads
 
 Pro gates ongoing-service and community surfaces:
 
@@ -165,11 +168,14 @@ Chart sync states should communicate the user's real situation:
 - Forums should not block access to Charts, Help, or Settings.
 - Forums access should be controlled by the same active Pro entitlement boundary as cloud services.
 - Forums are a community chart library, not an anonymous social feed.
-- Forum publishing creates a fixed PDF snapshot with creator credit and source metadata; editable chart JSON, source ink, and local authoring state are not shared in V1.
-- Every post, comment, vote, report, and badge must be tied to a verified account identity.
-- Forum chart posts require song title, artist, chart title, arranger/creator credit, layout style, and optional tags/version notes.
-- Community quality uses votes, report thresholds, ranking scores, and moderation states such as `published`, `flagged`, `hidden`, and `removed`.
-- Users may vote, comment, report, download PDFs, and publish visible chart posts when active Pro is verified; users cannot self-award badges or directly mutate moderation status, aggregate counters, subscription state, or another user's content.
+- Forum publishing submits a fixed PDF snapshot with creator credit and source metadata; editable chart JSON, source ink, and local authoring state are not shared in V1.
+- Forum publishing only accepts charts created or stored inside the local iChart library. Users cannot upload arbitrary PDFs or files from device storage to Forums.
+- Forum downloads save into the local in-app PDF Library as non-editable PDFs before preview/share actions.
+- Every post, comment, vote, report, and badge must be tied to a verified account identity. Forum creator credit uses the account's locked first name plus last initial, never an email fallback or editable alias.
+- Forum chart posts require song title, artist, arranger credit, account-owned creator credit, layout style, and optional tags/version notes.
+- New forum chart posts start as `pending` and must pass an authenticity review before they appear in the public community library.
+- Community quality uses votes, report thresholds, ranking scores, and moderation states such as `pending`, `published`, `flagged`, `hidden`, and `removed`.
+- Users may vote, comment, report, download PDFs, and submit chart posts when active Pro is verified; public visibility is server/moderation-owned, and users cannot self-award badges or directly mutate moderation status, aggregate counters, subscription state, or another user's content.
 - Forum charts should remain chords/rhythm-chart focused in V1 and avoid lyrics/melody-sharing features.
 
 ## 10. Subscription And Payment Policy
@@ -193,7 +199,7 @@ Chart sync states should communicate the user's real situation:
 ## 11. Security And Database Policy
 
 - Owner-scoped data must be protected by RLS.
-- The iOS app uses only publishable/anon client keys.
+- The iOS app embeds only the Supabase project URL and publishable client key; service-role and secret keys stay server-side only.
 - The app must never authorize privileged behavior from user-editable metadata.
 - Subscription or entitlement authority should come from trusted purchase/subscription state, not client-editable profile fields.
 - `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices` must keep RLS coverage.

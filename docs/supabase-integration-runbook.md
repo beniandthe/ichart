@@ -43,7 +43,9 @@ The app reads these values from the Xcode scheme environment or generated Info.p
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_ANON_KEY` as a temporary legacy fallback
 
-For simulator QA, make sure the values reach the launched app process, not only the xcodebuild environment. With XcodeBuildMCP, `build_run_sim CODE_SIGNING_ALLOWED=NO` is enough to compile/install, but remote-account QA should relaunch the installed app with explicit runtime env:
+For normal simulator and device launches, the hosted project URL and Supabase publishable key are embedded through generated Info.plist build settings. This is intentional client configuration; Supabase publishable keys are not service-role or secret keys, and RLS remains the authority for data access.
+
+For temporary local or alternate-project simulator QA, make sure override values reach the launched app process:
 
 ```json
 {
@@ -52,7 +54,15 @@ For simulator QA, make sure the values reach the launched app process, not only 
 }
 ```
 
-If Settings shows `Account services offline` and Chart Sync shows `Cloud backup unavailable`, the app is running unconfigured. Relaunch with runtime env before treating account/sync behavior as a product failure.
+If Settings shows `Account services offline` and Chart Sync shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
+
+For local simulator QA after the app has already been built and installed, use:
+
+```sh
+scripts/launch_supabase_configured_simulator.sh
+```
+
+The helper reads `.env` or shell environment values, relaunches the installed simulator app with `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, and does not print the publishable key.
 
 Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboard export files.
 
@@ -108,9 +118,10 @@ Normal test runs stay secret-free and skip live Supabase checks. To run the live
 SMART_CHART_SUPABASE_INTEGRATION=1 \
 SUPABASE_URL=http://127.0.0.1:54321 \
 SUPABASE_PUBLISHABLE_KEY=<local-publishable-key> \
+SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key> \
 swift test --filter SupabaseIntegrationTests
 ```
 
-The integration test creates a throwaway account, saves a profile, creates a chart document, inserts a whole-chart snapshot, points the document to that snapshot, then tombstones the document. It does not use or require a service-role key.
+The integration test creates throwaway accounts, saves a profile, creates a chart document, inserts a whole-chart snapshot, points the document to that snapshot, then tombstones the document. The Pro Forum integration lane also uses a local service-role key to grant the throwaway Pro entitlement, approve the pending forum post, and clean up test data. The app itself must never receive or bundle that key.
 
 If local Auth reports the email-send rate limit during repeated QA runs, the integration test waits out the local one-minute window and retries once.

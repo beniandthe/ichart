@@ -36,7 +36,7 @@ check_ignored_secret_paths() {
 }
 
 scan_for_secrets() {
-  local tmp_file file pattern found
+  local tmp_file file pattern matches match found
   tmp_file="$(mktemp)"
   found=0
 
@@ -55,9 +55,17 @@ scan_for_secrets() {
     [[ -f "$file" ]] || continue
 
     for pattern in "${patterns[@]}"; do
-      if grep -IEn "$pattern" "$file"; then
+      matches="$(grep -IEn "$pattern" "$file" || true)"
+      [[ -n "$matches" ]] || continue
+
+      while IFS= read -r match; do
+        if [[ "$match" =~ =[[:space:]]*\"?\$ ]] || [[ "$match" =~ =[[:space:]]*\< ]]; then
+          continue
+        fi
+
+        printf '%s\n' "$match"
         found=1
-      fi
+      done <<<"$matches"
     done
   done <"$tmp_file"
 

@@ -14,7 +14,6 @@ final class ForumCommunityTests: XCTestCase {
         draft.selectedChartID = chartID
         draft.songTitle = "  Blue   Bossa "
         draft.artistName = " Kenny Dorham "
-        draft.chartTitle = " Rhythm Section "
         draft.arrangerCredit = " Beni Rossman "
         draft.creatorDisplayName = " Beni "
         draft.tagsText = "standard, rhythm section, Standard, live"
@@ -88,8 +87,62 @@ final class ForumCommunityTests: XCTestCase {
         )
     }
 
+    func testForumPublishDraftRejectsChartsOutsideLocalLibrary() {
+        let localChartID = UUID()
+        var draft = ForumPublishDraft()
+        draft.selectedChartID = UUID()
+        draft.songTitle = "Blue Bossa"
+        draft.artistName = "Kenny Dorham"
+        draft.arrangerCredit = "Beni Rossman"
+        draft.creatorDisplayName = "Beni"
+
+        XCTAssertEqual(
+            draft.validationErrors(availableChartIDs: [localChartID]),
+            [.missingChart]
+        )
+    }
+
+    func testForumPublishDraftResolvesBackendChartTitleFromSongTitle() {
+        var draft = ForumPublishDraft()
+        draft.songTitle = "  Blue   Bossa "
+
+        XCTAssertEqual(draft.resolvedChartTitle, "Blue Bossa")
+
+        draft.chartTitle = "  Rhythm Section Arrangement "
+
+        XCTAssertEqual(draft.resolvedChartTitle, "Rhythm Section Arrangement")
+    }
+
+    func testForumAuthorDisplayNameUsesFirstNameAndLastInitial() {
+        XCTAssertEqual(
+            ForumAuthorDisplayNamePolicy.displayName(
+                firstName: " Beni ",
+                lastName: " Rossman "
+            ),
+            "Beni R."
+        )
+        XCTAssertEqual(
+            ForumAuthorDisplayNamePolicy.displayName(
+                firstName: "Beni",
+                lastName: nil
+            ),
+            ""
+        )
+        XCTAssertEqual(
+            ForumAuthorDisplayNamePolicy.displayName(
+                firstName: nil,
+                lastName: nil
+            ),
+            ""
+        )
+    }
+
     func testForumPostModerationStatusControlsCommunityActions() {
-        var post = forumPost(status: .published)
+        var post = forumPost(status: .pending)
+        XCTAssertFalse(post.acceptsCommunityActions)
+        XCTAssertEqual(post.qualityStatus, .pendingReview)
+
+        post.status = .published
         XCTAssertTrue(post.acceptsCommunityActions)
 
         post.status = .flagged

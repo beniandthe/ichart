@@ -24,7 +24,10 @@ final class ChartCloudSyncStore: ObservableObject {
             service: clients.map {
                 ChartCloudSyncService(
                     client: $0.dataClient,
-                    sessionProvider: $0.sessionStore
+                    sessionRefresher: IChartSupabaseSessionRefresher(
+                        authClient: $0.authClient,
+                        sessionStore: $0.sessionStore
+                    )
                 )
             }
         )
@@ -191,10 +194,6 @@ final class ChartCloudSyncStore: ObservableObject {
         if let urlError = error as? URLError,
            [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return .offline
-        }
-
-        if error is IChartSupabaseSessionError {
-            return .failed("Sign in again to resume cloud backup.")
         }
 
         if let postgrestError = error as? PostgrestError {

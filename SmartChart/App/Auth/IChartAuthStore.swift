@@ -69,8 +69,6 @@ private struct IChartUserProfileUpdate: Encodable {
     let id: UUID
     var email: String?
     var phone: String?
-    var firstName: String?
-    var lastName: String?
     var mailingAddress: String?
     var paymentSummary: String?
 
@@ -78,8 +76,6 @@ private struct IChartUserProfileUpdate: Encodable {
         id = profile.id
         email = profile.email
         phone = profile.phone
-        firstName = profile.firstName
-        lastName = profile.lastName
         mailingAddress = profile.mailingAddress
         paymentSummary = profile.paymentSummary
     }
@@ -88,8 +84,6 @@ private struct IChartUserProfileUpdate: Encodable {
         case id
         case email
         case phone
-        case firstName = "first_name"
-        case lastName = "last_name"
         case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
     }

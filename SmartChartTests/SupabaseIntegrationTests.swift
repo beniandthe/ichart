@@ -170,6 +170,18 @@ final class SupabaseIntegrationTests: XCTestCase {
                 storagePath: path
             )
 
+            let pendingPostRows = try await client.rows(
+                path: "forum_chart_posts",
+                queryItems: [
+                    URLQueryItem(name: "id", value: "eq.\(postID)"),
+                    URLQueryItem(name: "select", value: "id,status")
+                ],
+                accessToken: proSession.accessToken
+            )
+            XCTAssertEqual(pendingPostRows.first?["status"] as? String, "pending")
+
+            try await client.approveForumPost(postID: postID, adminKey: adminKey)
+
             let downloadedPDF = try await client.downloadForumPDF(
                 path: path,
                 accessToken: proSession.accessToken
@@ -577,6 +589,19 @@ private struct SupabaseRESTClient {
                 "version_note": "Automated integration smoke",
                 "layout_style": "simpleChordSheet",
                 "pdf_storage_path": storagePath
+            ]
+        )
+    }
+
+    func approveForumPost(postID: String, adminKey: String) async throws {
+        _ = try await requestArray(
+            path: "rest/v1/forum_chart_posts",
+            method: "PATCH",
+            queryItems: [URLQueryItem(name: "id", value: "eq.\(postID)")],
+            accessToken: adminKey,
+            prefer: "return=representation",
+            body: [
+                "status": "published"
             ]
         )
     }

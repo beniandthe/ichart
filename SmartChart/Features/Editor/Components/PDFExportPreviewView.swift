@@ -43,7 +43,7 @@ struct PDFExportPreviewView: View {
     private var exportSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Label("PDF ready", systemImage: "checkmark.circle.fill")
+                Label("Saved to PDF Library", systemImage: "checkmark.circle.fill")
                     .font(.headline)
                     .foregroundStyle(.green)
 

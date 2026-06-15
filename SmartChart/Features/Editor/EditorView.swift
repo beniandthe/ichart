@@ -204,6 +204,7 @@ struct EditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ChartLibraryStore
+    @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
     @Binding var chart: Chart
     @State private var activeSheet: EditorSheet?
     @State private var exportAlertMessage = ""
@@ -1281,8 +1282,9 @@ struct EditorView: View {
         Task {
             do {
                 let exportedPDF = try await exporter.exportPDF(for: chartToExport)
-                await MainActor.run {
-                    activeSheet = .export(exportedPDF)
+                try await MainActor.run {
+                    let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
+                    activeSheet = .export(libraryPDF)
                     isExporting = false
                 }
             } catch {

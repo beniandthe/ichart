@@ -124,6 +124,7 @@ private enum IChartLogoVariant: String {
 
 private enum IChartHomeTab: String, CaseIterable, Identifiable {
     case charts
+    case pdfs
     case forums
     case help
     case settings
@@ -134,6 +135,8 @@ private enum IChartHomeTab: String, CaseIterable, Identifiable {
         switch self {
         case .charts:
             "Charts"
+        case .pdfs:
+            "PDFs"
         case .forums:
             "Forums"
         case .help:
@@ -147,6 +150,8 @@ private enum IChartHomeTab: String, CaseIterable, Identifiable {
         switch self {
         case .charts:
             "music.note.list"
+        case .pdfs:
+            "doc.richtext"
         case .forums:
             "bubble.left.and.bubble.right"
         case .help:
@@ -543,6 +548,7 @@ struct LibraryView: View {
     @EnvironmentObject private var cloudSyncStore: ChartCloudSyncStore
     @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @EnvironmentObject private var forumStore: IChartForumStore
+    @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -569,6 +575,7 @@ struct LibraryView: View {
     @State private var duplicateVariantRequest: ChartProjectDuplicateVariantRequest?
     @State private var forumSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
+    @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
 
     init(onOpenChart: @escaping (Chart.ID, EditorCanvasMode) -> Void) {
         self.onOpenChart = onOpenChart
@@ -579,25 +586,24 @@ struct LibraryView: View {
         return count == 1 ? "1 chart" : "\(count) charts"
     }
 
-    private var forumCreatorDisplayName: String {
-        let profileName = [
+    private var accountNameText: String {
+        let fullName = [
             authStore.profile?.firstName,
             authStore.profile?.lastName
         ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .compactMap { $0 }
+        .map(ForumPublishDraft.normalizedDisplayText)
         .filter { !$0.isEmpty }
         .joined(separator: " ")
 
-        if !profileName.isEmpty {
-            return profileName
-        }
+        return fullName.isEmpty ? "Set at account creation" : fullName
+    }
 
-        if let email = authStore.state.signedInSession?.email,
-           let prefix = email.split(separator: "@").first {
-            return String(prefix)
-        }
-
-        return ""
+    private var forumCreatorDisplayName: String {
+        ForumAuthorDisplayNamePolicy.displayName(
+            firstName: authStore.profile?.firstName,
+            lastName: authStore.profile?.lastName
+        )
     }
 
     private var homeAppearanceMode: IChartHomeAppearanceMode {
@@ -832,13 +838,44 @@ struct LibraryView: View {
                     },
                     onDownloadPDF: {
                         Task {
-                            await forumStore.downloadPDF(for: detail)
+                            guard let downloadedPDF = await forumStore.downloadPDF(for: detail) else {
+                                return
+                            }
+
+                            do {
+                                let libraryPDF = try pdfLibraryStore.save(downloadedPDF, source: .forumDownload)
+                                forumStore.presentDownloadedPDF(libraryPDF)
+                            } catch {
+                                forumStore.showDownloadStorageError(
+                                    "Couldn’t save this forum PDF to your library. \(error.localizedDescription)"
+                                )
+                            }
                         }
                     },
                     onClearDownloadedPDF: {
                         forumStore.clearDownloadedPDF()
                     }
                 )
+            }
+        }
+        .sheet(item: $selectedPDFLibraryItem) { item in
+            if let exportedPDF = pdfLibraryStore.exportedPDF(for: item) {
+                PDFExportPreviewView(exportedPDF: exportedPDF)
+            } else {
+                NavigationStack {
+                    ContentUnavailableView(
+                        "PDF Not Found",
+                        systemImage: "doc.badge.exclamationmark",
+                        description: Text("This saved PDF is no longer available on this device.")
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") {
+                                selectedPDFLibraryItem = nil
+                            }
+                        }
+                    }
+                }
             }
         }
         .alert(
@@ -863,6 +900,8 @@ struct LibraryView: View {
         switch selectedHomeTab {
         case .charts:
             chartsHomeContent
+        case .pdfs:
+            pdfLibraryHomeContent
         case .forums:
             forumsHomeContent
         case .help:
@@ -987,6 +1026,30 @@ struct LibraryView: View {
         }
     }
 
+    private var pdfLibraryHomeContent: some View {
+        homeScroll {
+            IChartHomePanel(
+                title: "PDF Library",
+                systemImageName: "doc.richtext",
+                theme: homeTheme
+            ) {
+                IChartPDFLibraryHomeView(
+                    items: pdfLibraryStore.items,
+                    theme: homeTheme,
+                    onOpen: { item in
+                        selectedPDFLibraryItem = item
+                    },
+                    onDelete: { item in
+                        pdfLibraryStore.delete(item)
+                    }
+                )
+            }
+        }
+        .task {
+            pdfLibraryStore.reload()
+        }
+    }
+
     private var forumsHomeContent: some View {
         homeScroll {
             IChartHomePanel(
@@ -999,8 +1062,7 @@ struct LibraryView: View {
                         state: forumStore.state,
                         searchText: $forumSearchText,
                         charts: store.charts,
-                        isWorking: forumStore.isWorking,
-                        statusMessage: forumStore.statusMessage,
+                        currentUserID: authStore.state.signedInSession?.id,
                         errorMessage: forumStore.errorMessage,
                         theme: homeTheme,
                         onSearch: { query in
@@ -1106,6 +1168,7 @@ struct LibraryView: View {
                     theme: homeTheme
                 ) {
                     IChartUserInfoSettings(
+                        accountName: accountNameText,
                         email: $userEmail,
                         phone: $userPhone,
                         address: $userAddress,
@@ -1970,12 +2033,175 @@ private struct IChartForumPublishRequest: Identifiable {
     var id: Chart.ID { chart.id }
 }
 
+private struct IChartPDFLibraryHomeView: View {
+    let items: [IChartPDFLibraryItem]
+    let theme: IChartHomeTheme
+    let onOpen: (IChartPDFLibraryItem) -> Void
+    let onDelete: (IChartPDFLibraryItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Exports and forum downloads are saved here so you can preview, share, or remove them later.")
+                .font(.subheadline)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(IChartPDFLibrarySource.allCases) { source in
+                IChartPDFLibrarySection(
+                    source: source,
+                    items: items.filter { $0.source == source },
+                    theme: theme,
+                    onOpen: onOpen,
+                    onDelete: onDelete
+                )
+            }
+        }
+    }
+}
+
+private struct IChartPDFLibrarySection: View {
+    let source: IChartPDFLibrarySource
+    let items: [IChartPDFLibraryItem]
+    let theme: IChartHomeTheme
+    let onOpen: (IChartPDFLibraryItem) -> Void
+    let onDelete: (IChartPDFLibraryItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: source.systemImageName)
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .frame(width: 22)
+
+                Text(source.title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+
+                Spacer()
+
+                Text("\(items.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(theme.emptyStateBackground)
+                    .clipShape(Capsule())
+            }
+
+            if items.isEmpty {
+                ContentUnavailableView(
+                    source.emptyTitle,
+                    systemImage: source.systemImageName,
+                    description: Text(source.emptyMessage)
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+                .foregroundStyle(theme.panelSecondary)
+                .background(theme.emptyStateBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                LazyVStack(spacing: 8) {
+                    ForEach(items) { item in
+                        IChartPDFLibraryRow(
+                            item: item,
+                            theme: theme,
+                            onOpen: {
+                                onOpen(item)
+                            },
+                            onDelete: {
+                                onDelete(item)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct IChartPDFLibraryRow: View {
+    let item: IChartPDFLibraryItem
+    let theme: IChartHomeTheme
+    let onOpen: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "doc.richtext")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 36, height: 36)
+                .background(theme.emptyStateBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.displayTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+                    .lineLimit(1)
+
+                Text(item.fileName)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                HStack(spacing: 7) {
+                    metadataPill(item.source.itemTitle)
+                    metadataPill(item.layoutStyle.displayText)
+                    metadataPill(item.transpositionText)
+                    metadataPill(item.pageCountText)
+                    metadataPill(item.fileSizeText)
+                }
+                .font(.caption2.weight(.semibold))
+            }
+
+            Spacer(minLength: 12)
+
+            Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .lineLimit(1)
+
+            Button(action: onOpen) {
+                Image(systemName: "eye")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Open \(item.displayTitle)")
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Delete \(item.displayTitle)")
+        }
+        .padding(12)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+    }
+
+    private func metadataPill(_ text: String) -> some View {
+        Text(text)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(theme.panelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+}
+
 private struct IChartForumHomeView: View {
     let state: IChartForumState
     @Binding var searchText: String
     let charts: [Chart]
-    let isWorking: Bool
-    let statusMessage: String?
+    let currentUserID: UUID?
     let errorMessage: String?
     let theme: IChartHomeTheme
     let onSearch: (String) -> Void
@@ -1984,65 +2210,16 @@ private struct IChartForumHomeView: View {
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(theme.panelSecondary)
-                    TextField("Search songs, artists, arrangers, or tags", text: $searchText)
-                        .textInputAutocapitalization(.words)
-                        .submitLabel(.search)
-                        .onSubmit {
-                            onSearch(searchText)
-                        }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(theme.emptyStateBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.panelBorder, lineWidth: 1)
-                }
-
-                Button {
-                    onSearch(searchText)
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(IChartHomeBrand.blue)
-
-                Menu {
-                    ForEach(charts) { chart in
-                        Button {
-                            onPublishChart(chart)
-                        } label: {
-                            Label(chart.title, systemImage: "doc.badge.plus")
-                        }
-                    }
-                } label: {
-                    Label("Publish Chart", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(charts.isEmpty || isWorking)
+        VStack(alignment: .leading, spacing: 18) {
+            if let summaries = loadedSummaries {
+                IChartForumCommunityHero(
+                    featuredPosts: featuredPosts(from: summaries),
+                    currentUserID: currentUserID,
+                    theme: theme
+                )
             }
 
-            HStack(spacing: 10) {
-                Label("PDF snapshots only", systemImage: "doc.richtext")
-                Label("No editable chart files", systemImage: "lock.doc")
-                Label("Account names shown", systemImage: "person.crop.circle.badge.checkmark")
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(theme.panelSecondary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-
-            if let statusMessage {
-                IChartForumStatusBanner(text: statusMessage, systemImageName: "checkmark.circle.fill", color: .green, theme: theme)
-            }
+            searchAndPublishRow
 
             if let errorMessage {
                 IChartForumStatusBanner(text: errorMessage, systemImageName: "exclamationmark.triangle.fill", color: .orange, theme: theme)
@@ -2053,14 +2230,58 @@ private struct IChartForumHomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var loadedSummaries: [IChartForumSongSummary]? {
+        guard case .loaded(let summaries) = state else {
+            return nil
+        }
+
+        return summaries
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var searchAndPublishRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(theme.panelSecondary)
+                TextField("Search songs, artists, arrangers, or tags", text: $searchText)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.search)
+                    .onSubmit {
+                        onSearch(searchText)
+                    }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(theme.emptyStateBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.panelBorder, lineWidth: 1)
+            }
+
+            Button {
+                onSearch(searchText)
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(IChartHomeBrand.blue)
+        }
+    }
+
     @ViewBuilder
     private var forumStateContent: some View {
         switch state {
         case .unconfigured:
             ContentUnavailableView(
-                "Forum Services Offline",
+                "Community Library Unavailable",
                 systemImage: "wifi.slash",
-                description: Text("Add Supabase configuration to browse and publish community charts.")
+                description: Text("We can’t reach community charts right now. Your local charts are safe, and this page will work again when service returns.")
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 36)
@@ -2087,9 +2308,9 @@ private struct IChartForumHomeView: View {
         case .failed(let message):
             VStack(spacing: 12) {
                 ContentUnavailableView(
-                    "Could Not Load Forums",
+                    "Community Library Unavailable",
                     systemImage: "exclamationmark.triangle",
-                    description: Text(message)
+                    description: Text(message.isEmpty ? "We can’t reach community charts right now. Your local charts are safe, and this page will work again when service returns." : message)
                 )
                 Button(action: onRefresh) {
                     Label("Retry", systemImage: "arrow.clockwise")
@@ -2101,27 +2322,714 @@ private struct IChartForumHomeView: View {
             .padding(.vertical, 32)
         case .loaded(let summaries):
             if summaries.isEmpty {
-                ContentUnavailableView(
-                    searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No Forum Charts Yet" : "No Matching Charts",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Publish a PDF snapshot from one of your charts to start the library.")
+                IChartForumEmptyCommunityHub(
+                    isSearching: !trimmedSearchText.isEmpty,
+                    localCharts: charts,
+                    theme: theme,
+                    onPublishChart: onPublishChart,
+                    onOpenPost: onOpenPost
                 )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 36)
             } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(summaries) { summary in
-                        IChartForumSongCard(
-                            summary: summary,
-                            theme: theme,
-                            onOpenPost: { post in
-                                onOpenPost(summary.song, post)
-                            }
+                let featuredPosts = featuredPosts(from: summaries)
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    IChartForumTopChartsBoard(
+                        featuredPosts: featuredPosts,
+                        isSearching: !trimmedSearchText.isEmpty,
+                        theme: theme,
+                        onOpenPost: onOpenPost
+                    )
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        IChartForumSectionHeader(
+                            title: trimmedSearchText.isEmpty ? "Song Library" : "Search Results",
+                            subtitle: trimmedSearchText.isEmpty
+                                ? "Charts grouped by song and ranked by community response."
+                                : "Matched charts grouped by song.",
+                            theme: theme
                         )
+
+                        ForEach(summaries) { summary in
+                            IChartForumSongCard(
+                                summary: summary,
+                                theme: theme,
+                                onOpenPost: { post in
+                                    onOpenPost(summary.song, post)
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func featuredPosts(from summaries: [IChartForumSongSummary]) -> [IChartForumFeaturedPost] {
+        summaries
+            .flatMap { summary in
+                summary.topPosts.map { post in
+                    IChartForumFeaturedPost(song: summary.song, post: post)
+                }
+            }
+            .sorted { lhs, rhs in
+                if lhs.post.rankingScore == rhs.post.rankingScore {
+                    return lhs.post.publishedAt > rhs.post.publishedAt
+                }
+
+                return lhs.post.rankingScore > rhs.post.rankingScore
+            }
+    }
+}
+
+private struct IChartForumFeaturedPost: Identifiable {
+    let song: ForumSong
+    let post: ForumChartPost
+
+    var id: UUID { post.id }
+}
+
+private enum IChartForumPalette {
+    static let cornerRadius: CGFloat = 8
+    static let primary = IChartHomeBrand.blue
+    static let secondary = IChartHomeBrand.logoBlue
+    static let soft = IChartHomeBrand.blueSoft
+
+    static var accentGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                IChartHomeBrand.blue.opacity(0.92),
+                IChartHomeBrand.logoBlue.opacity(0.54)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+}
+
+private struct IChartForumCommunityHero: View {
+    let featuredPosts: [IChartForumFeaturedPost]
+    let currentUserID: UUID?
+    let theme: IChartHomeTheme
+
+    private var userPosts: [IChartForumFeaturedPost] {
+        guard let currentUserID else {
+            return []
+        }
+
+        return featuredPosts.filter { $0.post.ownerID == currentUserID }
+    }
+
+    private var userUpvoteCount: Int {
+        userPosts.reduce(0) { total, featuredPost in
+            total + max(0, featuredPost.post.voteUpCount)
+        }
+    }
+
+    private var userTopRatedCount: Int {
+        userPosts.filter { $0.post.qualityStatus == .topRated }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Community Bandstand")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text("Find working chord and rhythm PDFs, shout out clean charts, and help other musicians get through rehearsal faster.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Label("iChart Pro", systemImage: "checkmark.seal.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                IChartHomeBrand.blue,
+                                IChartHomeBrand.blue.opacity(0.84)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
+                statPill(value: "\(userPosts.count)", label: "Contributions", systemImageName: "square.and.arrow.up")
+                statPill(value: "0", label: "Downloads", systemImageName: "tray.and.arrow.down")
+                statPill(value: "\(userUpvoteCount)", label: "Upvotes", systemImageName: "hand.thumbsup")
+                statPill(value: "0", label: "Badges", systemImageName: "checkmark.seal")
+                statPill(value: "\(userTopRatedCount)", label: "Top Rated", systemImageName: "star.fill")
+            }
+        }
+        .padding(16)
+        .background(
+            LinearGradient(
+                colors: [
+                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.70),
+                    IChartHomeBrand.paper.opacity(theme.isDark ? 0.08 : 0.52),
+                    theme.emptyStateBackground
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
+                .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
+        }
+        .overlay(alignment: .top) {
+            IChartForumPalette.accentGradient
+                .frame(height: 3)
+        }
+    }
+
+    private func statPill(value: String, label: String, systemImageName: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImageName)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 24, height: 24)
+                .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.82))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(theme.panelTitle)
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            LinearGradient(
+                colors: [
+                    theme.panelBackground.opacity(theme.isDark ? 0.68 : 0.88),
+                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.36)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(IChartHomeBrand.blue.opacity(theme.isDark ? 0.48 : 0.30))
+                .frame(width: 2)
+        }
+    }
+}
+
+private struct IChartForumTopChartsBoard: View {
+    let featuredPosts: [IChartForumFeaturedPost]
+    let isSearching: Bool
+    let theme: IChartHomeTheme
+    let onOpenPost: (ForumSong, ForumChartPost) -> Void
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 132), spacing: 10), count: 4)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .lastTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Bandstand Bulletin", systemImage: "newspaper")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(IChartHomeBrand.blue)
+                        .clipShape(Capsule())
+                        .labelStyle(.titleAndIcon)
+
+                    Text("Top Charts")
+                        .font(.title2.weight(.black))
+                        .foregroundStyle(theme.panelTitle)
+
+                    Text(isSearching ? "Ranked charts matching this search." : "The charts players are backing right now.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.panelSecondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text("Top 10")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(IChartHomeBrand.blue)
+                    .clipShape(Capsule())
+            }
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(IChartForumTopChartPeriod.allCases) { period in
+                    IChartForumTopChartColumn(
+                        period: period,
+                        featuredPosts: period.posts(from: featuredPosts),
+                        theme: theme,
+                        onOpenPost: onOpenPost
+                    )
+                }
+            }
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    theme.panelBackground.opacity(theme.isDark ? 0.78 : 0.96),
+                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.46),
+                    IChartHomeBrand.paper.opacity(theme.isDark ? 0.06 : 0.40)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(IChartHomeBrand.blue.opacity(theme.isDark ? 0.64 : 0.46))
+                .frame(width: 3)
+        }
+        .overlay(alignment: .top) {
+            IChartForumPalette.accentGradient
+                .frame(height: 2)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
+                .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
+        }
+    }
+}
+
+private enum IChartForumTopChartPeriod: String, CaseIterable, Identifiable {
+    case today
+    case week
+    case month
+    case allTime
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .today:
+            return "Today"
+        case .week:
+            return "This Week"
+        case .month:
+            return "This Month"
+        case .allTime:
+            return "All Time"
+        }
+    }
+
+    var accent: Color {
+        IChartHomeBrand.blue
+    }
+
+    func posts(from featuredPosts: [IChartForumFeaturedPost]) -> [IChartForumFeaturedPost] {
+        let now = Date()
+        let calendar = Calendar.current
+        let filteredPosts: [IChartForumFeaturedPost]
+
+        switch self {
+        case .today:
+            filteredPosts = featuredPosts.filter { calendar.isDateInToday($0.post.publishedAt) }
+        case .week:
+            let threshold = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+            filteredPosts = featuredPosts.filter { $0.post.publishedAt >= threshold }
+        case .month:
+            let threshold = calendar.date(byAdding: .day, value: -30, to: now) ?? now
+            filteredPosts = featuredPosts.filter { $0.post.publishedAt >= threshold }
+        case .allTime:
+            filteredPosts = featuredPosts
+        }
+
+        return filteredPosts
+            .sorted { lhs, rhs in
+                if lhs.post.rankingScore == rhs.post.rankingScore {
+                    return lhs.post.publishedAt > rhs.post.publishedAt
+                }
+
+                return lhs.post.rankingScore > rhs.post.rankingScore
+            }
+            .prefix(10)
+            .map { $0 }
+    }
+}
+
+private struct IChartForumTopChartColumn: View {
+    let period: IChartForumTopChartPeriod
+    let featuredPosts: [IChartForumFeaturedPost]
+    let theme: IChartHomeTheme
+    let onOpenPost: (ForumSong, ForumChartPost) -> Void
+
+    private var minimumHeight: CGFloat {
+        featuredPosts.isEmpty ? 128 : 372
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(period.title)
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.72 : 0.88))
+                .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+
+            if featuredPosts.isEmpty {
+                IChartForumTopChartEmptyRow(accent: period.accent, theme: theme)
+            } else {
+                if let firstPost = featuredPosts.first {
+                    IChartForumTopHeadlineRow(
+                        rank: 1,
+                        featuredPost: firstPost,
+                        accent: period.accent,
+                        theme: theme,
+                        onOpen: {
+                            onOpenPost(firstPost.song, firstPost.post)
+                        }
+                    )
+                }
+
+                let remainingPosts = Array(featuredPosts.dropFirst())
+                if !remainingPosts.isEmpty {
+                    VStack(spacing: 7) {
+                        ForEach(Array(remainingPosts.enumerated()), id: \.element.id) { index, featuredPost in
+                            IChartForumTopChartRow(
+                                rank: index + 2,
+                                featuredPost: featuredPost,
+                                accent: period.accent,
+                                theme: theme,
+                                onOpen: {
+                                    onOpenPost(featuredPost.song, featuredPost.post)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                colors: [
+                    theme.emptyStateBackground,
+                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.36)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
+                .stroke(theme.panelBorder.opacity(0.68), lineWidth: 1)
+        }
+    }
+}
+
+private struct IChartForumTopHeadlineRow: View {
+    let rank: Int
+    let featuredPost: IChartForumFeaturedPost
+    let accent: Color
+    let theme: IChartHomeTheme
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    Text("#\(rank)")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(accent)
+                        .clipShape(Capsule())
+
+                    Text("Lead Chart")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(accent)
+
+                    Spacer(minLength: 0)
+                }
+
+                Text(featuredPost.post.chartTitle)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(theme.panelTitle)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(featuredPost.post.creatorDisplayName.isEmpty ? "Unknown" : featuredPost.post.creatorDisplayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Label("\(max(0, featuredPost.post.voteUpCount))", systemImage: "hand.thumbsup")
+                    Text(featuredPost.post.qualityStatus.displayText)
+                }
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(theme.panelSecondary)
+            }
+            .padding(11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [
+                        IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.50),
+                        theme.panelBackground.opacity(theme.isDark ? 0.60 : 0.78)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(IChartHomeBrand.blue.opacity(theme.isDark ? 0.62 : 0.44))
+                    .frame(width: 2)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open lead chart \(featuredPost.post.chartTitle)")
+    }
+}
+
+private struct IChartForumTopChartRow: View {
+    let rank: Int
+    let featuredPost: IChartForumFeaturedPost
+    let accent: Color
+    let theme: IChartHomeTheme
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .top, spacing: 8) {
+                Text("\(rank)")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(rank <= 3 ? accent : theme.panelSecondary)
+                    .frame(width: 20, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(featuredPost.post.chartTitle)
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(theme.panelTitle)
+                        .lineLimit(1)
+
+                    Text(featuredPost.post.creatorDisplayName.isEmpty ? "Unknown" : featuredPost.post.creatorDisplayName)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.panelSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
+                Text("\(max(0, featuredPost.post.voteUpCount))")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.panelSecondary)
+            }
+            .padding(.vertical, 7)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.panelBackground.opacity(theme.isDark ? 0.58 : 0.74))
+            .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(featuredPost.post.chartTitle)")
+    }
+}
+
+private struct IChartForumTopChartEmptyRow: View {
+    let accent: Color
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("No charts yet")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(theme.panelTitle)
+            Text("Waiting on the first approved chart.")
+                .font(.caption2)
+                .foregroundStyle(theme.panelSecondary)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.38),
+                    theme.panelBackground.opacity(theme.isDark ? 0.58 : 0.74)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+    }
+}
+
+private struct IChartForumSectionHeader: View {
+    let title: String
+    let subtitle: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+        }
+    }
+}
+
+private struct IChartForumEmptyCommunityHub: View {
+    let isSearching: Bool
+    let localCharts: [Chart]
+    let theme: IChartHomeTheme
+    let onPublishChart: (Chart) -> Void
+    let onOpenPost: (ForumSong, ForumChartPost) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            IChartForumTopChartsBoard(
+                featuredPosts: [],
+                isSearching: isSearching,
+                theme: theme,
+                onOpenPost: onOpenPost
+            )
+
+            if isSearching {
+                IChartForumInlineEmptyRow(
+                    title: "No Chart On This Tune Yet",
+                    message: "A matching local chart can become the first reviewed PDF for this search.",
+                    systemImageName: "magnifyingglass",
+                    theme: theme
+                )
+            }
+
+            IChartForumEmptyPublishBar(
+                localCharts: localCharts,
+                isSearching: isSearching,
+                theme: theme,
+                onPublishChart: onPublishChart
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IChartForumEmptyPublishBar: View {
+    let localCharts: [Chart]
+    let isSearching: Bool
+    let theme: IChartHomeTheme
+    let onPublishChart: (Chart) -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(localCharts.isEmpty ? "Local Chart Needed" : "Submit From Your Library")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(theme.panelTitle)
+                    Text(localCharts.isEmpty ? "Forum posts start from charts created inside iChart." : isSearching ? "A matching local chart can become the first reviewed PDF for this search." : "Pick a local chart and send a reviewed PDF snapshot to the community library.")
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } icon: {
+                Image(systemName: localCharts.isEmpty ? "doc.badge.plus" : "square.and.arrow.up")
+                    .foregroundStyle(IChartHomeBrand.blue)
+            }
+
+            Spacer(minLength: 12)
+
+            if localCharts.isEmpty {
+                Text("No local charts")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.panelSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(theme.panelBackground.opacity(theme.isDark ? 0.56 : 0.72))
+                    .clipShape(Capsule())
+            } else {
+                Menu {
+                    ForEach(localCharts) { chart in
+                        Button {
+                            onPublishChart(chart)
+                        } label: {
+                            Label(chart.title, systemImage: "doc.badge.plus")
+                        }
+                    }
+                } label: {
+                    Label("Submit To Forum", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(IChartHomeBrand.blue)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.panelBackground.opacity(theme.isDark ? 0.62 : 0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct IChartForumInlineEmptyRow: View {
+    let title: String
+    let message: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+            }
+        } icon: {
+            Image(systemName: systemImageName)
+                .foregroundStyle(IChartHomeBrand.blue)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -2266,7 +3174,7 @@ private struct IChartForumQualityPill: View {
         switch status {
         case .topRated:
             return .green
-        case .needsReview:
+        case .pendingReview, .needsReview:
             return .orange
         case .hidden, .removed:
             return .red
@@ -2294,9 +3202,7 @@ private struct IChartForumPublishSheet: View {
     private enum Field: Hashable {
         case song
         case artist
-        case chartTitle
         case arranger
-        case creator
         case tags
         case note
     }
@@ -2304,24 +3210,13 @@ private struct IChartForumPublishSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Chart") {
-                    LabeledContent("Local chart", value: request.chart.title)
-                    LabeledContent("Forum format", value: "PDF snapshot only")
-                }
-
-                Section("Song Metadata") {
+                Section("Metadata") {
                     forumTextField("Song Title", text: $draft.songTitle, field: .song)
                     forumTextField("Artist", text: $draft.artistName, field: .artist)
-                    forumTextField("Chart Title", text: $draft.chartTitle, field: .chartTitle)
                     forumTextField("Arranger Credit", text: $draft.arrangerCredit, field: .arranger)
-                    forumTextField("Creator Display", text: $draft.creatorDisplayName, field: .creator)
-                }
-
-                Section("Tags And Notes") {
-                    forumTextField("Tags", text: $draft.tagsText, field: .tags, prompt: "live, acoustic, rhythm section")
-                    TextField("Version note", text: $draft.versionNote, axis: .vertical)
-                        .lineLimit(2...4)
-                        .focused($focusedField, equals: .note)
+                    LabeledContent("Posted By", value: postedByText)
+                    forumTextField("Tags (Optional)", text: $draft.tagsText, field: .tags, prompt: "live, acoustic, rhythm section")
+                    forumMultilineTextField("Notes (Optional)", text: $draft.versionNote, field: .note)
                 }
 
                 if !validationErrors.isEmpty {
@@ -2333,7 +3228,7 @@ private struct IChartForumPublishSheet: View {
                     }
                 }
             }
-            .navigationTitle("Publish To Forum")
+            .navigationTitle("Submit To Forum")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2346,17 +3241,29 @@ private struct IChartForumPublishSheet: View {
                     Button {
                         publish()
                     } label: {
-                        Label("Publish", systemImage: "square.and.arrow.up")
+                        Label("Submit", systemImage: "square.and.arrow.up")
                     }
                 }
             }
             .onAppear {
-                draft.selectedChartID = request.chart.id
-                draft.chartTitle = request.chart.title
-                draft.arrangerCredit = profileDisplayName
-                draft.creatorDisplayName = profileDisplayName
+                configureDraftIfNeeded()
             }
         }
+    }
+
+    private func configureDraftIfNeeded() {
+        guard draft.selectedChartID == nil else {
+            return
+        }
+
+        draft.selectedChartID = request.chart.id
+        draft.chartTitle = ""
+        draft.arrangerCredit = profileDisplayName
+        draft.creatorDisplayName = profileDisplayName
+    }
+
+    private var postedByText: String {
+        profileDisplayName.isEmpty ? "Account name required" : profileDisplayName
     }
 
     private func forumTextField(
@@ -2371,6 +3278,29 @@ private struct IChartForumPublishSheet: View {
                     .focused($focusedField, equals: field)
             } else {
                 TextField(title, text: text)
+                    .focused($focusedField, equals: field)
+            }
+
+            IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for \(title)") {
+                focusedField = field
+            }
+        }
+    }
+
+    private func forumMultilineTextField(
+        _ title: String,
+        text: Binding<String>,
+        field: Field,
+        prompt: String? = nil
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if let prompt {
+                TextField(title, text: text, prompt: Text(prompt), axis: .vertical)
+                    .lineLimit(2...4)
+                    .focused($focusedField, equals: field)
+            } else {
+                TextField(title, text: text, axis: .vertical)
+                    .lineLimit(2...4)
                     .focused($focusedField, equals: field)
             }
 
@@ -2615,6 +3545,8 @@ private struct IChartForumPostDetailView: View {
 
     private var moderationNoticeText: String? {
         switch detail.post.status {
+        case .pending:
+            return "This chart is pending an authenticity review before it appears in Forums."
         case .published:
             return detail.post.qualityStatus == .needsReview
                 ? "This chart has been flagged for community review."
@@ -3226,7 +4158,7 @@ private enum IChartAccountInputField: Hashable {
 private struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
-    var requiresNameForSignup = false
+    var requiresNameForSignup = true
     var showsSignedInActions = true
     @State private var firstName = ""
     @State private var lastName = ""
@@ -4122,6 +5054,7 @@ private struct IChartAccountSecureField: View {
 }
 
 private struct IChartUserInfoSettings: View {
+    let accountName: String
     @Binding var email: String
     @Binding var phone: String
     @Binding var address: String
@@ -4132,6 +5065,15 @@ private struct IChartUserInfoSettings: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            IChartSettingsLockedValueRow(
+                title: "Account Name",
+                value: accountName,
+                systemImageName: "person.crop.circle.badge.checkmark",
+                theme: theme
+            )
+
+            settingsDivider
+
             IChartSettingsTextFieldRow(
                 title: "Email",
                 placeholder: "name@example.com",
@@ -4180,6 +5122,43 @@ private struct IChartUserInfoSettings: View {
         Divider()
             .overlay(theme.panelBorder)
             .padding(.leading, 44)
+    }
+}
+
+private struct IChartSettingsLockedValueRow: View {
+    let title: String
+    let value: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: systemImageName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartHomeBrand.blue)
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+                .frame(minWidth: 104, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 6) {
+                Text(value)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: "lock.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+        }
+        .padding(.vertical, 14)
     }
 }
 

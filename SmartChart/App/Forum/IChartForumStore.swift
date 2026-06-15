@@ -59,7 +59,10 @@ final class IChartForumStore: ObservableObject {
         return IChartForumStore(
             service: IChartSupabaseForumService(
                 client: clients.dataClient,
-                sessionProvider: clients.sessionStore,
+                sessionRefresher: IChartSupabaseSessionRefresher(
+                    authClient: clients.authClient,
+                    sessionStore: clients.sessionStore
+                ),
                 pdfExporter: PDFChartExporter.live()
             )
         )
@@ -111,7 +114,7 @@ final class IChartForumStore: ObservableObject {
         do {
             let detail = try await service.publish(chart: chart, draft: draft)
             selectedDetail = detail
-            statusMessage = "Forum chart published."
+            statusMessage = "Forum chart submitted for review."
             let summaries = try await service.loadHome(query: lastQuery)
             state = .loaded(summaries)
         } catch {
@@ -149,10 +152,23 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func downloadPDF(for detail: IChartForumPostDetail) async {
-        await run(successMessage: "Forum PDF ready.") {
-            downloadedPDF = try await service.downloadPDF(for: detail.post)
+    @discardableResult
+    func downloadPDF(for detail: IChartForumPostDetail) async -> ExportedPDF? {
+        var downloadedPDF: ExportedPDF?
+        await run {
+            let pdf = try await service.downloadPDF(for: detail.post)
+            self.downloadedPDF = pdf
+            downloadedPDF = pdf
         }
+        return downloadedPDF
+    }
+
+    func presentDownloadedPDF(_ pdf: ExportedPDF) {
+        downloadedPDF = pdf
+    }
+
+    func showDownloadStorageError(_ message: String) {
+        errorMessage = message
     }
 
     func clearDownloadedPDF() {
@@ -197,12 +213,21 @@ final class IChartForumStore: ObservableObject {
     }
 
     private static func displayText(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost].contains(urlError.code) {
+            return temporaryServiceInterruptionText
+        }
+
         if let localizedError = error as? LocalizedError,
            let description = localizedError.errorDescription {
             return description
         }
 
         return error.localizedDescription
+    }
+
+    private static var temporaryServiceInterruptionText: String {
+        "We can’t reach community charts right now. Your local charts are safe, and this page will work again when service returns."
     }
 }
 
@@ -254,9 +279,9 @@ private enum IChartForumServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unconfigured:
-            return "Forum services are not configured."
+            return "We can’t reach community charts right now. Your local charts are safe, and this page will work again when service returns."
         case .missingChart:
-            return "Choose a local chart before publishing."
+            return "Choose a local iChart chart before publishing."
         case .invalidPublishDraft(let message):
             return message
         case .missingForumPost:
@@ -269,21 +294,22 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     let isConfigured = true
 
     private let client: SupabaseClient
-    private let sessionProvider: any IChartSupabaseSessionProviding
+    private let sessionRefresher: IChartSupabaseSessionRefresher
     private let pdfExporter: PDFChartExporter
     private let bucketID = "forum_chart_pdfs"
 
     init(
         client: SupabaseClient,
-        sessionProvider: any IChartSupabaseSessionProviding,
+        sessionRefresher: IChartSupabaseSessionRefresher,
         pdfExporter: PDFChartExporter
     ) {
         self.client = client
-        self.sessionProvider = sessionProvider
+        self.sessionRefresher = sessionRefresher
         self.pdfExporter = pdfExporter
     }
 
     func loadHome(query: String) async throws -> [IChartForumSongSummary] {
+        _ = try await refreshedSessionForRequest()
         let songs: [ForumSongRow] = try await client
             .from("forum_songs")
             .select()
@@ -301,7 +327,9 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             .value
 
         let mappedSongs = songs.map(\.forumSong)
-        let mappedPosts = posts.map(\.forumChartPost)
+        let mappedPosts = posts
+            .map(\.forumChartPost)
+            .filter { $0.status != .pending }
         let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
         let postsBySongID = Dictionary(grouping: mappedPosts, by: \.songID)
 
@@ -331,6 +359,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
+        let currentUserID = try await currentUserIDForRequest()
         let postRows: [ForumChartPostRow] = try await client
             .from("forum_chart_posts")
             .select()
@@ -356,7 +385,6 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             .eq("owner_id", value: post.ownerID)
             .execute()
             .value
-        let currentUserID = try await sessionProvider.currentUserID()
         let votes: [ForumVoteRow] = try await client
             .from("forum_votes")
             .select()
@@ -383,7 +411,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             )
         }
 
-        let ownerID = try await sessionProvider.currentUserID()
+        let ownerID = try await currentUserIDForRequest()
         let postID = UUID()
         let storagePath = draft.storagePath(ownerID: ownerID, postID: postID)
         let exportedPDF = try await pdfExporter.exportPDF(
@@ -418,7 +446,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
                 songID: song.id,
                 ownerID: ownerID,
                 localChartID: chart.id,
-                chartTitle: ForumPublishDraft.normalizedDisplayText(draft.chartTitle),
+                chartTitle: draft.resolvedChartTitle,
                 arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
                 creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
                 tags: draft.sanitizedTags,
@@ -442,7 +470,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func vote(postID: UUID, vote: ForumVoteValue) async throws {
-        let ownerID = try await sessionProvider.currentUserID()
+        let ownerID = try await currentUserIDForRequest()
         let existingVotes: [ForumVoteRow] = try await client
             .from("forum_votes")
             .select()
@@ -472,7 +500,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             return
         }
 
-        let ownerID = try await sessionProvider.currentUserID()
+        let ownerID = try await currentUserIDForRequest()
         try await client
             .from("forum_comments")
             .insert(ForumCommentInsert(postID: postID, ownerID: ownerID, body: sanitizedBody))
@@ -480,7 +508,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws {
-        let ownerID = try await sessionProvider.currentUserID()
+        let ownerID = try await currentUserIDForRequest()
         try await client
             .from("forum_reports")
             .insert(
@@ -497,7 +525,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws {
-        let ownerID = try await sessionProvider.currentUserID()
+        let ownerID = try await currentUserIDForRequest()
         try await client
             .from("forum_reports")
             .insert(
@@ -514,6 +542,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
+        _ = try await refreshedSessionForRequest()
         let data = try await client.storage
             .from(bucketID)
             .download(path: post.pdfStoragePath)
@@ -536,6 +565,15 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             fileSizeBytes: data.count,
             exportedAt: Date()
         )
+    }
+
+    private func refreshedSessionForRequest() async throws -> Session {
+        try await sessionRefresher.refreshIfNeeded()
+    }
+
+    private func currentUserIDForRequest() async throws -> UUID {
+        let session = try await refreshedSessionForRequest()
+        return session.user.id
     }
 
     private func rollbackUploadedForumPDF(at path: String) async {
@@ -717,7 +755,7 @@ private struct ForumChartPostRow: Decodable {
             versionNote: versionNote,
             layoutStyle: ChartLayoutStyle(rawValue: layoutStyle) ?? .leadSheet,
             pdfStoragePath: pdfStoragePath,
-            status: ForumPostModerationStatus(rawValue: status) ?? .published,
+            status: ForumPostModerationStatus(rawValue: status) ?? .pending,
             voteUpCount: voteUpCount,
             voteDownCount: voteDownCount,
             reportCount: reportCount,
@@ -758,6 +796,7 @@ private struct ForumChartPostInsert: Encodable {
     let versionNote: String?
     let layoutStyle: String
     let pdfStoragePath: String
+    let status: String = ForumPostModerationStatus.pending.rawValue
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -771,6 +810,7 @@ private struct ForumChartPostInsert: Encodable {
         case versionNote = "version_note"
         case layoutStyle = "layout_style"
         case pdfStoragePath = "pdf_storage_path"
+        case status
     }
 }
 

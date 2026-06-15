@@ -7,9 +7,11 @@ struct SmartChartApp: App {
     @StateObject private var cloudSyncStore: ChartCloudSyncStore
     @StateObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @StateObject private var forumStore: IChartForumStore
+    @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
 
     init() {
         let libraryStore = ChartLibraryStore.live()
+        let pdfLibraryStore = IChartPDFLibraryStore.live()
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
         libraryStore.onSnapshotSaved = nil
         _store = StateObject(wrappedValue: libraryStore)
@@ -17,6 +19,7 @@ struct SmartChartApp: App {
         _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
         _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
         _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
+        _pdfLibraryStore = StateObject(wrappedValue: pdfLibraryStore)
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
@@ -31,6 +34,7 @@ struct SmartChartApp: App {
                 .environmentObject(cloudSyncStore)
                 .environmentObject(subscriptionStore)
                 .environmentObject(forumStore)
+                .environmentObject(pdfLibraryStore)
                 .task {
                     await subscriptionStore.bootstrap()
                     store.applySubscriptionState(subscriptionStore.entitlement)
