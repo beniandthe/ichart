@@ -52,6 +52,35 @@ final class ChartCloudMergeTests: XCTestCase {
         XCTAssertEqual(merged.charts.first?.title, "Local Tie")
     }
 
+    func testMergePreservesLocalProjects() {
+        let date = Date(timeIntervalSinceReferenceDate: 2_500)
+        var chart = Chart.blank(title: "Project Chart", measureCount: 4)
+        chart.id = UUID(uuidString: "00000000-0000-0000-0000-000000000112")!
+        chart.updatedAt = date
+        let project = ChartProject(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000212")!,
+            title: "Show Folder",
+            chartIDs: [chart.id],
+            createdAt: date,
+            updatedAt: date
+        )
+        let local = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: .free,
+            projects: [project]
+        )
+        let remote = ChartCloudRemoteLibrary(
+            charts: [chart],
+            deletionTombstones: [],
+            lastRemoteBackupAt: date.addingTimeInterval(30)
+        )
+
+        let merged = ChartCloudMerge.mergedSnapshot(local: local, remote: remote, now: date.addingTimeInterval(60))
+
+        XCTAssertEqual(merged.projects, [project])
+    }
+
     func testNewerLocalTombstonePreventsRemoteResurrection() {
         let baseDate = Date(timeIntervalSinceReferenceDate: 3_000)
         var remoteChart = Chart.blank(title: "Remote Old", measureCount: 4)

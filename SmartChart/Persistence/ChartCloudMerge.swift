@@ -78,7 +78,8 @@ enum ChartCloudMerge {
                 ownerID: ownerID ?? local.cloudMetadata.ownerID,
                 lastSyncAt: now,
                 lastRemoteBackupAt: remote.lastRemoteBackupAt ?? local.cloudMetadata.lastRemoteBackupAt
-            )
+            ),
+            projects: local.projects
         )
     }
 

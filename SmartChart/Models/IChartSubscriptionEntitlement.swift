@@ -192,4 +192,15 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
             return "clock.arrow.circlepath"
         }
     }
+
+    func resolvedForLibraryApplication(
+        currentLibraryEntitlement: IChartSubscriptionEntitlement
+    ) -> IChartSubscriptionEntitlement {
+        guard currentLibraryEntitlement.status == .legacyLocalPro,
+              status != .proActive else {
+            return self
+        }
+
+        return currentLibraryEntitlement
+    }
 }

@@ -69,7 +69,10 @@ struct SmartChartApp: App {
     }
 
     private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {
-        store.applySubscriptionState(entitlement)
-        pdfLibraryStore.removeForumDownloadsIfInactive(for: entitlement)
+        let resolvedEntitlement = entitlement.resolvedForLibraryApplication(
+            currentLibraryEntitlement: store.entitlements.subscription
+        )
+        store.applySubscriptionState(resolvedEntitlement)
+        pdfLibraryStore.removeForumDownloadsIfInactive(for: resolvedEntitlement)
     }
 }

@@ -32,6 +32,34 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertFalse(entitlements.includes(.projects))
     }
 
+    func testLibrarySubscriptionApplicationPreservesLegacyLocalProForInactiveStoreKitResults() {
+        let currentLegacyEntitlement = IChartSubscriptionEntitlement.legacyLocalPro
+        let inactiveStoreKitResults: [IChartSubscriptionEntitlement] = [
+            .basic,
+            .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 100)),
+            .proExpired(verifiedAt: Date(timeIntervalSinceReferenceDate: 200)),
+            .unavailable
+        ]
+
+        for entitlement in inactiveStoreKitResults {
+            let resolved = entitlement.resolvedForLibraryApplication(
+                currentLibraryEntitlement: currentLegacyEntitlement
+            )
+
+            XCTAssertEqual(resolved.status, .legacyLocalPro, "Expected legacy local Pro to survive \(entitlement.status)")
+        }
+    }
+
+    func testLibrarySubscriptionApplicationLetsActiveStoreKitProReplaceLegacyLocalPro() {
+        let activePro = IChartSubscriptionEntitlement.activePro(verifiedAt: Date(timeIntervalSinceReferenceDate: 300))
+
+        let resolved = activePro.resolvedForLibraryApplication(
+            currentLibraryEntitlement: .legacyLocalPro
+        )
+
+        XCTAssertEqual(resolved, activePro)
+    }
+
     func testLegacyCloudEntitlementAddsServiceBackedFeaturesOnTopOfLocalPro() {
         let entitlements = AppEntitlements(activePlan: .studioSubscription)
 
