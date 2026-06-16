@@ -89,25 +89,39 @@ struct PendingChordCorrection: Identifiable {
 }
 
 enum ChordInkFixtureCopyResult: Equatable {
+    case unavailable
+
+    #if DEBUG && targetEnvironment(simulator)
     case copied(displayText: String, fixtureName: String)
     case failed(String)
+    #endif
 
     var message: String {
+        #if DEBUG && targetEnvironment(simulator)
         switch self {
         case .copied(let displayText, let fixtureName):
             "Copied \(displayText) ink sample as \(fixtureName)."
         case .failed(let message):
             message
+        case .unavailable:
+            ""
         }
+        #else
+        ""
+        #endif
     }
 
     var isFailure: Bool {
+        #if DEBUG && targetEnvironment(simulator)
         switch self {
         case .copied:
             false
-        case .failed:
+        case .failed, .unavailable:
             true
         }
+        #else
+        true
+        #endif
     }
 }
 
@@ -143,9 +157,11 @@ struct ChordInkConfirmationSheetView: View {
                 candidateChoices
                 manualEntry
                 manualActions
+                #if DEBUG && targetEnvironment(simulator)
                 if showsFixtureCaptureTools {
                     captureActions
                 }
+                #endif
             }
             .frame(maxWidth: 460)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -304,11 +320,13 @@ struct ChordInkConfirmationSheetView: View {
                 .onSubmit {
                     acceptTrimmedCandidate()
                 }
+                #if DEBUG && targetEnvironment(simulator)
                 .onChange(of: manualCandidateText) { _, _ in
                     if fixtureCopyStatus != nil {
                         fixtureCopyStatus = nil
                     }
                 }
+                #endif
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -342,6 +360,7 @@ struct ChordInkConfirmationSheetView: View {
         }
     }
 
+    #if DEBUG && targetEnvironment(simulator)
     private var captureActions: some View {
         VStack(spacing: 10) {
             Text("Ink sample capture")
@@ -373,6 +392,7 @@ struct ChordInkConfirmationSheetView: View {
             .buttonStyle(.bordered)
         }
     }
+    #endif
 
     private func acceptTrimmedCandidate() {
         guard !trimmedCandidateText.isEmpty else {

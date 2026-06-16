@@ -392,7 +392,12 @@ struct EditorView: View {
                     handleChordInkCandidateAccepted(candidateText, confirmation: confirmation)
                 },
                 onCopyFixtureJSON: { candidateText in
+                    #if DEBUG && targetEnvironment(simulator)
                     handleChordInkFixtureCopyRequested(candidateText, confirmation: confirmation)
+                    #else
+                    _ = candidateText
+                    return .unavailable
+                    #endif
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
@@ -2768,6 +2773,7 @@ struct EditorView: View {
         #endif
     }
 
+    #if DEBUG && targetEnvironment(simulator)
     private func handleChordInkFixtureCopyRequested(
         _ candidateText: String,
         confirmation: PendingChordInkConfirmation
@@ -2796,6 +2802,7 @@ struct EditorView: View {
             return .failed("Could not copy this ink sample. Keep the ink and try again.")
         }
     }
+    #endif
 
     private func handleChordInkRewriteRequested() {
         chordInkAutomaticRewriteFailures.reset()

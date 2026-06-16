@@ -11,7 +11,6 @@ struct IChartStoreKitProductOption: Equatable, Identifiable {
 enum IChartStoreKitProductCatalog {
     static let proMonthlyProductID = "com.smartchart.app.pro.monthly"
     static let proAnnualProductID = "com.smartchart.app.pro.annual"
-    static let localStoreKitConfigurationFileName = "iChartProSubscriptions.storekit"
     static let targetMonthlyPriceCents = 799
     static let targetAnnualPriceCents = 6_499
 
@@ -37,6 +36,25 @@ enum IChartStoreKitProductCatalog {
     static func valueBadge(for productID: String) -> String? {
         productID == proAnnualProductID ? annualSavingsBadge : nil
     }
+
+    #if DEBUG && targetEnvironment(simulator)
+    static let localPreviewProductOptions: [IChartStoreKitProductOption] = [
+        IChartStoreKitProductOption(
+            id: proMonthlyProductID,
+            displayName: "iChart Pro Monthly",
+            description: "Monthly Pro access for iChart.",
+            displayPrice: "$7.99",
+            valueBadge: valueBadge(for: proMonthlyProductID)
+        ),
+        IChartStoreKitProductOption(
+            id: proAnnualProductID,
+            displayName: "iChart Pro Annual",
+            description: "Annual Pro access for iChart.",
+            displayPrice: "$64.99",
+            valueBadge: valueBadge(for: proAnnualProductID)
+        )
+    ]
+    #endif
 }
 
 enum IChartStoreKitEntitlementResolver {

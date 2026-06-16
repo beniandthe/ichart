@@ -10,6 +10,8 @@ settings:
   base:
     PRODUCT_NAME: SmartChart
     PRODUCT_BUNDLE_IDENTIFIER: com.smartchart.app
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "2"
     SWIFT_VERSION: "5.10"
     ALWAYS_SEARCH_USER_PATHS: false
@@ -62,8 +64,6 @@ targets:
         excludes:
           - Resources
       - path: SmartChart/Resources
-        buildPhase: resources
-      - path: StoreKit
         buildPhase: resources
       - path: ThirdParty/NotationFonts/SMuFL
         buildPhase: resources

@@ -40,7 +40,11 @@ enum IChartStoreKitSubscriptionState: Equatable {
         case .managing:
             return "Opening subscription management..."
         case .localPreviewActive:
+            #if DEBUG && targetEnvironment(simulator)
             return "Pro preview is active on this device."
+            #else
+            return nil
+            #endif
         case .unavailable(let message):
             return message
         }
@@ -268,7 +272,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         #endif
     }
 
-    #if DEBUG || targetEnvironment(simulator)
+    #if DEBUG && targetEnvironment(simulator)
     func applyLocalPreview(_ entitlement: IChartSubscriptionEntitlement) {
         self.entitlement = entitlement
         state = entitlement.status == .proActive ? .localPreviewActive : .ready
@@ -315,27 +319,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     #if DEBUG && targetEnvironment(simulator)
     private func localStoreKitProductOptions() -> [IChartStoreKitProductOption] {
-        guard let configurationURL = Bundle.main.url(
-            forResource: IChartStoreKitProductCatalog.localStoreKitConfigurationFileName,
-            withExtension: nil
-        ),
-              let data = try? Data(contentsOf: configurationURL),
-              let configuration = try? JSONDecoder().decode(LocalStoreKitConfiguration.self, from: data) else {
-            return []
-        }
-
-        let options = configuration.subscriptionGroups
-            .flatMap(\.subscriptions)
-            .filter { productIDs.contains($0.productID) }
-            .map { subscription in
-                IChartStoreKitProductOption(
-                    id: subscription.productID,
-                    displayName: subscription.localizedDisplayName,
-                    description: subscription.localizedDescription,
-                    displayPrice: subscription.localizedDisplayPrice,
-                    valueBadge: IChartStoreKitProductCatalog.valueBadge(for: subscription.productID)
-                )
-            }
+        let options = IChartStoreKitProductCatalog.localPreviewProductOptions
+            .filter { productIDs.contains($0.id) }
 
         return options.sorted { lhs, rhs in
             (productIDs.firstIndex(of: lhs.id) ?? Int.max) < (productIDs.firstIndex(of: rhs.id) ?? Int.max)
@@ -443,37 +428,3 @@ private struct StoreKitSubscriptionClaimResponse: Decodable {
         case subscription
     }
 }
-
-#if DEBUG && targetEnvironment(simulator)
-private struct LocalStoreKitConfiguration: Decodable {
-    struct SubscriptionGroup: Decodable {
-        let subscriptions: [Subscription]
-    }
-
-    struct Subscription: Decodable {
-        struct Localization: Decodable {
-            let description: String
-            let displayName: String
-        }
-
-        let productID: String
-        let displayPrice: String
-        let localizations: [Localization]
-        let referenceName: String
-
-        var localizedDisplayName: String {
-            localizations.first?.displayName ?? referenceName
-        }
-
-        var localizedDescription: String {
-            localizations.first?.description ?? ""
-        }
-
-        var localizedDisplayPrice: String {
-            displayPrice.hasPrefix("$") ? displayPrice : "$\(displayPrice)"
-        }
-    }
-
-    let subscriptionGroups: [SubscriptionGroup]
-}
-#endif

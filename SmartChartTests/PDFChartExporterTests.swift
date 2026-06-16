@@ -118,7 +118,10 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "F7")
         XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "G7sus")
         XCTAssertTrue(documentText.contains("stop time"))
-        XCTAssertTrue(documentText.contains("D.S. AL CODA"))
+        XCTAssertPDFExtractedTextContains(
+            documentText,
+            visibleNotationText: "D.S. al \u{E048}"
+        )
         XCTAssertFalse(documentText.contains("C MAJOR"))
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
         XCTAssertGreaterThan(pageBounds.height, pageBounds.width)
