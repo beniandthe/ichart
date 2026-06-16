@@ -911,9 +911,9 @@ struct LibraryView: View {
     @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
     @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage("iChartUserEmail") private var userEmail = ""
-    @AppStorage("iChartUserPhone") private var userPhone = ""
-    @AppStorage("iChartUserAddress") private var userAddress = ""
+    @State private var userEmail = ""
+    @State private var userPhone = ""
+    @State private var userAddress = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?

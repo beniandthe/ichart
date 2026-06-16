@@ -128,11 +128,19 @@ final class IChartAuthStore: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let service: IChartAccountServicing
+    private let pendingVerificationEmailStorage: any AuthLocalStorage
     private var hasBootstrapped = false
-    private static let pendingVerificationEmailKey = "iChartPendingVerificationEmail"
+    private static let pendingVerificationEmailKey = "iChart.pending-verification-email.v1"
+    private static let legacyPendingVerificationEmailKey = "iChartPendingVerificationEmail"
 
-    private init(service: IChartAccountServicing) {
+    private init(
+        service: IChartAccountServicing,
+        pendingVerificationEmailStorage: any AuthLocalStorage = IChartSupabaseAuthLocalStorage(
+            allowsInsecureFallback: false
+        )
+    ) {
         self.service = service
+        self.pendingVerificationEmailStorage = pendingVerificationEmailStorage
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
@@ -341,16 +349,38 @@ final class IChartAuthStore: ObservableObject {
     }
 
     private var rememberedPendingVerificationEmail: String? {
-        let email = UserDefaults.standard.string(forKey: Self.pendingVerificationEmailKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return email.isEmpty ? nil : email
+        if let storedEmail = try? pendingVerificationEmailStorage.retrieve(key: Self.pendingVerificationEmailKey),
+           let email = String(data: storedEmail, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !email.isEmpty {
+            return email
+        }
+
+        guard let legacyEmail = UserDefaults.standard.string(forKey: Self.legacyPendingVerificationEmailKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !legacyEmail.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+            return nil
+        }
+
+        try? pendingVerificationEmailStorage.store(
+            key: Self.pendingVerificationEmailKey,
+            value: Data(legacyEmail.utf8)
+        )
+        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+        return legacyEmail
     }
 
     private func rememberPendingVerificationEmailIfNeeded() {
         if case .pendingEmailVerification(let email) = state {
-            UserDefaults.standard.set(email, forKey: Self.pendingVerificationEmailKey)
+            try? pendingVerificationEmailStorage.store(
+                key: Self.pendingVerificationEmailKey,
+                value: Data(email.utf8)
+            )
+            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.pendingVerificationEmailKey)
+            try? pendingVerificationEmailStorage.remove(key: Self.pendingVerificationEmailKey)
+            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         }
     }
 }
