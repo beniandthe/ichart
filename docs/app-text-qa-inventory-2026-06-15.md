@@ -27,7 +27,7 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - New Legal Policy coverage: terms, privacy, subscriptions, chart content, and support/change notes.
   - New tutorial coverage: Charts, Projects, PDFs, editor navigation, Page/Header, Chord, Simple, Rhythm Section, Coda, account, Pro, Forums, and Settings.
 
-- [x] Account unconfigured state exposes implementation details. Fixed while removing visible Key/Clef language.
+- [x] Account unconfigured state exposes implementation details. Fixed while removing unsupported setup language.
   - Source: `SmartChart/Features/Library/LibraryView.swift:4315`, `:4577`; `SmartChart/Models/ChartSyncState.swift:34`, `:111`
   - New: "Account services are unavailable right now. Local charts remain available."
   - New: "Account sign-in and cloud backup are unavailable right now."
@@ -97,6 +97,11 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - Confirmed Basic, expired Pro, and legacy local Pro remove forum downloads.
   - Unavailable plan checks hide forum downloads without deleting them.
 
+- [x] Final read-through found old entitlement and future-feature wording. Fixed by using current feature names and current Pro benefits.
+  - Source: `SmartChart/Models/AppEntitlements.swift`; `SmartChart/Features/Editor/Components/UpgradeSheetView.swift`; `SmartChart/Features/Library/LibraryView.swift`
+  - New: "Instrument Transposition", "Repeats And Coda", "Rhythm Editing", "Projects for song variants"
+  - Removed stale view terminology, future-feature promises, and unsupported project organization terms.
+
 ## App Shell
 
 Source: `SmartChart/App/AppRootView.swift`, `SmartChart/Features/Library/LibraryView.swift`
@@ -118,7 +123,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IC
 - [ ] Welcome message: "Create your account to keep profile, recovery, and subscription access tied to you from the start."
 - [ ] Panel title: "Account"
 - [ ] Primary continue action: "Continue"
-- [ ] Account status labels: "Account services unavailable", "Signed out", "Temporarily offline", "Verify email", "Set new password", "Verified", "Signed in"
+- [ ] Account status labels: "Account unavailable", "Signed out", "Temporarily offline", "Verify email", "Set new password", "Verified", "Signed in"
 - [ ] Signed-out helper: "Create an account or sign in to manage your profile and subscription."
 - [ ] Offline helper with email: "Using local charts for {email}. Reconnect to back up."
 - [ ] Offline helper without email: "Using local charts. Reconnect to back up."
@@ -394,7 +399,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`
 
 Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/IChartSubscriptionEntitlement.swift`, `SmartChart/Models/AppEntitlements.swift`, `SmartChart/Features/Editor/Components/UpgradeSheetView.swift`, `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
-- [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Chart Sync", "User Info"
+- [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Cloud Backup", "User Info"
 - [ ] User info labels: "Account Name", "Email", "Phone", "Address", "Mailing address", "Save Profile"
 - [ ] Account name fallback: "Set at account creation"
 - [ ] Plan rows: "Local Charts", "Cloud Backup", "Forums", "Grace Ends"
@@ -411,9 +416,9 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ICha
   - "Subscription status could not be verified, so the app is using Basic limits locally."
   - "Legacy local Pro keeps unlimited local chart creation, but cloud services still require active Pro."
 - [ ] Cloud/forums access values: "Available", "Paused during grace", "Requires Pro", "Restore Pro", "Unavailable", "Requires active Pro"
-- [ ] Entitled feature names: "Unlimited Local Charts", "PDF Export", "Transposition Views", "Font Presets", "Special Notation Tools", "Advanced Rhythm Editing", "Cross-Device Organization", "Cloud Backup", "Forums", "Shared Band Libraries", "Setlists and Version History", "AI-Assisted Cleanup", "Projects"
+- [ ] Entitled feature names: "Unlimited Local Charts", "PDF Export", "Instrument Transposition", "Font Presets", "Repeats And Coda", "Rhythm Editing", "Cloud Backup And Restore", "Cloud Backup", "Forums", "Community Chart Library", "Project Organization", "Handwriting Recognition", "Projects"
 - [ ] Upgrade sheet title/action: "Unlock Pro", "Upgrade", "Not Now"
-- [ ] Upgrade benefits: "Unlimited local charts", "Cloud backup and restore", "Cross-device sync when available", "Forums access"
+- [ ] Upgrade benefits: "Unlimited local charts", "Projects for song variants", "Cloud backup and restore", "Forums access"
 - [ ] Purchase actions: "Restore Purchases", "Manage Subscription", "Use Pro Preview"
 - [ ] Subscription status: "Checking subscription...", "Verifying subscription with iChart...", "Opening purchase...", "Restoring purchases...", "Opening subscription management...", "Pro preview is active on this device."
 - [ ] Subscription error/status: "Purchase could not be verified.", "Purchase is pending approval.", "Purchase status is unavailable.", "Purchase failed. Try again from Settings.", "Pro subscriptions could not be loaded.", "Restore failed. Try again when you are online.", "Subscription management is unavailable from this window.", "Could not open subscription management.", "Subscription management is unavailable on this platform.", "Subscription could not be verified with iChart. Try again when you are online.", "Subscription transaction could not be verified."
@@ -424,14 +429,14 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ICha
 
 Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartCloudSyncStore.swift`, `SmartChart/Features/Library/LibraryView.swift`
 
-- [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Syncing", "Cloud backup active", "Sync needs attention"
+- [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Backing up", "Cloud backup active", "Cloud backup needs attention"
 - [ ] Detail text: "Charts stay local until you sign in."
 - [ ] Detail text: "Cloud backup is unavailable right now."
 - [ ] Detail text: "Upgrade to Pro to back up and restore from cloud."
 - [ ] Detail text: "Reconnect to back up."
 - [ ] Detail text: "Checking cloud backup and uploading local changes."
 - [ ] Detail text: "Cloud backup is up to date."
-- [ ] Manual sync actions: "Unavailable", "Sign In First", "Requires Pro", "Retry Sync", "Syncing", "Sync Now"
+- [ ] Manual backup actions: "Unavailable", "Sign In First", "Requires Pro", "Try Again", "Backing Up", "Back Up Now"
 - [ ] Disabled reasons: "Sign in to enable cloud backup.", "Cloud backup and restore require Pro."
 - [ ] Backup/check timestamps are not user-facing.
 - [ ] Failure text: "Sign in again to resume cloud backup.", "Cloud permissions blocked backup. Sign in again, then retry.", "We could not finish cloud backup. Retry when you are online."
@@ -455,7 +460,7 @@ Source: `SmartChart/Models/ChartAppearance.swift`
   - "Older Finale compatibility look."
 - [ ] Matched font families: "Bravura", "Petaluma", "Leland", "MuseJazz", "Finale Maestro", "Finale Jazz", "Finale Broadway", "Finale Ash"
 - [ ] Matched family descriptions:
-  - "Clean engraved text and complete notation fallback."
+  - "Clean engraved text with broad music-symbol support."
   - "Handwritten real-book family with matching text and symbols."
   - "Broad MuseScore-style notation with readable text support."
   - "Open handwritten jazz family from MuseScore."
@@ -501,5 +506,5 @@ Highest-value cleanup pass before release:
 3. Remove or relabel chord regression fixture UI. Done in triage 2.
 4. Fix the Charts empty state title. Done in triage 2.
 5. Decide whether forum downvotes are release-facing, hidden, or reframed. Done in triage 2 by reframing the button and hiding downvote counts from summaries.
-6. Reword the most technical editor terms: "SMuFL", "beat map", "rhythm slot", "editable rhythm map", "New Sys", "Del Thru", "Rm Rep", "Rm End". Done in triage 2.
+6. Reword the most technical editor terms listed in the editor and rhythm sections. Done in triage 2.
 7. Remove redundant local-save status wording and enforce forum-download cleanup after confirmed downgrade/expiration. Done in triage 2 follow-up.

@@ -585,12 +585,12 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "pro",
                     title: "Pro",
-                    detail: "Pro adds unlimited local charts, Projects, cloud backup and restore, Forums, and future service-backed features."
+                    detail: "Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums."
                 ),
                 IChartTutorialStep(
                     id: "cloud",
                     title: "Cloud Backup",
-                    detail: "Cloud backup is for restore and future multi-device work. Local editing and PDF export keep working without cloud service."
+                    detail: "Cloud backup is for account restore support. Local editing and PDF export keep working without cloud service."
                 ),
                 IChartTutorialStep(
                     id: "forums",
@@ -692,7 +692,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use iChart to create, edit, save, and export your own working charts.",
             bullets: [
                 "Basic includes the local chart-writing tools and PDF export.",
-                "Keep chart titles, notes, credits, and metadata accurate for the musicians using the chart.",
+                "Keep chart titles, notes, credits, and chart details accurate for the musicians using the chart.",
                 "Deleting a local chart removes it from the local library."
             ]
         ),
@@ -703,7 +703,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Forums are for useful chord and rhythm PDFs that help musicians rehearse, teach, and perform.",
             bullets: [
                 "Publish only charts you have the right to share.",
-                "Forum publishing sends a fixed PDF snapshot with creator credit and chart metadata.",
+                "Forum publishing sends a fixed PDF snapshot with creator credit and chart details.",
                 "Editable chart data, source ink, and private local authoring state are not shared in V1."
             ]
         ),
@@ -725,7 +725,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Basic is the local chart-writing app. Pro adds ongoing service features.",
             bullets: [
                 "Basic keeps three local charts, all local authoring tools, and PDF export.",
-                "Pro adds unlimited charts, Projects, cloud backup and restore, Forums, and future service-backed features.",
+                "Pro adds unlimited charts, Projects, cloud backup and restore, and Forums.",
                 "If Pro ends while the local library is above the Basic cap, choose local charts to remove until three remain; cloud backups stay recoverable during the grace period."
             ]
         )
@@ -738,7 +738,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "doc.text",
             body: "Use iChart to write, manage, export, and share charts in ways you are allowed to perform or distribute.",
             bullets: [
-                "You are responsible for the content, credits, and metadata you create or publish.",
+                "You are responsible for the content, credits, and chart details you create or publish.",
                 "Do not use iChart to impersonate another person, bypass moderation, or interfere with the service.",
                 "Features may change as the app, App Store requirements, and community systems evolve."
             ]
@@ -760,8 +760,8 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "creditcard",
             body: "Pro is an auto-renewing subscription managed through Apple purchase and restore flows.",
             bullets: [
-                "StoreKit handles purchase and restore in the app.",
-                "Pro unlocks unlimited local charts, Projects, cloud backup and restore, Forums, and future service-backed features.",
+                "Apple handles purchase and restore in the app.",
+                "Pro unlocks unlimited local charts, Projects, cloud backup and restore, and Forums.",
                 "If Pro cannot be verified, cloud backup and Forums pause while Basic local authoring and PDF export remain available within the Basic chart cap."
             ]
         ),
@@ -1506,7 +1506,7 @@ struct LibraryView: View {
                 }
 
                 IChartHomePanel(
-                    title: "Chart Sync",
+                    title: "Cloud Backup",
                     systemImageName: "icloud.and.arrow.up",
                     theme: homeTheme
                 ) {

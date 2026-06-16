@@ -27,8 +27,8 @@ struct UpgradeSheetView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     benefitRow("Unlimited local charts")
+                    benefitRow("Projects for song variants")
                     benefitRow("Cloud backup and restore")
-                    benefitRow("Cross-device sync when available")
                     benefitRow("Forums access")
                 }
 

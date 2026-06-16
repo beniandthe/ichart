@@ -40,25 +40,25 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
         case .pdfExport:
             return "PDF Export"
         case .documentTransposition:
-            return "Transposition Views"
+            return "Instrument Transposition"
         case .fontPresets:
             return "Font Presets"
         case .roadmapNotationTools:
-            return "Special Notation Tools"
+            return "Repeats And Coda"
         case .advancedRhythmEditing:
-            return "Advanced Rhythm Editing"
+            return "Rhythm Editing"
         case .syncedChartOrganization:
-            return "Cross-Device Organization"
+            return "Cloud Backup And Restore"
         case .cloudBackup:
             return "Cloud Backup"
         case .forums:
             return "Forums"
         case .sharedBandLibraries:
-            return "Shared Band Libraries"
+            return "Community Chart Library"
         case .setlistsAndVersionHistory:
-            return "Setlists and Version History"
+            return "Project Organization"
         case .aiRecognitionCleanup:
-            return "AI-Assisted Cleanup"
+            return "Handwriting Recognition"
         case .projects:
             return "Projects"
         }
@@ -69,24 +69,24 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
         case .pdfExport:
             return "PDF export is included in Basic because exporting charts is core to the local writing workflow."
         case .documentTransposition:
-            return "Transposition views are included in Basic because readable gig charts are core to iChart."
+            return "Instrument transposition is included in Basic because readable gig charts are core to iChart."
         case .fontPresets:
             return "Font presets are included in Basic because local chart appearance is part of the writing tool."
         case .roadmapNotationTools:
-            return "Special notation tools are included in Basic because roadmap editing is essential chart work."
+            return "Repeats and Coda are included in Basic because chart navigation is essential chart work."
         case .advancedRhythmEditing:
             return "Rhythm-aware editing is included in Basic because rhythm charts are a core iChart format."
         case .unlimitedLocalCharts:
             return "Unlimited local chart capacity is part of the Pro account experience."
         case .projects:
-            return "Projects are reserved for active Pro so one song can hold multiple section charts, keys, and variants together."
+            return "Projects are reserved for active Pro so one song can hold multiple section charts and variants together."
         case .syncedChartOrganization,
              .cloudBackup,
              .forums,
              .sharedBandLibraries,
              .setlistsAndVersionHistory,
              .aiRecognitionCleanup:
-            return "This is reserved for active Pro because it depends on ongoing cloud service value."
+            return "This is reserved for active Pro because it depends on account, cloud backup, or Forums service."
         }
     }
 }

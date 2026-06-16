@@ -54,7 +54,7 @@ For temporary local or alternate-project simulator QA, make sure override values
 }
 ```
 
-If Settings shows `Account services offline` and Chart Sync shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
+If Settings shows account services unavailable and Cloud Backup shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
 
 For local simulator QA after the app has already been built and installed, use:
 
@@ -105,10 +105,10 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 - Request password reset and return to the app through `ichart://auth-callback`.
 - Save profile fields to `profiles`.
 - With active Pro entitlement, create, edit, delete, relaunch, sync, and restore charts after reinstall/sign-in.
-- Without active Pro entitlement, confirm charts save locally, PDF/export remains available, Chart Sync clearly reports that cloud backup requires Pro, and Forums are locked.
+- Without active Pro entitlement, confirm charts save locally, PDF/export remains available, Cloud Backup clearly reports that cloud backup requires Pro, and Forums are locked.
 - When a Basic account already has more than 3 local charts from a prior Pro period, confirm the app requires user-selected local pruning down to 3 charts.
 - Confirm downgrade-pruned local charts do not create remote deletion tombstones and remain restorable from cloud snapshots until the grace period ends.
-- Make offline edits, regain network, tap Sync Now, and confirm state recovers.
+- Make offline edits, regain network, tap Back Up Now, and confirm state recovers.
 
 ## Opt-In Integration Tests
 

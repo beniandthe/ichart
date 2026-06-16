@@ -95,8 +95,8 @@ The local QA path resets the local database, runs `supabase test db`, derives lo
 Use the iPad simulator because the runtime app target owns the Settings/account/sync UI.
 
 1. Launch without Supabase env.
-2. Confirm Settings shows account services unavailable and chart sync unavailable.
-3. Confirm charts can still be created, edited, deleted, relaunched, and saved locally.
+2. Confirm Settings shows account services unavailable and cloud backup unavailable.
+3. Confirm charts can still be created, edited, deleted, relaunched, and kept on the device.
 4. Relaunch the same installed build with runtime `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, not only xcodebuild build-setting values. With XcodeBuildMCP, use `launch_app_sim` env after `build_run_sim`.
 5. Create a new account with email/password.
 6. Open the verification email. If the browser ends on a blank deep-link page, return to the app and sign in with the same email/password.
@@ -105,10 +105,10 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.
 10. Confirm Settings shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
 11. Save email, phone, and address profile fields. Confirm Settings does not expose user-editable payment fields.
-12. With Basic entitlement, confirm PDF/export remains available, Chart Sync explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
-13. With active Pro entitlement, tap `Sync Now` and confirm Chart Sync returns to `Synced` with an updated Last Backup time.
-14. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for sync to return to `Synced`.
-15. With active Pro entitlement, create a Rhythm Section chart, add visible chart content, and wait for sync to return to `Synced`.
+12. With Basic entitlement, confirm PDF/export remains available, Cloud Backup explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
+13. With active Pro entitlement, tap `Back Up Now` and confirm Cloud Backup returns to `Cloud backup active`.
+14. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for Cloud Backup to return to `Cloud backup active`.
+15. With active Pro entitlement, create a Rhythm Section chart, add visible chart content, and wait for Cloud Backup to return to `Cloud backup active`.
 16. Delete one disposable QA chart and confirm it does not return after relaunch.
 17. Sign out, relaunch, sign back in, and confirm the expected charts restore.
 18. Simulate downgrade/expired Pro with more than 3 local charts and confirm the app requires user-selected local pruning down to 3 charts.
@@ -126,20 +126,20 @@ This gate requires active Pro entitlement because chart cloud backup/sync/restor
 4. Relaunch with Supabase env and sign in.
 5. Confirm remote active charts restore locally.
 6. Confirm remote tombstones remain deleted and do not resurrect older local copies.
-7. Confirm Settings reports `Synced` and Last Backup.
+7. Confirm Settings reports `Cloud backup active`.
 
 ## Offline/Failure Gate
 
 This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sync assertions require active Pro entitlement.
 
-1. Sign in and reach a known `Synced` state.
+1. Sign in and reach a known `Cloud backup active` state.
 2. Disable network or launch against a deliberately unreachable Supabase URL.
 3. Make a local chart edit.
 4. Confirm local editing and local save continue.
-5. Confirm Chart Sync reports an offline/failed state with a retry action, not raw backend errors.
+5. Confirm Cloud Backup reports an offline/failed state with a retry action, not raw backend errors.
 6. Restore network or the correct Supabase URL.
-7. Tap `Retry Sync` or `Sync Now`.
-8. Confirm Chart Sync returns to `Synced` and the remote backup time updates.
+7. Tap `Try Again` or `Back Up Now`.
+8. Confirm Cloud Backup returns to `Cloud backup active`.
 
 ## Data And RLS Gate
 
@@ -162,5 +162,5 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - App Store Server Notification function test result.
 - iPad simulator build/run result.
 - Screenshot or UI snapshot of unconfigured Settings.
-- Screenshot or UI snapshot of configured `Verified` and `Synced` Settings.
+- Screenshot or UI snapshot of configured `Verified` and `Cloud backup active` Settings.
 - Notes for account creation, verification, profile save, chart upload, restore-after-reinstall, offline retry, and delete propagation.

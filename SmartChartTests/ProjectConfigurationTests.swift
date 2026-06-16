@@ -615,8 +615,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(syncStateText.contains("Charts are saved " + "locally"))
         XCTAssertFalse(syncStateText.contains("Saved " + "locally"))
         XCTAssertTrue(syncStateText.contains("manualSyncTitle"))
-        XCTAssertTrue(syncStateText.contains("Retry Sync"))
-        XCTAssertTrue(syncStateText.contains("Sync Now"))
+        XCTAssertTrue(syncStateText.contains("Try Again"))
+        XCTAssertTrue(syncStateText.contains("Back Up Now"))
+        XCTAssertFalse(syncStateText.contains("Retry Sync"))
+        XCTAssertFalse(syncStateText.contains("Sync Now"))
         XCTAssertTrue(syncStateText.contains("manualSyncDisabledReason"))
         XCTAssertTrue(syncStoreText.contains("lastSyncAttemptAt"))
         XCTAssertTrue(syncStoreText.contains("cancelPendingSyncWork()"))
@@ -660,6 +662,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let upgradeText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("SmartChart/Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let appEntitlementsText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("SmartChart/Models/AppEntitlements.swift")
         )
         let planPolicyText = try String(
             contentsOf: projectRoot
@@ -751,6 +757,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(upgradeText.contains("subscriptionStore.manageSubscriptions()"))
         XCTAssertTrue(upgradeText.contains("Pro Preview unlocks Pro locally on this device."))
         XCTAssertTrue(upgradeText.contains("Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."))
+        XCTAssertTrue(upgradeText.contains("Projects for song variants"))
+        XCTAssertTrue(appEntitlementsText.contains("Instrument Transposition"))
+        XCTAssertTrue(appEntitlementsText.contains("Repeats And Coda"))
+        XCTAssertTrue(appEntitlementsText.contains("Rhythm Editing"))
+        XCTAssertFalse(appEntitlementsText.contains("Transposition Views"))
+        XCTAssertFalse(appEntitlementsText.contains("Transposition views"))
+        XCTAssertFalse(appEntitlementsText.contains("section charts, keys"))
+        XCTAssertFalse(upgradeText.contains("Cross-device sync when available"))
+        XCTAssertFalse(libraryText.contains("future service-backed features"))
+        XCTAssertFalse(libraryText.contains("future multi-device work"))
         XCTAssertFalse(upgradeText.contains("simulator entitlement QA"))
         XCTAssertFalse(upgradeText.contains("monthly and annual product IDs"))
         XCTAssertFalse(upgradeText.contains("until StoreKit is wired"))
@@ -1014,8 +1030,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessText.contains("ichart://auth-callback"))
         XCTAssertTrue(productionReadinessText.contains("Email templates keep a confirmation link flow"))
         XCTAssertTrue(productionReadinessText.contains("service-role keys"))
-        XCTAssertTrue(productionReadinessText.contains("Sync Now"))
-        XCTAssertTrue(productionReadinessText.contains("Retry Sync"))
+        XCTAssertTrue(productionReadinessText.contains("Back Up Now"))
+        XCTAssertTrue(productionReadinessText.contains("Try Again"))
         XCTAssertTrue(productionReadinessText.contains("Restore/Reinstall Gate"))
         XCTAssertTrue(productionReadinessText.contains("Data And RLS Gate"))
         XCTAssertTrue(productionReadinessText.contains("Subscription rows include server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata."))

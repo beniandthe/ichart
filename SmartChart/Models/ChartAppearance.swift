@@ -265,7 +265,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     var detailText: String {
         switch self {
         case .bravura:
-            return "Clean engraved text and complete notation fallback."
+            return "Clean engraved text with broad music-symbol support."
         case .petaluma:
             return "Handwritten real-book family with matching text and symbols."
         case .leland:

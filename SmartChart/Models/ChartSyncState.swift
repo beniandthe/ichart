@@ -20,11 +20,11 @@ enum ChartSyncState: Equatable {
         case .offline:
             return "Offline"
         case .syncing:
-            return "Syncing"
+            return "Backing up"
         case .synced:
             return "Cloud backup active"
         case .failed:
-            return "Sync needs attention"
+            return "Cloud backup needs attention"
         }
     }
 
@@ -75,11 +75,11 @@ enum ChartSyncState: Equatable {
         case .requiresPro:
             return "Requires Pro"
         case .offline, .failed:
-            return "Retry Sync"
+            return "Try Again"
         case .syncing:
-            return "Syncing"
+            return "Backing Up"
         case .synced:
-            return "Sync Now"
+            return "Back Up Now"
         }
     }
 

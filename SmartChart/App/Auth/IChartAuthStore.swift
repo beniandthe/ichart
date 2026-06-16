@@ -20,7 +20,7 @@ enum IChartAuthState: Equatable {
     var statusText: String {
         switch self {
         case .unconfigured:
-            return "Account services unavailable"
+            return "Account unavailable"
         case .signedOut:
             return "Signed out"
         case .temporarilyOffline:
