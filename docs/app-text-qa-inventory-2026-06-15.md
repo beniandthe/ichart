@@ -29,9 +29,9 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
 
 - [x] Account unconfigured state exposes implementation details. Fixed while removing visible Key/Clef language.
   - Source: `SmartChart/Features/Library/LibraryView.swift:4315`, `:4577`; `SmartChart/Models/ChartSyncState.swift:34`, `:111`
-  - New: "Account services are unavailable in this build. Local charts remain available."
-  - New: "Account sign-in and cloud backup are unavailable in this build."
-  - Still flagged for later cloud-sync status copy: "Add Supabase configuration to enable cloud backup.", "Cloud backup is not configured in this build."
+  - New: "Account services are unavailable right now. Local charts remain available."
+  - New: "Account sign-in and cloud backup are unavailable right now."
+  - New cloud backup fallback: "Cloud backup is unavailable right now."
 
 - [x] Plan/StoreKit QA copy is developer-facing. Fixed in triage 2 with user-facing subscription and local preview copy.
   - Source: `SmartChart/Features/Library/LibraryView.swift:4848`, `:4941`, `:4954`, `:4957`; `SmartChart/Features/Editor/Components/UpgradeSheetView.swift:38`, `:102`; `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift:45`, `:86`, `:378`
@@ -118,7 +118,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IC
 - [ ] Welcome message: "Create your account to keep profile, recovery, and subscription access tied to you from the start."
 - [ ] Panel title: "Account"
 - [ ] Primary continue action: "Continue"
-- [ ] Account status labels: "Account services offline", "Signed out", "Temporarily offline", "Verify email", "Set new password", "Verified", "Signed in"
+- [ ] Account status labels: "Account services unavailable", "Signed out", "Temporarily offline", "Verify email", "Set new password", "Verified", "Signed in"
 - [ ] Signed-out helper: "Create an account or sign in to manage your profile and subscription."
 - [ ] Offline helper with email: "Using local charts for {email}. Reconnect to back up."
 - [ ] Offline helper without email: "Using local charts. Reconnect to back up."
@@ -134,8 +134,8 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IC
 - [ ] Error: "Sign in before saving profile info."
 - [ ] Offline status: "Account is offline. Local charts remain available."
 - [ ] Recovery status: "Enter a new password to finish reset."
-- [ ] Account unavailable helper: "Account services are unavailable in this build. Local charts remain available."
-- [ ] Account unavailable detail: "Account sign-in and cloud backup are unavailable in this build."
+- [ ] Account unavailable helper: "Account services are unavailable right now. Local charts remain available."
+- [ ] Account unavailable detail: "Account sign-in and cloud backup are unavailable right now."
 
 ## Guided Tour And Help
 
@@ -239,7 +239,7 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 - [ ] Rendered chart roadmap symbols: Coda symbol, To Coda, Segno symbol, "D.S.", D.S. al Coda, "D.C.", "D.C. al Fine", "Fine", "N.C."
 - [ ] Text actions: "Add Text Below Selected Measure", "Add Text Above Selected Measure", "Remove Text at Selected Measure"
 - [ ] Done: "Done"
-- [ ] REVIEW: abbreviated controls listed in Review Flags.
+- [x] REVIEW: abbreviated controls listed in Review Flags. Fixed in triage 2.
 
 ## Editor Sheets And Alerts
 
@@ -277,7 +277,7 @@ Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift`, `Smart
 - [ ] Correction actions: "Quick choices", "Chord", "Update Chord", "Update to {chord}", "Cancel"
 - [ ] Memory message: "This ink previously rendered as {acceptedText} and was deleted. Choose the intended chord, or type it in."
 - [ ] Errors: "That chord candidate is not supported yet. Try another candidate or edit the text.", "That measure is no longer available. Keep the ink and try again.", "That chord is no longer available. Try writing it again."
-- [ ] Ink sample/debug copy: "Ink sample capture", "Copy Ink Sample", "Copied {chord} ink sample as {sample name}.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not copy this ink sample. Keep the ink and try again."
+- [ ] Ink sample copy: "Ink sample capture", "Copy Ink Sample", "Copied {chord} ink sample as {sample name}.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not copy this ink sample. Keep the ink and try again."
 - [x] REVIEW: fixture/debug copy should not appear in production. Fixed in triage 2 by relabeling the disabled debug capture surface.
 
 ## Rhythm Recognition And Editing
@@ -426,6 +426,7 @@ Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartClou
 
 - [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Syncing", "Cloud backup active", "Sync needs attention"
 - [ ] Detail text: "Charts stay local until you sign in."
+- [ ] Detail text: "Cloud backup is unavailable right now."
 - [ ] Detail text: "Upgrade to Pro to back up and restore from cloud."
 - [ ] Detail text: "Reconnect to back up."
 - [ ] Detail text: "Checking cloud backup and uploading local changes."
@@ -434,7 +435,7 @@ Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartClou
 - [ ] Disabled reasons: "Sign in to enable cloud backup.", "Cloud backup and restore require Pro."
 - [ ] Backup/check timestamps are not user-facing.
 - [ ] Failure text: "Sign in again to resume cloud backup.", "Cloud permissions blocked backup. Sign in again, then retry.", "We could not finish cloud backup. Retry when you are online."
-- [ ] REVIEW: Supabase/build configuration strings listed in Review Flags.
+- [x] REVIEW: Cloud-service fallback strings listed in Review Flags. Fixed in triage 3 by replacing setup terms with service-availability language.
 
 ## Appearance, Fonts, And Engraving Options
 
@@ -496,7 +497,7 @@ Source: `SmartChart/Shared/SampleData/ChartSamples.swift`, `SmartChart/App/Forum
 Highest-value cleanup pass before release:
 
 1. Replace Help placeholder/roadmap text with finished user copy.
-2. Hide or reword all Supabase/StoreKit/simulator/QA configuration language behind a debug-only build surface that cannot appear to regular users. Done in triage 2 for Pro preview and forum samples; cloud-sync configuration copy remains a later pass.
+2. Hide or reword service setup, subscription preview, simulator, and QA language behind surfaces that cannot appear to regular users. Done in triage 2 for Pro preview and forum samples; cloud-backup fallback copy fixed in triage 3.
 3. Remove or relabel chord regression fixture UI. Done in triage 2.
 4. Fix the Charts empty state title. Done in triage 2.
 5. Decide whether forum downvotes are release-facing, hidden, or reframed. Done in triage 2 by reframing the button and hiding downvote counts from summaries.

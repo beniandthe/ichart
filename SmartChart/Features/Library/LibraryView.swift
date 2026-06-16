@@ -4783,7 +4783,7 @@ private struct IChartAccountSettings: View {
 
             switch authStore.state {
             case .unconfigured:
-                Text("Account services are unavailable in this build. Local charts remain available.")
+                Text("Account services are unavailable right now. Local charts remain available.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -5045,7 +5045,7 @@ private struct IChartAccountSettings: View {
     private var detailText: String {
         switch authStore.state {
         case .unconfigured:
-            return "Account sign-in and cloud backup are unavailable in this build."
+            return "Account sign-in and cloud backup are unavailable right now."
         case .signedOut:
             return "Create an account or sign in to manage your profile and subscription."
         case .temporarilyOffline(let session):

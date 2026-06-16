@@ -95,7 +95,7 @@ enum ChordInkFixtureExporter {
             character.isLetter || character.isNumber
         }
 
-        return sanitized.isEmpty ? "ChordInkFixture" : sanitized
+        return sanitized.isEmpty ? "InkSample" : sanitized
     }
 
     static func glyphs(for displayText: String) -> [String] {

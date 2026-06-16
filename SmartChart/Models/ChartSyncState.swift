@@ -31,7 +31,7 @@ enum ChartSyncState: Equatable {
     var detailText: String {
         switch self {
         case .unconfigured:
-            return "Add Supabase configuration to enable cloud backup."
+            return "Cloud backup is unavailable right now."
         case .signedOut:
             return "Charts stay local until you sign in."
         case .requiresPro:
@@ -108,7 +108,7 @@ enum ChartSyncState: Equatable {
     var manualSyncDisabledReason: String? {
         switch self {
         case .unconfigured:
-            return "Cloud backup is not configured in this build."
+            return "Cloud backup is unavailable right now."
         case .signedOut:
             return "Sign in to enable cloud backup."
         case .requiresPro:

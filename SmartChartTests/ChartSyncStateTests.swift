@@ -30,7 +30,7 @@ final class ChartSyncStateTests: XCTestCase {
     func testDisabledReasonsStaySpecificForNonActionableStates() {
         XCTAssertEqual(
             ChartSyncState.unconfigured.manualSyncDisabledReason,
-            "Cloud backup is not configured in this build."
+            "Cloud backup is unavailable right now."
         )
         XCTAssertEqual(
             ChartSyncState.signedOut.manualSyncDisabledReason,
