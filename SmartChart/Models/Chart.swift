@@ -231,7 +231,7 @@ enum ChartLayoutStyle: String, Codable, CaseIterable, Hashable, Identifiable {
         case .rhythmSectionSheet:
             return "Chord chart with extra room for hits, slashes, and groove cues."
         case .leadSheet:
-            return "Formal page and staff layout for the current Smart Chart workflow."
+            return "Staff-based page for melody, chords, and standard notation."
         }
     }
 

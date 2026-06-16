@@ -78,6 +78,32 @@ final class AppEntitlementsTests: XCTestCase {
         }
     }
 
+    func testForumDownloadRetentionAllowsActiveProAndGraceOnly() {
+        let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
+        let retainedStates: [IChartSubscriptionEntitlement] = [
+            .activePro(),
+            .proGrace(graceEndsAt: graceEndsAt)
+        ]
+        let inaccessibleStates: [IChartSubscriptionEntitlement] = [
+            .basic,
+            .proExpired(),
+            .unavailable,
+            .legacyLocalPro
+        ]
+
+        retainedStates.forEach { subscription in
+            XCTAssertTrue(subscription.allowsForumDownloadAccess, "Expected forum downloads to remain visible for \(subscription.status)")
+            XCTAssertFalse(subscription.shouldRemoveForumDownloads, "Expected forum downloads to be kept for \(subscription.status)")
+        }
+        inaccessibleStates.forEach { subscription in
+            XCTAssertFalse(subscription.allowsForumDownloadAccess, "Expected forum downloads to be hidden for \(subscription.status)")
+        }
+        XCTAssertTrue(IChartSubscriptionEntitlement.basic.shouldRemoveForumDownloads)
+        XCTAssertTrue(IChartSubscriptionEntitlement.proExpired().shouldRemoveForumDownloads)
+        XCTAssertTrue(IChartSubscriptionEntitlement.legacyLocalPro.shouldRemoveForumDownloads)
+        XCTAssertFalse(IChartSubscriptionEntitlement.unavailable.shouldRemoveForumDownloads)
+    }
+
     func testLegacyEntitlementDecodingDefaultsSubscriptionFromActivePlan() throws {
         struct LegacyEntitlements: Encodable {
             let activePlan: SmartChartPlan

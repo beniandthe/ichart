@@ -146,6 +146,14 @@ final class IChartPDFLibraryStore: ObservableObject {
         items.filter { $0.source == source }
     }
 
+    func visibleItems(for subscription: IChartSubscriptionEntitlement) -> [IChartPDFLibraryItem] {
+        guard subscription.allowsForumDownloadAccess else {
+            return items.filter { $0.source != .forumDownload }
+        }
+
+        return items
+    }
+
     func exportedPDF(for item: IChartPDFLibraryItem) -> ExportedPDF? {
         let url = item.url(relativeTo: baseDirectory)
         guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
@@ -195,6 +203,15 @@ final class IChartPDFLibraryStore: ObservableObject {
         try? fileManager.removeItem(at: url)
         items.removeAll { $0.id == item.id }
         try? persist()
+    }
+
+    @discardableResult
+    func removeForumDownloadsIfInactive(for subscription: IChartSubscriptionEntitlement) -> Int {
+        guard subscription.shouldRemoveForumDownloads else {
+            return 0
+        }
+
+        return removeItems(for: .forumDownload)
     }
 
     func reload() {
@@ -265,6 +282,20 @@ final class IChartPDFLibraryStore: ObservableObject {
         }
 
         try? persist()
+    }
+
+    private func removeItems(for source: IChartPDFLibrarySource) -> Int {
+        let removedItems = items.filter { $0.source == source }
+        guard !removedItems.isEmpty else {
+            return 0
+        }
+
+        for item in removedItems {
+            try? fileManager.removeItem(at: item.url(relativeTo: baseDirectory))
+        }
+        items.removeAll { $0.source == source }
+        try? persist()
+        return removedItems.count
     }
 
     private func sortItems() {

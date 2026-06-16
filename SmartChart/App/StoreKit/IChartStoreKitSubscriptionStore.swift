@@ -25,10 +25,10 @@ enum IChartStoreKitSubscriptionState: Equatable {
         }
     }
 
-    var statusText: String {
+    var statusText: String? {
         switch self {
-        case .idle:
-            return "Subscription check ready."
+        case .idle, .ready:
+            return nil
         case .loading:
             return "Checking subscription..."
         case .claiming:
@@ -39,10 +39,8 @@ enum IChartStoreKitSubscriptionState: Equatable {
             return "Restoring purchases..."
         case .managing:
             return "Opening subscription management..."
-        case .ready:
-            return "Subscription check complete."
         case .localPreviewActive:
-            return "Local Pro preview active for simulator QA."
+            return "Pro preview is active on this device."
         case .unavailable(let message):
             return message
         }
@@ -83,7 +81,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     func bootstrap() async {
         guard !productIDs.isEmpty else {
             entitlement = .unavailable
-            state = .unavailable("StoreKit products are not configured.")
+            state = .unavailable("Pro subscriptions are temporarily unavailable.")
             return
         }
 
@@ -232,7 +230,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         applyLocalPreview(.activePro(verifiedAt: Date()))
         #else
         entitlement = .unavailable
-        state = .unavailable("StoreKit products could not be loaded.")
+        state = .unavailable("Pro subscriptions could not be loaded.")
         #endif
     }
 
@@ -303,7 +301,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             products = []
             productsByID = [:]
             productOptions = localStoreKitProductOptionsAfterFailedLoad()
-            state = .unavailable("StoreKit products could not be loaded.")
+            state = .unavailable("Pro subscriptions could not be loaded.")
         }
     }
 
@@ -375,7 +373,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         entitlement = localEntitlement
         state = localEntitlement.status == .proActive
             ? .localPreviewActive
-            : .unavailable("Subscription server verification is unavailable. Using local simulator entitlement.")
+            : .unavailable("Subscription could not be verified. Try again when you are online.")
         #else
         entitlement = .unavailable
         state = .unavailable("Subscription could not be verified with iChart. Try again when you are online.")

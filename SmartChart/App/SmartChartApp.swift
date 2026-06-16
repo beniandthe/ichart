@@ -37,12 +37,12 @@ struct SmartChartApp: App {
                 .environmentObject(pdfLibraryStore)
                 .task {
                     await subscriptionStore.bootstrap()
-                    store.applySubscriptionState(subscriptionStore.entitlement)
+                    applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
                     await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
-                    store.applySubscriptionState(entitlement)
+                    applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
                     Task {
                         await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
@@ -52,7 +52,7 @@ struct SmartChartApp: App {
                     cloudSyncStore.authStateChanged(state)
                     Task {
                         await subscriptionStore.refreshEntitlements()
-                        store.applySubscriptionState(subscriptionStore.entitlement)
+                        applySubscriptionState(subscriptionStore.entitlement)
                         await forumStore.refresh(authState: state, entitlements: store.entitlements)
                     }
                 }
@@ -61,10 +61,15 @@ struct SmartChartApp: App {
                         await authStore.handleAuthCallback(url: url)
                         cloudSyncStore.authStateChanged(authStore.state)
                         await subscriptionStore.refreshEntitlements()
-                        store.applySubscriptionState(subscriptionStore.entitlement)
+                        applySubscriptionState(subscriptionStore.entitlement)
                         await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                     }
                 }
         }
+    }
+
+    private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {
+        store.applySubscriptionState(entitlement)
+        pdfLibraryStore.removeForumDownloadsIfInactive(for: entitlement)
     }
 }

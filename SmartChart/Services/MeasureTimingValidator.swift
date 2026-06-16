@@ -41,7 +41,7 @@ enum MeasureTimingValidator {
                         kind: .staleRhythmSlotAssignment,
                         measureID: measure.id,
                         chordEventID: event.id,
-                        message: "Chord \(event.symbol.displayText) is pinned to a rhythm slot that no longer exists after the beat map changed."
+                        message: "Chord \(event.symbol.displayText) is tied to a rhythm position that changed."
                     )
                 )
             }
@@ -58,7 +58,7 @@ enum MeasureTimingValidator {
                         kind: .conflictingRhythmSlotAssignment,
                         measureID: measure.id,
                         chordEventID: assignments.last?.0.id,
-                        message: "More than one chord is pinned to slot \(slotIndex + 1) (\(slot.startPosition.displayText) · \(slot.duration.displayText))."
+                        message: "More than one chord is tied to rhythm position \(slotIndex + 1) (\(slot.startPosition.displayText) · \(slot.duration.displayText))."
                     )
                 )
             }
@@ -69,7 +69,7 @@ enum MeasureTimingValidator {
                         kind: .excessChordsForRhythmMap,
                         measureID: measure.id,
                         chordEventID: measure.chordEvents.dropFirst(resolvedSlots.count).first?.id,
-                        message: "This beat map has \(resolvedSlots.count) rhythm slots, so extra chords will not snap cleanly."
+                        message: "This rhythm has \(resolvedSlots.count) chord position\(resolvedSlots.count == 1 ? "" : "s"), so extra chords will not snap cleanly."
                     )
                 )
             }

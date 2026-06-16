@@ -285,7 +285,7 @@ final class IChartAuthStore: ObservableObject {
             stripeCustomerID: self.profile?.stripeCustomerID
         )
 
-        await run("Profile saved.") {
+        await run("Profile updated.") {
             self.profile = try await service.saveProfile(profile)
         }
     }

@@ -87,7 +87,7 @@ final class IChartForumStore: ObservableObject {
         UserDefaults.standard.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
         selectedDetail = nil
         downloadedPDF = nil
-        statusMessage = isEnabled ? "Forum QA samples loaded." : nil
+        statusMessage = isEnabled ? "Sample forum charts loaded." : nil
         errorMessage = nil
         #else
         isQASampleDataEnabled = false
@@ -453,7 +453,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
             .appendingPathComponent("iChartForumQASamplePDFs", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(
-            "\(PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle)) - QA Forum.pdf"
+            "\(PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle)) - Forum Sample.pdf"
         )
         let data = Self.samplePDFData(title: post.chartTitle, creator: post.creatorDisplayName)
         try data.write(to: url, options: .atomic)
@@ -517,7 +517,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
                 songID: Self.blueBossaSongID,
                 ownerID: currentUserID,
                 chartTitle: "Blue Bossa - Rhythm Section Roadmap",
-                arrangerCredit: "iChart QA",
+                arrangerCredit: "iChart Samples",
                 creatorDisplayName: "Beni R.",
                 tags: ["standard", "bossa", "rhythm section"],
                 versionNote: "Clean rehearsal map with hits, repeats, and a short tag.",
@@ -600,7 +600,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
                 arrangerCredit: "Eli Park",
                 creatorDisplayName: "Eli P.",
                 tags: ["fusion", "needs check"],
-                versionNote: "Intentionally included as a QA example for review states.",
+                versionNote: "Community review example with reports already attached.",
                 layoutStyle: .rhythmSectionSheet,
                 status: .flagged,
                 upVotes: 2,
@@ -754,7 +754,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     }
 
     private static func samplePDFData(title: String, creator: String) -> Data {
-        let stream = "BT /F1 18 Tf 36 156 Td (\(escapedPDFText(title))) Tj 0 -28 Td /F1 12 Tf (iChart Forum QA Preview - \(escapedPDFText(creator))) Tj ET"
+        let stream = "BT /F1 18 Tf 36 156 Td (\(escapedPDFText(title))) Tj 0 -28 Td /F1 12 Tf (iChart Forum Sample - \(escapedPDFText(creator))) Tj ET"
         let objects = [
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",

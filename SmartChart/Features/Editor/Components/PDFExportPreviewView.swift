@@ -42,18 +42,6 @@ struct PDFExportPreviewView: View {
 
     private var exportSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Label("Saved to PDF Library", systemImage: "checkmark.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.green)
-
-                Spacer(minLength: 12)
-
-                Text(exportedPDF.exportedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Text(exportedPDF.fileName)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)

@@ -21,8 +21,8 @@ enum ChartSyncState: Equatable {
             return "Offline"
         case .syncing:
             return "Syncing"
-        case .synced(let date):
-            return "Synced \(date.formatted(date: .omitted, time: .shortened))"
+        case .synced:
+            return "Cloud backup active"
         case .failed:
             return "Sync needs attention"
         }
@@ -35,13 +35,13 @@ enum ChartSyncState: Equatable {
         case .signedOut:
             return "Charts stay local until you sign in."
         case .requiresPro:
-            return "Charts are saved locally. Upgrade to Pro to back up and restore from cloud."
+            return "Upgrade to Pro to back up and restore from cloud."
         case .offline:
-            return "Local edits are saved. Reconnect to back up."
+            return "Reconnect to back up."
         case .syncing:
             return "Checking cloud backup and uploading local changes."
         case .synced:
-            return "Charts are backed up."
+            return "Cloud backup is up to date."
         case .failed(let message):
             return message
         }

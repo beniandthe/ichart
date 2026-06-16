@@ -35,7 +35,7 @@ struct UpgradeSheetView: View {
                 storeKitPurchaseControls
 
                 #if DEBUG || targetEnvironment(simulator)
-                Text("Debug build: this switches local entitlement state for simulator entitlement QA.")
+                Text("Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 #endif
@@ -99,7 +99,7 @@ struct UpgradeSheetView: View {
     private var storeKitPurchaseControls: some View {
         VStack(alignment: .leading, spacing: 10) {
             if subscriptionStore.productOptions.isEmpty {
-                Text("Pro purchases are not available yet. Add the monthly and annual product IDs in App Store Connect or a StoreKit configuration.")
+                Text("Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
@@ -143,9 +143,11 @@ struct UpgradeSheetView: View {
                 }
             }
 
-            Text(subscriptionStore.state.statusText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if let statusText = subscriptionStore.state.statusText {
+                Text(statusText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

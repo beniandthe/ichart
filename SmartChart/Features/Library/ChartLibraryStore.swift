@@ -6,45 +6,6 @@ enum ChartLibraryPersistenceStatus: Equatable {
     case ready
     case saved(at: Date)
     case failed(message: String)
-
-    var displayText: String {
-        switch self {
-        case .notTracking:
-            "Local preview"
-        case .ready:
-            "Autosave ready"
-        case .saved(let date):
-            "Saved locally \(date.formatted(date: .omitted, time: .shortened))"
-        case .failed:
-            "Save issue"
-        }
-    }
-
-    var accessibilityText: String {
-        switch self {
-        case .notTracking:
-            "Local preview state is not being saved."
-        case .ready:
-            "Autosave is ready."
-        case .saved(let date):
-            "Chart library saved locally at \(date.formatted(date: .omitted, time: .shortened))."
-        case .failed(let message):
-            "Chart library save issue. \(message)"
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .notTracking:
-            "externaldrive"
-        case .ready:
-            "checkmark.circle"
-        case .saved:
-            "checkmark.circle.fill"
-        case .failed:
-            "exclamationmark.triangle.fill"
-        }
-    }
 }
 
 final class ChartLibraryStore: ObservableObject {

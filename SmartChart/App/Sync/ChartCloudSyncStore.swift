@@ -238,7 +238,7 @@ final class ChartCloudSyncStore: ObservableObject {
             return .failed("Cloud permissions blocked backup. Sign in again, then retry.")
         }
 
-        return .failed("We could not finish cloud backup. Retry when you are ready.")
+        return .failed("We could not finish cloud backup. Retry when you are online.")
     }
 
     private nonisolated static func normalizedErrorText(_ values: String?...) -> String {

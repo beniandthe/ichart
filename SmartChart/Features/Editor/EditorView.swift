@@ -98,11 +98,11 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .page:
             "Open Page for Setup, Export, Header, Instrument Transposition, Manual Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
         case .measures:
-            "Measures is only for measure layout: Add, Stack, First, Double, New Sys or Join, Delete, and Range."
+            "Measures is only for measure layout: Add, Stack, First, Double, New Row or Join, Delete, and Range."
         case .measuresActive:
-            "Use Add, Stack, First, Double, New Sys or Join, Delete, Range, Del Thru, and Clear."
+            "Use Add, Stack, First, Double, New Row or Join, Delete, Range, Delete To, and Clear."
         case .repeatsActive:
-            "Repeats is only for repeat structure: One Bar, Start, End Rep, 1st and 2nd endings, Rm Rep, Rm End, and Clear."
+            "Repeats is only for repeat structure: One Bar, Start, End Rep, 1st and 2nd endings, Remove Repeat, Remove Ending, and Clear."
         case .coda:
             "Coda is only for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. Select a marker, drag it left or right within the measure, or tap its x to delete it."
         case .freeHandActive:
@@ -667,19 +667,13 @@ struct EditorView: View {
             toolStrip(minWidth: minWidth)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            ZStack(alignment: .center) {
+            Group {
                 if showsActiveToolControls {
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-
-                HStack {
-                    Spacer(minLength: 12)
-                    ChartLibraryPersistenceStatusBadge(status: store.persistenceStatus)
-                }
             }
-            .frame(maxWidth: .infinity)
             .animation(.easeOut(duration: 0.16), value: canvasMode)
             .animation(.easeOut(duration: 0.16), value: selectedRoadmapMarkerID)
         }
@@ -1106,7 +1100,7 @@ struct EditorView: View {
             )
 
             activeToolButton(
-                title: canRemoveSystemBreakBeforeSelectedMeasure ? "Join" : "New Sys",
+                title: canRemoveSystemBreakBeforeSelectedMeasure ? "Join" : "New Row",
                 systemImage: canRemoveSystemBreakBeforeSelectedMeasure ? "arrow.up.to.line" : "arrow.down.to.line",
                 isDisabled: !canInsertSystemBreakBeforeSelectedMeasure && !canRemoveSystemBreakBeforeSelectedMeasure
             ) {
@@ -1126,7 +1120,7 @@ struct EditorView: View {
             )
 
             activeToolButton(
-                title: pendingDeleteStartMeasureID == nil ? "Range" : "Del Thru",
+                title: pendingDeleteStartMeasureID == nil ? "Range" : "Delete To",
                 systemImage: pendingDeleteStartMeasureID == nil ? "trash.circle" : "checkmark.circle",
                 isDestructive: pendingDeleteStartMeasureID != nil,
                 isDisabled: pendingDeleteStartMeasureID == nil
@@ -1183,7 +1177,7 @@ struct EditorView: View {
             }
 
             activeToolButton(
-                title: "Rm Rep",
+                title: "Remove Repeat",
                 systemImage: "trash",
                 isDestructive: true,
                 isDisabled: !canRemoveRepeatAtSelectedMeasure,
@@ -1191,7 +1185,7 @@ struct EditorView: View {
             )
 
             activeToolButton(
-                title: "Rm End",
+                title: "Remove Ending",
                 systemImage: "trash",
                 isDestructive: true,
                 isDisabled: !canRemoveEndingAtSelectedMeasure,
@@ -2799,7 +2793,7 @@ struct EditorView: View {
             return .copied(displayText: fixtureJSON, fixtureName: "clipboard")
             #endif
         } catch {
-            return .failed("Could not export this regression fixture. Keep the ink and try again.")
+            return .failed("Could not copy this ink sample. Keep the ink and try again.")
         }
     }
 
@@ -2880,7 +2874,7 @@ struct EditorView: View {
         case .missingMeasure:
             return "That measure is no longer available."
         case .missingRhythmMap:
-            return "That note is not part of an editable rhythm map yet."
+            return "That note is not part of an editable rhythm sketch yet."
         case .invalidNoteIndex:
             return "That rhythm note is no longer available."
         case .unsupportedRhythmValue:
@@ -2901,7 +2895,7 @@ struct EditorView: View {
         case .overflow(let beats):
             return "over by \(formattedBeatCount(beats)) beats"
         case .invalidSubdivision:
-            return "misaligned with the beat grid"
+            return "off the measure grid"
         }
     }
 
@@ -3447,7 +3441,7 @@ private struct TimeSignatureScopeSheetView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Add measures of time?")
+                    Text("Add measures in this time signature?")
                         .font(.headline)
                     Text("The new \(meter.displayText) starts on the next measure.")
                         .font(.subheadline)

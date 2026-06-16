@@ -278,8 +278,8 @@ private struct IChartTutorialSection: Identifiable {
                 ),
                 IChartTutorialStep(
                     id: "save-resume",
-                    title: "Save And Resume",
-                    detail: "iChart saves locally while you work. Reopen the chart from Charts, or use Pro cloud backup when you want restore support."
+                    title: "Resume Charts",
+                    detail: "Reopen charts from Charts, or use Pro cloud backup when you want restore support."
                 )
             ]
         ),
@@ -340,7 +340,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "safe-exit",
                     title: "Done",
-                    detail: "Tap Done to leave the editor. iChart keeps local changes saved while you work."
+                    detail: "Tap Done to leave the editor. iChart keeps your chart current while you work."
                 )
             ]
         ),
@@ -390,13 +390,13 @@ private struct IChartTutorialSection: Identifiable {
                 ),
                 IChartTutorialStep(
                     id: "system-flow",
-                    title: "New Sys And Join",
-                    detail: "New Sys starts the selected measure on a new system. Join removes that manual system break when it is available."
+                    title: "New Row And Join",
+                    detail: "New Row starts the selected measure on a new row. Join removes that manual row break when it is available."
                 ),
                 IChartTutorialStep(
                     id: "delete",
                     title: "Delete And Range",
-                    detail: "Delete removes the selected measure. Range starts a delete range, Del Thru finishes it, and Clear cancels the pending range."
+                    detail: "Delete removes the selected measure. Range starts a delete range, Delete To finishes it, and Clear cancels the pending range."
                 )
             ]
         ),
@@ -423,8 +423,8 @@ private struct IChartTutorialSection: Identifiable {
                 ),
                 IChartTutorialStep(
                     id: "remove",
-                    title: "Rm Rep, Rm End, And Clear",
-                    detail: "Rm Rep removes repeat markings at the selected measure. Rm End removes endings. Clear cancels a pending repeat or ending span."
+                    title: "Remove Repeat, Remove Ending, And Clear",
+                    detail: "Remove Repeat removes repeat markings at the selected measure. Remove Ending removes endings. Clear cancels a pending repeat or ending span."
                 )
             ]
         ),
@@ -580,7 +580,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "basic",
                     title: "Basic",
-                    detail: "Basic includes the chart-writing tools, local save, PDF export, and three local charts."
+                    detail: "Basic includes the chart-writing tools, PDF export, and three local charts."
                 ),
                 IChartTutorialStep(
                     id: "pro",
@@ -590,7 +590,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "cloud",
                     title: "Cloud Backup",
-                    detail: "Cloud backup is for restore and future multi-device work. Local editing, local save, and PDF export keep working without cloud service."
+                    detail: "Cloud backup is for restore and future multi-device work. Local editing and PDF export keep working without cloud service."
                 ),
                 IChartTutorialStep(
                     id: "forums",
@@ -691,7 +691,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "music.note.list",
             body: "Use iChart to create, edit, save, and export your own working charts.",
             bullets: [
-                "Basic includes the local chart-writing tools, local save, and PDF export.",
+                "Basic includes the local chart-writing tools and PDF export.",
                 "Keep chart titles, notes, credits, and metadata accurate for the musicians using the chart.",
                 "Deleting a local chart removes it from the local library."
             ]
@@ -830,7 +830,7 @@ private enum IChartGuidedTourStep: String, Identifiable {
         case .welcome:
             "Write the chart. Share with the band. Take a quick tour, or jump straight into the app."
         case .charts:
-            "Tap Charts in the sidebar. This is where saved charts and new chart creation live."
+            "Tap Charts in the sidebar. This is where your charts and new chart creation live."
         case .newChart:
             "Tap New Chart to choose what kind of chart you want to make."
         case .simpleChart:
@@ -1071,6 +1071,7 @@ struct LibraryView: View {
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
+            applyForumDownloadAccess(store.subscriptionState)
             Task {
                 await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
             }
@@ -1220,7 +1221,7 @@ struct LibraryView: View {
                     ContentUnavailableView(
                         "PDF Not Found",
                         systemImage: "doc.badge.exclamationmark",
-                        description: Text("This saved PDF is no longer available on this device.")
+                        description: Text("This PDF is no longer available on this device.")
                     )
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
@@ -1388,7 +1389,7 @@ struct LibraryView: View {
                 theme: homeTheme
             ) {
                 IChartPDFLibraryHomeView(
-                    items: pdfLibraryStore.items,
+                    items: pdfLibraryStore.visibleItems(for: store.subscriptionState),
                     theme: homeTheme,
                     onOpen: { item in
                         selectedPDFLibraryItem = item
@@ -1471,17 +1472,6 @@ struct LibraryView: View {
                             title: "Library",
                             value: chartCountText,
                             systemImageName: "doc.text",
-                            theme: homeTheme
-                        )
-
-                        Divider()
-                            .overlay(homeTheme.panelBorder)
-                            .padding(.leading, 44)
-
-                        IChartSettingsRow(
-                            title: "Storage",
-                            value: store.persistenceStatus.displayText,
-                            systemImageName: store.persistenceStatus.systemImageName,
                             theme: homeTheme
                         )
                     }
@@ -1615,9 +1605,9 @@ struct LibraryView: View {
 
             if store.charts.isEmpty {
                 ContentUnavailableView(
-                    "No Projects Yet",
+                    "No Charts Yet",
                     systemImage: "music.note",
-                    description: Text("Create a new chart to start the first project.")
+                    description: Text("Create a new chart to start writing.")
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
@@ -1789,7 +1779,16 @@ struct LibraryView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             store.applySubscriptionState(subscriptionPreview)
         }
+        applyForumDownloadAccess(subscriptionPreview)
         cloudSyncStore.authStateChanged(authStore.state)
+    }
+
+    private func applyForumDownloadAccess(_ subscription: IChartSubscriptionEntitlement) {
+        pdfLibraryStore.removeForumDownloadsIfInactive(for: subscription)
+        if selectedPDFLibraryItem?.source == .forumDownload,
+           !subscription.allowsForumDownloadAccess {
+            selectedPDFLibraryItem = nil
+        }
     }
 
     private func beginGuidedTour() {
@@ -2402,7 +2401,7 @@ private struct IChartPDFLibraryHomeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Exports and forum downloads are saved here so you can preview, share, or remove them later.")
+            Text("Exports and forum downloads appear here so you can preview, share, or remove them later.")
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2518,11 +2517,6 @@ private struct IChartPDFLibraryRow: View {
             }
 
             Spacer(minLength: 12)
-
-            Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption)
-                .foregroundStyle(theme.panelSecondary)
-                .lineLimit(1)
 
             Button(action: onOpen) {
                 Image(systemName: "eye")
@@ -3900,7 +3894,7 @@ private struct IChartForumPostDetailView: View {
             Button {
                 onVote(.down)
             } label: {
-                Label("Downvote", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                Label("Not For Me", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
             }
             .buttonStyle(.bordered)
 
@@ -5322,7 +5316,7 @@ private struct IChartPlanSettings: View {
                 .foregroundStyle(theme.panelTitle)
 
             if subscriptionStore.productOptions.isEmpty {
-                Text("StoreKit products are unavailable. Add the Pro monthly and annual product IDs in App Store Connect or a StoreKit configuration to test purchase buttons.")
+                Text("Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -5386,10 +5380,12 @@ private struct IChartPlanSettings: View {
             .buttonStyle(.bordered)
             .disabled(subscriptionStore.state.isWorking)
 
-            Text(subscriptionStore.state.statusText)
-                .font(.caption)
-                .foregroundStyle(theme.panelSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let statusText = subscriptionStore.state.statusText {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -5415,7 +5411,7 @@ private struct IChartPlanSettings: View {
                 onSelectSubscriptionState(subscriptionState)
             }
 
-            Text("Simulator control for StoreKit/Supabase entitlement QA. Production authority will come from trusted subscription state.")
+            Text("Use local preview controls on this device. Purchases and account backup still use their normal flows.")
                 .font(.caption)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -5428,10 +5424,10 @@ private struct IChartPlanSettings: View {
             ) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Forum QA Samples")
+                        Text("Sample Forum Charts")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(theme.panelTitle)
-                        Text("Populate Forums with local sample songs, names, rankings, comments, reports, and PDF previews.")
+                        Text("Show local sample songs, names, rankings, comments, reports, and PDF previews.")
                             .font(.caption2)
                             .foregroundStyle(theme.panelSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -5473,25 +5469,6 @@ private struct IChartCloudSyncSettings: View {
                 Spacer(minLength: 12)
             }
 
-            if let lastRemoteBackupAt = syncStore.lastRemoteBackupAt {
-                IChartSettingsRow(
-                    title: "Last Backup",
-                    value: lastRemoteBackupAt.formatted(date: .abbreviated, time: .shortened),
-                    systemImageName: "clock.arrow.circlepath",
-                    theme: theme
-                )
-            }
-
-            if let lastSyncAttemptAt = syncStore.lastSyncAttemptAt,
-               shouldShowLastChecked {
-                IChartSettingsRow(
-                    title: "Last Checked",
-                    value: lastSyncAttemptAt.formatted(date: .omitted, time: .shortened),
-                    systemImageName: "arrow.triangle.2.circlepath",
-                    theme: theme
-                )
-            }
-
             Button {
                 syncStore.syncNow()
             } label: {
@@ -5523,15 +5500,6 @@ private struct IChartCloudSyncSettings: View {
         }
 
         return syncStore.state.manualSyncDisabledReason
-    }
-
-    private var shouldShowLastChecked: Bool {
-        switch syncStore.state {
-        case .offline, .failed:
-            return true
-        case .unconfigured, .signedOut, .requiresPro, .syncing, .synced:
-            return false
-        }
     }
 
     private var statusTint: Color {
@@ -6249,59 +6217,6 @@ private struct IChartStaffMeasureLines: View {
                 IChartHomeBrand.staffOnDark,
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
             )
-        }
-    }
-}
-
-struct ChartLibraryPersistenceStatusBadge: View {
-    let status: ChartLibraryPersistenceStatus
-
-    var body: some View {
-        Label(status.displayText, systemImage: status.systemImageName)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(backgroundColor)
-            .clipShape(Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(borderColor, lineWidth: 1)
-            }
-            .accessibilityLabel(status.accessibilityText)
-    }
-
-    private var foregroundColor: Color {
-        switch status {
-        case .failed:
-            Color(red: 0.62, green: 0.18, blue: 0.12)
-        case .notTracking:
-            IChartHomeBrand.paper.opacity(0.70)
-        case .ready, .saved:
-            Color(red: 0.13, green: 0.38, blue: 0.20)
-        }
-    }
-
-    private var backgroundColor: Color {
-        switch status {
-        case .failed:
-            Color(red: 1.0, green: 0.91, blue: 0.88)
-        case .notTracking:
-            Color.white.opacity(0.08)
-        case .ready, .saved:
-            Color(red: 0.90, green: 0.97, blue: 0.91)
-        }
-    }
-
-    private var borderColor: Color {
-        switch status {
-        case .failed:
-            Color(red: 0.78, green: 0.28, blue: 0.18).opacity(0.35)
-        case .notTracking:
-            Color.white.opacity(0.10)
-        case .ready, .saved:
-            Color(red: 0.21, green: 0.55, blue: 0.28).opacity(0.28)
         }
     }
 }

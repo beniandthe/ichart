@@ -8,7 +8,7 @@ final class ChartSyncStateTests: XCTestCase {
         XCTAssertEqual(state.displayText, "Cloud backup requires Pro")
         XCTAssertEqual(
             state.detailText,
-            "Charts are saved locally. Upgrade to Pro to back up and restore from cloud."
+            "Upgrade to Pro to back up and restore from cloud."
         )
         XCTAssertEqual(state.systemImageName, "lock.icloud")
         XCTAssertEqual(state.manualSyncTitle, "Requires Pro")

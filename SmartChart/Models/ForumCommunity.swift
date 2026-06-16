@@ -345,6 +345,7 @@ enum ForumQualityPolicy {
     }
 
     static func voteSummaryText(upVotes: Int, downVotes: Int) -> String {
-        "\(max(0, upVotes)) up / \(max(0, downVotes)) down"
+        let safeUpVotes = max(0, upVotes)
+        return safeUpVotes == 1 ? "1 upvote" : "\(safeUpVotes) upvotes"
     }
 }

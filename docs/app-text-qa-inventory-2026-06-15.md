@@ -33,57 +33,69 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - New: "Account sign-in and cloud backup are unavailable in this build."
   - Still flagged for later cloud-sync status copy: "Add Supabase configuration to enable cloud backup.", "Cloud backup is not configured in this build."
 
-- [ ] Plan/StoreKit QA copy is developer-facing.
+- [x] Plan/StoreKit QA copy is developer-facing. Fixed in triage 2 with user-facing subscription and local preview copy.
   - Source: `SmartChart/Features/Library/LibraryView.swift:4848`, `:4941`, `:4954`, `:4957`; `SmartChart/Features/Editor/Components/UpgradeSheetView.swift:38`, `:102`; `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift:45`, `:86`, `:378`
-  - Current: "StoreKit products are unavailable. Add the Pro monthly and annual product IDs in App Store Connect or a StoreKit configuration to test purchase buttons."
-  - Current: "Simulator control for StoreKit/Supabase entitlement QA. Production authority will come from trusted subscription state."
-  - Current: "Forum QA Samples"
-  - Current: "Debug build: this switches local entitlement state for simulator entitlement QA."
-  - Current: "Pro purchases are not available yet. Add the monthly and annual product IDs in App Store Connect or a StoreKit configuration."
-  - Current: "Local Pro preview active for simulator QA."
-  - Current: "Subscription server verification is unavailable. Using local simulator entitlement."
+  - New: "Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."
+  - New: "Use local preview controls on this device. Purchases and account backup still use their normal flows."
+  - New: "Sample Forum Charts"
+  - New: "Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow."
+  - New: "Pro preview is active on this device."
 
-- [ ] Chord fixture tools expose regression terminology.
+- [x] Chord fixture tools expose regression terminology. Fixed in triage 2 by relabeling debug capture as ink samples.
   - Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift:98`, `:347`, `:354`; `SmartChart/Features/Editor/EditorView.swift:2710`, `:2729`
-  - Current: "Copied {fixture JSON} regression fixture as {fixture name}. Watcher will import it."
-  - Current: "Fixture capture"
-  - Current: "Copy Regression Fixture"
-  - Current: "Could not export this regression fixture. Keep the ink and try again."
+  - New: "Copied {chord} ink sample as {sample name}."
+  - New: "Ink sample capture"
+  - New: "Copy Ink Sample"
+  - New: "Could not copy this ink sample. Keep the ink and try again."
 
-- [ ] Forum seed/QA text can leak if QA samples are enabled.
+- [x] Forum seed/QA text can leak if QA samples are enabled. Fixed in triage 2 by renaming QA sample strings to local forum samples.
   - Source: `SmartChart/App/Forum/IChartForumStore.swift:90`, `:456`, `:520`, `:603`, `:757`
-  - Current: "Forum QA samples loaded."
-  - Current: "{title} - QA Forum.pdf"
-  - Current: "iChart QA"
-  - Current: "Intentionally included as a QA example for review states."
-  - Current PDF preview text: "iChart Forum QA Preview - {creator}"
+  - New: "Sample forum charts loaded."
+  - New: "{title} - Forum Sample.pdf"
+  - New: "iChart Samples"
+  - New: "Community review example with reports already attached."
+  - New PDF preview text: "iChart Forum Sample - {creator}"
 
-- [ ] Chart list empty state says projects, not charts.
+- [x] Chart list empty state says projects, not charts. Fixed in triage 2.
   - Source: `SmartChart/Features/Library/LibraryView.swift:1264`
-  - Current: "No Projects Yet"
-  - Context: displayed in the plain Charts list when `store.charts.isEmpty`.
+  - New: "No Charts Yet"
+  - New: "Create a new chart to start writing."
 
-- [ ] Several cramped editor controls use abbreviations that may be unclear.
+- [x] Several cramped editor controls use abbreviations that may be unclear. Fixed in triage 2.
   - Source: `SmartChart/Features/Editor/EditorView.swift:1072`, `:1092`, `:1149`, `:1157`
-  - Current: "New Sys", "Del Thru", "Rm Rep", "Rm End"
+  - New: "New Row", "Delete To", "Remove Repeat", "Remove Ending"
 
-- [ ] Rhythm/chord validation copy sometimes exposes internal model terms.
+- [x] Rhythm/chord validation copy sometimes exposes internal model terms. Fixed in triage 2.
   - Source: `SmartChart/Services/MeasureTimingValidator.swift:44`, `:61`, `:72`; `SmartChart/Features/Editor/EditorView.swift:2810`, `:2831`
-  - Current: "rhythm slot", "beat map", "editable rhythm map", "misaligned with the beat grid"
+  - New: "rhythm position", "chord position", "editable rhythm sketch", "off the measure grid"
 
-- [ ] Forum has a visible "Downvote" button despite prior concern about griefing tone.
+- [x] Forum has a visible "Downvote" button despite prior concern about griefing tone. Fixed in triage 2.
   - Source: `SmartChart/Features/Library/LibraryView.swift:3549`; `SmartChart/Models/ForumCommunity.swift:348`
-  - Current: "Downvote"
-  - Current vote summary: "{up} up / {down} down"
+  - New: "Not For Me"
+  - New vote summary: "{up} upvote(s)"
 
-- [ ] "SMuFL" may be too technical for a musician-facing font picker.
+- [x] "SMuFL" may be too technical for a musician-facing font picker. Fixed in triage 2.
   - Source: `SmartChart/Features/Editor/Components/ChartAppearanceSheetView.swift:26`, `:83`
-  - Current: "Choose the SMuFL notation family used for glyphs."
-  - Current section label: "SMuFL Font"
+  - New: "Choose the notation symbol style used in the chart."
+  - New section label: "Notation Font"
 
-- [ ] New-chart Lead Sheet description references current internal workflow.
+- [x] New-chart Lead Sheet description references current internal workflow. Fixed in triage 2.
   - Source: `SmartChart/Models/Chart.swift:234`
-  - Current: "Formal page and staff layout for the current Smart Chart workflow."
+  - New: "Staff-based page for melody, chords, and standard notation."
+
+- [x] Status surfaces repeated persistence wording even though local persistence is the default. Fixed in triage 2 follow-up by removing the user-facing status surface entirely.
+  - Source: `SmartChart/Features/Library/ChartLibraryStore.swift`; `SmartChart/Models/ChartSyncState.swift`
+  - Removed: Settings storage status row.
+  - Removed: editor persistence status badge.
+  - Removed: export preview storage confirmation label and date.
+  - New: "Upgrade to Pro to back up and restore from cloud."
+  - New: "Reconnect to back up."
+
+- [x] Forum-downloaded PDFs persist after confirmed Basic/expired entitlement. Fixed in triage 2 follow-up.
+  - Source: `SmartChart/Services/PDFLibraryStore.swift`; `SmartChart/App/SmartChartApp.swift`; `SmartChart/Features/Library/LibraryView.swift`
+  - Active Pro and Pro grace keep forum downloads visible.
+  - Confirmed Basic, expired Pro, and legacy local Pro remove forum downloads.
+  - Unavailable plan checks hide forum downloads without deleting them.
 
 ## App Shell
 
@@ -117,7 +129,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IC
 - [ ] Form fields: "First Name", "Last Name", "Email", "Password", "New Password"
 - [ ] Placeholders: "First name", "Last name", "name@example.com", "8 characters minimum"
 - [ ] Actions: "Create Account", "Sign In", "Reset Password", "Resend Email", "Save Password", "Cancel", "Reconnect", "Refresh", "Sign Out"
-- [ ] Store messages: "Account created. Check your email to finish verification.", "Signed in.", "Signed out.", "Verification email sent.", "Password reset email sent.", "Account session refreshed.", "Password updated. You're signed in.", "Profile saved."
+- [ ] Store messages: "Account created. Check your email to finish verification.", "Signed in.", "Signed out.", "Verification email sent.", "Password reset email sent.", "Account session refreshed.", "Password updated. You're signed in.", "Profile updated."
 - [ ] Error: "This sign-in link is not an iChart account callback."
 - [ ] Error: "Sign in before saving profile info."
 - [ ] Offline status: "Account is offline. Local charts remain available."
@@ -142,7 +154,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Ed
 - [ ] First-run tour titles: "Welcome To iChart", "Start With Charts", "Create Your First Chart", "Choose Simple Chord Sheet"
 - [ ] First-run tour messages:
   - "Write the chart. Share with the band. Take a quick tour, or jump straight into the app."
-  - "Tap Charts in the sidebar. This is where saved charts and new chart creation live."
+  - "Tap Charts in the sidebar. This is where your charts and new chart creation live."
   - "Tap New Chart to choose what kind of chart you want to make."
   - "Choose Simple Chord Sheet for a chord-first page. Rhythm Section Sheet gives you more room for slashes, hits, and groove cues."
 - [ ] First-run tour targets/actions: "Start Tour", "Tap Charts", "Tap New Chart", "Tap Simple Chord Sheet", "Skip Tour"
@@ -160,8 +172,8 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Li
 - [ ] New chart action: "New Chart"
 - [ ] Usage text: "{used} of {limit} Basic charts used"
 - [ ] Chart count: "1 chart", "{count} charts"
-- [ ] Empty state title: "No Projects Yet"
-- [ ] Empty state message: "Create a new chart to start the first project."
+- [ ] Empty state title: "No Charts Yet"
+- [ ] Empty state message: "Create a new chart to start writing."
 - [ ] Chart row actions: "Rename", "Duplicate", "Share To Forum", "Delete", "Delete Local"
 - [ ] Chart action accessibility: "Chart actions", "Delete local chart"
 - [ ] Rename sheet: "Rename Chart", "Chart title", "Open keyboard for chart title", "Cancel", "Save"
@@ -171,10 +183,9 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Li
 - [ ] Basic lock plural: "Delete {count} local charts to edit in Basic."
 - [ ] Consolidation title: "Consolidate Charts"
 - [ ] Consolidation message: "Delete {count} local chart(s) from the list below to continue in Basic. Editing unlocks when 3 charts remain. Cloud backups stay available through the Pro grace period."
-- [ ] Persistence status: "Local preview", "Autosave ready", "Saved locally {time}", "Save issue"
-- [ ] Persistence details: "Local preview state is not being saved.", "Autosave is ready.", "Chart library saved locally at {time}.", "Chart library save issue. {message}"
+- [ ] Persistence status: not user-facing.
 - [ ] Default chart titles: "Untitled Chart", "Untitled Chart Copy", "{title} Copy", "{title} Copy {number}"
-- [ ] REVIEW: empty state says "No Projects Yet" in Charts list.
+- [x] REVIEW: empty state says "No Projects Yet" in Charts list. Fixed in triage 2.
 
 ## Projects
 
@@ -207,10 +218,10 @@ Source: `SmartChart/Features/Editor/Components/ChartSetupSheetView.swift`, `Smar
 - [ ] Layout descriptions:
   - "Dense chord-first grid for fast harmonic roadmaps."
   - "Chord chart with extra room for hits, slashes, and groove cues."
-  - "Formal page and staff layout for the current Smart Chart workflow."
+  - "Staff-based page for melody, chords, and standard notation."
 - [ ] Header modes: "Typed", "Handwritten"
 - [ ] Summary: "{layout style} · setup pending", "blank page", "{count} measures"
-- [ ] REVIEW: Lead Sheet description says "current Smart Chart workflow."
+- [x] REVIEW: Lead Sheet description says "current Smart Chart workflow." Fixed in triage 2.
 
 ## Editor Main Toolbar
 
@@ -221,11 +232,11 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 - [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Hand"
 - [ ] Ink tool labels: "Write", "Erase"
 - [ ] Chord row modes: "Read", "Ink Only", "Ink Only: handwritten chords stay as ink; transposition and chord systems will not apply."
-- [ ] Measures row: "Add", "Stack", "First", "Double", "Join", "New Sys", "Delete", "Range", "Del Thru", "Clear"
-- [ ] Repeats row: "One Bar", "Start", "End Rep", "1st", "2nd", "End 1st", "End 2nd", "Rm Rep", "Rm End", "Clear"
+- [ ] Measures row: "Add", "Stack", "First", "Double", "Join", "New Row", "Delete", "Range", "Delete To", "Clear"
+- [ ] Repeats row: "One Bar", "Start", "End Rep", "1st", "2nd", "End 1st", "End 2nd", "Remove Repeat", "Remove Ending", "Clear"
 - [ ] Coda tool menu labels: "Coda", "To Coda", "Segno", "D.S.", "D.S. al Coda", "D.C.", "D.C. al Fine", "Fine", "N.C."
 - [ ] Coda marker overlay: "x"
-- [ ] Rendered chart roadmap symbols: SMuFL Coda, To Coda, Segno, "D.S.", SMuFL D.S. al Coda, "D.C.", "D.C. al Fine", "Fine", "N.C."
+- [ ] Rendered chart roadmap symbols: Coda symbol, To Coda, Segno symbol, "D.S.", D.S. al Coda, "D.C.", "D.C. al Fine", "Fine", "N.C."
 - [ ] Text actions: "Add Text Below Selected Measure", "Add Text Above Selected Measure", "Remove Text at Selected Measure"
 - [ ] Done: "Done"
 - [ ] REVIEW: abbreviated controls listed in Review Flags.
@@ -240,15 +251,15 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 - [ ] Chord alert: "Chord Recognition", "OK"
 - [ ] Header sheet: "Header", "Header Mode", "Mode", "Chart", "Title", "Composer / Credit", "Style Note", "Untitled Chart", "Cancel", "Apply", "Open keyboard for {title}"
 - [ ] Appearance panels: "Document Style", "Notation Fonts", "Engraving"
-- [ ] Appearance subtitles: "Set the overall visual personality of the chart.", "Choose the SMuFL notation family used for glyphs.", "Control spacing and stroke weight for the page."
-- [ ] Appearance sections/actions: "Style", "SMuFL Font", "Preset", "Done"
+- [ ] Appearance subtitles: "Set the overall visual personality of the chart.", "Choose the notation symbol style used in the chart.", "Control spacing and stroke weight for the page."
+- [ ] Appearance sections/actions: "Style", "Notation Font", "Preset", "Done"
 - [ ] Typography sections: "Matched Set", "Chord Font", "Header Font", "Text / Cue Font", "Notation Symbols", "Use Matched Set", "Selected", "Fonts", "Done"
 - [ ] Typography previews: "Almost Like Being In Love", "(Medium Swing)  To Coda", "Bb△7  C°7  Fø7"
 - [ ] Pen sheet: "Pen Responsiveness", "Direct", "Smooth", "Balanced", "Pen", "Decrease pen responsiveness", "Increase pen responsiveness", "Done"
 - [ ] Text sheet: "Text", "Open keyboard for text entry", "Cancel", "Add"
 - [ ] Measure stack sheet: "Measures", "Measure Count", "Measure Stack", "Cancel", "Add"
-- [ ] Apply meter sheet: "Add measures of time?", "The new {meter} starts on the next measure.", "Additional measures", "Apply Measure Count", "Or choose a span", "To next time signature", "To end of piece", "Apply {meter}", "Cancel"
-- [ ] REVIEW: "SMuFL" and "Add measures of time?" may need more user-facing language.
+- [ ] Apply meter sheet: "Add measures in this time signature?", "The new {meter} starts on the next measure.", "Additional measures", "Apply Measure Count", "Or choose a span", "To next time signature", "To end of piece", "Apply {meter}", "Cancel"
+- [x] REVIEW: "SMuFL" and "Add measures of time?" may need more user-facing language. Fixed in triage 2.
 
 ## Chord Recognition And Correction
 
@@ -266,8 +277,8 @@ Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift`, `Smart
 - [ ] Correction actions: "Quick choices", "Chord", "Update Chord", "Update to {chord}", "Cancel"
 - [ ] Memory message: "This ink previously rendered as {acceptedText} and was deleted. Choose the intended chord, or type it in."
 - [ ] Errors: "That chord candidate is not supported yet. Try another candidate or edit the text.", "That measure is no longer available. Keep the ink and try again.", "That chord is no longer available. Try writing it again."
-- [ ] Fixture/debug copy: "Fixture capture", "Copy Regression Fixture", "Copied {fixture} regression fixture as {fixture name}. Watcher will import it.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not export this regression fixture. Keep the ink and try again."
-- [ ] REVIEW: fixture/debug copy should not appear in production.
+- [ ] Ink sample/debug copy: "Ink sample capture", "Copy Ink Sample", "Copied {chord} ink sample as {sample name}.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not copy this ink sample. Keep the ink and try again."
+- [x] REVIEW: fixture/debug copy should not appear in production. Fixed in triage 2 by relabeling the disabled debug capture surface.
 
 ## Rhythm Recognition And Editing
 
@@ -279,31 +290,30 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 - [ ] Error: "Select a rhythm note first, then choose the replacement value."
 - [ ] Error: "That rhythm is already selected."
 - [ ] Error: "That measure is no longer available."
-- [ ] Error: "That note is not part of an editable rhythm map yet."
+- [ ] Error: "That note is not part of an editable rhythm sketch yet."
 - [ ] Error: "That rhythm note is no longer available."
 - [ ] Error: "Choose a single rhythm or rest value."
 - [ ] Error: "That replacement would make the measure {status}. Choose a value with the same duration for now, or adjust the surrounding rhythms first."
-- [ ] Status fragments: "empty", "fit", "short by {beats} beats", "over by {beats} beats", "misaligned with the beat grid"
+- [ ] Status fragments: "empty", "fit", "short by {beats} beats", "over by {beats} beats", "off the measure grid"
 - [ ] Recognition feedback: "Measure {number} contains a rhythm symbol that couldn’t be matched yet. The measure is still selected so you can adjust or rewrite it."
 - [ ] Recognition feedback: "This rhythm only adds up to {actual} beats, but the measure needs {expected}. The measure is still selected so you can adjust or rewrite it."
 - [ ] Recognition feedback: "This rhythm adds up to {actual} beats, which is more than the {expected} beats allowed in this measure. The measure is still selected so you can adjust or rewrite it."
-- [ ] Timing validation: "Chord {chord} is pinned to a rhythm slot that no longer exists after the beat map changed.", "More than one chord is pinned to slot {slot}.", "This beat map has {count} rhythm slots, so extra chords will not snap cleanly.", "The rhythm sketch does not add up to {meter}, so it stays inactive until it fits the full measure."
-- [ ] REVIEW: internal rhythm terms listed in Review Flags.
+- [ ] Timing validation: "Chord {chord} is tied to a rhythm position that changed.", "More than one chord is tied to rhythm position {position}.", "This rhythm has {count} chord position(s), so extra chords will not snap cleanly.", "The rhythm sketch does not add up to {meter}, so it stays inactive until it fits the full measure."
+- [x] REVIEW: internal rhythm terms listed in Review Flags. Fixed in triage 2.
 
 ## PDF Library And Export
 
 Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Services/PDFLibraryStore.swift`, `SmartChart/Features/Editor/Components/PDFExportPreviewView.swift`, `SmartChart/Services/ChartExporting.swift`
 
 - [ ] Tab/panel title: "PDF Library"
-- [ ] Library intro: "Exports and forum downloads are saved here so you can preview, share, or remove them later."
+- [ ] Library intro: "Exports and forum downloads appear here so you can preview, share, or remove them later."
 - [ ] Sources: "Exports", "Forum Downloads"
 - [ ] Source item titles: "Chart Export", "Forum Download"
 - [ ] Empty titles: "No Exports Yet", "No Forum Downloads Yet"
 - [ ] Empty messages: "Export a chart as a PDF and it will land here.", "Download a forum chart PDF and it will land here."
-- [ ] Missing PDF: "PDF Not Found", "This saved PDF is no longer available on this device.", "Done"
+- [ ] Missing PDF: "PDF Not Found", "This PDF is no longer available on this device.", "Done"
 - [ ] Row accessibility: "Open {PDF title}", "Delete {PDF title}"
 - [ ] Export preview actions: "Done", "Share"
-- [ ] Export preview status: "Saved to PDF Library"
 - [ ] Page count: "1 page", "{count} pages"
 - [ ] Default file/title: "iChart PDF", "Smart Chart"
 - [ ] Forum PDF metadata: "Shared from iChart Forums - Creator: {creator} - Post: {postID} - Exported: {date}"
@@ -346,7 +356,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/Foru
 - [ ] Badges: "Verified Contributor", "Trusted Arranger", "Community Expert"
 - [ ] Validation errors: "Choose a local iChart chart.", "Add the song title.", "Add the artist.", "Add arranger credit.", "Finish account first and last name before posting."
 - [ ] Store messages: "Forum chart submitted for review.", "Report sent.", "Choose a local iChart chart before publishing.", "This forum chart is no longer available."
-- [ ] REVIEW: downvote language and QA seed copy listed in Review Flags.
+- [x] REVIEW: downvote language and QA seed copy listed in Review Flags. Fixed in triage 2.
 
 ## Submit To Forum
 
@@ -366,7 +376,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`
 Source: `SmartChart/Features/Library/LibraryView.swift`
 
 - [ ] Creator byline: "Created by {creator}", "Created by Unknown"
-- [ ] Actions: "Upvote", "Downvote", "Preview PDF", "Report"
+- [ ] Actions: "Upvote", "Not For Me", "Preview PDF", "Report"
 - [ ] Discussion title: "Discussion"
 - [ ] Comment field: "Add a comment"
 - [ ] Comment action accessibility: "Post comment"
@@ -384,7 +394,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`
 
 Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/IChartSubscriptionEntitlement.swift`, `SmartChart/Models/AppEntitlements.swift`, `SmartChart/Features/Editor/Components/UpgradeSheetView.swift`, `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
-- [ ] Settings panels: "Settings", "Library", "Storage", "Plan", "Account", "Chart Sync", "User Info"
+- [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Chart Sync", "User Info"
 - [ ] User info labels: "Account Name", "Email", "Phone", "Address", "Mailing address", "Save Profile"
 - [ ] Account name fallback: "Set at account creation"
 - [ ] Plan rows: "Local Charts", "Cloud Backup", "Forums", "Grace Ends"
@@ -405,25 +415,25 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ICha
 - [ ] Upgrade sheet title/action: "Unlock Pro", "Upgrade", "Not Now"
 - [ ] Upgrade benefits: "Unlimited local charts", "Cloud backup and restore", "Cross-device sync when available", "Forums access"
 - [ ] Purchase actions: "Restore Purchases", "Manage Subscription", "Use Pro Preview"
-- [ ] StoreKit status: "Subscription check ready.", "Checking subscription...", "Verifying subscription with iChart...", "Opening purchase...", "Restoring purchases...", "Opening subscription management...", "Subscription check complete."
-- [ ] StoreKit error/status: "Purchase could not be verified.", "Purchase is pending approval.", "Purchase status is unavailable.", "Purchase failed. Try again from Settings.", "StoreKit products could not be loaded.", "Restore failed. Try again when you are online.", "Subscription management is unavailable from this window.", "Could not open subscription management.", "Subscription management is unavailable on this platform.", "Subscription could not be verified with iChart. Try again when you are online.", "Subscription transaction could not be verified."
+- [ ] Subscription status: "Checking subscription...", "Verifying subscription with iChart...", "Opening purchase...", "Restoring purchases...", "Opening subscription management...", "Pro preview is active on this device."
+- [ ] Subscription error/status: "Purchase could not be verified.", "Purchase is pending approval.", "Purchase status is unavailable.", "Purchase failed. Try again from Settings.", "Pro subscriptions could not be loaded.", "Restore failed. Try again when you are online.", "Subscription management is unavailable from this window.", "Could not open subscription management.", "Subscription management is unavailable on this platform.", "Subscription could not be verified with iChart. Try again when you are online.", "Subscription transaction could not be verified."
 - [ ] Value badge: "Save {percent}%"
-- [ ] REVIEW: StoreKit/debug copy listed in Review Flags.
+- [x] REVIEW: StoreKit/debug copy listed in Review Flags. Fixed in triage 2.
 
 ## Cloud Sync
 
 Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartCloudSyncStore.swift`, `SmartChart/Features/Library/LibraryView.swift`
 
-- [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Syncing", "Synced {time}", "Sync needs attention"
+- [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Syncing", "Cloud backup active", "Sync needs attention"
 - [ ] Detail text: "Charts stay local until you sign in."
-- [ ] Detail text: "Charts are saved locally. Upgrade to Pro to back up and restore from cloud."
-- [ ] Detail text: "Local edits are saved. Reconnect to back up."
+- [ ] Detail text: "Upgrade to Pro to back up and restore from cloud."
+- [ ] Detail text: "Reconnect to back up."
 - [ ] Detail text: "Checking cloud backup and uploading local changes."
-- [ ] Detail text: "Charts are backed up."
+- [ ] Detail text: "Cloud backup is up to date."
 - [ ] Manual sync actions: "Unavailable", "Sign In First", "Requires Pro", "Retry Sync", "Syncing", "Sync Now"
 - [ ] Disabled reasons: "Sign in to enable cloud backup.", "Cloud backup and restore require Pro."
-- [ ] Rows: "Last Backup", "Last Checked"
-- [ ] Failure text: "Sign in again to resume cloud backup.", "Cloud permissions blocked backup. Sign in again, then retry.", "We could not finish cloud backup. Retry when you are ready."
+- [ ] Backup/check timestamps are not user-facing.
+- [ ] Failure text: "Sign in again to resume cloud backup.", "Cloud permissions blocked backup. Sign in again, then retry.", "We could not finish cloud backup. Retry when you are online."
 - [ ] REVIEW: Supabase/build configuration strings listed in Review Flags.
 
 ## Appearance, Fonts, And Engraving Options
@@ -473,21 +483,22 @@ Source: `SmartChart/Shared/SampleData/ChartSamples.swift`, `SmartChart/App/Forum
   - "Compact chart for horn players reading with rhythm section."
   - "Big form markers and simple hit language for a fast rehearsal."
   - "Short and clean for a singer rehearsal packet."
-  - "Intentionally included as a QA example for review states."
+  - "Community review example with reports already attached."
 - [ ] Forum sample comments:
   - "This one reads clean on a loud stage. The ending is easy to catch."
   - "Good roadmap for rhythm section. I would keep the tag exactly like this."
   - "The hit layout is quick to scan. Nice for rehearsal."
   - "Form might need review around the bridge."
-- [ ] REVIEW: sample/QA strings listed in Review Flags.
+- [x] REVIEW: sample/QA strings listed in Review Flags. Fixed in triage 2.
 
 ## Quick Triage Recommendation
 
 Highest-value cleanup pass before release:
 
 1. Replace Help placeholder/roadmap text with finished user copy.
-2. Hide or reword all Supabase/StoreKit/simulator/QA configuration language behind a debug-only build surface that cannot appear to regular users.
-3. Remove or relabel chord regression fixture UI.
-4. Fix the Charts empty state title.
-5. Decide whether forum downvotes are release-facing, hidden, or reframed.
-6. Reword the most technical editor terms: "SMuFL", "beat map", "rhythm slot", "editable rhythm map", "New Sys", "Del Thru", "Rm Rep", "Rm End".
+2. Hide or reword all Supabase/StoreKit/simulator/QA configuration language behind a debug-only build surface that cannot appear to regular users. Done in triage 2 for Pro preview and forum samples; cloud-sync configuration copy remains a later pass.
+3. Remove or relabel chord regression fixture UI. Done in triage 2.
+4. Fix the Charts empty state title. Done in triage 2.
+5. Decide whether forum downvotes are release-facing, hidden, or reframed. Done in triage 2 by reframing the button and hiding downvote counts from summaries.
+6. Reword the most technical editor terms: "SMuFL", "beat map", "rhythm slot", "editable rhythm map", "New Sys", "Del Thru", "Rm Rep", "Rm End". Done in triage 2.
+7. Remove redundant local-save status wording and enforce forum-download cleanup after confirmed downgrade/expiration. Done in triage 2 follow-up.

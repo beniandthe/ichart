@@ -141,6 +141,24 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
         }
     }
 
+    var allowsForumDownloadAccess: Bool {
+        switch status {
+        case .proActive, .proGrace:
+            return true
+        case .basic, .proExpired, .unavailable, .legacyLocalPro:
+            return false
+        }
+    }
+
+    var shouldRemoveForumDownloads: Bool {
+        switch status {
+        case .basic, .proExpired, .legacyLocalPro:
+            return true
+        case .proActive, .proGrace, .unavailable:
+            return false
+        }
+    }
+
     var badgeText: String {
         switch status {
         case .basic:
