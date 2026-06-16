@@ -2,6 +2,146 @@
 import CoreText
 import UIKit
 
+enum LeadSheetRoadmapLabelFitting {
+    static func fittedBaseFontSize(
+        for text: String,
+        in rect: CGRect,
+        baseFontSize: CGFloat,
+        minimumFontSize: CGFloat,
+        baseFontProvider: (CGFloat) -> UIFont,
+        symbolFontProvider: (String, UIFont) -> UIFont
+    ) -> CGFloat {
+        guard rect.width > 1, rect.height > 1, !text.isEmpty else {
+            return baseFontSize
+        }
+
+        let baseFont = baseFontProvider(baseFontSize)
+        let baseBounds = measuredBounds(
+            for: text,
+            baseFont: baseFont,
+            symbolFontProvider: symbolFontProvider
+        )
+        guard baseBounds.width > 0, baseBounds.height > 0 else {
+            return baseFontSize
+        }
+
+        let widthScale = rect.width / baseBounds.width
+        let heightScale = rect.height / baseBounds.height
+        var fittedSize = baseFontSize
+        let scale = min(widthScale, heightScale)
+        if scale < 1 {
+            fittedSize = max(minimumFontSize, floor(baseFontSize * scale * 0.98))
+        }
+
+        while fittedSize > minimumFontSize {
+            let bounds = measuredBounds(
+                for: text,
+                baseFont: baseFontProvider(fittedSize),
+                symbolFontProvider: symbolFontProvider
+            )
+            if ceil(bounds.width) <= rect.width + 0.5,
+               ceil(bounds.height) <= rect.height + 0.5 {
+                return fittedSize
+            }
+
+            fittedSize -= 0.5
+        }
+
+        return minimumFontSize
+    }
+
+    static func attributedText(
+        _ text: String,
+        baseFont: UIFont,
+        color: UIColor,
+        alignment: NSTextAlignment,
+        symbolFontProvider: (String, UIFont) -> UIFont
+    ) -> NSMutableAttributedString {
+        let normalizedText = text
+            .replacingOccurrences(of: "𝄌", with: NotationGlyphCatalog.coda)
+            .replacingOccurrences(of: "𝄋", with: NotationGlyphCatalog.segno)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        paragraphStyle.lineBreakMode = .byClipping
+
+        let attributedText = NSMutableAttributedString(
+            string: normalizedText,
+            attributes: [
+                .font: baseFont,
+                .foregroundColor: color,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+
+        applyNotationFont(
+            to: attributedText,
+            symbolGlyph: NotationGlyphCatalog.coda,
+            baseFont: baseFont,
+            symbolFontProvider: symbolFontProvider
+        )
+        applyNotationFont(
+            to: attributedText,
+            symbolGlyph: NotationGlyphCatalog.segno,
+            baseFont: baseFont,
+            symbolFontProvider: symbolFontProvider
+        )
+
+        return attributedText
+    }
+
+    static func measuredBounds(
+        for text: String,
+        baseFont: UIFont,
+        symbolFontProvider: (String, UIFont) -> UIFont
+    ) -> CGRect {
+        let attributedText = attributedText(
+            text,
+            baseFont: baseFont,
+            color: .black,
+            alignment: .center,
+            symbolFontProvider: symbolFontProvider
+        )
+        return attributedText.boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
+    }
+
+    private static func applyNotationFont(
+        to attributedText: NSMutableAttributedString,
+        symbolGlyph: String,
+        baseFont: UIFont,
+        symbolFontProvider: (String, UIFont) -> UIFont
+    ) {
+        let fullRange = NSRange(location: 0, length: attributedText.length)
+        let source = attributedText.string as NSString
+        let symbolFont = symbolFontProvider(symbolGlyph, baseFont)
+        var searchRange = fullRange
+
+        while searchRange.length > 0 {
+            let matchRange = source.range(of: symbolGlyph, options: [], range: searchRange)
+            guard matchRange.location != NSNotFound else {
+                return
+            }
+
+            attributedText.addAttributes(
+                [
+                    .font: symbolFont,
+                    .baselineOffset: -baseFont.pointSize * 0.04
+                ],
+                range: matchRange
+            )
+
+            let nextLocation = matchRange.location + matchRange.length
+            searchRange = NSRange(
+                location: nextLocation,
+                length: fullRange.location + fullRange.length - nextLocation
+            )
+        }
+    }
+}
+
 struct LeadSheetNotationRenderer {
     let chart: Chart
 
@@ -128,7 +268,7 @@ struct LeadSheetNotationRenderer {
 
     func drawRoadmapText(_ text: String, in frame: CGRect) {
         let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
-        drawText(
+        drawRoadmapLabel(
             text.uppercased(),
             in: frame,
             font: style.textFont(size: isRhythmSection ? 13.4 : 13),
@@ -199,21 +339,23 @@ struct LeadSheetNotationRenderer {
 
     func drawRoadmapMarker(_ markerLayout: LeadSheetRoadmapMarkerLayout) {
         let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
-        let markerPath = UIBezierPath(
-            roundedRect: markerLayout.frame.insetBy(dx: 0.5, dy: isRhythmSection ? 1 : 1.5),
-            cornerRadius: isRhythmSection ? 0.75 : 2.5
+        let baseFontSize = roadmapMarkerBaseFontSize(for: markerLayout)
+        let label = markerLayout.text.uppercased()
+        let labelFrame = roadmapMarkerLabelFrame(for: markerLayout)
+        let fontSize = LeadSheetRoadmapLabelFitting.fittedBaseFontSize(
+            for: label,
+            in: labelFrame,
+            baseFontSize: baseFontSize,
+            minimumFontSize: roadmapMarkerMinimumFontSize(for: markerLayout),
+            baseFontProvider: { style.textFont(size: $0) },
+            symbolFontProvider: roadmapSymbolFont(for:baseFont:)
         )
-        style.inkColor.withAlphaComponent(isRhythmSection ? 0.035 : 0.055).setFill()
-        markerPath.fill()
-        style.inkColor.withAlphaComponent(isRhythmSection ? 0.84 : 0.62).setStroke()
-        markerPath.lineWidth = (isRhythmSection ? 1.05 : 0.9) * style.strokeScale
-        markerPath.stroke()
 
-        drawText(
-            markerLayout.text.uppercased(),
-            in: markerLayout.frame.insetBy(dx: 5, dy: isRhythmSection ? 1.5 : 2),
-            font: style.textFont(size: isRhythmSection ? 11.2 : 10.8),
-            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.9 : 0.82),
+        drawRoadmapLabel(
+            label,
+            in: labelFrame,
+            font: style.textFont(size: fontSize),
+            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.94 : 0.88),
             alignment: .center
         )
     }
@@ -827,6 +969,62 @@ struct LeadSheetNotationRenderer {
             options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
             attributes: attributes,
             context: nil
+        )
+    }
+
+    private func drawRoadmapLabel(
+        _ text: String,
+        in rect: CGRect,
+        font: UIFont,
+        color: UIColor,
+        alignment: NSTextAlignment
+    ) {
+        let attributedText = LeadSheetRoadmapLabelFitting.attributedText(
+            text,
+            baseFont: font,
+            color: color,
+            alignment: alignment,
+            symbolFontProvider: roadmapSymbolFont(for:baseFont:)
+        )
+
+        attributedText.draw(
+            with: rect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            context: nil
+        )
+    }
+
+    private func roadmapMarkerBaseFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
+        if chart.layoutStyle == .simpleChordSheet {
+            return markerLayout.type.isStandaloneNotationMarker ? 22 : 20
+        }
+
+        return chart.layoutStyle == .rhythmSectionSheet ? 15.2 : 14.8
+    }
+
+    private func roadmapMarkerLabelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
+        if markerLayout.type.containsNotationMarkerGlyph {
+            return markerLayout.frame.insetBy(
+                dx: markerLayout.type.isStandaloneNotationMarker ? 0 : 2,
+                dy: 0
+            )
+        }
+
+        return markerLayout.frame.insetBy(dx: 2, dy: 1)
+    }
+
+    private func roadmapMarkerMinimumFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
+        if chart.layoutStyle == .simpleChordSheet {
+            return markerLayout.type.isStandaloneNotationMarker ? 21 : 17.5
+        }
+
+        return chart.layoutStyle == .rhythmSectionSheet ? 8.5 : 8
+    }
+
+    private func roadmapSymbolFont(for symbolGlyph: String, baseFont: UIFont) -> UIFont {
+        style.notationGlyphFont(
+            size: baseFont.pointSize * 1.12,
+            requiring: symbolGlyph
         )
     }
 

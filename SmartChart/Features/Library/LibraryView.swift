@@ -180,7 +180,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .userPolicy:
             "User Policy"
         case .legal:
-            "Legal"
+            "Legal Policy"
         case .contactUs:
             "Contact Us"
         }
@@ -195,9 +195,9 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .userPolicy:
             "Use and conduct"
         case .legal:
-            "Privacy and notices"
+            "Terms and privacy"
         case .contactUs:
-            "Support placeholder"
+            "Support and feedback"
         }
     }
 
@@ -225,7 +225,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .userPolicy:
             "User Policy"
         case .legal:
-            "Legal Notes"
+            "Legal Policy"
         case .contactUs:
             "Contact Us"
         }
@@ -234,15 +234,15 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var detailText: String {
         switch self {
         case .tutorial:
-            "A quick reference for the main iChart areas, plus a hands-on tour when you want to try the flow."
+            "A written guide to the main iChart systems, plus a hands-on tour when you want to try the flow."
         case .faq:
-            "Quick help for chart setup, handwriting tools, export, and saved charts will live here as V1 hardens."
+            "Answers about Forums and why iChart uses accounts."
         case .userPolicy:
-            "Smart Chart should keep correction behavior local and contextual. Handwritten passes are validation evidence, not global recognizer training."
+            "How to use iChart, keep account identity clear, and share community chart PDFs responsibly."
         case .legal:
-            "Terms, privacy language, font attributions, and third-party notices are tracked here for the release hygiene sprint."
+            "Plain-language terms, privacy, subscription, and community notes for iChart."
         case .contactUs:
-            "A support contact path will live here for V1 feedback, bug reports, and account questions."
+            "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account."
         }
     }
 }
@@ -258,196 +258,550 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "getting-started",
             title: "Getting Started",
-            summary: "Create the account, verify email, then land on Charts.",
+            summary: "Create the account, choose a chart type, and start from Charts.",
             systemImageName: "person.crop.circle.badge.checkmark",
             steps: [
                 IChartTutorialStep(
                     id: "account",
                     title: "Account",
-                    detail: "First launch asks for your name, email, and password. Verify the email, then continue into iChart."
+                    detail: "Create your account with first name, last name, email, and password. Verify the email, then return to iChart."
                 ),
                 IChartTutorialStep(
-                    id: "new-chart",
-                    title: "New Chart",
-                    detail: "Open Charts, tap New Chart, then choose Simple Chord Sheet or Rhythm Section Sheet."
+                    id: "chart-type",
+                    title: "Choose A Page Type",
+                    detail: "Tap New Chart, then choose Simple Chord Sheet for chord-first pages or Rhythm Section Sheet for slash notation and figures."
                 ),
                 IChartTutorialStep(
-                    id: "local-save",
-                    title: "Local Save",
-                    detail: "Charts save locally while you write. Pro cloud sync can back them up and restore them later."
+                    id: "setup",
+                    title: "Setup",
+                    detail: "Pick the time signature and starting measure count before the editor opens."
+                ),
+                IChartTutorialStep(
+                    id: "save-resume",
+                    title: "Save And Resume",
+                    detail: "iChart saves locally while you work. Reopen the chart from Charts, or use Pro cloud backup when you want restore support."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "page-tool",
-            title: "Page Tool",
-            summary: "Setup, header, transposition, styling, pen, and export controls.",
-            systemImageName: "doc.text",
-            steps: [
-                IChartTutorialStep(
-                    id: "setup-header",
-                    title: "Setup And Header",
-                    detail: "Open setup options, choose typed or handwritten header input, and clear handwritten header ink."
-                ),
-                IChartTutorialStep(
-                    id: "transpose",
-                    title: "Instrument And Transpose",
-                    detail: "Choose the instrument view, move the chart by half step, or select a manual transposition interval."
-                ),
-                IChartTutorialStep(
-                    id: "style-export",
-                    title: "Style And Export",
-                    detail: "Adjust style, fonts, engraving, pen responsiveness, and export the chart as a PDF."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "coda-tool",
-            title: "Coda Tool",
-            summary: "Coda, Segno, D.S., D.C., Fine, and roadmap links.",
-            systemImageName: "scope",
-            steps: [
-                IChartTutorialStep(
-                    id: "markings",
-                    title: "Markings",
-                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. markings."
-                ),
-                IChartTutorialStep(
-                    id: "links",
-                    title: "Links",
-                    detail: "Link roadmap markers at the selected measure, clear links, or remove roadmap markings."
-                ),
-                IChartTutorialStep(
-                    id: "placement",
-                    title: "Placement",
-                    detail: "Select a measure first, then choose the roadmap marking from the Coda tool."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "charts-projects",
-            title: "Charts And Projects",
-            summary: "Use Charts for single files and Projects for song folders.",
+            id: "library",
+            title: "Charts, Projects, And PDFs",
+            summary: "Use Charts for active files, Projects for song folders, and PDFs for finished exports.",
             systemImageName: "folder.badge.plus",
             steps: [
                 IChartTutorialStep(
-                    id: "basic-cap",
-                    title: "Basic Charts",
-                    detail: "Basic keeps the full authoring toolset and PDF export with a three-chart local limit."
+                    id: "charts",
+                    title: "Charts",
+                    detail: "Charts is the main library for local chart files. Open a chart to edit it, or use chart actions to rename, duplicate, export, or delete."
                 ),
                 IChartTutorialStep(
-                    id: "project-grouping",
+                    id: "projects",
                     title: "Projects",
-                    detail: "Pro Projects keep every version of a song together: Concert, Bb Horn, Eb Horn, rhythm, and rehearsal copies."
+                    detail: "Pro Projects keep every version of one song together, such as Concert, Bb Horn, Eb Horn, rhythm, and rehearsal copies."
                 ),
                 IChartTutorialStep(
                     id: "variants",
                     title: "Variants",
-                    detail: "Duplicate a chart inside a project, choose the transposition interval, and edit the new part without touching the original."
+                    detail: "Create a project variant when you need the same chart with different instrument transposition without changing the original."
+                ),
+                IChartTutorialStep(
+                    id: "pdfs",
+                    title: "PDFs",
+                    detail: "The PDFs tab stores chart exports and forum downloads so you can preview, share, or remove finished files later."
                 )
             ]
         ),
         IChartTutorialSection(
             id: "editor-navigation",
             title: "Editor Navigation",
-            summary: "Move between tools, Select mode, and page scrolling.",
+            summary: "Use the top row for tools and the active row for the current tool's actions.",
             systemImageName: "hand.tap",
             steps: [
                 IChartTutorialStep(
-                    id: "tools",
-                    title: "Tools",
-                    detail: "Switch tools from the top row. Ink tools write in their lanes; non-ink tools let the Pencil scroll anywhere."
-                ),
-                IChartTutorialStep(
-                    id: "margins",
-                    title: "Margins",
-                    detail: "When an ink tool is active, use the visible page margins as the drag area for vertical scrolling."
-                ),
-                IChartTutorialStep(
                     id: "select",
                     title: "Select",
-                    detail: "Select mode is the hub for moving, editing, and jumping into the right tool. Tap headers, freehand marks, text, or chords to work on that item."
+                    detail: "Select is the browsing mode. Use it to scroll, choose existing items, move rendered objects, and leave active writing modes."
+                ),
+                IChartTutorialStep(
+                    id: "top-row",
+                    title: "Top Row",
+                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand."
+                ),
+                IChartTutorialStep(
+                    id: "active-row",
+                    title: "Active Row",
+                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions or Repeats actions."
+                ),
+                IChartTutorialStep(
+                    id: "write-erase",
+                    title: "Write And Erase",
+                    detail: "Ink tools show Write and Erase. Write adds ink for the active tool, and Erase removes ink from that same tool area."
+                ),
+                IChartTutorialStep(
+                    id: "safe-exit",
+                    title: "Done",
+                    detail: "Tap Done to leave the editor. iChart keeps local changes saved while you work."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "simple-chart",
-            title: "Simple Chord Sheet",
-            summary: "Write chords, shape measures, add repeats, and export.",
-            systemImageName: "music.note.list",
+            id: "page-tool",
+            title: "Page",
+            summary: "Use Page for whole-chart setup, export, header, transposition, style, fonts, pen feel, and engraving.",
+            systemImageName: "doc.text",
             steps: [
                 IChartTutorialStep(
-                    id: "chords",
-                    title: "Chords",
-                    detail: "Write in the chord lane, tap to read it, then tap the chord you meant. Keyboard entry and Rewrite Ink are there when you need them."
+                    id: "setup-export",
+                    title: "Setup And Export",
+                    detail: "Setup changes the starting chart options before the page is created. Export saves a finished PDF to the PDF Library."
                 ),
                 IChartTutorialStep(
-                    id: "move-edit",
-                    title: "Move And Edit",
-                    detail: "Drag a chord inside its box to move it. Double tap the chord box when you want to edit the chord."
+                    id: "header",
+                    title: "Header",
+                    detail: "Header switches between Typed and Handwritten title entry, and can clear an existing handwritten header."
                 ),
                 IChartTutorialStep(
-                    id: "measures-repeats",
-                    title: "Measures And Repeats",
-                    detail: "Use Measures for add, stack, break, delete, width, and fill actions. Use Repeats for repeat barlines and endings."
+                    id: "transpose",
+                    title: "Instrument Transposition",
+                    detail: "Instrument Transposition chooses the instrument preset. Manual Transpose moves the written chords up or down by half step or selected interval."
+                ),
+                IChartTutorialStep(
+                    id: "appearance",
+                    title: "Appearance",
+                    detail: "Style, Fonts, Pen Responsiveness, and Engraving change how the page looks and how Pencil input feels."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "rhythm-chart",
-            title: "Rhythm Section Sheet",
-            summary: "Capture slash notation, rhythmic figures, and quick freehand notes.",
+            id: "measures-tool",
+            title: "Measures",
+            summary: "Use Measures only for measure layout, row flow, and measure deletion.",
+            systemImageName: "rectangle.split.3x1",
+            steps: [
+                IChartTutorialStep(
+                    id: "add-stack",
+                    title: "Add And Stack",
+                    detail: "Add inserts one measure after the selected measure. Stack opens Measure Stack for adding a chosen number of measures."
+                ),
+                IChartTutorialStep(
+                    id: "first-double",
+                    title: "First And Double",
+                    detail: "First inserts a measure at the beginning. Double adds a measure with a double barline."
+                ),
+                IChartTutorialStep(
+                    id: "system-flow",
+                    title: "New Sys And Join",
+                    detail: "New Sys starts the selected measure on a new system. Join removes that manual system break when it is available."
+                ),
+                IChartTutorialStep(
+                    id: "delete",
+                    title: "Delete And Range",
+                    detail: "Delete removes the selected measure. Range starts a delete range, Del Thru finishes it, and Clear cancels the pending range."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "repeats-tool",
+            title: "Repeats",
+            summary: "Use Repeats only for repeat barlines and first or second endings.",
+            systemImageName: "repeat",
+            steps: [
+                IChartTutorialStep(
+                    id: "one-bar",
+                    title: "One Bar",
+                    detail: "One Bar adds a one-measure repeat at the selected measure."
+                ),
+                IChartTutorialStep(
+                    id: "repeat-span",
+                    title: "Start And End Rep",
+                    detail: "Start marks the first measure of a repeat span. End Rep closes the span at the selected measure."
+                ),
+                IChartTutorialStep(
+                    id: "endings",
+                    title: "1st And 2nd",
+                    detail: "1st and 2nd start endings. End 1st and End 2nd close the matching ending span."
+                ),
+                IChartTutorialStep(
+                    id: "remove",
+                    title: "Rm Rep, Rm End, And Clear",
+                    detail: "Rm Rep removes repeat markings at the selected measure. Rm End removes endings. Clear cancels a pending repeat or ending span."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "coda-tool",
+            title: "Coda",
+            summary: "Use Coda for point roadmap markers.",
+            systemImageName: "scope",
+            steps: [
+                IChartTutorialStep(
+                    id: "markers",
+                    title: "Markers",
+                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. at the selected measure."
+                ),
+                IChartTutorialStep(
+                    id: "edit-markers",
+                    title: "Move And Delete",
+                    detail: "Select a Coda marker, drag it left or right within its measure, or tap its x to delete it."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "text-tool",
+            title: "Text",
+            summary: "Use Text only for cue text attached to a selected measure.",
+            systemImageName: "text.bubble",
+            steps: [
+                IChartTutorialStep(
+                    id: "above",
+                    title: "Add Text Above Selected Measure",
+                    detail: "Adds cue text above the selected measure."
+                ),
+                IChartTutorialStep(
+                    id: "below",
+                    title: "Add Text Below Selected Measure",
+                    detail: "Adds cue text below the selected measure."
+                ),
+                IChartTutorialStep(
+                    id: "remove-text",
+                    title: "Remove Text At Selected Measure",
+                    detail: "Removes cue text attached to the selected measure."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "time-tool",
+            title: "Time",
+            summary: "Use Time only for measure-level time-signature changes.",
             systemImageName: "metronome",
             steps: [
                 IChartTutorialStep(
-                    id: "slashes",
-                    title: "Slash Notation",
-                    detail: "Slash count follows the top time-signature number. A 3/8 measure expects three slashes."
+                    id: "target-measure",
+                    title: "Choose A Measure",
+                    detail: "Tap Time, then tap the measure where the next time signature should start."
                 ),
                 IChartTutorialStep(
-                    id: "freehand",
-                    title: "Freehand Lane",
-                    detail: "Use Freehand for fast notes, cues, and rehearsal markings that should stay as ink."
+                    id: "meter-choice",
+                    title: "Choose A Meter",
+                    detail: "The Time tool offers common /4 and /8 meters, including 4/4, 3/4, 5/4, 6/4, 3/8, 5/8, 6/8, 7/8, 9/8, and 12/8."
                 ),
                 IChartTutorialStep(
-                    id: "repeat-roadmap",
-                    title: "Coda Tool",
-                    detail: "Use the Coda tool for Coda, To Coda, Segno, D.S., D.C., Fine, N.C., and roadmap links."
+                    id: "scope",
+                    title: "Choose The Span",
+                    detail: "Apply the change for a measure count, to the next time signature, or to the end of the piece."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "export-pro",
-            title: "Export And Pro",
-            summary: "Export stays free. Pro adds backup, Projects, and Forums.",
-            systemImageName: "square.and.arrow.up",
+            id: "rhythm-tool",
+            title: "Rhythm",
+            summary: "Use Rhythm for supported rhythm notation ink on chart types that show the Rhythm tab.",
+            systemImageName: "music.note",
             steps: [
                 IChartTutorialStep(
-                    id: "export",
-                    title: "PDF Export",
-                    detail: "PDF export and the chart-writing tools are available on Basic and Pro."
+                    id: "availability",
+                    title: "Availability",
+                    detail: "Rhythm appears when the chart type supports rhythmic notation ink, such as Rhythm Section Sheet."
                 ),
                 IChartTutorialStep(
-                    id: "cloud-sync",
-                    title: "Cloud Sync",
-                    detail: "Pro cloud sync backs up charts and can restore them after reinstall or sign-in on another device."
+                    id: "write-rhythm",
+                    title: "Write",
+                    detail: "Tap Rhythm, choose Write, then write the rhythm figure in the target measure."
+                ),
+                IChartTutorialStep(
+                    id: "erase-rhythm",
+                    title: "Erase",
+                    detail: "Choose Erase inside Rhythm when you want to remove rhythm ink from that tool area."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "chord-tool",
+            title: "Chord",
+            summary: "Use Chord only for handwritten chord entry and rendered chord correction.",
+            systemImageName: "pencil",
+            steps: [
+                IChartTutorialStep(
+                    id: "write",
+                    title: "Write",
+                    detail: "Tap Chord, choose Write, write in the chord lane, then tap outside of the chord lane to ask iChart to read it."
+                ),
+                IChartTutorialStep(
+                    id: "confirm",
+                    title: "Confirm",
+                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it."
+                ),
+                IChartTutorialStep(
+                    id: "ink-only",
+                    title: "Ink Only",
+                    detail: "Choose Ink Only when you want chords to stay handwritten. Handwritten-only chords do not transpose or work with chord systems."
+                ),
+                IChartTutorialStep(
+                    id: "move",
+                    title: "Move",
+                    detail: "Use Select to drag a rendered chord inside its box and move it within the measure."
+                ),
+                IChartTutorialStep(
+                    id: "edit",
+                    title: "Edit",
+                    detail: "Double tap the chord box when you want to edit a rendered chord."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "free-hand-tool",
+            title: "Free-Hand",
+            summary: "Use Free-Hand only for marks that should remain as handwritten ink.",
+            systemImageName: "pencil.and.scribble",
+            steps: [
+                IChartTutorialStep(
+                    id: "write-freehand",
+                    title: "Write",
+                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders that should stay as ink."
+                ),
+                IChartTutorialStep(
+                    id: "erase-freehand",
+                    title: "Erase",
+                    detail: "Choose Erase to remove Free-Hand ink."
+                ),
+                IChartTutorialStep(
+                    id: "done-freehand",
+                    title: "Done",
+                    detail: "Tap Done to leave Free-Hand and return to Select."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "account-pro-forums",
+            title: "Account, Pro, And Forums",
+            summary: "Understand Basic, Pro, cloud backup, community charts, and support identity.",
+            systemImageName: "person.2",
+            steps: [
+                IChartTutorialStep(
+                    id: "basic",
+                    title: "Basic",
+                    detail: "Basic includes the chart-writing tools, local save, PDF export, and three local charts."
+                ),
+                IChartTutorialStep(
+                    id: "pro",
+                    title: "Pro",
+                    detail: "Pro adds unlimited local charts, Projects, cloud backup and restore, Forums, and future service-backed features."
+                ),
+                IChartTutorialStep(
+                    id: "cloud",
+                    title: "Cloud Backup",
+                    detail: "Cloud backup is for restore and future multi-device work. Local editing, local save, and PDF export keep working without cloud service."
                 ),
                 IChartTutorialStep(
                     id: "forums",
                     title: "Forums",
-                    detail: "Forums are part of Pro."
+                    detail: "Forums are a Pro community chart library. Publish a reviewed PDF snapshot from a local chart, download PDFs, vote, comment, or report issues."
+                )
+            ]
+        ),
+        IChartTutorialSection(
+            id: "settings-help",
+            title: "Settings",
+            summary: "Manage account details, subscription state, verification, appearance, and support.",
+            systemImageName: "gearshape",
+            steps: [
+                IChartTutorialStep(
+                    id: "user-info",
+                    title: "User Info",
+                    detail: "Settings shows your account name, email, phone, and mailing address. First and last name stay tied to the account identity."
+                ),
+                IChartTutorialStep(
+                    id: "subscription",
+                    title: "Subscription",
+                    detail: "Use Settings to check Pro status, restore purchases, and see when cloud backup or Forums require Pro."
                 )
             ]
         )
     ]
-
-    static let defaultID = "getting-started"
 }
 
 private struct IChartTutorialStep: Identifiable {
     let id: String
     let title: String
     let detail: String
+}
+
+private struct IChartHelpArticleSection: Identifiable {
+    let id: String
+    let title: String
+    let systemImageName: String
+    let body: String
+    let bullets: [String]
+
+    static func sections(for topic: IChartHelpTopic) -> [IChartHelpArticleSection] {
+        switch topic {
+        case .tutorial:
+            []
+        case .faq:
+            faq
+        case .userPolicy:
+            userPolicy
+        case .legal:
+            legalPolicy
+        case .contactUs:
+            contact
+        }
+    }
+
+    private static let faq: [IChartHelpArticleSection] = [
+        IChartHelpArticleSection(
+            id: "faq-forums",
+            title: "What are Forums?",
+            systemImageName: "bubble.left.and.bubble.right",
+            body: "Forums are a Pro community chart library built around fixed PDF snapshots, not editable chart files.",
+            bullets: [
+                "Publish starts from a chart created inside iChart.",
+                "New posts wait for authenticity review before appearing publicly.",
+                "Members can browse, download PDFs, vote, comment, and report issues."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "faq-account",
+            title: "Why does iChart need an account?",
+            systemImageName: "person.crop.circle.badge.checkmark",
+            body: "Accounts support verification, password recovery, subscription identity, cloud backup, Forums, and support.",
+            bullets: [
+                "First and last name are set at account creation for stable support and community credit.",
+                "Email verification protects account recovery and Pro subscription access.",
+                "Settings shows account and subscription state."
+            ]
+        )
+    ]
+
+    private static let userPolicy: [IChartHelpArticleSection] = [
+        IChartHelpArticleSection(
+            id: "policy-account",
+            title: "Account Identity",
+            systemImageName: "person.text.rectangle",
+            body: "Use your own account and keep the email reachable for verification, recovery, subscription support, and community credit.",
+            bullets: [
+                "First and last name are tied to the account after signup.",
+                "Forum posts and comments use the verified account identity, not anonymous or misleading credit.",
+                "Never share passwords, verification links, recovery links, or purchase credentials."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "policy-local-charts",
+            title: "Your Charts",
+            systemImageName: "music.note.list",
+            body: "Use iChart to create, edit, save, and export your own working charts.",
+            bullets: [
+                "Basic includes the local chart-writing tools, local save, and PDF export.",
+                "Keep chart titles, notes, credits, and metadata accurate for the musicians using the chart.",
+                "Deleting a local chart removes it from the local library."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "policy-community",
+            title: "Community Sharing",
+            systemImageName: "bubble.left.and.bubble.right",
+            body: "Forums are for useful chord and rhythm PDFs that help musicians rehearse, teach, and perform.",
+            bullets: [
+                "Publish only charts you have the right to share.",
+                "Forum publishing sends a fixed PDF snapshot with creator credit and chart metadata.",
+                "Editable chart data, source ink, and private local authoring state are not shared in V1."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "policy-conduct",
+            title: "Conduct",
+            systemImageName: "checkmark.seal",
+            body: "Treat the community library like a shared music stand.",
+            bullets: [
+                "Use comments for helpful corrections, version notes, and respectful discussion.",
+                "Report charts or comments that look inaccurate, miscredited, abusive, or unsafe.",
+                "Public visibility, moderation status, badges, counters, and subscription state are controlled by the service."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "policy-plan",
+            title: "Basic, Pro, And Downgrades",
+            systemImageName: "star.circle",
+            body: "Basic is the local chart-writing app. Pro adds ongoing service features.",
+            bullets: [
+                "Basic keeps three local charts, all local authoring tools, and PDF export.",
+                "Pro adds unlimited charts, Projects, cloud backup and restore, Forums, and future service-backed features.",
+                "If Pro ends while the local library is above the Basic cap, choose local charts to remove until three remain; cloud backups stay recoverable during the grace period."
+            ]
+        )
+    ]
+
+    private static let legalPolicy: [IChartHelpArticleSection] = [
+        IChartHelpArticleSection(
+            id: "legal-terms",
+            title: "Terms Of Use",
+            systemImageName: "doc.text",
+            body: "Use iChart to write, manage, export, and share charts in ways you are allowed to perform or distribute.",
+            bullets: [
+                "You are responsible for the content, credits, and metadata you create or publish.",
+                "Do not use iChart to impersonate another person, bypass moderation, or interfere with the service.",
+                "Features may change as the app, App Store requirements, and community systems evolve."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "legal-privacy",
+            title: "Privacy",
+            systemImageName: "lock.shield",
+            body: "iChart uses account data and chart data only to run the app features you choose.",
+            bullets: [
+                "Local charts stay on the device unless you use cloud backup or publish a forum PDF.",
+                "Account information supports sign-in, email verification, password recovery, subscription identity, and support.",
+                "Forum posts, comments, votes, reports, downloads, and moderation events are handled by the community service."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "legal-subscriptions",
+            title: "Subscriptions",
+            systemImageName: "creditcard",
+            body: "Pro is an auto-renewing subscription managed through Apple purchase and restore flows.",
+            bullets: [
+                "StoreKit handles purchase and restore in the app.",
+                "Pro unlocks unlimited local charts, Projects, cloud backup and restore, Forums, and future service-backed features.",
+                "If Pro cannot be verified, cloud backup and Forums pause while Basic local authoring and PDF export remain available within the Basic chart cap."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "legal-content",
+            title: "Chart Content",
+            systemImageName: "music.note",
+            body: "You keep responsibility for the charts you create, export, send, or publish.",
+            bullets: [
+                "Only publish forum charts you have the right to share.",
+                "Forum posts are reviewed before public visibility.",
+                "Downloaded forum PDFs are for use inside your local PDF Library and are not editable chart source files."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "legal-support",
+            title: "Support And Changes",
+            systemImageName: "envelope",
+            body: "Support requests should include enough account and chart context to reproduce the issue.",
+            bullets: [
+                "Include the email tied to your iChart account when asking for account or Pro support.",
+                "Do not send passwords, recovery links, private credentials, or payment details.",
+                "Legal, privacy, and subscription wording may be updated as the production release is finalized."
+            ]
+        )
+    ]
+
+    private static let contact: [IChartHelpArticleSection] = [
+        IChartHelpArticleSection(
+            id: "contact-feedback",
+            title: "Feedback And Bugs",
+            systemImageName: "exclamationmark.triangle",
+            body: "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account.",
+            bullets: [
+                "For chart-writing bugs, mention the chart type, active tool, and what you expected to happen.",
+                "For account or Pro questions, include your account email and whether you are on Basic or Pro.",
+                "Do not send passwords, recovery links, verification links, or payment credentials."
+            ]
+        )
+    ]
 }
 
 private enum IChartGuidedTourStep: String, Identifiable {
@@ -1017,7 +1371,7 @@ struct LibraryView: View {
                 ) {
                     IChartLockedFeatureView(
                         title: "Projects require Pro",
-                        message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate keys together.",
+                        message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
                         systemImageName: "lock.folder",
                         theme: homeTheme
                     )
@@ -1940,7 +2294,7 @@ private struct IChartProjectDuplicateVariantSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Instrument View")
+                        Text("Instrument Transposition")
                             .font(.headline)
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
@@ -3919,6 +4273,31 @@ private struct IChartHelpTopicDetail: View {
         case .tutorial:
             IChartTutorialGuide(theme: theme, onStartGuidedTour: onStartGuidedTour)
         case .faq, .userPolicy, .legal, .contactUs:
+            IChartHelpArticlePage(
+                topic: topic,
+                theme: theme,
+                sections: IChartHelpArticleSection.sections(for: topic)
+            )
+        }
+    }
+}
+
+private struct IChartHelpArticlePage: View {
+    let topic: IChartHelpTopic
+    let theme: IChartHomeTheme
+    let sections: [IChartHelpArticleSection]
+
+    @State private var expandedSectionIDs: Set<String>
+
+    init(topic: IChartHelpTopic, theme: IChartHomeTheme, sections: [IChartHelpArticleSection]) {
+        self.topic = topic
+        self.theme = theme
+        self.sections = sections
+        _expandedSectionIDs = State(initialValue: Set(sections.prefix(1).map(\.id)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Label(topic.detailTitle, systemImage: topic.systemImageName)
                     .font(.headline.weight(.semibold))
@@ -3929,20 +4308,107 @@ private struct IChartHelpTopicDetail: View {
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(sections) { section in
+                    IChartHelpArticleSectionView(
+                        section: section,
+                        theme: theme,
+                        isExpanded: expandedSectionIDs.contains(section.id)
+                    ) {
+                        toggleSection(section.id)
+                    }
+
+                    if section.id != sections.last?.id {
+                        Divider()
+                            .overlay(theme.panelBorder)
+                            .padding(.vertical, 14)
+                    }
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func toggleSection(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if expandedSectionIDs.contains(id) {
+                expandedSectionIDs.remove(id)
+            } else {
+                expandedSectionIDs.insert(id)
+            }
+        }
+    }
+}
+
+private struct IChartHelpArticleSectionView: View {
+    let section: IChartHelpArticleSection
+    let theme: IChartHomeTheme
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: onToggle) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: section.systemImageName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(IChartHomeBrand.blue)
+                        .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(theme.panelTitle)
+
+                        Text(section.body)
+                            .font(.caption)
+                            .foregroundStyle(theme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.panelSecondary.opacity(0.75))
+                        .frame(width: 20, height: 20)
+                        .padding(.top, 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(section.bullets, id: \.self) { bullet in
+                        HStack(alignment: .top, spacing: 8) {
+                            Circle()
+                                .fill(IChartHomeBrand.blue)
+                                .frame(width: 5, height: 5)
+                                .padding(.top, 6)
+
+                            Text(bullet)
+                                .font(.caption)
+                                .foregroundStyle(theme.panelSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct IChartTutorialGuide: View {
     let theme: IChartHomeTheme
     let onStartGuidedTour: () -> Void
-    @State private var selectedSectionID = IChartTutorialSection.defaultID
 
-    private var selectedSection: IChartTutorialSection {
-        IChartTutorialSection.all.first { $0.id == selectedSectionID } ?? IChartTutorialSection.all[0]
-    }
+    @State private var expandedSectionIDs = Set(IChartTutorialSection.all.prefix(1).map(\.id))
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -3952,7 +4418,7 @@ private struct IChartTutorialGuide: View {
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(theme.panelTitle)
 
-                    Text("Choose a system below for a compact reference, or start the hands-on tour from the live app.")
+                    Text("Read through the main iChart systems here, or start the hands-on tour when you want guided practice in the live app.")
                         .font(.subheadline)
                         .foregroundStyle(theme.panelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3968,68 +4434,79 @@ private struct IChartTutorialGuide: View {
                 .tint(IChartHomeBrand.blue)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(IChartTutorialSection.all) { section in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                selectedSectionID = section.id
-                            }
-                        } label: {
-                            Label(section.title, systemImage: section.systemImageName)
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(1)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .foregroundStyle(section.id == selectedSectionID ? IChartHomeBrand.paper : theme.panelTitle)
-                                .background(section.id == selectedSectionID ? IChartHomeBrand.blue : theme.emptyStateBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(theme.panelBorder, lineWidth: 1)
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Show \(section.title)")
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(IChartTutorialSection.all) { section in
+                    IChartTutorialSectionCard(
+                        section: section,
+                        theme: theme,
+                        isExpanded: expandedSectionIDs.contains(section.id)
+                    ) {
+                        toggleSection(section.id)
                     }
                 }
             }
-
-            IChartTutorialSectionCard(section: selectedSection, theme: theme)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
+    }
+
+    private func toggleSection(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if expandedSectionIDs.contains(id) {
+                expandedSectionIDs.remove(id)
+            } else {
+                expandedSectionIDs.insert(id)
+            }
+        }
     }
 }
 
 private struct IChartTutorialSectionCard: View {
     let section: IChartTutorialSection
     let theme: IChartHomeTheme
+    let isExpanded: Bool
+    let onToggle: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: section.systemImageName)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
-                    .frame(width: 28, height: 28)
+            Button(action: onToggle) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: section.systemImageName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(IChartHomeBrand.blue)
+                        .frame(width: 28, height: 28)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(section.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(theme.panelTitle)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(section.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(theme.panelTitle)
 
-                    Text(section.summary)
-                        .font(.caption)
-                        .foregroundStyle(theme.panelSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text(section.summary)
+                            .font(.caption)
+                            .foregroundStyle(theme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.panelSecondary.opacity(0.75))
+                        .frame(width: 20, height: 20)
+                        .padding(.top, 4)
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
 
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(section.steps.enumerated()), id: \.element.id) { index, step in
-                    IChartTutorialStepRow(number: index + 1, step: step, theme: theme)
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(section.steps.enumerated()), id: \.element.id) { index, step in
+                        IChartTutorialStepRow(number: index + 1, step: step, theme: theme)
+                    }
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(14)
@@ -4312,7 +4789,7 @@ private struct IChartAccountSettings: View {
 
             switch authStore.state {
             case .unconfigured:
-                Text("Add SupabaseURL and SupabasePublishableKey to the build, or pass SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in the scheme environment.")
+                Text("Account services are unavailable in this build. Local charts remain available.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -4429,7 +4906,7 @@ private struct IChartAccountSettings: View {
                 await authStore.requestPasswordReset(email: email)
             }
         } label: {
-            Label("Reset Password", systemImage: "key")
+            Label("Reset Password", systemImage: "lock")
         }
         .buttonStyle(.bordered)
         .disabled(!canRequestPasswordReset)
@@ -4464,7 +4941,7 @@ private struct IChartAccountSettings: View {
                 title: "New Password",
                 placeholder: "8 characters minimum",
                 text: $newPassword,
-                systemImageName: "key",
+                systemImageName: "lock",
                 theme: theme,
                 focusedField: $focusedField,
                 field: .newPassword
@@ -4565,7 +5042,7 @@ private struct IChartAccountSettings: View {
         case .pendingEmailVerification:
             return "envelope.badge"
         case .passwordRecovery:
-            return "key"
+            return "lock"
         case .signedIn:
             return "checkmark.seal"
         }
@@ -4574,7 +5051,7 @@ private struct IChartAccountSettings: View {
     private var detailText: String {
         switch authStore.state {
         case .unconfigured:
-            return "This build needs Supabase configuration."
+            return "Account sign-in and cloud backup are unavailable in this build."
         case .signedOut:
             return "Create an account or sign in to manage your profile and subscription."
         case .temporarilyOffline(let session):

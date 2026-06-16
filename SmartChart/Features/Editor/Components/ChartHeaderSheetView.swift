@@ -28,13 +28,7 @@ struct ChartHeaderSheetView: View {
         NavigationStack {
             Form {
                 Section("Header Mode") {
-                    Picker("Mode", selection: $draftHeaderInputMode) {
-                        ForEach(ChartHeaderInputMode.allCases) { mode in
-                            Text(mode.displayText)
-                                .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    headerModePicker
                 }
 
                 Section("Chart") {
@@ -81,6 +75,35 @@ struct ChartHeaderSheetView: View {
         .task {
             focusedField = .title
         }
+    }
+
+    private var headerModePicker: some View {
+        HStack(spacing: 6) {
+            ForEach(ChartHeaderInputMode.allCases) { mode in
+                let isSelected = draftHeaderInputMode == mode
+
+                Button {
+                    draftHeaderInputMode = mode
+                } label: {
+                    Text(mode.displayText)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+                        .background(
+                            isSelected
+                            ? Color(red: 0.16, green: 0.38, blue: 0.82)
+                            : Color.clear
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            }
+        }
+        .padding(4)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func headerTextField(

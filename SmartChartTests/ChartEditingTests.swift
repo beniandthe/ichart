@@ -128,6 +128,44 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measure(id: secondMeasureID)?.roadmapObjectIDs, [secondMarkerID])
     }
 
+    func testMovePointRoadmapMarkerRelocatesMeasureBackReferences() throws {
+        var chart = Chart.blank(title: "Roadmap Markers", measureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: measureIDs[0]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[1])
+        )
+
+        XCTAssertTrue(chart.movePointRoadmapMarker(markerID, to: measureIDs[2]))
+
+        let marker = try XCTUnwrap(chart.roadmapObject(id: markerID))
+        XCTAssertEqual(marker.startMeasureID, measureIDs[2])
+        XCTAssertEqual(marker.anchorSystemID, chart.systems[0].id)
+        XCTAssertTrue(chart.measure(id: measureIDs[0])?.roadmapObjectIDs.contains(markerID) == false)
+        XCTAssertEqual(chart.measure(id: measureIDs[2])?.roadmapObjectIDs, [markerID])
+        XCTAssertFalse(chart.movePointRoadmapMarker(markerID, to: measureIDs[2]))
+        XCTAssertFalse(chart.movePointRoadmapMarker(repeatID, to: measureIDs[2]))
+        XCTAssertFalse(chart.movePointRoadmapMarker(markerID, to: UUID()))
+    }
+
+    func testMovePointRoadmapMarkerHorizontallyClampsWithinMeasure() throws {
+        var chart = Chart.blank(title: "Roadmap Markers", measureCount: 2)
+        let measureIDs = chart.measures.map(\.id)
+        let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: measureIDs[0]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[1])
+        )
+
+        XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 1.4))
+        XCTAssertEqual(chart.roadmapObject(id: markerID)?.horizontalOffsetWithinMeasure, 1)
+        XCTAssertFalse(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 1))
+        XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: -0.25))
+        XCTAssertEqual(chart.roadmapObject(id: markerID)?.horizontalOffsetWithinMeasure, 0)
+        XCTAssertFalse(chart.movePointRoadmapMarkerHorizontally(repeatID, toNormalizedOffset: 0.5))
+        XCTAssertFalse(chart.movePointRoadmapMarkerHorizontally(UUID(), toNormalizedOffset: 0.5))
+        XCTAssertFalse(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: .nan))
+    }
+
     func testPointRoadmapMarkersAutoLinkToDirectionalTargets() throws {
         var chart = Chart.blank(title: "Roadmap Links", measureCount: 5)
         let measureIDs = chart.measures.map(\.id)

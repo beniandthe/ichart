@@ -1484,6 +1484,53 @@ extension Chart {
         return true
     }
 
+    @discardableResult
+    mutating func movePointRoadmapMarker(_ roadmapObjectID: UUID, to anchorMeasureID: UUID) -> Bool {
+        guard let roadmapObjectIndex = roadmapObjects.firstIndex(where: { $0.id == roadmapObjectID }),
+              roadmapObjects[roadmapObjectIndex].type.isPointMarker,
+              roadmapObjects[roadmapObjectIndex].endMeasureID == nil,
+              let location = measureLocation(id: anchorMeasureID) else {
+            return false
+        }
+
+        guard roadmapObjects[roadmapObjectIndex].startMeasureID != anchorMeasureID else {
+            return false
+        }
+
+        roadmapObjects[roadmapObjectIndex].startMeasureID = anchorMeasureID
+        roadmapObjects[roadmapObjectIndex].anchorSystemID = systems[location.systemIndex].id
+        roadmapObjects[roadmapObjectIndex].placement = .snappedTop
+        roadmapObjects[roadmapObjectIndex].linkedTargetID = suggestedRoadmapTargetID(
+            for: roadmapObjects[roadmapObjectIndex]
+        )
+        removeRoadmapObjectIDFromMeasures(roadmapObjectID)
+        attachRoadmapObject(roadmapObjectID, to: anchorMeasureID)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func movePointRoadmapMarkerHorizontally(
+        _ roadmapObjectID: UUID,
+        toNormalizedOffset offset: Double
+    ) -> Bool {
+        guard let roadmapObjectIndex = roadmapObjects.firstIndex(where: { $0.id == roadmapObjectID }),
+              roadmapObjects[roadmapObjectIndex].type.isPointMarker,
+              roadmapObjects[roadmapObjectIndex].endMeasureID == nil,
+              measureLocation(id: roadmapObjects[roadmapObjectIndex].startMeasureID) != nil else {
+            return false
+        }
+
+        let clampedOffset = RoadmapObject.clampedHorizontalOffset(offset)
+        guard roadmapObjects[roadmapObjectIndex].resolvedHorizontalOffsetWithinMeasure != clampedOffset else {
+            return false
+        }
+
+        roadmapObjects[roadmapObjectIndex].horizontalOffsetWithinMeasure = clampedOffset
+        updatedAt = .now
+        return true
+    }
+
     func repeatSpanIDs(attachedTo measureID: UUID) -> [UUID] {
         roadmapObjects
             .filter {

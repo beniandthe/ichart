@@ -1156,6 +1156,50 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(markerLayout.text, "Fine")
         XCTAssertLessThanOrEqual(markerLayout.frame.maxY, firstMeasure.staffFrame.minY)
         XCTAssertEqual(markerLayout.frame.minX, firstMeasure.staffFrame.minX + 6, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.frame.height, 34, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.movementFrame.minX, firstMeasure.staffFrame.minX + 6, accuracy: 0.001)
+        XCTAssertLessThan(markerLayout.frame.width, firstMeasure.staffFrame.width)
+    }
+
+    func testSimpleChordSheetPointRoadmapMarkerHorizontalOffsetMovesWithinMeasureSpace() throws {
+        var chart = Chart.blank(title: "Simple Roadmap", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureID))
+
+        XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 1))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let markerLayout = try XCTUnwrap(firstSystem.roadmapMarkerLayouts.first)
+
+        XCTAssertEqual(markerLayout.roadmapObjectID, markerID)
+        XCTAssertEqual(markerLayout.frame.maxX, markerLayout.movementFrame.maxX, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.frame.width, 42, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.frame.height, 40, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.movementFrame.height, 40, accuracy: 0.001)
+        XCTAssertLessThan(markerLayout.frame.width, markerLayout.movementFrame.width)
+    }
+
+    func testSimpleChordSheetInlineCodaRoadmapMarkerHasGlyphSafeHeight() throws {
+        var chart = Chart.blank(title: "Simple Roadmap", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = try XCTUnwrap(chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureID))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let markerLayout = try XCTUnwrap(firstSystem.roadmapMarkerLayouts.first)
+
+        XCTAssertEqual(markerLayout.text, "To \(NotationGlyphCatalog.coda)")
+        XCTAssertEqual(markerLayout.frame.height, 40, accuracy: 0.001)
+        XCTAssertGreaterThan(markerLayout.frame.width, 42)
     }
 
     func testRhythmSectionPointRoadmapMarkerReservesSpaceAboveChordLane() throws {
@@ -1177,8 +1221,9 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstSystem.staffLineYPositions.count, 5)
         XCTAssertNil(firstSystem.roadmapText)
         XCTAssertNil(firstSystem.roadmapTextFrame)
-        XCTAssertEqual(markerLayout.text, "D.S. al Coda")
+        XCTAssertEqual(markerLayout.text, "D.S. al \(NotationGlyphCatalog.coda)")
         XCTAssertLessThanOrEqual(markerLayout.frame.maxY, firstMeasure.chordBandFrame.minY)
+        XCTAssertEqual(markerLayout.frame.height, 28, accuracy: 0.001)
         XCTAssertGreaterThanOrEqual(chordLayout.frame.minY, firstMeasure.chordBandFrame.minY)
         XCTAssertLessThan(firstMeasure.chordBandFrame.maxY, firstMeasure.staffFrame.minY)
     }

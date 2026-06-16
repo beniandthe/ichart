@@ -8,14 +8,21 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var chart: Chart
     @Binding var selectedMeasureID: UUID?
     @Binding var selectedNoteSelection: LeadSheetNoteSelection?
+    @Binding var selectedCueTextID: UUID?
+    @Binding var selectedRoadmapMarkerID: UUID?
     let interactionMode: EditorCanvasMode
     let inkToolMode: EditorInkToolMode
+    var recognizesChordInk: Bool = true
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
+    var onMeasureSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onChordSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onCueTextSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
     var onFreehandSymbolSelected: ((UUID) -> Void)? = nil
 
@@ -23,7 +30,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         Coordinator(
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
-            selectedNoteSelection: $selectedNoteSelection
+            selectedNoteSelection: $selectedNoteSelection,
+            selectedRoadmapMarkerID: $selectedRoadmapMarkerID
         )
     }
 
@@ -41,8 +49,11 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.chart = chart
         view.selectedMeasureID = selectedMeasureID
         view.selectedNoteSelection = selectedNoteSelection
+        view.selectedCueTextID = selectedCueTextID
+        view.selectedRoadmapMarkerID = selectedRoadmapMarkerID
         view.interactionMode = interactionMode
         view.inkToolMode = inkToolMode
+        view.recognizesChordInk = recognizesChordInk
         view.inkResponsivenessValue = inkResponsivenessValue
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
         view.onMeasureSelectionChanged = { measureID in
@@ -52,6 +63,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
             context.coordinator.selectedNoteSelection.wrappedValue = selection
             onNoteSelectionChanged?(selection)
         }
+        view.onRoadmapMarkerSelectionChanged = { markerID in
+            context.coordinator.selectedRoadmapMarkerID.wrappedValue = markerID
+        }
         view.onChartChanged = { updatedChart in
             context.coordinator.chart.wrappedValue = updatedChart
         }
@@ -59,6 +73,10 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
+        view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
+        view.onChordSelectedFromCanvas = onChordSelectedFromCanvas
+        view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
+        view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
         view.onFreehandSymbolSelected = onFreehandSymbolSelected
     }
@@ -67,15 +85,18 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         var chart: Binding<Chart>
         var selectedMeasureID: Binding<UUID?>
         var selectedNoteSelection: Binding<LeadSheetNoteSelection?>
+        var selectedRoadmapMarkerID: Binding<UUID?>
 
         init(
             chart: Binding<Chart>,
             selectedMeasureID: Binding<UUID?>,
-            selectedNoteSelection: Binding<LeadSheetNoteSelection?>
+            selectedNoteSelection: Binding<LeadSheetNoteSelection?>,
+            selectedRoadmapMarkerID: Binding<UUID?>
         ) {
             self.chart = chart
             self.selectedMeasureID = selectedMeasureID
             self.selectedNoteSelection = selectedNoteSelection
+            self.selectedRoadmapMarkerID = selectedRoadmapMarkerID
         }
     }
 }
@@ -651,6 +672,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                chart.chordEvent(id: selectedChordID) == nil {
                 self.selectedChordID = nil
             }
+            if let selectedRoadmapMarkerID,
+               chart.roadmapObject(id: selectedRoadmapMarkerID) == nil {
+                updateSelectedRoadmapMarkerID(nil)
+            }
             invalidateLayout()
         }
     }
@@ -661,6 +686,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             updateInteractionMode()
+        }
+    }
+    var recognizesChordInk = true {
+        didSet {
+            guard oldValue != recognizesChordInk else {
+                return
+            }
+
+            if !recognizesChordInk {
+                chordInkRecognitionRequestState.cancelPendingRequest()
+            }
+            updateChordInkConfirmOverlayVisibility()
         }
     }
     var selectedMeasureID: UUID? {
@@ -684,6 +721,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var selectedNoteSelection: LeadSheetNoteSelection? {
         didSet {
             guard oldValue != selectedNoteSelection else {
+                return
+            }
+
+            setNeedsDisplay()
+        }
+    }
+    var selectedCueTextID: UUID? {
+        didSet {
+            guard oldValue != selectedCueTextID else {
+                return
+            }
+
+            setNeedsDisplay()
+        }
+    }
+    var selectedRoadmapMarkerID: UUID? {
+        didSet {
+            guard oldValue != selectedRoadmapMarkerID else {
                 return
             }
 
@@ -720,6 +775,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 activeFreehandSymbolEditDrag = nil
             }
 
+            if interactionMode != .browse {
+                activeRoadmapMarkerEditDrag = nil
+            }
+
             if oldValue.allowsChordObjectEditing && !interactionMode.allowsChordObjectEditing {
                 selectedChordID = nil
                 activeChordMoveDrag = nil
@@ -738,6 +797,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
+    var onRoadmapMarkerSelectionChanged: ((UUID?) -> Void)?
+    var onMeasureSelectedFromCanvas: ((UUID) -> Void)?
+    var onChordSelectedFromCanvas: ((UUID) -> Void)?
+    var onCueTextSelectedFromCanvas: ((UUID) -> Void)?
+    var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)?
     var onHeaderAuthoringRequested: (() -> Void)?
     var onFreehandSymbolSelected: ((UUID) -> Void)?
 
@@ -819,6 +883,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
     private var activeChordMoveDrag: ActiveChordMoveDrag?
+    private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
@@ -1079,6 +1144,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         for roadmapMarkerLayout in system.roadmapMarkerLayouts {
             renderer.drawRoadmapMarker(roadmapMarkerLayout)
+            if roadmapMarkerLayout.id == selectedRoadmapMarkerID {
+                drawRoadmapMarkerEditOverlay(roadmapMarkerLayout, using: renderer)
+            }
         }
 
         for endingLayout in system.endingLayouts {
@@ -1115,6 +1183,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         for (measureIndex, measure) in system.measures.enumerated() {
             if interactionMode.allowsMeasureSelection,
+               selectedRoadmapMarkerID == nil,
                measure.sourceMeasureID == selectedMeasureID {
                 drawMeasureSelection(measure)
             }
@@ -1142,6 +1211,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             for cueTextLayout in measure.cueTextLayouts {
+                if cueTextLayout.id == selectedCueTextID {
+                    drawCueTextSelection(cueTextLayout)
+                }
                 renderer.drawCueText(cueTextLayout)
             }
 
@@ -1205,6 +1277,62 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.84).setStroke()
         selectionPath.lineWidth = 1.4
         selectionPath.stroke()
+    }
+
+    private func drawCueTextSelection(_ cueTextLayout: LeadSheetCueTextLayout) {
+        drawObjectSelection(
+            cueTextLayout.frame.insetBy(dx: -5, dy: -4),
+            cornerRadius: 7
+        )
+    }
+
+    private func drawObjectSelection(_ frame: CGRect, cornerRadius: CGFloat) {
+        let selectionPath = UIBezierPath(roundedRect: frame, cornerRadius: cornerRadius)
+        UIColor(red: 1.0, green: 0.85, blue: 0.18, alpha: 0.24).setFill()
+        selectionPath.fill()
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.72).setStroke()
+        selectionPath.lineWidth = 1.2
+        selectionPath.stroke()
+    }
+
+    private func drawRoadmapMarkerEditOverlay(
+        _ markerLayout: LeadSheetRoadmapMarkerLayout,
+        using renderer: LeadSheetNotationRenderer
+    ) {
+        let isActiveMove = activeRoadmapMarkerEditDrag?.markerID == markerLayout.id
+        let editFrame = LeadSheetRoadmapMarkerEditOverlayGeometry.editFrame(for: markerLayout)
+        let controlFrames = LeadSheetRoadmapMarkerEditOverlayGeometry.controlFrames(for: markerLayout)
+        let boxPath = UIBezierPath(roundedRect: editFrame, cornerRadius: 5)
+
+        UIColor(
+            red: 0.88,
+            green: 0.93,
+            blue: 1,
+            alpha: isActiveMove ? 0.30 : 0.18
+        ).setFill()
+        boxPath.fill()
+        UIColor(
+            red: 0.16,
+            green: 0.38,
+            blue: 0.86,
+            alpha: isActiveMove ? 0.92 : 0.62
+        ).setStroke()
+        boxPath.lineWidth = isActiveMove ? 1.4 : 1
+        boxPath.stroke()
+
+        let deletePath = UIBezierPath(ovalIn: controlFrames.delete)
+        UIColor.white.withAlphaComponent(0.96).setFill()
+        deletePath.fill()
+        UIColor(red: 0.92, green: 0.16, blue: 0.20, alpha: 0.86).setStroke()
+        deletePath.lineWidth = 1
+        deletePath.stroke()
+        renderer.drawText(
+            "x",
+            in: controlFrames.delete.insetBy(dx: 1, dy: -1),
+            font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            color: UIColor(red: 0.82, green: 0.08, blue: 0.12, alpha: 1),
+            alignment: .center
+        )
     }
 
     private func isSelectedNote(noteIndex: Int, in measure: LeadSheetMeasureLayout) -> Bool {
@@ -1717,17 +1845,83 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private enum EditableOverlayHitTarget {
+        case roadmap(RoadmapMarkerEditHitTarget)
         case chord(ChordEditHitTarget)
         case freehand(FreehandSymbolEditHitTarget)
     }
 
     private func editableOverlayHitTarget(at location: CGPoint) -> EditableOverlayHitTarget? {
+        if let roadmapTarget = roadmapMarkerEditHitTarget(at: location) {
+            return .roadmap(roadmapTarget)
+        }
+
         if let chordTarget = chordEditHitTarget(at: location) {
             return .chord(chordTarget)
         }
 
         if let freehandTarget = freehandSymbolEditHitTarget(at: location) {
             return .freehand(freehandTarget)
+        }
+
+        return nil
+    }
+
+    private func roadmapMarkerLayouts() -> [LeadSheetRoadmapMarkerLayout] {
+        pageLayout?.systems.flatMap(\.roadmapMarkerLayouts) ?? []
+    }
+
+    private func roadmapMarkerEditHitTarget(at location: CGPoint) -> RoadmapMarkerEditHitTarget? {
+        guard interactionMode == .browse else {
+            return nil
+        }
+
+        return LeadSheetRoadmapMarkerEditOverlayGeometry.hitTarget(
+            at: location,
+            in: roadmapMarkerLayouts(),
+            selectedMarkerID: selectedRoadmapMarkerID
+        )
+    }
+
+    private func roadmapMarkerMoveHitTarget(at location: CGPoint) -> LeadSheetRoadmapMarkerLayout? {
+        guard interactionMode == .browse else {
+            return nil
+        }
+
+        return LeadSheetRoadmapMarkerEditOverlayGeometry.moveHitTarget(
+            at: location,
+            in: roadmapMarkerLayouts()
+        )
+    }
+
+    private func roadmapMarkerHitTarget(at location: CGPoint) -> LeadSheetRoadmapMarkerLayout? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        for system in pageLayout.systems.reversed() {
+            for markerLayout in system.roadmapMarkerLayouts.reversed() {
+                if LeadSheetRoadmapMarkerEditOverlayGeometry.editHitFrame(for: markerLayout).contains(location) {
+                    return markerLayout
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func cueTextHitTarget(at location: CGPoint) -> LeadSheetCueTextLayout? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        for system in pageLayout.systems.reversed() {
+            for measure in system.measures.reversed() {
+                for cueTextLayout in measure.cueTextLayouts.reversed() {
+                    if cueTextLayout.frame.insetBy(dx: -8, dy: -6).contains(location) {
+                        return cueTextLayout
+                    }
+                }
+            }
         }
 
         return nil
@@ -1790,6 +1984,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return hitTarget
     }
 
+    private func lastRoadmapMarkerDragHitTarget() -> RoadmapMarkerEditHitTarget? {
+        guard case let .roadmap(hitTarget)? = lastEditableOverlayHitTarget,
+              hitTarget.action != .delete else {
+            return nil
+        }
+
+        return hitTarget
+    }
+
+    private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
+        let location = recognizer.location(in: self)
+        let translation = recognizer.translation(in: self)
+        return CGPoint(
+            x: location.x - translation.x,
+            y: location.y - translation.y
+        )
+    }
+
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isSyncingInkCanvasFromModel else {
             return
@@ -1841,6 +2053,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if interactionMode == .browse,
+           let roadmapMarkerLayout = roadmapMarkerHitTarget(at: location) {
+            selectRoadmapMarkerFromCanvas(roadmapMarkerLayout)
+            return
+        }
+
+        if interactionMode == .browse,
+           let cueTextLayout = cueTextHitTarget(at: location),
+           let cueText = chart.cueText(id: cueTextLayout.id) {
+            selectCueTextFromCanvas(cueText)
+            return
+        }
+
         let tappedMeasure = LeadSheetCanvasInteractionTargeting.measure(at: location, in: pageLayout)
         let tappedMeasureID = tappedMeasure?.sourceMeasureID
 
@@ -1853,10 +2078,42 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         applyTapSelection(tappedMeasureID)
 
+        if interactionMode == .browse,
+           let tappedMeasureID {
+            onMeasureSelectedFromCanvas?(tappedMeasureID)
+        }
+
         if interactionMode.showsTimeSignatureTargeting,
            let tappedMeasureID {
             onTimeSignatureTargetRequested?(tappedMeasureID)
         }
+    }
+
+    private func selectRoadmapMarkerFromCanvas(_ markerLayout: LeadSheetRoadmapMarkerLayout) {
+        updateSelectedRoadmapMarkerID(markerLayout.id)
+        selectedCueTextID = nil
+        selectedChordID = nil
+        selectedFreehandSymbolID = nil
+        selectedNoteSelection = nil
+        applyTapSelection(markerLayout.anchorMeasureID)
+        onRoadmapMarkerSelectedFromCanvas?(markerLayout.id)
+        setNeedsDisplay()
+    }
+
+    private func updateSelectedRoadmapMarkerID(_ markerID: UUID?) {
+        selectedRoadmapMarkerID = markerID
+        onRoadmapMarkerSelectionChanged?(markerID)
+    }
+
+    private func selectCueTextFromCanvas(_ cueText: CueText) {
+        selectedCueTextID = cueText.id
+        updateSelectedRoadmapMarkerID(nil)
+        selectedChordID = nil
+        selectedFreehandSymbolID = nil
+        selectedNoteSelection = nil
+        applyTapSelection(cueText.anchorMeasureID)
+        onCueTextSelectedFromCanvas?(cueText.id)
+        setNeedsDisplay()
     }
 
     private func handleFreehandSymbolTap(at location: CGPoint) {
@@ -1882,6 +2139,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: chordEditHitOverlayView)
+        if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
+            handleRoadmapMarkerEditTap(hitTarget)
+            return
+        }
+
         if interactionMode.allowsPageInkEditing,
            !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
             handleFreehandSymbolTap(at: location)
@@ -1903,6 +2165,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         switch hitTarget.action {
         case .select:
             selectedChordID = hitTarget.chordID
+            if interactionMode == .browse {
+                onChordSelectedFromCanvas?(hitTarget.chordID)
+            }
             setNeedsDisplay()
         case .delete:
             deleteChordEvent(hitTarget.chordID)
@@ -1910,7 +2175,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             break
         case .review:
             selectedChordID = hitTarget.chordID
+            if interactionMode == .browse {
+                onChordSelectedFromCanvas?(hitTarget.chordID)
+            }
             setNeedsDisplay()
+        }
+    }
+
+    private func handleRoadmapMarkerEditTap(_ hitTarget: RoadmapMarkerEditHitTarget) {
+        switch hitTarget.action {
+        case .delete:
+            deleteRoadmapMarker(hitTarget.markerID)
+        case .move, .select:
+            guard let markerLayout = roadmapMarkerLayouts().first(where: { $0.id == hitTarget.markerID }) else {
+                updateSelectedRoadmapMarkerID(hitTarget.markerID)
+                setNeedsDisplay()
+                return
+            }
+
+            selectRoadmapMarkerFromCanvas(markerLayout)
         }
     }
 
@@ -1999,6 +2282,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordInkConfirmSurfaceContains(_ location: CGPoint) -> Bool {
         guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
               ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
                 location: location,
                 pageLayout: pageLayout,
@@ -2036,6 +2320,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func confirmChordInkFromUserTapIfNeeded() {
         guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
               currentCanvasDrawingData() != nil else {
             return
         }
@@ -2077,6 +2362,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if activeFreehandSymbolEditDrag?.symbolID == symbolID {
             activeFreehandSymbolEditDrag = nil
         }
+        chart = updatedChart
+        onChartChanged?(updatedChart)
+        setNeedsDisplay()
+    }
+
+    private func deleteRoadmapMarker(_ markerID: UUID) {
+        var updatedChart = chart
+        guard updatedChart.deleteRoadmapObject(markerID) else {
+            return
+        }
+
+        if selectedRoadmapMarkerID == markerID {
+            updateSelectedRoadmapMarkerID(nil)
+        }
+        if activeRoadmapMarkerEditDrag?.markerID == markerID {
+            activeRoadmapMarkerEditDrag = nil
+        }
+
         chart = updatedChart
         onChartChanged?(updatedChart)
         setNeedsDisplay()
@@ -2177,6 +2480,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleChordMovePan(_ recognizer: UIPanGestureRecognizer) {
+        let location = recognizer.location(in: self)
+        if activeRoadmapMarkerEditDrag != nil
+            || (recognizer.state == .began
+                && (roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
+                    || lastRoadmapMarkerDragHitTarget() != nil)) {
+            handleRoadmapMarkerEditPan(recognizer)
+            return
+        }
+
         if interactionMode.allowsPageInkEditing,
            !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
             handleFreehandSymbolEditPan(recognizer)
@@ -2185,7 +2497,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         switch recognizer.state {
         case .began:
-            let location = recognizer.location(in: self)
             guard let hitTarget = chordMoveHitTarget(at: location) else {
                 activeChordMoveDrag = nil
                 setNeedsDisplay()
@@ -2231,6 +2542,79 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeChordMoveDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
+        default:
+            break
+        }
+    }
+
+    private func handleRoadmapMarkerEditPan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            let startLocation = panStartLocation(for: recognizer)
+            let resolvedMarkerLayout = roadmapMarkerMoveHitTarget(at: startLocation)
+                ?? lastRoadmapMarkerDragHitTarget().flatMap { hitTarget in
+                    roadmapMarkerLayouts().first { $0.id == hitTarget.markerID }
+                }
+            guard let markerLayout = resolvedMarkerLayout else {
+                activeRoadmapMarkerEditDrag = nil
+                setNeedsDisplay()
+                return
+            }
+
+            selectRoadmapMarkerFromCanvas(markerLayout)
+            activeRoadmapMarkerEditDrag = ActiveRoadmapMarkerEditDrag(
+                markerID: markerLayout.id,
+                initialFrame: markerLayout.frame,
+                movementFrame: markerLayout.movementFrame
+            )
+            lockParentScrollForChordMove()
+            setNeedsDisplay()
+
+        case .changed, .ended:
+            guard let activeRoadmapMarkerEditDrag else {
+                if recognizer.state == .ended {
+                    unlockParentScrollForChordMove()
+                }
+                return
+            }
+
+            let translation = recognizer.translation(in: self)
+            let proposedFrame = activeRoadmapMarkerEditDrag.initialFrame.offsetBy(
+                dx: translation.x,
+                dy: 0
+            )
+            let clampedFrame = LeadSheetRoadmapMarkerEditOverlayGeometry.clampedFrame(
+                proposedFrame,
+                in: activeRoadmapMarkerEditDrag.movementFrame
+            )
+            let normalizedOffset = LeadSheetRoadmapMarkerEditOverlayGeometry.normalizedOffset(
+                for: clampedFrame,
+                in: activeRoadmapMarkerEditDrag.movementFrame
+            )
+
+            var updatedChart = chart
+            if updatedChart.movePointRoadmapMarkerHorizontally(
+                activeRoadmapMarkerEditDrag.markerID,
+                toNormalizedOffset: normalizedOffset
+            ) {
+                chart = updatedChart
+                onChartChanged?(updatedChart)
+                setNeedsDisplay()
+            }
+
+            if recognizer.state == .ended {
+                self.activeRoadmapMarkerEditDrag = nil
+                lastEditableOverlayHitTarget = nil
+                unlockParentScrollForChordMove()
+                setNeedsDisplay()
+            }
+
+        case .cancelled, .failed:
+            activeRoadmapMarkerEditDrag = nil
+            lastEditableOverlayHitTarget = nil
+            unlockParentScrollForChordMove()
+            setNeedsDisplay()
+
         default:
             break
         }
@@ -2357,6 +2741,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func updateChordInkConfirmOverlayVisibility() {
         let isConfirmSurfaceAvailable = interactionMode.allowsChordInkEditing
+            && recognizesChordInk
             && currentCanvasDrawingData() != nil
         chordInkConfirmOverlayView.isHidden = !isConfirmSurfaceAvailable
         chordInkConfirmOverlayView.isUserInteractionEnabled = isConfirmSurfaceAvailable
@@ -2365,7 +2750,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            scheduleChordInkRecognition()
+            if recognizesChordInk {
+                scheduleChordInkRecognition()
+            } else {
+                schedulePassiveChordInkPersistence()
+            }
             return
 
         case .rhythm:
@@ -2417,6 +2806,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         pendingInkPersistWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
+    }
+
+    private func schedulePassiveChordInkPersistence() {
+        chordInkRecognitionRequestState.cancelPendingRequest()
+        pendingInkPersistWorkItem?.cancel()
+        pendingRhythmicNotationCommitWorkItem?.cancel()
+        pendingRhythmicNotationCommitWorkItem = nil
+        let scheduledInkSnapshot = currentCanvasInkSnapshot()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.persistPassiveInkIfStable(scheduledInkSnapshot: scheduledInkSnapshot)
+        }
+        pendingInkPersistWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + LeadSheetPassiveInkPersistencePolicy.defaultIdleDelay,
+            execute: workItem
+        )
     }
 
     private func scheduleInkSessionWorkAfterDrawingChange() {
@@ -2544,6 +2949,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
               let activeInkScope = activeInkScope(),
               case .chords(let chordFrame, _) = activeInkScope else {
             chordInkRecognitionRequestState.clearActiveRequest()
@@ -2609,6 +3015,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
 
         guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
               !payload.result.rawCandidates.isEmpty else {
             return
         }
@@ -3306,6 +3713,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if policy.clearsChordInteractionState {
             activeChordMoveDrag = nil
+            activeRoadmapMarkerEditDrag = nil
             unlockParentScrollForChordMove()
         }
 
@@ -3396,13 +3804,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if gestureRecognizer === chordMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
+            let translation = chordMovePanRecognizer.translation(in: self)
+            let startLocation = CGPoint(
+                x: location.x - translation.x,
+                y: location.y - translation.y
+            )
+            if roadmapMarkerMoveHitTarget(at: startLocation) != nil
+                || lastRoadmapMarkerDragHitTarget() != nil {
+                return true
+            }
+
             if interactionMode.allowsPageInkEditing,
                !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-                let translation = chordMovePanRecognizer.translation(in: self)
-                let startLocation = CGPoint(
-                    x: location.x - translation.x,
-                    y: location.y - translation.y
-                )
                 if let hitTarget = freehandSymbolEditHitTarget(at: startLocation) {
                     return hitTarget.action != .delete
                 }

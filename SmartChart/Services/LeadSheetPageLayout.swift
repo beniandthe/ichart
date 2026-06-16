@@ -219,6 +219,7 @@ struct LeadSheetRoadmapMarkerLayout: Identifiable, Hashable {
     var type: RoadmapType
     var text: String
     var frame: CGRect
+    var movementFrame: CGRect
     var anchorMeasureID: UUID
 
     var id: UUID {
@@ -805,19 +806,69 @@ enum LeadSheetPageLayoutEngine {
                 }
 
                 let text = roadmapObject.resolvedDisplayText
+                let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
+                let containsNotationGlyph = roadmapObject.type.containsNotationMarkerGlyph
+                let markerHeight: CGFloat
+                let markerTopOffset: CGFloat
+                if isSimpleChordSheet {
+                    markerHeight = containsNotationGlyph ? 40 : 34
+                    markerTopOffset = containsNotationGlyph ? -17 : -14
+                } else {
+                    markerHeight = containsNotationGlyph ? 28 : 24
+                    markerTopOffset = containsNotationGlyph ? -8 : -5
+                }
+                let movementFrame = CGRect(
+                    x: measureLayout.staffFrame.minX + 6,
+                    y: systemFrame.minY + markerTopOffset,
+                    width: max(1, measureLayout.staffFrame.width - 12),
+                    height: markerHeight
+                )
+                let markerWidth = roadmapMarkerWidth(
+                    for: text,
+                    type: roadmapObject.type,
+                    maxWidth: movementFrame.width,
+                    isSimpleChordSheet: isSimpleChordSheet
+                )
+                let horizontalOffset = roadmapObject.resolvedHorizontalOffsetWithinMeasure
+                let availableWidth = max(0, movementFrame.width - markerWidth)
                 return LeadSheetRoadmapMarkerLayout(
                     roadmapObjectID: roadmapObject.id,
                     type: roadmapObject.type,
                     text: text,
                     frame: CGRect(
-                        x: measureLayout.staffFrame.minX + 6,
-                        y: systemFrame.minY + 3,
-                        width: min(max(1, measureLayout.staffFrame.width - 12), 118),
-                        height: 16
+                        x: movementFrame.minX + availableWidth * CGFloat(horizontalOffset),
+                        y: movementFrame.minY,
+                        width: markerWidth,
+                        height: markerHeight
                     ),
+                    movementFrame: movementFrame,
                     anchorMeasureID: roadmapObject.startMeasureID
                 )
             }
+    }
+
+    private static func roadmapMarkerWidth(
+        for text: String,
+        type: RoadmapType,
+        maxWidth: CGFloat,
+        isSimpleChordSheet: Bool
+    ) -> CGFloat {
+        let minimumWidth: CGFloat
+        if type.isStandaloneNotationMarker {
+            minimumWidth = isSimpleChordSheet ? 42 : 28
+        } else {
+            minimumWidth = isSimpleChordSheet ? 34 : 24
+        }
+        let characterWidth: CGFloat = isSimpleChordSheet ? 13 : 7.2
+        let textWidth: CGFloat
+
+        if type.isStandaloneNotationMarker {
+            textWidth = minimumWidth
+        } else {
+            textWidth = CGFloat(text.count) * characterWidth + (isSimpleChordSheet ? 18 : 12)
+        }
+
+        return min(max(minimumWidth, textWidth), max(1, maxWidth))
     }
 
     private static func packedSystemPlans(

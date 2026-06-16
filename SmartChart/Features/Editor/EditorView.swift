@@ -14,6 +14,35 @@ private struct PendingMeasureStackInsertion: Identifiable {
     let anchorMeasureID: UUID
 }
 
+private enum ChordToolInputMode: String, CaseIterable, Identifiable {
+    case read
+    case inkOnly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .read:
+            return "Read"
+        case .inkOnly:
+            return "Ink Only"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .read:
+            return "text.viewfinder"
+        case .inkOnly:
+            return "pencil.and.scribble"
+        }
+    }
+
+    var recognizesChordInk: Bool {
+        self == .read
+    }
+}
+
 private enum IChartEditorGuidedTourStep: String, Identifiable {
     case setup
     case chordWrite
@@ -40,15 +69,15 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordDone:
             "Leave Chord Mode"
         case .page:
-            "Page Tool"
+            "Page"
         case .measures:
-            "Measures Tool"
+            "Measures"
         case .measuresActive:
             "Measures Row"
         case .repeatsActive:
-            "Repeat Row"
+            "Repeats Row"
         case .coda:
-            "Coda Tool"
+            "Coda"
         case .freeHandActive:
             "Free-Hand"
         case .select:
@@ -61,21 +90,21 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Confirm the starting options, then iChart will make a blank Simple Chord Sheet for the tour."
         case .chordWrite:
-            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it."
+            "Use the chord lane above the measure. Write a chord, then tap outside of the chord lane to ask iChart to read it."
         case .chordConfirm:
             "Tap the chord you meant. If iChart is unsure, use the keyboard or rewrite the ink."
         case .chordDone:
             "Tap Done to return to the main tool row."
         case .page:
-            "Open Page for setup, header options, instrument view, manual transpose, style, fonts, pen responsiveness, engraving, and export."
+            "Open Page for Setup, Export, Header, Instrument Transposition, Manual Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
         case .measures:
-            "Create single measures or stacks, move measures to new systems, resize rows, split lines, or delete measures."
+            "Measures is only for measure layout: Add, Stack, First, Double, New Sys or Join, Delete, and Range."
         case .measuresActive:
-            "Use this row for add, stack, break, delete, width, and fill actions."
+            "Use Add, Stack, First, Double, New Sys or Join, Delete, Range, Del Thru, and Clear."
         case .repeatsActive:
-            "Add repeat barlines and first or second endings."
+            "Repeats is only for repeat structure: One Bar, Start, End Rep, 1st and 2nd endings, Rm Rep, Rm End, and Clear."
         case .coda:
-            "Add Coda, To Coda, Segno, D.S., D.C., Fine, N.C., and roadmap links from the Coda tool."
+            "Coda is only for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. Select a marker, drag it left or right within the measure, or tap its x to delete it."
         case .freeHandActive:
             "Free-Hand is for quick notes, rehearsal marks, and cues you want to leave as ink. Tap Done when you are finished."
         case .select:
@@ -88,7 +117,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Tap Create Blank Page"
         case .chordWrite:
-            "Write a chord, then tap to read it"
+            "Write a chord, then tap outside the lane"
         case .chordConfirm:
             "Tap a chord choice"
         case .chordDone:
@@ -198,7 +227,13 @@ struct EditorView: View {
         Meter(numerator: 4, denominator: 4),
         Meter(numerator: 3, denominator: 4),
         Meter(numerator: 5, denominator: 4),
-        Meter(numerator: 6, denominator: 4)
+        Meter(numerator: 6, denominator: 4),
+        Meter(numerator: 3, denominator: 8),
+        Meter(numerator: 5, denominator: 8),
+        Meter(numerator: 6, denominator: 8),
+        Meter(numerator: 7, denominator: 8),
+        Meter(numerator: 9, denominator: 8),
+        Meter(numerator: 12, denominator: 8)
     ]
     private static let showsChordFixtureCaptureTools = false
 
@@ -216,6 +251,8 @@ struct EditorView: View {
     @State private var isExporting = false
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
+    @State private var selectedCueTextID: UUID?
+    @State private var selectedRoadmapMarkerID: UUID?
     @State private var isNoteEditMenuPresented = false
     @State private var noteEditMenuStage: NoteEditMenuStage = .actions
     @State private var noteEditErrorMessage = ""
@@ -240,6 +277,7 @@ struct EditorView: View {
     @State private var showingCueTextEntry = false
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
+    @State private var chordToolInputMode: ChordToolInputMode = .read
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
@@ -458,6 +496,9 @@ struct EditorView: View {
                 isNoteEditMenuPresented = false
                 noteEditMenuStage = .actions
             }
+            if mode != .browse {
+                clearSelectedCanvasObjectIDs()
+            }
             if mode.allowsAnyInkEditing {
                 inkToolMode = .write
             }
@@ -627,7 +668,7 @@ struct EditorView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             ZStack(alignment: .center) {
-                if canvasMode.showsActiveToolControls {
+                if showsActiveToolControls {
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -640,7 +681,12 @@ struct EditorView: View {
             }
             .frame(maxWidth: .infinity)
             .animation(.easeOut(duration: 0.16), value: canvasMode)
+            .animation(.easeOut(duration: 0.16), value: selectedRoadmapMarkerID)
         }
+    }
+
+    private var showsActiveToolControls: Bool {
+        canvasMode.showsActiveToolControls
     }
 
     private func toolStrip(minWidth: CGFloat) -> some View {
@@ -820,6 +866,8 @@ struct EditorView: View {
                         title: "Select",
                         systemImage: "cursorarrow",
                         isSelected: canvasMode == .browse
+                            && selectedCueTextID == nil
+                            && selectedRoadmapMarkerID == nil
                     )
                 }
                 .buttonStyle(.plain)
@@ -829,7 +877,7 @@ struct EditorView: View {
                 } label: {
                     EditorMenuTabLabel(
                         title: "Measures",
-                        systemImage: "rectangle.split.4x1",
+                        systemImage: "rectangle.split.3x1",
                         isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive
                     )
                 }
@@ -853,36 +901,11 @@ struct EditorView: View {
                         Button {
                             handleAddPointRoadmapMarker(roadmapType)
                         } label: {
-                            Label(roadmapType.defaultDisplayText, systemImage: "signpost.right")
+                            Text(roadmapType.editorMenuDisplayText)
                         }
                     }
-
-                    Divider()
-
-                    Button {
-                        handleLinkPointRoadmapMarkersAtSelectedMeasure()
-                    } label: {
-                        Label("Link Roadmap Marker at Selected Measure", systemImage: "link")
-                    }
-                    .disabled(!canLinkPointRoadmapMarkerAtSelectedMeasure)
-
-                    Button {
-                        handleClearPointRoadmapLinksAtSelectedMeasure()
-                    } label: {
-                        Label("Clear Roadmap Link at Selected Measure", systemImage: "link.badge.minus")
-                    }
-                    .disabled(!canClearPointRoadmapLinkAtSelectedMeasure)
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        handleRemovePointRoadmapMarkersAtSelectedMeasure()
-                    } label: {
-                        Label("Remove Roadmap Marker at Selected Measure", systemImage: "trash")
-                    }
-                    .disabled(!canRemovePointRoadmapMarkerAtSelectedMeasure)
                 } label: {
-                    EditorCodaTabLabel(isSelected: false)
+                    EditorCodaTabLabel(isSelected: selectedRoadmapMarkerID != nil)
                         .simultaneousGesture(
                             TapGesture().onEnded {
                                 advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
@@ -915,7 +938,7 @@ struct EditorView: View {
                     EditorMenuTabLabel(
                         title: "Text",
                         systemImage: "text.bubble",
-                        isSelected: showingCueTextEntry
+                        isSelected: showingCueTextEntry || selectedCueTextID != nil
                     )
                 }
                 .disabled(canvasMode.locksDocumentActions)
@@ -939,7 +962,7 @@ struct EditorView: View {
                     } label: {
                         EditorMenuTabLabel(
                             title: "Rhythm",
-                            systemImage: "note.quarter",
+                            systemImage: "music.note",
                             isSelected: canvasMode == .rhythmicNotationEdit
                         )
                     }
@@ -1013,6 +1036,20 @@ struct EditorView: View {
 
                 if canvasMode == .headerEntry {
                     headerActiveToolActions
+                }
+
+                if canvasMode == .chordEntry {
+                    chordActiveToolActions
+                }
+
+                if canvasMode == .chordEntry && chordToolInputMode == .inkOnly {
+                    Label(
+                        "Ink Only: handwritten chords stay as ink; transposition and chord systems will not apply.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.orange)
+                    .lineLimit(1)
                 }
 
                 Button {
@@ -1175,7 +1212,8 @@ struct EditorView: View {
         HStack(spacing: 5) {
             activeToolButton(
                 title: "Typed",
-                systemImage: "keyboard"
+                systemImage: "keyboard",
+                isSelected: chart.headerInputMode == .typed
             ) {
                 chart.setHeaderInputMode(.typed)
                 showingHeaderSheet = true
@@ -1183,9 +1221,24 @@ struct EditorView: View {
 
             activeToolButton(
                 title: "Handwritten",
-                systemImage: "pencil.and.scribble"
+                systemImage: "pencil.and.scribble",
+                isSelected: chart.headerInputMode == .handwritten
             ) {
                 activateHeaderWritingTool()
+            }
+        }
+    }
+
+    private var chordActiveToolActions: some View {
+        HStack(spacing: 5) {
+            ForEach(ChordToolInputMode.allCases) { mode in
+                activeToolButton(
+                    title: mode.title,
+                    systemImage: mode.systemImageName,
+                    isSelected: chordToolInputMode == mode
+                ) {
+                    chordToolInputMode = mode
+                }
             }
         }
     }
@@ -1193,6 +1246,7 @@ struct EditorView: View {
     private func activeToolButton(
         title: String,
         systemImage: String,
+        isSelected: Bool = false,
         isDestructive: Bool = false,
         isDisabled: Bool = false,
         action: @escaping () -> Void
@@ -1204,8 +1258,16 @@ struct EditorView: View {
                 .lineLimit(1)
                 .padding(.horizontal, 8)
                 .frame(height: 34)
-                .foregroundStyle(isDestructive ? Color.red : Color.primary)
-                .background(Color(uiColor: .tertiarySystemBackground))
+                .foregroundStyle(
+                    isSelected
+                    ? Color.white
+                    : (isDestructive ? Color.red : Color.primary)
+                )
+                .background(
+                    isSelected
+                    ? Color(red: 0.16, green: 0.38, blue: 0.82)
+                    : Color(uiColor: .tertiarySystemBackground)
+                )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -1251,14 +1313,21 @@ struct EditorView: View {
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
             selectedNoteSelection: $selectedNoteSelection,
+            selectedCueTextID: $selectedCueTextID,
+            selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
+            recognizesChordInk: chordToolInputMode.recognizesChordInk,
             inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
+            onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
+            onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
+            onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
+            onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas
         )
@@ -1331,39 +1400,6 @@ struct EditorView: View {
         }
 
         return chart.canRemoveSystemBreak(before: targetMeasureID)
-    }
-
-    private var canRemovePointRoadmapMarkerAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return !chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).isEmpty
-    }
-
-    private var canLinkPointRoadmapMarkerAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).contains { markerID in
-            guard let suggestedTargetID = chart.suggestedRoadmapTargetID(for: markerID),
-                  let marker = chart.roadmapObject(id: markerID) else {
-                return false
-            }
-
-            return marker.linkedTargetID != suggestedTargetID
-        }
-    }
-
-    private var canClearPointRoadmapLinkAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return chart.pointRoadmapMarkerIDs(attachedTo: targetMeasureID).contains { markerID in
-            chart.roadmapObject(id: markerID)?.linkedTargetID != nil
-        }
     }
 
     private var canRemoveCueTextAtSelectedMeasure: Bool {
@@ -1775,10 +1811,13 @@ struct EditorView: View {
 
     private func handleAddPointRoadmapMarker(_ type: RoadmapType) {
         let targetMeasureID = resolvedMeasureActionTargetID()
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
         guard type.isPointMarker,
-              enterMeasureEditMode(),
               let targetMeasureID,
-              chart.addPointRoadmapMarker(type, anchorMeasureID: targetMeasureID) != nil else {
+              let markerID = chart.addPointRoadmapMarker(type, anchorMeasureID: targetMeasureID) else {
             return
         }
 
@@ -1786,49 +1825,10 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
+        selectedCueTextID = nil
         selectedMeasureID = targetMeasureID
-    }
-
-    private func handleRemovePointRoadmapMarkersAtSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              chart.deletePointRoadmapMarkers(attachedTo: targetMeasureID) > 0 else {
-            return
-        }
-
-        pendingDeleteStartMeasureID = nil
-        selectedMeasureID = targetMeasureID
-    }
-
-    private func handleLinkPointRoadmapMarkersAtSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              chart.linkPointRoadmapMarkers(attachedTo: targetMeasureID) > 0 else {
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
-    }
-
-    private func handleClearPointRoadmapLinksAtSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              chart.clearRoadmapLinks(attachedTo: targetMeasureID) > 0 else {
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
+        selectedRoadmapMarkerID = markerID
+        canvasMode = .browse
     }
 
     private func handleAddCueText(position: CuePosition) {
@@ -1901,6 +1901,11 @@ struct EditorView: View {
         selectedNoteSelection = nil
     }
 
+    private func clearSelectedCanvasObjectIDs() {
+        selectedCueTextID = nil
+        selectedRoadmapMarkerID = nil
+    }
+
     private func handleTimeSignatureTabTapped() {
         guard chart.hasCompletedInitialSetup else {
             showingSetupSheet = true
@@ -1959,6 +1964,7 @@ struct EditorView: View {
         if clearsMeasureSelection {
             selectedMeasureID = nil
         }
+        clearSelectedCanvasObjectIDs()
         selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
@@ -1970,6 +1976,72 @@ struct EditorView: View {
         isNoteEditMenuPresented = false
         noteEditMenuStage = .actions
         canvasMode = .browse
+    }
+
+    private func handleMeasureSelectedFromCanvas(_ measureID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              chart.measure(id: measureID) != nil,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = measureID
+        clearSelectedCanvasObjectIDs()
+        _ = enterMeasureEditMode()
+    }
+
+    private func handleChordSelectedFromCanvas(_: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+        clearSelectedCanvasObjectIDs()
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        inkToolMode = .write
+        canvasMode = .chordEntry
+    }
+
+    private func handleCueTextSelectedFromCanvas(_ cueTextID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let cueText = chart.cueText(id: cueTextID),
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedCueTextID = cueTextID
+        selectedRoadmapMarkerID = nil
+        selectedMeasureID = cueText.anchorMeasureID
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+    }
+
+    private func handleRoadmapMarkerSelectedFromCanvas(_ roadmapMarkerID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let marker = chart.roadmapObject(id: roadmapMarkerID),
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedRoadmapMarkerID = roadmapMarkerID
+        selectedCueTextID = nil
+        selectedMeasureID = marker.startMeasureID
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
     }
 
     private func resolvedMeasureActionTargetID() -> UUID? {
@@ -2072,6 +2144,7 @@ struct EditorView: View {
 
         selectedMeasureID = nil
         selectedNoteSelection = nil
+        clearSelectedCanvasObjectIDs()
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingRepeatStartMeasureID = nil

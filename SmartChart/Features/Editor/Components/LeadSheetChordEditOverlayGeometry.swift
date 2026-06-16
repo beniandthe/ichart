@@ -172,6 +172,130 @@ enum LeadSheetChordObjectInteractionPolicy {
     }
 }
 
+struct LeadSheetRoadmapMarkerEditControlFrames {
+    let delete: CGRect
+}
+
+struct RoadmapMarkerEditHitTarget {
+    enum Action {
+        case select
+        case delete
+        case move
+    }
+
+    var markerID: UUID
+    var action: Action
+}
+
+struct ActiveRoadmapMarkerEditDrag {
+    var markerID: UUID
+    var initialFrame: CGRect
+    var movementFrame: CGRect
+}
+
+enum LeadSheetRoadmapMarkerEditOverlayGeometry {
+    static let controlSize: CGFloat = 18
+    static let controlHitOutset: CGFloat = 6
+    static let editFrameHitOutset: CGFloat = 14
+
+    static func editFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
+        let horizontalPadding: CGFloat = markerLayout.type.isStandaloneNotationMarker ? 3 : 4
+        let verticalPadding: CGFloat = 2
+        let minimumWidth: CGFloat = markerLayout.type.isStandaloneNotationMarker ? 44 : 28
+        let minimumHeight: CGFloat = markerLayout.type.containsNotationMarkerGlyph ? 40 : 24
+        let paddedFrame = markerLayout.frame.insetBy(dx: -horizontalPadding, dy: -verticalPadding)
+        let width = max(minimumWidth, paddedFrame.width)
+        let height = max(minimumHeight, paddedFrame.height)
+        return CGRect(
+            x: paddedFrame.midX - width / 2,
+            y: paddedFrame.midY - height / 2,
+            width: width,
+            height: height
+        )
+    }
+
+    static func editHitFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
+        editFrame(for: markerLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+    }
+
+    static func controlFrames(
+        for markerLayout: LeadSheetRoadmapMarkerLayout
+    ) -> LeadSheetRoadmapMarkerEditControlFrames {
+        let editFrame = editFrame(for: markerLayout)
+        return LeadSheetRoadmapMarkerEditControlFrames(
+            delete: CGRect(
+                x: editFrame.minX - controlSize / 2,
+                y: editFrame.minY - controlSize / 2,
+                width: controlSize,
+                height: controlSize
+            )
+        )
+    }
+
+    static func hitTarget(
+        at location: CGPoint,
+        in markerLayouts: [LeadSheetRoadmapMarkerLayout],
+        selectedMarkerID: UUID?
+    ) -> RoadmapMarkerEditHitTarget? {
+        for markerLayout in markerLayouts.reversed() {
+            let isSelected = selectedMarkerID == markerLayout.id
+            let controlFrames = controlFrames(for: markerLayout)
+
+            if isSelected,
+               controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                return RoadmapMarkerEditHitTarget(markerID: markerLayout.id, action: .delete)
+            }
+
+            if editHitFrame(for: markerLayout).contains(location) {
+                return RoadmapMarkerEditHitTarget(markerID: markerLayout.id, action: .select)
+            }
+        }
+
+        return nil
+    }
+
+    static func moveHitTarget(
+        at location: CGPoint,
+        in markerLayouts: [LeadSheetRoadmapMarkerLayout]
+    ) -> LeadSheetRoadmapMarkerLayout? {
+        for markerLayout in markerLayouts.reversed() {
+            let controlFrames = controlFrames(for: markerLayout)
+            if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                continue
+            }
+
+            if editHitFrame(for: markerLayout).contains(location) {
+                return markerLayout
+            }
+        }
+
+        return nil
+    }
+
+    static func clampedFrame(_ frame: CGRect, in movementFrame: CGRect) -> CGRect {
+        let width = min(max(1, frame.width), max(1, movementFrame.width))
+        let x = min(
+            max(frame.minX, movementFrame.minX),
+            max(movementFrame.minX, movementFrame.maxX - width)
+        )
+        return CGRect(
+            x: x,
+            y: movementFrame.minY + (movementFrame.height - frame.height) / 2,
+            width: width,
+            height: frame.height
+        )
+    }
+
+    static func normalizedOffset(for frame: CGRect, in movementFrame: CGRect) -> Double {
+        let availableWidth = movementFrame.width - frame.width
+        guard availableWidth > 0 else {
+            return 0
+        }
+
+        return Double((frame.minX - movementFrame.minX) / availableWidth)
+    }
+}
+
 final class ChordEditHitOverlayView: UIView {
     var containsEditableControl: ((CGPoint) -> Bool)?
 

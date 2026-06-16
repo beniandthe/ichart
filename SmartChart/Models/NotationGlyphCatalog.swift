@@ -20,6 +20,8 @@ enum NotationGlyphCatalog {
         case eighthRest
         case accidentalFlat
         case accidentalSharp
+        case coda
+        case segno
         case timeSignatureDigit(Int)
     }
 
@@ -40,6 +42,8 @@ enum NotationGlyphCatalog {
     static let eighthRest = "\u{E4E6}"
     static let accidentalFlat = "\u{E260}"
     static let accidentalSharp = "\u{E262}"
+    static let coda = "\u{E048}"
+    static let segno = "\u{E047}"
 
     static func timeSignatureDigit(_ value: Int) -> String? {
         guard (0...9).contains(value),
@@ -86,6 +90,10 @@ enum NotationGlyphCatalog {
             return accidentalFlat
         case .accidentalSharp:
             return accidentalSharp
+        case .coda:
+            return coda
+        case .segno:
+            return segno
         case let .timeSignatureDigit(value):
             return timeSignatureDigit(value)
         }
@@ -121,6 +129,10 @@ enum NotationGlyphCatalog {
             return 2.48
         case .accidentalFlat, .accidentalSharp:
             return 2.1
+        case .coda:
+            return 3.35
+        case .segno:
+            return 2.7
         }
     }
 }
@@ -162,6 +174,10 @@ extension NotationGlyphCatalog.Symbol {
             return "accidentalFlat"
         case .accidentalSharp:
             return "accidentalSharp"
+        case .coda:
+            return "coda"
+        case .segno:
+            return "segno"
         case let .timeSignatureDigit(value):
             guard (0...9).contains(value) else {
                 return nil

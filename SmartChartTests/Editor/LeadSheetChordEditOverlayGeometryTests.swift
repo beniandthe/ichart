@@ -234,6 +234,120 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         XCTAssertEqual(editFrame.maxX, chordLayout.frame.maxX + 6, accuracy: 0.001)
     }
 
+    func testRoadmapMarkerEditFrameIsTightToMarkerNotMeasure() {
+        let markerLayout = roadmapMarkerLayout(
+            frame: CGRect(x: 126, y: 72, width: 42, height: 40),
+            movementFrame: CGRect(x: 120, y: 69, width: 180, height: 40)
+        )
+
+        let editFrame = LeadSheetRoadmapMarkerEditOverlayGeometry.editFrame(for: markerLayout)
+
+        XCTAssertLessThan(editFrame.width, markerLayout.movementFrame.width * 0.35)
+        XCTAssertLessThan(editFrame.width, markerLayout.movementFrame.width)
+        XCTAssertEqual(editFrame.midX, markerLayout.frame.midX, accuracy: 0.001)
+        XCTAssertEqual(editFrame.midY, markerLayout.frame.midY, accuracy: 0.001)
+        XCTAssertTrue(editFrame.contains(markerLayout.frame))
+        XCTAssertGreaterThan(editFrame.height, markerLayout.frame.height)
+    }
+
+    func testRoadmapMarkerDeleteOnlyWinsForSelectedMarker() {
+        let markerID = UUID()
+        let markerLayout = roadmapMarkerLayout(id: markerID)
+        let deleteFrame = LeadSheetRoadmapMarkerEditOverlayGeometry
+            .controlFrames(for: markerLayout)
+            .delete
+
+        let selectedTarget = LeadSheetRoadmapMarkerEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: deleteFrame.midX, y: deleteFrame.midY),
+            in: [markerLayout],
+            selectedMarkerID: markerID
+        )
+        XCTAssertEqual(selectedTarget?.markerID, markerID)
+        assertRoadmapAction(selectedTarget?.action, is: .delete)
+
+        let unselectedTarget = LeadSheetRoadmapMarkerEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: deleteFrame.midX, y: deleteFrame.midY),
+            in: [markerLayout],
+            selectedMarkerID: nil
+        )
+        XCTAssertEqual(unselectedTarget?.markerID, markerID)
+        assertRoadmapAction(unselectedTarget?.action, is: .select)
+
+        let bodyTarget = LeadSheetRoadmapMarkerEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: markerLayout.frame.midX + 4, y: markerLayout.frame.midY + 4),
+            in: [markerLayout],
+            selectedMarkerID: markerID
+        )
+        XCTAssertEqual(bodyTarget?.markerID, markerID)
+        assertRoadmapAction(bodyTarget?.action, is: .select)
+    }
+
+    func testRoadmapMarkerBodyCanStartHorizontalMove() {
+        let markerID = UUID()
+        let markerLayout = roadmapMarkerLayout(id: markerID)
+
+        let moveTarget = LeadSheetRoadmapMarkerEditOverlayGeometry.moveHitTarget(
+            at: CGPoint(x: markerLayout.frame.midX, y: markerLayout.frame.midY),
+            in: [markerLayout]
+        )
+
+        XCTAssertEqual(moveTarget?.id, markerID)
+    }
+
+    func testRoadmapMarkerDragClampsAndNormalizesWithinMovementFrame() {
+        let movementFrame = CGRect(x: 120, y: 72, width: 180, height: 34)
+        let proposedFrame = CGRect(x: 284, y: 54, width: 40, height: 28)
+
+        let clampedFrame = LeadSheetRoadmapMarkerEditOverlayGeometry.clampedFrame(
+            proposedFrame,
+            in: movementFrame
+        )
+        let offset = LeadSheetRoadmapMarkerEditOverlayGeometry.normalizedOffset(
+            for: clampedFrame,
+            in: movementFrame
+        )
+
+        XCTAssertEqual(clampedFrame.maxX, movementFrame.maxX, accuracy: 0.001)
+        XCTAssertEqual(clampedFrame.midY, movementFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(offset, 1, accuracy: 0.001)
+    }
+
+    func testRoadmapLabelFittingShrinksLongLabelsIntoMarkerFrame() {
+        let frame = CGRect(x: 0, y: 0, width: 104, height: 40)
+        let fittedSize = LeadSheetRoadmapLabelFitting.fittedBaseFontSize(
+            for: "D.C. AL FINE",
+            in: frame,
+            baseFontSize: 20,
+            minimumFontSize: 17.5,
+            baseFontProvider: Self.testBaseFont(size:),
+            symbolFontProvider: Self.testSymbolFont(for:baseFont:)
+        )
+        let bounds = LeadSheetRoadmapLabelFitting.measuredBounds(
+            for: "D.C. AL FINE",
+            baseFont: Self.testBaseFont(size: fittedSize),
+            symbolFontProvider: Self.testSymbolFont(for:baseFont:)
+        )
+
+        XCTAssertLessThanOrEqual(fittedSize, 20)
+        XCTAssertGreaterThanOrEqual(fittedSize, 17.5)
+        XCTAssertLessThanOrEqual(ceil(bounds.width), frame.width + 0.5)
+        XCTAssertLessThanOrEqual(ceil(bounds.height), frame.height + 0.5)
+    }
+
+    func testRoadmapLabelFittingKeepsStandaloneCodaCloseToTextRoadmaps() {
+        let frame = CGRect(x: 0, y: 0, width: 44, height: 40)
+        let fittedSize = LeadSheetRoadmapLabelFitting.fittedBaseFontSize(
+            for: NotationGlyphCatalog.coda,
+            in: frame,
+            baseFontSize: 22,
+            minimumFontSize: 21,
+            baseFontProvider: Self.testBaseFont(size:),
+            symbolFontProvider: Self.testSymbolFont(for:baseFont:)
+        )
+
+        XCTAssertEqual(fittedSize, 22, accuracy: 0.001)
+    }
+
     private func assertAction(
         _ action: ChordEditHitTarget.Action?,
         is expectedAction: ChordEditHitTarget.Action,
@@ -246,6 +360,43 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         default:
             XCTFail("Expected \(expectedAction), got \(String(describing: action))", file: file, line: line)
         }
+    }
+
+    private func assertRoadmapAction(
+        _ action: RoadmapMarkerEditHitTarget.Action?,
+        is expectedAction: RoadmapMarkerEditHitTarget.Action,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch (action, expectedAction) {
+        case (.select?, .select), (.delete?, .delete), (.move?, .move):
+            break
+        default:
+            XCTFail("Expected \(expectedAction), got \(String(describing: action))", file: file, line: line)
+        }
+    }
+
+    private static func testBaseFont(size: CGFloat) -> UIFont {
+        UIFont.systemFont(ofSize: size)
+    }
+
+    private static func testSymbolFont(for symbolGlyph: String, baseFont: UIFont) -> UIFont {
+        UIFont.systemFont(ofSize: baseFont.pointSize * 1.12)
+    }
+
+    private func roadmapMarkerLayout(
+        id: UUID = UUID(),
+        frame: CGRect = CGRect(x: 126, y: 72, width: 34, height: 34),
+        movementFrame: CGRect = CGRect(x: 120, y: 72, width: 180, height: 34)
+    ) -> LeadSheetRoadmapMarkerLayout {
+        LeadSheetRoadmapMarkerLayout(
+            roadmapObjectID: id,
+            type: .codaMarker,
+            text: NotationGlyphCatalog.coda,
+            frame: frame,
+            movementFrame: movementFrame,
+            anchorMeasureID: UUID()
+        )
     }
 
     private func pageLayout(

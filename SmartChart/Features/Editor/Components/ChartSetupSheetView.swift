@@ -4,16 +4,13 @@ struct ChartSetupSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
 
-    @State private var draftKey: DocumentKey
     @State private var numerator: Int
     @State private var denominator: Int
     @State private var startingMeasureCount: Int
-    @State private var draftClef: ChartClef
 
     init(chart: Binding<Chart>) {
         self._chart = chart
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
-        _draftKey = State(initialValue: chart.wrappedValue.documentKey)
         _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
         _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
         _startingMeasureCount = State(
@@ -21,7 +18,6 @@ struct ChartSetupSheetView: View {
                 ? max(1, chart.wrappedValue.measures.count)
                 : profileDefaults.initialMeasureCount
         )
-        _draftClef = State(initialValue: chart.wrappedValue.defaultClef)
     }
 
     var body: some View {
@@ -29,17 +25,11 @@ struct ChartSetupSheetView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     layoutSection
-                    if setupPolicy.includesKeySelection {
-                        keySection
-                    }
                     if setupPolicy.includesTimeSignatureSelection {
                         meterSection
                     }
                     if setupPolicy.includesStartingMeasureSelection, !chart.hasCompletedInitialSetup {
                         startingMeasuresSection
-                    }
-                    if !setupPolicy.clefOptions.isEmpty {
-                        clefSection
                     }
                 }
                 .padding(24)
@@ -100,28 +90,6 @@ struct ChartSetupSheetView: View {
         }
     }
 
-    private var keySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Key")
-                .font(.headline)
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
-                ForEach(DocumentKey.commonCreationKeys, id: \.self) { key in
-                    Button {
-                        draftKey = key
-                    } label: {
-                        Text(key.displayText)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(draftKey == key ? .blue : .secondary.opacity(0.3))
-                }
-            }
-        }
-    }
-
     private var meterSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Time Signature")
@@ -176,22 +144,7 @@ struct ChartSetupSheetView: View {
         }
     }
 
-    private var clefSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Clef")
-                .font(.headline)
-
-            Picker("Clef", selection: $draftClef) {
-                ForEach(setupPolicy.clefOptions) { clef in
-                    Text(clef.displayText).tag(clef)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
     private func applySetup() {
-        let resolvedKey = setupPolicy.includesKeySelection ? draftKey : chart.documentKey
         let resolvedMeter: Meter
         if setupPolicy.includesTimeSignatureSelection {
             resolvedMeter = Meter(numerator: numerator, denominator: denominator)
@@ -199,20 +152,13 @@ struct ChartSetupSheetView: View {
             resolvedMeter = chart.defaultMeter
         }
 
-        let resolvedClef: ChartClef
-        if setupPolicy.clefOptions.contains(draftClef) {
-            resolvedClef = draftClef
-        } else {
-            resolvedClef = setupPolicy.clefOptions.first ?? chart.defaultClef
-        }
-
         chart.completeInitialSetup(
             title: chart.title,
-            key: resolvedKey,
+            key: chart.documentKey,
             meter: resolvedMeter,
             staffStyle: .fiveLine,
             startingMeasureCount: startingMeasureCount,
-            clef: resolvedClef
+            clef: chart.defaultClef
         )
     }
 

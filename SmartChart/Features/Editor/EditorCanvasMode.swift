@@ -59,13 +59,13 @@ enum EditorCanvasMode: Hashable {
         case .browse:
             return "cursorarrow"
         case .measureEdit:
-            return "rectangle.split.4x1"
+            return "rectangle.split.3x1"
         case .repeatEdit:
             return "repeat"
         case .timeSignatureEdit:
             return "metronome"
         case .rhythmicNotationEdit:
-            return "note.quarter"
+            return "music.note"
         case .headerEntry:
             return "character.cursor.ibeam"
         case .chordEntry:
