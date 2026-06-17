@@ -163,6 +163,37 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
     }
 
+    func testDeletedSingleCandidateChordOnlyBlocksExactInkDigest() {
+        var memory = ChordInkUserCorrectionMemory()
+        let rejectedDrawing = Data("deleted c ink".utf8)
+        let differentDrawing = Data("fresh c ink".utf8)
+
+        XCTAssertTrue(
+            memory.recordRejectedAutoRender(
+                acceptedText: "C",
+                drawingData: rejectedDrawing,
+                candidateSignature: ["C"],
+                now: Date(timeIntervalSinceReferenceDate: 26)
+            )
+        )
+
+        XCTAssertTrue(
+            memory.shouldBlockAutoRender(
+                acceptedText: "C",
+                drawingData: rejectedDrawing,
+                candidateTexts: ["C"]
+            )
+        )
+        XCTAssertFalse(
+            memory.shouldBlockAutoRender(
+                acceptedText: "C",
+                drawingData: differentDrawing,
+                candidateTexts: ["C"]
+            )
+        )
+        XCTAssertNil(memory.rejectedAutoRenderRules.first?.candidateSignatures)
+    }
+
     func testStoreLoadsOlderCorrectionMemoryWithoutRejectedAutoRenderRules() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

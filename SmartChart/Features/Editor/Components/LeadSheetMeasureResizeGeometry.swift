@@ -18,6 +18,13 @@ struct LeadSheetMeasureResizeHandleFrames {
     let right: CGRect
 }
 
+struct LeadSheetSimpleRowGroupAffordance {
+    var selectedMeasureID: UUID
+    var groupedMeasureIDs: [UUID]
+    var groupFrame: CGRect
+    var guideY: CGFloat
+}
+
 enum LeadSheetMeasureResizeGeometry {
     static func handleFrames(for measure: LeadSheetMeasureLayout) -> LeadSheetMeasureResizeHandleFrames {
         let handleSize = CGSize(width: 18, height: 34)
@@ -60,6 +67,50 @@ enum LeadSheetMeasureResizeGeometry {
                 measureID: measureID,
                 edge: .right,
                 initialWidth: measure.frame.width
+            )
+        }
+
+        return nil
+    }
+}
+
+enum LeadSheetSimpleRowGroupAffordanceGeometry {
+    static func affordance(
+        for selectedMeasureID: UUID?,
+        in pageLayout: LeadSheetPageLayout?,
+        layoutStyle: ChartLayoutStyle
+    ) -> LeadSheetSimpleRowGroupAffordance? {
+        guard layoutStyle == .simpleChordSheet,
+              let selectedMeasureID,
+              let pageLayout else {
+            return nil
+        }
+
+        for system in pageLayout.systems {
+            guard let selectedIndex = system.measures.firstIndex(where: { measure in
+                measure.sourceMeasureID == selectedMeasureID
+            }) else {
+                continue
+            }
+
+            let groupedMeasures = system.measures[selectedIndex...]
+                .filter { $0.sourceMeasureID != nil }
+            guard let firstMeasure = groupedMeasures.first else {
+                return nil
+            }
+
+            let groupFrame = groupedMeasures
+                .dropFirst()
+                .reduce(firstMeasure.frame) { partialFrame, measure in
+                    partialFrame.union(measure.frame)
+                }
+            let guideY = max(system.frame.minY + 10, groupFrame.minY - 11)
+
+            return LeadSheetSimpleRowGroupAffordance(
+                selectedMeasureID: selectedMeasureID,
+                groupedMeasureIDs: groupedMeasures.compactMap(\.sourceMeasureID),
+                groupFrame: groupFrame,
+                guideY: guideY
             )
         }
 

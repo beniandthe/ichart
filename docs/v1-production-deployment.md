@@ -14,14 +14,14 @@ The goal of v1 deployment is not just to publish an app. It is to ship a stable 
 ### Recommended launch shape
 - **Platform:** iPad-only public release for v1
 - **Distribution:** Public App Store release after TestFlight validation
-- **Support posture:** local-first app with minimal backend dependencies
-- **Business model for launch:** free download plus a one-time Pro unlock
+- **Support posture:** account-backed app with local-first chart authoring
+- **Business model for launch:** Basic account plus Pro subscription for cloud chart services
 
 ### Why this launch shape
 - iPad is the correct authoring surface for Pencil-first charting.
-- Avoiding a required backend reduces launch risk and operational load.
+- Mandatory accounts create a recoverable trust layer for email verification, password recovery, profile, subscription status, and support.
 - A narrower platform target keeps QA and support manageable.
-- Free-to-try lowers adoption friction while a one-time Pro tier keeps local ownership fair.
+- Basic local authoring keeps chart creation usable while Pro funds cloud chart backup/sync and other ongoing-service costs.
 
 ## 3. Environments
 
@@ -115,27 +115,26 @@ A production build should not ship until these are true.
 If monetization is included in v1, keep it operationally simple.
 
 ### Recommendation
-- launch as a free download with a one-time Pro unlock
-- keep the launch purchase model to a single permanent local-upgrade tier
-- do not ship a recurring subscription in v1 unless real service-backed features already exist
+- require account creation/sign-in for production use
+- launch with Basic account access for local-first chart authoring
+- ship a Pro subscription around cloud chart services and other real ongoing-service value
 
-### Free tier recommendation
-- limited local chart library
-- enough editing access for a musician to feel the workflow
-- no PDF export
-
-### Pro recommendation
-- unlimited local charts
+### Basic account recommendation
+- 3-chart local library cap
+- complete local chart-writing tool access
 - PDF export and sharing
-- transposition views
-- font tools
-- special notation tools
-- advanced rhythm-aware editing tools
+- verified email, password recovery, profile, and subscription identity
 
-### Subscription recommendation for later only
-Only add a recurring tier after Smart Chart includes real ongoing-service value such as:
-- cloud sync / backup
-- cross-device organization
+### Pro subscription recommendation
+- cloud chart backup
+- chart restore after reinstall or new iPad sign-in
+- future cross-device chart sync
+- unlimited local charts
+- Forums access
+
+### Later Pro expansion candidates
+Only add these after the core cloud backup/sync promise is stable:
+- cross-device organization beyond backup/restore
 - shared band libraries
 - setlists
 - version history
@@ -144,7 +143,12 @@ Only add a recurring tier after Smart Chart includes real ongoing-service value 
 ### Operational rules
 - restore purchases must work reliably
 - local charts must remain accessible after purchase restore or app reinstall
-- a future subscription should not remove access to locally owned Pro features
+- expired Pro should require user-selected local pruning down to the 3-chart Basic cap when needed
+- chart cloud backup/sync and Forums should pause clearly when Pro is inactive
+- downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
+- downgrade pruning is local-only and must not create cloud deletion tombstones
+- users should be reminded before cancellation/expiration that cloud backups will no longer be maintained and critical charts should be exported
+- remote chart backups should use a clear grace period, recommended default 30 days, before cloud retention cleanup; downgrade-pruned local charts remain in cloud backup until that grace period ends
 
 ## 8. App Store positioning
 
@@ -210,11 +214,11 @@ Basic overflow beyond one page can be evaluated as a non-blocking enhancement if
 
 ### V1 recommendation
 - collect as little user data as possible
-- avoid mandatory accounts
+- require account/auth only for identity, recovery, subscription, and support needs
 - publish a simple clear privacy policy
 - be explicit if analytics or crash reporting are used
 
-Without cloud sync, the privacy story stays simpler and more trustworthy.
+With mandatory accounts, the privacy story needs to be explicit: account/profile data is cloud-backed, charts are local-first, and chart cloud backup/sync is a Pro service.
 
 ## 12. Launch checklist
 
@@ -279,7 +283,8 @@ For external TestFlight, additional beta test information is required, including
 The cleanest v1 deployment strategy for Smart Chart is:
 - launch iPad-first
 - keep the app local-first
+- require recoverable account identity for Basic and Pro users
 - validate through internal then external TestFlight
 - ship publicly only after the core charting loop is clearly useful and reliable
-- use a free-to-try model with a one-time Pro unlock for the full local tool
-- avoid backend, subscription, or platform complexity that does not directly improve chart creation
+- use Basic account access plus a Pro subscription for cloud chart services
+- avoid cloud chart dependency in the editor even while account/auth remains mandatory

@@ -269,11 +269,16 @@ enum ChartSamples {
 }
 
 extension Chart {
-    static func draft(title: String, key: DocumentKey = .cMajor) -> Chart {
+    static func draft(
+        title: String,
+        key: DocumentKey = .cMajor,
+        layoutStyle: ChartLayoutStyle = .leadSheet
+    ) -> Chart {
         Chart(
             id: UUID(),
             title: title,
             chartType: .chordChart,
+            layoutStyle: layoutStyle,
             documentKey: key,
             documentFont: .classic,
             defaultTranspositionView: .concert,
@@ -284,20 +289,27 @@ extension Chart {
             sectionLabels: [],
             cueTexts: [],
             roadmapObjects: [],
-            stylePreset: .cleanStudio,
+            stylePreset: layoutStyle.defaultStylePreset,
+            engravingPreset: layoutStyle.defaultEngravingPreset,
             createdAt: .now,
             updatedAt: .now
         )
     }
 
-    static func blank(title: String, key: DocumentKey = .cMajor, measureCount: Int = 4) -> Chart {
+    static func blank(
+        title: String,
+        key: DocumentKey = .cMajor,
+        measureCount: Int = 4,
+        layoutStyle: ChartLayoutStyle = .leadSheet
+    ) -> Chart {
         let normalizedMeasureCount = max(1, measureCount)
+        let measureDefaults = layoutStyle.profile.measureDefaults
         let measures = (1...normalizedMeasureCount).map { index in
             Measure(
                 id: UUID(),
                 index: index,
                 meterOverride: nil,
-                beatGridPreset: .simple,
+                beatGridPreset: measureDefaults.beatGridPreset,
                 barlineAfter: index == normalizedMeasureCount ? .double : .single,
                 chordEvents: [],
                 cueTextIDs: [],
@@ -308,7 +320,7 @@ extension Chart {
         let system = ChartSystem(
             id: UUID(),
             index: 0,
-            spacingMode: .automatic,
+            spacingMode: measureDefaults.systemSpacingMode,
             lineBreakRule: .automatic,
             measures: measures
         )
@@ -317,6 +329,7 @@ extension Chart {
             id: UUID(),
             title: title,
             chartType: .chordChart,
+            layoutStyle: layoutStyle,
             documentKey: key,
             documentFont: .classic,
             defaultTranspositionView: .concert,
@@ -327,7 +340,8 @@ extension Chart {
             sectionLabels: [],
             cueTexts: [],
             roadmapObjects: [],
-            stylePreset: .cleanStudio,
+            stylePreset: layoutStyle.defaultStylePreset,
+            engravingPreset: layoutStyle.defaultEngravingPreset,
             createdAt: .now,
             updatedAt: .now
         )

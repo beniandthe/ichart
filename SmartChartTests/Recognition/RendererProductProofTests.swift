@@ -50,15 +50,16 @@ final class RendererProductProofTests: XCTestCase {
             try? FileManager.default.removeItem(at: exportDirectory)
         }
 
-        let exportedURL = try await exporter.exportPDF(for: chart)
+        let exportedURL = try await exporter.exportPDF(for: chart).url
         let documentText = try XCTUnwrap(PDFDocument(url: exportedURL)?.string)
 
         XCTAssertTrue(documentText.contains("RENDERER PRODUCT PROOF"))
         XCTAssertFalse(documentText.contains("M1"))
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
         for expectedDisplayText in expectedDisplayTexts {
-            XCTAssertTrue(
-                documentText.contains(expectedDisplayText),
+            XCTAssertPDFExtractedTextContains(
+                documentText,
+                visibleChordText: expectedDisplayText,
                 "Expected exported renderer output to contain \(expectedDisplayText). PDF text: \(documentText)"
             )
         }

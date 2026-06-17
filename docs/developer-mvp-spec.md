@@ -61,8 +61,9 @@ The MVP succeeds if it proves the core workflow:
 - PDFKit optional for preview if useful
 
 ### Backend
-- No required backend for v1
+- Supabase-backed account identity, email verification, password recovery, profile, and subscription state are required for production
 - Local-first architecture
+- No required chart cloud sync for local authoring
 - Optional analytics and crash tooling only if lightweight and privacy-appropriate
 
 ## 5. MVP scope
@@ -505,7 +506,8 @@ The output must prioritize readability over decorative style.
 - local save of charts
 - autosave behavior
 - recent chart list
-- no user account required
+- account required for production identity, password recovery, profile, and subscription state
+- chart files remain local-first; chart cloud backup/sync is not required for local editing
 
 ### Nice-to-have if low cost
 - Files export/import support
@@ -513,41 +515,44 @@ The output must prioritize readability over decorative style.
 ## 15. Monetization requirements
 
 ### Launch recommendation
-- free download
-- one-time Pro unlock for the full local tool
-- no required subscription for v1
+- mandatory Basic account for local-first chart authoring
+- Pro subscription for cloud chart services and other ongoing-service value
 
-### Free tier
-- limited local chart count
-- basic local chart creation and editing
+### Basic account tier
+- 3-chart local library cap
+- complete local chart creation and editing tools
+- PDF export and sharing
 - local autosave
 - recent chart library
+- verified email, password recovery, profile, and subscription identity
 
 Recommended initial chart cap:
-- 5 local charts
+- 3 local charts
 
-### Pro tier
+### Pro subscription tier
+- cloud chart backup
+- chart restore after reinstall or new iPad sign-in
+- future cross-device chart sync
 - unlimited local charts
-- PDF export and sharing
-- concert / Bb / Eb transposition views
-- document-wide font presets
-- special notation toolbar tools
-- advanced rhythm-aware chart editing features
+- Forums access
 
-### Later subscription tier
-Only add a recurring plan after Smart Chart includes features such as:
-- cloud sync / backup
-- cross-device chart organization
+### Later Pro expansion candidates
+Only expand recurring service scope after the core cloud chart service is stable:
+- cross-device chart organization beyond backup/restore
 - shared band libraries
 - setlists
 - version history
 - AI-assisted cleanup or recognition upgrades
 
 ### Entitlement behavior
-- free users must be able to reopen their existing local charts
-- Pro must permanently remove the local chart cap
-- a future subscription must not be required for local chart ownership
-- expired subscription state should remove only service-backed features
+- Basic users must be able to reopen their existing local charts
+- account/auth/profile is mandatory base infrastructure, not a paid feature
+- Pro gates cloud chart services because they create ongoing operational cost
+- expired Pro should remove or pause only paid cloud/service-backed features such as cloud backup/sync and Forums
+- downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
+- downgrade pruning deletes user-selected charts locally but does not create remote deletion tombstones
+- remote chart backups should receive a clear grace period, recommended default 30 days, before cloud retention cleanup
+- charts removed locally during downgrade pruning remain in cloud backup until the grace period ends
 - restore purchases must be supported when monetization ships
 
 ## 16. Validation plan

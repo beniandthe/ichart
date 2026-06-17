@@ -1,0 +1,67 @@
+{
+  "identifier": "ICHTPRO1",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {},
+  "subscriptionGroups": [
+    {
+      "id": "ICHTPROGROUP",
+      "localizations": [
+        {
+          "description": "iChart Pro unlocks unlimited charts, Projects, cloud backup, restore, sync, and Forums.",
+          "displayName": "iChart Pro",
+          "locale": "en_US"
+        }
+      ],
+      "name": "iChart Pro",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "7.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "ICHTPROM",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Monthly Pro access for iChart.",
+              "displayName": "iChart Pro Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.smartchart.app.pro.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "iChart Pro Monthly",
+          "subscriptionGroupID": "ICHTPROGROUP",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "64.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "ICHTPROY",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Annual Pro access for iChart.",
+              "displayName": "iChart Pro Annual",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.smartchart.app.pro.annual",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "iChart Pro Annual",
+          "subscriptionGroupID": "ICHTPROGROUP",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

@@ -11,6 +11,13 @@ enum LeadSheetSavedInkRenderer {
         )
     }
 
+    static func drawHeaderInk(_ drawingData: Data?, in pageLayout: LeadSheetPageLayout) {
+        drawInk(
+            drawingData,
+            in: pageLayout.header.handwrittenFrame
+        )
+    }
+
     static func drawChordInk(_ drawingData: Data?, in pageLayout: LeadSheetPageLayout) {
         drawInk(
             drawingData,
@@ -20,6 +27,12 @@ enum LeadSheetSavedInkRenderer {
 
     static func drawRhythmicNotationInk(_ drawingData: Data?, in measureLayout: LeadSheetMeasureLayout) {
         drawInk(drawingData, in: measureLayout.writableFrame)
+    }
+
+    static func drawFreehandSymbols(_ symbolLayouts: [LeadSheetFreehandSymbolLayout]) {
+        for symbolLayout in symbolLayouts {
+            drawInk(symbolLayout.symbol.drawingData, in: symbolLayout.frame)
+        }
     }
 
     private static func drawInk(_ drawingData: Data?, in frame: CGRect) {

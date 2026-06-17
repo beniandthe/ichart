@@ -49,7 +49,7 @@ enum LeadSheetChordInkRecognitionTargeting {
         center: CGPoint,
         for measure: LeadSheetMeasureLayout
     ) -> CGFloat {
-        let generousBandFrame = measure.chordBandFrame.insetBy(dx: -14, dy: -18)
+        let generousBandFrame = measure.chordWritingFrame.insetBy(dx: -14, dy: -18)
         let intersection = generousBandFrame.intersection(inkBounds)
         let intersectionArea = intersection.isNull ? 0 : intersection.width * intersection.height
         let centerBonus: CGFloat = generousBandFrame.contains(center) ? 10_000 : 0

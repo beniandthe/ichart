@@ -10,22 +10,55 @@ settings:
   base:
     PRODUCT_NAME: SmartChart
     PRODUCT_BUNDLE_IDENTIFIER: com.smartchart.app
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "2"
     SWIFT_VERSION: "5.10"
-    GENERATE_INFOPLIST_FILE: true
-    INFOPLIST_KEY_CFBundleDisplayName: Smart Chart
-    INFOPLIST_KEY_UILaunchScreen_Generation: true
-    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    ALWAYS_SEARCH_USER_PATHS: false
     SUPPORTS_MACCATALYST: false
+    SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co
+    SUPABASE_PUBLISHABLE_KEY: sb_publishable_ZyyagOMS_Dfyf9pASisrtQ_9Dei0_x7
+    SUPABASE_ANON_KEY: ""
   configs:
     Debug:
       ENABLE_TESTABILITY: true
+      ONLY_ACTIVE_ARCH: true
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+
+fileGroups:
+  - StoreKit
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift.git
+    from: 2.0.0
 
 targets:
   SmartChart:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    info:
+      path: SmartChart/App/Info.plist
+      properties:
+        CFBundleDisplayName: Smart Chart
+        CFBundleURLTypes:
+          - CFBundleURLName: com.smartchart.app.auth
+            CFBundleURLSchemes:
+              - ichart
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        SupabaseURL: "$(SUPABASE_URL)"
+        SupabasePublishableKey: "$(SUPABASE_PUBLISHABLE_KEY)"
+        SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
     sources:
       - path: SmartChart
         excludes:
@@ -36,6 +69,9 @@ targets:
         buildPhase: resources
         excludes:
           - "**/metadata.json"
+    dependencies:
+      - package: Supabase
+        product: Supabase
   SmartChartTests:
     type: bundle.unit-test
     platform: iOS
@@ -56,6 +92,9 @@ schemes:
     build:
       targets:
         SmartChart: all
+    run:
+      config: Debug
+      storeKitConfiguration: StoreKit/iChartProSubscriptions.storekit
     test:
       targets:
         - SmartChartTests

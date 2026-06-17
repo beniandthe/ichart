@@ -6,6 +6,72 @@ enum MeasureAuthoringState: String, Codable, Hashable {
     case committed
 }
 
+struct LeadSheetStaffPosition: Codable, Hashable {
+    static let topLineStep = 0
+    static let bottomLineStep = 8
+
+    var staffStep: Int
+
+    init(staffStep: Int) {
+        self.staffStep = Self.clampedStep(staffStep)
+    }
+
+    static func clampedStep(_ step: Int) -> Int {
+        min(max(step, topLineStep), bottomLineStep)
+    }
+}
+
+struct LeadSheetPitchedNoteEvent: Identifiable, Codable, Hashable {
+    var id: UUID
+    var rhythmSlotIndex: Int
+    var staffPosition: LeadSheetStaffPosition
+    var sourceInkData: Data?
+
+    init(
+        id: UUID = UUID(),
+        rhythmSlotIndex: Int,
+        staffPosition: LeadSheetStaffPosition,
+        sourceInkData: Data? = nil
+    ) {
+        self.id = id
+        self.rhythmSlotIndex = rhythmSlotIndex
+        self.staffPosition = staffPosition
+        self.sourceInkData = sourceInkData
+    }
+}
+
+struct LeadSheetPitchedNoteInput: Hashable {
+    var rhythmValue: RhythmValue
+    var staffPosition: LeadSheetStaffPosition
+    var sourceInkData: Data?
+
+    init(
+        rhythmValue: RhythmValue,
+        staffPosition: LeadSheetStaffPosition,
+        sourceInkData: Data? = nil
+    ) {
+        self.rhythmValue = rhythmValue
+        self.staffPosition = staffPosition
+        self.sourceInkData = sourceInkData
+    }
+}
+
+struct LeadSheetPitchedNoteSlotInput: Hashable {
+    var rhythmSlotIndex: Int
+    var staffPosition: LeadSheetStaffPosition
+    var sourceInkData: Data?
+
+    init(
+        rhythmSlotIndex: Int,
+        staffPosition: LeadSheetStaffPosition,
+        sourceInkData: Data? = nil
+    ) {
+        self.rhythmSlotIndex = rhythmSlotIndex
+        self.staffPosition = staffPosition
+        self.sourceInkData = sourceInkData
+    }
+}
+
 struct Measure: Identifiable, Codable, Hashable {
     static let minimumManualLayoutWidth: CGFloat = 96
     static let maximumManualLayoutWidth: CGFloat = 420
@@ -15,6 +81,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var meterOverride: Meter?
     var beatGridPreset: BeatGridPreset
     var rhythmMap: MeasureRhythmMap? = nil
+    var pitchedNoteEvents: [LeadSheetPitchedNoteEvent]
     var manualLayoutWidth: Double? = nil
     var handwrittenRhythmicNotationData: Data? = nil
     var barlineAfter: BarlineType
@@ -29,6 +96,7 @@ struct Measure: Identifiable, Codable, Hashable {
         meterOverride: Meter?,
         beatGridPreset: BeatGridPreset,
         rhythmMap: MeasureRhythmMap? = nil,
+        pitchedNoteEvents: [LeadSheetPitchedNoteEvent] = [],
         manualLayoutWidth: Double? = nil,
         handwrittenRhythmicNotationData: Data? = nil,
         barlineAfter: BarlineType,
@@ -42,6 +110,7 @@ struct Measure: Identifiable, Codable, Hashable {
         self.meterOverride = meterOverride
         self.beatGridPreset = beatGridPreset
         self.rhythmMap = rhythmMap
+        self.pitchedNoteEvents = pitchedNoteEvents
         self.manualLayoutWidth = manualLayoutWidth
         self.handwrittenRhythmicNotationData = handwrittenRhythmicNotationData
         self.barlineAfter = barlineAfter
@@ -57,6 +126,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case meterOverride
         case beatGridPreset
         case rhythmMap
+        case pitchedNoteEvents
         case manualLayoutWidth
         case handwrittenRhythmicNotationData
         case barlineAfter
@@ -73,6 +143,7 @@ struct Measure: Identifiable, Codable, Hashable {
         meterOverride = try container.decodeIfPresent(Meter.self, forKey: .meterOverride)
         beatGridPreset = try container.decode(BeatGridPreset.self, forKey: .beatGridPreset)
         rhythmMap = try container.decodeIfPresent(MeasureRhythmMap.self, forKey: .rhythmMap)
+        pitchedNoteEvents = try container.decodeIfPresent([LeadSheetPitchedNoteEvent].self, forKey: .pitchedNoteEvents) ?? []
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
         handwrittenRhythmicNotationData = try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
         barlineAfter = try container.decode(BarlineType.self, forKey: .barlineAfter)
@@ -89,6 +160,9 @@ struct Measure: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(meterOverride, forKey: .meterOverride)
         try container.encode(beatGridPreset, forKey: .beatGridPreset)
         try container.encodeIfPresent(rhythmMap, forKey: .rhythmMap)
+        if !pitchedNoteEvents.isEmpty {
+            try container.encode(pitchedNoteEvents, forKey: .pitchedNoteEvents)
+        }
         try container.encodeIfPresent(manualLayoutWidth, forKey: .manualLayoutWidth)
         try container.encodeIfPresent(handwrittenRhythmicNotationData, forKey: .handwrittenRhythmicNotationData)
         try container.encode(barlineAfter, forKey: .barlineAfter)

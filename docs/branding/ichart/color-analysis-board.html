@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iChart Color Analysis Board</title>
+  <style>
+    :root {
+      --night: #10161c;
+      --stage: #0f151b;
+      --ink: #151a1f;
+      --paper: #f7f3ea;
+      --paper-2: #eee6d9;
+      --blue: #226c8a;
+      --light-blue: #8fd3e6;
+      --blue-soft: #dcecf1;
+      --staff: #484d51;
+      --line: rgba(21, 26, 31, 0.12);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(120deg, rgba(34, 108, 138, 0.12), transparent 34%),
+        var(--paper);
+    }
+
+    main {
+      width: min(1480px, calc(100vw - 64px));
+      margin: 0 auto;
+      padding: 40px 0 52px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 32px;
+      align-items: end;
+      padding-bottom: 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 44px;
+      line-height: 1;
+    }
+
+    .subtitle {
+      max-width: 860px;
+      margin-top: 10px;
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 17px;
+      line-height: 1.42;
+    }
+
+    .pill {
+      border: 1px solid rgba(34, 108, 138, 0.22);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--blue);
+      background: rgba(220, 236, 241, 0.72);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    section {
+      padding-top: 28px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .logo-panel,
+    .verdict-panel,
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 18px 48px rgba(21, 26, 31, 0.10);
+      overflow: hidden;
+    }
+
+    .logo-panel {
+      display: grid;
+      place-items: center;
+      min-height: 420px;
+      padding: 28px;
+      background: var(--stage);
+    }
+
+    .logo-panel img {
+      display: block;
+      width: 100%;
+      max-width: 940px;
+      height: auto;
+    }
+
+    .verdict-panel {
+      padding: 26px;
+      display: grid;
+      gap: 18px;
+      align-content: center;
+    }
+
+    .verdict {
+      color: var(--blue);
+      font-size: 40px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .verdict-panel p,
+    .card p,
+    .note {
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 15px;
+      line-height: 1.42;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric {
+      padding: 14px;
+      border-radius: 8px;
+      background: var(--blue-soft);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 6px;
+      color: rgba(21, 26, 31, 0.66);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .palette-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .swatch {
+      min-height: 178px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      border-radius: 8px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+    }
+
+    .swatch.dark {
+      color: var(--paper);
+    }
+
+    .swatch.light {
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px rgba(21, 26, 31, 0.10);
+    }
+
+    .swatch strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .swatch span {
+      display: block;
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      opacity: 0.76;
+      text-transform: uppercase;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 20px;
+    }
+
+    .card h3 {
+      margin-bottom: 10px;
+      font-size: 20px;
+      line-height: 1.08;
+    }
+
+    .contrast-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .contrast-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--line);
+    }
+
+    .ratio {
+      font-weight: 900;
+      color: var(--blue);
+    }
+
+    .rule-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .rule {
+      padding: 18px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .rule strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 17px;
+    }
+
+    @media (max-width: 900px) {
+      header,
+      .hero-grid,
+      .card-grid,
+      .rule-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .metric-grid,
+      .palette-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>iChart color analysis</h1>
+        <p class="subtitle">Audit of the B4.8A-H1 canon logo and current Library home-screen palette: psychology, function, contrast, and usage rules.</p>
+      </div>
+      <div class="pill">keep palette</div>
+    </header>
+
+    <section class="hero-grid">
+      <div class="logo-panel">
+        <img src="exports/ichart-b48a-h1-canon-logo.png" alt="iChart B4.8A-H1 canon logo">
+      </div>
+      <div class="verdict-panel">
+        <div class="verdict">Functional and appropriate.</div>
+        <p>The current colors read as a focused music workstation: serious, calm, precise, and chart-native. The palette is not trying to entertain the user; it is trying to help them trust the workspace.</p>
+        <div class="metric-grid">
+          <div class="metric"><strong>16.58</strong><span>Paper on Stage</span></div>
+          <div class="metric"><strong>11.04</strong><span>Blue C on Stage</span></div>
+          <div class="metric"><strong>5.30</strong><span>Accent on Paper</span></div>
+          <div class="metric"><strong>2.14</strong><span>Staff on Stage</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="palette-grid">
+        <div class="swatch dark" style="background:#10161c"><strong>Night</strong><span>#10161c</span></div>
+        <div class="swatch dark" style="background:#0f151b"><strong>Stage</strong><span>#0f151b</span></div>
+        <div class="swatch dark" style="background:#151a1f"><strong>Ink</strong><span>#151a1f</span></div>
+        <div class="swatch light" style="background:#f7f3ea"><strong>Paper</strong><span>#f7f3ea</span></div>
+        <div class="swatch light" style="background:#eee6d9"><strong>Paper 2</strong><span>#eee6d9</span></div>
+        <div class="swatch dark" style="background:#226c8a"><strong>iChart Blue</strong><span>#226c8a</span></div>
+        <div class="swatch light" style="background:#8fd3e6"><strong>Light Blue</strong><span>#8fd3e6</span></div>
+        <div class="swatch light" style="background:#dcecf1"><strong>Blue Soft</strong><span>#dcecf1</span></div>
+      </div>
+    </section>
+
+    <section class="card-grid">
+      <article class="card">
+        <h3>Psychology</h3>
+        <p>Navy creates focus, trust, depth, and a stage/workbench feeling. Warm paper keeps the system human and tied to printed charts. Blue adds modern clarity without becoming loud.</p>
+      </article>
+      <article class="card">
+        <h3>Audience Fit</h3>
+        <p>Good for musicians, educators, and chart writers who need a reliable long-session tool. It feels professional without becoming corporate, and musical without becoming decorative.</p>
+      </article>
+      <article class="card">
+        <h3>Main Risk</h3>
+        <p>The pale logo blue is excellent on dark but weak on light. Use iChart Blue for light-surface controls and text. The staff lines are symbolic and should not carry important UI meaning.</p>
+      </article>
+    </section>
+
+    <section class="rule-grid">
+      <div class="rule">
+        <strong>Use dark for framing.</strong>
+        <p class="note">Stage and Night should frame brand moments, headers, toolbars, and modal emphasis.</p>
+      </div>
+      <div class="rule">
+        <strong>Use paper for work.</strong>
+        <p class="note">Chart writing and reading surfaces should stay warm, quiet, and high contrast.</p>
+      </div>
+      <div class="rule">
+        <strong>Use iChart Blue for action.</strong>
+        <p class="note">Primary controls, active state, and light-surface accents should use #226c8a.</p>
+      </div>
+      <div class="rule">
+        <strong>Keep Light Blue on dark.</strong>
+        <p class="note">#8fd3e6 is the logo-C color on dark stage surfaces, not a general UI text color.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

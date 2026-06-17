@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iChart Appearance Directions</title>
+  <style>
+    :root {
+      --night: #10161c;
+      --stage: #0f151b;
+      --ink: #151a1f;
+      --paper: #f7f3ea;
+      --paper-2: #eee6d9;
+      --blue: #226c8a;
+      --light-blue: #8fd3e6;
+      --blue-soft: #dcecf1;
+      --line: rgba(21, 26, 31, 0.13);
+      --shadow: 0 20px 52px rgba(21, 26, 31, 0.12);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    @font-face {
+      font-family: "iChartFinaleMaestroText";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleMaestroText-Regular.otf") format("opentype");
+    }
+
+    @font-face {
+      font-family: "iChartFinaleMaestroTextItalic";
+      src: url("../../../SmartChart/Resources/Fonts/FinaleMaestroText-Italic.otf") format("opentype");
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    main {
+      width: min(1540px, calc(100vw - 64px));
+      margin: 0 auto;
+      padding: 40px 0 52px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 44px;
+      line-height: 1;
+    }
+
+    .subtitle {
+      max-width: 920px;
+      margin-top: 10px;
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 17px;
+      line-height: 1.42;
+    }
+
+    .pill {
+      border: 1px solid rgba(34, 108, 138, 0.22);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--blue);
+      background: var(--blue-soft);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .directions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      padding-top: 28px;
+    }
+
+    .direction {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .direction-head {
+      display: grid;
+      gap: 8px;
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+      min-height: 132px;
+    }
+
+    .direction-head h2 {
+      font-size: 24px;
+      line-height: 1.04;
+    }
+
+    .direction-head p {
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 14px;
+      line-height: 1.42;
+    }
+
+    .mock-shell {
+      padding: 16px;
+      min-height: 620px;
+    }
+
+    .device {
+      height: 590px;
+      border-radius: 8px;
+      border: 1px solid rgba(21, 26, 31, 0.14);
+      overflow: hidden;
+      background: var(--paper);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px;
+    }
+
+    .wordmark {
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 0;
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 0.86;
+      color: var(--paper);
+      letter-spacing: 0;
+    }
+
+    .wordmark .i {
+      display: inline-block;
+      margin-right: -0.025em;
+      color: var(--paper);
+      font-family: "iChartFinaleMaestroTextItalic", "Times New Roman", ui-serif, serif;
+      font-size: 0.58em;
+      transform: translate(-0.055em, -0.16em);
+    }
+
+    .wordmark .c {
+      color: var(--light-blue);
+    }
+
+    .wordmark.light {
+      color: var(--ink);
+    }
+
+    .wordmark.light .i,
+    .wordmark.light .rest {
+      color: var(--ink);
+    }
+
+    .wordmark.light .c {
+      color: var(--blue);
+    }
+
+    .button {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--paper);
+      background: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .ghost-button {
+      flex: 0 0 auto;
+      border: 1px solid rgba(247, 243, 234, 0.18);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: rgba(247, 243, 234, 0.84);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .content {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      border-radius: 8px;
+      color: var(--paper);
+      background: var(--stage);
+    }
+
+    .hero-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .metric-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .metric {
+      border-radius: 999px;
+      padding: 6px 9px;
+      color: rgba(247, 243, 234, 0.72);
+      background: rgba(247, 243, 234, 0.08);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .section-label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(21, 26, 31, 0.62);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .row {
+      display: grid;
+      gap: 5px;
+      padding: 12px;
+      border: 1px solid rgba(21, 26, 31, 0.10);
+      border-radius: 8px;
+      background: rgba(247, 243, 234, 0.86);
+    }
+
+    .row.selected {
+      border-color: rgba(34, 108, 138, 0.38);
+      background: var(--blue-soft);
+    }
+
+    .row strong {
+      font-size: 14px;
+      line-height: 1.1;
+    }
+
+    .row span {
+      color: rgba(21, 26, 31, 0.58);
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .editor-preview {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(238, 230, 217, 0.74);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      padding: 8px;
+      border-radius: 8px;
+      background: rgba(247, 243, 234, 0.74);
+    }
+
+    .tool {
+      border-radius: 7px;
+      padding: 7px 9px;
+      color: rgba(21, 26, 31, 0.78);
+      background: rgba(255, 255, 255, 0.68);
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .tool.active {
+      color: var(--paper);
+      background: var(--blue);
+    }
+
+    .paper-page {
+      height: 172px;
+      padding: 14px;
+      border: 1px solid rgba(21, 26, 31, 0.18);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .chart-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 850;
+      font-size: 14px;
+    }
+
+    .staff {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .staff span {
+      display: block;
+      height: 1.5px;
+      background: rgba(21, 26, 31, 0.62);
+    }
+
+    .chord-row {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 18px;
+      color: var(--ink);
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .notes {
+      display: grid;
+      gap: 10px;
+      padding: 16px 18px 18px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.56);
+    }
+
+    .notes h3 {
+      font-size: 16px;
+    }
+
+    .notes p {
+      color: rgba(21, 26, 31, 0.72);
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .ratio {
+      display: grid;
+      grid-template-columns: 3fr 1fr 0.6fr 0.2fr;
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+    }
+
+    .ratio span:nth-child(1) { background: var(--paper); }
+    .ratio span:nth-child(2) { background: var(--stage); }
+    .ratio span:nth-child(3) { background: var(--blue-soft); }
+    .ratio span:nth-child(4) { background: var(--blue); }
+
+    .direction.stage .device {
+      background:
+        linear-gradient(180deg, rgba(16, 22, 28, 0.10), transparent 42%),
+        var(--paper);
+    }
+
+    .direction.stage .nav {
+      color: var(--paper);
+      background: var(--stage);
+    }
+
+    .direction.paper .device {
+      background: var(--paper);
+    }
+
+    .direction.paper .nav {
+      border-bottom: 1px solid rgba(21, 26, 31, 0.10);
+      background: rgba(255, 255, 255, 0.44);
+    }
+
+    .direction.paper .hero {
+      color: var(--ink);
+      background: rgba(238, 230, 217, 0.82);
+      border: 1px solid rgba(21, 26, 31, 0.10);
+    }
+
+    .direction.paper .hero .metric {
+      color: rgba(21, 26, 31, 0.62);
+      background: rgba(255, 255, 255, 0.70);
+    }
+
+    .direction.console .device {
+      display: grid;
+      grid-template-columns: 74px minmax(0, 1fr);
+      background: var(--paper);
+    }
+
+    .rail {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      padding: 16px 10px;
+      color: var(--paper);
+      background: var(--stage);
+    }
+
+    .rail-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      margin: 0 auto 8px;
+      border-radius: 8px;
+      color: var(--light-blue);
+      border: 1px solid rgba(143, 211, 230, 0.34);
+      font-family: "iChartFinaleMaestroText", "Times New Roman", ui-serif, serif;
+      font-size: 30px;
+      font-weight: 900;
+    }
+
+    .rail-item {
+      width: 42px;
+      height: 42px;
+      margin: 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: rgba(247, 243, 234, 0.68);
+      background: rgba(247, 243, 234, 0.06);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .rail-item.active {
+      color: var(--paper);
+      background: var(--blue);
+    }
+
+    .console-body {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .console-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px;
+      border-bottom: 1px solid rgba(21, 26, 31, 0.10);
+      background: var(--paper-2);
+    }
+
+    .console-top strong {
+      font-size: 15px;
+    }
+
+    .console-main {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    @media (max-width: 1100px) {
+      header,
+      .directions {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>iChart appearance directions</h1>
+        <p class="subtitle">Three app-surface directions using the locked B4.8A-H1 palette rules. Same identity, different product posture.</p>
+      </div>
+      <div class="pill">appearance studies</div>
+    </header>
+
+    <section class="directions">
+      <article class="direction stage">
+        <div class="direction-head">
+          <h2>A. Stage Workbench</h2>
+          <p>The closest evolution of the current home screen: confident dark brand framing, warm library/editor surfaces, and clear blue action.</p>
+        </div>
+        <div class="mock-shell">
+          <div class="device">
+            <div class="nav">
+              <div class="wordmark"><span class="i">i</span><span class="c">C</span><span class="rest">hart</span></div>
+              <div class="ghost-button">Saved</div>
+            </div>
+            <div class="content">
+              <div class="hero">
+                <div class="hero-row">
+                  <div>
+                    <strong>Local chart library</strong>
+                    <p style="margin-top:4px;color:rgba(247,243,234,.62);font-size:12px">Create, open, and export charts.</p>
+                  </div>
+                  <div class="button">New Chart</div>
+                </div>
+                <div class="metric-row">
+                  <div class="metric">4 charts</div>
+                  <div class="metric">1 of 5 free slots</div>
+                  <div class="metric">Saved locally</div>
+                </div>
+              </div>
+              <div class="section-label"><span>Charts</span><span>4 charts</span></div>
+              <div class="row selected"><strong>deez</strong><span>Simple Chord Sheet · 4/4 · 4 measures</span></div>
+              <div class="row"><strong>Untitled Chart</strong><span>Rhythm Section Sheet · 4/4 · 8 measures</span></div>
+              <div class="editor-preview">
+                <div class="toolbar"><span class="tool active">Write</span><span class="tool">Erase</span><span class="tool">Move</span></div>
+                <div class="paper-page">
+                  <div class="chart-title"><span>Turnaround Study</span><span>Bb</span></div>
+                  <div class="staff"><span></span><span></span><span></span><span></span></div>
+                  <div class="chord-row"><span>Bb</span><span>G7</span><span>Cm7</span><span>F7</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="ratio"><span></span><span></span><span></span><span></span></div>
+          <h3>Best for first rollout</h3>
+          <p>Feels most aligned with the current home-screen trial. Strong brand moment, but the editor still stays paper-first.</p>
+        </div>
+      </article>
+
+      <article class="direction paper">
+        <div class="direction-head">
+          <h2>B. Paper Studio</h2>
+          <p>A quieter, chart-first treatment: less dark chrome, more warm surface area, and the brand expressed through typography and action color.</p>
+        </div>
+        <div class="mock-shell">
+          <div class="device">
+            <div class="nav">
+              <div class="wordmark light"><span class="i">i</span><span class="c">C</span><span class="rest">hart</span></div>
+              <div class="button">New Chart</div>
+            </div>
+            <div class="content">
+              <div class="hero">
+                <div>
+                  <strong>Today’s charts</strong>
+                  <p style="margin-top:4px;color:rgba(21,26,31,.62);font-size:12px">Paper-forward library with brand color kept functional.</p>
+                </div>
+                <div class="metric-row">
+                  <div class="metric">Recent</div>
+                  <div class="metric">Writable</div>
+                  <div class="metric">Export-ready</div>
+                </div>
+              </div>
+              <div class="section-label"><span>Library</span><span>paper surface</span></div>
+              <div class="row selected"><strong>Turnaround Study</strong><span>Lead Sheet · Bb major · 2 measures</span></div>
+              <div class="row"><strong>Untitled Chart</strong><span>Rhythm Section Sheet · 8 measures</span></div>
+              <div class="editor-preview">
+                <div class="toolbar"><span class="tool active">Chord</span><span class="tool">Rhythm</span><span class="tool">Text</span></div>
+                <div class="paper-page">
+                  <div class="chart-title"><span>Simple Chord Sheet</span><span>4/4</span></div>
+                  <div class="staff"><span></span><span></span><span></span><span></span></div>
+                  <div class="chord-row"><span>Fmaj7</span><span>A7</span><span>Dm7</span><span>G7</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="ratio" style="grid-template-columns:4fr .45fr .6fr .15fr"><span></span><span></span><span></span><span></span></div>
+          <h3>Best for long writing sessions</h3>
+          <p>Most comfortable and least branded. The risk is that the app can feel less distinctive unless the logo and typography stay sharp.</p>
+        </div>
+      </article>
+
+      <article class="direction console">
+        <div class="direction-head">
+          <h2>C. Rehearsal Console</h2>
+          <p>A pro-leaning editor shell: dark navigation rail and command surface around a warm chart page, built for repeated action and live confidence.</p>
+        </div>
+        <div class="mock-shell">
+          <div class="device">
+            <div class="rail">
+              <div class="rail-mark">C</div>
+              <div class="rail-item active">W</div>
+              <div class="rail-item">E</div>
+              <div class="rail-item">M</div>
+              <div class="rail-item">X</div>
+            </div>
+            <div class="console-body">
+              <div class="console-top">
+                <div><strong>Turnaround Study</strong><br><span style="color:rgba(21,26,31,.58);font-size:12px">Lead Sheet · Bb · 4/4</span></div>
+                <div class="button">Export</div>
+              </div>
+              <div class="console-main">
+                <div class="toolbar"><span class="tool active">Write</span><span class="tool">Select</span><span class="tool">Bars</span><span class="tool">Layout</span></div>
+                <div class="paper-page" style="height:250px">
+                  <div class="chart-title"><span>Bridge</span><span>Saved</span></div>
+                  <div class="staff"><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="chord-row"><span>Bb</span><span>D7</span><span>Gm</span><span>C7</span></div>
+                </div>
+                <div class="row selected"><strong>Pending recognition</strong><span>Blue Soft state with iChart Blue outline.</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="ratio" style="grid-template-columns:2.6fr 1.25fr .55fr .25fr"><span></span><span></span><span></span><span></span></div>
+          <h3>Best for the editor</h3>
+          <p>Most operational and professional. The risk is over-darkening the product if the rail grows beyond framing.</p>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

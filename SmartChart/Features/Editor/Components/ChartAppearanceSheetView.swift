@@ -23,7 +23,7 @@ enum ChartAppearancePanel: String, Identifiable {
         case .documentStyle:
             return "Set the overall visual personality of the chart."
         case .notationFont:
-            return "Choose the SMuFL notation family used for glyphs."
+            return "Choose the notation symbol style used in the chart."
         case .engraving:
             return "Control spacing and stroke weight for the page."
         }
@@ -80,7 +80,7 @@ struct ChartAppearanceSheetView: View {
     }
 
     private var notationFontRows: some View {
-        Section("SMuFL Font") {
+        Section("Notation Font") {
             ForEach(NotationFontPreset.allCases) { preset in
                 AppearanceChoiceRow(
                     title: preset.displayText,
@@ -111,7 +111,8 @@ struct ChartAppearanceSheetView: View {
 
     private func notationPreview(for preset: NotationFontPreset) -> String {
         let four = NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"
-        return "\(NotationGlyphCatalog.trebleClef)  \(four) \(four)"
+        let three = NotationGlyphCatalog.timeSignatureDigit(3) ?? "3"
+        return "\(four)\(four)   \(three)\(four)"
     }
 }
 

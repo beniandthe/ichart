@@ -57,10 +57,15 @@ final class SmuflFontMetadataTests: XCTestCase {
 
     func testSemanticCatalogMapsSymbolsToOfficialSmuflGlyphNames() {
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .trebleClef), "gClef")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .bassClef), "fClef")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .slashNotehead), "noteheadSlashVerticalEnds")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .slashWholeNotehead), "noteheadSlashWhiteWhole")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .quarterRest), "restQuarter")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .eighthRest), "rest8th")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .accidentalFlat), "accidentalFlat")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .accidentalSharp), "accidentalSharp")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .coda), "coda")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .segno), "segno")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .timeSignatureDigit(4)), "timeSig4")
         XCTAssertNil(NotationGlyphCatalog.smuflGlyphName(for: .timeSignatureDigit(12)))
     }
@@ -80,6 +85,8 @@ final class SmuflFontMetadataTests: XCTestCase {
 
             XCTAssertEqual(metadata.fontName, preset.smuflMetadataDirectoryName)
             XCTAssertGreaterThan(trebleClef.boundingBox?.height ?? 0, 4.0)
+            XCTAssertNotNil(metadata.metrics(forGlyphNamed: "coda"))
+            XCTAssertNotNil(metadata.metrics(forGlyphNamed: "segno"))
             XCTAssertGreaterThan(metadata.glyphBoundingBoxes.count, 100)
         }
     }

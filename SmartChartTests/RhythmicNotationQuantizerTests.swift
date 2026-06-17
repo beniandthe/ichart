@@ -58,6 +58,1003 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(values, [.eighth, .eighth, .eighth, .eighth, .half])
     }
 
+    func testQuantizerReadsSlopedLooseBeamAcrossSeparateEighthStems() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            slopedLooseBeamedEighthPair(startX: 22, direction: .downward),
+            slopedLooseBeamedEighthPair(startX: 92, direction: .upward),
+            halfNote(x: 172)
+        ].flatMap { $0 })
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.eighth, .eighth, .eighth, .eighth, .half])
+    }
+
+    func testQuantizerDoesNotStretchFoldedBeamedPairIntoDottedHalfForExactFit() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            foldedRightStemBeamedEighthPair(startX: 22),
+            quarterNote(x: 92)
+        ].flatMap { $0 })
+
+        do {
+            _ = try RhythmicNotationQuantizer.quantize(
+                drawing: drawing,
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+            XCTFail("Expected folded beamed eighth pair plus quarter to remain underfilled")
+        } catch let error as RhythmicNotationQuantizationError {
+            XCTAssertEqual(error, .underfilled(expectedBeats: 4, actualBeats: 2))
+        }
+    }
+
+    func testQuantizerReadsFoldedRightStemBeamedEighthPairs() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            foldedRightStemBeamedEighthPair(startX: 22),
+            foldedRightStemBeamedEighthPair(startX: 92),
+            halfNote(x: 172)
+        ].flatMap { $0 })
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.eighth, .eighth, .eighth, .eighth, .half])
+    }
+
+    func testQuantizerReadsDottedHalfWithTouchedUpTrailingBeamedEighths() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            dottedHalfNote(x: 18),
+            touchedUpBeamedEighthPair(startX: 100)
+        ].flatMap { $0 })
+
+        let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(proposal.values, [.dottedHalf, .eighth, .eighth])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertTrue(proposal.isNaturalExactFit)
+    }
+
+    func testV3DecisionCommitsNaturalVisualPhrase() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            dottedHalfNote(x: 18),
+            touchedUpBeamedEighthPair(startX: 100)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V3 to commit a natural visual phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.dottedHalf, .eighth, .eighth])
+        XCTAssertEqual(phrase.source, .visual)
+        XCTAssertEqual(phrase.naturalValues, [.dottedHalf, .eighth, .eighth])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+        XCTAssertTrue(phrase.primitives.contains { $0.kind == .notehead })
+        XCTAssertFalse(phrase.symbols.isEmpty)
+    }
+
+    func testV4DecisionCommitsNaturalSlashPhraseThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            rhythmSlash(x: 24),
+            rhythmSlash(x: 84),
+            rhythmSlash(x: 144),
+            rhythmSlash(x: 204)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V3 to commit a natural slash phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.slash, .slash, .slash, .slash])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash, .slash])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionCommitsSlashCountToMeterNumeratorInThreeEight() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: [
+            rhythmSlash(x: 24),
+            rhythmSlash(x: 84),
+            rhythmSlash(x: 144)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 3, denominator: 8),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected three slashes to commit in 3/8, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.slash, .slash, .slash])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionCommitsLooseAndShortSlashPhraseThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            looseRhythmSlash(x: 24, shape: .short),
+            looseRhythmSlash(x: 84, shape: .shallow),
+            looseRhythmSlash(x: 144, shape: .steep),
+            looseRhythmSlash(x: 204, shape: .wobbly)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V3 to commit loose/short slash ink, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.slash, .slash, .slash, .slash])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionKeepsExactSlashPhraseWithUnsupportedCropLocal() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let drawing = PKDrawing(strokes: [
+            rhythmSlash(x: 24),
+            rhythmSlash(x: 84),
+            rhythmSlash(x: 144),
+            rhythmSlash(x: 204),
+            unrecognizedRhythmMark(x: 270)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep unsupported ink local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .unsupported)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash, .slash])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+        XCTAssertEqual(phrase.uncoveredStrokeIndices.count, 1)
+    }
+
+    func testV3ReviewPolicyFlagsCloseCompetingExactPhrases() {
+        let reason = RhythmicNotationQuantizer.exactFitReviewReasonForTesting(
+            exactValues: [.half, .half],
+            candidateScores: [
+                [.half: 0.0, .quarter: 0.2],
+                [.half: 0.0, .dottedHalf: 0.2]
+            ],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(reason, .competingExactPhrases)
+    }
+
+    func testV3ReviewPolicyKeepsWholeMeasureMarksAsManualReview() {
+        let reason = RhythmicNotationQuantizer.exactFitReviewReasonForTesting(
+            exactValues: [.whole],
+            candidateScores: [
+                [.whole: 0.0, .half: 0.2]
+            ],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(reason, .manualReview)
+    }
+
+    func testV4RasterNormalizationOrdersCropsByMeasurePositionIndependentOfStrokeOrder() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            Array(quarterNote(x: 144).reversed()),
+            Array(quarterNote(x: 24).reversed()),
+            Array(quarterNote(x: 204).reversed()),
+            Array(quarterNote(x: 84).reversed())
+        ].flatMap { $0 })
+
+        let crops = RhythmicNotationQuantizer.v4SymbolCropsForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(crops.count, 4)
+        XCTAssertEqual(crops.map(\.index), [0, 1, 2, 3])
+        XCTAssertEqual(crops.map(\.normalizedBounds.minX), crops.map(\.normalizedBounds.minX).sorted())
+        XCTAssertTrue(crops.allSatisfy { !$0.rasterCells.isEmpty })
+    }
+
+    func testV4RasterNormalizationRejectsTinyIsolatedNoiseWithoutBlockingCommit() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            quarterNote(x: 204),
+            tinyNoiseTap(x: 274, y: 8)
+        ].flatMap { $0 })
+
+        let crops = RhythmicNotationQuantizer.v4SymbolCropsForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(crops.count, 4)
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to ignore tiny isolated noise and commit clear quarters, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+    }
+
+    func testV4VisualCompendiumCoversSupportedRhythmVocabulary() {
+        XCTAssertEqual(
+            RhythmicNotationQuantizer.v4SupportedTemplateValuesForTesting(),
+            RhythmicNotationCompendium.supportedValues
+        )
+    }
+
+    func testV4TemplateRejectsBackslashAsSlashPlaceholder() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: rhythmSlash(x: 24, direction: .backslash))
+
+        let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertFalse(templateValues.flatMap { $0 }.contains(.slash))
+    }
+
+    func testV4TemplateDoesNotClassifyStemmedNoteheadAsSlash() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: quarterNote(x: 24))
+
+        let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+        let templateMatches = RhythmicNotationQuantizer.v4TemplateMatchesForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(templateValues.count, 1)
+        XCTAssertTrue(templateValues[0].contains(.quarter))
+        XCTAssertFalse(templateValues[0].contains(.slash))
+        let eighthAlternative = try XCTUnwrap(templateMatches[0].first { $0.values == [.eighth] })
+        XCTAssertFalse(eighthAlternative.canDriveExactFit)
+        XCTAssertTrue(eighthAlternative.canExtendAutoApplyStability)
+    }
+
+    func testV4DecisionCommitsTightlySpacedSlashPhraseThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 150, height: 110)
+        let drawing = PKDrawing(strokes: [
+            compactRhythmSlash(x: 11, width: 21, height: 27),
+            compactRhythmSlash(x: 36, width: 19, height: 26),
+            compactRhythmSlash(x: 69, width: 19, height: 30),
+            compactRhythmSlash(x: 102, width: 21, height: 35)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to own tightly spaced slash ink, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.slash, .slash, .slash, .slash])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash, .slash])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionCommitsClearQuarterPhraseThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            quarterNote(x: 204)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a clear quarter phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionPromotesAlignedAmbiguousHalfNotesBeforeReturningUnderfilled() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let meter = Meter(numerator: 4, denominator: 4)
+        let expectedHalfNotePositions = RhythmicNotationQuantizer.v4RenderComparisonForTesting(
+            values: [.half, .half],
+            observedXPositions: [40, 200],
+            meter: meter,
+            drawingFrame: drawingFrame
+        ).expectedXPositions
+
+        let decision = RhythmicNotationQuantizer.v4UnderfilledExactFitPromotionDecisionForTesting(
+            candidateScores: [
+                [.quarter: 0.0, .half: 0.15],
+                [.quarter: 0.0, .half: 0.15]
+            ],
+            observedXPositions: expectedHalfNotePositions,
+            meter: meter,
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase)? = decision else {
+            XCTFail("Expected V4 to promote aligned ambiguous half notes to commit, got \(String(describing: decision))")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.half, .half])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.half, .half])
+        XCTAssertEqual(phrase.symbols.map(\.selectedValue), [.half, .half])
+    }
+
+    func testV4DecisionDoesNotTreatWideQuarterStemAsEighthFlag() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNoteWithWideStem(x: 24),
+            quarterNoteWithWideStem(x: 84),
+            quarterNoteWithWideStem(x: 144),
+            quarterNoteWithWideStem(x: 204)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to read wide-stem quarters as quarters, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter, .quarter])
+    }
+
+    func testV4DecisionCommitsBeamedEighthsInFirstMiddleAndFinalBeatPositions() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let cases: [([PKStroke], [RhythmValue])] = [
+            (
+                [
+                    foldedRightStemBeamedEighthPair(startX: 24),
+                    quarterNote(x: 104),
+                    quarterNote(x: 174),
+                    quarterNote(x: 244)
+                ].flatMap { $0 },
+                [.eighth, .eighth, .quarter, .quarter, .quarter]
+            ),
+            (
+                [
+                    quarterNote(x: 24),
+                    foldedRightStemBeamedEighthPair(startX: 104),
+                    quarterNote(x: 174),
+                    quarterNote(x: 244)
+                ].flatMap { $0 },
+                [.quarter, .eighth, .eighth, .quarter, .quarter]
+            ),
+            (
+                [
+                    quarterNote(x: 24),
+                    quarterNote(x: 94),
+                    quarterNote(x: 164),
+                    foldedRightStemBeamedEighthPair(startX: 224)
+                ].flatMap { $0 },
+                [.quarter, .quarter, .quarter, .eighth, .eighth]
+            )
+        ]
+
+        for (strokes, expectedValues) in cases {
+            let decision = RhythmicNotationQuantizer.recognitionDecision(
+                drawing: PKDrawing(strokes: strokes),
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            guard case .commit(let proposal, let phrase) = decision else {
+                XCTFail("Expected V4 to commit beamed eighth case \(expectedValues), got \(decision)")
+                continue
+            }
+            XCTAssertEqual(proposal.values, expectedValues)
+            XCTAssertEqual(phrase.source, .rasterTemplate, "Expected V4 source for \(expectedValues)")
+            XCTAssertTrue(phrase.isNaturalExactFit)
+        }
+    }
+
+    func testV4DecisionKeepsTightBeamedMiddlePhraseAsTwoEighthsThenQuarters() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 10),
+            foldedRightStemBeamedEighthPair(startX: 52),
+            quarterNote(x: 118),
+            quarterNote(x: 166)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit tight beamed middle phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarter, .eighth, .eighth, .quarter, .quarter])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionCommitsDottedAndLongValuePhrasesThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        let cases: [([PKStroke], [RhythmValue])] = [
+            (
+                [
+                    dottedHalfNote(x: 24),
+                    quarterNote(x: 190)
+                ].flatMap { $0 },
+                [.dottedHalf, .quarter]
+            ),
+            (
+                [
+                    halfNote(x: 24),
+                    halfNote(x: 164)
+                ].flatMap { $0 },
+                [.half, .half]
+            ),
+            (
+                [
+                    dottedQuarter(x: 24),
+                    singleEighth(x: 104),
+                    halfNote(x: 190)
+                ].flatMap { $0 },
+                [.dottedQuarter, .eighth, .half]
+            )
+        ]
+
+        for (strokes, expectedValues) in cases {
+            let decision = RhythmicNotationQuantizer.recognitionDecision(
+                drawing: PKDrawing(strokes: strokes),
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            guard case .commit(let proposal, let phrase) = decision else {
+                XCTFail("Expected V4 to commit dotted/long phrase \(expectedValues), got \(decision)")
+                continue
+            }
+            XCTAssertEqual(proposal.values, expectedValues)
+            XCTAssertEqual(phrase.source, .rasterTemplate)
+            XCTAssertTrue(phrase.isNaturalExactFit)
+        }
+    }
+
+    func testV4DecisionCoversRestPhrasesThroughRasterTemplateGate() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        let commitCases: [([PKStroke], [RhythmValue])] = [
+            (
+                [
+                    singleStrokeQuarterRest(x: 24),
+                    quarterNote(x: 92),
+                    quarterNote(x: 154),
+                    quarterNote(x: 216)
+                ].flatMap { $0 },
+                [.quarterRest, .quarter, .quarter, .quarter]
+            ),
+            (
+                [
+                    halfRest(x: 24),
+                    quarterNote(x: 144),
+                    quarterNote(x: 218)
+                ].flatMap { $0 },
+                [.halfRest, .quarter, .quarter]
+            ),
+            (
+                [
+                    eighthRest(x: 18),
+                    eighthRest(x: 64),
+                    quarterNote(x: 124),
+                    quarterNote(x: 184),
+                    quarterNote(x: 244)
+                ].flatMap { $0 },
+                [.eighthRest, .eighthRest, .quarter, .quarter, .quarter]
+            )
+        ]
+
+        for (strokes, expectedValues) in commitCases {
+            let decision = RhythmicNotationQuantizer.recognitionDecision(
+                drawing: PKDrawing(strokes: strokes),
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            guard case .commit(let proposal, let phrase) = decision else {
+                XCTFail("Expected V4 to commit rest phrase \(expectedValues), got \(decision)")
+                continue
+            }
+            XCTAssertEqual(proposal.values, expectedValues)
+            XCTAssertEqual(phrase.source, .rasterTemplate)
+            XCTAssertTrue(phrase.isNaturalExactFit)
+        }
+
+        let wholeRestDecision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: PKDrawing(strokes: wholeRest(x: 116)),
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        guard case .needsReview(let reason, let phrase?, let proposal?) = wholeRestDecision else {
+            XCTFail("Expected V4 to require review for a whole-rest measure, got \(wholeRestDecision)")
+            return
+        }
+        XCTAssertEqual(reason, .manualReview)
+        XCTAssertEqual(proposal.values, [.wholeRest])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionRequiresReviewWhenExactFitNeedsUnflaggedEighthAlternative() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            halfNote(x: 18),
+            dottedQuarter(x: 104),
+            quarterNote(x: 196)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
+            XCTFail("Expected V4 to require review for unflagged eighth exact-fit alternative, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .nonNaturalExactFit)
+        XCTAssertEqual(proposal.values, [.half, .dottedQuarter, .eighth])
+        XCTAssertEqual(proposal.safety, .manualReview)
+        XCTAssertFalse(proposal.canAutoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.half, .dottedQuarter, .quarter])
+        XCTAssertFalse(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionKeepsUnderfilledTemplatePhraseLocalWithoutStretching() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep underfilled template ink local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .underfilled)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.naturalUnits, 6)
+        XCTAssertEqual(phrase.targetUnits, 8)
+        XCTAssertFalse(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionKeepsOverflowTemplatePhraseLocalWithoutExactRewrite() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 360, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            quarterNote(x: 204),
+            quarterNote(x: 264)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep overflow template ink local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .overflow)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.naturalUnits, 10)
+        XCTAssertEqual(phrase.targetUnits, 8)
+        XCTAssertFalse(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionKeepsCompletedPhraseWithUnsupportedCropLocal() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 340, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            quarterNote(x: 204),
+            unrecognizedRhythmMark(x: 286)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep unsupported crop local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .unsupported)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+        XCTAssertEqual(phrase.uncoveredStrokeIndices.count, 1)
+        XCTAssertTrue(phrase.symbols.contains { $0.selectedValue == nil && $0.candidateValues.isEmpty })
+    }
+
+    func testV4RenderComparisonRejectsExactValuesWithBadSpacing() {
+        let comparison = RhythmicNotationQuantizer.v4RenderComparisonForTesting(
+            values: [.quarter, .quarter, .quarter, .quarter],
+            observedXPositions: [24, 34, 44, 54],
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: CGRect(x: 0, y: 0, width: 280, height: 88)
+        )
+
+        XCTAssertFalse(comparison.aligned)
+    }
+
+    func testV4RenderComparisonAcceptsAlignedExactValues() {
+        let comparison = RhythmicNotationQuantizer.v4RenderComparisonForTesting(
+            values: [.quarter, .quarter, .quarter, .quarter],
+            observedXPositions: [35, 105, 175, 245],
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: CGRect(x: 0, y: 0, width: 280, height: 88)
+        )
+
+        XCTAssertTrue(comparison.aligned)
+    }
+
+    func testV4DecisionKeepsUnderfilledBeamedTemplatePhraseLocal() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            foldedRightStemBeamedEighthPair(startX: 22),
+            quarterNote(x: 92)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep underfilled template ink local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .underfilled)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.eighth, .eighth, .quarter])
+        XCTAssertFalse(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionCommitsQuarterRestPhraseBeforeVisualFallback() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            singleStrokeQuarterRest(x: 24),
+            quarterNote(x: 86),
+            quarterNote(x: 142),
+            quarterNote(x: 198)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a natural quarter-rest phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarterRest, .quarter, .quarter, .quarter])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.quarterRest, .quarter, .quarter, .quarter])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+        XCTAssertTrue(phrase.primitives.contains { $0.kind == .restShape })
+    }
+
+    func testV4DecisionCommitsHalfRestPhraseBeforeVisualFallback() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            halfRest(x: 24),
+            quarterNote(x: 118),
+            quarterNote(x: 178)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a natural half-rest phrase, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.halfRest, .quarter, .quarter])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.halfRest, .quarter, .quarter])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionRequiresReviewForWholeRestMeasure() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: wholeRest(x: 72))
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
+            XCTFail("Expected V4 to require review for a single whole-rest measure, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .manualReview)
+        XCTAssertEqual(proposal.values, [.wholeRest])
+        XCTAssertEqual(proposal.safety, .manualReview)
+        XCTAssertFalse(proposal.canAutoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.wholeRest])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testV4DecisionRequiresReviewForTightMixedRestNoteCluster() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            oneTakeDotHookTailEighthRest(x: 18),
+            singleEighth(x: 58),
+            dottedHalfNote(x: 124)
+        ].flatMap { $0 })
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.eighthRest, .eighth, .dottedHalf])
+        guard case .needsReview(let reason, let phrase?, let decisionProposal?) = decision else {
+            XCTFail("Expected V4 to require review for a tight mixed rest/note cluster, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .ambiguousPhrase)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.eighthRest, .eighth, .dottedHalf])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+        XCTAssertEqual(decisionProposal.values, [.eighthRest, .eighth, .dottedHalf])
+        XCTAssertEqual(decisionProposal.safety, .manualReview)
+        XCTAssertFalse(decisionProposal.canAutoApply)
+        XCTAssertEqual(proposal.values, [.eighthRest, .eighth, .dottedHalf])
+        XCTAssertFalse(proposal.canAutoApply)
+    }
+
+    func testAutoApplyProposalExtendsGraceForTerminalQuarterLikeStem() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            quarterNote(x: 204)
+        ].flatMap { $0 })
+
+        let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(proposal.safety, .extendedStability)
+        XCTAssertTrue(proposal.canAutoApply)
+        XCTAssertTrue(proposal.requiresExtendedStability)
+    }
+
+    func testAutoApplyProposalCommitsStrongRasterWholeNote() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: wholeNote(x: 72))
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.whole])
+        XCTAssertEqual(proposal.values, [.whole])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertTrue(proposal.canAutoApply)
+        guard case .commit(let committedProposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a clear whole note, got \(decision)")
+            return
+        }
+        XCTAssertEqual(committedProposal.values, [.whole])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.whole])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testAutoApplyProposalCommitsCompactRasterWholeNote() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: compactWholeNote(x: 72))
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a compact whole-note oval, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.whole])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.whole])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testAutoApplyProposalCommitsLiteralClosedCircleAsWholeNote() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: handDrawnCircleWholeNote(x: 72))
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a literal closed circle as a whole note, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.whole])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.whole])
+        XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testAutoApplyProposalDoesNotAutoApplyTinyLowInformationWholeLikeMark() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: tinyWholeLikeMark(x: 72))
+
+        do {
+            let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+                drawing: drawing,
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            XCTAssertFalse(proposal.canAutoApply)
+        } catch {
+            return
+        }
+    }
+
+    func testAutoApplyProposalDoesNotExtendGraceForCompletedLastBeatBeam() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 340, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNote(x: 84),
+            quarterNote(x: 144),
+            foldedRightStemBeamedEighthPair(startX: 204)
+        ].flatMap { $0 })
+
+        let proposal = try RhythmicNotationQuantizer.autoApplyProposal(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .eighth, .eighth])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertTrue(proposal.canAutoApply)
+        XCTAssertFalse(proposal.requiresExtendedStability)
+    }
+
     func testQuantizerKeepsAdjacentDirectBeamGroupsAsEighths() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
         let drawing = PKDrawing(strokes: [
@@ -587,6 +1584,30 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(values, [.eighthRest, .eighth, .dottedHalf])
     }
 
+    func testV3DecisionKeepsNonVisualFallbackExactFitLocalWithoutProposal() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: fallbackStemOnlyQuarterMarks())
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.quarter, .quarter, .quarter, .quarter])
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V3 to keep non-visual fallback ink local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .nonVisualFallback)
+        XCTAssertEqual(phrase.source, .legacyFallback)
+        XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter, .quarter])
+    }
 
     func testQuantizerDoesNotStealOneTakeEighthRestAsEighthNote() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 300, height: 88)
@@ -677,6 +1698,331 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(values, [.quarterRest, .quarterRest, .half])
     }
 
+    func testLeadSheetRhythmCommitStoresPitchedNotesFromStaffInkAnchors() throws {
+        let chart = Chart.blank(title: "Lead", measureCount: 1, layoutStyle: .leadSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let measureLayout = try firstLeadSheetMeasureLayout(in: chart)
+        let xPositions = leadSheetBeatXPositions(in: measureLayout)
+        let drawing = PKDrawing(strokes: [
+            leadSheetQuarterNote(x: xPositions[0], y: leadSheetStaffY(step: 0, in: measureLayout), stemUp: false),
+            leadSheetQuarterNote(x: xPositions[1], y: leadSheetStaffY(step: 2, in: measureLayout), stemUp: false),
+            leadSheetQuarterNote(x: xPositions[2], y: leadSheetStaffY(step: 4, in: measureLayout), stemUp: true),
+            leadSheetQuarterNote(x: xPositions[3], y: leadSheetStaffY(step: 8, in: measureLayout), stemUp: true)
+        ].flatMap { $0 })
+        let drawingFrame = CGRect(
+            origin: .zero,
+            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+        )
+        let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(anchors.count, 4, "\(anchors)")
+        guard case .commit(let proposal, _) = decision else {
+            XCTFail("Expected staff-position quarter notes to commit, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+                proposal.values,
+                drawingData: drawing.dataRepresentation(),
+                for: measureID,
+                measureLayout: measureLayout,
+                in: chart
+            )
+        )
+        let updatedMeasure = try XCTUnwrap(updatedChart.measure(id: measureID))
+
+        XCTAssertEqual(updatedMeasure.rhythmMap?.values, [.quarter, .quarter, .quarter, .quarter])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.rhythmSlotIndex), [0, 1, 2, 3])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.staffPosition.staffStep), [0, 2, 4, 8])
+        XCTAssertNil(updatedMeasure.handwrittenRhythmicNotationData)
+    }
+
+    func testLeadSheetRhythmCommitRequiresPitchAnchorsForPitchedValues() throws {
+        let chart = Chart.blank(title: "Lead", measureCount: 1, layoutStyle: .leadSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let measureLayout = try firstLeadSheetMeasureLayout(in: chart)
+        let xPositions = leadSheetBeatXPositions(in: measureLayout)
+        let drawing = PKDrawing(strokes: [
+            leadSheetQuarterNote(x: xPositions[0], y: leadSheetStaffY(step: 4, in: measureLayout), stemUp: true),
+            leadSheetQuarterNote(x: xPositions[1], y: leadSheetStaffY(step: 4, in: measureLayout), stemUp: true),
+            leadSheetQuarterNote(x: xPositions[2], y: leadSheetStaffY(step: 4, in: measureLayout), stemUp: true)
+        ].flatMap { $0 })
+
+        let updatedChart = LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+            [.quarter, .quarter, .quarter, .quarter],
+            drawingData: drawing.dataRepresentation(),
+            for: measureID,
+            measureLayout: measureLayout,
+            in: chart
+        )
+
+        XCTAssertNil(updatedChart)
+    }
+
+    func testLeadSheetRhythmCommitStoresMixedNotesAndRestsWithPitchAnchors() throws {
+        let chart = Chart.blank(title: "Lead", measureCount: 1, layoutStyle: .leadSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let measureLayout = try firstLeadSheetMeasureLayout(in: chart)
+        let xPositions = leadSheetBeatXPositions(in: measureLayout)
+        let drawing = PKDrawing(strokes: [
+            leadSheetQuarterNote(x: xPositions[0], y: leadSheetStaffY(step: 3, in: measureLayout), stemUp: false),
+            leadSheetQuarterNote(x: xPositions[2], y: leadSheetStaffY(step: 6, in: measureLayout), stemUp: true)
+        ].flatMap { $0 })
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+                [.quarter, .quarterRest, .quarter, .quarterRest],
+                drawingData: drawing.dataRepresentation(),
+                for: measureID,
+                measureLayout: measureLayout,
+                in: chart
+            )
+        )
+        let updatedMeasure = try XCTUnwrap(updatedChart.measure(id: measureID))
+
+        XCTAssertEqual(updatedMeasure.rhythmMap?.values, [.quarter, .quarterRest, .quarter, .quarterRest])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.rhythmSlotIndex), [0, 2])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.staffPosition.staffStep), [3, 6])
+    }
+
+    func testLeadSheetRhythmCommitStoresBeamedEighthPitchAnchors() throws {
+        let chart = Chart.blank(title: "Lead", measureCount: 1, layoutStyle: .leadSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let measureLayout = try firstLeadSheetMeasureLayout(in: chart)
+        let xPositions = leadSheetBeatXPositions(in: measureLayout)
+        let drawing = PKDrawing(strokes: [
+            leadSheetBeamedEighthPair(
+                leftX: xPositions[0] - 12,
+                rightX: xPositions[0] + 22,
+                leftY: leadSheetStaffY(step: 2, in: measureLayout),
+                rightY: leadSheetStaffY(step: 5, in: measureLayout),
+                stemUp: true
+            ),
+            leadSheetDottedQuarterNote(
+                x: xPositions[2],
+                y: leadSheetStaffY(step: 7, in: measureLayout),
+                stemUp: true
+            ),
+            leadSheetDottedQuarterNote(
+                x: xPositions[3],
+                y: leadSheetStaffY(step: 1, in: measureLayout),
+                stemUp: true
+            )
+        ].flatMap { $0 })
+        let drawingFrame = CGRect(
+            origin: .zero,
+            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+        )
+        let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(anchors.count, 4, "\(anchors)")
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+                [.eighth, .eighth, .dottedQuarter, .dottedQuarter],
+                drawingData: drawing.dataRepresentation(),
+                for: measureID,
+                measureLayout: measureLayout,
+                in: chart
+            )
+        )
+        let updatedMeasure = try XCTUnwrap(updatedChart.measure(id: measureID))
+
+        XCTAssertEqual(updatedMeasure.rhythmMap?.values, [.eighth, .eighth, .dottedQuarter, .dottedQuarter])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.rhythmSlotIndex), [0, 1, 2, 3])
+        XCTAssertEqual(updatedMeasure.pitchedNoteEvents.map(\.staffPosition.staffStep), [2, 5, 7, 1])
+    }
+
+    func testReplayExternalRhythmSectionInkThroughLiveDecisionRouteWhenProvided() throws {
+        let snapshot: ChartLibrarySnapshot
+        if let stateBase64 = replayEnvironmentValue("SMART_CHART_RHYTHM_STATE_BASE64"),
+           let stateData = Data(base64Encoded: stateBase64) {
+            let stateURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("smart-chart-rhythm-replay-\(UUID().uuidString).json")
+            try stateData.write(to: stateURL)
+            snapshot = try XCTUnwrap(try FileChartRepository(url: stateURL).loadSnapshot())
+        } else if let statePath = replayEnvironmentValue("SMART_CHART_RHYTHM_STATE") {
+            let repository = FileChartRepository(url: URL(fileURLWithPath: statePath))
+            guard let loadedSnapshot = try repository.loadSnapshot() else {
+                throw XCTSkip("Rhythm replay state was not readable from this test runner: \(statePath)")
+            }
+            snapshot = loadedSnapshot
+        } else if replayEnvironmentValue("SMART_CHART_RHYTHM_STATE_LIVE") == "1" {
+            guard let loadedSnapshot = try FileChartRepository.live().loadSnapshot() else {
+                throw XCTSkip("Live Rhythm Section replay state was not available in this test runner.")
+            }
+            snapshot = loadedSnapshot
+        } else {
+            throw XCTSkip(
+                "Set SMART_CHART_RHYTHM_STATE, SMART_CHART_RHYTHM_STATE_BASE64, or SMART_CHART_RHYTHM_STATE_LIVE to replay saved rhythm ink."
+            )
+        }
+        let chart = try XCTUnwrap(selectedReplayChart(in: snapshot))
+        XCTAssertEqual(chart.layoutStyle, .rhythmSectionSheet)
+
+        let replayMeasure = chart.measures.first { measure in
+            guard let data = measure.handwrittenRhythmicNotationData else {
+                return false
+            }
+            return !data.isEmpty && measure.rhythmMap == nil
+        }
+        guard let measure = replayMeasure else {
+            if replayEnvironmentValue("SMART_CHART_RHYTHM_STATE_LIVE") == "1",
+               replayEnvironmentValue("SMART_CHART_RHYTHM_STATE") == nil,
+               replayEnvironmentValue("SMART_CHART_RHYTHM_STATE_BASE64") == nil {
+                throw XCTSkip("Live Rhythm Section replay state has no saved raw rhythm ink awaiting render.")
+            }
+            return XCTFail("Expected a Rhythm Section measure with saved raw rhythm ink and no rhythm map.")
+        }
+        let drawingData = try XCTUnwrap(measure.handwrittenRhythmicNotationData)
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measure.id }
+        )
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: false
+        )
+
+        print(
+            [
+                "rhythmReplay",
+                "chart=\(chart.id.uuidString)",
+                "measure=\(measure.index)",
+                "decision=\(decision)",
+                "route=\(route)"
+            ].joined(separator: " ")
+        )
+
+        guard case .commit(let values, _) = route else {
+            return XCTFail("Expected saved full-measure rhythm ink to route to commit, got \(route).")
+        }
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+                values,
+                drawingData: drawingData,
+                for: measure.id,
+                measureLayout: measureLayout,
+                in: chart
+            )
+        )
+        let updatedMeasure = try XCTUnwrap(updatedChart.measure(id: measure.id))
+        XCTAssertEqual(updatedMeasure.rhythmMap?.values, values)
+        XCTAssertNil(updatedMeasure.handwrittenRhythmicNotationData)
+    }
+
+    private func firstLeadSheetMeasureLayout(in chart: Chart) throws -> LeadSheetMeasureLayout {
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        return try XCTUnwrap(pageLayout.systems.first?.measures.first)
+    }
+
+    private func selectedReplayChart(in snapshot: ChartLibrarySnapshot) -> Chart? {
+        if let chartIDText = replayEnvironmentValue("SMART_CHART_RHYTHM_REPLAY_CHART_ID"),
+           let chartID = UUID(uuidString: chartIDText),
+           let chart = snapshot.charts.first(where: { $0.id == chartID }) {
+            return chart
+        }
+
+        if let selectedChartID = snapshot.selectedChartID,
+           let chart = snapshot.charts.first(where: { $0.id == selectedChartID }) {
+            return chart
+        }
+
+        return snapshot.charts.first { $0.layoutStyle == .rhythmSectionSheet }
+    }
+
+    private func replayEnvironmentValue(_ key: String) -> String? {
+        ProcessInfo.processInfo.environment[key]
+            ?? ProcessInfo.processInfo.environment["TEST_RUNNER_\(key)"]
+    }
+
+    private func leadSheetStaffY(step: Int, in measureLayout: LeadSheetMeasureLayout) -> CGFloat {
+        let activeFrame = measureLayout.writableFrame.insetBy(dx: 2, dy: 2)
+        let staffLineSpacing = max(CGFloat(1), (measureLayout.staffFrame.height - 4) / 4)
+        let topStaffLineY = measureLayout.staffFrame.minY + 2 - activeFrame.minY
+        return topStaffLineY + CGFloat(step) * staffLineSpacing / 2
+    }
+
+    private func leadSheetBeatXPositions(in measureLayout: LeadSheetMeasureLayout) -> [CGFloat] {
+        let width = measureLayout.writableFrame.insetBy(dx: 2, dy: 2).width
+        return [0.17, 0.38, 0.59, 0.80].map { width * CGFloat($0) }
+    }
+
+    private func leadSheetQuarterNote(x: CGFloat, y: CGFloat, stemUp: Bool) -> [PKStroke] {
+        let stemX = stemUp ? x + 4 : x - 4
+        let stemEndY = stemUp ? y - 34 : y + 34
+        return [
+            filledNotehead(center: CGPoint(x: x, y: y)),
+            stroke([
+                CGPoint(x: stemX, y: y - 2),
+                CGPoint(x: stemX, y: stemEndY)
+            ])
+        ]
+    }
+
+    private func leadSheetDottedQuarterNote(x: CGFloat, y: CGFloat, stemUp: Bool) -> [PKStroke] {
+        leadSheetQuarterNote(x: x, y: y, stemUp: stemUp) + [
+            filledNotehead(center: CGPoint(x: x + 18, y: y + 1), radius: 2.2)
+        ]
+    }
+
+    private func leadSheetBeamedEighthPair(
+        leftX: CGFloat,
+        rightX: CGFloat,
+        leftY: CGFloat,
+        rightY: CGFloat,
+        stemUp: Bool
+    ) -> [PKStroke] {
+        let leftStemX = stemUp ? leftX + 4 : leftX - 4
+        let rightStemX = stemUp ? rightX + 4 : rightX - 4
+        let beamY = stemUp
+            ? min(leftY, rightY) - 34
+            : max(leftY, rightY) + 34
+        return [
+            filledNotehead(center: CGPoint(x: leftX, y: leftY)),
+            stroke([
+                CGPoint(x: leftStemX, y: leftY - 2),
+                CGPoint(x: leftStemX, y: beamY)
+            ]),
+            filledNotehead(center: CGPoint(x: rightX, y: rightY)),
+            stroke([
+                CGPoint(x: rightStemX, y: rightY - 2),
+                CGPoint(x: rightStemX, y: beamY)
+            ]),
+            stroke([
+                CGPoint(x: leftStemX, y: beamY),
+                CGPoint(x: rightStemX, y: beamY)
+            ])
+        ]
+    }
+
     private func beamedEighthPair(startX: CGFloat) -> [PKStroke] {
         [
             stroke([
@@ -747,6 +2093,60 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         return [beam, rightStem, rightHead, leftStem, leftHead]
     }
 
+    private enum BeamSlopeDirection {
+        case downward
+        case upward
+    }
+
+    private func slopedLooseBeamedEighthPair(
+        startX: CGFloat,
+        direction: BeamSlopeDirection
+    ) -> [PKStroke] {
+        let beamPoints: [CGPoint]
+        switch direction {
+        case .downward:
+            beamPoints = [
+                CGPoint(x: startX + 13, y: 19),
+                CGPoint(x: startX + 36, y: 32)
+            ]
+        case .upward:
+            beamPoints = [
+                CGPoint(x: startX + 13, y: 32),
+                CGPoint(x: startX + 36, y: 19)
+            ]
+        }
+
+        return [
+            filledNotehead(center: CGPoint(x: startX + 4, y: 60)),
+            stroke([
+                CGPoint(x: startX + 8, y: 58),
+                CGPoint(x: startX + 8, y: 22)
+            ]),
+            filledNotehead(center: CGPoint(x: startX + 38, y: 60)),
+            stroke([
+                CGPoint(x: startX + 42, y: 58),
+                CGPoint(x: startX + 42, y: 22)
+            ]),
+            stroke(beamPoints)
+        ]
+    }
+
+    private func foldedRightStemBeamedEighthPair(startX: CGFloat) -> [PKStroke] {
+        [
+            filledNotehead(center: CGPoint(x: startX + 4, y: 60)),
+            stroke([
+                CGPoint(x: startX + 8, y: 58),
+                CGPoint(x: startX + 8, y: 22)
+            ]),
+            stroke([
+                CGPoint(x: startX + 15, y: 22),
+                CGPoint(x: startX + 38, y: 20),
+                CGPoint(x: startX + 38, y: 58)
+            ]),
+            filledNotehead(center: CGPoint(x: startX + 38, y: 60))
+        ]
+    }
+
     private func stemAndBeamOnlyPair(startX: CGFloat) -> [PKStroke] {
         [
             stroke([
@@ -772,6 +2172,38 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 CGPoint(x: x + 5, y: 22)
             ]),
             filledNotehead(center: CGPoint(x: x + 18, y: 61), radius: 2.2)
+        ]
+    }
+
+    private func wholeNote(x: CGFloat) -> [PKStroke] {
+        [
+            hollowNotehead(center: CGPoint(x: x + 9, y: 60), radius: 8.2)
+        ]
+    }
+
+    private func compactWholeNote(x: CGFloat) -> [PKStroke] {
+        [
+            hollowNotehead(center: CGPoint(x: x + 6, y: 60), radius: 5.0)
+        ]
+    }
+
+    private func handDrawnCircleWholeNote(x: CGFloat) -> [PKStroke] {
+        let center = CGPoint(x: x + 8, y: 60)
+        let radius = CGFloat(6.2)
+        let points = (0...22).map { index in
+            let angle = CGFloat(index) / 22 * .pi * 2
+            let wobble = index.isMultiple(of: 2) ? CGFloat(0.8) : CGFloat(-0.35)
+            return CGPoint(
+                x: center.x + cos(angle) * (radius + wobble),
+                y: center.y + sin(angle) * (radius * 0.78 - wobble * 0.2)
+            )
+        }
+        return [stroke(points)]
+    }
+
+    private func tinyWholeLikeMark(x: CGFloat) -> [PKStroke] {
+        [
+            hollowNotehead(center: CGPoint(x: x + 5, y: 55), radius: 2.3)
         ]
     }
 
@@ -806,12 +2238,47 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ]
     }
 
+    private func touchedUpBeamedEighthPair(startX: CGFloat) -> [PKStroke] {
+        [
+            filledNotehead(center: CGPoint(x: startX + 4, y: 60)),
+            stroke([
+                CGPoint(x: startX + 8, y: 58),
+                CGPoint(x: startX + 8, y: 25)
+            ]),
+            stroke([
+                CGPoint(x: startX + 11, y: 29),
+                CGPoint(x: startX + 36, y: 23),
+                CGPoint(x: startX + 42, y: 58)
+            ]),
+            stroke([
+                CGPoint(x: startX + 42, y: 34),
+                CGPoint(x: startX + 42, y: 60)
+            ]),
+            filledNotehead(center: CGPoint(x: startX + 38, y: 60)),
+            stroke([
+                CGPoint(x: startX + 10, y: 31),
+                CGPoint(x: startX + 28, y: 26)
+            ])
+        ]
+    }
+
     private func quarterNote(x: CGFloat) -> [PKStroke] {
         [
             filledNotehead(center: CGPoint(x: x, y: 60)),
             stroke([
                 CGPoint(x: x + 5, y: 58),
                 CGPoint(x: x + 5, y: 22)
+            ])
+        ]
+    }
+
+    private func quarterNoteWithWideStem(x: CGFloat) -> [PKStroke] {
+        [
+            filledNotehead(center: CGPoint(x: x, y: 60)),
+            stroke([
+                CGPoint(x: x + 5, y: 58),
+                CGPoint(x: x + 9, y: 42),
+                CGPoint(x: x + 12, y: 22)
             ])
         ]
     }
@@ -864,6 +2331,33 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 ])
             ]
         }
+    }
+
+    private func compactRhythmSlash(x: CGFloat, width: CGFloat, height: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x, y: 69 + height),
+                CGPoint(x: x + width * 0.48, y: 69 + height * 0.48),
+                CGPoint(x: x + width, y: 69)
+            ])
+        ]
+    }
+
+    private func unrecognizedRhythmMark(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x, y: 40),
+                CGPoint(x: x, y: 48)
+            ])
+        ]
+    }
+
+    private func tinyNoiseTap(x: CGFloat, y: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x, y: y)
+            ])
+        ]
     }
 
     private func looseRhythmSlash(x: CGFloat, shape: LooseSlashShape) -> [PKStroke] {
@@ -932,6 +2426,38 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 CGPoint(x: x + 9, y: 45),
                 CGPoint(x: x + 3, y: 56),
                 CGPoint(x: x + 10, y: 67)
+            ])
+        ]
+    }
+
+    private func halfRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 2, y: 50),
+                CGPoint(x: x + 28, y: 50)
+            ]),
+            stroke([
+                CGPoint(x: x + 6, y: 42),
+                CGPoint(x: x + 24, y: 42)
+            ])
+        ]
+    }
+
+    private func wholeRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 2, y: 34),
+                CGPoint(x: x + 30, y: 34)
+            ]),
+            stroke([
+                CGPoint(x: x + 8, y: 40),
+                CGPoint(x: x + 24, y: 40),
+                CGPoint(x: x + 24, y: 47),
+                CGPoint(x: x + 8, y: 47),
+                CGPoint(x: x + 8, y: 40),
+                CGPoint(x: x + 23, y: 46),
+                CGPoint(x: x + 9, y: 46),
+                CGPoint(x: x + 23, y: 41)
             ])
         ]
     }
@@ -1480,6 +3006,15 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ]
     }
 
+    private func fallbackStemOnlyQuarterMarks() -> [PKStroke] {
+        [24, 84, 144, 204].map { x in
+            stroke([
+                CGPoint(x: CGFloat(x), y: 26),
+                CGPoint(x: CGFloat(x), y: 62)
+            ])
+        }
+    }
+
     private func filledNotehead(center: CGPoint, radius: CGFloat = 4.4) -> PKStroke {
         var points: [CGPoint] = []
         for index in 0...12 {
@@ -1526,5 +3061,6 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         let path = PKStrokePath(controlPoints: controlPoints, creationDate: Date())
         return PKStroke(ink: PKInk(.pen, color: .black), path: path)
     }
+
 }
 #endif

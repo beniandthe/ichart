@@ -47,9 +47,22 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
     var count: Int?
     var linkedTargetID: UUID?
     var rawInput: String?
+    var horizontalOffsetWithinMeasure: Double? = nil
 
     var resolvedDisplayText: String {
         displayText ?? type.defaultDisplayText
+    }
+
+    var resolvedHorizontalOffsetWithinMeasure: Double {
+        Self.clampedHorizontalOffset(horizontalOffsetWithinMeasure ?? 0)
+    }
+
+    static func clampedHorizontalOffset(_ offset: Double) -> Double {
+        guard offset.isFinite else {
+            return 0
+        }
+
+        return min(max(offset, 0), 1)
     }
 }
 
@@ -77,15 +90,15 @@ enum RoadmapType: String, Codable, CaseIterable, Hashable {
         case .ending2:
             return "2nd Ending"
         case .codaMarker:
-            return "Coda"
+            return NotationGlyphCatalog.coda
         case .toCoda:
-            return "To Coda"
+            return "To \(NotationGlyphCatalog.coda)"
         case .segno:
-            return "Segno"
+            return NotationGlyphCatalog.segno
         case .ds:
             return "D.S."
         case .dsAlCoda:
-            return "D.S. al Coda"
+            return "D.S. al \(NotationGlyphCatalog.coda)"
         case .dc:
             return "D.C."
         case .dcAlFine:
@@ -98,6 +111,131 @@ enum RoadmapType: String, Codable, CaseIterable, Hashable {
             return "Vamp"
         }
     }
+
+    var editorMenuDisplayText: String {
+        switch self {
+        case .codaMarker:
+            return "Coda"
+        case .toCoda:
+            return "To Coda"
+        case .segno:
+            return "Segno"
+        case .dsAlCoda:
+            return "D.S. al Coda"
+        case .repeatSpan, .ending1, .ending2, .ds, .dc, .dcAlFine, .fine, .noChord, .vampCount:
+            return defaultDisplayText
+        }
+    }
+
+    var editorMenuSystemImageName: String {
+        switch self {
+        case .codaMarker, .toCoda:
+            return "scope"
+        case .segno:
+            return "signature"
+        case .ds, .dsAlCoda, .dc, .dcAlFine:
+            return "textformat"
+        case .fine:
+            return "flag.checkered"
+        case .noChord:
+            return "nosign"
+        case .repeatSpan, .ending1, .ending2, .vampCount:
+            return "signpost.right"
+        }
+    }
+
+    var isEnding: Bool {
+        switch self {
+        case .ending1, .ending2:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isPointMarker: Bool {
+        switch self {
+        case .codaMarker, .toCoda, .segno, .ds, .dsAlCoda, .dc, .dcAlFine, .fine, .noChord:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isStandaloneNotationMarker: Bool {
+        switch self {
+        case .codaMarker, .segno:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var containsNotationMarkerGlyph: Bool {
+        switch self {
+        case .codaMarker, .toCoda, .segno, .dsAlCoda:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var linkTargetTypes: [RoadmapType] {
+        switch self {
+        case .toCoda:
+            return [.codaMarker]
+        case .ds, .dsAlCoda:
+            return [.segno]
+        case .dcAlFine:
+            return [.fine]
+        default:
+            return []
+        }
+    }
+
+    var linkTargetSearchDirection: RoadmapLinkTargetSearchDirection {
+        switch self {
+        case .toCoda:
+            return .after
+        case .ds, .dsAlCoda, .dcAlFine:
+            return .before
+        default:
+            return .nearest
+        }
+    }
+
+    var usesStructuredLayout: Bool {
+        self == .repeatSpan || isEnding || isPointMarker
+    }
+
+    static let navigationPointMarkerTypes: [RoadmapType] = [
+        .codaMarker,
+        .toCoda,
+        .segno,
+        .ds,
+        .dsAlCoda,
+        .dc,
+        .dcAlFine,
+        .fine,
+        .noChord
+    ]
+
+    var compactEndingDisplayText: String? {
+        switch self {
+        case .ending1:
+            return "1."
+        case .ending2:
+            return "2."
+        default:
+            return nil
+        }
+    }
+}
+
+enum RoadmapLinkTargetSearchDirection: Hashable {
+    case before
+    case after
+    case nearest
 }
 
 enum RoadmapPlacement: String, Codable, CaseIterable, Hashable {

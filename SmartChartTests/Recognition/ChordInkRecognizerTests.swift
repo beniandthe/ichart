@@ -548,6 +548,58 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(decision.isCloseRace)
     }
 
+    func testResolutionPolicyPromptsForSingleCandidateWhenRootGlyphIsWeakAndAmbiguous() throws {
+        let result = recognitionResult(
+            matchText: "B7",
+            confidence: 3.953,
+            scores: [
+                candidateScore("B7", confidence: 3.953)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("B", confidence: 0.680),
+                    glyph("F", confidence: 0.637),
+                    glyph("D", confidence: 0.636),
+                    glyph("A", confidence: 0.476)
+                ],
+                [
+                    glyph("7", confidence: 0.985)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "B7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyStillAutoRendersSingleCandidateWithStrongRootGlyph() throws {
+        let result = recognitionResult(
+            matchText: "C7",
+            confidence: 4.120,
+            scores: [
+                candidateScore("C7", confidence: 4.120)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("C", confidence: 0.965),
+                    glyph("G", confidence: 0.621)
+                ],
+                [
+                    glyph("7", confidence: 0.985)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.acceptedText, "C7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
     func testResolutionPolicyAutoRendersClearSlashWinnerFromLiveLoop() throws {
         let result = recognitionResult(
             matchText: "G/B",
@@ -731,15 +783,20 @@ final class ChordInkRecognizerTests: XCTestCase {
     private func recognitionResult(
         matchText: String?,
         confidence: Double,
-        scores: [ChordInkCandidateScore]
+        scores: [ChordInkCandidateScore],
+        glyphCandidates: [[GlyphCandidate]] = []
     ) -> ChordInkRecognitionResult {
         ChordInkRecognitionResult(
             rawCandidates: scores.map(\.text),
-            glyphCandidates: [],
+            glyphCandidates: glyphCandidates,
             match: matchText.flatMap(ChordRecognitionCompendium.match),
             confidence: confidence,
             candidateScores: scores
         )
+    }
+
+    private func glyph(_ text: String, confidence: Double) -> GlyphCandidate {
+        GlyphCandidate(text: text, confidence: confidence, source: .template)
     }
 
     private func candidateScore(_ text: String, confidence: Double) -> ChordInkCandidateScore {

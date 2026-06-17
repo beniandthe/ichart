@@ -23,8 +23,21 @@ enum LeadSheetCanvasInteractionTargeting {
         pageLayout.systems
             .flatMap(\.measures)
             .contains { measure in
-                measure.chordBandFrame.insetBy(dx: -3, dy: -3).contains(location)
+                measure.chordWritingFrame.insetBy(dx: -4, dy: -4).contains(location)
             }
+    }
+
+    static func headerAuthoringContains(
+        _ location: CGPoint,
+        in pageLayout: LeadSheetPageLayout?
+    ) -> Bool {
+        guard let pageLayout else {
+            return false
+        }
+
+        return pageLayout.header.handwrittenFrame
+            .insetBy(dx: -12, dy: -10)
+            .contains(location)
     }
 
     static func chordMoveTarget(
@@ -48,4 +61,5 @@ enum LeadSheetCanvasInteractionTargeting {
         return (measureID, Double(min(max(fraction, 0), 0.9999)))
     }
 }
+
 #endif

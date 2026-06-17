@@ -4,28 +4,37 @@ struct ChartSetupSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
 
-    @State private var draftKey: DocumentKey
     @State private var numerator: Int
     @State private var denominator: Int
+    @State private var startingMeasureCount: Int
 
     init(chart: Binding<Chart>) {
         self._chart = chart
-        _draftKey = State(initialValue: chart.wrappedValue.documentKey)
+        let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
         _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
         _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
+        _startingMeasureCount = State(
+            initialValue: chart.wrappedValue.hasCompletedInitialSetup
+                ? max(1, chart.wrappedValue.measures.count)
+                : profileDefaults.initialMeasureCount
+        )
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    keySection
-                    meterSection
-                    notationSection
+                    layoutSection
+                    if setupPolicy.includesTimeSignatureSelection {
+                        meterSection
+                    }
+                    if setupPolicy.includesStartingMeasureSelection, !chart.hasCompletedInitialSetup {
+                        startingMeasuresSection
+                    }
                 }
                 .padding(24)
             }
-            .navigationTitle(chart.hasCompletedInitialSetup ? "Page Setup" : "New Chart")
+            .navigationTitle(chart.hasCompletedInitialSetup ? "Chart" : "New Chart")
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(!chart.hasCompletedInitialSetup)
             .toolbar {
@@ -39,12 +48,7 @@ struct ChartSetupSheetView: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button(chart.hasCompletedInitialSetup ? "Apply" : "Create Blank Page") {
-                        chart.completeInitialSetup(
-                            title: chart.title,
-                            key: draftKey,
-                            meter: Meter(numerator: numerator, denominator: denominator),
-                            staffStyle: .fiveLine
-                        )
+                        applySetup()
                         dismiss()
                     }
                 }
@@ -52,25 +56,37 @@ struct ChartSetupSheetView: View {
         }
     }
 
-    private var keySection: some View {
+    private var setupPolicy: ChartLayoutSetupPolicy {
+        chart.layoutStyle.profile.setupPolicy
+    }
+
+    private var layoutSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Key")
+            Text("Layout Style")
                 .font(.headline)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
-                ForEach(DocumentKey.commonCreationKeys, id: \.self) { key in
-                    Button {
-                        draftKey = key
-                    } label: {
-                        Text(key.displayText)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(draftKey == key ? .blue : .secondary.opacity(0.3))
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: chart.layoutStyle.systemImageName)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(chart.layoutStyle.displayText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Text(chart.layoutStyle.detailText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+
+                Spacer()
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -104,31 +120,46 @@ struct ChartSetupSheetView: View {
         }
     }
 
-    private var notationSection: some View {
+    private var startingMeasuresSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Notation")
+            Text("Starting Measures")
                 .font(.headline)
 
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Jazz Chord Notation")
+            Stepper(value: $startingMeasureCount, in: 1...64) {
+                HStack {
+                    Text("Measures")
                         .font(.subheadline.weight(.semibold))
+
+                    Spacer()
+
+                    Text("\(startingMeasureCount)")
+                        .font(.title3.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.primary)
-
-                    Text("Locked for now so the whole app stays focused on one real-book style page workflow.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
+
+    private func applySetup() {
+        let resolvedMeter: Meter
+        if setupPolicy.includesTimeSignatureSelection {
+            resolvedMeter = Meter(numerator: numerator, denominator: denominator)
+        } else {
+            resolvedMeter = chart.defaultMeter
+        }
+
+        chart.completeInitialSetup(
+            title: chart.title,
+            key: chart.documentKey,
+            meter: resolvedMeter,
+            staffStyle: .fiveLine,
+            startingMeasureCount: startingMeasureCount,
+            clef: chart.defaultClef
+        )
+    }
+
 }

@@ -8,12 +8,17 @@ struct MeasureRhythmMap: Codable, Hashable {
         values.reduce(0) { $0 + $1.wholeNoteLength }
     }
 
+    func totalWholeNoteLength(in meter: Meter) -> Double {
+        values.reduce(0) { $0 + $1.wholeNoteLength(in: meter) }
+    }
+
     func status(for meter: Meter) -> MeasureRhythmMapStatus {
         guard !values.isEmpty else {
             return .empty
         }
 
-        let delta = totalWholeNoteLength - meter.measureLengthInWholeNotes
+        let resolvedTotalLength = totalWholeNoteLength(in: meter)
+        let delta = resolvedTotalLength - meter.measureLengthInWholeNotes
 
         if abs(delta) < 0.0001 {
             return resolvedSlots(for: meter) == nil
@@ -35,7 +40,7 @@ struct MeasureRhythmMap: Codable, Hashable {
 
     func resolvedSlots(for meter: Meter) -> [MeasureRhythmSlot]? {
         guard !values.isEmpty,
-              abs(totalWholeNoteLength - meter.measureLengthInWholeNotes) < 0.0001 else {
+              abs(totalWholeNoteLength(in: meter) - meter.measureLengthInWholeNotes) < 0.0001 else {
             return nil
         }
 
@@ -54,7 +59,7 @@ struct MeasureRhythmMap: Codable, Hashable {
                     duration: value
                 )
             )
-            offset += value.wholeNoteLength
+            offset += value.wholeNoteLength(in: meter)
         }
 
         guard abs(offset - meter.measureLengthInWholeNotes) < 0.0001 else {
@@ -71,6 +76,36 @@ enum MeasureRhythmMapStatus: Hashable {
     case exact
     case overflow(Double)
     case invalidSubdivision
+}
+
+enum RhythmicNotationCompendium {
+    static let supportedValues: Set<RhythmValue> = [
+        .slash,
+        .quarter,
+        .half,
+        .whole,
+        .eighth,
+        .dottedQuarter,
+        .dottedHalf,
+        .eighthRest,
+        .quarterRest,
+        .halfRest,
+        .wholeRest
+    ]
+
+    static func accepts(_ values: [RhythmValue], in meter: Meter) -> Bool {
+        guard !values.isEmpty,
+              values.allSatisfy(supportedValues.contains) else {
+            return false
+        }
+
+        let rhythmMap = MeasureRhythmMap(values: values)
+        guard case .exact = rhythmMap.status(for: meter) else {
+            return false
+        }
+
+        return rhythmMap.resolvedSlots(for: meter) != nil
+    }
 }
 
 struct MeasureRhythmSlot: Identifiable, Hashable {
@@ -381,6 +416,7 @@ extension Measure {
                     return mappedPlacement(
                         for: event,
                         in: slots[mappedRhythmSlotIndex],
+                        meter: meter,
                         slotIndex: mappedRhythmSlotIndex,
                         isExplicit: true
                     )
@@ -391,12 +427,13 @@ extension Measure {
                     return mappedPlacement(
                         for: event,
                         in: slots[nextAutomaticSlotIndex],
+                        meter: meter,
                         slotIndex: nextAutomaticSlotIndex,
                         isExplicit: false
                     )
                 }
 
-                return rawPlacement(for: event)
+                return rawPlacement(for: event, meter: meter)
             }
         }
 
@@ -418,7 +455,7 @@ extension Measure {
             ]
         }
 
-        return chordEvents.map(rawPlacement(for:))
+        return chordEvents.map { rawPlacement(for: $0, meter: meter) }
     }
 
     private func isMeasureStart(_ position: BeatPosition, in meter: Meter) -> Bool {
@@ -434,8 +471,12 @@ extension Measure {
     }
 
     mutating func clearInvalidRhythmSlotAssignments(defaultMeter: Meter) {
-        let playableIndices = resolvedRhythmSlots(defaultMeter: defaultMeter).map { slots in
+        let slots = resolvedRhythmSlots(defaultMeter: defaultMeter)
+        let playableIndices = slots.map { slots in
             Set(slots.indices.filter { slots[$0].isPlayable })
+        } ?? []
+        let pitchedNoteIndices = slots.map { slots in
+            Set(slots.indices.filter { slots[$0].duration.supportsPitchedLeadSheetNote })
         } ?? []
 
         chordEvents = chordEvents.map { chordEvent in
@@ -448,14 +489,16 @@ extension Measure {
             chordEvent.mappedRhythmSlotIndex = nil
             return chordEvent
         }
+
+        pitchedNoteEvents = pitchedNoteEvents.filter { pitchedNoteIndices.contains($0.rhythmSlotIndex) }
     }
 
-    private func rawPlacement(for event: ChordEvent) -> MeasureChordPlacement {
+    private func rawPlacement(for event: ChordEvent, meter: Meter) -> MeasureChordPlacement {
         MeasureChordPlacement(
             chordEvent: event,
             startPosition: event.startPosition,
             duration: event.duration,
-            effectiveWholeNoteLength: event.duration.wholeNoteLength,
+            effectiveWholeNoteLength: event.duration.wholeNoteLength(in: meter),
             durationDisplayText: event.duration.displayText,
             resolvedRhythmSlotIndex: nil,
             isRhythmMapped: false,
@@ -467,6 +510,7 @@ extension Measure {
     private func mappedPlacement(
         for event: ChordEvent,
         in slot: MeasureRhythmSlot,
+        meter: Meter,
         slotIndex: Int,
         isExplicit: Bool
     ) -> MeasureChordPlacement {
@@ -474,7 +518,7 @@ extension Measure {
             chordEvent: event,
             startPosition: slot.startPosition,
             duration: slot.duration,
-            effectiveWholeNoteLength: slot.duration.wholeNoteLength,
+            effectiveWholeNoteLength: slot.duration.wholeNoteLength(in: meter),
             durationDisplayText: slot.duration.displayText,
             resolvedRhythmSlotIndex: slotIndex,
             isRhythmMapped: true,
@@ -485,6 +529,15 @@ extension Measure {
 }
 
 extension RhythmValue {
+    var supportsPitchedLeadSheetNote: Bool {
+        switch self {
+        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole:
+            return true
+        case .slash, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+            return false
+        }
+    }
+
     static var sketchPalette: [RhythmValue] {
         [.slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole]
     }

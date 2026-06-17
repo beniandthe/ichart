@@ -1,6 +1,6 @@
 # Smart Chart Sprint 63 Chart Layout Goals
 
-Status: active planning outline
+Status: complete planning handoff
 Date: 2026-05-27
 Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 
@@ -8,7 +8,7 @@ Source of truth: `docs/smart-chart-sprint-source-of-truth.md`
 
 Sprint 63 defines the next product architecture layer after the chord-first release-candidate pass: separate chart layout choices at new-chart creation.
 
-This sprint is planning-first. Do not start by changing recognition, chord confidence, handwriting fixtures, or renderer internals. The goal is to define the product modes and the chart-structure systems each mode needs before implementation.
+This sprint is the planning and product-contract handoff into Sprint 64. Do not start by changing recognition, chord confidence, handwriting fixtures, or renderer internals.
 
 ## Product Decision
 
@@ -19,6 +19,10 @@ When the user taps `New Chart`, Smart Chart should present three layout choices:
 3. `Lead Sheet`
 
 The choice should happen before the blank editor opens. The selected layout becomes a durable chart attribute that influences setup defaults, page layout, notation lanes, toolbar emphasis, export rendering, and future feature availability.
+
+Implementation name selected for Sprint 64: `ChartLayoutStyle`.
+
+This is intentionally separate from the older `ChartType`, which remains a legacy/product-category field. Missing layout style data from older saved charts should decode as `Lead Sheet`, because the current app renderer is lead-sheet-like.
 
 ## Layout 1: Simple Chord Sheet
 
@@ -124,20 +128,20 @@ All three layouts need shared structured systems:
 - export: one renderer path per layout family, sharing model truth
 - raw ink evidence: linked to structured objects when useful, not runtime authority
 
-## Implementation Implications
+## Sprint 64 Implementation Handoff
 
-Sprint 64 should likely implement the first thin slice:
+The first thin Sprint 64 implementation slice should:
 
 - Add a `New Chart` layout chooser with the three options.
-- Persist the chosen layout on the chart.
-- Map each option to setup defaults.
-- Keep existing charts backward-compatible.
+- Persist the chosen layout as `ChartLayoutStyle` on the chart.
+- Map each option to safe setup defaults.
+- Keep existing charts backward-compatible by decoding missing layout data as `Lead Sheet`.
 - Keep the current renderer behavior for the lead-sheet-like default until layout-specific rendering is implemented.
 
 Potential model direction:
 
 - Prefer a dedicated chart-layout concept over overloading recognition or editor mode.
-- Decide whether existing `ChartType` should evolve into the layout choice or whether a new `ChartLayoutKind` should be added beside it.
+- Use `ChartLayoutStyle` beside `ChartType`; do not turn recognition or editor mode into layout authority.
 - Preserve old `ChartType` decoding for existing saved charts.
 
 ## Non-Goals
@@ -155,4 +159,5 @@ Potential model direction:
 - The three new-chart layout choices are named and defined.
 - Each layout has a clear user intent and system emphasis.
 - Shared chart-structure systems are identified.
-- The next implementation sprint can build the chooser without debating product taxonomy again.
+- Sprint 64 can build the chooser without debating product taxonomy again.
+- Existing saved charts remain compatible when Sprint 64 adds durable layout data.

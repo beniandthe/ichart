@@ -2,6 +2,17 @@ import XCTest
 @testable import SmartChart
 
 final class MeasureRhythmMappingTests: XCTestCase {
+    func testSlashRhythmMapUsesMeterNumeratorAsBeatCount() {
+        let meter = Meter(numerator: 3, denominator: 8)
+        let rhythmMap = MeasureRhythmMap(values: [.slash, .slash, .slash])
+        let slots = rhythmMap.resolvedSlots(for: meter)
+
+        XCTAssertEqual(rhythmMap.status(for: meter), .exact)
+        XCTAssertEqual(slots?.map(\.startPosition.beat), [1, 2, 3])
+        XCTAssertEqual(slots?.map(\.duration), [.slash, .slash, .slash])
+        XCTAssertEqual(rhythmMap.totalWholeNoteLength(in: meter), meter.measureLengthInWholeNotes, accuracy: 0.0001)
+    }
+
     func testSingleChordAtMeasureStartWithoutRhythmMapAutoFillsMeasure() {
         let meter = Meter(numerator: 3, denominator: 4)
         let measure = Measure(
@@ -152,6 +163,31 @@ final class MeasureRhythmMappingTests: XCTestCase {
 
         XCTAssertEqual(underfilled.status(for: meter), .underfilled(2))
         XCTAssertEqual(overflow.status(for: meter), .overflow(1))
+    }
+
+    func testRhythmicNotationCompendiumAcceptsSupportedExactMeasureValues() {
+        let meter = Meter(numerator: 4, denominator: 4)
+
+        XCTAssertTrue(
+            RhythmicNotationCompendium.accepts(
+                [.eighth, .eighth, .dottedQuarter, .eighthRest, .quarter],
+                in: meter
+            )
+        )
+        XCTAssertTrue(
+            RhythmicNotationCompendium.accepts(
+                [.slash, .quarterRest, .half],
+                in: meter
+            )
+        )
+    }
+
+    func testRhythmicNotationCompendiumRejectsUnsupportedOrIncompleteValues() {
+        let meter = Meter(numerator: 4, denominator: 4)
+
+        XCTAssertFalse(RhythmicNotationCompendium.accepts([.half, .quarter], in: meter))
+        XCTAssertFalse(RhythmicNotationCompendium.accepts([.whole, .quarter], in: meter))
+        XCTAssertFalse(RhythmicNotationCompendium.accepts([.quarter, .tiedContinuation, .half], in: meter))
     }
 
     func testSuggestedChordInsertionUsesNextOpenRhythmSlot() {

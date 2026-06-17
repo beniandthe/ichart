@@ -40,7 +40,7 @@ final class PDFRendererVisualQATests: XCTestCase {
         }
 
         for qaCase in qaCases {
-            let exportedURL = try await exporter.exportPDF(for: qaCase.chart)
+            let exportedURL = try await exporter.exportPDF(for: qaCase.chart).url
             let data = try Data(contentsOf: exportedURL)
             let documentText = try XCTUnwrap(PDFDocument(url: exportedURL)?.string, qaCase.label)
 
@@ -50,8 +50,9 @@ final class PDFRendererVisualQATests: XCTestCase {
             XCTAssertFalse(documentText.contains("Tap the measure in the editor"), qaCase.label)
 
             for expectedText in qaCase.expectedText {
-                XCTAssertTrue(
-                    documentText.contains(expectedText),
+                XCTAssertPDFExtractedTextContains(
+                    documentText,
+                    visibleChordText: expectedText,
                     "Expected \(qaCase.label) export to contain \(expectedText). PDF text: \(documentText)"
                 )
             }

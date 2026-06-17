@@ -15,14 +15,7 @@ struct PendingChordInkConfirmation: Identifiable {
     let bestCandidateText: String?
 
     static func candidateTexts(for result: ChordInkRecognitionResult) -> [String] {
-        let rankedCandidateTexts = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
-            .compactMap(\.displayText)
-        let primaryCandidateTexts = [result.match?.displayText].compactMap { $0 }
-        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
-
-        return ChordRecognitionCompendium.userFacingCandidateTexts(
-            from: rankedCandidateTexts + primaryCandidateTexts + ocrCandidateTexts
-        )
+        ChordInkRenderResolutionPolicy.candidateTexts(for: result)
     }
 
     init(
@@ -34,7 +27,8 @@ struct PendingChordInkConfirmation: Identifiable {
         recognitionTiming: ChordInkRecognitionTiming? = nil,
         proposalDecisionMilliseconds: Double? = nil,
         primaryDecision: ChordInkRecognitionDecision,
-        decision: ChordInkRecognitionDecision
+        decision: ChordInkRecognitionDecision,
+        candidateTexts: [String]? = nil
     ) {
         self.measureID = measureID
         self.measureIndex = measureIndex
@@ -46,7 +40,7 @@ struct PendingChordInkConfirmation: Identifiable {
         self.primaryDecision = primaryDecision
         self.decision = decision
 
-        let userFacingCandidateTexts = Self.candidateTexts(for: result)
+        let userFacingCandidateTexts = candidateTexts ?? Self.candidateTexts(for: result)
         self.candidateTexts = userFacingCandidateTexts
         self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first
     }
@@ -95,25 +89,39 @@ struct PendingChordCorrection: Identifiable {
 }
 
 enum ChordInkFixtureCopyResult: Equatable {
+    case unavailable
+
+    #if DEBUG && targetEnvironment(simulator)
     case copied(displayText: String, fixtureName: String)
     case failed(String)
+    #endif
 
     var message: String {
+        #if DEBUG && targetEnvironment(simulator)
         switch self {
         case .copied(let displayText, let fixtureName):
-            "Copied \(displayText) regression fixture as \(fixtureName). Watcher will import it."
+            "Copied \(displayText) ink sample as \(fixtureName)."
         case .failed(let message):
             message
+        case .unavailable:
+            ""
         }
+        #else
+        ""
+        #endif
     }
 
     var isFailure: Bool {
+        #if DEBUG && targetEnvironment(simulator)
         switch self {
         case .copied:
             false
-        case .failed:
+        case .failed, .unavailable:
             true
         }
+        #else
+        true
+        #endif
     }
 }
 
@@ -122,7 +130,6 @@ struct ChordInkConfirmationSheetView: View {
     let showsFixtureCaptureTools: Bool
     let onAcceptCandidate: (String) -> Void
     let onCopyFixtureJSON: (String) -> ChordInkFixtureCopyResult
-    let onKeepInk: () -> Void
     let onClearAndRewrite: () -> Void
     @State private var manualCandidateText: String
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
@@ -133,35 +140,33 @@ struct ChordInkConfirmationSheetView: View {
         showsFixtureCaptureTools: Bool = false,
         onAcceptCandidate: @escaping (String) -> Void,
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
-        onKeepInk: @escaping () -> Void,
         onClearAndRewrite: @escaping () -> Void
     ) {
         self.confirmation = confirmation
         self.showsFixtureCaptureTools = showsFixtureCaptureTools
         self.onAcceptCandidate = onAcceptCandidate
         self.onCopyFixtureJSON = onCopyFixtureJSON
-        self.onKeepInk = onKeepInk
         self.onClearAndRewrite = onClearAndRewrite
         _manualCandidateText = State(initialValue: confirmation.bestCandidateText ?? "")
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    selectedChordSummary
-                    candidateChoices
-                    manualEntry
-                    chartActions
-                    if showsFixtureCaptureTools {
-                        captureActions
-                    }
+            VStack(spacing: 14) {
+                selectedChordSummary
+                candidateChoices
+                manualEntry
+                manualActions
+                #if DEBUG && targetEnvironment(simulator)
+                if showsFixtureCaptureTools {
+                    captureActions
                 }
-                .frame(maxWidth: 430)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 26)
+                #endif
             }
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(confirmation.requiresDirectEntry ? "Enter Chord" : "Choose Chord")
             .navigationBarTitleDisplayMode(.inline)
@@ -202,13 +207,13 @@ struct ChordInkConfirmationSheetView: View {
     }
 
     private var selectedChordSummary: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 5) {
             Text("Measure \(confirmation.displayMeasureNumber)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .font(.system(.title, design: .rounded).weight(.bold))
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
@@ -226,13 +231,25 @@ struct ChordInkConfirmationSheetView: View {
     private var candidateChoices: some View {
         let candidates = Array(confirmation.visibleCandidateTexts.prefix(3))
 
-        return VStack(spacing: 9) {
+        return VStack(spacing: 8) {
             if candidates.isEmpty {
-                Text("No confident suggestions")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                VStack(spacing: 8) {
+                    Text("No confident suggestions")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+
+                    Button {
+                        focusManualEntry()
+                    } label: {
+                        Label("Keyboard", systemImage: "keyboard")
+                            .font(.headline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Open keyboard for manual chord entry")
+                }
+                .padding(.vertical, 4)
             } else {
                 Text("Top 3")
                     .font(.caption.weight(.semibold))
@@ -245,27 +262,26 @@ struct ChordInkConfirmationSheetView: View {
                 ) {
                     ForEach(Array(candidates.enumerated()), id: \.element) { index, candidate in
                         Button {
-                            manualCandidateText = candidate
-                            fixtureCopyStatus = nil
+                            onAcceptCandidate(candidate)
                         } label: {
                             Text(candidate)
                                 .font(.headline.weight(.semibold))
-                                .foregroundStyle(candidate == trimmedCandidateText ? Color.white : Color.primary)
+                                .foregroundStyle(Color.primary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.55)
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .frame(maxWidth: .infinity, minHeight: 46)
                                 .padding(.horizontal, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(candidate == trimmedCandidateText ? Color.blue : Color(uiColor: .secondarySystemGroupedBackground))
+                                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
                                 )
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(candidate == trimmedCandidateText ? Color.blue.opacity(0.45) : Color.black.opacity(0.06), lineWidth: 1)
+                                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Suggestion \(index + 1), \(candidate)")
+                        .accessibilityLabel("Accept suggestion \(index + 1), \(candidate)")
                     }
                 }
             }
@@ -274,10 +290,24 @@ struct ChordInkConfirmationSheetView: View {
 
     private var manualEntry: some View {
         VStack(spacing: 8) {
-            Text("Manual entry")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Text("Manual entry")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    focusManualEntry()
+                } label: {
+                    Label("Keyboard", systemImage: "keyboard")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 32, height: 28)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Open keyboard for manual chord entry")
+            }
 
             TextField("Type chord", text: $manualCandidateText)
                 .font(.title3.weight(.semibold))
@@ -290,11 +320,13 @@ struct ChordInkConfirmationSheetView: View {
                 .onSubmit {
                     acceptTrimmedCandidate()
                 }
+                #if DEBUG && targetEnvironment(simulator)
                 .onChange(of: manualCandidateText) { _, _ in
                     if fixtureCopyStatus != nil {
                         fixtureCopyStatus = nil
                     }
                 }
+                #endif
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -307,48 +339,38 @@ struct ChordInkConfirmationSheetView: View {
         }
     }
 
-    private var chartActions: some View {
-        VStack(spacing: 10) {
+    private var manualActions: some View {
+        HStack(spacing: 10) {
             Button {
                 acceptTrimmedCandidate()
             } label: {
-                Text("Accept Chord")
-                    .font(.headline.weight(.semibold))
+                Text("Learn Chord")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .disabled(trimmedCandidateText.isEmpty)
 
-            HStack(spacing: 10) {
-                Button {
-                    onKeepInk()
-                } label: {
-                    Text("Keep Ink")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button(role: .destructive) {
-                    onClearAndRewrite()
-                } label: {
-                    Text("Rewrite Ink")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+            Button(role: .destructive) {
+                onClearAndRewrite()
+            } label: {
+                Text("Rewrite Ink")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
         }
     }
 
+    #if DEBUG && targetEnvironment(simulator)
     private var captureActions: some View {
         VStack(spacing: 10) {
-            Text("Fixture capture")
+            Text("Ink sample capture")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             Button {
                 fixtureCopyStatus = onCopyFixtureJSON(trimmedCandidateText)
             } label: {
-                Text("Copy Regression Fixture")
+                Text("Copy Ink Sample")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -370,6 +392,7 @@ struct ChordInkConfirmationSheetView: View {
             .buttonStyle(.bordered)
         }
     }
+    #endif
 
     private func acceptTrimmedCandidate() {
         guard !trimmedCandidateText.isEmpty else {
@@ -377,6 +400,10 @@ struct ChordInkConfirmationSheetView: View {
         }
 
         onAcceptCandidate(trimmedCandidateText)
+    }
+
+    private func focusManualEntry() {
+        isManualEntryFocused = true
     }
 }
 
@@ -527,10 +554,13 @@ struct ChordCorrectionSheetView: View {
                 Button {
                     isCandidateFocused = true
                 } label: {
-                    Image(systemName: "cursorarrow.rays")
+                    Label("Keyboard", systemImage: "keyboard")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 34, height: 30)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Focus chord entry")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Open keyboard for chord correction")
             }
 
             HStack(spacing: 10) {

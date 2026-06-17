@@ -130,8 +130,8 @@ Monetization should attach to the proven editor loop, not drive it.
 
 ### Milestone 3.5 — entitlement foundation
 - local entitlement model
-- free chart-cap logic
-- Pro feature gating hooks for export and advanced tools
+- Basic 3-chart cap logic
+- Pro feature gating hooks for cloud sync and Forums
 - StoreKit boundary isolated behind a protocol or service wrapper
 
 Keep this slice small. It should formalize the business model without delaying the core editor.

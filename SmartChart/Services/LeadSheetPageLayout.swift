@@ -10,11 +10,12 @@ struct LeadSheetPageLayout: Hashable {
 
 struct LeadSheetHeaderLayout: Hashable {
     var frame: CGRect
+    var handwrittenFrame: CGRect
     var titleFrame: CGRect
     var composerFrame: CGRect?
     var styleNoteFrame: CGRect?
-    var keyFrame: CGRect
-    var meterFrame: CGRect
+    var keyFrame: CGRect?
+    var meterFrame: CGRect?
 }
 
 struct LeadSheetSystemLayout: Identifiable, Hashable {
@@ -23,12 +24,22 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var frame: CGRect
     var staffLineYPositions: [CGFloat]
     var clefFrame: CGRect?
+    var keySignatureLayouts: [LeadSheetKeySignatureLayout]
     var timeSignatureFrame: CGRect?
     var sectionTextFrame: CGRect?
     var sectionText: String?
     var roadmapTextFrame: CGRect?
     var roadmapText: String?
+    var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
+    var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
+}
+
+struct LeadSheetKeySignatureLayout: Hashable {
+    var symbol: NotationGlyphCatalog.Symbol
+    var frame: CGRect
+    var staffOffset: CGFloat
+    var staffSpace: CGFloat
 }
 
 struct LeadSheetMeasureLayout: Identifiable, Hashable {
@@ -37,21 +48,68 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var index: Int
     var frame: CGRect
     var staffFrame: CGRect
+    var freehandAboveFrame: CGRect?
+    var freehandBelowFrame: CGRect?
     var chordBandFrame: CGRect
     var writableFrame: CGRect
     var chordLayouts: [LeadSheetChordLayout]
     var noteLayouts: [LeadSheetNoteLayout]
+    var repeatMarkerLayouts: [LeadSheetRepeatMarkerLayout]
+    var cueTextLayouts: [LeadSheetCueTextLayout]
+    var leadingBarline: BarlineType?
     var barlineAfter: BarlineType
-    var trailingMeterChange: Meter?
-    var trailingMeterChangeFrame: CGRect?
+    var meterChange: Meter?
+    var meterChangeFrame: CGRect?
     var trailingBarlineFrame: CGRect
     var isOpen: Bool
+}
+
+extension LeadSheetMeasureLayout {
+    var chordWritingFrame: CGRect {
+        if chordBandFrame.minY >= staffFrame.minY {
+            return frame.insetBy(dx: 2, dy: 2)
+        }
+
+        let topY = frame.minY
+        let bottomY = min(
+            frame.maxY - 2,
+            max(staffFrame.minY + 18, chordBandFrame.maxY)
+        )
+        return CGRect(
+            x: frame.minX + 2,
+            y: topY,
+            width: max(1, frame.width - 4),
+            height: max(1, bottomY - topY)
+        )
+    }
 }
 
 struct LeadSheetChordLayout: Identifiable, Hashable {
     var id: UUID
     var text: String
+    var symbol: ChordSymbol?
     var frame: CGRect
+    var fitFrame: CGRect
+    var horizontalCompressionScale: CGFloat
+    var snapGuideTarget: CGPoint
+
+    init(
+        id: UUID,
+        text: String,
+        symbol: ChordSymbol? = nil,
+        frame: CGRect,
+        fitFrame: CGRect? = nil,
+        horizontalCompressionScale: CGFloat = 1,
+        snapGuideTarget: CGPoint
+    ) {
+        self.id = id
+        self.text = text
+        self.symbol = symbol
+        self.frame = frame
+        self.fitFrame = fitFrame ?? frame
+        self.horizontalCompressionScale = horizontalCompressionScale
+        self.snapGuideTarget = snapGuideTarget
+    }
 }
 
 struct LeadSheetNoteLayout: Identifiable, Hashable {
@@ -90,6 +148,93 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
     var beamEndPoint: CGPoint?
 }
 
+struct LeadSheetRepeatMarkerLayout: Identifiable, Hashable {
+    enum Edge: String, Hashable {
+        case leading
+        case trailing
+    }
+
+    var roadmapObjectID: UUID
+    var edge: Edge
+    var frame: CGRect
+
+    var id: String {
+        "\(roadmapObjectID.uuidString)-\(edge.rawValue)"
+    }
+}
+
+enum LeadSheetRepeatBoundaryPolicy {
+    static func leadingMarkers(atStartOf measure: LeadSheetMeasureLayout) -> [LeadSheetRepeatMarkerLayout] {
+        measure.repeatMarkerLayouts.filter { $0.edge == .leading }
+    }
+
+    static func repeatMarkers(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?
+    ) -> [LeadSheetRepeatMarkerLayout] {
+        var markers = measure.repeatMarkerLayouts.filter { $0.edge == .trailing }
+
+        if let nextMeasure {
+            markers.append(
+                contentsOf: nextMeasure.repeatMarkerLayouts.filter { $0.edge == .leading }
+            )
+        }
+
+        return markers
+    }
+
+    static func shouldDrawNormalTrailingBarline(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?
+    ) -> Bool {
+        repeatMarkers(after: measure, before: nextMeasure).isEmpty
+    }
+
+    static func markerIDs(_ repeatMarkers: [LeadSheetRepeatMarkerLayout]) -> Set<String> {
+        Set(repeatMarkers.map(\.id))
+    }
+
+    static func visibleBarlineCount(for repeatMarkers: [LeadSheetRepeatMarkerLayout]) -> Int {
+        repeatMarkers.isEmpty ? 0 : 2
+    }
+}
+
+struct LeadSheetEndingLayout: Identifiable, Hashable {
+    var roadmapObjectID: UUID
+    var systemIndex: Int
+    var type: RoadmapType
+    var text: String
+    var frame: CGRect
+    var showsText: Bool
+    var showsLeadingHook: Bool
+    var showsTrailingHook: Bool
+
+    var id: String {
+        "\(roadmapObjectID.uuidString)-\(systemIndex)"
+    }
+}
+
+struct LeadSheetRoadmapMarkerLayout: Identifiable, Hashable {
+    var roadmapObjectID: UUID
+    var type: RoadmapType
+    var text: String
+    var frame: CGRect
+    var movementFrame: CGRect
+    var anchorMeasureID: UUID
+
+    var id: UUID {
+        roadmapObjectID
+    }
+}
+
+struct LeadSheetCueTextLayout: Identifiable, Hashable {
+    var id: UUID
+    var text: String
+    var frame: CGRect
+    var position: CuePosition
+    var emphasis: CueEmphasis
+}
+
 struct LeadSheetNoteSelection: Identifiable, Hashable {
     var measureID: UUID
     var noteIndex: Int
@@ -110,20 +255,125 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
     }
 }
 
+struct LeadSheetFreehandSymbolLayout: Identifiable, Hashable {
+    var id: UUID
+    var symbol: FreehandSymbol
+    var frame: CGRect
+    var laneFrame: CGRect
+}
+
 enum LeadSheetPageLayoutEngine {
     private static let minimumResponsivePageWidth: CGFloat = 720
     private static let mediumOpenMeasureWidth: CGFloat = 252
     private static let preferredCommittedMeasureWidth: CGFloat = 140
     private static let systemTrailingPadding: CGFloat = 6
+    private static let minimumPaperWidth: CGFloat = 640
+    private static let rhythmSectionChordRenderOffset: CGFloat = 16 / 3
+
+    private struct VisualPolicy {
+        let chart: Chart
+
+        var layoutStyle: ChartLayoutStyle {
+            chart.layoutStyle
+        }
+
+        var metrics: LeadSheetEngravingMetrics {
+            chart.engravingPreset.layoutMetrics
+        }
+
+        var headerTitleHorizontalBleed: CGFloat { 34 }
+        var headerTitleTopInset: CGFloat { 6 }
+        var headerTitleHeight: CGFloat { 54 }
+        var headerMetadataTopSpacing: CGFloat { 6 }
+        var headerMetadataHeight: CGFloat { 20 }
+        var simpleLeadingMeterGutterWidth: CGFloat { 42 }
+        var simpleTitleFrameHeight: CGFloat { 36 }
+        var simpleMetadataHeight: CGFloat { 24 }
+        var simpleChordHorizontalInset: CGFloat { 6 }
+
+        func headerTitleFrame(in frame: CGRect) -> CGRect {
+            guard layoutStyle == .simpleChordSheet else {
+                return CGRect(
+                    x: frame.minX - headerTitleHorizontalBleed,
+                    y: frame.minY + headerTitleTopInset,
+                    width: frame.width + headerTitleHorizontalBleed * 2,
+                    height: headerTitleHeight
+                )
+            }
+
+            return CGRect(
+                x: frame.minX - headerTitleHorizontalBleed,
+                y: frame.minY + 12,
+                width: frame.width + headerTitleHorizontalBleed * 2,
+                height: simpleTitleFrameHeight
+            )
+        }
+
+        func headerMetadataFrameY(after titleFrame: CGRect) -> CGFloat {
+            if layoutStyle == .simpleChordSheet {
+                return titleFrame.maxY - 2
+            }
+
+            return titleFrame.maxY + headerMetadataTopSpacing
+        }
+
+        var resolvedHeaderMetadataHeight: CGFloat {
+            layoutStyle == .simpleChordSheet ? simpleMetadataHeight : headerMetadataHeight
+        }
+
+        var showsHeaderMeter: Bool {
+            layoutStyle == .leadSheet
+        }
+
+        func simpleInitialTimeSignatureFrame(
+            in systemFrame: CGRect,
+            staffFrame: CGRect,
+            leadingSignatureWidth: CGFloat
+        ) -> CGRect {
+            CGRect(
+                x: systemFrame.minX + 3,
+                y: staffFrame.midY - 28,
+                width: max(24, leadingSignatureWidth - 10),
+                height: 56
+            )
+        }
+
+        func inlineMeterChangeFrame(
+            in measureFrame: CGRect,
+            staffFrame: CGRect
+        ) -> CGRect {
+            let isSimpleChordSheet = layoutStyle == .simpleChordSheet
+            return CGRect(
+                x: measureFrame.minX + (isSimpleChordSheet ? 8 : 6),
+                y: isSimpleChordSheet ? staffFrame.midY - 27 : staffFrame.minY - 12,
+                width: isSimpleChordSheet ? 24 : 24,
+                height: 54
+            )
+        }
+    }
+
+    private static func paperHorizontalInset(for resolvedPageWidth: CGFloat) -> CGFloat {
+        resolvedPageWidth >= 1180 ? 18 : 24
+    }
+
+    private static func paperWidth(for chart: Chart, resolvedPageWidth: CGFloat) -> CGFloat {
+        guard chart.layoutStyle != .leadSheet else {
+            return min(860, max(minimumPaperWidth, resolvedPageWidth - 140))
+        }
+
+        let inset = paperHorizontalInset(for: resolvedPageWidth)
+        return max(minimumPaperWidth, resolvedPageWidth - inset * 2)
+    }
 
     static func pageLayout(for chart: Chart, pageSize: CGSize) -> LeadSheetPageLayout {
+        let visualPolicy = VisualPolicy(chart: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
             height: max(pageSize.height, 1100)
         )
         let pageBounds = CGRect(origin: .zero, size: resolvedPageSize)
-        let paperWidth = min(860, max(640, resolvedPageSize.width - 140))
-        let horizontalInset = max(40, (resolvedPageSize.width - paperWidth) / 2)
+        let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageSize.width)
+        let horizontalInset = max(0, (resolvedPageSize.width - paperWidth) / 2)
         let paperX = horizontalInset
         let paperY: CGFloat = 30
         let paperHeight = max(
@@ -138,12 +388,13 @@ enum LeadSheetPageLayoutEngine {
             width: paperFrame.width - 68,
             height: 108
         )
-        let header = headerLayout(for: chart, in: headerFrame)
+        let header = headerLayout(for: chart, in: headerFrame, visualPolicy: visualPolicy)
 
         let systemFrames = systemLayouts(
             for: chart,
             paperFrame: paperFrame,
-            firstSystemTop: headerFrame.maxY + 24
+            firstSystemTop: headerFrame.maxY + 24,
+            visualPolicy: visualPolicy
         )
 
         return LeadSheetPageLayout(
@@ -155,7 +406,7 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func estimatedPaperHeight(for chart: Chart, paperWidth: CGFloat) -> CGFloat {
-        let metrics = chart.engravingPreset.layoutMetrics
+        let metrics = VisualPolicy(chart: chart).metrics
         let systemCount = max(1, packedSystemPlans(for: chart, maxSystemWidth: paperWidth - 68).count)
         let headerHeight: CGFloat = 164
         let footerHeight: CGFloat = 54
@@ -168,26 +419,28 @@ enum LeadSheetPageLayoutEngine {
 
     static func estimatedSystemCount(for chart: Chart, pageWidth: CGFloat) -> Int {
         let resolvedPageWidth = max(pageWidth, minimumResponsivePageWidth)
-        let paperWidth = min(860, max(640, resolvedPageWidth - 140))
+        let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageWidth)
         return max(1, packedSystemPlans(for: chart, maxSystemWidth: paperWidth - 68).count)
     }
 
-    private static func headerLayout(for chart: Chart, in frame: CGRect) -> LeadSheetHeaderLayout {
+    private static func headerLayout(
+        for chart: Chart,
+        in frame: CGRect,
+        visualPolicy: VisualPolicy
+    ) -> LeadSheetHeaderLayout {
         let composerCredit = normalizedText(chart.composerCredit)
-        let titleWidth = composerCredit == nil ? frame.width + 68 : frame.width * 0.62
-        let titleFrame = CGRect(
-            x: frame.midX - titleWidth / 2,
-            y: frame.minY + 20,
-            width: titleWidth,
-            height: 44
-        )
+        let titleFrame = visualPolicy.headerTitleFrame(in: frame)
+        let metadataY = visualPolicy.headerMetadataFrameY(after: titleFrame)
+        let metadataHeight = visualPolicy.resolvedHeaderMetadataHeight
+        let sideMetadataWidth = min(220, frame.width * 0.32)
+
         let composerFrame: CGRect?
         if let composerCredit, !composerCredit.isEmpty {
             composerFrame = CGRect(
-                x: frame.maxX - 190,
-                y: titleFrame.minY + 10,
-                width: 190,
-                height: 20
+                x: frame.maxX - sideMetadataWidth,
+                y: metadataY,
+                width: sideMetadataWidth,
+                height: metadataHeight
             )
         } else {
             composerFrame = nil
@@ -197,29 +450,58 @@ enum LeadSheetPageLayoutEngine {
         if let styleNote = resolvedStyleNote(for: chart), !styleNote.isEmpty {
             styleNoteFrame = CGRect(
                 x: frame.minX,
-                y: titleFrame.maxY + 2,
-                width: 180,
-                height: 18
+                y: metadataY,
+                width: sideMetadataWidth,
+                height: metadataHeight
             )
         } else {
             styleNoteFrame = nil
         }
 
-        let keyFrame = CGRect(
-            x: frame.minX,
-            y: frame.minY,
-            width: 80,
-            height: 18
-        )
-        let meterFrame = CGRect(
-            x: frame.minX,
-            y: frame.minY + 18,
-            width: 80,
-            height: 18
-        )
+        let centerMetadataWidth: CGFloat = chart.layoutStyle.profile.setupPolicy.includesKeySelection ? 150 : 88
+        let centerMetadataX = frame.midX - centerMetadataWidth / 2
+        let keyFrame: CGRect?
+        if chart.layoutStyle.profile.setupPolicy.includesKeySelection {
+            keyFrame = CGRect(
+                x: centerMetadataX,
+                y: metadataY,
+                width: 78,
+                height: metadataHeight
+            )
+        } else {
+            keyFrame = nil
+        }
+        let meterFrame: CGRect?
+        if visualPolicy.showsHeaderMeter {
+            let meterX = keyFrame == nil ? centerMetadataX : centerMetadataX + 88
+            meterFrame = CGRect(
+                x: meterX,
+                y: metadataY,
+                width: keyFrame == nil ? centerMetadataWidth : 62,
+                height: metadataHeight
+            )
+        } else {
+            meterFrame = nil
+        }
+
+        let headerContentFrames = [
+            titleFrame,
+            composerFrame,
+            styleNoteFrame,
+            keyFrame,
+            meterFrame
+        ].compactMap { $0 }
+        let handwrittenFrame = headerContentFrames
+            .dropFirst()
+            .reduce(headerContentFrames.first ?? frame) { partialFrame, contentFrame in
+                partialFrame.union(contentFrame)
+            }
+            .union(frame)
+            .insetBy(dx: 0, dy: -4)
 
         return LeadSheetHeaderLayout(
             frame: frame,
+            handwrittenFrame: handwrittenFrame,
             titleFrame: titleFrame,
             composerFrame: composerFrame,
             styleNoteFrame: styleNoteFrame,
@@ -231,10 +513,11 @@ enum LeadSheetPageLayoutEngine {
     private static func systemLayouts(
         for chart: Chart,
         paperFrame: CGRect,
-        firstSystemTop: CGFloat
+        firstSystemTop: CGFloat,
+        visualPolicy: VisualPolicy
     ) -> [LeadSheetSystemLayout] {
         let plans = packedSystemPlans(for: chart, maxSystemWidth: paperFrame.width - 68)
-        let metrics = chart.engravingPreset.layoutMetrics
+        let metrics = visualPolicy.metrics
 
         return plans.enumerated().map { systemIndex, plan in
             let systemFrame = CGRect(
@@ -243,7 +526,13 @@ enum LeadSheetPageLayoutEngine {
                 width: min(paperFrame.width - 68, plan.frameWidth),
                 height: metrics.systemHeight
             )
-            return systemLayout(for: plan, chart: chart, index: systemIndex, frame: systemFrame)
+            return systemLayout(
+                for: plan,
+                chart: chart,
+                index: systemIndex,
+                frame: systemFrame,
+                visualPolicy: visualPolicy
+            )
         }
     }
 
@@ -251,34 +540,94 @@ enum LeadSheetPageLayoutEngine {
         for plan: PackedLeadSheetSystemPlan,
         chart: Chart,
         index: Int,
-        frame: CGRect
+        frame: CGRect,
+        visualPolicy: VisualPolicy
     ) -> LeadSheetSystemLayout {
-        let metrics = chart.engravingPreset.layoutMetrics
+        let metrics = visualPolicy.metrics
         let lineSpacing = metrics.staffLineSpacing
         let chordBandHeight = metrics.chordBandHeight
-        let staffTop = frame.minY + chordBandHeight + 2
-        let staffLineYPositions = (0..<5).map { staffTop + CGFloat($0) * lineSpacing }
+        let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
+        let isRhythmSectionSheet = chart.layoutStyle == .rhythmSectionSheet
+        let staffTop: CGFloat
+        if isSimpleChordSheet {
+            staffTop = frame.minY + 24
+        } else if isRhythmSectionSheet {
+            staffTop = frame.minY + chordBandHeight + 6
+        } else {
+            staffTop = frame.minY + chordBandHeight + 2
+        }
+        let staffLineYPositions = isSimpleChordSheet
+            ? []
+            : (0..<5).map { staffTop + CGFloat($0) * lineSpacing }
+        let simpleChordGridHeight = min(76, max(56, frame.height - 46))
         let staffFrame = CGRect(
             x: frame.minX,
             y: staffTop - 2,
             width: frame.width,
-            height: lineSpacing * 4 + 4
+            height: isSimpleChordSheet ? simpleChordGridHeight : lineSpacing * 4 + 4
         )
         let measureStartX = frame.minX + plan.leadingSignatureWidth
 
-        let clefFrame = index == 0
+        let shouldShowLeadingNotation = index == 0 && !isSimpleChordSheet
+        let shouldShowSimpleTimeSignature = index == 0 && isSimpleChordSheet
+        let clefFrame = shouldShowLeadingNotation
             ? CGRect(x: frame.minX, y: staffTop - 12, width: 26, height: 54)
             : nil
-        let timeSignatureFrame = index == 0
-            ? CGRect(x: frame.minX + 28, y: staffTop - 10, width: 24, height: 50)
-            : nil
+        let keyLayouts = shouldShowLeadingNotation && chart.layoutStyle == .leadSheet
+            ? keySignatureLayouts(
+                for: chart,
+                staffLineYPositions: staffLineYPositions,
+                startX: (clefFrame?.maxX ?? frame.minX) + 6,
+                staffSpace: lineSpacing
+            )
+            : []
+        let timeSignatureX = keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
+        let timeSignatureFrame: CGRect?
+        if shouldShowLeadingNotation {
+            timeSignatureFrame = CGRect(x: timeSignatureX, y: staffTop - 13, width: 24, height: 56)
+        } else if shouldShowSimpleTimeSignature {
+            timeSignatureFrame = visualPolicy.simpleInitialTimeSignatureFrame(
+                in: frame,
+                staffFrame: staffFrame,
+                leadingSignatureWidth: plan.leadingSignatureWidth
+            )
+        } else {
+            timeSignatureFrame = nil
+        }
         let measureIDs = plan.measures.compactMap(\.measure?.id)
         let sectionText = chart.sectionLabels.first(where: { measureIDs.contains($0.anchorMeasureID) })?.text
         let sectionTextFrame = sectionText.map { _ in
-            CGRect(x: frame.minX, y: frame.minY + 2, width: 140, height: 18)
+            CGRect(
+                x: frame.minX,
+                y: frame.minY + (isRhythmSectionSheet ? 1 : 2),
+                width: isRhythmSectionSheet ? 96 : 140,
+                height: isRhythmSectionSheet ? 20 : 18
+            )
+        }
+        let hasEndingLayouts = chart.roadmapObjects.contains {
+            roadmapObject($0, intersects: measureIDs, in: chart)
+        }
+        let hasPointMarkerLayouts = chart.roadmapObjects.contains {
+            $0.type.isPointMarker && measureIDs.contains($0.startMeasureID)
+        }
+        let roadmapTopReserveHeight: CGFloat
+        if isSimpleChordSheet {
+            roadmapTopReserveHeight = 0
+        } else {
+            let structuredRoadmapReserveHeight: CGFloat
+            if hasPointMarkerLayouts && hasEndingLayouts {
+                structuredRoadmapReserveHeight = 34
+            } else if hasPointMarkerLayouts || hasEndingLayouts {
+                structuredRoadmapReserveHeight = 20
+            } else {
+                structuredRoadmapReserveHeight = 0
+            }
+            let rhythmSectionLabelReserveHeight: CGFloat = isRhythmSectionSheet && sectionText != nil ? 22 : 0
+            roadmapTopReserveHeight = max(structuredRoadmapReserveHeight, rhythmSectionLabelReserveHeight)
         }
         let roadmapText = chart.roadmapObjects.first(where: {
-            measureIDs.contains($0.startMeasureID) || ($0.endMeasureID.map(measureIDs.contains) ?? false)
+            !$0.type.usesStructuredLayout
+                && (measureIDs.contains($0.startMeasureID) || ($0.endMeasureID.map(measureIDs.contains) ?? false))
         })?.resolvedDisplayText
         let roadmapTextFrame = roadmapText.map { _ in
             CGRect(x: frame.maxX - 160, y: frame.minY + 2, width: 160, height: 18)
@@ -307,10 +656,25 @@ enum LeadSheetPageLayoutEngine {
                     height: staffFrame.height
                 ),
                 chordBandHeight: chordBandHeight,
+                roadmapTopReserveHeight: roadmapTopReserveHeight,
                 staffLineYPositions: staffLineYPositions,
-                trailingMeterChange: trailingMeterChange(after: measurePlan.measure, in: chart)
+                layoutStyle: chart.layoutStyle,
+                visualPolicy: visualPolicy,
+                meterChange: meterChange(for: measurePlan.measure, in: chart)
             )
         }
+        let roadmapMarkerLayouts = roadmapMarkerLayouts(
+            for: chart,
+            systemFrame: frame,
+            measureLayouts: measures
+        )
+        let endingLayouts = endingLayouts(
+            for: chart,
+            systemIndex: index,
+            systemFrame: frame,
+            topOffset: hasPointMarkerLayouts ? 14 : 0,
+            measureLayouts: measures
+        )
 
         return LeadSheetSystemLayout(
             id: plan.id,
@@ -318,27 +682,213 @@ enum LeadSheetPageLayoutEngine {
             frame: frame,
             staffLineYPositions: staffLineYPositions,
             clefFrame: clefFrame,
+            keySignatureLayouts: keyLayouts,
             timeSignatureFrame: timeSignatureFrame,
             sectionTextFrame: sectionTextFrame,
             sectionText: sectionText,
             roadmapTextFrame: roadmapTextFrame,
             roadmapText: roadmapText,
+            roadmapMarkerLayouts: roadmapMarkerLayouts,
+            endingLayouts: endingLayouts,
             measures: measures
         )
+    }
+
+    private static func roadmapObject(
+        _ roadmapObject: RoadmapObject,
+        intersects measureIDs: [UUID],
+        in chart: Chart
+    ) -> Bool {
+        guard roadmapObject.type.isEnding,
+              let endMeasureID = roadmapObject.endMeasureID else {
+            return false
+        }
+
+        let orderedMeasureIDs = chart.measures.map(\.id)
+        guard let startIndex = orderedMeasureIDs.firstIndex(of: roadmapObject.startMeasureID),
+              let endIndex = orderedMeasureIDs.firstIndex(of: endMeasureID),
+              startIndex <= endIndex else {
+            return false
+        }
+
+        return measureIDs.contains { measureID in
+            guard let measureIndex = orderedMeasureIDs.firstIndex(of: measureID) else {
+                return false
+            }
+
+            return measureIndex >= startIndex && measureIndex <= endIndex
+        }
+    }
+
+    private static func endingLayouts(
+        for chart: Chart,
+        systemIndex: Int,
+        systemFrame: CGRect,
+        topOffset: CGFloat,
+        measureLayouts: [LeadSheetMeasureLayout]
+    ) -> [LeadSheetEndingLayout] {
+        let orderedMeasureIDs = chart.measures.map(\.id)
+        let indexedMeasureLayouts = measureLayouts.compactMap { measureLayout -> (layout: LeadSheetMeasureLayout, index: Int)? in
+            guard let sourceMeasureID = measureLayout.sourceMeasureID,
+                  let measureIndex = orderedMeasureIDs.firstIndex(of: sourceMeasureID) else {
+                return nil
+            }
+
+            return (measureLayout, measureIndex)
+        }
+        guard !indexedMeasureLayouts.isEmpty else {
+            return []
+        }
+
+        return chart.roadmapObjects
+            .filter { $0.type.isEnding }
+            .compactMap { roadmapObject in
+                guard let endMeasureID = roadmapObject.endMeasureID,
+                      let startIndex = orderedMeasureIDs.firstIndex(of: roadmapObject.startMeasureID),
+                      let endIndex = orderedMeasureIDs.firstIndex(of: endMeasureID),
+                      startIndex <= endIndex else {
+                    return nil
+                }
+
+                let segmentMeasures = indexedMeasureLayouts.filter {
+                    $0.index >= startIndex && $0.index <= endIndex
+                }
+                guard let firstSegmentMeasure = segmentMeasures.first,
+                      let lastSegmentMeasure = segmentMeasures.last else {
+                    return nil
+                }
+
+                let startX = firstSegmentMeasure.layout.staffFrame.minX + 4
+                let endX = lastSegmentMeasure.layout.staffFrame.maxX - 4
+                let frame = CGRect(
+                    x: startX,
+                    y: systemFrame.minY + 3 + topOffset,
+                    width: max(1, endX - startX),
+                    height: 16
+                )
+                let text = roadmapObject.displayText
+                    ?? roadmapObject.type.compactEndingDisplayText
+                    ?? roadmapObject.resolvedDisplayText
+
+                return LeadSheetEndingLayout(
+                    roadmapObjectID: roadmapObject.id,
+                    systemIndex: systemIndex,
+                    type: roadmapObject.type,
+                    text: text,
+                    frame: frame,
+                    showsText: firstSegmentMeasure.index == startIndex,
+                    showsLeadingHook: firstSegmentMeasure.index == startIndex,
+                    showsTrailingHook: lastSegmentMeasure.index == endIndex
+                )
+            }
+    }
+
+    private static func roadmapMarkerLayouts(
+        for chart: Chart,
+        systemFrame: CGRect,
+        measureLayouts: [LeadSheetMeasureLayout]
+    ) -> [LeadSheetRoadmapMarkerLayout] {
+        let measureLayoutByID = Dictionary(
+            uniqueKeysWithValues: measureLayouts.compactMap { measureLayout -> (UUID, LeadSheetMeasureLayout)? in
+                guard let sourceMeasureID = measureLayout.sourceMeasureID else {
+                    return nil
+                }
+
+                return (sourceMeasureID, measureLayout)
+            }
+        )
+
+        return chart.roadmapObjects
+            .filter { $0.type.isPointMarker }
+            .compactMap { roadmapObject in
+                guard let measureLayout = measureLayoutByID[roadmapObject.startMeasureID] else {
+                    return nil
+                }
+
+                let text = roadmapObject.resolvedDisplayText
+                let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
+                let containsNotationGlyph = roadmapObject.type.containsNotationMarkerGlyph
+                let markerHeight: CGFloat
+                let markerTopOffset: CGFloat
+                if isSimpleChordSheet {
+                    markerHeight = containsNotationGlyph ? 40 : 34
+                    markerTopOffset = containsNotationGlyph ? -17 : -14
+                } else {
+                    markerHeight = containsNotationGlyph ? 28 : 24
+                    markerTopOffset = containsNotationGlyph ? -8 : -5
+                }
+                let movementFrame = CGRect(
+                    x: measureLayout.staffFrame.minX + 6,
+                    y: systemFrame.minY + markerTopOffset,
+                    width: max(1, measureLayout.staffFrame.width - 12),
+                    height: markerHeight
+                )
+                let markerWidth = roadmapMarkerWidth(
+                    for: text,
+                    type: roadmapObject.type,
+                    maxWidth: movementFrame.width,
+                    isSimpleChordSheet: isSimpleChordSheet
+                )
+                let horizontalOffset = roadmapObject.resolvedHorizontalOffsetWithinMeasure
+                let availableWidth = max(0, movementFrame.width - markerWidth)
+                return LeadSheetRoadmapMarkerLayout(
+                    roadmapObjectID: roadmapObject.id,
+                    type: roadmapObject.type,
+                    text: text,
+                    frame: CGRect(
+                        x: movementFrame.minX + availableWidth * CGFloat(horizontalOffset),
+                        y: movementFrame.minY,
+                        width: markerWidth,
+                        height: markerHeight
+                    ),
+                    movementFrame: movementFrame,
+                    anchorMeasureID: roadmapObject.startMeasureID
+                )
+            }
+    }
+
+    private static func roadmapMarkerWidth(
+        for text: String,
+        type: RoadmapType,
+        maxWidth: CGFloat,
+        isSimpleChordSheet: Bool
+    ) -> CGFloat {
+        let minimumWidth: CGFloat
+        if type.isStandaloneNotationMarker {
+            minimumWidth = isSimpleChordSheet ? 42 : 28
+        } else {
+            minimumWidth = isSimpleChordSheet ? 34 : 24
+        }
+        let characterWidth: CGFloat = isSimpleChordSheet ? 13 : 7.2
+        let textWidth: CGFloat
+
+        if type.isStandaloneNotationMarker {
+            textWidth = minimumWidth
+        } else {
+            textWidth = CGFloat(text.count) * characterWidth + (isSimpleChordSheet ? 18 : 12)
+        }
+
+        return min(max(minimumWidth, textWidth), max(1, maxWidth))
     }
 
     private static func packedSystemPlans(
         for chart: Chart,
         maxSystemWidth: CGFloat
     ) -> [PackedLeadSheetSystemPlan] {
+        let visualPolicy = VisualPolicy(chart: chart)
         let sourceMeasures = chart.measures
         guard !sourceMeasures.isEmpty else {
-            let metrics = chart.engravingPreset.layoutMetrics
+            let metrics = visualPolicy.metrics
+            let leadingSignatureWidth = leadingSignatureWidth(
+                for: chart,
+                visualPolicy: visualPolicy,
+                systemIndex: 0
+            )
             return [
                 PackedLeadSheetSystemPlan(
                     id: UUID(),
-                    leadingSignatureWidth: metrics.firstSystemSignatureWidth,
-                    frameWidth: metrics.firstSystemSignatureWidth
+                    leadingSignatureWidth: leadingSignatureWidth,
+                    frameWidth: leadingSignatureWidth
                         + mediumOpenMeasureWidth * metrics.measureWidthScale
                         + systemTrailingPadding,
                     measures: [
@@ -351,11 +901,28 @@ enum LeadSheetPageLayoutEngine {
             ]
         }
 
-        let metrics = chart.engravingPreset.layoutMetrics
+        let metrics = visualPolicy.metrics
+        if chart.layoutStyle == .simpleChordSheet {
+            return simpleChordSheetSystemPlans(
+                for: chart,
+                maxSystemWidth: maxSystemWidth,
+                metrics: metrics,
+                visualPolicy: visualPolicy
+            )
+        }
+
         var plans: [PackedLeadSheetSystemPlan] = []
         var currentMeasures: [PackedLeadSheetMeasurePlan] = []
-        var currentLeadingSignatureWidth = metrics.firstSystemSignatureWidth
+        var currentSystemIndex = 0
+        var currentLeadingSignatureWidth = leadingSignatureWidth(
+            for: chart,
+            visualPolicy: visualPolicy,
+            systemIndex: currentSystemIndex
+        )
         var currentBodyWidth: CGFloat = 0
+        let forcedBreakStartIDs = chart.layoutStyle == .rhythmSectionSheet
+            ? forcedSystemBreakStartIDs(for: chart)
+            : Set<UUID>()
 
         func flushCurrentSystem() {
             guard !currentMeasures.isEmpty else {
@@ -371,11 +938,20 @@ enum LeadSheetPageLayoutEngine {
                 )
             )
             currentMeasures = []
-            currentLeadingSignatureWidth = metrics.continuationSystemSignatureWidth
+            currentSystemIndex += 1
+            currentLeadingSignatureWidth = leadingSignatureWidth(
+                for: chart,
+                visualPolicy: visualPolicy,
+                systemIndex: currentSystemIndex
+            )
             currentBodyWidth = 0
         }
 
         for measure in sourceMeasures {
+            if !currentMeasures.isEmpty && forcedBreakStartIDs.contains(measure.id) {
+                flushCurrentSystem()
+            }
+
             let preferredWidth = preferredWidth(for: measure, chart: chart)
             let nextFrameWidth = currentLeadingSignatureWidth
                 + currentBodyWidth
@@ -393,7 +969,312 @@ enum LeadSheetPageLayoutEngine {
         }
 
         flushCurrentSystem()
+        guard chart.layoutStyle == .rhythmSectionSheet else {
+            return plans
+        }
+
+        return standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth)
+    }
+
+    private static func forcedSystemBreakStartIDs(for chart: Chart) -> Set<UUID> {
+        Set(
+            chart.systems
+                .dropFirst()
+                .filter { $0.lineBreakRule == .forced }
+                .compactMap(\.measures.first?.id)
+        )
+    }
+
+    private static func standardizedRhythmSectionSystemPlans(
+        _ plans: [PackedLeadSheetSystemPlan],
+        maxSystemWidth: CGFloat
+    ) -> [PackedLeadSheetSystemPlan] {
+        guard let firstPlan = plans.first,
+              let firstMeasure = firstPlan.measures.first else {
+            return plans
+        }
+
+        let firstBodyWidth = max(1, maxSystemWidth - firstPlan.leadingSignatureWidth - systemTrailingPadding)
+        let firstPreferredBodyWidth = firstPlan.measures.map(\.width).reduce(0, +)
+        guard firstPreferredBodyWidth > 0 else {
+            return plans
+        }
+
+        let maxMeasureCount = max(1, plans.map(\.measures.count).max() ?? 1)
+        let largestBodyWidth = max(
+            1,
+            plans
+                .map { maxSystemWidth - $0.leadingSignatureWidth - systemTrailingPadding }
+                .min() ?? firstBodyWidth
+        )
+        let firstScale = firstBodyWidth / firstPreferredBodyWidth
+        let firstSystemMeasureWidth = firstMeasure.width * firstScale
+        let standardMeasureWidth = min(
+            firstSystemMeasureWidth,
+            largestBodyWidth / CGFloat(maxMeasureCount)
+        )
+
+        return plans.map { plan in
+            standardizedRhythmSectionSystemPlan(
+                plan,
+                standardMeasureWidth: standardMeasureWidth
+            )
+        }
+    }
+
+    private static func standardizedRhythmSectionSystemPlan(
+        _ plan: PackedLeadSheetSystemPlan,
+        standardMeasureWidth: CGFloat
+    ) -> PackedLeadSheetSystemPlan {
+        let standardizedMeasures = plan.measures.map { measurePlan in
+            let width: CGFloat
+            if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
+                width = Measure.clampedManualLayoutWidth(CGFloat(manualLayoutWidth))
+            } else {
+                width = standardMeasureWidth
+            }
+
+            return PackedLeadSheetMeasurePlan(
+                measure: measurePlan.measure,
+                width: width
+            )
+        }
+        let bodyWidth = standardizedMeasures.map(\.width).reduce(0, +)
+
+        return PackedLeadSheetSystemPlan(
+            id: plan.id,
+            leadingSignatureWidth: plan.leadingSignatureWidth,
+            frameWidth: plan.leadingSignatureWidth + bodyWidth + systemTrailingPadding,
+            measures: standardizedMeasures
+        )
+    }
+
+    private static func simpleChordSheetSystemPlans(
+        for chart: Chart,
+        maxSystemWidth: CGFloat,
+        metrics: LeadSheetEngravingMetrics,
+        visualPolicy: VisualPolicy
+    ) -> [PackedLeadSheetSystemPlan] {
+        let cap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem
+            ?? max(1, chart.measures.count)
+        let leadingSignatureWidth = leadingSignatureWidth(
+            for: chart,
+            visualPolicy: visualPolicy,
+            systemIndex: 0
+        )
+        let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - systemTrailingPadding)
+        let preferredMeasuresPerSystem = max(
+            1,
+            chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem
+        )
+        let standardMeasureWidth = bodyWidth / CGFloat(preferredMeasuresPerSystem)
+        var plans: [PackedLeadSheetSystemPlan] = []
+
+        func appendPlan(for measures: [Measure], id: UUID) {
+            let weights = measures.map {
+                simpleChordSheetMeasureWeight(for: $0, metrics: metrics)
+            }
+            let measurePlans: [PackedLeadSheetMeasurePlan]
+            let rowBodyWidth: CGFloat
+            let totalWeight = max(1, weights.reduce(0, +))
+
+            if measures.count <= preferredMeasuresPerSystem,
+               totalWeight <= CGFloat(preferredMeasuresPerSystem) {
+                measurePlans = zip(measures, weights).map { measure, weight in
+                    PackedLeadSheetMeasurePlan(
+                        measure: measure,
+                        width: standardMeasureWidth * weight
+                    )
+                }
+                rowBodyWidth = measurePlans.map(\.width).reduce(0, +)
+            } else {
+                measurePlans = zip(measures, weights).map { measure, weight in
+                    PackedLeadSheetMeasurePlan(
+                        measure: measure,
+                        width: bodyWidth * weight / totalWeight
+                    )
+                }
+                rowBodyWidth = bodyWidth
+            }
+
+            plans.append(
+                PackedLeadSheetSystemPlan(
+                    id: id,
+                    leadingSignatureWidth: leadingSignatureWidth,
+                    frameWidth: leadingSignatureWidth + rowBodyWidth + systemTrailingPadding,
+                    measures: measurePlans
+                )
+            )
+        }
+
+        for system in chart.systems where !system.measures.isEmpty {
+            var cursor = 0
+            while cursor < system.measures.count {
+                let chunkEnd = min(cursor + cap, system.measures.count)
+                let chunk = Array(system.measures[cursor..<chunkEnd])
+                appendPlan(for: chunk, id: cursor == 0 ? system.id : UUID())
+                cursor = chunkEnd
+            }
+        }
+
+        if plans.isEmpty {
+            appendPlan(for: chart.measures, id: chart.systems.first?.id ?? UUID())
+        }
+
         return plans
+    }
+
+    private static func simpleChordSheetMeasureWeight(
+        for measure: Measure,
+        metrics: LeadSheetEngravingMetrics
+    ) -> CGFloat {
+        guard let manualLayoutWidth = measure.manualLayoutWidth else {
+            return 1
+        }
+
+        let defaultWidth = preferredCommittedMeasureWidth * metrics.measureWidthScale
+        return max(0.25, CGFloat(manualLayoutWidth) / max(1, defaultWidth))
+    }
+
+    private static func leadingSignatureWidth(
+        for chart: Chart,
+        visualPolicy: VisualPolicy,
+        systemIndex: Int
+    ) -> CGFloat {
+        if chart.layoutStyle == .simpleChordSheet {
+            return visualPolicy.simpleLeadingMeterGutterWidth
+        }
+        let metrics = visualPolicy.metrics
+        if chart.layoutStyle == .rhythmSectionSheet {
+            return metrics.firstSystemSignatureWidth
+        }
+        guard systemIndex == 0 else { return metrics.continuationSystemSignatureWidth }
+
+        let keySignatureWidth = chart.layoutStyle == .leadSheet
+            ? CGFloat(keySignatureAccidentalCount(for: chart.documentKey.transposed(for: chart.defaultTranspositionView))) * 10
+            : 0
+        return metrics.firstSystemSignatureWidth + keySignatureWidth
+    }
+
+    private static func keySignatureLayouts(
+        for chart: Chart,
+        staffLineYPositions: [CGFloat],
+        startX: CGFloat,
+        staffSpace: CGFloat
+    ) -> [LeadSheetKeySignatureLayout] {
+        guard let accidentalGroup = keySignatureAccidentals(
+            for: chart.documentKey.transposed(for: chart.defaultTranspositionView)
+        ),
+            let topStaffLineY = staffLineYPositions.first else {
+            return []
+        }
+
+        let offsets = keySignatureStaffOffsets(kind: accidentalGroup.kind, clef: chart.defaultClef)
+        let symbol: NotationGlyphCatalog.Symbol = accidentalGroup.kind == .sharps
+            ? .accidentalSharp
+            : .accidentalFlat
+        let accidentalAdvance = max(8, staffSpace * 0.95)
+        let accidentalWidth = max(7, staffSpace)
+        let accidentalHeight = staffSpace * 2.1
+
+        return (0..<accidentalGroup.count).map { index in
+            let staffOffset = offsets[index]
+            let centerY = topStaffLineY + staffOffset * staffSpace
+            return LeadSheetKeySignatureLayout(
+                symbol: symbol,
+                frame: CGRect(
+                    x: startX + CGFloat(index) * accidentalAdvance,
+                    y: centerY - accidentalHeight / 2,
+                    width: accidentalWidth,
+                    height: accidentalHeight
+                ),
+                staffOffset: staffOffset,
+                staffSpace: staffSpace
+            )
+        }
+    }
+
+    private static func keySignatureAccidentalCount(for key: DocumentKey) -> Int {
+        keySignatureAccidentals(for: key)?.count ?? 0
+    }
+
+    private static func keySignatureAccidentals(
+        for key: DocumentKey
+    ) -> (kind: LeadSheetKeySignatureAccidentalKind, count: Int)? {
+        let keyName = "\(key.tonic.rawValue)\(key.accidental.rawValue)"
+        let modeName = key.mode == .minor ? "minor" : "major"
+
+        let count: Int
+        let kind: LeadSheetKeySignatureAccidentalKind
+        switch (keyName, modeName) {
+        case ("C", "major"), ("A", "minor"):
+            return nil
+
+        case ("G", "major"), ("E", "minor"):
+            kind = .sharps
+            count = 1
+        case ("D", "major"), ("B", "minor"):
+            kind = .sharps
+            count = 2
+        case ("A", "major"), ("F#", "minor"):
+            kind = .sharps
+            count = 3
+        case ("E", "major"), ("C#", "minor"):
+            kind = .sharps
+            count = 4
+        case ("B", "major"), ("G#", "minor"):
+            kind = .sharps
+            count = 5
+        case ("F#", "major"), ("D#", "minor"):
+            kind = .sharps
+            count = 6
+        case ("C#", "major"), ("A#", "minor"):
+            kind = .sharps
+            count = 7
+
+        case ("F", "major"), ("D", "minor"):
+            kind = .flats
+            count = 1
+        case ("Bb", "major"), ("G", "minor"):
+            kind = .flats
+            count = 2
+        case ("Eb", "major"), ("C", "minor"):
+            kind = .flats
+            count = 3
+        case ("Ab", "major"), ("F", "minor"):
+            kind = .flats
+            count = 4
+        case ("Db", "major"), ("Bb", "minor"):
+            kind = .flats
+            count = 5
+        case ("Gb", "major"), ("Eb", "minor"):
+            kind = .flats
+            count = 6
+        case ("Cb", "major"), ("Ab", "minor"):
+            kind = .flats
+            count = 7
+
+        default:
+            return nil
+        }
+
+        return (kind: kind, count: count)
+    }
+
+    private static func keySignatureStaffOffsets(
+        kind: LeadSheetKeySignatureAccidentalKind,
+        clef: ChartClef
+    ) -> [CGFloat] {
+        switch (kind, clef) {
+        case (.sharps, .treble):
+            return [0, 1.5, -0.5, 1, 2.5, 0.5, 2]
+        case (.flats, .treble):
+            return [2, 4, 2.5, 1, 3, 1.5, 0]
+        case (.sharps, .bass):
+            return [1, 2.5, 4, 2, 0, 1.5, 3]
+        case (.flats, .bass):
+            return [3, 1.5, 0, 2, 4, 2.5, 1]
+        }
     }
 
     private static func preferredWidth(for measure: Measure, chart: Chart) -> CGFloat {
@@ -412,20 +1293,17 @@ enum LeadSheetPageLayoutEngine {
         return measure.meterOverride ?? defaultMeter
     }
 
-    private static func trailingMeterChange(after measure: Measure?, in chart: Chart) -> Meter? {
+    private static func meterChange(for measure: Measure?, in chart: Chart) -> Meter? {
         guard let measure,
-              let currentMeasureIndex = chart.measures.firstIndex(where: { $0.id == measure.id }) else {
+              let currentMeasureIndex = chart.measures.firstIndex(where: { $0.id == measure.id }),
+              currentMeasureIndex > 0 else {
             return nil
         }
 
-        let nextMeasureIndex = currentMeasureIndex + 1
-        guard chart.measures.indices.contains(nextMeasureIndex) else {
-            return nil
-        }
-
+        let previousMeasure = chart.measures[currentMeasureIndex - 1]
+        let previousMeter = effectiveMeter(for: previousMeasure, defaultMeter: chart.defaultMeter)
         let currentMeter = effectiveMeter(for: measure, defaultMeter: chart.defaultMeter)
-        let nextMeter = effectiveMeter(for: chart.measures[nextMeasureIndex], defaultMeter: chart.defaultMeter)
-        return currentMeter == nextMeter ? nil : nextMeter
+        return previousMeter == currentMeter ? nil : currentMeter
     }
 
     private static func measureLayout(
@@ -435,16 +1313,41 @@ enum LeadSheetPageLayoutEngine {
         frame: CGRect,
         staffFrame: CGRect,
         chordBandHeight: CGFloat,
+        roadmapTopReserveHeight: CGFloat,
         staffLineYPositions: [CGFloat],
-        trailingMeterChange: Meter?
+        layoutStyle: ChartLayoutStyle,
+        visualPolicy: VisualPolicy,
+        meterChange: Meter?
     ) -> LeadSheetMeasureLayout {
-        let chordBandFrame = CGRect(
+        let isSimpleChordSheet = layoutStyle == .simpleChordSheet
+        let isRhythmSectionSheet = layoutStyle == .rhythmSectionSheet
+        let freehandSymbolLanes = layoutStyle.profile.freehandSymbolLanes
+        let freehandAboveFrame = freehandSymbolLanes.contains(.aboveMeasure) ? CGRect(
+            x: staffFrame.minX + 4,
+            y: frame.minY + 2,
+            width: max(1, staffFrame.width - 8),
+            height: max(1, staffFrame.minY - frame.minY - 8)
+        ) : nil
+        let freehandBelowTopInset: CGFloat = isRhythmSectionSheet ? 4 : 6
+        let freehandBelowBottomInset: CGFloat = isRhythmSectionSheet ? 0 : 2
+        let freehandBelowFrame = freehandSymbolLanes.contains(.belowMeasure) ? CGRect(
+            x: staffFrame.minX + 4,
+            y: staffFrame.maxY + freehandBelowTopInset,
+            width: max(1, staffFrame.width - 8),
+            height: max(1, frame.maxY - staffFrame.maxY - freehandBelowTopInset - freehandBelowBottomInset)
+        ) : nil
+        let chordBandFrame = isSimpleChordSheet ? CGRect(
+            x: staffFrame.minX + 8,
+            y: staffFrame.minY + 4,
+            width: max(1, staffFrame.width - 16),
+            height: max(1, staffFrame.height - 8)
+        ) : CGRect(
             x: frame.minX + 3,
-            y: frame.minY,
+            y: frame.minY + roadmapTopReserveHeight,
             width: frame.width - 6,
-            height: chordBandHeight - 4
+            height: max(1, chordBandHeight - 4 - roadmapTopReserveHeight)
         )
-        let writableFrame = CGRect(
+        let writableFrame = isSimpleChordSheet ? staffFrame.insetBy(dx: 2, dy: 2) : CGRect(
             x: frame.minX + 2,
             y: chordBandFrame.minY,
             width: frame.width - 4,
@@ -456,13 +1359,8 @@ enum LeadSheetPageLayoutEngine {
             width: 1.6,
             height: staffFrame.height
         )
-        let trailingMeterChangeFrame = trailingMeterChange.map { _ in
-            CGRect(
-                x: max(frame.minX + 8, trailingBarlineFrame.minX - 24),
-                y: staffFrame.minY - 10,
-                width: 20,
-                height: 44
-            )
+        let meterChangeFrame = meterChange.map { _ in
+            visualPolicy.inlineMeterChangeFrame(in: frame, staffFrame: staffFrame)
         }
 
         guard let measure else {
@@ -472,13 +1370,18 @@ enum LeadSheetPageLayoutEngine {
                 index: index + 1,
                 frame: frame,
                 staffFrame: staffFrame,
+                freehandAboveFrame: freehandAboveFrame,
+                freehandBelowFrame: freehandBelowFrame,
                 chordBandFrame: chordBandFrame,
                 writableFrame: writableFrame,
                 chordLayouts: [],
                 noteLayouts: [],
+                repeatMarkerLayouts: [],
+                cueTextLayouts: [],
+                leadingBarline: nil,
                 barlineAfter: .single,
-                trailingMeterChange: trailingMeterChange,
-                trailingMeterChangeFrame: trailingMeterChangeFrame,
+                meterChange: meterChange,
+                meterChangeFrame: meterChangeFrame,
                 trailingBarlineFrame: trailingBarlineFrame,
                 isOpen: true
             )
@@ -490,23 +1393,40 @@ enum LeadSheetPageLayoutEngine {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
                     ($1.startPosition.startOffset(in: meter) ?? 0)
             }
-
-        let chordLayouts = displayedPlacements.map { placement in
-            chordLayout(
+        let chordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
+            let nextPlacementIndex = placementIndex + 1
+            let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
+                ? displayedPlacements[nextPlacementIndex]
+                : nil
+            return chordLayout(
                 for: placement,
+                nextPlacement: nextPlacement,
                 chart: chart,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
-                staffFrame: staffFrame
+                staffFrame: staffFrame,
+                visualPolicy: visualPolicy
             )
         }
-        let noteLayouts = slashNoteLayouts(
+        let noteLayouts = isSimpleChordSheet ? [] : noteLayouts(
             for: measure,
             chart: chart,
             meter: meter,
             staffFrame: staffFrame,
             staffLineYPositions: staffLineYPositions
         ) ?? []
+        let repeatMarkerLayouts = repeatMarkerLayouts(
+            for: measure,
+            chart: chart,
+            staffFrame: staffFrame
+        )
+        let cueTextLayouts = cueTextLayouts(
+            for: measure,
+            chart: chart,
+            measureFrame: frame,
+            chordBandFrame: chordBandFrame,
+            staffFrame: staffFrame
+        )
 
         return LeadSheetMeasureLayout(
             id: measure.id,
@@ -514,13 +1434,18 @@ enum LeadSheetPageLayoutEngine {
             index: measure.index,
             frame: frame,
             staffFrame: staffFrame,
+            freehandAboveFrame: freehandAboveFrame,
+            freehandBelowFrame: freehandBelowFrame,
             chordBandFrame: chordBandFrame,
             writableFrame: writableFrame,
             chordLayouts: chordLayouts,
             noteLayouts: noteLayouts,
+            repeatMarkerLayouts: repeatMarkerLayouts,
+            cueTextLayouts: cueTextLayouts,
+            leadingBarline: measure.index == 1 ? .double : nil,
             barlineAfter: measure.barlineAfter,
-            trailingMeterChange: trailingMeterChange,
-            trailingMeterChangeFrame: trailingMeterChangeFrame,
+            meterChange: meterChange,
+            meterChangeFrame: meterChangeFrame,
             trailingBarlineFrame: trailingBarlineFrame,
             isOpen: measure.authoringState == .open
         )
@@ -528,13 +1453,15 @@ enum LeadSheetPageLayoutEngine {
 
     private static func chordLayout(
         for placement: MeasureChordPlacement,
+        nextPlacement: MeasureChordPlacement?,
         chart: Chart,
         meter: Meter,
         chordBandFrame: CGRect,
-        staffFrame: CGRect
+        staffFrame: CGRect,
+        visualPolicy: VisualPolicy
     ) -> LeadSheetChordLayout {
-        let event = placement.chordEvent.transposed(for: chart.defaultTranspositionView)
-        let textWidth = estimatedChordTextWidth(for: event.symbol.displayText)
+        let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent)
+        let displayedText = displayedSymbol.displayText
         let usableWidth = staffFrame.width - 16
         let attackCenterX = beatAttackCenterX(
             startPosition: placement.startPosition,
@@ -543,16 +1470,352 @@ enum LeadSheetPageLayoutEngine {
             staffFrame: staffFrame,
             usableWidth: usableWidth
         )
+
+        if visualPolicy.layoutStyle == .simpleChordSheet {
+            let fitFrame = simpleChordFitFrame(
+                for: placement,
+                nextPlacement: nextPlacement,
+                meter: meter,
+                chordBandFrame: chordBandFrame,
+                visualPolicy: visualPolicy
+            )
+            return LeadSheetChordLayout(
+                id: placement.chordEvent.id,
+                text: displayedText,
+                symbol: displayedSymbol,
+                frame: simpleChordDisplayFrame(
+                    symbol: displayedSymbol,
+                    text: displayedText,
+                    fitFrame: fitFrame,
+                    horizontalCompressionScale: 1,
+                    reservesTrailingWritingSpace: simpleChordReservesTrailingWritingSpace(
+                        placement: placement,
+                        nextPlacement: nextPlacement,
+                        meter: meter
+                    )
+                ),
+                fitFrame: fitFrame,
+                snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
+            )
+        }
+
+        let textWidth = estimatedChordTextWidth(for: displayedText)
         let chordX = min(
             max(chordBandFrame.minX + 1, attackCenterX - textWidth / 2),
             chordBandFrame.maxX - textWidth
         )
+        let resolvedChordX = max(chordBandFrame.minX + 1, chordX)
+        let resolvedWidth = min(textWidth, max(1, chordBandFrame.maxX - resolvedChordX))
 
+        let structuredChordRenderOffset = visualPolicy.layoutStyle == .rhythmSectionSheet
+            ? rhythmSectionChordRenderOffset
+            : 0
         return LeadSheetChordLayout(
             id: placement.chordEvent.id,
-            text: event.symbol.displayText,
-            frame: CGRect(x: chordX, y: chordBandFrame.minY, width: textWidth, height: chordBandFrame.height)
+            text: displayedText,
+            symbol: displayedSymbol,
+            frame: CGRect(
+                x: resolvedChordX,
+                y: chordBandFrame.minY + structuredChordRenderOffset,
+                width: resolvedWidth,
+                height: chordBandFrame.height
+            ),
+            snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
         )
+    }
+
+    private static func simpleChordFitFrame(
+        for placement: MeasureChordPlacement,
+        nextPlacement: MeasureChordPlacement?,
+        meter: Meter,
+        chordBandFrame: CGRect,
+        visualPolicy: VisualPolicy
+    ) -> CGRect {
+        let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
+        let startOffset = min(
+            measureLength,
+            max(0, placement.startPosition.startOffset(in: meter) ?? 0)
+        )
+        let nextOffset = nextPlacement?.startPosition.startOffset(in: meter)
+        let proposedEndOffset = nextOffset ?? measureLength
+        let endOffset = min(
+            measureLength,
+            max(
+                startOffset + measureLength * 0.03,
+                proposedEndOffset > startOffset ? proposedEndOffset : startOffset + meter.beatUnitWholeNoteLength
+            )
+        )
+        let startFraction = startOffset / measureLength
+        let endFraction = max(startFraction, endOffset / measureLength)
+        let rawMinX = chordBandFrame.minX + chordBandFrame.width * CGFloat(startFraction)
+        let rawMaxX = chordBandFrame.minX + chordBandFrame.width * CGFloat(endFraction)
+        let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, (rawMaxX - rawMinX) / 4))
+        let minX = rawMinX + inset
+        let maxX = max(minX + 1, rawMaxX - inset)
+
+        return CGRect(
+            x: minX,
+            y: chordBandFrame.minY,
+            width: max(1, maxX - minX),
+            height: chordBandFrame.height
+        )
+    }
+
+    private static func simpleChordDisplayFrame(
+        symbol: ChordSymbol? = nil,
+        text: String,
+        fitFrame: CGRect,
+        horizontalCompressionScale: CGFloat,
+        reservesTrailingWritingSpace: Bool
+    ) -> CGRect {
+        let visualSlotFrame = reservesTrailingWritingSpace
+            ? simpleChordPrimaryBeatVisualSlot(in: fitFrame)
+            : fitFrame
+        let fontSize = estimatedSimpleChordFontSize(fitting: visualSlotFrame, text: text)
+        let estimatedWidth = max(
+            1,
+            estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize)
+                * max(0.01, min(1, horizontalCompressionScale)) + 2
+        )
+        let frameWidth = min(estimatedWidth, visualSlotFrame.width)
+        return CGRect(
+            x: visualSlotFrame.minX,
+            y: fitFrame.minY,
+            width: frameWidth,
+            height: fitFrame.height
+        )
+    }
+
+    private static func simpleChordReservesTrailingWritingSpace(
+        placement: MeasureChordPlacement,
+        nextPlacement: MeasureChordPlacement?,
+        meter: Meter
+    ) -> Bool {
+        guard nextPlacement == nil,
+              let startOffset = placement.startPosition.startOffset(in: meter) else {
+            return false
+        }
+
+        return startOffset <= meter.beatUnitWholeNoteLength * 0.05
+    }
+
+    private static func simpleChordPrimaryBeatVisualSlot(in fitFrame: CGRect) -> CGRect {
+        let cappedWidth = min(
+            fitFrame.width,
+            max(54, fitFrame.width * 0.62)
+        )
+        return CGRect(
+            x: fitFrame.minX,
+            y: fitFrame.minY,
+            width: cappedWidth,
+            height: fitFrame.height
+        )
+    }
+
+    private static func estimatedSimpleChordFontSize(fitting frame: CGRect, text: String) -> CGFloat {
+        preferredSimpleChordFontSize()
+    }
+
+    private static func preferredSimpleChordFontSize() -> CGFloat {
+        ChartTypographyResolver.simpleChordPrimaryFontSize
+    }
+
+    private static func estimatedSimpleChordTextWidth(
+        for symbol: ChordSymbol?,
+        fallbackText: String,
+        fontSize: CGFloat
+    ) -> CGFloat {
+        guard let symbol else {
+            return estimatedSimpleChordTextWidth(for: fallbackText, fontSize: fontSize)
+        }
+
+        let suffixFontSize = ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: fontSize)
+        return ChartTypographyResolver
+            .estimatedChordTokenWidth(
+                for: symbol,
+                primaryFontSize: fontSize,
+                suffixFontSize: suffixFontSize
+            )
+    }
+
+    private static func estimatedSimpleChordTextWidth(
+        for text: String,
+        fontSize: CGFloat
+    ) -> CGFloat {
+        let parts = simpleChordTextParts(for: text)
+        let rootBaseWidth = parts.root.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        let suffixFontSize = ChartTypographyResolver.simpleChordSuffixFontSize(primarySize: fontSize)
+        let suffixBaseWidth = parts.suffix.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedChordCharacterWidth(character)
+        }
+        let suffixGap = parts.suffix.isEmpty ? CGFloat(0) : ChartTypographyResolver.simpleChordTokenGapWidth
+        let simpleChordFontWidthScale = ChartTypographyResolver.simpleChordEstimatedWidthScale
+        return max(16, rootBaseWidth * (fontSize / 18) * simpleChordFontWidthScale)
+            + suffixGap
+            + suffixBaseWidth * (suffixFontSize / 18) * simpleChordFontWidthScale
+    }
+
+    private static func simpleChordTextParts(for text: String) -> (root: String, suffix: String) {
+        guard let firstCharacter = text.first,
+              "ABCDEFG".contains(firstCharacter) else {
+            return (text, "")
+        }
+
+        var rootEnd = text.index(after: text.startIndex)
+        if rootEnd < text.endIndex,
+           ["b", "♭", "#", "♯"].contains(text[rootEnd]) {
+            rootEnd = text.index(after: rootEnd)
+        }
+
+        return (
+            String(text[..<rootEnd]),
+            String(text[rootEnd...])
+        )
+    }
+
+    private static func repeatMarkerLayouts(
+        for measure: Measure,
+        chart: Chart,
+        staffFrame: CGRect
+    ) -> [LeadSheetRepeatMarkerLayout] {
+        let staffSpace = max(CGFloat(1), staffFrame.height / 4)
+        let markerWidth = chart.layoutStyle == .simpleChordSheet
+            ? max(CGFloat(8), staffSpace * 0.95)
+            : max(CGFloat(12), staffSpace * 1.6)
+
+        return chart.roadmapObjects
+            .filter { $0.type == .repeatSpan }
+            .flatMap { roadmapObject -> [LeadSheetRepeatMarkerLayout] in
+                var layouts: [LeadSheetRepeatMarkerLayout] = []
+                if roadmapObject.startMeasureID == measure.id {
+                    layouts.append(
+                        repeatMarkerLayout(
+                            for: roadmapObject,
+                            edge: .leading,
+                            centerX: staffFrame.minX,
+                            staffFrame: staffFrame,
+                            markerWidth: markerWidth
+                        )
+                    )
+                }
+
+                if roadmapObject.endMeasureID == measure.id {
+                    layouts.append(
+                        repeatMarkerLayout(
+                            for: roadmapObject,
+                            edge: .trailing,
+                            centerX: staffFrame.maxX,
+                            staffFrame: staffFrame,
+                            markerWidth: markerWidth
+                        )
+                    )
+                }
+
+                return layouts
+            }
+    }
+
+    private static func repeatMarkerLayout(
+        for roadmapObject: RoadmapObject,
+        edge: LeadSheetRepeatMarkerLayout.Edge,
+        centerX: CGFloat,
+        staffFrame: CGRect,
+        markerWidth: CGFloat
+    ) -> LeadSheetRepeatMarkerLayout {
+        LeadSheetRepeatMarkerLayout(
+            roadmapObjectID: roadmapObject.id,
+            edge: edge,
+            frame: CGRect(
+                x: centerX - markerWidth / 2,
+                y: staffFrame.minY,
+                width: markerWidth,
+                height: staffFrame.height
+            )
+        )
+    }
+
+    private static func cueTextLayouts(
+        for measure: Measure,
+        chart: Chart,
+        measureFrame: CGRect,
+        chordBandFrame: CGRect,
+        staffFrame: CGRect
+    ) -> [LeadSheetCueTextLayout] {
+        chart.cueTexts
+            .filter { $0.anchorMeasureID == measure.id }
+            .enumerated()
+            .map { cueIndex, cueText in
+                LeadSheetCueTextLayout(
+                    id: cueText.id,
+                    text: cueText.text,
+                    frame: cueTextFrame(
+                        for: cueText,
+                        cueIndex: cueIndex,
+                        measureFrame: measureFrame,
+                        chordBandFrame: chordBandFrame,
+                        staffFrame: staffFrame
+                    ),
+                    position: cueText.position,
+                    emphasis: cueText.emphasis
+                )
+            }
+    }
+
+    private static func cueTextFrame(
+        for cueText: CueText,
+        cueIndex: Int,
+        measureFrame: CGRect,
+        chordBandFrame: CGRect,
+        staffFrame: CGRect
+    ) -> CGRect {
+        let lineHeight: CGFloat = 17
+        let lineGap: CGFloat = 2
+        let offset = CGFloat(cueIndex) * (lineHeight + lineGap)
+        let width = max(1, staffFrame.width - 12)
+        let leadingFrame = CGRect(
+            x: measureFrame.minX + 4,
+            y: staffFrame.minY,
+            width: min(58, max(1, staffFrame.width - 8)),
+            height: lineHeight
+        )
+        let trailingFrame = CGRect(
+            x: max(measureFrame.minX + 4, staffFrame.maxX - min(58, max(1, staffFrame.width - 8)) - 4),
+            y: staffFrame.minY,
+            width: min(58, max(1, staffFrame.width - 8)),
+            height: lineHeight
+        )
+
+        switch cueText.position {
+        case .above:
+            if chordBandFrame.intersects(staffFrame) {
+                return CGRect(
+                    x: staffFrame.minX + 6,
+                    y: min(measureFrame.maxY - lineHeight - 2, staffFrame.minY + 4 + offset),
+                    width: width,
+                    height: lineHeight
+                )
+            }
+
+            return CGRect(
+                x: staffFrame.minX + 6,
+                y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
+                width: width,
+                height: lineHeight
+            )
+        case .below:
+            return CGRect(
+                x: staffFrame.minX + 6,
+                y: min(measureFrame.maxY - lineHeight - 2, staffFrame.maxY + 5 + offset),
+                width: width,
+                height: lineHeight
+            )
+        case .leadingEdge:
+            return leadingFrame.offsetBy(dx: 0, dy: offset)
+        case .trailingEdge:
+            return trailingFrame.offsetBy(dx: 0, dy: offset)
+        }
     }
 
     private static func estimatedChordTextWidth(for text: String) -> CGFloat {
@@ -591,6 +1854,19 @@ enum LeadSheetPageLayoutEngine {
             return .slashHalfNotehead
         case .filled:
             return .slashNotehead
+        }
+    }
+
+    private static func pitchedNoteheadSymbol(
+        for headStyle: LeadSheetNoteLayout.HeadStyle
+    ) -> NotationGlyphCatalog.Symbol {
+        switch headStyle {
+        case .whole:
+            return .noteheadWhole
+        case .half:
+            return .noteheadHalf
+        case .filled:
+            return .noteheadBlack
         }
     }
 
@@ -761,6 +2037,137 @@ enum LeadSheetPageLayoutEngine {
         }
     }
 
+    private static func noteLayouts(
+        for measure: Measure,
+        chart: Chart,
+        meter: Meter,
+        staffFrame: CGRect,
+        staffLineYPositions: [CGFloat]
+    ) -> [LeadSheetNoteLayout]? {
+        if chart.layoutStyle == .leadSheet,
+           let pitchedLayouts = pitchedNoteLayouts(
+            for: measure,
+            chart: chart,
+            meter: meter,
+            staffFrame: staffFrame,
+            staffLineYPositions: staffLineYPositions
+           ) {
+            return pitchedLayouts
+        }
+
+        return slashNoteLayouts(
+            for: measure,
+            chart: chart,
+            meter: meter,
+            staffFrame: staffFrame,
+            staffLineYPositions: staffLineYPositions
+        )
+    }
+
+    private static func pitchedNoteLayouts(
+        for measure: Measure,
+        chart: Chart,
+        meter: Meter,
+        staffFrame: CGRect,
+        staffLineYPositions: [CGFloat]
+    ) -> [LeadSheetNoteLayout]? {
+        guard !measure.pitchedNoteEvents.isEmpty,
+              let slots = measure.resolvedRhythmSlots(defaultMeter: meter),
+              !slots.isEmpty,
+              let fallbackLayouts = slashNoteLayouts(
+                for: measure,
+                chart: chart,
+                meter: meter,
+                staffFrame: staffFrame,
+                staffLineYPositions: staffLineYPositions
+              ) else {
+            return nil
+        }
+
+        let pitchedEventsBySlot = Dictionary(
+            grouping: measure.pitchedNoteEvents,
+            by: \.rhythmSlotIndex
+        ).compactMapValues(\.first)
+        let usableWidth = staffFrame.width - 16
+        let staffSpace = staffLineYPositions[1] - staffLineYPositions[0]
+
+        return slots.enumerated().map { index, slot in
+            guard slot.duration.supportsPitchedLeadSheetNote,
+                  let event = pitchedEventsBySlot[index] else {
+                return fallbackLayouts[index]
+            }
+
+            let noteCenter = CGPoint(
+                x: slashAttackCenterX(
+                    for: slot,
+                    meter: meter,
+                    staffFrame: staffFrame,
+                    usableWidth: usableWidth
+                ),
+                y: staffY(for: event.staffPosition, staffLineYPositions: staffLineYPositions)
+            )
+            let headStyle = headStyle(for: slot.duration)
+            let noteheadSymbol = pitchedNoteheadSymbol(for: headStyle)
+            let noteheadFrame = noteheadFrame(
+                for: noteheadSymbol,
+                centeredAt: noteCenter,
+                staffSpace: staffSpace,
+                notationFont: chart.notationFont,
+                engravingPreset: chart.engravingPreset,
+                fallbackSize: CGSize(width: 10, height: 9)
+            )
+            let stemGoesUp = event.staffPosition.staffStep >= 4
+            let stemStart = slot.duration == .whole
+                ? nil
+                : stemAnchorPoint(
+                    for: noteheadSymbol,
+                    centeredAt: noteheadFrame.center,
+                    staffSpace: staffSpace,
+                    notationFont: chart.notationFont,
+                    engravingPreset: chart.engravingPreset,
+                    stemGoesUp: stemGoesUp,
+                    fallback: CGPoint(
+                        x: stemGoesUp ? noteheadFrame.maxX - 1 : noteheadFrame.minX + 1,
+                        y: stemGoesUp ? noteheadFrame.minY + 2 : noteheadFrame.maxY - 2
+                    )
+                )
+            let stemLength = staffSpace * 3.45
+            let stemEnd = stemStart.map { start in
+                CGPoint(
+                    x: start.x,
+                    y: stemGoesUp ? start.y - stemLength : start.y + stemLength
+                )
+            }
+            let flagStyle: LeadSheetNoteLayout.FlagStyle = slot.duration == .eighth ? .single : .none
+            let dotFrame = dottedDuration(slot.duration)
+                ? CGRect(x: noteheadFrame.maxX + 3, y: noteheadFrame.midY - 1.5, width: 3, height: 3)
+                : nil
+
+            return LeadSheetNoteLayout(
+                id: event.id,
+                symbolStyle: .pitchedNote,
+                noteheadSymbol: noteheadSymbol,
+                noteheadFrame: noteheadFrame,
+                staffSpace: staffSpace,
+                headStyle: headStyle,
+                stemStart: stemStart,
+                stemEnd: stemEnd,
+                stemGoesUp: stemGoesUp,
+                flagStyle: flagStyle,
+                dotFrame: dotFrame,
+                tieFrame: nil,
+                beamEndPoint: nil
+            )
+        }
+    }
+
+    private static func staffY(
+        for staffPosition: LeadSheetStaffPosition,
+        staffLineYPositions: [CGFloat]
+    ) -> CGFloat {
+        staffLineYPositions[0] + CGFloat(staffPosition.staffStep) * (staffLineYPositions[1] - staffLineYPositions[0]) / 2
+    }
+
     private static func beamEndPointForSlash(
         at index: Int,
         slots: [MeasureRhythmSlot],
@@ -780,7 +2187,7 @@ enum LeadSheetPageLayoutEngine {
 
         let currentStart = slots[index].startPosition.startOffset(in: meter) ?? 0
         let nextStart = slots[index + 1].startPosition.startOffset(in: meter) ?? 0
-        guard abs((currentStart + slots[index].duration.wholeNoteLength) - nextStart) < 0.0001 else {
+        guard abs((currentStart + slots[index].duration.wholeNoteLength(in: meter)) - nextStart) < 0.0001 else {
             return nil
         }
         guard slots[index].startPosition.beat == slots[index + 1].startPosition.beat else {
@@ -849,7 +2256,7 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func slashAttackLaneLength(for duration: RhythmValue, meter: Meter) -> Double {
-        let durationLength = max(0, duration.wholeNoteLength)
+        let durationLength = max(0, duration.wholeNoteLength(in: meter))
         guard durationLength > 0 else {
             return meter.beatUnitWholeNoteLength
         }
@@ -871,7 +2278,7 @@ enum LeadSheetPageLayoutEngine {
 
         let previousStart = slots[index - 1].startPosition.startOffset(in: meter) ?? 0
         let currentStart = slots[index].startPosition.startOffset(in: meter) ?? 0
-        return abs((previousStart + slots[index - 1].duration.wholeNoteLength) - currentStart) < 0.0001
+        return abs((previousStart + slots[index - 1].duration.wholeNoteLength(in: meter)) - currentStart) < 0.0001
     }
 
     private static func wholeRestLayout(
@@ -1026,6 +2433,56 @@ enum LeadSheetPageLayoutEngine {
 }
 
 extension LeadSheetPageLayout {
+    func freehandSymbolLayouts(for chart: Chart) -> [LeadSheetFreehandSymbolLayout] {
+        let supportedLanes = chart.layoutStyle.profile.freehandSymbolLanes
+        guard !supportedLanes.isEmpty else {
+            return []
+        }
+
+        let measureLayoutByID = Dictionary(
+            uniqueKeysWithValues: systems
+                .flatMap(\.measures)
+                .compactMap { measureLayout -> (UUID, LeadSheetMeasureLayout)? in
+                    guard let sourceMeasureID = measureLayout.sourceMeasureID else {
+                        return nil
+                    }
+
+                    return (sourceMeasureID, measureLayout)
+                }
+        )
+
+        return chart.freehandSymbols
+            .filter { supportedLanes.contains($0.lane) }
+            .sorted { $0.zIndex < $1.zIndex }
+            .compactMap { symbol in
+                guard let measureLayout = measureLayoutByID[symbol.anchorMeasureID] else {
+                    return nil
+                }
+
+                let frame: CGRect
+                let laneFrame: CGRect
+                if symbol.lane == .chartArea {
+                    laneFrame = paperFrame
+                    frame = symbol.measureRelativeFrame?.resolved(relativeTo: measureLayout.frame)
+                        ?? symbol.normalizedFrame.resolved(in: measureLayout.frame)
+                } else {
+                    guard let resolvedLaneFrame = measureLayout.freehandFrame(for: symbol.lane) else {
+                        return nil
+                    }
+
+                    laneFrame = resolvedLaneFrame
+                    frame = symbol.normalizedFrame.resolved(in: resolvedLaneFrame)
+                }
+
+                return LeadSheetFreehandSymbolLayout(
+                    id: symbol.id,
+                    symbol: symbol,
+                    frame: frame,
+                    laneFrame: laneFrame
+                )
+            }
+    }
+
     func selectableNotes() -> [LeadSheetSelectableNote] {
         systems.flatMap { system in
             system.measures.flatMap { measure in
@@ -1077,6 +2534,19 @@ extension LeadSheetPageLayout {
     }
 }
 
+extension LeadSheetMeasureLayout {
+    func freehandFrame(for lane: FreehandSymbolLane) -> CGRect? {
+        switch lane {
+        case .chartArea:
+            return frame
+        case .aboveMeasure:
+            return freehandAboveFrame
+        case .belowMeasure:
+            return freehandBelowFrame
+        }
+    }
+}
+
 extension LeadSheetNoteLayout {
     var selectionAnchor: CGPoint {
         noteheadFrame.center
@@ -1124,6 +2594,11 @@ private struct LeadSheetEngravingMetrics {
     var continuationSystemSignatureWidth: CGFloat
 }
 
+private enum LeadSheetKeySignatureAccidentalKind {
+    case sharps
+    case flats
+}
+
 private extension EngravingPreset {
     var layoutMetrics: LeadSheetEngravingMetrics {
         switch self {
@@ -1150,7 +2625,7 @@ private extension EngravingPreset {
         case .wide:
             return LeadSheetEngravingMetrics(
                 measureWidthScale: 1.18,
-                systemHeight: 140,
+                systemHeight: 156,
                 systemSpacing: 26,
                 staffLineSpacing: 11.2,
                 chordBandHeight: 56,

@@ -18,9 +18,10 @@ Use this together with:
 ### Docs
 - Product scope is aligned around a rhythm-aware chord-chart app, not full notation.
 - Monetization is explicitly documented as:
-  - free download
-  - one-time Pro unlock for the full local tool
-  - later optional Studio subscription only for sync/service-backed features
+  - mandatory Basic account for identity, recovery, profile, and subscription state
+  - local-first chart authoring
+  - Basic 3-chart cap with complete local tool and PDF/export access
+  - Pro subscription for unlimited chart capacity, Forums, cloud chart backup/sync/restore, and other service-backed features
 
 ### App scaffold
 - `project.yml` defines an iPad app target plus a unit-test target via XcodeGen.
@@ -36,8 +37,8 @@ Use this together with:
   - toolbar menus for fonts, transpose, notation, and text
   - measure cards with rhythm-aware chord-event rendering
 - Monetization scaffolding with:
-  - Free / Pro / Studio entitlement model
-  - free chart-cap logic
+  - legacy entitlement enum names pending migration to Basic / Pro subscription wording
+  - Basic 3-chart cap logic
   - prototype upgrade sheet
   - prototype plan switcher in the library
 
@@ -84,7 +85,7 @@ Validate these before doing new feature work:
 - new chart creation works
 - editor shell renders without layout issues
 - meter controls behave correctly
-- locked Pro actions show the upgrade sheet in Free mode
+- locked Pro actions show the upgrade sheet in Basic mode
 - prototype plan switching updates the UI
 - test target compiles and executes
 
@@ -104,7 +105,7 @@ Validate these before doing new feature work:
 
 Recommended next work once the project opens and runs:
 - generate the Xcode project and fix any compile issues
-- wire real PDF export behind the Pro entitlement
+- keep PDF/export available in Basic and wire Pro gates around cloud sync and Forums
 - replace in-memory chart storage with SwiftData
 - build the selection inspector
 - add PencilKit capture and the first ink-grouping pipeline

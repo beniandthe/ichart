@@ -15,22 +15,41 @@ struct LeadSheetInteractionModeStatePolicy {
     var clearsChordInteractionState: Bool
     var hidesPageInkCanvas: Bool
     var inkTool: PKInkingTool
+    var inkToolMode: EditorInkToolMode
     var drawingPolicy: PKCanvasViewDrawingPolicy
 
-    static func resolve(for interactionMode: EditorCanvasMode) -> LeadSheetInteractionModeStatePolicy {
-        LeadSheetInteractionModeStatePolicy(
+    var canvasTool: PKTool {
+        switch inkToolMode {
+        case .write:
+            return inkTool
+        case .erase:
+            return PKEraserTool(.bitmap)
+        }
+    }
+
+    static func resolve(
+        for interactionMode: EditorCanvasMode,
+        inkToolMode: EditorInkToolMode = .write
+    ) -> LeadSheetInteractionModeStatePolicy {
+        let allowsTransparentEditOverlay = interactionMode.allowsChordObjectEditing
+            || interactionMode.allowsPageInkEditing
+        return LeadSheetInteractionModeStatePolicy(
             selectionTapEnabled: interactionMode.allowsMeasureSelection || interactionMode.allowsNoteSelection,
-            inkSelectionTapEnabled: interactionMode.allowsNoteSelection || interactionMode.allowsChordInkEditing,
+            inkSelectionTapEnabled: interactionMode.allowsNoteSelection
+                || interactionMode.allowsChordInkEditing
+                || interactionMode.allowsHeaderInkEditing
+                || interactionMode.allowsPageInkEditing,
             measureResizePanEnabled: interactionMode.showsMeasureResizeHandles,
-            chordEditTapEnabled: interactionMode.allowsChordInkEditing,
-            chordMovePanEnabled: interactionMode.allowsChordInkEditing,
-            chordEditOverlayHidden: !interactionMode.allowsChordInkEditing,
-            chordEditOverlayInteractionEnabled: interactionMode.allowsChordInkEditing,
+            chordEditTapEnabled: allowsTransparentEditOverlay,
+            chordMovePanEnabled: allowsTransparentEditOverlay,
+            chordEditOverlayHidden: !allowsTransparentEditOverlay,
+            chordEditOverlayInteractionEnabled: allowsTransparentEditOverlay,
             pageInkCanvasInteractionEnabled: interactionMode.allowsAnyInkEditing,
             clearsMeasureResizeDrag: !interactionMode.showsMeasureResizeHandles,
-            clearsChordInteractionState: !interactionMode.allowsChordInkEditing,
+            clearsChordInteractionState: !interactionMode.allowsChordObjectEditing,
             hidesPageInkCanvas: !interactionMode.allowsAnyInkEditing,
             inkTool: inkTool(for: interactionMode),
+            inkToolMode: interactionMode.allowsAnyInkEditing ? inkToolMode : .write,
             drawingPolicy: drawingPolicy(for: interactionMode)
         )
     }
@@ -65,6 +84,72 @@ struct LeadSheetInteractionModeStatePolicy {
         #else
         return .pencilOnly
         #endif
+    }
+}
+
+enum LeadSheetScrollMarginPolicy {
+    static let paperHitSlop: CGFloat = 8
+
+    static func allowsPageScrollStart(
+        at point: CGPoint,
+        paperFrame: CGRect?,
+        restrictsToOutsideMargins: Bool
+    ) -> Bool {
+        guard restrictsToOutsideMargins,
+              let paperFrame else {
+            return true
+        }
+
+        return !paperFrame
+            .insetBy(dx: -paperHitSlop, dy: -paperHitSlop)
+            .contains(point)
+    }
+
+    static func dragAreaFrames(in bounds: CGRect, paperFrame: CGRect?) -> [CGRect] {
+        guard let paperFrame,
+              !bounds.isEmpty,
+              !bounds.isNull else {
+            return []
+        }
+
+        let protectedFrame = paperFrame.insetBy(dx: -paperHitSlop, dy: -paperHitSlop)
+        let candidates = [
+            CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: max(0, protectedFrame.minX - bounds.minX),
+                height: bounds.height
+            ),
+            CGRect(
+                x: protectedFrame.maxX,
+                y: bounds.minY,
+                width: max(0, bounds.maxX - protectedFrame.maxX),
+                height: bounds.height
+            ),
+            CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: bounds.width,
+                height: max(0, protectedFrame.minY - bounds.minY)
+            ),
+            CGRect(
+                x: bounds.minX,
+                y: protectedFrame.maxY,
+                width: bounds.width,
+                height: max(0, bounds.maxY - protectedFrame.maxY)
+            )
+        ]
+
+        return candidates.filter { $0.width > 1 && $0.height > 1 }
+    }
+}
+
+enum LeadSheetChordMoveScrollLockPolicy {
+    static func allowsSimultaneousRecognition(
+        involvesChordMove: Bool,
+        involvesParentScroll: Bool
+    ) -> Bool {
+        !(involvesChordMove && involvesParentScroll)
     }
 }
 #endif

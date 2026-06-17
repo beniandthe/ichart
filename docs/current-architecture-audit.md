@@ -3,7 +3,7 @@
 Status: historical audit, stale for current recognition path
 Date: 2026-04-23
 
-Execution sequence reference: `docs/jazz-lead-sheet-build-plan.md`
+Execution sequence reference: `docs/post-v1/lead-sheet/jazz-lead-sheet-build-plan.md`
 
 ## Historical Notice
 

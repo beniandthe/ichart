@@ -4,6 +4,7 @@ import Foundation
 enum NotationGlyphCatalog {
     enum Symbol: Hashable {
         case trebleClef
+        case bassClef
         case noteheadWhole
         case noteheadHalf
         case noteheadBlack
@@ -17,10 +18,15 @@ enum NotationGlyphCatalog {
         case halfRest
         case quarterRest
         case eighthRest
+        case accidentalFlat
+        case accidentalSharp
+        case coda
+        case segno
         case timeSignatureDigit(Int)
     }
 
     static let trebleClef = "\u{E050}"
+    static let bassClef = "\u{E062}"
     static let noteheadWhole = "\u{E0A2}"
     static let noteheadHalf = "\u{E0A3}"
     static let noteheadBlack = "\u{E0A4}"
@@ -34,6 +40,10 @@ enum NotationGlyphCatalog {
     static let halfRest = "\u{E4E4}"
     static let quarterRest = "\u{E4E5}"
     static let eighthRest = "\u{E4E6}"
+    static let accidentalFlat = "\u{E260}"
+    static let accidentalSharp = "\u{E262}"
+    static let coda = "\u{E048}"
+    static let segno = "\u{E047}"
 
     static func timeSignatureDigit(_ value: Int) -> String? {
         guard (0...9).contains(value),
@@ -48,6 +58,8 @@ enum NotationGlyphCatalog {
         switch symbol {
         case .trebleClef:
             return trebleClef
+        case .bassClef:
+            return bassClef
         case .noteheadWhole:
             return noteheadWhole
         case .noteheadHalf:
@@ -74,6 +86,14 @@ enum NotationGlyphCatalog {
             return quarterRest
         case .eighthRest:
             return eighthRest
+        case .accidentalFlat:
+            return accidentalFlat
+        case .accidentalSharp:
+            return accidentalSharp
+        case .coda:
+            return coda
+        case .segno:
+            return segno
         case let .timeSignatureDigit(value):
             return timeSignatureDigit(value)
         }
@@ -89,7 +109,7 @@ enum NotationGlyphCatalog {
 
     private static func staffSpaceScale(for symbol: Symbol) -> Double {
         switch symbol {
-        case .trebleClef:
+        case .trebleClef, .bassClef:
             return 4.0
         case .timeSignatureDigit:
             return 2.57
@@ -107,6 +127,12 @@ enum NotationGlyphCatalog {
             return 2.67
         case .eighthRest:
             return 2.48
+        case .accidentalFlat, .accidentalSharp:
+            return 2.1
+        case .coda:
+            return 3.35
+        case .segno:
+            return 2.7
         }
     }
 }
@@ -116,6 +142,8 @@ extension NotationGlyphCatalog.Symbol {
         switch self {
         case .trebleClef:
             return "gClef"
+        case .bassClef:
+            return "fClef"
         case .noteheadWhole:
             return "noteheadWhole"
         case .noteheadHalf:
@@ -142,6 +170,14 @@ extension NotationGlyphCatalog.Symbol {
             return "restQuarter"
         case .eighthRest:
             return "rest8th"
+        case .accidentalFlat:
+            return "accidentalFlat"
+        case .accidentalSharp:
+            return "accidentalSharp"
+        case .coda:
+            return "coda"
+        case .segno:
+            return "segno"
         case let .timeSignatureDigit(value):
             guard (0...9).contains(value) else {
                 return nil
