@@ -320,7 +320,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Services/PD
 - [ ] Row accessibility: "Open {PDF title}", "Delete {PDF title}"
 - [ ] Export preview actions: "Done", "Share"
 - [ ] Page count: "1 page", "{count} pages"
-- [ ] Default file/title: "iChart PDF", "Smart Chart"
+- [ ] Default file/title: "iChart PDF", "iChart"
 - [ ] Forum PDF metadata: "Shared from iChart Forums - Creator: {creator} - Post: {postID} - Exported: {date}"
 
 ## Community Forums

@@ -1,25 +1,25 @@
-# Smart Chart
+# iChart
 
 [![CI](https://github.com/beniandthe/smart-chart/actions/workflows/ci.yml/badge.svg)](https://github.com/beniandthe/smart-chart/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/beniandthe/smart-chart/actions/workflows/codeql.yml/badge.svg)](https://github.com/beniandthe/smart-chart/actions/workflows/codeql.yml)
 
-Smart Chart is an iPad-first, rhythm-aware chord chart builder for working musicians. It sits between paper charts, iReal Pro, and full notation software: fast enough for rehearsal prep, clean enough to hand to other players, and structured enough to transpose, edit, and export reliably.
+iChart is an iPad-first, rhythm-aware chord chart builder for working musicians. It sits between paper charts, iReal Pro, and full notation software: fast enough for rehearsal prep, clean enough to hand to other players, and structured enough to transpose, edit, and export reliably.
 
 ## Core idea
 
-**Write naturally with Apple Pencil, and Smart Chart snaps your input into clean, editable chart objects.**
+**Write naturally with Apple Pencil, and iChart snaps your input into clean, editable chart objects.**
 
 Chords stay central, but measures are time-aware: users can add time signatures and simple rhythmic values to show where chords land and where the hits are, without turning the app into full notation software.
 
 ## Product boundaries
 
-Smart Chart is:
+iChart is:
 - a stylus-first chart editor for iPad
 - a structured tool for chord, roadmap, and rhythm-aware chart building
 - a rehearsal and gig-prep utility
 - a clean PDF export workflow for working players and teachers
 
-Smart Chart is not:
+iChart is not:
 - full engraving or staff-based notation software
 - melody or pitched note-entry software
 - a DAW companion or playback-first app
@@ -35,7 +35,7 @@ Smart Chart is not:
 
 ## Core promise
 
-Smart Chart should let a musician:
+iChart should let a musician:
 1. create a usable chart faster than paper cleanup,
 2. show beat placement and implied hits when needed,
 3. correct mistakes faster than rigid typed-entry tools,
@@ -86,7 +86,7 @@ Recommended v1 stack:
 
 ## Build philosophy
 
-Smart Chart should optimize for:
+iChart should optimize for:
 - speed over feature count
 - structured chart logic over raw ink alone
 - forgiving correction over perfect recognition

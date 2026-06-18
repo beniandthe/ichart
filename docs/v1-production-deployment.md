@@ -1,11 +1,11 @@
-# Smart Chart — V1 Production Deployment Plan
+# iChart — V1 Production Deployment Plan
 
 Status: Active for v1 planning
 Source of truth: `docs/core-design-document.md`
 
 ## 1. Purpose
 
-This document defines how Smart Chart should move from internal build to TestFlight to public v1 launch.
+This document defines how iChart should move from internal build to TestFlight to public v1 launch.
 
 The goal of v1 deployment is not just to publish an app. It is to ship a stable iPad experience for working musicians, validate the core workflow with real users, and keep operations simple enough that the product can continue iterating quickly.
 
@@ -152,7 +152,7 @@ Only add these after the core cloud backup/sync promise is stable:
 
 ## 8. App Store positioning
 
-Smart Chart should be positioned as:
+iChart should be positioned as:
 - an iPad chart creation tool for musicians
 - faster than typed chart builders for rough-to-clean workflows
 - rhythm-aware enough to show chord placement and hits
@@ -276,11 +276,11 @@ Current Apple distribution assumptions:
 - use TestFlight for internal and external beta
 - submit the approved build for public App Store release
 
-For external TestFlight, additional beta test information is required, including a beta description and feedback email. External testing supports invitation by email or public link, and builds remain testable for a limited period. Public App Store release remains the correct v1 path for Smart Chart; private or unlisted distribution should be treated as later special cases, not the main launch path.
+For external TestFlight, additional beta test information is required, including a beta description and feedback email. External testing supports invitation by email or public link, and builds remain testable for a limited period. Public App Store release remains the correct v1 path for iChart; private or unlisted distribution should be treated as later special cases, not the main launch path.
 
 ## 15. Deployment summary
 
-The cleanest v1 deployment strategy for Smart Chart is:
+The cleanest v1 deployment strategy for iChart is:
 - launch iPad-first
 - keep the app local-first
 - require recoverable account identity for Basic and Pro users

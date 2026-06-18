@@ -170,8 +170,8 @@ final class PDFChartExporterTests: XCTestCase {
 
         let exportedPDF = try await exporter.exportPDF(for: chart)
 
-        XCTAssertEqual(exportedPDF.fileName, "Smart Chart - Rhythm Section Sheet - Concert.pdf")
-        XCTAssertEqual(exportedPDF.navigationTitle, "Smart Chart - Rhythm Section Sheet - Concert")
+        XCTAssertEqual(exportedPDF.fileName, "iChart - Rhythm Section Sheet - Concert.pdf")
+        XCTAssertEqual(exportedPDF.navigationTitle, "iChart - Rhythm Section Sheet - Concert")
     }
 
     func testForumPDFExportIncludesFixedCreatorCreditFooter() async throws {

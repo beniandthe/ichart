@@ -144,7 +144,7 @@ struct PDFChartExporter: ChartExporting {
 
     static func sanitizedFileNameStem(from title: String) -> String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = trimmedTitle.isEmpty ? "Smart Chart" : trimmedTitle
+        let fallback = trimmedTitle.isEmpty ? "iChart" : trimmedTitle
         let stripped = fallback.replacingOccurrences(
             of: #"[\\/:*?"<>|\p{C}]+"#,
             with: " ",
@@ -156,7 +156,7 @@ struct PDFChartExporter: ChartExporting {
             options: .regularExpression
         )
         let cleaned = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "Smart Chart" : cleaned
+        return cleaned.isEmpty ? "iChart" : cleaned
     }
 }
 
@@ -175,7 +175,7 @@ private struct ChartPDFRenderer {
         let pageRect = CGRect(origin: .zero, size: pageLayout.paperFrame.size)
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
-            kCGPDFContextCreator as String: "Smart Chart",
+            kCGPDFContextCreator as String: "iChart",
             kCGPDFContextTitle as String: chart.title
         ]
 

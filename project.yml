@@ -41,7 +41,7 @@ targets:
     info:
       path: SmartChart/App/Info.plist
       properties:
-        CFBundleDisplayName: Smart Chart
+        CFBundleDisplayName: iChart
         CFBundleURLTypes:
           - CFBundleURLName: com.smartchart.app.auth
             CFBundleURLSchemes:
