@@ -10,12 +10,12 @@ Resume trigger: when the user says "Apple developer account is setup", run `scri
 
 The first Pro subscription products are:
 
-- `com.smartchart.app.pro.monthly`: $7.99/month
-- `com.smartchart.app.pro.annual`: $64.99/year
+- `com.ichart.app.pro.monthly`: $7.99/month
+- `com.ichart.app.pro.annual`: $64.99/year
 
 These IDs must match:
 
-- `SmartChart/Models/IChartStoreKitProductCatalog.swift`
+- `iChart/Models/IChartStoreKitProductCatalog.swift`
 - `StoreKit/iChartProSubscriptions.storekit`
 - App Store Connect subscription products when they are created
 
@@ -24,11 +24,11 @@ These IDs must match:
 Local simulator purchase testing uses:
 
 - StoreKit file: `StoreKit/iChartProSubscriptions.storekit`
-- XcodeGen hook: `project.yml` > `schemes` > `SmartChart` > `run` > `storeKitConfiguration`
+- XcodeGen hook: `project.yml` > `schemes` > `iChart` > `run` > `storeKitConfiguration`
 - Debug simulator fallback: command-line/MCP launches read the bundled StoreKit file for product button metadata and use a local Pro entitlement preview when those fallback buttons are tapped
 - Debug build setting: `SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG`
 
-Run `xcodegen generate` after changing the StoreKit file or project spec. The generated `SmartChart` scheme should include a `StoreKitConfigurationFileReference` for `StoreKit/iChartProSubscriptions.storekit`.
+Run `xcodegen generate` after changing the StoreKit file or project spec. The generated `iChart` scheme should include a `StoreKitConfigurationFileReference` for `StoreKit/iChartProSubscriptions.storekit`.
 
 Local prices in the `.storekit` file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority. At $7.99 monthly and $64.99 annual, the annual plan is roughly 32% less than twelve monthly payments.
 
@@ -41,9 +41,9 @@ Do not initialize `StoreKitTest.SKTestSession` inside the app process. It expect
 Before App Store/TestFlight subscription QA, configure the Apple-side products:
 
 - Create one subscription group for iChart Pro.
-- Create the monthly auto-renewable subscription with product ID `com.smartchart.app.pro.monthly`.
-- Create the annual auto-renewable subscription with product ID `com.smartchart.app.pro.annual`.
-- Use app bundle ID `com.smartchart.app`.
+- Create the monthly auto-renewable subscription with product ID `com.ichart.app.pro.monthly`.
+- Create the annual auto-renewable subscription with product ID `com.ichart.app.pro.annual`.
+- Use app bundle ID `com.ichart.app`.
 - Set App Store Server Notifications Version 2 sandbox URL to `https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/app-store-server-notifications`.
 - Add product display names, descriptions, durations, review metadata, screenshots if required by App Review, and localization records.
 - Set the monthly starting price to $7.99 and the annual starting price to $64.99 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
@@ -91,7 +91,7 @@ Both entrypoints also create the Supabase subscription authority store from Edge
 
 Required Edge Function verifier secrets:
 
-- `APP_STORE_BUNDLE_ID`: `com.smartchart.app`.
+- `APP_STORE_BUNDLE_ID`: `com.ichart.app`.
 - `APP_STORE_ENVIRONMENT`: `Sandbox` for sandbox/TestFlight verification, `Production` for production App Store traffic.
 - `APP_STORE_ROOT_CERTIFICATES_PEM`: Apple Root Certificate PEM blocks from the Apple PKI site, stored as an Edge Function secret.
 - `APP_STORE_APP_APPLE_ID`: App Store app identifier. Required for `Production`; omitted for `Sandbox`.
@@ -105,7 +105,7 @@ scripts/prepare_apple_root_certificates.sh /tmp/ichart-apple-root-certificates.p
 Set secrets from the operator machine or Supabase Dashboard, never in git:
 
 ```sh
-supabase secrets set APP_STORE_BUNDLE_ID=com.smartchart.app
+supabase secrets set APP_STORE_BUNDLE_ID=com.ichart.app
 supabase secrets set APP_STORE_ENVIRONMENT=Sandbox
 supabase secrets set APP_STORE_ROOT_CERTIFICATES_PEM="$(cat /tmp/ichart-apple-root-certificates.pem)"
 # Production only:
@@ -144,7 +144,7 @@ Before this endpoint becomes production authority:
 
 - configure Apple verifier Edge Function secrets for the target environment
 - deploy both functions after secrets are configured and smoke-test missing/invalid signed payload behavior
-- map only `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual` to active Pro
+- map only `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual` to active Pro
 - store service-role/admin keys, App Store Connect API keys, webhook secrets, and Apple signing material only as Supabase Edge Function secrets
 - deploy with the linked project after verification is complete:
   ```sh

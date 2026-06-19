@@ -49,7 +49,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(SmartChart/|SmartChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
@@ -100,7 +100,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(SmartChart/|SmartChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
@@ -132,16 +132,16 @@ jobs:
         if: steps.app_changes.outputs.run_tests == 'true'
         run: |
           xcodebuild test \
-            -scheme SmartChart \
+            -scheme iChart \
             -destination "$SIMULATOR_DESTINATION" \
-            -resultBundlePath "$RUNNER_TEMP/SmartChart.xcresult" \
+            -resultBundlePath "$RUNNER_TEMP/iChart.xcresult" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload Xcode result bundle on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: SmartChart-xcresult
-          path: ${{ runner.temp }}/SmartChart.xcresult
+          name: iChart-xcresult
+          path: ${{ runner.temp }}/iChart.xcresult
           if-no-files-found: ignore
           retention-days: 7

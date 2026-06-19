@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Summarize Smart Chart chord timing console logs.
+"""Summarize iChart chord timing console logs.
 
 The parser is intentionally small and tolerant of Xcode/device-log prefixes. It
 looks only for the Sprint 47/Sprint 48 debug labels:
 
-- SmartChart chord timing
-- SmartChart chord proposal
-- SmartChart chord commit
-- SmartChart chord render
+- iChart chord timing
+- iChart chord proposal
+- iChart chord commit
+- iChart chord render
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from typing import Iterable
 
 
 PREFIXES = {
-    "SmartChart chord timing:": "timing",
-    "SmartChart chord proposal:": "proposal",
-    "SmartChart chord commit:": "commit",
-    "SmartChart chord render:": "render",
+    "iChart chord timing:": "timing",
+    "iChart chord proposal:": "proposal",
+    "iChart chord commit:": "commit",
+    "iChart chord render:": "render",
 }
 
 
@@ -40,7 +40,7 @@ class Attempt:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Summarize Smart Chart Sprint 47 chord timing console logs."
+        description="Summarize iChart Sprint 47 chord timing console logs."
     )
     parser.add_argument(
         "logs",
@@ -160,7 +160,7 @@ def markdown_escape(text: str) -> str:
 
 def write_markdown(rows: list[dict[str, str]]) -> None:
     if not rows:
-        print("No Smart Chart chord timing lines found.")
+        print("No iChart chord timing lines found.")
         return
 
     columns = [

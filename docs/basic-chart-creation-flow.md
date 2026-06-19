@@ -1,13 +1,13 @@
-# Smart Chart — Basic Chart Creation Flow
+# iChart — Basic Chart Creation Flow
 
 Status: historical baseline behavior spec for the most basic authoring flow
 Date: 2026-04-23
 Product source of truth for this flow: `docs/core-design-document.md`
-Current implementation source of truth: `docs/smart-chart-sprint-source-of-truth.md`
+Current implementation source of truth: `docs/ichart-sprint-source-of-truth.md`
 
 ## Purpose
 
-This document defines the exact first-use interaction flow for creating the simplest possible Smart Chart.
+This document defines the exact first-use interaction flow for creating the simplest possible iChart.
 
 This is the minimum flow the app must handle well before more advanced recognition, rhythm entry, roadmap symbols, or polish work matter.
 
@@ -328,4 +328,4 @@ Those can come later. This basic flow must work first.
 
 ## Product rule enforced by this document
 
-If Smart Chart cannot do this basic flow smoothly, the product is not yet ready to expand into more advanced recognition or editing complexity.
+If iChart cannot do this basic flow smoothly, the product is not yet ready to expand into more advanced recognition or editing complexity.

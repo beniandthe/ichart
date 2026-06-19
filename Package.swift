@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "SmartChart",
+    name: "iChart",
     platforms: [
         .macOS(.v13)
     ],
     products: [
         .library(
-            name: "SmartChart",
-            targets: ["SmartChart"]
+            name: "iChart",
+            targets: ["iChart"]
         )
     ],
     targets: [
         .target(
-            name: "SmartChart",
-            path: "SmartChart",
+            name: "iChart",
+            path: "iChart",
             exclude: [
                 "App",
                 "Features/Editor",
@@ -25,9 +25,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "SmartChartTests",
-            dependencies: ["SmartChart"],
-            path: "SmartChartTests",
+            name: "iChartTests",
+            dependencies: ["iChart"],
+            path: "iChartTests",
             exclude: [
                 "Fixtures"
             ]

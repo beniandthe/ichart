@@ -1,4 +1,4 @@
-# Smart Chart — Jazz Lead-Sheet Build Plan
+# iChart — Jazz Lead-Sheet Build Plan
 
 Status: historical post-V1 Lead Sheet reference
 Date: 2026-04-24

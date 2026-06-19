@@ -203,7 +203,7 @@ select throws_ok(
     $$
     update public.subscriptions
     set provider = 'storekit',
-        storekit_product_id = 'com.smartchart.app.pro.monthly',
+        storekit_product_id = 'com.ichart.app.pro.monthly',
         storekit_original_transaction_id = '1000000000000001',
         app_store_status = 'active',
         last_verified_at = now()

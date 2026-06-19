@@ -1,8 +1,8 @@
-# Smart Chart — Implementation Milestones
+# iChart — Implementation Milestones
 
 Status: historical prototype kickoff sequence
 Product source of truth: `docs/core-design-document.md`
-Current implementation source of truth: `docs/smart-chart-sprint-source-of-truth.md`
+Current implementation source of truth: `docs/ichart-sprint-source-of-truth.md`
 
 ## Purpose
 

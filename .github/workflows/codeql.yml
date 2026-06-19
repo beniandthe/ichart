@@ -78,7 +78,7 @@ jobs:
         if: steps.codeql_scope.outputs.run_codeql == 'true'
         run: |
           xcodebuild build \
-            -scheme SmartChart \
+            -scheme iChart \
             -destination "$SIMULATOR_DESTINATION" \
             CODE_SIGNING_ALLOWED=NO
 

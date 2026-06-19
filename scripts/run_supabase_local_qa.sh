@@ -60,8 +60,8 @@ wait_for_auth() {
 
 if ! supabase_cli db reset; then
   echo "Supabase db reset hit a local gateway readiness error; restarting local stack before verification..."
-  supabase_cli stop >/tmp/smart-chart-supabase-stop.log 2>&1
-  supabase_cli start >/tmp/smart-chart-supabase-start.log 2>&1
+  supabase_cli stop >/tmp/ichart-supabase-stop.log 2>&1
+  supabase_cli start >/tmp/ichart-supabase-start.log 2>&1
 fi
 
 load_local_supabase_env
@@ -70,15 +70,15 @@ supabase_cli test db
 
 if ! wait_for_auth; then
   echo "Restarting local Supabase stack so the gateway refreshes Auth routing..."
-  supabase_cli stop >/tmp/smart-chart-supabase-stop.log 2>&1
-  supabase_cli start >/tmp/smart-chart-supabase-start.log 2>&1
+  supabase_cli stop >/tmp/ichart-supabase-stop.log 2>&1
+  supabase_cli start >/tmp/ichart-supabase-start.log 2>&1
   wait_for_auth
 fi
 
-SMART_CHART_SUPABASE_INTEGRATION=1 \
+ICHART_SUPABASE_INTEGRATION=1 \
 SUPABASE_URL="$SUPABASE_URL" \
 SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" \
 SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
 swift test \
-  --scratch-path /tmp/SmartChartSwiftBuild-supabase-integration \
+  --scratch-path /tmp/iChartSwiftBuild-supabase-integration \
   --filter SupabaseIntegrationTests

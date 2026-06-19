@@ -7,7 +7,7 @@
 DerivedData/
 .derived/
 build/
-SmartChart.xcodeproj/
+iChart.xcodeproj/
 *.pbxuser
 !default.pbxuser
 *.mode1v3

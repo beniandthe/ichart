@@ -195,7 +195,7 @@ At minimum test:
 Test with:
 - Apple Pencil
 - finger-only fallback editing/navigation
-- the Sprint 42 real Pencil protocol in `docs/smart-chart-real-life-testing-readiness-2026-05-25.md`, without turning observations into a personal handwriting training loop
+- the Sprint 42 real Pencil protocol in `docs/ichart-real-life-testing-readiness-2026-05-25.md`, without turning observations into a personal handwriting training loop
 
 ### Workflow focus
 Test heavily:

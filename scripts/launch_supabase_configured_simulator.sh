@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${SMART_CHART_ENV_FILE:-$ROOT_DIR/.env}"
-BUNDLE_ID="${SMART_CHART_BUNDLE_ID:-com.smartchart.app}"
-SIMULATOR_UDID="${SMART_CHART_SIMULATOR_UDID:-}"
+ENV_FILE="${ICHART_ENV_FILE:-$ROOT_DIR/.env}"
+BUNDLE_ID="${ICHART_BUNDLE_ID:-com.ichart.app}"
+SIMULATOR_UDID="${ICHART_SIMULATOR_UDID:-}"
 
 read_env_value() {
   local key="$1"
@@ -34,7 +34,7 @@ if [[ -z "$SIMULATOR_UDID" ]]; then
 fi
 
 if [[ -z "$SIMULATOR_UDID" ]]; then
-  echo "No booted simulator found. Boot the iPad simulator first, or set SMART_CHART_SIMULATOR_UDID." >&2
+  echo "No booted simulator found. Boot the iPad simulator first, or set ICHART_SIMULATOR_UDID." >&2
   exit 1
 fi
 

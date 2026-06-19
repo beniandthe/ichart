@@ -1,4 +1,4 @@
-# Smart Chart - Monetization Strategy
+# iChart - Monetization Strategy
 
 Status: Active for prototype and v1
 Source of truth: `docs/core-design-document.md`
@@ -6,7 +6,7 @@ Plan policy authority: `docs/ichart-plan-policy-source-of-truth.md`
 
 ## 1. Purpose
 
-This document makes the recommended Smart Chart pricing, account, and entitlement model explicit.
+This document makes the recommended iChart pricing, account, and entitlement model explicit.
 
 The product model should build trust from the first launch, keep local chart ownership fair, and reserve recurring billing for features that create real ongoing infrastructure, storage, security, support, or service cost.
 
@@ -109,4 +109,4 @@ These values can be adjusted after early beta feedback:
 
 ## 8. Current recommendation summary
 
-Smart Chart should launch with mandatory recoverable accounts for both Basic and Pro users. Basic includes the complete local chart-writing tool, PDF/export, local autosave, and a 3-chart local cap. Pro gates unlimited chart capacity, cloud chart backup/sync/restore, Forums, and other service-heavy features. The account system is a trust foundation; chart cloud services and community/service surfaces are the paid operational layer.
+iChart should launch with mandatory recoverable accounts for both Basic and Pro users. Basic includes the complete local chart-writing tool, PDF/export, local autosave, and a 3-chart local cap. Pro gates unlimited chart capacity, cloud chart backup/sync/restore, Forums, and other service-heavy features. The account system is a trust foundation; chart cloud services and community/service surfaces are the paid operational layer.

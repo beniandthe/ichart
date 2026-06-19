@@ -1,4 +1,4 @@
-# Smart Chart — Developer-Facing MVP Spec
+# iChart — Developer-Facing MVP Spec
 
 Status: Active for prototype and v1
 Source of truth: `docs/core-design-document.md`

@@ -1,7 +1,7 @@
 # iChart
 
-[![CI](https://github.com/beniandthe/smart-chart/actions/workflows/ci.yml/badge.svg)](https://github.com/beniandthe/smart-chart/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/beniandthe/smart-chart/actions/workflows/codeql.yml/badge.svg)](https://github.com/beniandthe/smart-chart/actions/workflows/codeql.yml)
+[![CI](https://github.com/beniandthe/ichart/actions/workflows/ci.yml/badge.svg)](https://github.com/beniandthe/ichart/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/beniandthe/ichart/actions/workflows/codeql.yml/badge.svg)](https://github.com/beniandthe/ichart/actions/workflows/codeql.yml)
 
 iChart is an iPad-first, rhythm-aware chord chart builder for working musicians. It sits between paper charts, iReal Pro, and full notation software: fast enough for rehearsal prep, clean enough to hand to other players, and structured enough to transpose, edit, and export reliably.
 
@@ -112,29 +112,29 @@ Business-model rules:
 
 Current implementation authority:
 
-- [`docs/smart-chart-sprint-source-of-truth.md`](docs/smart-chart-sprint-source-of-truth.md) — active living sprint plan, recovery baseline, and current implementation authority
-- [`docs/smart-chart-post-merge-app-audit-2026-05-23.md`](docs/smart-chart-post-merge-app-audit-2026-05-23.md) — post-merge written/visual app audit and Sprint 13-15 planning evidence
-- [`docs/smart-chart-real-life-testing-readiness-2026-05-25.md`](docs/smart-chart-real-life-testing-readiness-2026-05-25.md) — Sprint 42 writing-to-render readiness handoff for real Pencil validation
-- [`docs/smart-chart-real-pencil-field-test-log-2026-05-26.md`](docs/smart-chart-real-pencil-field-test-log-2026-05-26.md) — Sprint 43 real Pencil field-test evidence log
-- [`docs/smart-chart-post-export-field-test-log-2026-05-26.md`](docs/smart-chart-post-export-field-test-log-2026-05-26.md) — Sprint 45 post-export real Pencil validation evidence log
-- [`docs/smart-chart-recognition-latency-triage-2026-05-26.md`](docs/smart-chart-recognition-latency-triage-2026-05-26.md) — Sprint 46 recognition latency evidence
-- [`docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`](docs/smart-chart-sprint-52-chord-confirmation-user-loop-2026-05-26.md) — Sprint 52 chord confirmation and local user correction loop
-- [`docs/smart-chart-sprint-53-validation-speed-2026-05-26.md`](docs/smart-chart-sprint-53-validation-speed-2026-05-26.md) — Sprint 53 validation-speed policy and workflow cleanup
-- [`docs/smart-chart-sprint-54-confirmation-ux-polish-2026-05-26.md`](docs/smart-chart-sprint-54-confirmation-ux-polish-2026-05-26.md) — Sprint 54 confirmation and correction sheet UX polish
-- [`docs/smart-chart-sprint-55-chord-first-product-polish-2026-05-26.md`](docs/smart-chart-sprint-55-chord-first-product-polish-2026-05-26.md) — Sprint 55 chord-first product polish
-- [`docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md`](docs/smart-chart-sprint-56-chord-field-validation-2026-05-27.md) — Sprint 56 bounded real-device chord validation
-- [`docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md`](docs/smart-chart-sprint-56-repeat-validation-log-2026-05-27.md) — Sprint 56 repeat validation gate
-- [`docs/smart-chart-chord-first-side-sprints-2026-05-27.md`](docs/smart-chart-chord-first-side-sprints-2026-05-27.md) — active chord-first side-sprint route map
-- [`docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md`](docs/smart-chart-sprint-57-chord-placement-edit-loop-2026-05-27.md) — Sprint 57 chord placement/edit loop
-- [`docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md`](docs/smart-chart-sprint-58-wrong-render-recovery-2026-05-27.md) — Sprint 58 wrong render recovery and replace UX
-- [`docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`](docs/smart-chart-sprint-59-confirmation-direct-input-polish-2026-05-27.md) — Sprint 59 confirmation and direct-input polish
-- [`docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`](docs/smart-chart-sprint-60-general-candidate-availability-hardening-2026-05-27.md) — Sprint 60 general candidate availability hardening
-- [`docs/smart-chart-sprint-61-raster-render-handoff-polish-2026-05-27.md`](docs/smart-chart-sprint-61-raster-render-handoff-polish-2026-05-27.md) — Sprint 61 raster/render handoff evidence
-- [`docs/smart-chart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md`](docs/smart-chart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md) — Sprint 62 chord-first release-candidate pass
-- [`docs/smart-chart-sprint-63-chart-layout-goals-2026-05-27.md`](docs/smart-chart-sprint-63-chart-layout-goals-2026-05-27.md) — Sprint 63 chart layout goals
-- [`docs/smart-chart-sprint-64-new-chart-layout-style-chooser-2026-05-27.md`](docs/smart-chart-sprint-64-new-chart-layout-style-chooser-2026-05-27.md) — Sprint 64 New Chart layout-style chooser
-- [`docs/smart-chart-sprint-65-layout-profile-contracts-2026-05-27.md`](docs/smart-chart-sprint-65-layout-profile-contracts-2026-05-27.md) — Sprint 65 layout-profile contracts
-- [`docs/smart-chart-sprint-66-profile-driven-structure-defaults-2026-05-27.md`](docs/smart-chart-sprint-66-profile-driven-structure-defaults-2026-05-27.md) — Sprint 66 profile-driven structure defaults
+- [`docs/ichart-sprint-source-of-truth.md`](docs/ichart-sprint-source-of-truth.md) — active living sprint plan, recovery baseline, and current implementation authority
+- [`docs/ichart-post-merge-app-audit-2026-05-23.md`](docs/ichart-post-merge-app-audit-2026-05-23.md) — post-merge written/visual app audit and Sprint 13-15 planning evidence
+- [`docs/ichart-real-life-testing-readiness-2026-05-25.md`](docs/ichart-real-life-testing-readiness-2026-05-25.md) — Sprint 42 writing-to-render readiness handoff for real Pencil validation
+- [`docs/ichart-real-pencil-field-test-log-2026-05-26.md`](docs/ichart-real-pencil-field-test-log-2026-05-26.md) — Sprint 43 real Pencil field-test evidence log
+- [`docs/ichart-post-export-field-test-log-2026-05-26.md`](docs/ichart-post-export-field-test-log-2026-05-26.md) — Sprint 45 post-export real Pencil validation evidence log
+- [`docs/ichart-recognition-latency-triage-2026-05-26.md`](docs/ichart-recognition-latency-triage-2026-05-26.md) — Sprint 46 recognition latency evidence
+- [`docs/ichart-sprint-52-chord-confirmation-user-loop-2026-05-26.md`](docs/ichart-sprint-52-chord-confirmation-user-loop-2026-05-26.md) — Sprint 52 chord confirmation and local user correction loop
+- [`docs/ichart-sprint-53-validation-speed-2026-05-26.md`](docs/ichart-sprint-53-validation-speed-2026-05-26.md) — Sprint 53 validation-speed policy and workflow cleanup
+- [`docs/ichart-sprint-54-confirmation-ux-polish-2026-05-26.md`](docs/ichart-sprint-54-confirmation-ux-polish-2026-05-26.md) — Sprint 54 confirmation and correction sheet UX polish
+- [`docs/ichart-sprint-55-chord-first-product-polish-2026-05-26.md`](docs/ichart-sprint-55-chord-first-product-polish-2026-05-26.md) — Sprint 55 chord-first product polish
+- [`docs/ichart-sprint-56-chord-field-validation-2026-05-27.md`](docs/ichart-sprint-56-chord-field-validation-2026-05-27.md) — Sprint 56 bounded real-device chord validation
+- [`docs/ichart-sprint-56-repeat-validation-log-2026-05-27.md`](docs/ichart-sprint-56-repeat-validation-log-2026-05-27.md) — Sprint 56 repeat validation gate
+- [`docs/ichart-chord-first-side-sprints-2026-05-27.md`](docs/ichart-chord-first-side-sprints-2026-05-27.md) — active chord-first side-sprint route map
+- [`docs/ichart-sprint-57-chord-placement-edit-loop-2026-05-27.md`](docs/ichart-sprint-57-chord-placement-edit-loop-2026-05-27.md) — Sprint 57 chord placement/edit loop
+- [`docs/ichart-sprint-58-wrong-render-recovery-2026-05-27.md`](docs/ichart-sprint-58-wrong-render-recovery-2026-05-27.md) — Sprint 58 wrong render recovery and replace UX
+- [`docs/ichart-sprint-59-confirmation-direct-input-polish-2026-05-27.md`](docs/ichart-sprint-59-confirmation-direct-input-polish-2026-05-27.md) — Sprint 59 confirmation and direct-input polish
+- [`docs/ichart-sprint-60-general-candidate-availability-hardening-2026-05-27.md`](docs/ichart-sprint-60-general-candidate-availability-hardening-2026-05-27.md) — Sprint 60 general candidate availability hardening
+- [`docs/ichart-sprint-61-raster-render-handoff-polish-2026-05-27.md`](docs/ichart-sprint-61-raster-render-handoff-polish-2026-05-27.md) — Sprint 61 raster/render handoff evidence
+- [`docs/ichart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md`](docs/ichart-sprint-62-chord-first-release-candidate-pass-2026-05-27.md) — Sprint 62 chord-first release-candidate pass
+- [`docs/ichart-sprint-63-chart-layout-goals-2026-05-27.md`](docs/ichart-sprint-63-chart-layout-goals-2026-05-27.md) — Sprint 63 chart layout goals
+- [`docs/ichart-sprint-64-new-chart-layout-style-chooser-2026-05-27.md`](docs/ichart-sprint-64-new-chart-layout-style-chooser-2026-05-27.md) — Sprint 64 New Chart layout-style chooser
+- [`docs/ichart-sprint-65-layout-profile-contracts-2026-05-27.md`](docs/ichart-sprint-65-layout-profile-contracts-2026-05-27.md) — Sprint 65 layout-profile contracts
+- [`docs/ichart-sprint-66-profile-driven-structure-defaults-2026-05-27.md`](docs/ichart-sprint-66-profile-driven-structure-defaults-2026-05-27.md) — Sprint 66 profile-driven structure defaults
 - [`docs/core-design-document.md`](docs/core-design-document.md) — enforced product and design rules
 - [`docs/developer-mvp-spec.md`](docs/developer-mvp-spec.md) — buildable MVP scope and behaviors
 - [`docs/repo-github-recognition-audit-2026-05-20.md`](docs/repo-github-recognition-audit-2026-05-20.md) — current recognition architecture and GitHub audit evidence for the recovery plan

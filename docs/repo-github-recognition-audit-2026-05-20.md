@@ -1,8 +1,8 @@
-# Smart Chart Repo, GitHub, and Recognition Pipeline Audit
+# iChart Repo, GitHub, and Recognition Pipeline Audit
 
 Status: audit report
 Date: 2026-05-20 18:51 PDT
-Repo: `beniandthe/smart-chart`
+Repo: `beniandthe/ichart`
 Local branch: `codex/symbol-ledger-recognition`
 Local commit: `9479a94 Checkpoint symbol ledger diagnostics`
 
@@ -39,7 +39,7 @@ The biggest audit findings:
 
 Remote:
 
-- URL: `https://github.com/beniandthe/smart-chart`
+- URL: `https://github.com/beniandthe/ichart`
 - Default branch: `main`
 - Default branch SHA: `01cd774 Add handwriting recognition implementation plan`
 - Visibility: public
@@ -77,18 +77,18 @@ Top-level tracked/active areas:
 
 | Area | Files or size | Notes |
 | --- | ---: | --- |
-| `SmartChart/Recognition` | 11 Swift files, 9703 lines | Main recognition weight |
-| `SmartChart/Features/Editor` | 12 Swift files across editor/components, 7594 lines | Live UI integration, PencilKit, diagnostics hooks |
-| `SmartChart/Services` | 8 Swift files, 3241 lines | Parser, compendium, diagnostics, layout/export support |
-| `SmartChart/Models` | 13 Swift files, 3539 lines | Structured chart domain |
-| `SmartChartTests/Fixtures/Ink` | 645 JSON fixtures, 6.7 MB, 267828 lines | Valuable corpus, heavy repo/test surface |
+| `iChart/Recognition` | 11 Swift files, 9703 lines | Main recognition weight |
+| `iChart/Features/Editor` | 12 Swift files across editor/components, 7594 lines | Live UI integration, PencilKit, diagnostics hooks |
+| `iChart/Services` | 8 Swift files, 3241 lines | Parser, compendium, diagnostics, layout/export support |
+| `iChart/Models` | 13 Swift files, 3539 lines | Structured chart domain |
+| `iChartTests/Fixtures/Ink` | 645 JSON fixtures, 6.7 MB, 267828 lines | Valuable corpus, heavy repo/test surface |
 | `ThirdParty/NotationFonts` | 3.4 MB | Expected SMuFL metadata/fonts |
 | `.build` | 754 MB local ignored build output | Not tracked |
 | `build/DerivedData` | local ignored build output | Not tracked |
 
 Generated/local files:
 
-- `SmartChart.xcodeproj/` exists locally and is ignored by `.gitignore`.
+- `iChart.xcodeproj/` exists locally and is ignored by `.gitignore`.
 - `project.yml` is the source of truth for XcodeGen.
 - No untracked files are present.
 - No tracked `DerivedData`, `.xcodebuildmcp`, replay JSON, `.DS_Store`, or live diagnostic JSONL artifacts were found.
@@ -98,12 +98,12 @@ Generated/local files:
 SwiftPM target:
 
 - `Package.swift` builds a library target.
-- It intentionally excludes `SmartChart/App`, `SmartChart/Features/Editor`, `SmartChart/Features/Library/LibraryView.swift`, `Resources`, and one SwiftUI shared file.
+- It intentionally excludes `iChart/App`, `iChart/Features/Editor`, `iChart/Features/Library/LibraryView.swift`, `Resources`, and one SwiftUI shared file.
 - SwiftPM tests are excellent for pure domain/recognition behavior but do not compile the live editor UI.
 
 Xcode/iOS target:
 
-- `project.yml` includes the whole `SmartChart` app and resources.
+- `project.yml` includes the whole `iChart` app and resources.
 - GitHub CI regenerates the project with `xcodegen generate`.
 - iOS simulator CI is the main protection for app/editor compile coverage.
 
@@ -118,10 +118,10 @@ Audit implication:
 
 Primary files:
 
-- `SmartChart/Services/ChartParsers.swift`
-- `SmartChart/Services/ChordRecognitionCompendium.swift`
-- `SmartChart/Models/ChordEvent.swift`
-- `SmartChart/Models/MusicTheory.swift`
+- `iChart/Services/ChartParsers.swift`
+- `iChart/Services/ChordRecognitionCompendium.swift`
+- `iChart/Models/ChordEvent.swift`
+- `iChart/Models/MusicTheory.swift`
 
 Current role:
 
@@ -139,10 +139,10 @@ Cleanup note:
 
 Primary files:
 
-- `SmartChart/Recognition/InkTypes.swift`
-- `SmartChart/Recognition/PencilKitInkAdapter.swift`
-- `SmartChart/Models/Chart.swift`
-- `SmartChart/Models/ChartEditing.swift`
+- `iChart/Recognition/InkTypes.swift`
+- `iChart/Recognition/PencilKitInkAdapter.swift`
+- `iChart/Models/Chart.swift`
+- `iChart/Models/ChartEditing.swift`
 
 Current role:
 
@@ -160,7 +160,7 @@ Cleanup note:
 
 Primary file:
 
-- `SmartChart/Recognition/StrokeClusterer.swift` at 2972 lines.
+- `iChart/Recognition/StrokeClusterer.swift` at 2972 lines.
 
 Current role:
 
@@ -189,8 +189,8 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Recognition/GestureTemplateRecognizer.swift` at 1730 lines.
-- `SmartChart/Recognition/ChordGlyphTemplateLibrary.swift`
+- `iChart/Recognition/GestureTemplateRecognizer.swift` at 1730 lines.
+- `iChart/Recognition/ChordGlyphTemplateLibrary.swift`
 
 Current role:
 
@@ -208,7 +208,7 @@ Concern:
 
 Primary file:
 
-- `SmartChart/Recognition/ChordInkCandidateComposer.swift` at 1618 lines.
+- `iChart/Recognition/ChordInkCandidateComposer.swift` at 1618 lines.
 
 Current role:
 
@@ -232,7 +232,7 @@ Recommended cleanup:
 
 Primary file:
 
-- `SmartChart/Recognition/ChordInkRecognizer.swift` at 1995 lines.
+- `iChart/Recognition/ChordInkRecognizer.swift` at 1995 lines.
 
 Current role:
 
@@ -256,8 +256,8 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Recognition/InkTypes.swift`
-- `SmartChart/Recognition/ChordRecognitionTrustArbiter.swift`
+- `iChart/Recognition/InkTypes.swift`
+- `iChart/Recognition/ChordRecognitionTrustArbiter.swift`
 
 Current role:
 
@@ -281,9 +281,9 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Recognition/ChordOCRCandidateProvider.swift`
-- `SmartChart/Recognition/ChordRecognitionTrustArbiter.swift`
-- `SmartChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
+- `iChart/Recognition/ChordOCRCandidateProvider.swift`
+- `iChart/Recognition/ChordRecognitionTrustArbiter.swift`
+- `iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
 
 Current role:
 
@@ -307,9 +307,9 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Recognition/ChordInkSymbolLedger.swift`
-- `SmartChartTests/Recognition/ChordInkSymbolLedgerTests.swift`
-- `SmartChart/Services/ChordEntryDiagnostics.swift`
+- `iChart/Recognition/ChordInkSymbolLedger.swift`
+- `iChartTests/Recognition/ChordInkSymbolLedgerTests.swift`
+- `iChart/Services/ChordEntryDiagnostics.swift`
 
 Current role:
 
@@ -334,15 +334,15 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
-- `SmartChart/Features/Editor/EditorView.swift`
-- `SmartChart/Features/Editor/EditorCanvasMode.swift`
+- `iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
+- `iChart/Features/Editor/EditorView.swift`
+- `iChart/Features/Editor/EditorCanvasMode.swift`
 
 Current role:
 
 - Native `PKCanvasView` is the writing surface.
 - Chord mode uses a 1.2 second idle delay and a 1.2 second continuation grace delay.
-- Recognition runs on `com.smartchart.chord-ink-recognition` queue.
+- Recognition runs on `com.ichart.chord-ink-recognition` queue.
 - Accepted candidates append structured `ChordEvent` values and clear page chord ink.
 - Debug/simulator diagnostics are recorded after chord acceptance/correction.
 
@@ -362,17 +362,17 @@ Recommended cleanup:
 
 Primary files:
 
-- `SmartChart/Services/ChordEntryDiagnostics.swift`
-- `SmartChart/Services/ChordEntryDiagnosticCoverage.swift`
+- `iChart/Services/ChordEntryDiagnostics.swift`
+- `iChart/Services/ChordEntryDiagnosticCoverage.swift`
 - `scripts/audit_chord_entry_diagnostics.py`
-- `SmartChartTests/Recognition/ChordEntryPassReplayTests.swift`
+- `iChartTests/Recognition/ChordEntryPassReplayTests.swift`
 
 Current role:
 
 - Records live recognition outcomes.
 - Audits rendered chord events against diagnostic events.
 - Can reconcile missing diagnostic rows from rendered chart state.
-- Replay test is skipped unless `SMART_CHART_STATE` is set.
+- Replay test is skipped unless `ICHART_STATE` is set.
 
 Audit status: keep as tooling, not as product path.
 
@@ -385,7 +385,7 @@ Concern:
 
 Primary area:
 
-- `SmartChartTests/Fixtures/Ink`
+- `iChartTests/Fixtures/Ink`
 
 Current facts:
 
@@ -416,14 +416,14 @@ These old paths are deleted relative to `main`:
 
 - `.github/scripts/plot-chord-learning-shapes.py`
 - `.github/scripts/summarize-chord-telemetry.py`
-- `SmartChart/Features/Editor/ChordRecognitionProposal.swift`
-- `SmartChart/Features/Editor/Components/ChordRecognitionConfirmationSheetView.swift`
-- `SmartChart/Resources/ChordRecognition/chord-recognition-base-seed.jsonl`
-- `SmartChart/Services/ChordRecognition.swift`
-- `SmartChart/Services/ChordRecognitionIntent.swift`
-- `SmartChart/Services/ChordRecognitionLearning.swift`
-- `SmartChart/Services/ChordRecognitionTelemetry.swift`
-- `SmartChartTests/ChordRecognitionTests.swift`
+- `iChart/Features/Editor/ChordRecognitionProposal.swift`
+- `iChart/Features/Editor/Components/ChordRecognitionConfirmationSheetView.swift`
+- `iChart/Resources/ChordRecognition/chord-recognition-base-seed.jsonl`
+- `iChart/Services/ChordRecognition.swift`
+- `iChart/Services/ChordRecognitionIntent.swift`
+- `iChart/Services/ChordRecognitionLearning.swift`
+- `iChart/Services/ChordRecognitionTelemetry.swift`
+- `iChartTests/ChordRecognitionTests.swift`
 - `docs/chord-recognition-pipeline-v3.md`
 
 These experimental names are not present in the current tracked tree:
@@ -559,12 +559,12 @@ Commands run during this audit:
 
 ```bash
 git fetch --all --tags
-gh repo view beniandthe/smart-chart --json ...
-gh pr list --repo beniandthe/smart-chart --state all --limit 80 --json ...
-gh issue list --repo beniandthe/smart-chart --state all --limit 80 --json ...
-gh run list --repo beniandthe/smart-chart --limit 30 --json ...
+gh repo view beniandthe/ichart --json ...
+gh pr list --repo beniandthe/ichart --state all --limit 80 --json ...
+gh issue list --repo beniandthe/ichart --state all --limit 80 --json ...
+gh run list --repo beniandthe/ichart --limit 30 --json ...
 swift package describe --type json
-swift test --scratch-path /tmp/SmartChartSwiftBuild-audit
+swift test --scratch-path /tmp/iChartSwiftBuild-audit
 python3 -m py_compile scripts/audit_chord_entry_diagnostics.py scripts/import_chord_fixture.py scripts/watch_simulator_chord_fixtures.py
 git diff --check
 ```

@@ -90,7 +90,7 @@ test("unknown products never unlock pro even if Apple lifecycle is active", () =
       notificationType: "DID_RENEW",
       environment: "Sandbox",
       transactionInfo: {
-        productId: "com.smartchart.app.unrecognized",
+        productId: "com.ichart.app.unrecognized",
         originalTransactionId: "1000000000000001",
         transactionId: "1000000000000005",
         expiresDate: futureExpiration,
@@ -416,7 +416,7 @@ test("transaction claim rejects non-pro products after verification", async () =
     {
       now,
       verifyAndDecodeTransaction: async () => ({
-        productId: "com.smartchart.app.basic",
+        productId: "com.ichart.app.basic",
         originalTransactionId: "1000000000000200",
         transactionId: "1000000000000201",
         expiresDate: futureExpiration,

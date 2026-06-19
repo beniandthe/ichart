@@ -1,4 +1,4 @@
-# Smart Chart — Architecture Reset Proposal
+# iChart — Architecture Reset Proposal
 
 Status: Proposal only
 Date: 2026-04-23
@@ -6,7 +6,7 @@ This document does not replace `docs/core-design-document.md` or the current sou
 
 ## Purpose
 
-This document compares the current Smart Chart implementation direction with a proposed architecture reset.
+This document compares the current iChart implementation direction with a proposed architecture reset.
 
 The goal is not to throw away the product direction. The goal is to adjust the technical path so the app is easier to build, easier to test, and less likely to collapse under editor complexity.
 
@@ -161,13 +161,13 @@ Why:
 ## What in the current repo is still good
 
 Keep these ideas and artifacts:
-- `SmartChart/Models/Chart.swift`
-- `SmartChart/Models/Measure.swift`
-- `SmartChart/Models/ChordEvent.swift`
-- `SmartChart/Models/ChartAnnotations.swift`
-- `SmartChart/Models/MusicTheory.swift`
-- `SmartChart/Services/ChartParsers.swift`
-- `SmartChart/Services/MeasureTimingValidator.swift`
+- `iChart/Models/Chart.swift`
+- `iChart/Models/Measure.swift`
+- `iChart/Models/ChordEvent.swift`
+- `iChart/Models/ChartAnnotations.swift`
+- `iChart/Models/MusicTheory.swift`
+- `iChart/Services/ChartParsers.swift`
+- `iChart/Services/MeasureTimingValidator.swift`
 - `docs/core-design-document.md`
 - `docs/developer-mvp-spec.md`
 - `docs/monetization-strategy.md`
@@ -179,8 +179,8 @@ Why they survive:
 ## What should be treated as prototype-only
 
 These are useful for exploration, but should not define the long-term editor:
-- `SmartChart/Features/Editor/EditorView.swift`
-- `SmartChart/Features/Editor/Components/MeasureCardView.swift`
+- `iChart/Features/Editor/EditorView.swift`
+- `iChart/Features/Editor/Components/MeasureCardView.swift`
 - the current horizontally scrolling measure-card canvas approach
 - the assumption that the editor can be mostly composed from stacked SwiftUI cards
 

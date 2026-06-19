@@ -1,8 +1,8 @@
-# Smart Chart — Technical Architecture and Initial Build Plan
+# iChart — Technical Architecture and Initial Build Plan
 
 Status: historical architecture and initial build plan, useful for v1 context
 Product source of truth: `docs/core-design-document.md`
-Current implementation source of truth: `docs/smart-chart-sprint-source-of-truth.md`
+Current implementation source of truth: `docs/ichart-sprint-source-of-truth.md`
 
 ## Purpose
 
@@ -10,7 +10,7 @@ This document translates the product spec into the first implementation shape fo
 
 It is optimized for one thing: proving the editor loop quickly without backing into a brittle architecture.
 
-For current sprint movement, recognition authority, real Pencil validation, and writing-to-render readiness, use `docs/smart-chart-sprint-source-of-truth.md` and `docs/smart-chart-real-life-testing-readiness-2026-05-25.md`. This older plan must not override the recovered pipeline or the writer-agnostic recognition policy.
+For current sprint movement, recognition authority, real Pencil validation, and writing-to-render readiness, use `docs/ichart-sprint-source-of-truth.md` and `docs/ichart-real-life-testing-readiness-2026-05-25.md`. This older plan must not override the recovered pipeline or the writer-agnostic recognition policy.
 
 ## Recommended V1 stack
 

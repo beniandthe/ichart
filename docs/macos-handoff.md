@@ -1,10 +1,10 @@
-# Smart Chart — macOS Handoff
+# iChart — macOS Handoff
 
 Updated: 2026-04-22
 
 ## Purpose
 
-This document is the quickest way to resume Smart Chart on a Mac after the Windows planning/scaffolding phase.
+This document is the quickest way to resume iChart on a Mac after the Windows planning/scaffolding phase.
 
 Use this together with:
 - `README.md`
@@ -25,8 +25,8 @@ Use this together with:
 
 ### App scaffold
 - `project.yml` defines an iPad app target plus a unit-test target via XcodeGen.
-- `SmartChart/` contains a SwiftUI library/editor shell.
-- `SmartChartTests/` contains unit tests for parsing, transposition, timing validation, editing, and entitlement behavior.
+- `iChart/` contains a SwiftUI library/editor shell.
+- `iChartTests/` contains unit tests for parsing, transposition, timing validation, editing, and entitlement behavior.
 
 ### Current prototype behavior
 - Library screen with sample charts and a new-chart flow
@@ -64,7 +64,7 @@ If full Xcode is not installed yet, you can still validate that the shared chart
    - XcodeGen
 2. From the repo root, run:
    - `xcodegen generate`
-3. Open the generated `SmartChart.xcodeproj` in Xcode.
+3. Open the generated `iChart.xcodeproj` in Xcode.
 4. Confirm the target/device setup is iPad-oriented.
 5. Run the unit tests.
 6. Launch the app in the iPad simulator.
@@ -75,8 +75,8 @@ If full Xcode is not installed yet, you can still validate that the shared chart
 If the repo is stored in a file-provider-managed `Documents` location, Xcode may attach Finder or File Provider metadata to in-repo build output and codesigning can fail.
 
 Use a DerivedData path outside the repo for command-line builds and tests:
-- `xcodebuild -project SmartChart.xcodeproj -scheme SmartChart -destination 'platform=iOS Simulator,name=iPad Air 11-inch (M4),OS=26.4.1' -derivedDataPath /tmp/SmartChartDerivedData build`
-- `xcodebuild -project SmartChart.xcodeproj -scheme SmartChart -destination 'platform=iOS Simulator,name=iPad Air 11-inch (M4),OS=26.4.1' -derivedDataPath /tmp/SmartChartDerivedData test`
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,name=iPad Air 11-inch (M4),OS=26.4.1' -derivedDataPath /tmp/iChartDerivedData build`
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,name=iPad Air 11-inch (M4),OS=26.4.1' -derivedDataPath /tmp/iChartDerivedData test`
 
 ## First things to validate in Xcode
 
@@ -92,14 +92,14 @@ Validate these before doing new feature work:
 ## Files to look at first
 
 - `project.yml`
-- `SmartChart/App/SmartChartApp.swift`
-- `SmartChart/App/AppRootView.swift`
-- `SmartChart/Features/Library/ChartLibraryStore.swift`
-- `SmartChart/Features/Library/LibraryView.swift`
-- `SmartChart/Features/Editor/EditorView.swift`
-- `SmartChart/Models/Chart.swift`
-- `SmartChart/Models/AppEntitlements.swift`
-- `SmartChart/Shared/SampleData/ChartSamples.swift`
+- `iChart/App/IChartApp.swift`
+- `iChart/App/AppRootView.swift`
+- `iChart/Features/Library/ChartLibraryStore.swift`
+- `iChart/Features/Library/LibraryView.swift`
+- `iChart/Features/Editor/EditorView.swift`
+- `iChart/Models/Chart.swift`
+- `iChart/Models/AppEntitlements.swift`
+- `iChart/Shared/SampleData/ChartSamples.swift`
 
 ## Good next implementation steps after Mac validation
 

@@ -1,4 +1,4 @@
-project_id = "smart-chart"
+project_id = "ichart"
 
 [api]
 enabled = true

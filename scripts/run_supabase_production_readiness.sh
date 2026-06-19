@@ -93,22 +93,22 @@ run node --test \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
 
 run swift test \
-  --scratch-path /tmp/SmartChartSwiftBuild-supabase-readiness-focused \
+  --scratch-path /tmp/iChartSwiftBuild-supabase-readiness-focused \
   --filter 'ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests'
 
-if [[ "${SMART_CHART_SKIP_FULL_SWIFTPM:-0}" == "1" ]]; then
+if [[ "${ICHART_SKIP_FULL_SWIFTPM:-0}" == "1" ]]; then
   echo
-  echo "==> Skipping full SwiftPM because SMART_CHART_SKIP_FULL_SWIFTPM=1"
+  echo "==> Skipping full SwiftPM because ICHART_SKIP_FULL_SWIFTPM=1"
 else
-  run swift test --scratch-path /tmp/SmartChartSwiftBuild-supabase-readiness-full
+  run swift test --scratch-path /tmp/iChartSwiftBuild-supabase-readiness-full
 fi
 
-if [[ "${SMART_CHART_RUN_LOCAL_SUPABASE_QA:-0}" == "1" ]]; then
+if [[ "${ICHART_RUN_LOCAL_SUPABASE_QA:-0}" == "1" ]]; then
   run scripts/run_supabase_local_qa.sh
 else
   echo
-  echo "==> Skipping local Supabase reset/RLS/integration because SMART_CHART_RUN_LOCAL_SUPABASE_QA is not 1"
-  echo "    Run with SMART_CHART_RUN_LOCAL_SUPABASE_QA=1 when the local Supabase stack is available."
+  echo "==> Skipping local Supabase reset/RLS/integration because ICHART_RUN_LOCAL_SUPABASE_QA is not 1"
+  echo "    Run with ICHART_RUN_LOCAL_SUPABASE_QA=1 when the local Supabase stack is available."
 fi
 
 cat <<'EOF'

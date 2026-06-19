@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import copied Smart Chart chord ink fixture JSON into the test fixture folder."""
+"""Import copied iChart chord ink fixture JSON into the test fixture folder."""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_FIXTURE_DIR = REPO_ROOT / "SmartChartTests" / "Fixtures" / "Ink"
+DEFAULT_FIXTURE_DIR = REPO_ROOT / "iChartTests" / "Fixtures" / "Ink"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Import fixture JSON copied from the Smart Chart chord confirmation "
-            "sheet into SmartChartTests/Fixtures/Ink."
+            "Import fixture JSON copied from the iChart chord confirmation "
+            "sheet into iChartTests/Fixtures/Ink."
         )
     )
     parser.add_argument(
@@ -185,7 +185,7 @@ def main() -> int:
         display_path = fixture_path
 
     print(f"Imported {name} ({expected_display_text}) -> {display_path}")
-    print("Run: swift test --scratch-path /tmp/SmartChartSwiftBuild --filter ChordInkRecognizerTests")
+    print("Run: swift test --scratch-path /tmp/iChartSwiftBuild --filter ChordInkRecognizerTests")
     return 0
 
 
