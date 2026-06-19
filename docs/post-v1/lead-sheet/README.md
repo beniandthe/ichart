@@ -2,11 +2,11 @@
 
 Status: deferred until after V1
 Created: 2026-05-29
-Source of truth: `../../smart-chart-sprint-source-of-truth.md`
+Source of truth: `../../ichart-sprint-source-of-truth.md`
 
 ## Purpose
 
-This directory preserves Lead Sheet planning and implementation notes for after Smart Chart V1 ships.
+This directory preserves Lead Sheet planning and implementation notes for after iChart V1 ships.
 
 The active V1 focus is now:
 
@@ -17,7 +17,7 @@ Lead Sheet work should not drive Sprint 68 implementation decisions unless it is
 
 ## Deferred Boundary
 
-Lead Sheet is intentionally deferred because it pulls Smart Chart toward full notation behavior. V1 should prove the chord-first and rhythm-aware product loop through Simple Chord Sheet and Rhythm Section Sheet before returning to richer Lead Sheet systems.
+Lead Sheet is intentionally deferred because it pulls iChart toward full notation behavior. V1 should prove the chord-first and rhythm-aware product loop through Simple Chord Sheet and Rhythm Section Sheet before returning to richer Lead Sheet systems.
 
 Deferred Lead Sheet systems include:
 
@@ -32,7 +32,7 @@ Deferred Lead Sheet systems include:
 
 ## Preserved Artifacts
 
-- `smart-chart-lead-sheet-pitched-note-baseline-2026-05-29.md`: the implemented baseline and verification record for clef/key signature rendering plus the first narrow pitched-note proof.
+- `ichart-lead-sheet-pitched-note-baseline-2026-05-29.md`: the implemented baseline and verification record for clef/key signature rendering plus the first narrow pitched-note proof.
 - `jazz-lead-sheet-build-plan.md`: older historical concept work. Treat it as inspiration only; do not let the post-V1 Lead Sheet direction become genre-locked or jazz-only.
 
 ## Current Code Baseline To Preserve

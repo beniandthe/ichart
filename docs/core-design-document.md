@@ -1,16 +1,16 @@
-# Smart Chart — Core Design Document
+# iChart — Core Design Document
 
 Status: Active for prototype and v1
 
 ## Purpose
 
-This document defines the product boundary for Smart Chart.
+This document defines the product boundary for iChart.
 
 If another planning document conflicts with this document, this document wins.
 
 ## Product thesis
 
-Smart Chart should let a working musician create a clean, trustworthy chart at roughly the speed of handwriting on paper, while preserving the advantages of structured digital editing.
+iChart should let a working musician create a clean, trustworthy chart at roughly the speed of handwriting on paper, while preserving the advantages of structured digital editing.
 
 The app is chord-first, but not rhythm-blind.
 
@@ -38,7 +38,7 @@ In practical use, that means:
 
 ## Product boundary
 
-Smart Chart is:
+iChart is:
 - an iPad-first chart editor for working musicians
 - a stylus-first, local-first authoring tool
 - an account-backed product with recoverable identity, profile, and subscription state
@@ -46,7 +46,7 @@ Smart Chart is:
 - a rhythm-aware chart tool that can show chord placement and implied hits
 - a fast rehearsal and gig-prep utility with clean PDF export
 
-Smart Chart is not:
+iChart is not:
 - full staff notation software
 - melody or pitched note-entry software
 - a general-purpose rhythm engraving tool

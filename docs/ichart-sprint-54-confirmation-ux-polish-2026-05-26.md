@@ -1,0 +1,63 @@
+# iChart Sprint 54: Confirmation UX Polish
+
+Status: complete; required GitHub Actions passed
+Date: 2026-05-26
+Source of truth: `docs/ichart-sprint-source-of-truth.md`
+
+## Goal
+
+Make chord confirmation feel like a confident product interaction instead of a demo/debug sheet.
+
+## Trigger
+
+Sprint 52 proved the correction loop works. The next product issue is feel: when iChart asks for confirmation, it should be clear, fast, reassuring, and easy to recover from.
+
+## Product Rules
+
+- Auto-render remains the preferred lane.
+- Confirmation should feel positive, not like a failure state.
+- The user should always see the currently selected chord clearly.
+- The top suggestions should read as ranked choices, not raw debug chips.
+- Manual entry should feel like a normal escape hatch.
+- Rewrite and keep-ink actions should stay available but secondary.
+- The loop must not trap the user in write -> wrong render -> delete -> rewrite.
+
+## Implementation
+
+- Redesigned `ChordInkConfirmationSheetView` as a centered, concise chooser: selected chord, top three candidates, manual input, and compact Accept/Keep Ink/Rewrite actions.
+- Replaced raw recognizer reason text with user-facing status copy.
+- Added return-key submission for manual entry.
+- Polished `ChordCorrectionSheetView` to match the same interaction family.
+- Kept all recognition, trust, parser, correction-memory, and chart mutation behavior unchanged.
+
+## User Validation
+
+- The first polish pass worked well in a real pass.
+- The confirmation sheet still felt too information-heavy for the actual product flow.
+- The next iteration should stay centered and concise: top three candidates, one manual input box, and clear accept/decline ink actions.
+- The centered sheet felt much better in simulator validation.
+- The pass metadata exposed duplicate diagnostic rows for the same confirmed chord because render-handoff timing appended a second copy of the original commit diagnostic.
+
+## Metadata Follow-Up
+
+- Updated render-handoff diagnostics to replace the matching commit diagnostic instead of appending a duplicate row.
+- Kept one diagnostic row per chord event with the final render timing evidence filled in.
+- Kept recognition, scoring, candidate ordering, confirmation rules, correction memory, and chart mutation behavior unchanged.
+
+## Verification Evidence
+
+- XcodeBuildMCP iOS simulator compile-only build passed for the `iChart` scheme with `CODE_SIGNING_ALLOWED=NO`.
+- `git diff --check` passed.
+- GitHub Actions on `6133621 Polish chord confirmation UX` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift`.
+- Centered refinement local verification passed: XcodeBuildMCP iOS simulator compile-only build for the `iChart` scheme with `CODE_SIGNING_ALLOWED=NO`, plus `git diff --check`.
+- GitHub Actions on `03305eb Simplify chord confirmation UX` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift`.
+- Metadata follow-up local verification passed: focused `swift test --scratch-path /tmp/iChartSwiftBuild-sprint54-diagnostics --filter ChordEntryDiagnosticsTests` passed with `8` tests and `0` failures; XcodeBuildMCP iOS simulator compile-only build passed for the `iChart` scheme with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed.
+- GitHub Actions on `d5fb582 Avoid duplicate chord diagnostic rows` passed `SwiftPM tests`, `iOS simulator tests`, and `Analyze Swift`.
+
+## Manual Validation
+
+- Trigger a close-race confirmation and check that the sheet feels centered, concise, and easy to choose from.
+- Select each of the top three suggestions and confirm the selected-chord preview updates clearly.
+- Type a chord manually and submit with the keyboard return key.
+- Use Keep Ink and Rewrite to confirm the secondary actions still route correctly.
+- Correct an already-rendered chord and confirm that sheet feels consistent with the confirmation flow.

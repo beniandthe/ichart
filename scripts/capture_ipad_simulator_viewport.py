@@ -61,7 +61,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output",
-        default="/tmp/smartchart-ipad-simulator.png",
+        default="/tmp/ichart-ipad-simulator.png",
         help="Output PNG path.",
     )
     parser.add_argument("--open", action="store_true", help="Open the normalized capture with macOS.")

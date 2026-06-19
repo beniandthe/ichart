@@ -98,7 +98,7 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 
 ## QA Checklist
 
-Use `docs/supabase-production-readiness-checklist.md` as the release-candidate checklist. Use `scripts/run_supabase_production_readiness.sh` for the secret-free automated gate, and add `SMART_CHART_RUN_LOCAL_SUPABASE_QA=1` when the local Supabase stack is ready for reset/RLS/integration verification.
+Use `docs/supabase-production-readiness-checklist.md` as the release-candidate checklist. Use `scripts/run_supabase_production_readiness.sh` for the secret-free automated gate, and add `ICHART_RUN_LOCAL_SUPABASE_QA=1` when the local Supabase stack is ready for reset/RLS/integration verification.
 
 - Unconfigured build launches and edits charts locally.
 - Create account, resend verification, sign in, refresh session, and sign out.
@@ -115,7 +115,7 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 Normal test runs stay secret-free and skip live Supabase checks. To run the live integration test directly:
 
 ```sh
-SMART_CHART_SUPABASE_INTEGRATION=1 \
+ICHART_SUPABASE_INTEGRATION=1 \
 SUPABASE_URL=http://127.0.0.1:54321 \
 SUPABASE_PUBLISHABLE_KEY=<local-publishable-key> \
 SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key> \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit Smart Chart chord-entry diagnostics against rendered chart chords."""
+"""Audit iChart chord-entry diagnostics against rendered chart chords."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_BUNDLE_ID = "com.smartchart.app"
+DEFAULT_BUNDLE_ID = "com.ichart.app"
 DEFAULT_CHART_TITLE = "Chord Writing Test Chart"
 TIMING_SUMMARY_FIELDS = [
     ("requestedDelayMilliseconds", "delay"),
@@ -585,7 +585,7 @@ def main() -> int:
         print(f"Could not locate app container: {error}", file=sys.stderr)
         return 2
 
-    smart_chart_dir = app_data / "Library" / "Application Support" / "SmartChart"
+    smart_chart_dir = app_data / "Library" / "Application Support" / "iChart"
     state_path = smart_chart_dir / "library-state.json"
     diagnostics_path = smart_chart_dir / "chord-entry-diagnostics.jsonl"
 

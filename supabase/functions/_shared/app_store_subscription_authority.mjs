@@ -1,8 +1,8 @@
 export const storeKitProvider = "storekit";
 
 export const iChartProProductIDs = Object.freeze([
-  "com.smartchart.app.pro.monthly",
-  "com.smartchart.app.pro.annual",
+  "com.ichart.app.pro.monthly",
+  "com.ichart.app.pro.annual",
 ]);
 
 const activeNotificationTypes = new Set([

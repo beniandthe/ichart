@@ -4,7 +4,7 @@ Status: Sprint 5 checklist for iChart account verification, profile sync, and Pr
 
 ## Non-Secret Project Facts
 
-- Product: iChart / Smart Chart.
+- Product: iChart / iChart.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`.
 - Remote URL shape: `https://pausvvwoazbvmzyrebwl.supabase.co`.
 - The iOS app embeds only the project URL and publishable client key.
@@ -80,12 +80,12 @@ Run the secret-free production readiness wrapper:
 scripts/run_supabase_production_readiness.sh
 ```
 
-That wrapper runs whitespace hygiene, ignored-path checks, key-shaped secret scanning, focused Supabase/chart tests, and full SwiftPM unless `SMART_CHART_SKIP_FULL_SWIFTPM=1` is set.
+That wrapper runs whitespace hygiene, ignored-path checks, key-shaped secret scanning, focused Supabase/chart tests, and full SwiftPM unless `ICHART_SKIP_FULL_SWIFTPM=1` is set.
 
 When a local Supabase stack is available, include SQL/RLS and live local integration coverage:
 
 ```sh
-SMART_CHART_RUN_LOCAL_SUPABASE_QA=1 scripts/run_supabase_production_readiness.sh
+ICHART_RUN_LOCAL_SUPABASE_QA=1 scripts/run_supabase_production_readiness.sh
 ```
 
 The local QA path resets the local database, runs `supabase test db`, derives local URL/key values from `supabase status -o env`, and runs `SupabaseIntegrationTests` with a throwaway local Auth account.

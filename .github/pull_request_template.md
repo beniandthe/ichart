@@ -5,7 +5,7 @@
 ## Verification
 
 - [ ] `swift test`
-- [ ] `xcodebuild test -scheme SmartChart -destination "<simulator destination>"`
+- [ ] `xcodebuild test -scheme iChart -destination "<simulator destination>"`
 
 ## Notes
 

@@ -5,7 +5,7 @@ Status: completed on `codex/user-authentication-db`.
 Simulator:
 
 - Device: iPad Pro 13-inch (M5), iOS Simulator.
-- Bundle ID: `com.smartchart.app`.
+- Bundle ID: `com.ichart.app`.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`.
 - Remote URL: `https://pausvvwoazbvmzyrebwl.supabase.co`.
 - Account: existing verified QA session. New-account email verification was not re-run in this pass.
@@ -14,7 +14,7 @@ Simulator:
 
 - `scripts/run_supabase_production_readiness.sh` focused mode passed with 45 selected tests, 1 expected live-integration skip, and 0 failures.
 - Full SwiftPM passed with 517 tests, 37 skipped, and 0 failures.
-- `SMART_CHART_RUN_LOCAL_SUPABASE_QA=1 scripts/run_supabase_production_readiness.sh` passed:
+- `ICHART_RUN_LOCAL_SUPABASE_QA=1 scripts/run_supabase_production_readiness.sh` passed:
   - local database reset from migrations succeeded.
   - `supabase/tests/rls_smoke.sql` passed with 16 tests.
   - `SupabaseIntegrationTests` passed against local Supabase with 1 test and 0 failures.
@@ -39,7 +39,7 @@ Configured remote launch:
 Restore from cloud:
 
 - Stopped the app.
-- Backed up local `library-state.json` to `/tmp/smart-chart-library-state-before-remote-restore-20260610104236.json`.
+- Backed up local `library-state.json` to `/tmp/ichart-library-state-before-remote-restore-20260610104236.json`.
 - Removed only the local chart library snapshot.
 - Relaunched with remote Supabase configuration.
 - Library restored to the same 4 remote charts.

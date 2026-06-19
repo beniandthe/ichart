@@ -19,7 +19,7 @@ IMPORTER = REPO_ROOT / "scripts" / "import_chord_fixture.py"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Import Smart Chart chord fixture JSON as soon as the app copies it."
+        description="Import iChart chord fixture JSON as soon as the app copies it."
     )
     parser.add_argument(
         "--simulator",
@@ -114,7 +114,7 @@ def main() -> int:
         if args.clear_on_start:
             clear_pasteboard(device_id)
         print(f"Watching simulator pasteboard for chord fixtures: {device_id}", flush=True)
-        print("Copy a Test Fixture in Smart Chart; press Ctrl-C here when the pass is done.", flush=True)
+        print("Copy a Test Fixture in iChart; press Ctrl-C here when the pass is done.", flush=True)
 
         last_hash = ""
         while True:

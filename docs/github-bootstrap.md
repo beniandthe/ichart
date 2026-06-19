@@ -1,16 +1,16 @@
-# Smart Chart — GitHub Bootstrap
+# iChart — GitHub Bootstrap
 
 Status: Operational helper  
 Source of truth: `docs/core-design-document.md`
 
 ## Purpose
 
-This document explains how to create and maintain the real GitHub repository for Smart Chart from your local machine.
+This document explains how to create and maintain the real GitHub repository for iChart from your local machine.
 
 ## Recommended repository layout
 
 ```text
-smart-chart/
+ichart/
 ├── README.md
 ├── project.yml
 ├── docs/
@@ -20,7 +20,7 @@ smart-chart/
 │   ├── implementation-milestones.md
 │   ├── v1-production-deployment.md
 │   └── github-bootstrap.md
-├── SmartChart/
+├── iChart/
 │   ├── App/
 │   ├── Models/
 │   ├── Features/
@@ -40,7 +40,7 @@ On a Mac with XcodeGen installed, generate the Xcode project with:
 xcodegen generate
 ```
 
-That should produce `SmartChart.xcodeproj` from the checked-in project definition.
+That should produce `iChart.xcodeproj` from the checked-in project definition.
 
 ## If your local repo is not initialized yet
 
@@ -59,20 +59,20 @@ When the docs, project spec, or scaffold change, run:
 
 ```bash
 git add .
-git commit -m "Align Smart Chart docs and repo structure"
+git commit -m "Align iChart docs and repo structure"
 ```
 
 ## Create the GitHub repository
 
 ### Option A — GitHub web UI
-1. Create a new empty repository named `smart-chart` under your account.
+1. Create a new empty repository named `ichart` under your account.
 2. Do not initialize it with a README, license, or gitignore if your local repo already has commits.
 3. Copy the remote URL.
 
 ### Option B — GitHub CLI
 
 ```bash
-gh repo create smart-chart --private --source=. --remote=origin --push
+gh repo create ichart --private --source=. --remote=origin --push
 ```
 
 Use `--public` instead of `--private` if you want a public repo immediately.
@@ -81,13 +81,13 @@ Use `--public` instead of `--private` if you want a public repo immediately.
 
 SSH:
 ```bash
-git remote add origin git@github.com:<your-handle>/smart-chart.git
+git remote add origin git@github.com:<your-handle>/ichart.git
 git push -u origin main
 ```
 
 HTTPS:
 ```bash
-git remote add origin https://github.com/<your-handle>/smart-chart.git
+git remote add origin https://github.com/<your-handle>/ichart.git
 git push -u origin main
 ```
 

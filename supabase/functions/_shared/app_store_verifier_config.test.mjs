@@ -51,13 +51,13 @@ test("reports missing required verifier environment", () => {
 
 test("allows sandbox configuration without an App Apple ID", () => {
   const result = appStoreVerifierConfigurationFromEnv({
-    APP_STORE_BUNDLE_ID: "com.smartchart.app",
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
     APP_STORE_ENVIRONMENT: "Sandbox",
     APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.value.bundleID, "com.smartchart.app");
+  assert.equal(result.value.bundleID, "com.ichart.app");
   assert.equal(result.value.environment, appStoreVerifierEnvironmentSandbox);
   assert.equal(result.value.appAppleID, null);
   assert.deepEqual(result.value.rootCertificateBase64Bodies, [fakeCertificateOne, fakeCertificateTwo]);
@@ -65,7 +65,7 @@ test("allows sandbox configuration without an App Apple ID", () => {
 
 test("requires App Apple ID for production verification", () => {
   const result = appStoreVerifierConfigurationFromEnv({
-    APP_STORE_BUNDLE_ID: "com.smartchart.app",
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
     APP_STORE_ENVIRONMENT: "Production",
     APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
   });
@@ -76,7 +76,7 @@ test("requires App Apple ID for production verification", () => {
 
 test("parses production App Apple ID", () => {
   const result = appStoreVerifierConfigurationFromEnv({
-    APP_STORE_BUNDLE_ID: "com.smartchart.app",
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
     APP_STORE_ENVIRONMENT: "Production",
     APP_STORE_APP_APPLE_ID: "1234567890",
     APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
@@ -89,7 +89,7 @@ test("parses production App Apple ID", () => {
 
 test("rejects invalid verifier environment, app id, and certificate content", () => {
   const result = appStoreVerifierConfigurationFromEnv({
-    APP_STORE_BUNDLE_ID: "com.smartchart.app",
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
     APP_STORE_ENVIRONMENT: "Xcode",
     APP_STORE_APP_APPLE_ID: "not-a-number",
     APP_STORE_ROOT_CERTIFICATES_PEM: "not a pem bundle",

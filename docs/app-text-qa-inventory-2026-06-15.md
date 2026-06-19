@@ -3,7 +3,7 @@
 Purpose: final copy sweep for iChart, focused on obtuse, placeholder, debug, or developer-facing language.
 
 Scope scanned:
-- `SmartChart/**/*.swift` shipping app target files
+- `iChart/**/*.swift` shipping app target files
 - UI constructors such as `Text`, `Label`, `Button`, `TextField`, `ContentUnavailableView`, alerts, sheets, menus, and accessibility labels
 - Model-driven display strings such as `displayText`, `detailText`, sync/account/plan status text, forum validation errors, generated PDF metadata, and sample/QA forum text
 
@@ -12,7 +12,7 @@ Not included as review copy:
 - Chord-symbol parser spellings and music glyph catalog keys unless they can show as UI labels
 
 Raw scan notes:
-- 2,407 string literals with alphabetic text were found in `SmartChart/`.
+- 2,407 string literals with alphabetic text were found in `iChart/`.
 - 1,247 UI/status-ish matches were found across SwiftUI views, models, stores, and services.
 - This document groups repeated labels once per subsystem. Dynamic text is shown with placeholders.
 
@@ -21,20 +21,20 @@ Raw scan notes:
 Use this section first. These are the highest-risk phrases for dev-style or obtuse user experience.
 
 - [x] Help placeholders still sound like internal roadmap copy. Fixed in triage 1 and expanded into full FAQ, User Policy, Legal Policy, and tutorial reference pages.
-  - Source: `SmartChart/Features/Library/LibraryView.swift`
+  - Source: `iChart/Features/Library/LibraryView.swift`
   - New FAQ coverage: Forums and why iChart uses accounts.
   - New User Policy coverage: account identity, user charts, community sharing, conduct, and Basic/Pro downgrade behavior.
   - New Legal Policy coverage: terms, privacy, subscriptions, chart content, and support/change notes.
   - New tutorial coverage: Charts, Projects, PDFs, editor navigation, Page/Header, Chord, Simple, Rhythm Section, Coda, account, Pro, Forums, and Settings.
 
 - [x] Account unconfigured state exposes implementation details. Fixed while removing unsupported setup language.
-  - Source: `SmartChart/Features/Library/LibraryView.swift:4315`, `:4577`; `SmartChart/Models/ChartSyncState.swift:34`, `:111`
+  - Source: `iChart/Features/Library/LibraryView.swift:4315`, `:4577`; `iChart/Models/ChartSyncState.swift:34`, `:111`
   - New: "Account services are unavailable right now. Local charts remain available."
   - New: "Account sign-in and cloud backup are unavailable right now."
   - New cloud backup fallback: "Cloud backup is unavailable right now."
 
 - [x] Plan/StoreKit QA copy is developer-facing. Fixed in triage 2 with user-facing subscription and local preview copy.
-  - Source: `SmartChart/Features/Library/LibraryView.swift:4848`, `:4941`, `:4954`, `:4957`; `SmartChart/Features/Editor/Components/UpgradeSheetView.swift:38`, `:102`; `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift:45`, `:86`, `:378`
+  - Source: `iChart/Features/Library/LibraryView.swift:4848`, `:4941`, `:4954`, `:4957`; `iChart/Features/Editor/Components/UpgradeSheetView.swift:38`, `:102`; `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift:45`, `:86`, `:378`
   - New: "Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."
   - New: "Use local preview controls on this device. Purchases and account backup still use their normal flows."
   - New: "Sample Forum Charts"
@@ -42,14 +42,14 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - New: "Pro preview is active on this device."
 
 - [x] Chord fixture tools expose regression terminology. Fixed in triage 2 by relabeling debug capture as ink samples.
-  - Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift:98`, `:347`, `:354`; `SmartChart/Features/Editor/EditorView.swift:2710`, `:2729`
+  - Source: `iChart/Features/Editor/Components/ChordInkSheetViews.swift:98`, `:347`, `:354`; `iChart/Features/Editor/EditorView.swift:2710`, `:2729`
   - New: "Copied {chord} ink sample as {sample name}."
   - New: "Ink sample capture"
   - New: "Copy Ink Sample"
   - New: "Could not copy this ink sample. Keep the ink and try again."
 
 - [x] Forum seed/QA text can leak if QA samples are enabled. Fixed in triage 2 by renaming QA sample strings to local forum samples.
-  - Source: `SmartChart/App/Forum/IChartForumStore.swift:90`, `:456`, `:520`, `:603`, `:757`
+  - Source: `iChart/App/Forum/IChartForumStore.swift:90`, `:456`, `:520`, `:603`, `:757`
   - New: "Sample forum charts loaded."
   - New: "{title} - Forum Sample.pdf"
   - New: "iChart Samples"
@@ -57,34 +57,34 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - New PDF preview text: "iChart Forum Sample - {creator}"
 
 - [x] Chart list empty state says projects, not charts. Fixed in triage 2.
-  - Source: `SmartChart/Features/Library/LibraryView.swift:1264`
+  - Source: `iChart/Features/Library/LibraryView.swift:1264`
   - New: "No Charts Yet"
   - New: "Create a new chart to start writing."
 
 - [x] Several cramped editor controls use abbreviations that may be unclear. Fixed in triage 2.
-  - Source: `SmartChart/Features/Editor/EditorView.swift:1072`, `:1092`, `:1149`, `:1157`
+  - Source: `iChart/Features/Editor/EditorView.swift:1072`, `:1092`, `:1149`, `:1157`
   - New: "New Row", "Delete To", "Remove Repeat", "Remove Ending"
 
 - [x] Rhythm/chord validation copy sometimes exposes internal model terms. Fixed in triage 2.
-  - Source: `SmartChart/Services/MeasureTimingValidator.swift:44`, `:61`, `:72`; `SmartChart/Features/Editor/EditorView.swift:2810`, `:2831`
+  - Source: `iChart/Services/MeasureTimingValidator.swift:44`, `:61`, `:72`; `iChart/Features/Editor/EditorView.swift:2810`, `:2831`
   - New: "rhythm position", "chord position", "editable rhythm sketch", "off the measure grid"
 
 - [x] Forum has a visible "Downvote" button despite prior concern about griefing tone. Fixed in triage 2.
-  - Source: `SmartChart/Features/Library/LibraryView.swift:3549`; `SmartChart/Models/ForumCommunity.swift:348`
+  - Source: `iChart/Features/Library/LibraryView.swift:3549`; `iChart/Models/ForumCommunity.swift:348`
   - New: "Not For Me"
   - New vote summary: "{up} upvote(s)"
 
 - [x] "SMuFL" may be too technical for a musician-facing font picker. Fixed in triage 2.
-  - Source: `SmartChart/Features/Editor/Components/ChartAppearanceSheetView.swift:26`, `:83`
+  - Source: `iChart/Features/Editor/Components/ChartAppearanceSheetView.swift:26`, `:83`
   - New: "Choose the notation symbol style used in the chart."
   - New section label: "Notation Font"
 
 - [x] New-chart Lead Sheet description references current internal workflow. Fixed in triage 2.
-  - Source: `SmartChart/Models/Chart.swift:234`
+  - Source: `iChart/Models/Chart.swift:234`
   - New: "Staff-based page for melody, chords, and standard notation."
 
 - [x] Status surfaces repeated persistence wording even though local persistence is the default. Fixed in triage 2 follow-up by removing the user-facing status surface entirely.
-  - Source: `SmartChart/Features/Library/ChartLibraryStore.swift`; `SmartChart/Models/ChartSyncState.swift`
+  - Source: `iChart/Features/Library/ChartLibraryStore.swift`; `iChart/Models/ChartSyncState.swift`
   - Removed: Settings storage status row.
   - Removed: editor persistence status badge.
   - Removed: export preview storage confirmation label and date.
@@ -92,19 +92,19 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - New: "Reconnect to back up."
 
 - [x] Forum-downloaded PDFs persist after confirmed Basic/expired entitlement. Fixed in triage 2 follow-up.
-  - Source: `SmartChart/Services/PDFLibraryStore.swift`; `SmartChart/App/SmartChartApp.swift`; `SmartChart/Features/Library/LibraryView.swift`
+  - Source: `iChart/Services/PDFLibraryStore.swift`; `iChart/App/IChartApp.swift`; `iChart/Features/Library/LibraryView.swift`
   - Active Pro and Pro grace keep forum downloads visible.
   - Confirmed Basic, expired Pro, and legacy local Pro remove forum downloads.
   - Unavailable plan checks hide forum downloads without deleting them.
 
 - [x] Final read-through found old entitlement and future-feature wording. Fixed by using current feature names and current Pro benefits.
-  - Source: `SmartChart/Models/AppEntitlements.swift`; `SmartChart/Features/Editor/Components/UpgradeSheetView.swift`; `SmartChart/Features/Library/LibraryView.swift`
+  - Source: `iChart/Models/AppEntitlements.swift`; `iChart/Features/Editor/Components/UpgradeSheetView.swift`; `iChart/Features/Library/LibraryView.swift`
   - New: "Instrument Transposition", "Repeats And Coda", "Rhythm Editing", "Projects for song variants"
   - Removed stale view terminology, future-feature promises, and unsupported project organization terms.
 
 ## App Shell
 
-Source: `SmartChart/App/AppRootView.swift`, `SmartChart/Features/Library/LibraryView.swift`
+Source: `iChart/App/AppRootView.swift`, `iChart/Features/Library/LibraryView.swift`
 
 - [ ] App navigation title: "iChart"
 - [ ] Sidebar tabs: "Charts", "PDFs", "Forums", "Help", "Settings"
@@ -117,7 +117,7 @@ Source: `SmartChart/App/AppRootView.swift`, `SmartChart/Features/Library/Library
 
 ## First-Run Account
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IChartAuthStore.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/App/Auth/IChartAuthStore.swift`
 
 - [ ] Welcome title: "Welcome to iChart"
 - [ ] Welcome message: "Create your account to keep profile, recovery, and subscription access tied to you from the start."
@@ -144,7 +144,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/App/Auth/IC
 
 ## Guided Tour And Help
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Editor/EditorView.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Features/Editor/EditorView.swift`
 
 - [ ] Help topics: "Tutorial", "FAQ", "User Policy", "Legal Policy", "Contact Us"
 - [ ] Help summaries: "App walkthrough", "Common questions", "Use and conduct", "Terms and privacy", "Support and feedback"
@@ -170,7 +170,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Ed
 
 ## Charts Home
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Library/ChartLibraryStore.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Features/Library/ChartLibraryStore.swift`
 
 - [ ] Workspace switcher: "Charts", "Projects"
 - [ ] Chart preview modes: "Collapsed", "Quick", "Large"
@@ -194,7 +194,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Features/Li
 
 ## Projects
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ChartProject.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/ChartProject.swift`
 
 - [ ] Locked title: "Projects require Pro"
 - [ ] Locked message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together."
@@ -214,7 +214,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/Char
 
 ## New Chart Setup
 
-Source: `SmartChart/Features/Editor/Components/ChartSetupSheetView.swift`, `SmartChart/Models/Chart.swift`, `SmartChart/Models/ChartLayoutProfile.swift`
+Source: `iChart/Features/Editor/Components/ChartSetupSheetView.swift`, `iChart/Models/Chart.swift`, `iChart/Models/ChartLayoutProfile.swift`
 
 - [ ] Sheet titles: "New Chart", "Chart"
 - [ ] Actions: "Cancel", "Create Blank Page", "Apply"
@@ -226,11 +226,11 @@ Source: `SmartChart/Features/Editor/Components/ChartSetupSheetView.swift`, `Smar
   - "Staff-based page for melody, chords, and standard notation."
 - [ ] Header modes: "Typed", "Handwritten"
 - [ ] Summary: "{layout style} · setup pending", "blank page", "{count} measures"
-- [x] REVIEW: Lead Sheet description says "current Smart Chart workflow." Fixed in triage 2.
+- [x] REVIEW: Lead Sheet description says "current iChart workflow." Fixed in triage 2.
 
 ## Editor Main Toolbar
 
-Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Editor/EditorCanvasMode.swift`, `SmartChart/Features/Editor/EditorInkToolMode.swift`, `SmartChart/Models/ChartAnnotations.swift`
+Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/EditorCanvasMode.swift`, `iChart/Features/Editor/EditorInkToolMode.swift`, `iChart/Models/ChartAnnotations.swift`
 
 - [ ] Exit accessibility: "Exit Chart"
 - [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Manual Transpose ({interval})", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
@@ -248,7 +248,7 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 
 ## Editor Sheets And Alerts
 
-Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Editor/Components/ChartHeaderSheetView.swift`, `ChartAppearanceSheetView.swift`, `ChartTypographySheetView.swift`
+Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/Components/ChartHeaderSheetView.swift`, `ChartAppearanceSheetView.swift`, `ChartTypographySheetView.swift`
 
 - [ ] Change time signature dialog: "Change Time Signature", "Apply the new time signature after the selected measure.", "Cancel"
 - [ ] Export alert: "Export PDF", "OK", "Couldn’t generate the PDF right now. {error}"
@@ -268,7 +268,7 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 
 ## Chord Recognition And Correction
 
-Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift`, `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Services/ChordInkRenderResolutionPolicy.swift`
+Source: `iChart/Features/Editor/Components/ChordInkSheetViews.swift`, `iChart/Features/Editor/EditorView.swift`, `iChart/Services/ChordInkRenderResolutionPolicy.swift`
 
 - [ ] Sheet titles: "Choose Chord", "Enter Chord", "Correct Chord"
 - [ ] Prompts: "Type the chord you meant.", "Pick the chord you meant, or type it.", "Close match. Pick the chord you meant.", "Choose one or type the chord."
@@ -287,7 +287,7 @@ Source: `SmartChart/Features/Editor/Components/ChordInkSheetViews.swift`, `Smart
 
 ## Rhythm Recognition And Editing
 
-Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Editor/Components/RhythmicNotationRecognitionTypes.swift`, `SmartChart/Models/RhythmicNotationAcceptance.swift`, `SmartChart/Services/MeasureTimingValidator.swift`
+Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/Components/RhythmicNotationRecognitionTypes.swift`, `iChart/Models/RhythmicNotationAcceptance.swift`, `iChart/Services/MeasureTimingValidator.swift`
 
 - [ ] Rhythm values: "Slash", "Eighth Note", "Eighth Rest", "Quarter Note", "Quarter Rest", "Dotted Quarter", "Dotted Quarter Note", "Half Note", "Half Rest", "Dotted Half", "Dotted Half Note", "Whole Note", "Whole Rest", "Tie"
 - [ ] Short values: "W", "H", "H.", "Q", "/", "Q.", "8", "Tie", "WR", "HR", "QR", "8R"
@@ -308,7 +308,7 @@ Source: `SmartChart/Features/Editor/EditorView.swift`, `SmartChart/Features/Edit
 
 ## PDF Library And Export
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Services/PDFLibraryStore.swift`, `SmartChart/Features/Editor/Components/PDFExportPreviewView.swift`, `SmartChart/Services/ChartExporting.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Services/PDFLibraryStore.swift`, `iChart/Features/Editor/Components/PDFExportPreviewView.swift`, `iChart/Services/ChartExporting.swift`
 
 - [ ] Tab/panel title: "PDF Library"
 - [ ] Library intro: "Exports and forum downloads appear here so you can preview, share, or remove them later."
@@ -325,7 +325,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Services/PD
 
 ## Community Forums
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ForumCommunity.swift`, `SmartChart/App/Forum/IChartForumStore.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/ForumCommunity.swift`, `iChart/App/Forum/IChartForumStore.swift`
 
 - [ ] Locked title: "Forums require Pro"
 - [ ] Locked message: "Upgrade to Pro to join iChart Forums."
@@ -365,7 +365,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/Foru
 
 ## Submit To Forum
 
-Source: `SmartChart/Features/Library/LibraryView.swift`
+Source: `iChart/Features/Library/LibraryView.swift`
 
 - [ ] Sheet title: "Submit To Forum"
 - [ ] Section title: "Metadata"
@@ -378,7 +378,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`
 
 ## Forum Detail And Discussion
 
-Source: `SmartChart/Features/Library/LibraryView.swift`
+Source: `iChart/Features/Library/LibraryView.swift`
 
 - [ ] Creator byline: "Created by {creator}", "Created by Unknown"
 - [ ] Actions: "Upvote", "Not For Me", "Preview PDF", "Report"
@@ -397,7 +397,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`
 
 ## Settings, Plan, And Subscription
 
-Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/IChartSubscriptionEntitlement.swift`, `SmartChart/Models/AppEntitlements.swift`, `SmartChart/Features/Editor/Components/UpgradeSheetView.swift`, `SmartChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
+Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/IChartSubscriptionEntitlement.swift`, `iChart/Models/AppEntitlements.swift`, `iChart/Features/Editor/Components/UpgradeSheetView.swift`, `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
 - [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Cloud Backup", "User Info"
 - [ ] User info labels: "Account Name", "Email", "Phone", "Address", "Mailing address", "Save Profile"
@@ -427,7 +427,7 @@ Source: `SmartChart/Features/Library/LibraryView.swift`, `SmartChart/Models/ICha
 
 ## Cloud Sync
 
-Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartCloudSyncStore.swift`, `SmartChart/Features/Library/LibraryView.swift`
+Source: `iChart/Models/ChartSyncState.swift`, `iChart/App/Sync/ChartCloudSyncStore.swift`, `iChart/Features/Library/LibraryView.swift`
 
 - [ ] Status labels: "Cloud backup unavailable", "Sign in to back up", "Cloud backup requires Pro", "Offline", "Backing up", "Cloud backup active", "Cloud backup needs attention"
 - [ ] Detail text: "Charts stay local until you sign in."
@@ -444,7 +444,7 @@ Source: `SmartChart/Models/ChartSyncState.swift`, `SmartChart/App/Sync/ChartClou
 
 ## Appearance, Fonts, And Engraving Options
 
-Source: `SmartChart/Models/ChartAppearance.swift`
+Source: `iChart/Models/ChartAppearance.swift`
 
 - [ ] Notation font presets: "Bravura", "Petaluma", "Leland", "MuseJazz", "Finale Maestro", "Finale Jazz", "Finale Broadway", "Finale Engraver", "Finale Ash", "Finale Legacy"
 - [ ] Notation font descriptions:
@@ -475,7 +475,7 @@ Source: `SmartChart/Models/ChartAppearance.swift`
 
 ## Generated, Seed, And PDF Text
 
-Source: `SmartChart/Shared/SampleData/ChartSamples.swift`, `SmartChart/App/Forum/IChartForumStore.swift`, `SmartChart/Services/LeadSheetPageLayout.swift`, `SmartChart/Features/Editor/Components/LeadSheetNotationRenderer.swift`
+Source: `iChart/Shared/SampleData/ChartSamples.swift`, `iChart/App/Forum/IChartForumStore.swift`, `iChart/Services/LeadSheetPageLayout.swift`, `iChart/Features/Editor/Components/LeadSheetNotationRenderer.swift`
 
 - [ ] Sample chart titles: "Late Night Pocket", "Turnaround Study"
 - [ ] Sample composer/style: "Irving Berlin", "MED. SWING"

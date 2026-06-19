@@ -187,9 +187,9 @@ Chart sync states should communicate the user's real situation:
 - Settings should not expose user-editable payment fields.
 - Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only.
 - StoreKit owns Apple subscription purchase/restore.
-- First App Store product IDs are `com.smartchart.app.pro.monthly` and `com.smartchart.app.pro.annual`.
+- First App Store product IDs are `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual`.
 - StoreKit purchase/restore state feeds `IChartSubscriptionEntitlement`; the rest of the app must continue reading capability from `AppEntitlements` rather than from StoreKit UI directly.
-- Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `SmartChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority.
+- Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `iChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority.
 - Supabase subscription rows are read-only from the app and are updated only by trusted server-side purchase verification, StoreKit transaction claims, and App Store Server Notification handling.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
 - App Store Server Notification handling is a Supabase Edge Function that uses Apple's signed-data verifier and an Edge-only Supabase writer when secrets are configured, rejects missing/invalid `signedPayload` input, and updates only previously claimed StoreKit original-transaction mappings.

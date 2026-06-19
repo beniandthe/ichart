@@ -1,4 +1,4 @@
-# Smart Chart — Current Architecture Audit
+# iChart — Current Architecture Audit
 
 Status: historical audit, stale for current recognition path
 Date: 2026-04-23
@@ -9,7 +9,7 @@ Execution sequence reference: `docs/post-v1/lead-sheet/jazz-lead-sheet-build-pla
 
 This audit reflects an older editor-cleanup checkpoint before live chord-entry recognition returned to the app. It is useful as historical context for the jazz-page reset, but it is not the active sprint or recognition architecture authority.
 
-For current sprint execution, use `docs/smart-chart-sprint-source-of-truth.md`. For the May 2026 repo, GitHub, and recognition audit evidence, use `docs/repo-github-recognition-audit-2026-05-20.md`.
+For current sprint execution, use `docs/ichart-sprint-source-of-truth.md`. For the May 2026 repo, GitHub, and recognition audit evidence, use `docs/repo-github-recognition-audit-2026-05-20.md`.
 
 When this document conflicts with the living sprint source of truth, the living sprint source of truth wins.
 
@@ -36,22 +36,22 @@ This is the only path the app should be treated as supporting right now.
 These systems are on the correct path and should stay:
 
 - app shell and project/library flow
-  - `SmartChart/App/AppRootView.swift`
-  - `SmartChart/Features/Library/LibraryView.swift`
-  - `SmartChart/Features/Library/ChartLibraryStore.swift`
+  - `iChart/App/AppRootView.swift`
+  - `iChart/Features/Library/LibraryView.swift`
+  - `iChart/Features/Library/ChartLibraryStore.swift`
 - jazz-only setup and editor shell
-  - `SmartChart/Features/Editor/EditorView.swift`
-  - `SmartChart/Features/Editor/Components/ChartSetupSheetView.swift`
-  - `SmartChart/Features/Editor/Components/ChartHeaderSheetView.swift`
+  - `iChart/Features/Editor/EditorView.swift`
+  - `iChart/Features/Editor/Components/ChartSetupSheetView.swift`
+  - `iChart/Features/Editor/Components/ChartHeaderSheetView.swift`
 - lead-sheet renderer and layout engine
-  - `SmartChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
-  - `SmartChart/Services/LeadSheetPageLayout.swift`
+  - `iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift`
+  - `iChart/Services/LeadSheetPageLayout.swift`
 - structured chart domain
-  - `SmartChart/Models/Chart.swift`
-  - `SmartChart/Models/Measure.swift`
-  - `SmartChart/Models/ChordEvent.swift`
-  - `SmartChart/Models/MeasureRhythmMapping.swift`
-  - `SmartChart/Models/ChartEditing.swift`
+  - `iChart/Models/Chart.swift`
+  - `iChart/Models/Measure.swift`
+  - `iChart/Models/ChordEvent.swift`
+  - `iChart/Models/MeasureRhythmMapping.swift`
+  - `iChart/Models/ChartEditing.swift`
 - support layers that still serve the jazz page
   - parsing and non-destructive transposition views
   - persistence
