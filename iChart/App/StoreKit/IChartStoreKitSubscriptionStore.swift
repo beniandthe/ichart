@@ -78,11 +78,19 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     static func live(clients: IChartSupabaseClients? = nil) -> IChartStoreKitSubscriptionStore {
-        let claimService = clients.map { IChartSupabaseStoreKitSubscriptionClaimService(client: $0.dataClient) }
+        let claimService = clients.map {
+            IChartSupabaseStoreKitSubscriptionClaimService(
+                authClient: $0.authClient,
+                dataClient: $0.dataClient,
+                sessionStore: $0.sessionStore
+            )
+        }
         return IChartStoreKitSubscriptionStore(subscriptionClaimService: claimService)
     }
 
     func bootstrap() async {
+        removeLegacyDebugSignedTransactionCapture()
+
         guard !productIDs.isEmpty else {
             entitlement = .unavailable
             state = .unavailable("Pro subscriptions are temporarily unavailable.")
@@ -196,7 +204,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         state = .purchasing
 
         do {
-            let result = try await product.purchase()
+            let purchaseOptions = try await storeKitPurchaseOptions()
+            let result = try await product.purchase(options: purchaseOptions)
 
             switch result {
             case .success(let verification):
@@ -369,6 +378,34 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         entitlement = .unavailable
         state = .unavailable("Subscription transaction could not be verified.")
     }
+
+    private func removeLegacyDebugSignedTransactionCapture() {
+        do {
+            let supportURL = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: false
+            )
+            let debugURL = supportURL
+                .appendingPathComponent("iChart", isDirectory: true)
+                .appendingPathComponent("debug-last-storekit-transaction.jws")
+            if FileManager.default.fileExists(atPath: debugURL.path) {
+                try FileManager.default.removeItem(at: debugURL)
+            }
+        } catch {
+            // Best-effort cleanup for a sandbox diagnostic artifact from local QA.
+        }
+    }
+
+    private func storeKitPurchaseOptions() async throws -> Set<Product.PurchaseOption> {
+        guard let subscriptionClaimService,
+              let appAccountToken = try await subscriptionClaimService.appAccountToken() else {
+            return []
+        }
+
+        return [.appAccountToken(appAccountToken)]
+    }
 }
 
 private struct StoreKitEntitlementEvaluation {
@@ -378,18 +415,27 @@ private struct StoreKitEntitlementEvaluation {
 }
 
 private protocol IChartStoreKitSubscriptionClaiming: Sendable {
+    func appAccountToken() async throws -> UUID?
     func claim(signedTransactionInfo: String) async throws -> IChartSubscriptionEntitlement?
     func loadRemoteSubscriptionEntitlement(now: Date) async throws -> IChartSubscriptionEntitlement?
 }
 
 private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSubscriptionClaiming {
-    let client: SupabaseClient
+    let authClient: SupabaseClient
+    let dataClient: SupabaseClient
+    let sessionStore: IChartSupabaseSessionStore
+
+    func appAccountToken() async throws -> UUID? {
+        try await refreshedSession().user.id
+    }
 
     func claim(signedTransactionInfo: String) async throws -> IChartSubscriptionEntitlement? {
-        let response: StoreKitSubscriptionClaimResponse = try await client.functions.invoke(
+        let session = try await refreshedSession()
+        let response: StoreKitSubscriptionClaimResponse = try await dataClient.functions.invoke(
             "storekit-subscription-claims",
             options: FunctionInvokeOptions(
                 method: .post,
+                headers: ["Authorization": "Bearer \(session.accessToken)"],
                 body: StoreKitSubscriptionClaimRequest(signedTransactionInfo: signedTransactionInfo)
             )
         )
@@ -398,7 +444,8 @@ private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSub
     }
 
     func loadRemoteSubscriptionEntitlement(now: Date) async throws -> IChartSubscriptionEntitlement? {
-        let rows: [IChartRemoteSubscriptionRecord] = try await client
+        _ = try await refreshedSession()
+        let rows: [IChartRemoteSubscriptionRecord] = try await dataClient
             .from("subscriptions")
             .select()
             .limit(1)
@@ -406,6 +453,12 @@ private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSub
             .value
 
         return rows.first?.entitlement(now: now)
+    }
+
+    private func refreshedSession() async throws -> Session {
+        let session = try await authClient.auth.session
+        await sessionStore.update(session)
+        return session
     }
 }
 

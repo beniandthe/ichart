@@ -3,6 +3,10 @@ import XCTest
 final class SupabaseIntegrationTests: XCTestCase {
     func testLiveSupabaseProfileChartSnapshotAndDeleteTombstoneFlow() async throws {
         let configuration = try SupabaseIntegrationConfiguration.current()
+        guard let adminKey = configuration.adminKey else {
+            throw XCTSkip("SUPABASE_SERVICE_ROLE_KEY is required for Pro cloud integration tests.")
+        }
+
         let client = SupabaseRESTClient(configuration: configuration)
         let testID = UUID().uuidString.lowercased()
         let email = "ichart-\(testID)@example.com"
@@ -19,6 +23,10 @@ final class SupabaseIntegrationTests: XCTestCase {
             phone: "+15555550123",
             mailingAddress: "123 iChart Test Lane",
             paymentSummary: "Processor customer reference only"
+        )
+        try await client.grantActiveProEntitlement(
+            userID: session.userID,
+            adminKey: adminKey
         )
 
         let profileRows = try await client.rows(
@@ -106,11 +114,15 @@ final class SupabaseIntegrationTests: XCTestCase {
             proUserID = try await client.adminCreateConfirmedUser(
                 email: proEmail,
                 password: password,
+                firstName: "Forum",
+                lastName: "Pro",
                 adminKey: adminKey
             )
             basicUserID = try await client.adminCreateConfirmedUser(
                 email: basicEmail,
                 password: password,
+                firstName: "Forum",
+                lastName: "Basic",
                 adminKey: adminKey
             )
 
@@ -119,7 +131,7 @@ final class SupabaseIntegrationTests: XCTestCase {
             XCTAssertEqual(proSession.userID, proUserID)
             XCTAssertEqual(basicSession.userID, basicUserID)
 
-            try await client.grantProForumEntitlement(
+            try await client.grantActiveProEntitlement(
                 userID: proSession.userID,
                 adminKey: adminKey
             )
@@ -213,7 +225,7 @@ final class SupabaseIntegrationTests: XCTestCase {
                 path: "forum_chart_posts",
                 queryItems: [
                     URLQueryItem(name: "id", value: "eq.\(postID)"),
-                    URLQueryItem(name: "select", value: "id,vote_up_count,vote_down_count,report_count,status,pdf_storage_path")
+                    URLQueryItem(name: "select", value: "id,vote_up_count,vote_down_count,report_count,status,creator_display_name,pdf_storage_path,pdf_provenance_status")
                 ],
                 accessToken: proSession.accessToken
             )
@@ -222,7 +234,9 @@ final class SupabaseIntegrationTests: XCTestCase {
             XCTAssertEqual(integralValue(post["vote_down_count"]), 0)
             XCTAssertEqual(integralValue(post["report_count"]), 1)
             XCTAssertEqual(post["status"] as? String, "published")
+            XCTAssertEqual(post["creator_display_name"] as? String, "Forum Pro")
             XCTAssertEqual(post["pdf_storage_path"] as? String, path)
+            XCTAssertEqual(post["pdf_provenance_status"] as? String, "validated")
 
             let comments = try await client.rows(
                 path: "forum_comments",
@@ -329,6 +343,8 @@ private struct SupabaseRESTClient {
     func adminCreateConfirmedUser(
         email: String,
         password: String,
+        firstName: String,
+        lastName: String,
         adminKey: String
     ) async throws -> String {
         let response = try await request(
@@ -338,7 +354,11 @@ private struct SupabaseRESTClient {
             body: [
                 "email": email,
                 "password": password,
-                "email_confirm": true
+                "email_confirm": true,
+                "user_metadata": [
+                    "first_name": firstName,
+                    "last_name": lastName
+                ]
             ]
         )
 
@@ -356,7 +376,7 @@ private struct SupabaseRESTClient {
         )
     }
 
-    func grantProForumEntitlement(userID: String, adminKey: String) async throws {
+    func grantActiveProEntitlement(userID: String, adminKey: String) async throws {
         let now = Date()
         let expiry = now.addingTimeInterval(3_600)
         _ = try await requestArray(
@@ -594,6 +614,7 @@ private struct SupabaseRESTClient {
     }
 
     func approveForumPost(postID: String, adminKey: String) async throws {
+        let now = ISO8601DateFormatter.smartChartIntegration.string(from: Date())
         _ = try await requestArray(
             path: "rest/v1/forum_chart_posts",
             method: "PATCH",
@@ -601,7 +622,9 @@ private struct SupabaseRESTClient {
             accessToken: adminKey,
             prefer: "return=representation",
             body: [
-                "status": "published"
+                "status": "published",
+                "pdf_provenance_status": "validated",
+                "pdf_validated_at": now
             ]
         )
     }

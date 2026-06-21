@@ -91,12 +91,39 @@ private struct IChartUserProfileUpdate: Encodable {
 
 enum IChartAuthError: LocalizedError {
     case invalidAuthCallback
+    case unexpectedAuthCallback
+    case expiredAuthCallback
 
     var errorDescription: String? {
         switch self {
         case .invalidAuthCallback:
             return "This sign-in link is not an iChart account callback."
+        case .unexpectedAuthCallback:
+            return "Open the latest iChart account email from this device."
+        case .expiredAuthCallback:
+            return "This account link expired. Request a new email from iChart."
         }
+    }
+}
+
+private enum IChartPendingAuthFlowKind: String, Codable {
+    case signup
+    case recovery
+}
+
+private struct IChartPendingAuthFlow: Codable {
+    let kind: IChartPendingAuthFlowKind
+    let expectedEmail: String?
+    let nonce: UUID
+    let createdAt: Date
+
+    func replacingExpectedEmail(_ email: String) -> IChartPendingAuthFlow {
+        IChartPendingAuthFlow(
+            kind: kind,
+            expectedEmail: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            nonce: nonce,
+            createdAt: createdAt
+        )
     }
 }
 
@@ -107,12 +134,13 @@ private protocol IChartAccountServicing {
         email: String,
         password: String,
         firstName: String?,
-        lastName: String?
+        lastName: String?,
+        redirectURL: URL
     ) async throws -> IChartAuthState
     func signIn(email: String, password: String) async throws -> IChartAuthState
     func signOut() async throws
-    func resendVerificationEmail(email: String) async throws
-    func requestPasswordReset(email: String) async throws
+    func resendVerificationEmail(email: String, redirectURL: URL) async throws
+    func requestPasswordReset(email: String, redirectURL: URL) async throws
     func handleAuthCallback(url: URL) async throws -> IChartAuthState
     func updatePassword(_ password: String) async throws -> IChartAuthState
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile?
@@ -131,7 +159,9 @@ final class IChartAuthStore: ObservableObject {
     private let pendingVerificationEmailStorage: any AuthLocalStorage
     private var hasBootstrapped = false
     private static let pendingVerificationEmailKey = "iChart.pending-verification-email.v1"
+    private static let pendingAuthFlowKey = "iChart.pending-auth-flow.v1"
     private static let legacyPendingVerificationEmailKey = "iChartPendingVerificationEmail"
+    private static let pendingAuthFlowLifetime: TimeInterval = 60 * 60
 
     private init(
         service: IChartAccountServicing,
@@ -189,13 +219,26 @@ final class IChartAuthStore: ObservableObject {
         lastName: String? = nil
     ) async {
         await run("Account created. Check your email to finish verification.") {
-            let nextState = try await service.signUp(
-                email: email,
-                password: password,
-                firstName: sanitized(firstName ?? ""),
-                lastName: sanitized(lastName ?? "")
-            )
+            let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
+            let nextState: IChartAuthState
+            do {
+                nextState = try await service.signUp(
+                    email: email,
+                    password: password,
+                    firstName: sanitized(firstName ?? ""),
+                    lastName: sanitized(lastName ?? ""),
+                    redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
+                )
+            } catch {
+                clearPendingAuthFlow()
+                throw error
+            }
             try await applyAuthState(nextState)
+            if case .pendingEmailVerification(let pendingEmail) = nextState {
+                try storePendingAuthFlow(pendingFlow.replacingExpectedEmail(pendingEmail))
+            } else {
+                clearPendingAuthFlow()
+            }
         }
     }
 
@@ -203,6 +246,7 @@ final class IChartAuthStore: ObservableObject {
         await run("Signed in.") {
             let nextState = try await service.signIn(email: email, password: password)
             try await applyAuthState(nextState)
+            clearPendingAuthFlow()
         }
     }
 
@@ -211,6 +255,7 @@ final class IChartAuthStore: ObservableObject {
             try await service.signOut()
             state = service.isConfigured ? .signedOut : .unconfigured
             profile = nil
+            clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
         }
     }
@@ -234,13 +279,31 @@ final class IChartAuthStore: ObservableObject {
         }
 
         await run("Verification email sent.") {
-            try await service.resendVerificationEmail(email: email)
+            let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
+            do {
+                try await service.resendVerificationEmail(
+                    email: email,
+                    redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
+                )
+            } catch {
+                clearPendingAuthFlow()
+                throw error
+            }
         }
     }
 
     func requestPasswordReset(email: String) async {
         await run("Password reset email sent.") {
-            try await service.requestPasswordReset(email: email)
+            let pendingFlow = try storePendingAuthFlow(kind: .recovery, expectedEmail: email)
+            do {
+                try await service.requestPasswordReset(
+                    email: email,
+                    redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
+                )
+            } catch {
+                clearPendingAuthFlow()
+                throw error
+            }
         }
     }
 
@@ -250,8 +313,10 @@ final class IChartAuthStore: ObservableObject {
         }
 
         await run("Account session refreshed.") {
+            try validatePendingAuthFlow(for: url)
             let nextState = try await service.handleAuthCallback(url: url)
             try await applyAuthState(nextState)
+            clearPendingAuthFlow()
         }
     }
 
@@ -259,6 +324,7 @@ final class IChartAuthStore: ObservableObject {
         await run("Password updated. You're signed in.") {
             let nextState = try await service.updatePassword(password)
             try await applyAuthState(nextState)
+            clearPendingAuthFlow()
         }
     }
 
@@ -383,6 +449,146 @@ final class IChartAuthStore: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         }
     }
+
+    @discardableResult
+    private func storePendingAuthFlow(
+        kind: IChartPendingAuthFlowKind,
+        expectedEmail: String?
+    ) throws -> IChartPendingAuthFlow {
+        let flow = IChartPendingAuthFlow(
+            kind: kind,
+            expectedEmail: sanitized(expectedEmail ?? "")?.lowercased(),
+            nonce: UUID(),
+            createdAt: Date()
+        )
+        try storePendingAuthFlow(flow)
+        return flow
+    }
+
+    private func storePendingAuthFlow(_ flow: IChartPendingAuthFlow) throws {
+        try pendingVerificationEmailStorage.store(
+            key: Self.pendingAuthFlowKey,
+            value: JSONEncoder().encode(flow)
+        )
+    }
+
+    private func clearPendingAuthFlow() {
+        try? pendingVerificationEmailStorage.remove(key: Self.pendingAuthFlowKey)
+    }
+
+    private func validatePendingAuthFlow(for url: URL) throws {
+        guard let flow = try loadedPendingAuthFlow() else {
+            throw IChartAuthError.unexpectedAuthCallback
+        }
+
+        guard Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime else {
+            clearPendingAuthFlow()
+            throw IChartAuthError.expiredAuthCallback
+        }
+
+        guard callbackFlowNonce(from: url) == flow.nonce else {
+            clearPendingAuthFlow()
+            throw IChartAuthError.unexpectedAuthCallback
+        }
+
+        guard pendingAuthFlowKind(from: url) == flow.kind else {
+            clearPendingAuthFlow()
+            throw IChartAuthError.unexpectedAuthCallback
+        }
+
+        if let expectedEmail = flow.expectedEmail,
+           let callbackEmail = callbackEmail(from: url),
+           callbackEmail.caseInsensitiveCompare(expectedEmail) != .orderedSame {
+            clearPendingAuthFlow()
+            throw IChartAuthError.unexpectedAuthCallback
+        }
+    }
+
+    private func loadedPendingAuthFlow() throws -> IChartPendingAuthFlow? {
+        guard let data = try pendingVerificationEmailStorage.retrieve(key: Self.pendingAuthFlowKey) else {
+            return nil
+        }
+
+        return try JSONDecoder().decode(IChartPendingAuthFlow.self, from: data)
+    }
+
+    private func pendingAuthFlowKind(from url: URL) -> IChartPendingAuthFlowKind? {
+        switch callbackType(from: url) {
+        case "signup", "email":
+            return .signup
+        case "recovery":
+            return .recovery
+        default:
+            return nil
+        }
+    }
+
+    private func callbackType(from url: URL) -> String? {
+        if let queryType = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "type" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !queryType.isEmpty {
+            return queryType
+        }
+
+        guard let fragment = url.fragment,
+              let fragmentItems = URLComponents(string: "https://ichart.local/callback?\(fragment)")?.queryItems,
+              let fragmentType = fragmentItems.first(where: { $0.name == "type" })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              !fragmentType.isEmpty
+        else {
+            return nil
+        }
+
+        return fragmentType
+    }
+
+    private func callbackEmail(from url: URL) -> String? {
+        let queryEmail = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "email" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let queryEmail, !queryEmail.isEmpty {
+            return queryEmail
+        }
+
+        guard let fragment = url.fragment,
+              let fragmentItems = URLComponents(string: "https://ichart.local/callback?\(fragment)")?.queryItems,
+              let fragmentEmail = fragmentItems.first(where: { $0.name == "email" })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !fragmentEmail.isEmpty
+        else {
+            return nil
+        }
+
+        return fragmentEmail
+    }
+
+    private func callbackFlowNonce(from url: URL) -> UUID? {
+        if let queryNonce = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "flow_nonce" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           let nonce = UUID(uuidString: queryNonce) {
+            return nonce
+        }
+
+        guard let fragment = url.fragment,
+              let fragmentItems = URLComponents(string: "https://ichart.local/callback?\(fragment)")?.queryItems,
+              let fragmentNonce = fragmentItems.first(where: { $0.name == "flow_nonce" })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        else {
+            return nil
+        }
+
+        return UUID(uuidString: fragmentNonce)
+    }
 }
 
 private struct IChartUnconfiguredAccountService: IChartAccountServicing {
@@ -396,7 +602,8 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
         email: String,
         password: String,
         firstName: String?,
-        lastName: String?
+        lastName: String?,
+        redirectURL: URL
     ) async throws -> IChartAuthState {
         .unconfigured
     }
@@ -407,9 +614,9 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
 
     func signOut() async throws {}
 
-    func resendVerificationEmail(email: String) async throws {}
+    func resendVerificationEmail(email: String, redirectURL: URL) async throws {}
 
-    func requestPasswordReset(email: String) async throws {}
+    func requestPasswordReset(email: String, redirectURL: URL) async throws {}
 
     func handleAuthCallback(url: URL) async throws -> IChartAuthState {
         .unconfigured
@@ -460,13 +667,14 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         email: String,
         password: String,
         firstName: String?,
-        lastName: String?
+        lastName: String?,
+        redirectURL: URL
     ) async throws -> IChartAuthState {
         let response = try await authClient.auth.signUp(
             email: normalized(email),
             password: password,
             data: signupMetadata(firstName: firstName, lastName: lastName),
-            redirectTo: IChartSupabaseClientFactory.authCallbackURL
+            redirectTo: redirectURL
         )
 
         if let session = response.session {
@@ -503,18 +711,18 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         await sessionStore.clear()
     }
 
-    func resendVerificationEmail(email: String) async throws {
+    func resendVerificationEmail(email: String, redirectURL: URL) async throws {
         try await authClient.auth.resend(
             email: normalized(email),
             type: .signup,
-            emailRedirectTo: IChartSupabaseClientFactory.authCallbackURL
+            emailRedirectTo: redirectURL
         )
     }
 
-    func requestPasswordReset(email: String) async throws {
+    func requestPasswordReset(email: String, redirectURL: URL) async throws {
         try await authClient.auth.resetPasswordForEmail(
             normalized(email),
-            redirectTo: IChartSupabaseClientFactory.authCallbackURL
+            redirectTo: redirectURL
         )
     }
 

@@ -146,7 +146,7 @@ The editor remains local-first.
 - `FileChartRepository` remains the runtime source of truth for local editing.
 - Cloud sync must never block launch, chart editing, local save, or export.
 - `ChartCloudSyncService` is gated behind active Pro entitlement before production cloud rollout.
-- Signed-in chart sync behavior before entitlement wiring is only interim QA coverage.
+- Supabase RLS must also require active Pro for `chart_documents` and `chart_snapshots`, so Cloud Backup is server-enforced and not only hidden by client UI.
 - Sync uses whole-chart snapshots and last-writer-wins current state for this phase.
 - Operation-level collaboration and merge logic are out of scope.
 - Delete propagation uses tombstones so older devices do not resurrect deleted charts.
@@ -192,8 +192,8 @@ Chart sync states should communicate the user's real situation:
 - Local simulator purchase QA uses `StoreKit/iChartProSubscriptions.storekit` through the generated `iChart` scheme. Command-line/MCP simulator launches use a Debug simulator-only fallback that reads the bundled StoreKit file for product button metadata and treats fallback button taps as a local Pro entitlement preview. Prices in that file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority.
 - Supabase subscription rows are read-only from the app and are updated only by trusted server-side purchase verification, StoreKit transaction claims, and App Store Server Notification handling.
 - Future service-role updates, Stripe webhooks, or StoreKit server notification handlers must run server-side only.
-- App Store Server Notification handling is a Supabase Edge Function that uses Apple's signed-data verifier and an Edge-only Supabase writer when secrets are configured, rejects missing/invalid `signedPayload` input, and updates only previously claimed StoreKit original-transaction mappings.
-- StoreKit transaction claiming is the authenticated path that maps an Apple original transaction to an iChart account after Apple signed-transaction verification succeeds.
+- App Store Server Notification handling is a Supabase Edge Function that uses Apple's signed-data verifier and an Edge-only Supabase writer when secrets are configured, rejects oversized or missing/invalid `signedPayload` input, records notification UUIDs for idempotency, rejects stale signed-date replay, and updates only previously claimed StoreKit original-transaction mappings.
+- StoreKit transaction claiming is the authenticated path that maps an Apple original transaction to an iChart account after Apple signed-transaction verification succeeds, the signed transaction includes the expected `appAccountToken`, and stale/cross-owner replay checks pass.
 - Service-role keys, Stripe secrets, SMTP credentials, database passwords, and JWT secrets must never be bundled into the app or committed.
 
 ## 11. Security And Database Policy
@@ -204,6 +204,8 @@ Chart sync states should communicate the user's real situation:
 - Subscription or entitlement authority should come from trusted purchase/subscription state, not client-editable profile fields.
 - `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices` must keep RLS coverage.
 - `subscriptions` remains client read-only.
+- App auth callbacks must have a local pending flow with the expected callback type and nonce; unsolicited, expired, or incompatible callbacks are rejected before Supabase session handling.
+- Forum creator attribution must be derived server-side from locked profile names, and published forum PDFs must be tied to validated post-owned storage paths.
 - Account deletion must be user-initiated and handled separately from Pro expiration.
 
 ## 12. Implementation Policy

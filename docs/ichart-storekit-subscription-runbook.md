@@ -2,7 +2,7 @@
 
 Status: StoreKit/Supabase authority loop wired; App Store Connect sandbox gate pending
 Created: 2026-06-12
-Last updated: 2026-06-13
+Last updated: 2026-06-20
 
 Resume trigger: when the user says "Apple developer account is setup", run `scripts/resume_apple_developer_gate.sh` before continuing sandbox purchase QA.
 
@@ -53,10 +53,11 @@ Before App Store/TestFlight subscription QA, configure the Apple-side products:
 Production entitlement authority should not stop at the iOS client:
 
 - Keep `Product.products(for:)`, `Product.purchase()`, `Transaction.currentEntitlements`, `Transaction.updates`, and `AppStore.sync()` as the in-app StoreKit surface.
+- Purchases call StoreKit with a stable per-account `appAccountToken`; the server rejects missing or mismatched app-account tokens before writing subscription authority.
 - Add a server-owned subscription pipeline before trusting Supabase `subscriptions` rows as production authority.
 - Use App Store Server Notifications for real-time lifecycle changes such as renewals, failed renewals, refunds, grace/billing retry changes, and churn.
 - Use the App Store Server API from a server/Edge Function only; never bundle App Store Connect API keys, signing keys, webhook secrets, or service-role keys in the app.
-- Keep `subscriptions` read-only from the app and update provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata only from trusted server-side purchase verification/notification handling.
+- Keep `subscriptions` read-only from the app and update provider, StoreKit product, original transaction, app-account token, App Store status, expiration, grace, revocation, signed-date, notification UUID, and last-verification metadata only from trusted server-side purchase verification/notification handling.
 - Settings and the upgrade sheet expose Manage Subscription through Apple's system subscription management UI.
 
 Primary Apple references:
@@ -66,6 +67,8 @@ Primary Apple references:
 - [Enter server URLs for App Store Server Notifications](https://developer.apple.com/help/app-store-connect/configure-in-app-purchase-settings/enter-server-urls-for-app-store-server-notifications)
 - [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
 - [App Store Server Notifications](https://developer.apple.com/documentation/appstoreservernotifications)
+- [StoreKit appAccountToken](https://developer.apple.com/documentation/storekit/transaction/appaccounttoken)
+- [App Store Server Notifications notificationUUID](https://developer.apple.com/documentation/appstoreservernotifications/notificationuuid)
 
 ## App Store Server Notification Function
 
@@ -117,16 +120,21 @@ Supabase hosted Edge Functions expose `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` 
 Current behavior is intentionally locked:
 
 - non-POST requests are rejected
+- webhook and claim request bodies are parsed with bounded size limits before JSON/JWS verification
 - missing `signedPayload` is rejected
 - unconfigured verifier secrets return a not-configured response
 - invalid Apple signatures are rejected before mapping or writing
 - nested signed transaction/renewal payloads must be verified before write attempts
 - verified notifications missing StoreKit product/original-transaction identity are rejected
+- duplicate notification UUIDs are idempotent no-ops
+- stale notification payloads are rejected before they can rewind authority fields
 - transaction claims require a signed-in account bearer token
 - transaction claims require `signedTransactionInfo`
-- transaction claims reject non-Pro products and missing original transaction identity
+- transaction claims reject non-Pro products, missing original transaction identity, and missing/mismatched `appAccountToken`
 - transaction claims resolve the signed-in Supabase user before writing owner mapping
 - transaction claims upsert `subscriptions` by `owner_id` after Apple verification succeeds
+- transaction claims reject original transactions already mapped to another owner
+- transaction claims reject stale signed transactions for an existing owner mapping
 - verified notifications update only previously claimed `storekit_original_transaction_id` rows
 - unmapped notifications are accepted without assigning ownership
 - no subscription row is mutated from unverified input
@@ -145,7 +153,9 @@ Before this endpoint becomes production authority:
 - configure Apple verifier Edge Function secrets for the target environment
 - deploy both functions after secrets are configured and smoke-test missing/invalid signed payload behavior
 - map only `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual` to active Pro
+- keep app-account token binding, original-transaction owner conflicts, notification UUID replay, stale signed-date replay, and oversized request tests green
 - store service-role/admin keys, App Store Connect API keys, webhook secrets, and Apple signing material only as Supabase Edge Function secrets
+- after the basic TestFlight purchase/restore path is green, add App Store Server API current-status checks as the next production-hardening layer
 - deploy with the linked project after verification is complete:
   ```sh
   supabase functions deploy app-store-server-notifications
@@ -161,6 +171,7 @@ The flow is:
 ```text
 StoreKit transaction/current entitlement
 -> IChartStoreKitSubscriptionStore
+-> StoreKit purchase option appAccountToken
 -> authenticated StoreKit transaction claim function
 -> Supabase subscription owner/original-transaction mapping
 -> IChartSubscriptionEntitlement

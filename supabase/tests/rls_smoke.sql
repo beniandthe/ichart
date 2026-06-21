@@ -1,12 +1,30 @@
 begin;
 
-select plan(52);
+select no_plan();
 
-insert into auth.users (id, email)
+insert into auth.users (id, email, raw_user_meta_data)
 values
-    ('00000000-0000-0000-0000-000000000001', 'owner@example.com'),
-    ('00000000-0000-0000-0000-000000000002', 'other@example.com')
+    (
+        '00000000-0000-0000-0000-000000000001',
+        'owner@example.com',
+        '{"first_name":"Beni","last_name":"Rossman"}'::jsonb
+    ),
+    (
+        '00000000-0000-0000-0000-000000000002',
+        'other@example.com',
+        '{"first_name":"Other","last_name":"Player"}'::jsonb
+    )
 on conflict (id) do nothing;
+
+update public.profiles
+set first_name = 'Beni',
+    last_name = 'Rossman'
+where id = '00000000-0000-0000-0000-000000000001';
+
+update public.profiles
+set first_name = 'Other',
+    last_name = 'Player'
+where id = '00000000-0000-0000-0000-000000000002';
 
 insert into public.chart_documents (
     id,
@@ -25,7 +43,7 @@ insert into public.chart_documents (
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
-select lives_ok(
+select throws_ok(
     $$
     insert into public.chart_documents (
         id,
@@ -41,7 +59,9 @@ select lives_ok(
         1
     )
     $$,
-    'owner can insert own chart document'
+    '42501',
+    null,
+    'inactive Basic user cannot insert own cloud chart document'
 );
 
 select throws_ok(
@@ -63,6 +83,38 @@ select throws_ok(
     '42501',
     null,
     'owner cannot insert another user chart document'
+);
+
+reset role;
+
+update public.subscriptions
+set plan = 'studioSubscription',
+    status = 'active',
+    provider = 'manual',
+    entitlement_expires_at = now() + interval '30 days',
+    revoked_at = null
+where owner_id = '00000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select lives_ok(
+    $$
+    insert into public.chart_documents (
+        id,
+        owner_id,
+        title,
+        layout_style,
+        remote_revision
+    ) values (
+        '10000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        'Owner Chart',
+        'simpleChordSheet',
+        1
+    )
+    $$,
+    'active Pro can insert own cloud chart document'
 );
 
 select lives_ok(
@@ -136,7 +188,7 @@ select is(
         from public.subscriptions
         where owner_id = '00000000-0000-0000-0000-000000000001'
     ),
-    'none:none',
+    'manual:none',
     'owner can read server-owned subscription authority fields'
 );
 
@@ -364,6 +416,57 @@ select is(
 );
 
 select is(
+    (
+        select creator_display_name
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000001'
+    ),
+    'Beni Rossman',
+    'forum chart post attribution is derived from locked profile name'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_chart_posts (
+        id,
+        song_id,
+        owner_id,
+        local_chart_id,
+        chart_title,
+        arranger_credit,
+        creator_display_name,
+        tags,
+        version_note,
+        layout_style,
+        pdf_storage_path
+    ) values (
+        '40000000-0000-0000-0000-000000000002',
+        '30000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        '10000000-0000-0000-0000-000000000001',
+        'Blue Bossa Spoof Attempt',
+        'Beni Rossman',
+        'Fake Name',
+        array['standard'],
+        null,
+        'simpleChordSheet',
+        '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000002.pdf'
+    )
+    $$,
+    'server accepts own forum post while overriding spoofed attribution'
+);
+
+select is(
+    (
+        select creator_display_name
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000002'
+    ),
+    'Beni Rossman',
+    'spoofed forum attribution is overwritten by locked profile name'
+);
+
+select is(
     (select count(*)::integer from public.forum_songs),
     1,
     'active Pro can read visible forum song metadata'
@@ -371,7 +474,7 @@ select is(
 
 select is(
     (select count(*)::integer from public.forum_chart_posts),
-    1,
+    2,
     'active Pro can read own pending forum chart posts'
 );
 
@@ -396,6 +499,16 @@ select is(
     ),
     0,
     'another active Pro cannot read pending forum chart posts'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_songs
+        where id = '30000000-0000-0000-0000-000000000001'
+    ),
+    0,
+    'another active Pro cannot read song metadata that only has pending posts'
 );
 
 reset role;
@@ -465,6 +578,36 @@ select lives_ok(
     )
     $$,
     'active Pro can upload forum PDF metadata for published post'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from storage.objects
+        where bucket_id = 'forum_chart_pdfs'
+            and name = '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
+    ),
+    0,
+    'unvalidated forum PDF metadata is not downloadable even when the post is published'
+);
+
+reset role;
+
+select private.finalize_forum_chart_post_pdf('40000000-0000-0000-0000-000000000001');
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+set local storage.allow_delete_query = 'true';
+
+select is(
+    (
+        select count(*)::integer
+        from storage.objects
+        where bucket_id = 'forum_chart_pdfs'
+            and name = '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf'
+    ),
+    1,
+    'validated forum PDF metadata is downloadable for a published post'
 );
 
 select lives_ok(
@@ -638,6 +781,7 @@ select throws_ok(
 select throws_ok(
     $$
     insert into public.forum_chart_posts (
+        id,
         song_id,
         owner_id,
         chart_title,
@@ -646,13 +790,14 @@ select throws_ok(
         layout_style,
         pdf_storage_path
     ) values (
+        '40000000-0000-0000-0000-000000000003',
         '30000000-0000-0000-0000-000000000001',
         '00000000-0000-0000-0000-000000000002',
         'Cross Owner Chart',
         'Other',
         'Other',
         'simpleChordSheet',
-        '00000000-0000-0000-0000-000000000002/cross-owner.pdf'
+        '00000000-0000-0000-0000-000000000002/40000000-0000-0000-0000-000000000003.pdf'
     )
     $$,
     '42501',

@@ -90,8 +90,40 @@ export async function upsertSubscriptionAuthorityClaim(
   authorityUpdate,
   fetcher = fetch
 ) {
+  const normalizedOwnerID = normalizedString(ownerID);
+  const originalTransactionID = normalizedString(authorityUpdate?.storekit_original_transaction_id);
+  if (originalTransactionID.length === 0) {
+    return {
+      stored: false,
+      mapping_status: "missing_original_transaction",
+    };
+  }
+
+  const existingRows = await subscriptionAuthorityRowsForOriginalTransaction(
+    configuration,
+    originalTransactionID,
+    fetcher
+  );
+  const conflictingRow = existingRows.find((row) => normalizedString(row?.owner_id) !== normalizedOwnerID);
+  if (conflictingRow !== undefined) {
+    return {
+      stored: false,
+      mapping_status: "original_transaction_owner_conflict",
+      subscription: conflictingRow,
+    };
+  }
+
+  const existingOwnerRow = existingRows.find((row) => normalizedString(row?.owner_id) === normalizedOwnerID);
+  if (existingOwnerRow !== undefined && incomingAuthorityIsStale(existingOwnerRow, authorityUpdate)) {
+    return {
+      stored: false,
+      mapping_status: "stale_transaction_claim",
+      subscription: existingOwnerRow,
+    };
+  }
+
   const row = {
-    owner_id: normalizedString(ownerID),
+    owner_id: normalizedOwnerID,
     ...authorityUpdate,
   };
   const url = supabaseURL(configuration, "/rest/v1/subscriptions");
@@ -120,6 +152,40 @@ export async function updateMappedSubscriptionAuthority(configuration, authority
     };
   }
 
+  const existingRows = await subscriptionAuthorityRowsForOriginalTransaction(
+    configuration,
+    originalTransactionID,
+    fetcher
+  );
+  if (existingRows.length === 0) {
+    return {
+      stored: false,
+      mapping_status: "unmapped_original_transaction",
+    };
+  }
+
+  const duplicateNotification = await recordAppStoreNotificationEvent(
+    configuration,
+    authorityUpdate,
+    fetcher
+  );
+  if (duplicateNotification) {
+    return {
+      stored: false,
+      mapping_status: "duplicate_notification",
+      subscription: existingRows[0],
+    };
+  }
+
+  const staleRow = existingRows.find((row) => incomingAuthorityIsStale(row, authorityUpdate));
+  if (staleRow !== undefined) {
+    return {
+      stored: false,
+      mapping_status: "stale_notification",
+      subscription: staleRow,
+    };
+  }
+
   const url = supabaseURL(configuration, "/rest/v1/subscriptions");
   url.searchParams.set("storekit_original_transaction_id", `eq.${originalTransactionID}`);
 
@@ -130,18 +196,93 @@ export async function updateMappedSubscriptionAuthority(configuration, authority
   });
   const rows = responseRows(await parseSupabaseJSONResponse(response));
 
-  if (rows.length === 0) {
-    return {
-      stored: false,
-      mapping_status: "unmapped_original_transaction",
-    };
-  }
-
   return {
     stored: true,
     mapping_status: "updated",
     subscription: rows[0],
   };
+}
+
+async function subscriptionAuthorityRowsForOriginalTransaction(
+  configuration,
+  originalTransactionID,
+  fetcher
+) {
+  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
+  url.searchParams.set("storekit_original_transaction_id", `eq.${originalTransactionID}`);
+  url.searchParams.set(
+    "select",
+    [
+      "owner_id",
+      "provider",
+      "plan",
+      "status",
+      "storekit_original_transaction_id",
+      "storekit_app_account_token",
+      "app_store_status",
+      "app_store_last_transaction_id",
+      "app_store_signed_at",
+      "app_store_notification_uuid",
+      "last_verified_at",
+    ].join(",")
+  );
+
+  const response = await fetcher(url, {
+    method: "GET",
+    headers: supabaseRESTHeaders(configuration),
+  });
+
+  return responseRows(await parseSupabaseJSONResponse(response));
+}
+
+async function recordAppStoreNotificationEvent(configuration, authorityUpdate, fetcher) {
+  const notificationUUID = normalizedString(authorityUpdate?.app_store_notification_uuid);
+  if (notificationUUID.length === 0) {
+    return false;
+  }
+
+  const url = supabaseURL(configuration, "/rest/v1/app_store_notification_events");
+  url.searchParams.set("on_conflict", "notification_uuid");
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: supabaseRESTHeaders(configuration, "resolution=ignore-duplicates,return=representation"),
+    body: JSON.stringify({
+      notification_uuid: notificationUUID,
+      original_transaction_id: normalizedString(authorityUpdate?.storekit_original_transaction_id),
+      signed_at: authorityUpdate?.app_store_signed_at ?? null,
+    }),
+  });
+  const rows = responseRows(await parseSupabaseJSONResponse(response));
+  return rows.length === 0;
+}
+
+function incomingAuthorityIsStale(existingRow, authorityUpdate) {
+  const existingSignedAt = dateTime(existingRow?.app_store_signed_at);
+  const incomingSignedAt = dateTime(authorityUpdate?.app_store_signed_at);
+
+  if (existingSignedAt !== null) {
+    if (incomingSignedAt === null || incomingSignedAt < existingSignedAt) {
+      return true;
+    }
+  }
+
+  if (
+    existingSignedAt !== null
+    && incomingSignedAt !== null
+    && incomingSignedAt.getTime() === existingSignedAt.getTime()
+  ) {
+    const existingTransactionNumber = transactionNumber(existingRow?.app_store_last_transaction_id);
+    const incomingTransactionNumber = transactionNumber(authorityUpdate?.app_store_last_transaction_id);
+    if (
+      existingTransactionNumber !== null
+      && incomingTransactionNumber !== null
+      && incomingTransactionNumber < existingTransactionNumber
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function envValue(env, key) {
@@ -157,13 +298,17 @@ function supabaseURL(configuration, path) {
 }
 
 function supabaseRESTHeaders(configuration, prefer) {
-  return {
+  const headers = {
     apikey: configuration.secretKey,
     authorization: `Bearer ${configuration.secretKey}`,
     "content-type": "application/json",
     accept: "application/json",
-    prefer,
   };
+  if (prefer !== undefined) {
+    headers.prefer = prefer;
+  }
+
+  return headers;
 }
 
 async function parseSupabaseJSONResponse(response) {
@@ -204,4 +349,27 @@ function normalizedString(value) {
   }
 
   return String(value).trim();
+}
+
+function dateTime(value) {
+  const candidate = normalizedString(value);
+  if (candidate.length === 0) {
+    return null;
+  }
+
+  const date = new Date(candidate);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function transactionNumber(value) {
+  const candidate = normalizedString(value);
+  if (!/^\d+$/.test(candidate)) {
+    return null;
+  }
+
+  try {
+    return BigInt(candidate);
+  } catch {
+    return null;
+  }
 }

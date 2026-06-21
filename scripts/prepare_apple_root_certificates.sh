@@ -30,4 +30,4 @@ echo
 echo "Included certificates:"
 openssl crl2pkcs7 -nocrl -certfile "$output_path" \
   | openssl pkcs7 -print_certs -noout \
-  | rg '^subject='
+  | grep '^subject='

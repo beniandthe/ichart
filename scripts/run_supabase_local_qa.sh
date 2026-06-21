@@ -62,10 +62,14 @@ if ! supabase_cli db reset; then
   echo "Supabase db reset hit a local gateway readiness error; restarting local stack before verification..."
   supabase_cli stop >/tmp/ichart-supabase-stop.log 2>&1
   supabase_cli start >/tmp/ichart-supabase-start.log 2>&1
+  supabase_cli db reset
 fi
 
 load_local_supabase_env
 
+supabase_cli db lint --local --fail-on error
+supabase_cli db advisors --local --type security --level warn --fail-on warn
+supabase_cli db advisors --local --type performance --level warn --fail-on warn
 supabase_cli test db
 
 if ! wait_for_auth; then

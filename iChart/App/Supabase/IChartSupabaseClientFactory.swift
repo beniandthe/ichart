@@ -4,6 +4,14 @@ import Supabase
 enum IChartSupabaseClientFactory {
     static let authCallbackURL = URL(string: "ichart://auth-callback")!
 
+    static func authCallbackURL(flowNonce: UUID) -> URL {
+        var components = URLComponents(url: authCallbackURL, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "flow_nonce", value: flowNonce.uuidString)
+        ]
+        return components?.url ?? authCallbackURL
+    }
+
     static func isAuthCallbackURL(_ url: URL) -> Bool {
         url.scheme == authCallbackURL.scheme && url.host == authCallbackURL.host
     }

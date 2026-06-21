@@ -125,6 +125,23 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
       ?? transactionInfo.transactionID
       ?? transactionInfo.transaction_id
   );
+  const signedAt = appleDateToISOString(
+    notification.signedDate
+      ?? notification.signedDateMs
+      ?? transactionInfo.signedDate
+      ?? transactionInfo.signedDateMs
+      ?? transactionInfo.signed_date
+  );
+  const notificationUUID = normalizedString(
+    notification.notificationUUID
+      ?? notification.notificationUuid
+      ?? notification.notification_uuid
+  );
+  const appAccountToken = normalizedUUIDString(
+    transactionInfo.appAccountToken
+      ?? transactionInfo.appAccountTokenUUID
+      ?? transactionInfo.app_account_token
+  );
   const environment = normalizeStoreKitEnvironment(
     notification.environment
       ?? notification.data?.environment
@@ -166,10 +183,13 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
     status: grantsActivePro ? "active" : "inactive",
     storekit_product_id: productID.length > 0 ? productID : null,
     storekit_original_transaction_id: originalTransactionID.length > 0 ? originalTransactionID : null,
+    storekit_app_account_token: appAccountToken,
     storekit_environment: environment,
     app_store_status: appStoreStatus,
     app_store_notification_type: normalizedString(notification.notificationType) || null,
+    app_store_notification_uuid: notificationUUID.length > 0 ? notificationUUID : null,
     app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
+    app_store_signed_at: signedAt,
     current_period_end: expiresAt ?? gracePeriodExpiresAt,
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: gracePeriodExpiresAt,
@@ -200,6 +220,16 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
       ?? transactionInfo.transactionID
       ?? transactionInfo.transaction_id
   );
+  const appAccountToken = normalizedUUIDString(
+    transactionInfo.appAccountToken
+      ?? transactionInfo.appAccountTokenUUID
+      ?? transactionInfo.app_account_token
+  );
+  const signedAt = appleDateToISOString(
+    transactionInfo.signedDate
+      ?? transactionInfo.signedDateMs
+      ?? transactionInfo.signed_date
+  );
   const environment = normalizeStoreKitEnvironment(transactionInfo.environment);
   const expiresAt = appleDateToISOString(
     transactionInfo.expiresDate
@@ -220,10 +250,13 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
     status: grantsActivePro ? "active" : "inactive",
     storekit_product_id: productID.length > 0 ? productID : null,
     storekit_original_transaction_id: originalTransactionID.length > 0 ? originalTransactionID : null,
+    storekit_app_account_token: appAccountToken,
     storekit_environment: environment,
     app_store_status: appStoreStatus,
     app_store_notification_type: normalizedString(options.source) || "TRANSACTION_CLAIM",
     app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
+    app_store_signed_at: signedAt,
+    app_store_notification_uuid: null,
     current_period_end: expiresAt,
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: null,
@@ -240,11 +273,13 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     });
   }
 
-  const body = await readJSON(request);
+  const body = await readJSON(request, { maxBytes: 128_000 });
   if (!body.ok) {
-    return jsonResponse(400, {
+    return jsonResponse(body.tooLarge ? 413 : 400, {
       accepted: false,
-      error: "Request body must be valid JSON.",
+      error: body.tooLarge
+        ? "App Store notification payload is too large."
+        : "Request body must be valid JSON.",
     });
   }
 
@@ -253,6 +288,12 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     return jsonResponse(400, {
       accepted: false,
       error: "Missing App Store signedPayload.",
+    });
+  }
+  if (signedPayload.length > 100_000) {
+    return jsonResponse(413, {
+      accepted: false,
+      error: "App Store signedPayload is too large.",
     });
   }
 
@@ -322,7 +363,12 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
 
   const writeResult = await dependencies.writeSubscriptionAuthority(authorityUpdate);
 
-  return jsonResponse(202, {
+  const responseStatus = writeResult?.stored === false
+    && staleOrDuplicateMappingStatuses.has(writeResult?.mapping_status)
+    ? 202
+    : 202;
+
+  return jsonResponse(responseStatus, {
     accepted: true,
     app_store_status: authorityUpdate.app_store_status,
     stored: writeResult?.stored ?? true,
@@ -340,17 +386,20 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
   }
 
   if (!hasBearerAuthorization(request)) {
+    logStoreKitClaimRejection("missing_bearer");
     return jsonResponse(401, {
       accepted: false,
       error: "A signed-in iChart account is required.",
     });
   }
 
-  const body = await readJSON(request);
+  const body = await readJSON(request, { maxBytes: 32_000 });
   if (!body.ok) {
-    return jsonResponse(400, {
+    return jsonResponse(body.tooLarge ? 413 : 400, {
       accepted: false,
-      error: "Request body must be valid JSON.",
+      error: body.tooLarge
+        ? "StoreKit transaction claim payload is too large."
+        : "Request body must be valid JSON.",
     });
   }
 
@@ -372,7 +421,8 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
   let transactionInfo;
   try {
     transactionInfo = await dependencies.verifyAndDecodeTransaction(signedTransactionInfo);
-  } catch {
+  } catch (error) {
+    logStoreKitClaimRejection("transaction_verification_failed", safeVerificationErrorMetadata(error));
     return jsonResponse(401, {
       accepted: false,
       error: "StoreKit signed transaction verification failed.",
@@ -410,9 +460,24 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
 
   const ownerID = await dependencies.authenticatedUserID(request);
   if (typeof ownerID !== "string" || ownerID.trim().length === 0) {
+    logStoreKitClaimRejection("invalid_bearer");
     return jsonResponse(401, {
       accepted: false,
       error: "A signed-in iChart account is required.",
+    });
+  }
+
+  if (authorityUpdate.storekit_app_account_token === null) {
+    return jsonResponse(422, {
+      accepted: false,
+      error: "Verified StoreKit transaction is missing app account binding.",
+    });
+  }
+
+  if (authorityUpdate.storekit_app_account_token !== normalizedUUIDString(ownerID)) {
+    return jsonResponse(403, {
+      accepted: false,
+      error: "Verified StoreKit transaction belongs to a different iChart account.",
     });
   }
 
@@ -429,13 +494,104 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
     authorityUpdate,
   });
 
-  return jsonResponse(202, {
+  const responseStatus = claimResult?.stored === false
+    && rejectedClaimMappingStatuses.has(claimResult?.mapping_status)
+    ? 409
+    : 202;
+
+  return jsonResponse(responseStatus, {
     accepted: true,
     app_store_status: authorityUpdate.app_store_status,
     stored: claimResult?.stored ?? true,
     mapping_status: claimResult?.mapping_status ?? "claimed",
     subscription: claimResult?.subscription ?? null,
   });
+}
+
+const staleOrDuplicateMappingStatuses = new Set([
+  "duplicate_notification",
+  "stale_notification",
+]);
+
+const rejectedClaimMappingStatuses = new Set([
+  "original_transaction_owner_conflict",
+  "stale_transaction_claim",
+]);
+
+function logStoreKitClaimRejection(reason, metadata = {}) {
+  console.warn(JSON.stringify({
+    event: "storekit_subscription_claim_rejected",
+    reason,
+    ...metadata,
+  }));
+}
+
+function safeVerificationErrorMetadata(error) {
+  const status = Number(error?.status);
+  if (!Number.isInteger(status)) {
+    return {};
+  }
+
+  return {
+    verification_status: verificationStatusName(status),
+  };
+}
+
+function verificationStatusName(status) {
+  switch (status) {
+    case 1:
+      return "verification_failure";
+    case 2:
+      return "retryable_verification_failure";
+    case 3:
+      return "invalid_app_identifier";
+    case 4:
+      return "invalid_environment";
+    case 5:
+      return "invalid_chain_length";
+    case 6:
+      return "invalid_certificate";
+    case 7:
+      return "failure";
+    case 11:
+      return "sandbox_fallback_not_allowed";
+    case 12:
+      return "sandbox_fallback_non_string";
+    case 13:
+      return "sandbox_fallback_compact_parts";
+    case 14:
+      return "sandbox_fallback_decode";
+    case 15:
+      return "sandbox_fallback_chain_length";
+    case 16:
+      return "sandbox_fallback_certificate_parse";
+    case 17:
+      return "sandbox_fallback_root_mismatch";
+    case 18:
+      return "sandbox_fallback_leaf_mismatch";
+    case 19:
+      return "sandbox_fallback_intermediate_not_ca";
+    case 20:
+      return "sandbox_fallback_leaf_oid";
+    case 21:
+      return "sandbox_fallback_intermediate_oid";
+    case 22:
+      return "sandbox_fallback_certificate_date";
+    case 23:
+      return "sandbox_fallback_algorithm";
+    case 24:
+      return "sandbox_fallback_signature";
+    case 25:
+      return "sandbox_fallback_app_identifier";
+    case 26:
+      return "sandbox_fallback_environment";
+    case 27:
+      return "sandbox_fallback_root_check";
+    case 28:
+      return "sandbox_fallback_leaf_check";
+    default:
+      return "unknown";
+  }
 }
 
 async function decodeNestedSignedPayload(signedPayload, decoder, fallback) {
@@ -450,16 +606,36 @@ async function decodeNestedSignedPayload(signedPayload, decoder, fallback) {
   return fallback ?? {};
 }
 
-async function readJSON(request) {
+async function readJSON(request, options = {}) {
+  const maxBytes = options.maxBytes ?? 32_000;
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    return {
+      ok: false,
+      value: null,
+      tooLarge: true,
+    };
+  }
+
   try {
+    const text = await request.text();
+    if (new TextEncoder().encode(text).length > maxBytes) {
+      return {
+        ok: false,
+        value: null,
+        tooLarge: true,
+      };
+    }
+
     return {
       ok: true,
-      value: await request.json(),
+      value: JSON.parse(text),
     };
   } catch {
     return {
       ok: false,
       value: null,
+      tooLarge: false,
     };
   }
 }
@@ -484,6 +660,13 @@ function normalizedString(value) {
   }
 
   return String(value).trim();
+}
+
+function normalizedUUIDString(value) {
+  const candidate = normalizedString(value).toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(candidate)
+    ? candidate
+    : null;
 }
 
 function normalizedUpper(value) {

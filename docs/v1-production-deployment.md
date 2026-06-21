@@ -142,9 +142,12 @@ Only add these after the core cloud backup/sync promise is stable:
 
 ### Operational rules
 - restore purchases must work reliably
+- StoreKit purchases must bind to the signed-in iChart account with `appAccountToken`, and server-side claims must reject missing/mismatched tokens, cross-owner original transactions, and stale transaction replay
+- App Store Server Notifications must be verified, idempotent by notification UUID, and unable to rewind subscription authority with stale signed dates
 - local charts must remain accessible after purchase restore or app reinstall
 - expired Pro should require user-selected local pruning down to the 3-chart Basic cap when needed
 - chart cloud backup/sync and Forums should pause clearly when Pro is inactive
+- chart cloud backup must be enforced by Supabase RLS, not only by client UI gates
 - downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
 - downgrade pruning is local-only and must not create cloud deletion tombstones
 - users should be reminded before cancellation/expiration that cloud backups will no longer be maintained and critical charts should be exported
@@ -219,6 +222,10 @@ Basic overflow beyond one page can be evaluated as a non-blocking enhancement if
 - be explicit if analytics or crash reporting are used
 
 With mandatory accounts, the privacy story needs to be explicit: account/profile data is cloud-backed, charts are local-first, and chart cloud backup/sync is a Pro service.
+
+Auth callback handling should remain custom-scheme based for TestFlight, with local pending-flow state and nonce validation before accepting signup or password-reset callbacks. Universal links are the production follow-up once iChart has a stable associated domain.
+
+Forum publishing should keep attribution and PDF provenance server-owned: creator display names come from locked account profile names, pending submissions stay owner-scoped, and published PDF downloads require validated post-bound storage paths.
 
 ## 12. Launch checklist
 

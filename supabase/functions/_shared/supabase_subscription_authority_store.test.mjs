@@ -90,6 +90,7 @@ test("authenticated user resolver treats denied sessions as signed out", async (
 test("claim writer upserts subscription authority by owner", async () => {
   let requestedURL = null;
   let requestedInit = null;
+  const requestedMethods = [];
   const result = await upsertSubscriptionAuthorityClaim(
     {
       supabaseURL: "https://project.supabase.co",
@@ -101,8 +102,15 @@ test("claim writer upserts subscription authority by owner", async () => {
       plan: "studioSubscription",
       status: "active",
       storekit_original_transaction_id: "1000000000000100",
+      storekit_app_account_token: "00000000-0000-4000-8000-000000000001",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
     },
     async (url, init) => {
+      requestedMethods.push(init.method);
+      if (init.method === "GET") {
+        return Response.json([]);
+      }
+
       requestedURL = String(url);
       requestedInit = init;
       return Response.json([
@@ -118,6 +126,7 @@ test("claim writer upserts subscription authority by owner", async () => {
     requestedURL,
     "https://project.supabase.co/rest/v1/subscriptions?on_conflict=owner_id"
   );
+  assert.deepEqual(requestedMethods, ["GET", "POST"]);
   assert.equal(requestedInit.method, "POST");
   assert.equal(requestedInit.headers.authorization, "Bearer server-only-key");
   assert.equal(requestedInit.headers.prefer, "resolution=merge-duplicates,return=representation");
@@ -127,9 +136,70 @@ test("claim writer upserts subscription authority by owner", async () => {
   assert.equal(result.mapping_status, "claimed");
 });
 
+test("claim writer rejects original transactions already mapped to another owner", async () => {
+  const result = await upsertSubscriptionAuthorityClaim(
+    {
+      supabaseURL: "https://project.supabase.co",
+      secretKey: "server-only-key",
+    },
+    "00000000-0000-4000-8000-000000000001",
+    {
+      provider: "storekit",
+      plan: "studioSubscription",
+      status: "active",
+      storekit_original_transaction_id: "1000000000000100",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
+    },
+    async (url, init) => {
+      assert.equal(init.method, "GET");
+      return Response.json([
+        {
+          owner_id: "00000000-0000-4000-8000-000000000002",
+          provider: "storekit",
+        },
+      ]);
+    }
+  );
+
+  assert.equal(result.stored, false);
+  assert.equal(result.mapping_status, "original_transaction_owner_conflict");
+});
+
+test("claim writer rejects stale transaction claims for the same owner", async () => {
+  const result = await upsertSubscriptionAuthorityClaim(
+    {
+      supabaseURL: "https://project.supabase.co",
+      secretKey: "server-only-key",
+    },
+    "00000000-0000-4000-8000-000000000001",
+    {
+      provider: "storekit",
+      plan: "studioSubscription",
+      status: "active",
+      storekit_original_transaction_id: "1000000000000100",
+      app_store_last_transaction_id: "1000000000000101",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
+    },
+    async (url, init) => {
+      assert.equal(init.method, "GET");
+      return Response.json([
+        {
+          owner_id: "00000000-0000-4000-8000-000000000001",
+          app_store_last_transaction_id: "1000000000000102",
+          app_store_signed_at: "2026-06-12T21:30:00.000Z",
+        },
+      ]);
+    }
+  );
+
+  assert.equal(result.stored, false);
+  assert.equal(result.mapping_status, "stale_transaction_claim");
+});
+
 test("notification writer patches only previously claimed original transactions", async () => {
   let requestedURL = null;
   let requestedInit = null;
+  const requestedMethods = [];
   const result = await updateMappedSubscriptionAuthority(
     {
       supabaseURL: "https://project.supabase.co",
@@ -140,9 +210,28 @@ test("notification writer patches only previously claimed original transactions"
       plan: "free",
       status: "inactive",
       storekit_original_transaction_id: "1000000000000100",
+      app_store_notification_uuid: "notification-0001",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
       app_store_status: "expired",
     },
     async (url, init) => {
+      requestedMethods.push(init.method);
+      if (init.method === "GET") {
+        return Response.json([
+          {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            app_store_signed_at: "2026-06-12T21:28:00.000Z",
+          },
+        ]);
+      }
+      if (String(url).includes("/rest/v1/app_store_notification_events")) {
+        return Response.json([
+          {
+            notification_uuid: "notification-0001",
+          },
+        ]);
+      }
+
       requestedURL = String(url);
       requestedInit = init;
       return Response.json([
@@ -158,6 +247,7 @@ test("notification writer patches only previously claimed original transactions"
     requestedURL,
     "https://project.supabase.co/rest/v1/subscriptions?storekit_original_transaction_id=eq.1000000000000100"
   );
+  assert.deepEqual(requestedMethods, ["GET", "POST", "PATCH"]);
   assert.equal(requestedInit.method, "PATCH");
   assert.equal(requestedInit.headers.prefer, "return=representation");
   assert.equal(JSON.parse(requestedInit.body).app_store_status, "expired");
@@ -182,4 +272,82 @@ test("notification writer accepts unmapped original transactions without assigni
 
   assert.equal(result.stored, false);
   assert.equal(result.mapping_status, "unmapped_original_transaction");
+});
+
+test("notification writer ignores duplicate notification UUIDs", async () => {
+  const result = await updateMappedSubscriptionAuthority(
+    {
+      supabaseURL: "https://project.supabase.co",
+      secretKey: "server-only-key",
+    },
+    {
+      provider: "storekit",
+      plan: "free",
+      status: "inactive",
+      storekit_original_transaction_id: "1000000000000100",
+      app_store_notification_uuid: "notification-0001",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
+      app_store_status: "expired",
+    },
+    async (url, init) => {
+      if (init.method === "GET") {
+        return Response.json([
+          {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            app_store_signed_at: "2026-06-12T21:28:00.000Z",
+          },
+        ]);
+      }
+      if (String(url).includes("/rest/v1/app_store_notification_events")) {
+        return Response.json([]);
+      }
+
+      throw new Error("duplicate notification should not patch subscription authority");
+    }
+  );
+
+  assert.equal(result.stored, false);
+  assert.equal(result.mapping_status, "duplicate_notification");
+});
+
+test("notification writer rejects stale notifications", async () => {
+  const result = await updateMappedSubscriptionAuthority(
+    {
+      supabaseURL: "https://project.supabase.co",
+      secretKey: "server-only-key",
+    },
+    {
+      provider: "storekit",
+      plan: "studioSubscription",
+      status: "active",
+      storekit_original_transaction_id: "1000000000000100",
+      app_store_last_transaction_id: "1000000000000101",
+      app_store_notification_uuid: "notification-0002",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
+      app_store_status: "active",
+    },
+    async (url, init) => {
+      if (init.method === "GET") {
+        return Response.json([
+          {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            app_store_last_transaction_id: "1000000000000102",
+            app_store_signed_at: "2026-06-12T21:30:00.000Z",
+          },
+        ]);
+      }
+      if (String(url).includes("/rest/v1/app_store_notification_events")) {
+        return Response.json([
+          {
+            notification_uuid: "notification-0002",
+          },
+        ]);
+      }
+
+      throw new Error("stale notification should not patch subscription authority");
+    }
+  );
+
+  assert.equal(result.stored, false);
+  assert.equal(result.mapping_status, "stale_notification");
 });

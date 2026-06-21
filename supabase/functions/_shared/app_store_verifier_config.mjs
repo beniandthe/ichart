@@ -6,6 +6,7 @@ export const appStoreVerifierEnvironmentKeys = Object.freeze({
   environment: "APP_STORE_ENVIRONMENT",
   appAppleID: "APP_STORE_APP_APPLE_ID",
   rootCertificatesPEM: "APP_STORE_ROOT_CERTIFICATES_PEM",
+  enableOnlineChecks: "APP_STORE_ENABLE_ONLINE_CHECKS",
 });
 
 export function appStoreVerifierConfigurationFromEnv(env) {
@@ -13,6 +14,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
   const environmentValue = envString(env, appStoreVerifierEnvironmentKeys.environment);
   const rootCertificatesPEM = envString(env, appStoreVerifierEnvironmentKeys.rootCertificatesPEM);
   const appAppleIDValue = envString(env, appStoreVerifierEnvironmentKeys.appAppleID);
+  const enableOnlineChecksValue = envString(env, appStoreVerifierEnvironmentKeys.enableOnlineChecks);
   const missing = [];
   const errors = [];
 
@@ -47,6 +49,11 @@ export function appStoreVerifierConfigurationFromEnv(env) {
     missing.push(appStoreVerifierEnvironmentKeys.appAppleID);
   }
 
+  const enableOnlineChecks = parseOptionalBoolean(enableOnlineChecksValue);
+  if (enableOnlineChecksValue.length > 0 && enableOnlineChecks === null) {
+    errors.push(`${appStoreVerifierEnvironmentKeys.enableOnlineChecks} must be true or false.`);
+  }
+
   if (missing.length > 0 || errors.length > 0) {
     return {
       ok: false,
@@ -62,6 +69,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
       environment,
       appAppleID,
       rootCertificateBase64Bodies,
+      enableOnlineChecks: enableOnlineChecks ?? defaultOnlineChecksForEnvironment(environment),
     },
   };
 }
@@ -119,6 +127,27 @@ function parseOptionalAppAppleID(value) {
   }
 
   return numberValue;
+}
+
+function parseOptionalBoolean(value) {
+  const stringValue = normalizedString(value).toLowerCase();
+  if (stringValue.length === 0) {
+    return null;
+  }
+
+  if (["true", "1", "yes"].includes(stringValue)) {
+    return true;
+  }
+
+  if (["false", "0", "no"].includes(stringValue)) {
+    return false;
+  }
+
+  return null;
+}
+
+function defaultOnlineChecksForEnvironment(environment) {
+  return environment === appStoreVerifierEnvironmentProduction;
 }
 
 function normalizedBase64Body(value) {

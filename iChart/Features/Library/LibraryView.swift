@@ -5174,7 +5174,7 @@ private struct IChartPlanSettings: View {
     let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
     let onForumQASampleDataChanged: (Bool) -> Void
 
-    #if DEBUG || targetEnvironment(simulator)
+    #if DEBUG && targetEnvironment(simulator)
     @State private var debugPreview: IChartDebugPlanPreview = .basic
     #endif
 
@@ -5229,16 +5229,16 @@ private struct IChartPlanSettings: View {
 
             storeKitControls
 
-            #if DEBUG || targetEnvironment(simulator)
+            #if DEBUG && targetEnvironment(simulator)
             debugControls
             #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         .onAppear {
             debugPreview = IChartDebugPlanPreview.preview(for: store.subscriptionState)
         }
-        .onChange(of: store.entitlements.subscription) { _, subscription in
+        .onChange(of: store.entitlements.subscription) { subscription in
             let nextPreview = IChartDebugPlanPreview.preview(for: subscription)
             if debugPreview != nextPreview {
                 debugPreview = nextPreview
@@ -5389,7 +5389,7 @@ private struct IChartPlanSettings: View {
         }
     }
 
-    #if DEBUG || targetEnvironment(simulator)
+    #if DEBUG && targetEnvironment(simulator)
     private var debugControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
@@ -5405,7 +5405,7 @@ private struct IChartPlanSettings: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: debugPreview) { _, preview in
+            .onChange(of: debugPreview) { preview in
                 let subscriptionState = preview.subscriptionState()
                 subscriptionStore.applyLocalPreview(subscriptionState)
                 onSelectSubscriptionState(subscriptionState)

@@ -61,6 +61,7 @@ test("allows sandbox configuration without an App Apple ID", () => {
   assert.equal(result.value.environment, appStoreVerifierEnvironmentSandbox);
   assert.equal(result.value.appAppleID, null);
   assert.deepEqual(result.value.rootCertificateBase64Bodies, [fakeCertificateOne, fakeCertificateTwo]);
+  assert.equal(result.value.enableOnlineChecks, false);
 });
 
 test("requires App Apple ID for production verification", () => {
@@ -85,6 +86,28 @@ test("parses production App Apple ID", () => {
   assert.equal(result.ok, true);
   assert.equal(result.value.environment, appStoreVerifierEnvironmentProduction);
   assert.equal(result.value.appAppleID, 1_234_567_890);
+  assert.equal(result.value.enableOnlineChecks, true);
+});
+
+test("allows explicit online verification check overrides", () => {
+  const sandboxResult = appStoreVerifierConfigurationFromEnv({
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
+    APP_STORE_ENVIRONMENT: "Sandbox",
+    APP_STORE_ENABLE_ONLINE_CHECKS: "true",
+    APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
+  });
+  const productionResult = appStoreVerifierConfigurationFromEnv({
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
+    APP_STORE_ENVIRONMENT: "Production",
+    APP_STORE_APP_APPLE_ID: "1234567890",
+    APP_STORE_ENABLE_ONLINE_CHECKS: "false",
+    APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
+  });
+
+  assert.equal(sandboxResult.ok, true);
+  assert.equal(sandboxResult.value.enableOnlineChecks, true);
+  assert.equal(productionResult.ok, true);
+  assert.equal(productionResult.value.enableOnlineChecks, false);
 });
 
 test("rejects invalid verifier environment, app id, and certificate content", () => {
@@ -92,6 +115,7 @@ test("rejects invalid verifier environment, app id, and certificate content", ()
     APP_STORE_BUNDLE_ID: "com.ichart.app",
     APP_STORE_ENVIRONMENT: "Xcode",
     APP_STORE_APP_APPLE_ID: "not-a-number",
+    APP_STORE_ENABLE_ONLINE_CHECKS: "sometimes",
     APP_STORE_ROOT_CERTIFICATES_PEM: "not a pem bundle",
   });
 
@@ -101,5 +125,6 @@ test("rejects invalid verifier environment, app id, and certificate content", ()
     "APP_STORE_ENVIRONMENT must be Sandbox or Production.",
     "APP_STORE_ROOT_CERTIFICATES_PEM must include at least one PEM certificate block.",
     "APP_STORE_APP_APPLE_ID must be a positive integer.",
+    "APP_STORE_ENABLE_ONLINE_CHECKS must be true or false.",
   ]);
 });

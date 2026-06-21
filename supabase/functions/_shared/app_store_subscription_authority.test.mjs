@@ -23,8 +23,12 @@ test("maps active pro renewal into server-owned subscription authority fields", 
         productId: iChartProProductIDs[1],
         originalTransactionId: "1000000000000001",
         transactionId: "1000000000000002",
+        appAccountToken: "00000000-0000-4000-8000-000000000001",
+        signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
         expiresDate: futureExpiration,
       },
+      notificationUUID: "notification-0001",
+      signedDate: Date.parse("2026-06-12T21:29:30.000Z"),
     },
     { now }
   );
@@ -33,7 +37,10 @@ test("maps active pro renewal into server-owned subscription authority fields", 
   assert.equal(update.plan, "studioSubscription");
   assert.equal(update.status, "active");
   assert.equal(update.storekit_environment, "sandbox");
+  assert.equal(update.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
   assert.equal(update.app_store_status, "active");
+  assert.equal(update.app_store_notification_uuid, "notification-0001");
+  assert.equal(update.app_store_signed_at, "2026-06-12T21:29:30.000Z");
   assert.equal(update.entitlement_expires_at, "2026-07-12T21:30:00.000Z");
   assert.equal(update.last_verified_at, now.toISOString());
 });
@@ -123,7 +130,9 @@ test("maps verified transaction claim into active pro authority fields", () => {
       productId: iChartProProductIDs[0],
       originalTransactionId: "1000000000000100",
       transactionId: "1000000000000101",
+      appAccountToken: "00000000-0000-4000-8000-000000000001",
       environment: "Sandbox",
+      signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
       expiresDate: futureExpiration,
     },
     { now }
@@ -132,8 +141,10 @@ test("maps verified transaction claim into active pro authority fields", () => {
   assert.equal(update.provider, "storekit");
   assert.equal(update.plan, "studioSubscription");
   assert.equal(update.status, "active");
+  assert.equal(update.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
   assert.equal(update.app_store_notification_type, "TRANSACTION_CLAIM");
   assert.equal(update.app_store_status, "active");
+  assert.equal(update.app_store_signed_at, "2026-06-12T21:29:00.000Z");
 });
 
 test("expired verified transaction claim records inactive authority", () => {
@@ -178,6 +189,30 @@ test("webhook requires signedPayload", async () => {
 
   assert.equal(response.status, 400);
   assert.equal(body.error, "Missing App Store signedPayload.");
+});
+
+test("webhook rejects oversized request bodies before verification", async () => {
+  let verifiedPayload = false;
+  const response = await handleAppStoreServerNotificationRequest(
+    new Request(
+      "https://example.test/functions/v1/app-store-server-notifications",
+      {
+        method: "POST",
+        headers: { "content-length": "128001" },
+        body: JSON.stringify({ signedPayload: "opaque-apple-signed-payload" }),
+      }
+    ),
+    {
+      verifyAndDecodeNotification: () => {
+        verifiedPayload = true;
+      },
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 413);
+  assert.equal(body.error, "App Store notification payload is too large.");
+  assert.equal(verifiedPayload, false);
 });
 
 test("webhook refuses to process signedPayload without verifier", async () => {
@@ -282,8 +317,12 @@ test("webhook writes only after verification dependencies succeed", async () => 
           productId: iChartProProductIDs[0],
           originalTransactionId: "1000000000000010",
           transactionId: "1000000000000011",
+          appAccountToken: "00000000-0000-4000-8000-000000000001",
+          signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
           expiresDate: futureExpiration,
         },
+        notificationUUID: "notification-0010",
+        signedDate: Date.parse("2026-06-12T21:29:30.000Z"),
       }),
       writeSubscriptionAuthority: async (update) => {
         writtenUpdate = update;
@@ -307,6 +346,8 @@ test("webhook writes only after verification dependencies succeed", async () => 
   assert.equal(body.subscription.provider, "storekit");
   assert.equal(writtenUpdate.provider, "storekit");
   assert.equal(writtenUpdate.plan, "studioSubscription");
+  assert.equal(writtenUpdate.app_store_notification_uuid, "notification-0010");
+  assert.equal(writtenUpdate.app_store_signed_at, "2026-06-12T21:29:30.000Z");
 });
 
 test("webhook accepts verified unmapped transactions without inventing ownership", async () => {
@@ -327,8 +368,12 @@ test("webhook accepts verified unmapped transactions without inventing ownership
           productId: iChartProProductIDs[0],
           originalTransactionId: "1000000000000999",
           transactionId: "1000000000001000",
+          appAccountToken: "00000000-0000-4000-8000-000000000001",
+          signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
           expiresDate: futureExpiration,
         },
+        notificationUUID: "notification-0999",
+        signedDate: Date.parse("2026-06-12T21:29:30.000Z"),
       }),
       writeSubscriptionAuthority: async () => ({
         stored: false,
@@ -512,7 +557,9 @@ test("transaction claim writes only after user and transaction are verified", as
         productId: iChartProProductIDs[1],
         originalTransactionId: "1000000000000200",
         transactionId: "1000000000000201",
+        appAccountToken: "00000000-0000-4000-8000-000000000001",
         environment: "Sandbox",
+        signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
         expiresDate: futureExpiration,
       }),
       writeSubscriptionAuthorityClaim: async (claim) => {
@@ -539,4 +586,104 @@ test("transaction claim writes only after user and transaction are verified", as
   assert.equal(body.subscription.plan, "studioSubscription");
   assert.equal(writtenClaim.ownerID, "00000000-0000-4000-8000-000000000001");
   assert.equal(writtenClaim.authorityUpdate.plan, "studioSubscription");
+  assert.equal(writtenClaim.authorityUpdate.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
+});
+
+test("transaction claim rejects verified transactions without app account token", async () => {
+  let wroteClaim = false;
+  const response = await handleStoreKitSubscriptionClaimRequest(
+    new Request(
+      "https://example.test/functions/v1/storekit-subscription-claims",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer user-session-token" },
+        body: JSON.stringify({ signedTransactionInfo: "opaque-apple-transaction-payload" }),
+      }
+    ),
+    {
+      now,
+      authenticatedUserID: async () => "00000000-0000-4000-8000-000000000001",
+      verifyAndDecodeTransaction: async () => ({
+        productId: iChartProProductIDs[0],
+        originalTransactionId: "1000000000000200",
+        transactionId: "1000000000000201",
+        expiresDate: futureExpiration,
+      }),
+      writeSubscriptionAuthorityClaim: () => {
+        wroteClaim = true;
+      },
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.error, "Verified StoreKit transaction is missing app account binding.");
+  assert.equal(wroteClaim, false);
+});
+
+test("transaction claim rejects app account token mismatch", async () => {
+  let wroteClaim = false;
+  const response = await handleStoreKitSubscriptionClaimRequest(
+    new Request(
+      "https://example.test/functions/v1/storekit-subscription-claims",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer user-session-token" },
+        body: JSON.stringify({ signedTransactionInfo: "opaque-apple-transaction-payload" }),
+      }
+    ),
+    {
+      now,
+      authenticatedUserID: async () => "00000000-0000-4000-8000-000000000001",
+      verifyAndDecodeTransaction: async () => ({
+        productId: iChartProProductIDs[0],
+        originalTransactionId: "1000000000000200",
+        transactionId: "1000000000000201",
+        appAccountToken: "00000000-0000-4000-8000-000000000002",
+        expiresDate: futureExpiration,
+      }),
+      writeSubscriptionAuthorityClaim: () => {
+        wroteClaim = true;
+      },
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(body.error, "Verified StoreKit transaction belongs to a different iChart account.");
+  assert.equal(wroteClaim, false);
+});
+
+test("transaction claim returns conflict for stale writer rejections", async () => {
+  const response = await handleStoreKitSubscriptionClaimRequest(
+    new Request(
+      "https://example.test/functions/v1/storekit-subscription-claims",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer user-session-token" },
+        body: JSON.stringify({ signedTransactionInfo: "opaque-apple-transaction-payload" }),
+      }
+    ),
+    {
+      now,
+      authenticatedUserID: async () => "00000000-0000-4000-8000-000000000001",
+      verifyAndDecodeTransaction: async () => ({
+        productId: iChartProProductIDs[0],
+        originalTransactionId: "1000000000000200",
+        transactionId: "1000000000000201",
+        appAccountToken: "00000000-0000-4000-8000-000000000001",
+        signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
+        expiresDate: futureExpiration,
+      }),
+      writeSubscriptionAuthorityClaim: async () => ({
+        stored: false,
+        mapping_status: "stale_transaction_claim",
+      }),
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.equal(body.stored, false);
+  assert.equal(body.mapping_status, "stale_transaction_claim");
 });

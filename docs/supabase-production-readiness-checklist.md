@@ -26,7 +26,9 @@ Required production settings:
 - Confirm Email is enabled.
 - Secure password changes are enabled.
 - URL Configuration allows `ichart://auth-callback`.
+- `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.
+- The app stores a pending auth-flow record before sending signup/resend/password-reset email and rejects callbacks without the matching flow type and `flow_nonce`.
 - Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
 - After custom SMTP unlocks hosted template editing, Reset password template uses a direct app recovery link, not the default prefetch-prone hosted verify link:
   ```html
@@ -39,14 +41,16 @@ Required production settings:
 
 - App Store Server Notifications are received by `app-store-server-notifications`.
 - `supabase/config.toml` sets `verify_jwt = false` for that function because Apple does not send a Supabase user JWT.
-- Public webhook access does not imply trust: the function must reject missing or unverified `signedPayload` input.
+- Public webhook access does not imply trust: the function must reject oversized bodies, missing payloads, and unverified `signedPayload` input.
 - StoreKit transaction claims are received by `storekit-subscription-claims`.
 - `supabase/config.toml` sets `verify_jwt = true` for the claim function because it is invoked by signed-in app users.
-- The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, and missing original transaction identity.
+- The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, missing original transaction identity, and missing/mismatched StoreKit `appAccountToken`.
 - The server-only subscription writer reads Edge Function secrets and never runs in the iOS app.
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
 - Verified webhook events update only existing original-transaction mappings; unmapped notifications are accepted without assigning account ownership.
+- Notification UUIDs are recorded for idempotency, stale signed-date events are rejected, and stale transaction claims cannot rewind subscription authority.
+- The same App Store original transaction cannot be claimed by a different iChart account after it has a trusted owner mapping.
 - Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping.
 - Apple JWS verification is wired through Apple's `SignedDataVerifier`; missing or malformed verifier secrets must keep the functions in a fail-closed not-configured state.
 - Required verifier secrets are `APP_STORE_BUNDLE_ID`, `APP_STORE_ENVIRONMENT`, `APP_STORE_ROOT_CERTIFICATES_PEM`, and production-only `APP_STORE_APP_APPLE_ID`.
@@ -65,8 +69,8 @@ Required production settings:
 - Basic includes the complete local chart-writing tool, PDF/export, local chart save, and a 3-chart local library cap.
 - Chart cloud backup/sync/restore is available only with active Pro entitlement.
 - Forums are available only with active Pro entitlement.
-- Current signed-in chart sync behavior is an interim QA path until StoreKit/subscription entitlement wiring is implemented.
-- Before production cloud rollout, `ChartCloudSyncService` and Forums must be blocked when Pro is inactive and Settings must explain that cloud backup requires Pro.
+- Cloud Backup is enforced in the app and in Supabase RLS; Basic users cannot read or write `chart_documents` or `chart_snapshots`.
+- `ChartCloudSyncService` and Forums must be blocked when Pro is inactive and Settings must explain that cloud backup requires Pro.
 - Expired Pro pauses paid cloud/service features and requires the user to reduce the local library to the 3-chart Basic cap when needed.
 - Downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain.
 - Downgrade pruning is local-only and must not create cloud deletion tombstones.
@@ -88,7 +92,7 @@ When a local Supabase stack is available, include SQL/RLS and live local integra
 ICHART_RUN_LOCAL_SUPABASE_QA=1 scripts/run_supabase_production_readiness.sh
 ```
 
-The local QA path resets the local database, runs `supabase test db`, derives local URL/key values from `supabase status -o env`, and runs `SupabaseIntegrationTests` with a throwaway local Auth account.
+The local QA path resets the local database, runs schema lint plus security/performance advisors, runs `supabase test db`, derives local URL/key values from `supabase status -o env`, and runs `SupabaseIntegrationTests` with a throwaway local Auth account.
 
 ## Manual Simulator Gate
 
@@ -145,13 +149,18 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 
 - Anonymous reads/writes to owner-scoped tables are denied.
 - A signed-in user can read and write only their own `profiles`, `chart_documents`, `chart_snapshots`, and `devices` rows.
+- `chart_documents` and `chart_snapshots` policies require active Pro in addition to owner match.
 - The app can read but not write subscription rows.
-- Subscription rows include server-owned provider, StoreKit product, original transaction, App Store status, expiration, grace, revocation, and last-verification metadata.
+- Subscription rows include server-owned provider, StoreKit product, original transaction, app-account token, App Store status, expiration, grace, revocation, signed-date, notification UUID, and last-verification metadata.
+- App Store notification replay metadata is server-only and not readable or writable by app roles.
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
 - `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
 - App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
 - StoreKit transaction-claim events cannot update `subscriptions` unless the server first verifies the Apple signed transaction and resolves the authenticated account owner.
+- Forum chart post attribution is server-owned from locked profile names; client-supplied creator names are overwritten.
+- Pending forum songs/posts remain owner-scoped and do not leak to other Pro users before publication.
+- Published forum PDF downloads require the post-owned storage path and validated server-side PDF provenance.
 
 ## Evidence To Keep With The Release Candidate
 
@@ -160,6 +169,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - `scripts/run_supabase_production_readiness.sh` result.
 - Local Supabase QA result, when run.
 - App Store Server Notification function test result.
+- StoreKit app-account token, stale replay, notification UUID replay, and oversized webhook request test result.
 - iPad simulator build/run result.
 - Screenshot or UI snapshot of unconfigured Settings.
 - Screenshot or UI snapshot of configured `Verified` and `Cloud backup active` Settings.
