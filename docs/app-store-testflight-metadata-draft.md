@@ -16,10 +16,11 @@ Last updated: 2026-06-21
 
 Preferred:
 
-> Pencil-first chord charts for iPad
+> Pencil-first charts for iPad
 
 Alternates:
 
+- Pencil-first chord charts
 - Fast chord charts for working musicians
 - Write clean rehearsal charts on iPad
 - Pencil to polished chord charts
@@ -42,7 +43,7 @@ iChart is not full notation software. It is built for practical chord charts, rh
 
 ## Keywords Draft
 
-chord chart,lead sheet,music chart,jazz chart,rehearsal chart,rhythm chart,sheet music,transpose,Apple Pencil,musician
+chord chart,lead sheet,music chart,jazz chart,rhythm chart,rehearsal,transpose,Apple Pencil,musician
 
 ## Promotional Text Draft
 
