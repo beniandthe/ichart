@@ -1,0 +1,8 @@
+DirectoryIndex index.html
+
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]
+
+RewriteRule ^privacy/?$ privacy.html [L]
+RewriteRule ^support/?$ support.html [L]

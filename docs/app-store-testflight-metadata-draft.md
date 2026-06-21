@@ -121,11 +121,11 @@ Optional:
 
 ## URLs And Contact Placeholders
 
-- Privacy Policy URL: [PUBLIC_PRIVACY_POLICY_URL]
-- Support URL: [PUBLIC_SUPPORT_URL]
-- Marketing URL: [PUBLIC_MARKETING_URL_OPTIONAL]
-- Support email: [SUPPORT_EMAIL]
-- Beta feedback email: [BETA_FEEDBACK_EMAIL]
+- Privacy Policy URL: https://useichart.com/privacy
+- Support URL: https://useichart.com/support
+- Marketing URL: https://useichart.com
+- Support email: support@useichart.com
+- Beta feedback email: support@useichart.com
 
 These must be real, monitored, public-facing destinations before external TestFlight or App Review.
 
