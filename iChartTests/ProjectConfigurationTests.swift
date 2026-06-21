@@ -539,7 +539,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.0\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"2\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"3\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))
@@ -1001,7 +1001,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let securityHardeningMigrationText = try String(
             contentsOf: projectRoot
-                .appendingPathComponent("supabase/migrations/20260620193000_security_hardening.sql")
+                .appendingPathComponent("supabase/migrations/20260621001910_security_hardening.sql")
         )
         let configText = try String(
             contentsOf: projectRoot
