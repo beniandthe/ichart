@@ -280,7 +280,10 @@ struct EditorView: View {
     @State private var chordToolInputMode: ChordToolInputMode = .read
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
+    @State private var latestRhythmDiagnostic: RhythmRecognitionDiagnosticEvent?
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
+    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
+    private var rhythmDiagnosticsEnabled = false
     @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
@@ -1051,6 +1054,10 @@ struct EditorView: View {
                     .lineLimit(1)
                 }
 
+                if canvasMode == .rhythmicNotationEdit, isRhythmDiagnosticsVisible {
+                    rhythmDiagnosticStatusChip
+                }
+
                 Button {
                     activateSelectTool()
                 } label: {
@@ -1328,8 +1335,37 @@ struct EditorView: View {
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
-            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas
+            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas,
+            onRhythmicNotationDiagnostic: handleRhythmicNotationDiagnostic
         )
+    }
+
+    private var rhythmDiagnosticStatusChip: some View {
+        let title = latestRhythmDiagnostic?.statusTitle ?? "Rhythm Diagnostics"
+        let detail = latestRhythmDiagnostic?.statusDetail ?? "Waiting for ink"
+        let tint = latestRhythmDiagnostic?.stage == .inkPreserved
+            ? Color.orange
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return Label {
+            Text("\(title): \(detail)")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 300, alignment: .leading)
+        } icon: {
+            Image(systemName: latestRhythmDiagnostic?.stage == .inkPreserved ? "waveform.badge.exclamationmark" : "waveform.path.ecg")
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .frame(height: 34)
+        .background(tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel("Rhythm diagnostics \(title), \(detail)")
+    }
+
+    private var isRhythmDiagnosticsVisible: Bool {
+        rhythmDiagnosticsEnabled || IChartRuntimeDiagnostics.isRhythmRecognitionDiagnosticsEnabled
     }
 
     private func exitEditor() {
@@ -1957,6 +1993,10 @@ struct EditorView: View {
         inkToolMode = .write
         selectedMeasureID = resolvedMeasureActionTargetID()
         canvasMode = .rhythmicNotationEdit
+    }
+
+    private func handleRhythmicNotationDiagnostic(_ event: RhythmRecognitionDiagnosticEvent) {
+        latestRhythmDiagnostic = event
     }
 
     private func activateSelectTool(clearsMeasureSelection: Bool = false) {
@@ -3067,7 +3107,7 @@ private struct RhythmEditChoiceRow: View {
             RhythmValueGlyphPreview(value: value, notationFont: notationFont)
                 .frame(width: 48, height: 36)
 
-            Text(value.editMenuTitle)
+            Text(value.referenceDisplayTitle)
                 .font(.subheadline.weight(.semibold))
 
             Spacer()
@@ -3084,157 +3124,6 @@ private struct RhythmEditChoiceRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
     }
-}
-
-private struct RhythmValueGlyphPreview: View {
-    let value: RhythmValue
-    let notationFont: NotationFontPreset
-
-    var body: some View {
-        ZStack {
-            if let restSymbol {
-                glyphText(restSymbol, size: restPointSize)
-                    .offset(y: restYOffset)
-            } else {
-                glyphText(noteheadSymbol, size: 24)
-                    .offset(x: noteheadXOffset, y: 3)
-
-                if showsStem {
-                    Rectangle()
-                        .fill(Color.primary)
-                        .frame(width: 1.4, height: 25)
-                        .offset(x: 8, y: 8)
-                }
-
-                if value == .eighth {
-                    glyphText(NotationGlyphCatalog.flag8thDown, size: 21)
-                        .offset(x: 14, y: 14)
-                }
-
-                if value.isDottedEditValue {
-                    glyphText(NotationGlyphCatalog.augmentationDot, size: 13)
-                        .offset(x: 17, y: 3)
-                }
-            }
-        }
-        .foregroundStyle(.primary)
-        .accessibilityLabel(value.editMenuTitle)
-    }
-
-    private var restSymbol: String? {
-        switch value {
-        case .wholeRest:
-            return NotationGlyphCatalog.wholeRest
-        case .halfRest:
-            return NotationGlyphCatalog.halfRest
-        case .quarterRest:
-            return NotationGlyphCatalog.quarterRest
-        case .eighthRest:
-            return NotationGlyphCatalog.eighthRest
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return nil
-        }
-    }
-
-    private var noteheadSymbol: String {
-        switch value {
-        case .whole:
-            return NotationGlyphCatalog.slashWholeNotehead
-        case .half, .dottedHalf:
-            return NotationGlyphCatalog.slashHalfNotehead
-        case .slash, .eighth, .quarter, .dottedQuarter:
-            return NotationGlyphCatalog.slashNotehead
-        case .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
-            return NotationGlyphCatalog.slashNotehead
-        }
-    }
-
-    private var noteheadXOffset: CGFloat {
-        value.isDottedEditValue ? -6 : -8
-    }
-
-    private var showsStem: Bool {
-        switch value {
-        case .slash, .whole, .wholeRest, .halfRest, .quarterRest, .eighthRest, .tiedContinuation:
-            return false
-        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf:
-            return true
-        }
-    }
-
-    private var restPointSize: CGFloat {
-        switch value {
-        case .quarterRest:
-            return 29
-        case .eighthRest:
-            return 27
-        case .wholeRest, .halfRest:
-            return 24
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return 24
-        }
-    }
-
-    private var restYOffset: CGFloat {
-        switch value {
-        case .quarterRest:
-            return 0
-        case .eighthRest:
-            return 1
-        case .wholeRest:
-            return -3
-        case .halfRest:
-            return 2
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return 0
-        }
-    }
-
-    private func glyphText(_ glyph: String, size: CGFloat) -> Text {
-        Text(glyph)
-            .font(notationFont.notationPreviewFont(size: size))
-    }
-}
-
-private extension RhythmValue {
-    var editMenuTitle: String {
-        switch self {
-        case .slash:
-            return "Slash"
-        case .eighth:
-            return "Eighth Note"
-        case .eighthRest:
-            return "Eighth Rest"
-        case .quarter:
-            return "Quarter Note"
-        case .quarterRest:
-            return "Quarter Rest"
-        case .dottedQuarter:
-            return "Dotted Quarter"
-        case .half:
-            return "Half Note"
-        case .halfRest:
-            return "Half Rest"
-        case .dottedHalf:
-            return "Dotted Half"
-        case .whole:
-            return "Whole Note"
-        case .wholeRest:
-            return "Whole Rest"
-        case .tiedContinuation:
-            return "Tie"
-        }
-    }
-
-    var isDottedEditValue: Bool {
-        switch self {
-        case .dottedQuarter, .dottedHalf:
-            return true
-        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
-            return false
-        }
-    }
-
 }
 
 private struct InkResponsivenessSheetView: View {

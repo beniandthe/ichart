@@ -161,6 +161,34 @@ extension RhythmicNotationQuantizer {
         return .commit(proposal, phrase)
     }
 
+    static func v4GridFirstDecisionForTesting(
+        drawing: PKDrawing,
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> RhythmRecognitionDecision? {
+        let input = rasterTemplateInput(
+            strokeObservations: strokeObservations(from: drawing),
+            drawingFrame: drawingFrame
+        )
+        let crops = rasterTemplateSymbolCrops(from: input)
+        let matchesByCrop = crops.map { crop in
+            rasterTemplateMatches(for: crop, input: input)
+        }
+        let naturalPath = bestNaturalPath(
+            from: rasterTemplateCandidateGroups(from: matchesByCrop),
+            meter: meter
+        )
+        return rasterTemplateGridFirstRecognitionDecision(
+            input: input,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            naturalPath: naturalPath,
+            meter: meter,
+            drawingFrame: drawingFrame,
+            includeExtendedStability: true
+        )
+    }
+
     static func rasterTemplateRecognitionDecision(
         strokeObservations: [StrokeObservation],
         meter: Meter,
@@ -198,6 +226,18 @@ extension RhythmicNotationQuantizer {
             meter: meter
         )
 
+        if let gridFirstDecision = rasterTemplateGridFirstRecognitionDecision(
+            input: input,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            naturalPath: naturalPath,
+            meter: meter,
+            drawingFrame: drawingFrame,
+            includeExtendedStability: includeExtendedStability
+        ) {
+            return gridFirstDecision
+        }
+
         if !unsupportedCrops.isEmpty {
             return .keepWriting(.unsupported, phrase)
         }
@@ -228,11 +268,20 @@ extension RhythmicNotationQuantizer {
                 meter: meter,
                 includeExtendedStability: includeExtendedStability
             )
-            let proposal = rasterTemplateAdjustedProposal(
+            var proposal = rasterTemplateAdjustedProposal(
                 measuredProposal,
                 matchesByCrop: matchesByCrop
             )
-            if phraseHasTightMixedRestNoteCluster(phrase, drawingFrame: drawingFrame) {
+            if proposal.safety == .manualReview,
+               rasterTemplateCanPromoteDenseExactPhrase(phrase) {
+                proposal = RhythmicNotationMeasureProposal(
+                    values: proposal.values,
+                    safety: .autoApply,
+                    isNaturalExactFit: proposal.isNaturalExactFit
+                )
+            }
+            if phraseHasTightMixedRestNoteCluster(phrase, drawingFrame: drawingFrame),
+               !rasterTemplateCanPromoteDenseExactPhrase(phrase) {
                 let reviewProposal = RhythmicNotationMeasureProposal(
                     values: proposal.values,
                     safety: .manualReview,
@@ -302,6 +351,33 @@ extension RhythmicNotationQuantizer {
             let overflowUnits = naturalPath.units - targetUnits
             if hasBeamedTemplate && overflowUnits == 1 {
                 return nil
+            }
+            if let exactPath = bestReviewOnlyExactPath(from: candidateGroups, targetUnits: targetUnits, meter: meter),
+               RhythmicNotationCompendium.accepts(exactPath.values, in: meter),
+               rasterTemplateCanPromoteRestAnchoredOverflowExactPath(
+                    exactPath,
+                    over: naturalPath,
+                    candidateGroups: candidateGroups,
+                    crops: crops,
+                    matchesByCrop: matchesByCrop,
+                    meter: meter,
+                    drawingFrame: drawingFrame
+               ) {
+                let exactPhrase = rasterTemplatePhraseHypothesis(
+                    input: input,
+                    crops: crops,
+                    matchesByCrop: matchesByCrop,
+                    unsupportedCrops: unsupportedCrops,
+                    candidateGroups: candidateGroups,
+                    naturalPath: exactPath,
+                    meter: meter
+                )
+                let proposal = RhythmicNotationMeasureProposal(
+                    values: exactPath.values,
+                    safety: .extendedStability,
+                    isNaturalExactFit: true
+                )
+                return .commit(proposal, exactPhrase)
             }
             let exactPath = overflowUnits == 1
                 ? bestReviewOnlyExactPath(from: candidateGroups, targetUnits: targetUnits, meter: meter)
@@ -536,7 +612,16 @@ extension RhythmicNotationQuantizer {
 
         let beamedCount = rasterTemplateBeamedEighthCount(for: crop, input: input)
         if beamedCount >= 2 {
-            add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.0, template: "beamed-eighth-run")
+            if let terminalRestValues = rasterTemplateBeamedEighthValuesWithTerminalRest(
+                for: crop,
+                beamedCount: beamedCount,
+                input: input
+            ) {
+                add(terminalRestValues, score: 0.0, template: "beamed-eighth-run-terminal-rest")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.55, template: "beamed-eighth-run")
+            } else {
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.0, template: "beamed-eighth-run")
+            }
         }
 
         if let slashValues = rasterTemplatePlaceholderSlashValues(for: crop, input: input) {
@@ -556,6 +641,10 @@ extension RhythmicNotationQuantizer {
             add([.slash], score: 0.0, template: "forward-slash")
         }
 
+        if crop.index == 0,
+           crop.strokes.looksLikeContextualLeadingEighthRest(drawingFrame: input.drawingFrame) {
+            add([.eighthRest], score: 0.0, template: "rest-eighth-contextual-leading")
+        }
         if let restCandidates = visualRestCandidates(for: symbol, drawingFrame: input.drawingFrame) {
             for candidate in restCandidates {
                 add([candidate.value], score: candidate.score, template: "rest-\(candidate.value.rawValue)")
@@ -569,8 +658,17 @@ extension RhythmicNotationQuantizer {
             }
             return value.isRest && value != .eighthRest
         }
-        let hasEighthRestMatch = symbol.eighthRestComparisonScore(in: input.sceneBounds) != nil
+        let hasLaterInk = input.strokes.contains { stroke in
+            stroke.bounds.minX > crop.bounds.maxX + max(CGFloat(2), input.drawingFrame.width * 0.006)
+        }
+        let suppressFilledShorthandEighthRestVote = crop.index > 0
+            && hasLaterInk
+            && crop.strokes.count == 1
+            && crop.strokes.contains { $0.looksFilledNoteHead && !$0.looksHollowNoteHead }
+        let hasEighthRestMatch = !suppressFilledShorthandEighthRestVote
+            && (symbol.eighthRestComparisonScore(in: input.sceneBounds) != nil
             || symbol.sevenLikeEighthRestComparisonScore(in: input.sceneBounds) != nil
+            )
         if hasEighthRestMatch && !hasStrongNonEighthRestMatch {
             add([.eighthRest], score: 0.0, template: "rest-eighth-raster")
         }
@@ -591,6 +689,11 @@ extension RhythmicNotationQuantizer {
 
         for candidate in classifyCandidates(symbol, drawingFrame: input.drawingFrame) {
             guard candidate.score <= 0.85 else {
+                continue
+            }
+            if (candidate.value == .dottedQuarter || candidate.value == .dottedHalf),
+               features.hasStem,
+               features.hasFlag || cropHasUpperFlagMass(crop, features: features) {
                 continue
             }
             if featuresShouldRejectClassifierCandidate(
@@ -614,18 +717,21 @@ extension RhythmicNotationQuantizer {
         }
         if features.hasStem,
            features.hasDot,
+           !features.hasFlag,
            (features.hasHollowHead || hasHollowInkHead),
            !hasFilledInkHead {
             add([.dottedHalf], score: 0.05, template: "dotted-hollow-stem")
         }
         if features.hasStem,
            features.hasDot,
+           !features.hasFlag,
            !features.hasHollowHead,
            !hasHollowInkHead,
            (features.hasFilledHead || features.hasLowerHeadMass || features.hasStemAndKick || hasStemmedNoteRaster) {
             add([.dottedQuarter], score: 0.05, template: "dotted-filled-stem")
         }
         if features.hasStem,
+           !features.hasHollowHead,
            !hasHollowInkHead,
            (features.hasFilledHead || hasFilledInkHead || hasUpperHeadMass || features.hasLowerHeadMass || features.hasStemAndKick || hasStemmedNoteRaster) {
             add([.quarter], score: 0.08, template: "filled-stem")
@@ -738,6 +844,424 @@ extension RhythmicNotationQuantizer {
         }
     }
 
+    private static func rasterTemplateGridFirstRecognitionDecision(
+        input: RhythmInkRasterInput,
+        crops: [RhythmSymbolCrop],
+        matchesByCrop: [[RhythmTemplateMatch]],
+        naturalPath: CandidatePath,
+        meter: Meter,
+        drawingFrame: CGRect,
+        includeExtendedStability: Bool
+    ) -> RhythmRecognitionDecision? {
+        guard let plan = rasterTemplateGridFirstPlan(
+            input: input,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            naturalPath: naturalPath,
+            meter: meter,
+            drawingFrame: drawingFrame
+        ) else {
+            return nil
+        }
+
+        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
+        let phrase = RhythmPhraseHypothesis(
+            source: .gridFirst,
+            primitives: rhythmInkPrimitives(from: input.strokes, drawingFrame: input.drawingFrame),
+            symbols: plan.symbols,
+            uncoveredStrokeIndices: [],
+            naturalValues: plan.values,
+            naturalUnits: targetUnits,
+            targetUnits: targetUnits,
+            passesCompendium: true
+        )
+        let exactPath = CandidatePath(
+            values: plan.values,
+            score: plan.score,
+            units: targetUnits
+        )
+        var proposal = measureProposal(
+            from: plan.candidateGroups,
+            exactPath: exactPath,
+            meter: meter,
+            includeExtendedStability: includeExtendedStability
+        )
+        if plan.requiresManualReview {
+            proposal = RhythmicNotationMeasureProposal(
+                values: proposal.values,
+                safety: .manualReview,
+                isNaturalExactFit: proposal.isNaturalExactFit
+            )
+        }
+
+        if proposal.safety == .manualReview {
+            let reviewReason = manualReviewReason(
+                for: exactPath,
+                candidateGroups: plan.candidateGroups,
+                meter: meter
+            ) ?? .ambiguousPhrase
+            return .needsReview(reviewReason, phrase, proposal)
+        }
+
+        return .commit(proposal, phrase)
+    }
+
+    private static func rasterTemplateGridFirstPlan(
+        input: RhythmInkRasterInput,
+        crops: [RhythmSymbolCrop],
+        matchesByCrop: [[RhythmTemplateMatch]],
+        naturalPath: CandidatePath,
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> RhythmGridFirstPlan? {
+        guard crops.count >= 2 else {
+            return nil
+        }
+
+        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
+        guard targetUnits > 0 else {
+            return nil
+        }
+
+        var states: [RhythmGridFirstStateKey: RhythmGridFirstState] = [
+            RhythmGridFirstStateKey(cropIndex: 0, units: 0): RhythmGridFirstState(
+                values: [],
+                candidateGroups: [],
+                groups: [],
+                score: 0,
+                maxAlignmentDiff: 0,
+                mergedCropCount: 0
+            )
+        ]
+        let maxGroupSize = min(4, crops.count)
+
+        for cropIndex in 0..<crops.count {
+            let activeStates = states.filter { $0.key.cropIndex == cropIndex }
+            guard !activeStates.isEmpty else {
+                continue
+            }
+
+            for (stateKey, state) in activeStates {
+                let remainingCrops = crops.count - cropIndex
+                let rangeLimit = min(maxGroupSize, remainingCrops)
+                for groupSize in 1...rangeLimit {
+                    let range = cropIndex..<(cropIndex + groupSize)
+                    let groupCrop = rasterTemplateCombinedCrop(
+                        crops: crops,
+                        range: range,
+                        input: input
+                    )
+                    let groupMatches = rasterTemplateGridFirstMatches(
+                        for: groupCrop,
+                        originalMatches: groupSize == 1 ? matchesByCrop[cropIndex] : nil,
+                        input: input
+                    )
+                    guard !groupMatches.isEmpty else {
+                        continue
+                    }
+
+                    for match in groupMatches {
+                        guard RhythmicNotationCompendium.supportedValues.isSuperset(of: match.values),
+                              !match.values.isEmpty else {
+                            continue
+                        }
+                        let valueUnits = match.values.reduce(0) { partialResult, value in
+                            partialResult + rhythmUnits(for: value, meter: meter)
+                        }
+                        let nextUnits = stateKey.units + valueUnits
+                        guard valueUnits > 0,
+                              nextUnits <= targetUnits,
+                              rasterTemplateCanUseGridGroup(
+                                crop: groupCrop,
+                                groupSize: groupSize,
+                                values: match.values,
+                                drawingFrame: drawingFrame
+                              ) else {
+                            continue
+                        }
+
+                        guard let alignment = rasterTemplateGridAlignment(
+                            values: match.values,
+                            crop: groupCrop,
+                            startUnits: stateKey.units,
+                            meter: meter,
+                            drawingFrame: drawingFrame
+                        ) else {
+                            continue
+                        }
+
+                        let groupingPenalty = Double(max(0, groupSize - 1)) * 0.12
+                        let matchScore = match.score + alignment.scorePenalty + groupingPenalty
+                        let candidateScore = max(0, matchScore / Double(max(1, match.values.count)))
+                        let candidateGroups = match.values.map { value in
+                            [
+                                RhythmCandidate(
+                                    value: value,
+                                    score: candidateScore,
+                                    canDriveExactFit: match.canDriveExactFit && alignment.canDriveExactFit,
+                                    canExtendAutoApplyStability: match.canExtendAutoApplyStability
+                                )
+                            ]
+                        }
+                        let nextState = RhythmGridFirstState(
+                            values: state.values + match.values,
+                            candidateGroups: state.candidateGroups + candidateGroups,
+                            groups: state.groups + [
+                                RhythmGridFirstGroup(
+                                    cropRange: range,
+                                    values: match.values,
+                                    candidateValues: Array(Set(groupMatches.flatMap(\.values))).sorted { lhs, rhs in
+                                        if lhs.wholeNoteLength != rhs.wholeNoteLength {
+                                            return lhs.wholeNoteLength < rhs.wholeNoteLength
+                                        }
+                                        return lhs.rawValue < rhs.rawValue
+                                    },
+                                    bounds: groupCrop.bounds,
+                                    strokeIndices: groupCrop.strokeIndices
+                                )
+                            ],
+                            score: state.score + matchScore,
+                            maxAlignmentDiff: max(state.maxAlignmentDiff, alignment.maxDiff),
+                            mergedCropCount: state.mergedCropCount + max(0, groupSize - 1)
+                        )
+                        let key = RhythmGridFirstStateKey(cropIndex: range.upperBound, units: nextUnits)
+                        if let existing = states[key],
+                           existing.score <= nextState.score {
+                            continue
+                        }
+                        states[key] = nextState
+                    }
+                }
+            }
+        }
+
+        guard let exactState = states[RhythmGridFirstStateKey(cropIndex: crops.count, units: targetUnits)],
+              RhythmicNotationCompendium.accepts(exactState.values, in: meter) else {
+            return nil
+        }
+
+        let reducedFragmentation = exactState.groups.count < crops.count
+            || exactState.mergedCropCount > 0
+        guard reducedFragmentation,
+              exactState.values != naturalPath.values,
+              rasterTemplateGridFirstPreservesRestIntent(
+                from: naturalPath.values,
+                to: exactState.values,
+                meter: meter
+              ) else {
+            return nil
+        }
+
+        let averageScore = exactState.score / Double(max(1, exactState.values.count))
+        let hardMaxDiff = max(CGFloat(42), drawingFrame.width * 0.13)
+        guard averageScore <= 1.05,
+              exactState.maxAlignmentDiff <= hardMaxDiff else {
+            return nil
+        }
+
+        let symbols = exactState.groups.flatMap { group -> [RhythmSymbolHypothesis] in
+            group.values.map { selectedValue in
+                RhythmSymbolHypothesis(
+                    coveredStrokeIndices: Set(group.strokeIndices),
+                    bounds: group.bounds,
+                    candidateValues: group.candidateValues,
+                    selectedValue: selectedValue
+                )
+            }
+        }
+
+        return RhythmGridFirstPlan(
+            values: exactState.values,
+            candidateGroups: exactState.candidateGroups,
+            symbols: symbols,
+            score: exactState.score,
+            maxAlignmentDiff: exactState.maxAlignmentDiff,
+            requiresManualReview: averageScore > 0.72 || exactState.maxAlignmentDiff > max(CGFloat(30), drawingFrame.width * 0.095)
+        )
+    }
+
+    private static func rasterTemplateCombinedCrop(
+        crops: [RhythmSymbolCrop],
+        range: Range<Int>,
+        input: RhythmInkRasterInput
+    ) -> RhythmSymbolCrop {
+        let selectedCrops = Array(crops[range])
+        let strokes = selectedCrops.flatMap(\.strokes)
+        let bounds = selectedCrops.reduce(into: CGRect.null) { partialResult, crop in
+            partialResult = partialResult.union(crop.bounds)
+        }
+        let strokeIndices = selectedCrops.flatMap(\.strokeIndices).sorted()
+        return RhythmSymbolCrop(
+            index: range.lowerBound,
+            strokeIndices: strokeIndices,
+            bounds: bounds,
+            normalizedBounds: input.normalizedBounds(for: bounds),
+            rasterCells: RhythmInkRasterInput.rasterCells(
+                for: strokes.flatMap(\.points),
+                in: bounds
+            ),
+            strokes: strokes
+        )
+    }
+
+    private static func rasterTemplateGridFirstMatches(
+        for crop: RhythmSymbolCrop,
+        originalMatches: [RhythmTemplateMatch]?,
+        input: RhythmInkRasterInput
+    ) -> [RhythmTemplateMatch] {
+        let matches = originalMatches ?? rasterTemplateMatches(for: crop, input: input)
+        guard !matches.isEmpty else {
+            return []
+        }
+
+        return matches.filter { match in
+            match.values.allSatisfy(RhythmicNotationCompendium.supportedValues.contains)
+        }
+    }
+
+    private static func rasterTemplateCanUseGridGroup(
+        crop: RhythmSymbolCrop,
+        groupSize: Int,
+        values: [RhythmValue],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard groupSize > 1 else {
+            return true
+        }
+
+        if values.count > 1 {
+            return true
+        }
+
+        guard values.first?.isRest == true else {
+            return false
+        }
+
+        let maxSingleEventWidth = max(CGFloat(62), drawingFrame.width * 0.19)
+        guard crop.bounds.width <= maxSingleEventWidth else {
+            return false
+        }
+
+        let sortedCrops = crop.strokes
+            .map(\.bounds)
+            .sorted { lhs, rhs in lhs.minX < rhs.minX }
+        let maxGap = zip(sortedCrops, sortedCrops.dropFirst()).map { lhs, rhs in
+            max(CGFloat(0), rhs.minX - lhs.maxX)
+        }
+        .max() ?? 0
+
+        return maxGap <= max(CGFloat(18), drawingFrame.width * 0.055)
+    }
+
+    private static func rasterTemplateGridFirstPreservesRestIntent(
+        from naturalValues: [RhythmValue],
+        to gridValues: [RhythmValue],
+        meter: Meter
+    ) -> Bool {
+        var gridSpans: [(range: Range<Int>, value: RhythmValue)] = []
+        var gridCursor = 0
+        for value in gridValues {
+            let units = rhythmUnits(for: value, meter: meter)
+            gridSpans.append((gridCursor..<(gridCursor + units), value))
+            gridCursor += units
+        }
+
+        var naturalCursor = 0
+        for value in naturalValues {
+            let units = rhythmUnits(for: value, meter: meter)
+            defer {
+                naturalCursor += units
+            }
+            guard value.isRest else {
+                continue
+            }
+            let replacement = gridSpans.first { span in
+                span.range.contains(naturalCursor)
+            }?.value
+            guard replacement?.isRest == true else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func rasterTemplateGridAlignment(
+        values: [RhythmValue],
+        crop: RhythmSymbolCrop,
+        startUnits: Int,
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> RhythmGridAlignment? {
+        let observedPositions: [CGFloat]
+        if values.count > 1 {
+            observedPositions = rasterTemplateAttackXPositions(
+                for: crop,
+                valueCount: values.count,
+                drawingFrame: drawingFrame
+            )
+        } else {
+            observedPositions = [crop.bounds.midX]
+        }
+        guard observedPositions.count == values.count else {
+            return nil
+        }
+
+        var cursorUnits = startUnits
+        var expectedPositions: [CGFloat] = []
+        for value in values {
+            expectedPositions.append(
+                rasterTemplateGridAttackX(
+                    startUnits: cursorUnits,
+                    value: value,
+                    meter: meter,
+                    drawingFrame: drawingFrame
+                )
+            )
+            cursorUnits += rhythmUnits(for: value, meter: meter)
+        }
+
+        let diffs = zip(expectedPositions, observedPositions).map { expected, observed in
+            abs(expected - observed)
+        }
+        let averageDiff = diffs.reduce(0, +) / CGFloat(max(1, diffs.count))
+        let maxDiff = diffs.max() ?? 0
+        let softTolerance = max(CGFloat(24), drawingFrame.width * 0.075)
+        let hardTolerance = max(CGFloat(58), drawingFrame.width * 0.18)
+        guard maxDiff <= hardTolerance else {
+            return nil
+        }
+
+        let overSoft = max(CGFloat(0), maxDiff - softTolerance)
+        let scorePenalty = Double(averageDiff / softTolerance) * 0.55
+            + Double(overSoft / softTolerance) * 0.9
+        return RhythmGridAlignment(
+            scorePenalty: scorePenalty,
+            maxDiff: maxDiff,
+            canDriveExactFit: maxDiff <= max(CGFloat(42), drawingFrame.width * 0.13)
+        )
+    }
+
+    private static func rasterTemplateGridAttackX(
+        startUnits: Int,
+        value: RhythmValue,
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> CGFloat {
+        let startOffset = Double(startUnits) / 8.0
+        let attackLaneLength = min(
+            max(0, value.wholeNoteLength(in: meter)),
+            meter.beatUnitWholeNoteLength
+        )
+        let attackCenterOffset = min(
+            meter.measureLengthInWholeNotes,
+            startOffset + attackLaneLength / 2
+        )
+        let fraction = meter.measureLengthInWholeNotes > 0
+            ? attackCenterOffset / meter.measureLengthInWholeNotes
+            : 0
+        return drawingFrame.minX + drawingFrame.width * CGFloat(fraction)
+    }
+
     private static func rasterTemplateAdjustedProposal(
         _ proposal: RhythmicNotationMeasureProposal,
         matchesByCrop: [[RhythmTemplateMatch]]
@@ -760,6 +1284,29 @@ extension RhythmicNotationQuantizer {
             safety: .autoApply,
             isNaturalExactFit: proposal.isNaturalExactFit
         )
+    }
+
+    private static func rasterTemplateCanPromoteDenseExactPhrase(
+        _ phrase: RhythmPhraseHypothesis
+    ) -> Bool {
+        guard phrase.isNaturalExactFit,
+              phrase.passesCompendium,
+              phrase.uncoveredStrokeIndices.isEmpty,
+              phrase.naturalValues.count > 1,
+              !phrase.naturalValues.contains(.whole),
+              !phrase.naturalValues.contains(.wholeRest) else {
+            return false
+        }
+
+        var seenCoveredStrokeSets: Set<Set<Int>> = []
+        return phrase.symbols.contains { symbol in
+            guard !symbol.coveredStrokeIndices.isEmpty,
+                  symbol.selectedValue != nil else {
+                return false
+            }
+            let inserted = seenCoveredStrokeSets.insert(symbol.coveredStrokeIndices)
+            return !inserted.inserted
+        }
     }
 
     private static func rasterTemplateCanPromoteUnderfilledExactPath(
@@ -795,6 +1342,68 @@ extension RhythmicNotationQuantizer {
         }
 
         let tolerance = max(0.35, Double(candidateGroups.count) * 0.18)
+        guard exactPath.score <= naturalPath.score + tolerance else {
+            return false
+        }
+
+        return rasterTemplateRenderComparison(
+            values: exactPath.values,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            meter: meter,
+            drawingFrame: drawingFrame
+        ).aligned
+    }
+
+    private static func rasterTemplateCanPromoteRestAnchoredOverflowExactPath(
+        _ exactPath: CandidatePath,
+        over naturalPath: CandidatePath,
+        candidateGroups: [[RhythmCandidate]],
+        crops: [RhythmSymbolCrop],
+        matchesByCrop: [[RhythmTemplateMatch]],
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> Bool {
+        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
+        guard exactPath.units == targetUnits,
+              naturalPath.units > targetUnits,
+              exactPath.values.count == naturalPath.values.count,
+              exactPath.values.count == candidateGroups.count else {
+            return false
+        }
+
+        let changedIndices = exactPath.values.indices.filter { index in
+            exactPath.values[index] != naturalPath.values[index]
+        }
+        guard changedIndices.count == 1,
+              let changedIndex = changedIndices.first,
+              changedIndex > 0,
+              exactPath.values[changedIndex - 1] == .eighthRest,
+              exactPath.values[changedIndex] == .eighth,
+              naturalPath.values[changedIndex] == .quarter
+                || naturalPath.values[changedIndex] == .dottedQuarter else {
+            return false
+        }
+
+        let selectedCandidates = zip(exactPath.values, candidateGroups).compactMap { value, candidates in
+            candidates.first { $0.value == value }
+        }
+        guard selectedCandidates.count == exactPath.values.count else {
+            return false
+        }
+
+        for (index, candidate) in selectedCandidates.enumerated() {
+            if index == changedIndex {
+                guard candidate.canExtendAutoApplyStability || candidate.isConfidentEnoughForMeasureFit,
+                      candidate.score <= 1.1 else {
+                    return false
+                }
+            } else if !candidate.isConfidentEnoughForMeasureFit {
+                return false
+            }
+        }
+
+        let tolerance = max(1.15, Double(candidateGroups.count) * 0.28)
         guard exactPath.score <= naturalPath.score + tolerance else {
             return false
         }
@@ -942,6 +1551,43 @@ extension RhythmicNotationQuantizer {
         )
     }
 
+    private static func rasterTemplateBeamedEighthValuesWithTerminalRest(
+        for crop: RhythmSymbolCrop,
+        beamedCount: Int,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        let valueCount = min(beamedCount, 4)
+        guard valueCount >= 2,
+              let trailingStroke = crop.strokes.max(by: { lhs, rhs in
+                  lhs.bounds.maxX < rhs.bounds.maxX
+              }) else {
+            return nil
+        }
+
+        let trailingBounds = trailingStroke.bounds
+        let previousMaxX = crop.strokes
+            .filter { $0 != trailingStroke }
+            .map(\.bounds.maxX)
+            .max() ?? crop.bounds.minX
+        let rightAnchored = trailingBounds.midX >= crop.bounds.minX + crop.bounds.width * 0.62
+        let separatedFromNotes = trailingBounds.minX - previousMaxX >= max(CGFloat(3), input.drawingFrame.width * 0.008)
+        let restSized = trailingBounds.height >= max(CGFloat(16), crop.bounds.height * 0.55)
+            && trailingBounds.width <= max(CGFloat(28), crop.bounds.width * 0.55)
+        let trailingSymbol = SymbolObservation(strokes: [trailingStroke])
+        let hasRestShape = trailingSymbol.eighthRestComparisonScore(in: input.sceneBounds) != nil
+            || trailingSymbol.sevenLikeEighthRestComparisonScore(in: input.sceneBounds) != nil
+            || trailingStroke.looksLikeFlexibleOneStrokeEighthRest(in: input.drawingFrame)
+
+        guard rightAnchored,
+              separatedFromNotes,
+              restSized,
+              hasRestShape else {
+            return nil
+        }
+
+        return Array(repeating: RhythmValue.eighth, count: valueCount - 1) + [.eighthRest]
+    }
+
     private static func rasterTemplateBeamedEighthCount(
         for crop: RhythmSymbolCrop,
         input: RhythmInkRasterInput
@@ -1012,6 +1658,14 @@ extension RhythmicNotationQuantizer {
         let hasFilledInkHead = symbol.strokes.contains { stroke in
             stroke.looksFilledNoteHead && !stroke.looksHollowNoteHead
         }
+        if features.hasNoNoteheadRestShape {
+            switch value {
+            case .quarter, .dottedQuarter, .eighth, .half, .dottedHalf, .whole:
+                return true
+            case .slash, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+                break
+            }
+        }
         switch value {
         case .quarter, .dottedQuarter:
             return (features.hasHollowHead || hasHollowInkHead)
@@ -1040,6 +1694,9 @@ extension RhythmicNotationQuantizer {
                         && (templateName == "forward-slash" || rasterCellsMatchForwardSlash(crop.rasterCells))
                 )
         case .eighth:
+            guard !features.hasNoNoteheadRestShape else {
+                return false
+            }
             return templateName == "filled-stem-eighth-alternative"
                 || templateName.contains("beamed")
                 || features.hasFlag
@@ -1048,11 +1705,23 @@ extension RhythmicNotationQuantizer {
             return cropHasDetachedDotEvidence(features)
         case .quarter, .half, .whole:
             return cropHasNoteGlyphEvidence(crop, features: features)
-        case .eighthRest, .quarterRest, .halfRest, .wholeRest:
+        case .eighthRest, .quarterRest:
             return true
+        case .halfRest, .wholeRest:
+            return !cropHasStemmedNoteEvidence(crop, features: features)
         case .tiedContinuation:
             return false
         }
+    }
+
+    private static func cropHasStemmedNoteEvidence(
+        _ crop: RhythmSymbolCrop,
+        features: SymbolFeatures
+    ) -> Bool {
+        features.hasStem
+            || features.hasFlag
+            || features.hasStemAndKick
+            || (features.hasHollowHead && cropHasLowerHeadMass(crop))
     }
 
     private static func cropHasNoteGlyphEvidence(
@@ -1212,7 +1881,10 @@ extension RhythmicNotationQuantizer {
     ) -> [RhythmValue]? {
         guard !crop.strokes.isEmpty,
               crop.strokes.allSatisfy({
-                  $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
+                  !$0.looksLikeQuarterRestBody(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeEighthRest(in: input.drawingFrame)
+                      && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
                       && $0.isIsolatedPlaceholderSlash(
                           among: input.strokes,
                           sceneBounds: input.sceneBounds
@@ -1309,6 +1981,43 @@ struct RhythmTemplateCandidateEvidence: Hashable {
     let score: Double
     let canDriveExactFit: Bool
     let canExtendAutoApplyStability: Bool
+}
+
+private struct RhythmGridFirstPlan: Hashable {
+    let values: [RhythmValue]
+    let candidateGroups: [[RhythmCandidate]]
+    let symbols: [RhythmSymbolHypothesis]
+    let score: Double
+    let maxAlignmentDiff: CGFloat
+    let requiresManualReview: Bool
+}
+
+private struct RhythmGridFirstStateKey: Hashable {
+    let cropIndex: Int
+    let units: Int
+}
+
+private struct RhythmGridFirstState: Hashable {
+    let values: [RhythmValue]
+    let candidateGroups: [[RhythmCandidate]]
+    let groups: [RhythmGridFirstGroup]
+    let score: Double
+    let maxAlignmentDiff: CGFloat
+    let mergedCropCount: Int
+}
+
+private struct RhythmGridFirstGroup: Hashable {
+    let cropRange: Range<Int>
+    let values: [RhythmValue]
+    let candidateValues: [RhythmValue]
+    let bounds: CGRect
+    let strokeIndices: [Int]
+}
+
+private struct RhythmGridAlignment: Hashable {
+    let scorePenalty: Double
+    let maxDiff: CGFloat
+    let canDriveExactFit: Bool
 }
 
 struct RhythmRasterCell: Hashable {

@@ -321,3 +321,139 @@ struct RhythmicNotationUniversalGuide: Hashable, Identifiable {
         primitive
     }
 }
+
+enum RhythmicNotationReferenceKind: String, Hashable {
+    case rhythm
+    case note
+    case rest
+
+    var title: String {
+        switch self {
+        case .rhythm:
+            return "Rhythm"
+        case .note:
+            return "Notes"
+        case .rest:
+            return "Rests"
+        }
+    }
+}
+
+struct RhythmicNotationReferenceEntry: Hashable, Identifiable {
+    let value: RhythmValue
+    let primitive: RhythmicNotationPrimitive
+    let kind: RhythmicNotationReferenceKind
+    let durationText: String
+    let roleText: String
+    let guide: RhythmicNotationUniversalGuide
+
+    var id: RhythmValue {
+        value
+    }
+
+    var title: String {
+        value.referenceDisplayTitle
+    }
+}
+
+enum RhythmicNotationReferenceCompendium {
+    static let rhythm: [RhythmicNotationReferenceEntry] = [
+        entry(
+            value: .slash,
+            primitive: .slash,
+            kind: .rhythm,
+            durationText: "One beat placeholder",
+            roleText: "Use for slash notation and rhythm-section beat slots."
+        )
+    ]
+
+    static let notes: [RhythmicNotationReferenceEntry] = [
+        entry(value: .whole, primitive: .wholeNote, kind: .note, durationText: "4 beats in 4/4"),
+        entry(value: .dottedHalf, primitive: .dottedHalfNote, kind: .note, durationText: "3 beats in 4/4"),
+        entry(value: .half, primitive: .halfNote, kind: .note, durationText: "2 beats in 4/4"),
+        entry(value: .dottedQuarter, primitive: .dottedQuarterNote, kind: .note, durationText: "1.5 beats in 4/4"),
+        entry(value: .quarter, primitive: .quarterNote, kind: .note, durationText: "1 beat in 4/4"),
+        entry(value: .eighth, primitive: .eighthNote, kind: .note, durationText: "Half beat in 4/4")
+    ]
+
+    static let rests: [RhythmicNotationReferenceEntry] = [
+        entry(value: .wholeRest, primitive: .wholeRest, kind: .rest, durationText: "4 beats of silence in 4/4"),
+        entry(value: .halfRest, primitive: .halfRest, kind: .rest, durationText: "2 beats of silence in 4/4"),
+        entry(value: .quarterRest, primitive: .quarterRest, kind: .rest, durationText: "1 beat of silence in 4/4"),
+        entry(value: .eighthRest, primitive: .eighthRest, kind: .rest, durationText: "Half beat of silence in 4/4")
+    ]
+
+    static let all: [RhythmicNotationReferenceEntry] = rhythm + notes + rests
+
+    private static func entry(
+        value: RhythmValue,
+        primitive: RhythmicNotationPrimitive,
+        kind: RhythmicNotationReferenceKind,
+        durationText: String,
+        roleText: String? = nil
+    ) -> RhythmicNotationReferenceEntry {
+        guard let guide = primitive.universalGuide else {
+            preconditionFailure("Missing rhythm guide for \(primitive.rawValue)")
+        }
+
+        return RhythmicNotationReferenceEntry(
+            value: value,
+            primitive: primitive,
+            kind: kind,
+            durationText: durationText,
+            roleText: roleText ?? defaultRoleText(for: kind),
+            guide: guide
+        )
+    }
+
+    private static func defaultRoleText(for kind: RhythmicNotationReferenceKind) -> String {
+        switch kind {
+        case .rhythm:
+            return "Use as a rhythmic placeholder."
+        case .note:
+            return "Use as a sounded rhythm value."
+        case .rest:
+            return "Use as a silent rhythm value."
+        }
+    }
+}
+
+extension RhythmValue {
+    var referenceDisplayTitle: String {
+        switch self {
+        case .slash:
+            return "Slash"
+        case .eighth:
+            return "Eighth Note"
+        case .eighthRest:
+            return "Eighth Rest"
+        case .quarter:
+            return "Quarter Note"
+        case .quarterRest:
+            return "Quarter Rest"
+        case .dottedQuarter:
+            return "Dotted Quarter Note"
+        case .half:
+            return "Half Note"
+        case .halfRest:
+            return "Half Rest"
+        case .dottedHalf:
+            return "Dotted Half Note"
+        case .whole:
+            return "Whole Note"
+        case .wholeRest:
+            return "Whole Rest"
+        case .tiedContinuation:
+            return "Tie"
+        }
+    }
+
+    var isDottedReferenceValue: Bool {
+        switch self {
+        case .dottedQuarter, .dottedHalf:
+            return true
+        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+            return false
+        }
+    }
+}

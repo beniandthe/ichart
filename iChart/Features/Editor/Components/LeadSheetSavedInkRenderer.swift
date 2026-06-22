@@ -26,7 +26,10 @@ enum LeadSheetSavedInkRenderer {
     }
 
     static func drawRhythmicNotationInk(_ drawingData: Data?, in measureLayout: LeadSheetMeasureLayout) {
-        drawInk(drawingData, in: measureLayout.writableFrame)
+        drawInk(
+            drawingData,
+            in: LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(for: measureLayout)
+        )
     }
 
     static func drawFreehandSymbols(_ symbolLayouts: [LeadSheetFreehandSymbolLayout]) {

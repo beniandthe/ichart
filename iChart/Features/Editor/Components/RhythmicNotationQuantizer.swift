@@ -120,20 +120,18 @@ enum RhythmicNotationQuantizer {
             return .keepWriting(.noInk, nil)
         }
 
-        if let rasterTemplateDecision = rasterTemplateRecognitionDecision(
+        let rasterTemplateDecision = rasterTemplateRecognitionDecision(
             strokeObservations: strokeObservations,
             meter: meter,
             drawingFrame: drawingFrame,
             includeExtendedStability: includeExtendedStability
-        ) {
-            return rasterTemplateDecision
-        }
+        )
 
-        if let visualRecognition = VisualRhythmRecognizer.recognition(
+        let visualDecision = VisualRhythmRecognizer.recognition(
             from: strokeObservations,
             drawingFrame: drawingFrame
-        ) {
-            return visualRecognitionDecision(
+        ).map { visualRecognition in
+            visualRecognitionDecision(
                 recognition: visualRecognition,
                 strokeObservations: strokeObservations,
                 primitives: primitives,
@@ -143,11 +141,76 @@ enum RhythmicNotationQuantizer {
             )
         }
 
-        return legacyFallbackRecognitionDecision(
+        let legacyDecision = legacyFallbackRecognitionDecision(
             strokeObservations: strokeObservations,
             primitives: primitives,
             meter: meter,
             drawingFrame: drawingFrame
+        )
+
+        let reasoningPaths = [
+            rasterTemplateDecision?.reasoningPath(kind: .rasterTemplate),
+            visualDecision?.reasoningPath(kind: .visualShape),
+            legacyDecision.reasoningPath(kind: .legacyFallback)
+        ].compactMap { $0 }
+
+        let selectedDecision = rasterTemplateDecision ?? visualDecision ?? legacyDecision
+        let contextCheckedDecision = decisionByApplyingContextRules(
+            selectedDecision,
+            meter: meter
+        )
+        let contextPath = contextReasoningPath(
+            for: contextCheckedDecision,
+            meter: meter
+        )
+        return contextCheckedDecision.addingReasoningPaths(reasoningPaths + [contextPath])
+    }
+
+    private static func decisionByApplyingContextRules(
+        _ decision: RhythmRecognitionDecision,
+        meter: Meter
+    ) -> RhythmRecognitionDecision {
+        guard let proposal = decision.proposal,
+              RhythmRecognitionContextRules.hasProtectedBeamableBoundary(
+                in: proposal.values,
+                meter: meter
+              ) else {
+            return decision
+        }
+
+        let reviewProposal = RhythmicNotationMeasureProposal(
+            values: proposal.values,
+            safety: .manualReview,
+            isNaturalExactFit: proposal.isNaturalExactFit
+        )
+        return .needsReview(.manualReview, decision.phrase, reviewProposal)
+    }
+
+    private static func contextReasoningPath(
+        for decision: RhythmRecognitionDecision,
+        meter: Meter
+    ) -> RhythmRecognitionReasoningPath {
+        let values = decision.proposal?.values ?? decision.phrase?.naturalValues ?? []
+        guard !values.isEmpty else {
+            return RhythmRecognitionReasoningPath(
+                kind: .contextRules,
+                outcome: .unavailable,
+                values: [],
+                reason: decision.reason,
+                summary: "context=unavailable"
+            )
+        }
+
+        let isBlocked = RhythmRecognitionContextRules.hasProtectedBeamableBoundary(
+            in: values,
+            meter: meter
+        )
+        return RhythmRecognitionReasoningPath(
+            kind: .contextRules,
+            outcome: isBlocked ? .blocked : .commitCandidate,
+            values: values,
+            reason: isBlocked ? .manualReview : nil,
+            summary: isBlocked ? "context=protectedMeterBoundary" : "context=ok"
         )
     }
 
@@ -366,20 +429,18 @@ enum RhythmicNotationQuantizer {
             return false
         }
 
-        let closeClusterGap = max(CGFloat(18), min(CGFloat(32), drawingFrame.width * 0.09))
         for (lhs, rhs) in zip(selectedSymbols, selectedSymbols.dropFirst()) {
             guard lhs.value.isRest != rhs.value.isRest else {
                 continue
             }
 
-            let horizontalGap = max(
-                CGFloat(0),
-                max(lhs.bounds.minX, rhs.bounds.minX) - min(lhs.bounds.maxX, rhs.bounds.maxX)
-            )
+            let horizontalOverlap = min(lhs.bounds.maxX, rhs.bounds.maxX)
+                - max(lhs.bounds.minX, rhs.bounds.minX)
             let verticalOverlap = min(lhs.bounds.maxY, rhs.bounds.maxY) - max(lhs.bounds.minY, rhs.bounds.minY)
-            let verticalTolerance = max(lhs.bounds.height, rhs.bounds.height) * 0.42
-            let verticallyRelated = verticalOverlap >= -verticalTolerance
-            if horizontalGap <= closeClusterGap && verticallyRelated {
+            let verticalOverlapRatio = verticalOverlap / max(CGFloat(1), min(lhs.bounds.height, rhs.bounds.height))
+            let collisionTolerance = max(CGFloat(2), min(CGFloat(5), drawingFrame.width * 0.012))
+            let symbolsCollide = horizontalOverlap >= -collisionTolerance
+            if symbolsCollide && verticalOverlapRatio >= 0.35 {
                 return true
             }
         }
@@ -416,6 +477,7 @@ enum RhythmicNotationQuantizer {
                 ) {
                 kind = .beam
             } else if stroke.looksLikeQuarterRestBody(in: sceneBounds)
+                || stroke.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
                 || stroke.looksLikeSingleStrokeEighthRest(in: sceneBounds)
                 || stroke.looksLikeEighthRestHook(in: sceneBounds) {
                 kind = .restShape
@@ -500,7 +562,7 @@ enum RhythmicNotationQuantizer {
         let symbolGroups = groupedSymbols(from: strokeObservations, drawingFrame: drawingFrame)
         var candidateGroups: [[RhythmCandidate]] = []
         for (index, group) in symbolGroups.enumerated() {
-            if let slashGroups = slashCandidateGroups(for: group) {
+            if let slashGroups = slashCandidateGroups(for: group, drawingFrame: drawingFrame) {
                 candidateGroups.append(contentsOf: slashGroups)
                 continue
             }
@@ -988,12 +1050,6 @@ enum RhythmicNotationQuantizer {
         _ symbol: SymbolObservation,
         drawingFrame: CGRect
     ) -> [RhythmCandidate] {
-        if looksLikeRhythmSlash(symbol) {
-            return [
-                RhythmCandidate(value: .slash, score: 0.0)
-            ]
-        }
-
         let features = SymbolFeatures(symbol: symbol, drawingFrame: drawingFrame)
         guard !features.contentStrokes.isEmpty else {
             return []
@@ -1030,6 +1086,12 @@ enum RhythmicNotationQuantizer {
                 }
         }
 
+        if looksLikeRhythmSlash(symbol, drawingFrame: drawingFrame) {
+            return [
+                RhythmCandidate(value: .slash, score: 0.0)
+            ]
+        }
+
         if looksLikeWholeRest(features) {
             add(.wholeRest, score: 0.05)
             add(.halfRest, score: 0.9)
@@ -1046,7 +1108,8 @@ enum RhythmicNotationQuantizer {
                 add(.quarter, score: features.hasDot ? 1.8 : 1.25)
             }
 
-            if features.hasDot {
+            if features.hasDot,
+               !features.hasFlag {
                 if features.hasHollowHead && !features.hasFilledHead {
                     add(.dottedHalf, score: 0.02)
                     add(.dottedQuarter, score: 0.5)
@@ -1066,7 +1129,8 @@ enum RhythmicNotationQuantizer {
                 add(.quarter, score: 0.75)
             }
 
-            if features.hasFilledHead || features.hasLowerHeadMass || features.hasStemAndKick {
+            if !features.hasHollowHead,
+               features.hasFilledHead || features.hasLowerHeadMass || features.hasStemAndKick {
                 add(.quarter, score: features.hasDot ? 1.6 : 0.05)
                 add(.half, score: 0.9)
             }
@@ -1110,9 +1174,26 @@ enum RhythmicNotationQuantizer {
             candidateScores[value] = clampedScore
         }
 
+        if features.contentStrokes.count == 1,
+           let stroke = features.contentStrokes.first,
+           stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame),
+           !stroke.looksFilledNoteHead {
+            add(.eighthRest, score: 0.0)
+            add(.quarterRest, score: 1.35)
+        }
+
+        if looksLikeEighthRest(features) {
+            add(.eighthRest, score: 0.0)
+            add(.quarterRest, score: 1.35)
+        }
+
         let hasQuarterRestBody = features.contentStrokes.contains {
             $0.looksLikeQuarterRestBody(in: features.contentBounds)
         }
+        let hasOneStrokeQuarterRestGesture = features.contentStrokes.count == 1
+            && features.contentStrokes.contains {
+                $0.looksLikeFlexibleOneStrokeQuarterRest(in: features.contentBounds)
+            }
         let hasFullZigZagRestGesture = features.contentStrokes.count == 1
             && features.contentStrokes.contains { stroke in
                 stroke.directionChangeCount >= 3
@@ -1120,7 +1201,7 @@ enum RhythmicNotationQuantizer {
             }
         let isSevenLikeEighthRest = symbol.sevenLikeEighthRestComparisonScore(in: features.contentBounds) != nil
         if looksLikeQuarterRest(features),
-           hasQuarterRestBody || hasFullZigZagRestGesture || !isSevenLikeEighthRest {
+           hasQuarterRestBody || hasOneStrokeQuarterRestGesture || hasFullZigZagRestGesture || !isSevenLikeEighthRest {
             add(.quarterRest, score: 0.0)
             add(.eighthRest, score: 1.35)
         }
@@ -1176,6 +1257,12 @@ enum RhythmicNotationQuantizer {
             candidateScores[value] = score
         }
 
+        if features.hasNoNoteheadRestShape {
+            add(.eighthRest, score: 0.0)
+            add(.quarterRest, score: 1.35)
+            return
+        }
+
         if features.hasSingleStrokeFlagGesture {
             add(.eighth, score: 0.65)
             add(.quarter, score: 1.25)
@@ -1196,18 +1283,28 @@ enum RhythmicNotationQuantizer {
         }
     }
 
-    private static func looksLikeRhythmSlash(_ symbol: SymbolObservation) -> Bool {
+    private static func looksLikeRhythmSlash(_ symbol: SymbolObservation, drawingFrame: CGRect) -> Bool {
         guard symbol.strokes.count == 1,
               let stroke = symbol.strokes.first else {
+            return false
+        }
+        guard !stroke.looksLikeQuarterRestBody(in: symbol.bounds),
+              !stroke.looksLikeFlexibleOneStrokeQuarterRest(in: symbol.bounds),
+              !stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame) else {
             return false
         }
 
         return stroke.looksLikeRhythmicPlaceholderSlash(in: symbol.bounds)
     }
 
-    private static func slashCandidateGroups(for symbol: SymbolObservation) -> [[RhythmCandidate]]? {
+    private static func slashCandidateGroups(for symbol: SymbolObservation, drawingFrame: CGRect) -> [[RhythmCandidate]]? {
         guard !symbol.strokes.isEmpty,
-              symbol.strokes.allSatisfy({ $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds) }) else {
+              symbol.strokes.allSatisfy({
+                  !$0.looksLikeQuarterRestBody(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
+                      && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
+              }) else {
             return nil
         }
 
@@ -1225,6 +1322,12 @@ enum RhythmicNotationQuantizer {
         }
 
         if features.contentStrokes.contains(where: { $0.looksLikeQuarterRestBody(in: features.contentBounds) }) {
+            return true
+        }
+
+        if features.contentStrokes.count == 1,
+           let stroke = features.contentStrokes.first,
+           stroke.looksLikeFlexibleOneStrokeQuarterRest(in: features.contentBounds) {
             return true
         }
 
@@ -1250,6 +1353,16 @@ enum RhythmicNotationQuantizer {
             return false
         }
 
+        if features.hasNoNoteheadRestShape {
+            return true
+        }
+
+        if features.contentStrokes.count == 1,
+           let stroke = features.contentStrokes.first,
+           stroke.looksLikeFlexibleOneStrokeEighthRest(in: features.drawingFrame) {
+            return true
+        }
+
         let upperDots = features.contentStrokes.filter {
             $0.looksLikeEighthRestDot(in: features.contentBounds)
         }
@@ -1269,6 +1382,8 @@ enum RhythmicNotationQuantizer {
 
     private static func looksLikeWholeRest(_ features: SymbolFeatures) -> Bool {
         guard features.width > features.height * 1.05,
+              !features.hasStem,
+              !features.hasStemAndKick,
               !features.hasFlag,
               !features.hasHollowHead else {
             return false
@@ -1285,6 +1400,9 @@ enum RhythmicNotationQuantizer {
 
     private static func looksLikeHalfRest(_ features: SymbolFeatures) -> Bool {
         guard features.width > max(8, features.height * 1.05),
+              !features.hasStem,
+              !features.hasStemAndKick,
+              !features.hasFlag,
               !features.hasHollowHead,
               !features.contentStrokes.contains(where: \.looksDense) else {
             return false
@@ -1358,7 +1476,7 @@ struct StrokeObservation: Hashable {
         let ovalish = ratio > 0.45 && ratio < 2.5
         let outlineLike = pathLength >= (bounds.width + bounds.height) * 0.75
             && pathLength <= (bounds.width + bounds.height) * 2.8
-        let sparseOutline = pathLength <= (bounds.width + bounds.height) * 1.65
+        let sparseOutline = pathLength <= (bounds.width + bounds.height) * 1.8
 
         return bounds.width > 5
             && bounds.height > 5
@@ -1371,10 +1489,11 @@ struct StrokeObservation: Hashable {
     var looksFilledNoteHead: Bool {
         let ratio = bounds.width / max(1, bounds.height)
         let ovalish = ratio > 0.45 && ratio < 2.5
+        let sparseOutline = pathLength <= (bounds.width + bounds.height) * 1.8
         return bounds.width > 4
             && bounds.height > 4
             && ovalish
-            && (looksDense || hasInteriorFillGesture)
+            && (looksDense || (hasInteriorFillGesture && !sparseOutline))
     }
 
     var looksLikeSingleStrokeEighthNote: Bool {
@@ -1433,8 +1552,8 @@ struct StrokeObservation: Hashable {
         let narrowEnough = bounds.width <= max(referenceBounds.width * 1.05, bounds.height * 1.35)
         let spansBody = bounds.minY <= referenceBounds.minY + referenceHeight * 0.24
             && bounds.maxY >= referenceBounds.maxY - referenceHeight * 0.18
+        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.18)
         let hasHandwrittenZigZag = directionChangeCount >= 2
-            || (directionChangeCount >= 1 && pathLength >= bounds.height * 1.12)
             || (bounds.width <= bounds.height * 0.5 && pathLength >= bounds.height * 1.08)
         let restShaped = bounds.height > bounds.width * 0.72 || directionChangeCount >= 2
         let upperHookSuggestsEighthRest = hasHorizontalUpperHook && directionChangeCount <= 2
@@ -1442,10 +1561,77 @@ struct StrokeObservation: Hashable {
         return coversRestHeight
             && narrowEnough
             && spansBody
+            && drawnDownward
             && hasHandwrittenZigZag
             && restShaped
             && !upperHookSuggestsEighthRest
             && !looksClosed
+    }
+
+    func looksLikeFlexibleOneStrokeQuarterRest(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let diagonalSpan = hypot(bounds.width, bounds.height)
+        let horizontalDirections = zip(points, points.dropFirst()).compactMap { segment -> Int? in
+            let deltaX = segment.1.x - segment.0.x
+            guard abs(deltaX) >= 0.75 else {
+                return nil
+            }
+            return deltaX > 0 ? 1 : -1
+        }
+        let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
+            .filter { $0 != $1 }
+            .count
+        let coversRestHeight = bounds.height >= max(CGFloat(18), referenceHeight * 0.62)
+        let narrowEnough = bounds.width <= max(CGFloat(18), bounds.height * 0.48)
+        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.22)
+        let hasRestMotion = directionChangeCount >= 2
+            || horizontalTurnCount >= 2
+            || (directionChangeCount >= 1 && pathLength >= diagonalSpan * 1.12)
+        let moreThanStraightStroke = pathLength >= max(bounds.height * 1.02, diagonalSpan * 1.02)
+            || horizontalTurnCount >= 2
+        let upperHookSuggestsEighthRest = hasHorizontalUpperHook && directionChangeCount <= 2
+
+        return coversRestHeight
+            && narrowEnough
+            && drawnDownward
+            && hasRestMotion
+            && moreThanStraightStroke
+            && !upperHookSuggestsEighthRest
+            && !looksClosed
+            && !looksDense
+            && !looksFilledNoteHead
+            && !looksHollowNoteHead
+    }
+
+    func looksLikeFlexibleOneStrokeEighthRest(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let diagonalSpan = hypot(bounds.width, bounds.height)
+        let horizontalDirections = zip(points, points.dropFirst()).compactMap { segment -> Int? in
+            let deltaX = segment.1.x - segment.0.x
+            guard abs(deltaX) >= 0.65 else {
+                return nil
+            }
+            return deltaX > 0 ? 1 : -1
+        }
+        let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
+            .filter { $0 != $1 }
+            .count
+        let compactHeight = bounds.height >= max(CGFloat(14), referenceHeight * 0.15)
+            && bounds.height <= max(CGFloat(36), referenceHeight * 0.48)
+        let narrowEnough = bounds.width <= max(CGFloat(18), bounds.height * 0.62)
+        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(5), bounds.height * 0.18)
+        let hasOneZig = directionChangeCount >= 1
+            || horizontalTurnCount >= 1
+            || pathLength >= diagonalSpan * 1.08
+        let notQuarterRestSize = bounds.height < max(CGFloat(42), referenceHeight * 0.56)
+
+        return compactHeight
+            && narrowEnough
+            && drawnDownward
+            && hasOneZig
+            && notQuarterRestSize
+            && !looksClosed
+            && !looksHollowNoteHead
     }
 
     func looksLikeQuarterRestSegment(in referenceBounds: CGRect) -> Bool {
@@ -1569,12 +1755,14 @@ struct StrokeObservation: Hashable {
         let upwardTravel = max(CGFloat(0), leftPoint.y - rightPoint.y)
         let axisAngle = atan2(upwardTravel, max(CGFloat(0.001), horizontalTravel)) * 180 / .pi
         let diagonalSpan = hypot(bounds.width, bounds.height)
+        let straightEnough = pathLength <= max(diagonalSpan * 2.0, diagonalSpan + 14)
 
         return axisAngle >= 10
             && axisAngle <= 80
             && horizontalTravel >= 4
             && upwardTravel >= 4
             && diagonalSpan >= 8
+            && straightEnough
             && !looksClosed
             && !looksDense
     }
@@ -1822,7 +2010,10 @@ private struct VisualRhythmRecognizer {
                 .compactMap { strokes -> (symbol: SymbolObservation, score: CGFloat)? in
                     let symbol = SymbolObservation(strokes: strokes)
                     guard !symbol.strokes.allSatisfy({
-                        $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
+                        !$0.looksLikeQuarterRestBody(in: $0.bounds)
+                            && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
+                            && !$0.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
+                            && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
                             && $0.isIsolatedPlaceholderSlash(
                                 among: availableStrokes,
                                 sceneBounds: sceneBounds
@@ -2032,6 +2223,9 @@ private struct VisualRhythmRecognizer {
         strokes
             .filter { stroke in
                 !usedStrokes.contains(stroke)
+                    && !stroke.looksLikeQuarterRestBody(in: stroke.bounds)
+                    && !stroke.looksLikeFlexibleOneStrokeQuarterRest(in: stroke.bounds)
+                    && !stroke.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
                     && stroke.looksLikeRhythmicPlaceholderSlash(in: stroke.bounds)
                     && stroke.isIsolatedPlaceholderSlash(among: strokes, sceneBounds: sceneBounds)
             }
@@ -2084,13 +2278,6 @@ private struct VisualRhythmRecognizer {
     ) -> [RhythmCandidate]? {
         let hasDot = dot != nil
         if let stem {
-            if flag != nil || stem.looksLikeSingleStrokeEighthNote {
-                return [
-                    RhythmCandidate(value: .eighth, score: 0.0),
-                    RhythmCandidate(value: .quarter, score: 1.2)
-                ]
-            }
-
             if hasDot {
                 if notehead.isHollow {
                     return [
@@ -2111,6 +2298,13 @@ private struct VisualRhythmRecognizer {
                 return [
                     RhythmCandidate(value: .half, score: 0.0),
                     RhythmCandidate(value: .quarter, score: 0.9)
+                ]
+            }
+
+            if flag != nil || stem.looksLikeSingleStrokeEighthNote {
+                return [
+                    RhythmCandidate(value: .eighth, score: 0.0),
+                    RhythmCandidate(value: .quarter, score: 1.2)
                 ]
             }
 
@@ -2642,6 +2836,19 @@ extension SymbolObservation {
         }
     }
 
+    func containsNoteheadSizedMass(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        return strokes.contains { stroke in
+            let noteheadSized = stroke.bounds.width >= max(CGFloat(8), referenceHeight * 0.09)
+                && stroke.bounds.height >= max(CGFloat(7), referenceHeight * 0.07)
+            let roundedMass = stroke.looksFilledNoteHead
+                || stroke.looksHollowNoteHead
+                || stroke.looksClosed
+
+            return noteheadSized && roundedMass
+        }
+    }
+
     func beamedEighthNoteCount(drawingFrame: CGRect) -> Int {
         guard strokes.count >= 3 else {
             return 0
@@ -2832,6 +3039,10 @@ extension Array where Element == [StrokeObservation] {
 
     func splittingCompoundStemmedSymbols(drawingFrame: CGRect) -> [[StrokeObservation]] {
         flatMap { group -> [[StrokeObservation]] in
+            if let splitGroups = group.splittingLeadingRestFromFollowingNote(drawingFrame: drawingFrame) {
+                return splitGroups
+            }
+
             if SymbolObservation(strokes: group).isSelfContainedBeamedEighthRun(drawingFrame: drawingFrame) {
                 return [group]
             }
@@ -3130,6 +3341,7 @@ extension StrokeObservation {
 
 struct SymbolFeatures {
     let symbol: SymbolObservation
+    let drawingFrame: CGRect
     let contentStrokes: [StrokeObservation]
     let dotStrokes: [StrokeObservation]
     let contentBounds: CGRect
@@ -3139,6 +3351,7 @@ struct SymbolFeatures {
 
     init(symbol: SymbolObservation, drawingFrame: CGRect) {
         self.symbol = symbol
+        self.drawingFrame = drawingFrame
         let initialBody = symbol.strokes.filter { stroke in
             let relaxedDotSize = stroke.bounds.width <= max(14, symbol.bounds.width * 0.36)
                 && stroke.bounds.height <= max(14, symbol.bounds.height * 0.36)
@@ -3321,9 +3534,95 @@ struct SymbolFeatures {
             return separatedLowerBody && noteheadSized && ovalOrDenseHead
         }
     }
+
+    var hasNoNoteheadRestShape: Bool {
+        guard !hasDefiniteLowerNotehead,
+              !hasClearNoteGlyph,
+              !hasFilledHead,
+              !hasHollowHead,
+              !hasLowerHeadMass else {
+            return false
+        }
+
+        let hasQuarterRestBody = contentStrokes.contains { stroke in
+            stroke.looksLikeQuarterRestBody(in: contentBounds)
+                || stroke.looksLikeFlexibleOneStrokeQuarterRest(in: contentBounds)
+        }
+        guard !hasQuarterRestBody else {
+            return false
+        }
+
+        if symbol.eighthRestComparisonScore(in: drawingFrame) != nil
+            || symbol.sevenLikeEighthRestComparisonScore(in: drawingFrame) != nil {
+            return true
+        }
+
+        return contentStrokes.contains { stroke in
+            (
+                stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
+                    || stroke.looksLikeSingleStrokeEighthRest(in: drawingFrame)
+            )
+            && !stroke.looksFilledNoteHead
+        }
+    }
 }
 
 extension Array where Element == StrokeObservation {
+    fileprivate func splittingLeadingRestFromFollowingNote(drawingFrame: CGRect) -> [[StrokeObservation]]? {
+        let sortedGroup = sortedByVisualPosition()
+        guard sortedGroup.count >= 3 else {
+            return nil
+        }
+
+        let maxPrefixCount = Swift.min(3, sortedGroup.count - 1)
+        for prefixCount in stride(from: maxPrefixCount, through: 1, by: -1) {
+            let prefix = Array(sortedGroup.prefix(prefixCount))
+            let remaining = Array(sortedGroup.dropFirst(prefixCount))
+            guard let prefixBounds = prefix.nonEmptyBounds,
+                  let remainingBounds = remaining.nonEmptyBounds,
+                  prefixBounds.midX < remainingBounds.midX,
+                  remaining.hasNoteheadBackedNoteEvidence(drawingFrame: drawingFrame),
+                  prefix.looksLikeContextualLeadingEighthRest(drawingFrame: drawingFrame) else {
+                continue
+            }
+
+            return [prefix, remaining]
+        }
+
+        return nil
+    }
+
+    fileprivate func hasNoteheadBackedNoteEvidence(drawingFrame: CGRect) -> Bool {
+        let symbol = SymbolObservation(strokes: self)
+        let features = SymbolFeatures(symbol: symbol, drawingFrame: drawingFrame)
+        return features.hasStem
+            && (
+                features.hasClearNoteGlyph
+                    || features.hasFilledHead
+                    || features.hasHollowHead
+                    || features.hasLowerHeadMass
+                    || features.hasStemAndKick
+            )
+    }
+
+    func looksLikeContextualLeadingEighthRest(drawingFrame: CGRect) -> Bool {
+        if let restCandidate = RhythmicNotationQuantizer.visualRestCandidates(
+            for: SymbolObservation(strokes: self),
+            drawingFrame: drawingFrame
+        )?.first,
+           restCandidate.value == .eighthRest,
+           restCandidate.score <= 0.35 {
+            return true
+        }
+
+        guard count == 1,
+              let stroke = first else {
+            return false
+        }
+
+        return stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
+    }
+
     func isLooseNoteheadOnly(drawingFrame: CGRect) -> Bool {
         guard let bounds = nonEmptyBounds,
               !isEmpty,

@@ -69,9 +69,33 @@ struct RhythmInkPrimitive: Hashable {
 }
 
 enum RhythmPhraseSource: String, Hashable {
+    case gridFirst
     case rasterTemplate
     case visual
     case legacyFallback
+}
+
+enum RhythmRecognitionReasoningPathKind: String, Hashable {
+    case rasterTemplate
+    case visualShape
+    case legacyFallback
+    case contextRules
+}
+
+enum RhythmRecognitionReasoningPathOutcome: String, Hashable {
+    case commitCandidate
+    case keepWriting
+    case needsReview
+    case blocked
+    case unavailable
+}
+
+struct RhythmRecognitionReasoningPath: Hashable {
+    let kind: RhythmRecognitionReasoningPathKind
+    let outcome: RhythmRecognitionReasoningPathOutcome
+    let values: [RhythmValue]
+    let reason: RhythmRecognitionReason?
+    let summary: String
 }
 
 struct RhythmSymbolHypothesis: Hashable {
@@ -90,9 +114,16 @@ struct RhythmPhraseHypothesis: Hashable {
     let naturalUnits: Int
     let targetUnits: Int
     let passesCompendium: Bool
+    var reasoningPaths: [RhythmRecognitionReasoningPath] = []
 
     var isNaturalExactFit: Bool {
         naturalUnits == targetUnits && passesCompendium
+    }
+
+    func withReasoningPaths(_ reasoningPaths: [RhythmRecognitionReasoningPath]) -> RhythmPhraseHypothesis {
+        var copy = self
+        copy.reasoningPaths = reasoningPaths
+        return copy
     }
 }
 
@@ -132,6 +163,46 @@ enum RhythmRecognitionDecision: Hashable {
         case .needsReview(let reason, _, _):
             return reason
         }
+    }
+
+    func addingReasoningPaths(_ reasoningPaths: [RhythmRecognitionReasoningPath]) -> RhythmRecognitionDecision {
+        switch self {
+        case .commit(let proposal, let phrase):
+            return .commit(proposal, phrase.withReasoningPaths(reasoningPaths))
+        case .keepWriting(let reason, let phrase):
+            return .keepWriting(reason, phrase?.withReasoningPaths(reasoningPaths))
+        case .needsReview(let reason, let phrase, let proposal):
+            return .needsReview(reason, phrase?.withReasoningPaths(reasoningPaths), proposal)
+        }
+    }
+
+    func reasoningPath(kind: RhythmRecognitionReasoningPathKind) -> RhythmRecognitionReasoningPath {
+        let outcome: RhythmRecognitionReasoningPathOutcome
+        switch self {
+        case .commit:
+            outcome = .commitCandidate
+        case .keepWriting:
+            outcome = .keepWriting
+        case .needsReview:
+            outcome = .needsReview
+        }
+
+        return RhythmRecognitionReasoningPath(
+            kind: kind,
+            outcome: outcome,
+            values: proposal?.values ?? phrase?.naturalValues ?? [],
+            reason: reason,
+            summary: diagnosticSummary
+        )
+    }
+
+    private var diagnosticSummary: String {
+        let valueText = (proposal?.values ?? phrase?.naturalValues ?? [])
+            .map(\.rawValue)
+            .joined(separator: ",")
+        let reasonText = reason?.rawValue ?? "none"
+        let sourceText = phrase?.source.rawValue ?? "none"
+        return "source=\(sourceText) reason=\(reasonText) values=\(valueText)"
     }
 }
 
