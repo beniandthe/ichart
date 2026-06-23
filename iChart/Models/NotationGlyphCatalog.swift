@@ -8,6 +8,10 @@ enum NotationGlyphCatalog {
         case noteheadWhole
         case noteheadHalf
         case noteheadBlack
+        case noteWhole
+        case noteHalfUp
+        case noteQuarterUp
+        case note8thUp
         case slashNotehead
         case slashWholeNotehead
         case slashHalfNotehead
@@ -30,6 +34,10 @@ enum NotationGlyphCatalog {
     static let noteheadWhole = "\u{E0A2}"
     static let noteheadHalf = "\u{E0A3}"
     static let noteheadBlack = "\u{E0A4}"
+    static let noteWhole = "\u{E1D2}"
+    static let noteHalfUp = "\u{E1D3}"
+    static let noteQuarterUp = "\u{E1D5}"
+    static let note8thUp = "\u{E1D7}"
     static let slashNotehead = "\u{E100}"
     static let slashWholeNotehead = "\u{E102}"
     static let slashHalfNotehead = "\u{E103}"
@@ -66,6 +74,14 @@ enum NotationGlyphCatalog {
             return noteheadHalf
         case .noteheadBlack:
             return noteheadBlack
+        case .noteWhole:
+            return noteWhole
+        case .noteHalfUp:
+            return noteHalfUp
+        case .noteQuarterUp:
+            return noteQuarterUp
+        case .note8thUp:
+            return note8thUp
         case .slashNotehead:
             return slashNotehead
         case .slashWholeNotehead:
@@ -115,6 +131,12 @@ enum NotationGlyphCatalog {
             return 2.57
         case .noteheadWhole, .noteheadHalf, .noteheadBlack:
             return 2.19
+        case .noteWhole:
+            return 2.52
+        case .noteHalfUp, .noteQuarterUp:
+            return 4.9
+        case .note8thUp:
+            return 5.05
         case .slashNotehead, .slashWholeNotehead, .slashHalfNotehead:
             return 2.29
         case .augmentationDot:
@@ -150,6 +172,14 @@ extension NotationGlyphCatalog.Symbol {
             return "noteheadHalf"
         case .noteheadBlack:
             return "noteheadBlack"
+        case .noteWhole:
+            return "noteWhole"
+        case .noteHalfUp:
+            return "noteHalfUp"
+        case .noteQuarterUp:
+            return "noteQuarterUp"
+        case .note8thUp:
+            return "note8thUp"
         case .slashNotehead:
             return "noteheadSlashVerticalEnds"
         case .slashWholeNotehead:

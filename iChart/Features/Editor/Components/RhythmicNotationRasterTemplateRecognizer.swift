@@ -226,23 +226,25 @@ extension RhythmicNotationQuantizer {
             meter: meter
         )
 
-        if let gridFirstDecision = rasterTemplateGridFirstRecognitionDecision(
-            input: input,
-            crops: crops,
-            matchesByCrop: matchesByCrop,
-            naturalPath: naturalPath,
-            meter: meter,
-            drawingFrame: drawingFrame,
-            includeExtendedStability: includeExtendedStability
-        ) {
-            return gridFirstDecision
-        }
-
         if !unsupportedCrops.isEmpty {
             return .keepWriting(.unsupported, phrase)
         }
         let hasBeamedTemplate = matchesByCrop.contains { matches in
             (matches.first?.values.count ?? 0) > 1
+        }
+        if rasterTemplateHasUnbeamedSameBeatEighthRun(
+            in: naturalPath,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            input: input,
+            meter: meter
+        ) {
+            let proposal = RhythmicNotationMeasureProposal(
+                values: naturalPath.values,
+                safety: .manualReview,
+                isNaturalExactFit: phrase.isNaturalExactFit
+            )
+            return .needsReview(.ambiguousPhrase, phrase, proposal)
         }
 
         if phrase.isNaturalExactFit {
@@ -298,6 +300,18 @@ extension RhythmicNotationQuantizer {
                 return .needsReview(reviewReason, phrase, proposal)
             }
             return .commit(proposal, phrase)
+        }
+
+        if let gridFirstDecision = rasterTemplateGridFirstRecognitionDecision(
+            input: input,
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            naturalPath: naturalPath,
+            meter: meter,
+            drawingFrame: drawingFrame,
+            includeExtendedStability: includeExtendedStability
+        ) {
+            return gridFirstDecision
         }
 
         let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
@@ -612,7 +626,18 @@ extension RhythmicNotationQuantizer {
 
         let beamedCount = rasterTemplateBeamedEighthCount(for: crop, input: input)
         if beamedCount >= 2 {
-            if let terminalRestValues = rasterTemplateBeamedEighthValuesWithTerminalRest(
+            let hasBeamedEighthEvidence = rasterTemplateHasBeamedEighthEvidence(
+                for: crop,
+                input: input
+            )
+            if let leadingRestValues = rasterTemplateBeamedEighthValuesWithLeadingRest(
+                for: crop,
+                beamedCount: beamedCount,
+                input: input
+            ) {
+                add(leadingRestValues, score: 0.0, template: "beamed-eighth-run-leading-rest")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.65, template: "beamed-eighth-run")
+            } else if let terminalRestValues = rasterTemplateBeamedEighthValuesWithTerminalRest(
                 for: crop,
                 beamedCount: beamedCount,
                 input: input
@@ -620,7 +645,11 @@ extension RhythmicNotationQuantizer {
                 add(terminalRestValues, score: 0.0, template: "beamed-eighth-run-terminal-rest")
                 add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.55, template: "beamed-eighth-run")
             } else {
-                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.0, template: "beamed-eighth-run")
+                add(
+                    Array(repeating: .eighth, count: min(beamedCount, 4)),
+                    score: hasBeamedEighthEvidence ? 0.0 : 0.35,
+                    template: "beamed-eighth-run"
+                )
             }
         }
 
@@ -735,13 +764,6 @@ extension RhythmicNotationQuantizer {
            !hasHollowInkHead,
            (features.hasFilledHead || hasFilledInkHead || hasUpperHeadMass || features.hasLowerHeadMass || features.hasStemAndKick || hasStemmedNoteRaster) {
             add([.quarter], score: 0.08, template: "filled-stem")
-            add(
-                [.eighth],
-                score: 1.0,
-                template: "filled-stem-eighth-alternative",
-                canDriveExactFit: false,
-                canExtendAutoApplyStability: true
-            )
         }
         if features.hasStem,
            (features.hasFlag || cropHasUpperFlagMass(crop, features: features)) {
@@ -1588,6 +1610,59 @@ extension RhythmicNotationQuantizer {
         return Array(repeating: RhythmValue.eighth, count: valueCount - 1) + [.eighthRest]
     }
 
+    private static func rasterTemplateBeamedEighthValuesWithLeadingRest(
+        for crop: RhythmSymbolCrop,
+        beamedCount: Int,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        let valueCount = min(beamedCount, 4)
+        guard valueCount >= 2 else {
+            return nil
+        }
+
+        let sortedStrokes = crop.strokes.sortedByVisualPosition()
+        let maxPrefixCount = min(2, sortedStrokes.count - 1)
+        guard maxPrefixCount >= 1 else {
+            return nil
+        }
+
+        for prefixCount in 1...maxPrefixCount {
+            let prefix = Array(sortedStrokes.prefix(prefixCount))
+            let remaining = Array(sortedStrokes.dropFirst(prefixCount))
+            guard let prefixBounds = prefix.nonEmptyBounds,
+                  let remainingBounds = remaining.nonEmptyBounds,
+                  prefixBounds.midX < remainingBounds.midX,
+                  remaining.hasNoteheadBackedNoteEvidence(drawingFrame: input.drawingFrame) else {
+                continue
+            }
+
+            let leftAnchored = prefixBounds.midX <= crop.bounds.minX + crop.bounds.width * 0.44
+            let separatedFromNotes = remainingBounds.minX - prefixBounds.maxX >= -max(CGFloat(4), input.drawingFrame.width * 0.012)
+            let restSized = prefixBounds.height >= max(CGFloat(12), crop.bounds.height * 0.38)
+                && prefixBounds.width <= max(CGFloat(26), crop.bounds.width * 0.62)
+            let prefixSymbol = SymbolObservation(strokes: prefix)
+            let hasRestShape = prefixSymbol.eighthRestComparisonScore(in: input.sceneBounds) != nil
+                || prefixSymbol.sevenLikeEighthRestComparisonScore(in: input.sceneBounds) != nil
+                || prefix.looksLikeContextualLeadingEighthRest(drawingFrame: input.drawingFrame)
+            guard leftAnchored,
+                  separatedFromNotes,
+                  restSized,
+                  hasRestShape else {
+                continue
+            }
+
+            let remainingEighthCount = max(
+                1,
+                SymbolObservation(strokes: remaining)
+                    .beamedEighthNoteCount(drawingFrame: input.drawingFrame)
+            )
+            let noteCount = min(valueCount - 1, remainingEighthCount)
+            return [.eighthRest] + Array(repeating: RhythmValue.eighth, count: noteCount)
+        }
+
+        return nil
+    }
+
     private static func rasterTemplateBeamedEighthCount(
         for crop: RhythmSymbolCrop,
         input: RhythmInkRasterInput
@@ -1646,6 +1721,119 @@ extension RhythmicNotationQuantizer {
         return clusteredStemXs.count
     }
 
+    private static func rasterTemplateHasBeamedEighthEvidence(
+        for crop: RhythmSymbolCrop,
+        input: RhythmInkRasterInput
+    ) -> Bool {
+        let stems = crop.strokes.stemAnchorStrokes(drawingFrame: input.drawingFrame)
+        let noteheadXs = crop.strokes
+            .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
+            .map(\.bounds.midX)
+        let inferredStemXs = crop.strokes
+            .flatMap { $0.connectedBeamStemXs(in: crop.bounds) }
+        let anchorXs = (noteheadXs + stems.map(\.bounds.midX) + inferredStemXs)
+            .clusteredXs(minimumSeparation: max(CGFloat(7), input.drawingFrame.width * 0.03))
+        guard anchorXs.count >= 2 else {
+            return false
+        }
+
+        return crop.strokes.contains { stroke in
+            let beamLike = stroke.isSharedBeam(across: stems)
+                || stroke.isSharedBeam(overNoteheadXs: anchorXs, in: crop.bounds)
+                || stroke.isConnectedBeamFrame(overNoteheadXs: anchorXs, in: crop.bounds)
+                || stroke.looksLikeSlopedVisualBeamSeed(
+                    over: stems,
+                    in: crop.bounds,
+                    drawingFrame: input.drawingFrame
+                )
+                || stroke.looksLikeFoldedBeamStemSeed(
+                    over: stems,
+                    in: crop.bounds,
+                    drawingFrame: input.drawingFrame
+                )
+            guard beamLike else {
+                return false
+            }
+
+            let tolerance = stroke.beamedCoverageTolerance(in: crop.bounds)
+            let coveredAnchorCount = anchorXs.filter { anchorX in
+                stroke.bounds.minX <= anchorX + tolerance
+                    && stroke.bounds.maxX >= anchorX - tolerance
+            }.count
+            return coveredAnchorCount >= 2
+        }
+    }
+
+    private static func rasterTemplateHasUnbeamedSameBeatEighthRun(
+        in path: CandidatePath,
+        crops: [RhythmSymbolCrop],
+        matchesByCrop: [[RhythmTemplateMatch]],
+        input: RhythmInkRasterInput,
+        meter: Meter
+    ) -> Bool {
+        var valueIndex = 0
+        var cursorUnits = 0
+
+        for (crop, matches) in zip(crops, matchesByCrop) {
+            guard let bestMatch = matches.first else {
+                continue
+            }
+            let valueCount = bestMatch.values.count
+            guard valueCount > 0 else {
+                continue
+            }
+            guard path.values.count >= valueIndex + valueCount else {
+                return false
+            }
+
+            let values = Array(path.values[valueIndex..<(valueIndex + valueCount)])
+            if values.count > 1,
+               values.allSatisfy({ $0 == .eighth }),
+               rasterTemplateValuesContainSameBeatEighthPair(
+                    values,
+                    startUnits: cursorUnits,
+                    meter: meter
+               ),
+               !rasterTemplateHasBeamedEighthEvidence(for: crop, input: input) {
+                return true
+            }
+
+            cursorUnits += values.reduce(0) { $0 + rhythmUnits(for: $1, meter: meter) }
+            valueIndex += valueCount
+        }
+
+        return false
+    }
+
+    private static func rasterTemplateValuesContainSameBeatEighthPair(
+        _ values: [RhythmValue],
+        startUnits: Int,
+        meter: Meter
+    ) -> Bool {
+        let beatUnits = max(1, rhythmUnits(forWholeNotes: meter.beatUnitWholeNoteLength))
+        var cursorUnits = startUnits
+        var previousEighthStart: Int?
+
+        for value in values {
+            defer {
+                cursorUnits += rhythmUnits(for: value, meter: meter)
+            }
+
+            guard value == .eighth else {
+                previousEighthStart = nil
+                continue
+            }
+
+            if let previousEighthStart,
+               previousEighthStart / beatUnits == cursorUnits / beatUnits {
+                return true
+            }
+            previousEighthStart = cursorUnits
+        }
+
+        return false
+    }
+
     private static func featuresShouldRejectClassifierCandidate(
         _ value: RhythmValue,
         for symbol: SymbolObservation,
@@ -1686,6 +1874,30 @@ extension RhythmicNotationQuantizer {
         features: SymbolFeatures,
         templateName: String
     ) -> Bool {
+        let hasHollowInkHead = features.headStrokes.contains { stroke in
+            stroke.looksHollowNoteHead
+        }
+        let hasFilledInkHead = features.headStrokes.contains { stroke in
+            stroke.looksFilledNoteHead && !stroke.looksHollowNoteHead
+        }
+        let hasAttachedCompactHead = crop.strokes.contains { stroke in
+            guard stroke != features.stemStroke else {
+                return false
+            }
+            return stroke.looksLikeLowerNotehead(in: crop.bounds)
+                || strokeLooksLikeCompactHeadAttachedToStem(stroke, crop: crop, features: features)
+        }
+        let hasHollowNoteheadEvidence = features.hasHollowHead || hasHollowInkHead
+        let hasFilledNoteheadEvidence = !hasHollowNoteheadEvidence
+            && (
+                features.hasFilledHead
+                    || hasFilledInkHead
+                    || hasAttachedCompactHead
+                    || features.hasLowerHeadMass
+                    || features.hasStemAndKick
+                    || (features.hasStem && cropHasLowerHeadMass(crop))
+            )
+
         switch value {
         case .slash:
             return templateName == "placeholder-slash"
@@ -1697,14 +1909,37 @@ extension RhythmicNotationQuantizer {
             guard !features.hasNoNoteheadRestShape else {
                 return false
             }
-            return templateName == "filled-stem-eighth-alternative"
-                || templateName.contains("beamed")
+            let hasShortValueMarker = templateName.contains("beamed")
                 || features.hasFlag
                 || cropHasUpperFlagMass(crop, features: features)
-        case .dottedQuarter, .dottedHalf:
+            if templateName.contains("beamed") {
+                return features.hasStem
+                    && cropHasNoteGlyphEvidence(crop, features: features)
+            }
+            return features.hasStem
+                && hasFilledNoteheadEvidence
+                && hasShortValueMarker
+        case .dottedQuarter:
             return cropHasDetachedDotEvidence(features)
-        case .quarter, .half, .whole:
-            return cropHasNoteGlyphEvidence(crop, features: features)
+                && features.hasStem
+                && hasFilledNoteheadEvidence
+                && !hasHollowNoteheadEvidence
+        case .dottedHalf:
+            return cropHasDetachedDotEvidence(features)
+                && features.hasStem
+                && hasHollowNoteheadEvidence
+                && !hasFilledNoteheadEvidence
+        case .quarter:
+            return features.hasStem
+                && hasFilledNoteheadEvidence
+                && !hasHollowNoteheadEvidence
+        case .half:
+            return features.hasStem
+                && hasHollowNoteheadEvidence
+                && !hasFilledNoteheadEvidence
+        case .whole:
+            return !features.hasStem
+                && (hasHollowNoteheadEvidence || cropLooksLikeWholeNoteCircle(crop, drawingFrame: features.drawingFrame))
         case .eighthRest, .quarterRest:
             return true
         case .halfRest, .wholeRest:
@@ -1756,6 +1991,37 @@ extension RhythmicNotationQuantizer {
 
             return compact && rightOfStem && inDotBand && !tooLargeForDot
         }
+    }
+
+    private static func strokeLooksLikeCompactHeadAttachedToStem(
+        _ stroke: StrokeObservation,
+        crop: RhythmSymbolCrop,
+        features: SymbolFeatures
+    ) -> Bool {
+        guard let stemStroke = features.stemStroke else {
+            return false
+        }
+
+        let horizontalTolerance = max(CGFloat(8), crop.bounds.width * 0.4)
+        let verticallyNearStemEnd = min(
+            abs(stroke.center.y - stemStroke.startPoint.y),
+            abs(stroke.center.y - stemStroke.endPoint.y)
+        ) <= max(CGFloat(9), crop.bounds.height * 0.26)
+        let horizontallyAttached = stroke.bounds.maxX >= stemStroke.bounds.minX - horizontalTolerance
+            && stroke.bounds.minX <= stemStroke.bounds.maxX + horizontalTolerance
+        let noteheadSized = stroke.bounds.width >= max(CGFloat(5), crop.bounds.width * 0.18)
+            && stroke.bounds.height >= max(CGFloat(5), crop.bounds.height * 0.12)
+        let substantialAttachedBlob = stroke.bounds.width >= max(CGFloat(7), crop.bounds.width * 0.42)
+            && stroke.bounds.height >= max(CGFloat(6), crop.bounds.height * 0.14)
+        let noteheadLike = stroke.looksFilledNoteHead
+            || stroke.looksHollowNoteHead
+            || stroke.looksClosed
+            || substantialAttachedBlob
+
+        return horizontallyAttached
+            && verticallyNearStemEnd
+            && noteheadSized
+            && noteheadLike
     }
 
     private static func rasterTemplateAttackXPositions(

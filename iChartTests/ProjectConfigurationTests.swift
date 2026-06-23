@@ -106,7 +106,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Share Log"))
         XCTAssertTrue(libraryText.contains("Clear Log"))
         XCTAssertTrue(editorText.contains("rhythmDiagnosticStatusChip"))
-        XCTAssertTrue(editorText.contains("onRhythmicNotationDiagnostic: handleRhythmicNotationDiagnostic"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged"))
         XCTAssertTrue(hostText.contains("RhythmRecognitionDiagnosticsRecorder.live().append(event)"))
         XCTAssertTrue(diagnosticsText.contains("iChartRhythmRecognitionDiagnosticsEnabled"))
         XCTAssertTrue(diagnosticsText.contains("rhythm-recognition-diagnostics.jsonl"))

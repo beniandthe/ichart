@@ -310,6 +310,40 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(reason, .competingExactPhrases)
     }
 
+    func testV4ExactFitRankingPrefersCleanMeterGroupingOverProtectedBeamBoundary() {
+        let values = RhythmicNotationQuantizer.bestExactValuesForTesting(
+            candidateScores: [
+                [.dottedQuarter: 0.0],
+                [.eighth: 0.0],
+                [.eighth: 0.0, .quarter: 0.2],
+                [.dottedQuarter: 0.0, .quarter: 0.2]
+            ],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(values, [.dottedQuarter, .eighth, .quarter, .quarter])
+    }
+
+    func testV4CrossPathReviewFlagsExactRestNoteDisagreement() {
+        let reason = RhythmicNotationQuantizer.crossPathReviewReasonForTesting(
+            selectedValues: [.eighth, .eighth, .quarter, .half],
+            alternateValues: [.eighthRest, .eighth, .quarter, .half],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(reason, .competingExactPhrases)
+    }
+
+    func testV4CrossPathReviewIgnoresDifferentDurationDisagreement() {
+        let reason = RhythmicNotationQuantizer.crossPathReviewReasonForTesting(
+            selectedValues: [.eighth, .eighth, .quarter, .half],
+            alternateValues: [.quarterRest, .quarter, .half],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertNil(reason)
+    }
+
     func testV3ReviewPolicyKeepsWholeMeasureMarksAsManualReview() {
         let reason = RhythmicNotationQuantizer.exactFitReviewReasonForTesting(
             exactValues: [.whole],
@@ -406,9 +440,8 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(templateValues.count, 1)
         XCTAssertTrue(templateValues[0].contains(.quarter))
         XCTAssertFalse(templateValues[0].contains(.slash))
-        let eighthAlternative = try XCTUnwrap(templateMatches[0].first { $0.values == [.eighth] })
-        XCTAssertFalse(eighthAlternative.canDriveExactFit)
-        XCTAssertTrue(eighthAlternative.canExtendAutoApplyStability)
+        XCTAssertFalse(templateValues[0].contains(.eighth))
+        XCTAssertFalse(templateMatches[0].contains { $0.values == [.eighth] })
     }
 
     func testV4DecisionCommitsTightlySpacedSlashPhraseThroughRasterTemplateGate() throws {
@@ -664,14 +697,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             for: decision,
             requiresNaturalExactFitAfterErase: false
         )
-        guard case .commit(let values, _) = route else {
-            XCTFail("Expected captured handwritten half notes to route to commit, got \(route)")
+        guard case .readyToRender(let values) = route else {
+            XCTFail("Expected captured handwritten half notes to wait for tap-to-render, got \(route)")
             return
         }
         XCTAssertEqual(values, [.half, .half])
     }
 
-    func testV4DecisionCommitsCapturedDenseEighthRunWithRest() throws {
+    func testV4DecisionRequiresReviewForCapturedDenseEighthRunWithRestAcrossMeterBoundary() throws {
         var chart = Chart.blank(title: "Captured Dense Eighth Run", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.last?.id)
         _ = chart.setMeasureManualLayoutWidth(193.28571428571428, for: measureID)
@@ -692,13 +725,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             measureLayout: measureLayout
         )
 
-        guard case .commit(let proposal, let phrase) = decision else {
-            XCTFail("Expected captured dense eighth/rest phrase to commit, got \(decision)")
+        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
+            XCTFail("Expected captured dense eighth/rest phrase to require review, got \(decision)")
             return
         }
         let expectedValues: [RhythmValue] = [.quarter, .eighth, .eighth, .eighth, .eighth, .eighth, .eighthRest]
+        XCTAssertEqual(reason, .manualReview)
         XCTAssertEqual(proposal.values, expectedValues)
-        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertEqual(proposal.safety, .manualReview)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, expectedValues)
 
@@ -706,14 +740,10 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             for: decision,
             requiresNaturalExactFitAfterErase: false
         )
-        guard case .commit(let values, _) = route else {
-            XCTFail("Expected captured dense eighth/rest phrase to route to commit, got \(route)")
-            return
-        }
-        XCTAssertEqual(values, expectedValues)
+        XCTAssertEqual(route, .preserveInk(showsUnreadFeedback: true))
     }
 
-    func testV4DecisionPreservesCapturedEighthRestBeforeEighthNote() throws {
+    func testV4DecisionRequiresReviewForCapturedEighthRestBeforeEighthNoteConflict() throws {
         let chart = Chart.blank(title: "Captured Eighth Rest", measureCount: 8, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.dropFirst(2).first?.id)
         let measure = try XCTUnwrap(chart.measure(id: measureID))
@@ -733,24 +763,60 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             measureLayout: measureLayout
         )
 
-        guard case .commit(let proposal, let phrase) = decision else {
-            XCTFail("Expected captured eighth-rest phrase to commit, got \(decision)")
+        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
+            XCTFail("Expected captured eighth-rest phrase to require review, got \(decision)")
             return
         }
-        let expectedValues: [RhythmValue] = [.eighthRest, .eighth, .half, .quarter]
-        XCTAssertEqual(proposal.values, expectedValues)
+        XCTAssertEqual(reason, .ambiguousPhrase)
+        XCTAssertEqual(proposal.safety, .manualReview)
         XCTAssertEqual(phrase.source, .rasterTemplate)
-        XCTAssertEqual(phrase.naturalValues, expectedValues)
+        XCTAssertTrue(RhythmicNotationQuantizer.phraseHasInternalRestNoteEvidenceConflict(phrase))
+        XCTAssertTrue(phrase.primitives.contains { $0.kind == .restShape })
 
         let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
             for: decision,
             requiresNaturalExactFitAfterErase: false
         )
-        guard case .commit(let values, _) = route else {
-            XCTFail("Expected captured eighth-rest phrase to route to commit, got \(route)")
+        XCTAssertEqual(route, .preserveInk(showsUnreadFeedback: true))
+    }
+
+    func testV4DecisionRequiresReviewForCapturedRestNoteExactDisagreement() throws {
+        let capturedCompetingRestNotePhraseInkBase64 = """
+        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
+        """
+        let chart = Chart.blank(title: "Captured Rest/Note Conflict", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.dropFirst(2).first?.id)
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID }
+        )
+        let drawingData = try XCTUnwrap(Data(base64Encoded: capturedCompetingRestNotePhraseInkBase64))
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+
+        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
+            XCTFail("Expected captured rest/note disagreement to require review, got \(decision)")
             return
         }
-        XCTAssertEqual(values, expectedValues)
+        XCTAssertEqual(reason, .competingExactPhrases)
+        XCTAssertEqual(proposal.values, [.eighth, .eighth, .quarter, .half])
+        XCTAssertEqual(proposal.safety, .manualReview)
+        XCTAssertTrue(
+            phrase.reasoningPaths.contains { path in
+                path.kind == .visualShape
+                    && path.outcome == .commitCandidate
+                    && path.values == [.eighthRest, .eighth, .quarter, .half]
+            }
+        )
     }
 
     func testV4DecisionCoversRestPhrasesThroughRasterTemplateGate() throws {
@@ -816,7 +882,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertTrue(phrase.isNaturalExactFit)
     }
 
-    func testV4DecisionRequiresReviewWhenExactFitNeedsUnflaggedEighthAlternative() throws {
+    func testV4DecisionRejectsUnflaggedEighthAlternativeFromRasterAuthority() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
         let drawing = PKDrawing(strokes: [
             halfNote(x: 18),
@@ -830,16 +896,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             drawingFrame: drawingFrame
         )
 
-        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
-            XCTFail("Expected V4 to require review for unflagged eighth exact-fit alternative, got \(decision)")
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to reject the unflagged eighth exact-fit alternative, got \(decision)")
             return
         }
-        XCTAssertEqual(reason, .nonNaturalExactFit)
-        XCTAssertEqual(proposal.values, [.half, .dottedQuarter, .eighth])
-        XCTAssertEqual(proposal.safety, .manualReview)
-        XCTAssertFalse(proposal.canAutoApply)
+        XCTAssertEqual(reason, .overflow)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.half, .dottedQuarter, .quarter])
+        XCTAssertFalse(phrase.symbols.flatMap(\.candidateValues).contains(.eighth))
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
@@ -1107,7 +1171,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
-    func testAutoApplyProposalExtendsGraceForTerminalQuarterLikeStem() throws {
+    func testAutoApplyProposalCommitsCompletedQuarterPhraseWithoutFakeEighthGrace() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
         let drawing = PKDrawing(strokes: [
             quarterNote(x: 24),
@@ -1123,9 +1187,9 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
 
         XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
-        XCTAssertEqual(proposal.safety, .extendedStability)
+        XCTAssertEqual(proposal.safety, .autoApply)
         XCTAssertTrue(proposal.canAutoApply)
-        XCTAssertTrue(proposal.requiresExtendedStability)
+        XCTAssertFalse(proposal.requiresExtendedStability)
     }
 
     func testAutoApplyProposalCommitsStrongRasterWholeNote() throws {
@@ -2033,7 +2097,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ].flatMap { $0 })
         let drawingFrame = CGRect(
             origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+            size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).size
         )
         let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
             drawing: drawing,
@@ -2143,7 +2207,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ].flatMap { $0 })
         let drawingFrame = CGRect(
             origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+            size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).size
         )
         let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
             drawing: drawing,
@@ -2318,14 +2382,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
     }
 
     private func leadSheetStaffY(step: Int, in measureLayout: LeadSheetMeasureLayout) -> CGFloat {
-        let activeFrame = measureLayout.writableFrame.insetBy(dx: 2, dy: 2)
+        let activeFrame = LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout)
         let staffLineSpacing = max(CGFloat(1), (measureLayout.staffFrame.height - 4) / 4)
         let topStaffLineY = measureLayout.staffFrame.minY + 2 - activeFrame.minY
         return topStaffLineY + CGFloat(step) * staffLineSpacing / 2
     }
 
     private func leadSheetBeatXPositions(in measureLayout: LeadSheetMeasureLayout) -> [CGFloat] {
-        let width = measureLayout.writableFrame.insetBy(dx: 2, dy: 2).width
+        let width = LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).width
         return [0.17, 0.38, 0.59, 0.80].map { width * CGFloat($0) }
     }
 
