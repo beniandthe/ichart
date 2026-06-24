@@ -27,6 +27,23 @@ struct RhythmRecognitionPipelinePreview: Codable, Equatable, Hashable {
         var summary: String
     }
 
+    struct GlyphClosureGroup: Codable, Equatable, Hashable {
+        var index: Int
+        var strokeIndices: [Int]
+        var bounds: RhythmRecognitionPipelineBounds
+        var isBeamed: Bool
+        var closure: String
+    }
+
+    struct GlyphClosureLane: Codable, Equatable, Hashable {
+        var name: String
+        var status: String
+        var values: [RhythmValue]
+        var units: Int?
+        var groups: [GlyphClosureGroup]
+        var notes: [String]
+    }
+
     var strokeCount: Int
     var primitiveCounts: [String: Int]
     var primitives: [Primitive]
@@ -37,7 +54,25 @@ struct RhythmRecognitionPipelinePreview: Codable, Equatable, Hashable {
     var naturalUnits: Int?
     var targetUnits: Int?
     var reasoningPaths: [ReasoningPath]
+    var glyphClosureLanes: [GlyphClosureLane]? = nil
     var notes: [String]
+
+    var laneStatusText: String? {
+        guard let glyphClosureLanes,
+              !glyphClosureLanes.isEmpty else {
+            return nil
+        }
+
+        return glyphClosureLanes
+            .prefix(4)
+            .map { lane in
+                let valueText = lane.values.isEmpty
+                    ? "noRead"
+                    : lane.values.map(\.displayText).joined(separator: "+")
+                return "\(lane.name)=\(lane.status):\(valueText)"
+            }
+            .joined(separator: " | ")
+    }
 
     var statusText: String {
         let primitiveText = primitiveCounts
@@ -54,8 +89,9 @@ struct RhythmRecognitionPipelinePreview: Codable, Equatable, Hashable {
             ? "no values"
             : selectedValues.map(\.displayText).joined(separator: ", ")
         let noteText = notes.first.map { " • \($0)" } ?? ""
+        let laneText = laneStatusText.map { " • lanes \($0)" } ?? ""
 
-        return "\(strokeCount) strokes; \(primitiveText.isEmpty ? "no primitives" : primitiveText); \(valueText)\(noteText)"
+        return "\(strokeCount) strokes; \(primitiveText.isEmpty ? "no primitives" : primitiveText); \(valueText)\(noteText)\(laneText)"
     }
 }
 
@@ -85,7 +121,7 @@ extension RhythmRecognitionPipelinePreview {
 
     static func make(
         drawing: PKDrawing,
-        meter _: Meter,
+        meter: Meter,
         drawingFrame: CGRect,
         decision: RhythmRecognitionDecision,
         decisionText: String,
@@ -143,12 +179,250 @@ extension RhythmRecognitionPipelinePreview {
                     summary: $0.summary
                 )
             },
+            glyphClosureLanes: glyphClosureLanes(
+                strokeObservations: strokeObservations,
+                orderedStrokes: orderedStrokes,
+                meter: meter,
+                drawingFrame: drawingFrame
+            ),
             notes: notes(
                 primitives: primitives,
                 symbolGroups: symbolSummaries,
                 decision: decision
             )
         )
+    }
+
+    private enum GlyphClosureMode: String {
+        case current
+        case spacingOnly
+        case beamOpen
+        case beamOpenConservative
+    }
+
+    private static func glyphClosureLanes(
+        strokeObservations: [StrokeObservation],
+        orderedStrokes: [StrokeObservation],
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> [GlyphClosureLane] {
+        [
+            glyphClosureLane(
+                name: "current",
+                mode: .current,
+                strokeObservations: strokeObservations,
+                orderedStrokes: orderedStrokes,
+                meter: meter,
+                drawingFrame: drawingFrame
+            ),
+            glyphClosureLane(
+                name: "spacingOnly",
+                mode: .spacingOnly,
+                strokeObservations: strokeObservations,
+                orderedStrokes: orderedStrokes,
+                meter: meter,
+                drawingFrame: drawingFrame
+            ),
+            glyphClosureLane(
+                name: "beamOpen",
+                mode: .beamOpen,
+                strokeObservations: strokeObservations,
+                orderedStrokes: orderedStrokes,
+                meter: meter,
+                drawingFrame: drawingFrame
+            ),
+            glyphClosureLane(
+                name: "beamOpenConservative",
+                mode: .beamOpenConservative,
+                strokeObservations: strokeObservations,
+                orderedStrokes: orderedStrokes,
+                meter: meter,
+                drawingFrame: drawingFrame
+            )
+        ]
+    }
+
+    private static func glyphClosureLane(
+        name: String,
+        mode: GlyphClosureMode,
+        strokeObservations: [StrokeObservation],
+        orderedStrokes: [StrokeObservation],
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> GlyphClosureLane {
+        let groups: [SymbolObservation]
+        switch mode {
+        case .current:
+            groups = RhythmicNotationQuantizer.groupedSymbols(
+                from: strokeObservations,
+                drawingFrame: drawingFrame
+            )
+        case .spacingOnly, .beamOpen, .beamOpenConservative:
+            groups = glyphClosureGroups(
+                from: orderedStrokes,
+                mode: mode,
+                drawingFrame: drawingFrame
+            ).map(SymbolObservation.init(strokes:))
+        }
+
+        let candidateGroups = groups.flatMap { group in
+            diagnosticCandidateGroups(for: group, drawingFrame: drawingFrame)
+        }
+        let path = RhythmicNotationQuantizer.bestNaturalPath(from: candidateGroups, meter: meter)
+        let targetUnits = RhythmicNotationQuantizer.rhythmUnits(
+            forWholeNotes: meter.measureLengthInWholeNotes
+        )
+        let groupSummaries = groups.enumerated().map { index, group in
+            GlyphClosureGroup(
+                index: index,
+                strokeIndices: group.strokes.compactMap { orderedStrokes.firstIndex(of: $0) },
+                bounds: RhythmRecognitionPipelineBounds(group.bounds),
+                isBeamed: group.hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame),
+                closure: closureSummary(for: group, mode: mode, drawingFrame: drawingFrame)
+            )
+        }
+
+        let status: String
+        if candidateGroups.isEmpty {
+            status = "noRead"
+        } else if path.units == targetUnits {
+            status = "exact"
+        } else if path.units < targetUnits {
+            status = "underfilled"
+        } else {
+            status = "overflow"
+        }
+
+        return GlyphClosureLane(
+            name: name,
+            status: status,
+            values: path.values,
+            units: candidateGroups.isEmpty ? nil : path.units,
+            groups: groupSummaries,
+            notes: notesForLane(
+                mode: mode,
+                groups: groups,
+                candidateGroupCount: candidateGroups.count,
+                drawingFrame: drawingFrame
+            )
+        )
+    }
+
+    private static func glyphClosureGroups(
+        from orderedStrokes: [StrokeObservation],
+        mode: GlyphClosureMode,
+        drawingFrame: CGRect
+    ) -> [[StrokeObservation]] {
+        guard !orderedStrokes.isEmpty else {
+            return []
+        }
+
+        let sceneBounds = orderedStrokes.nonEmptyBounds ?? drawingFrame
+        let separationGap = mode == .beamOpen ? drawingFrame.width * 0.12 : drawingFrame.width * 0.075
+        let attachmentGap = mode == .beamOpen ? drawingFrame.width * 0.07 : drawingFrame.width * 0.04
+        let sortedStrokes = orderedStrokes.sortedByVisualPosition()
+        var groups: [[StrokeObservation]] = []
+        var current: [StrokeObservation] = []
+
+        func closeCurrent() {
+            guard !current.isEmpty else {
+                return
+            }
+            groups.append(current)
+            current = []
+        }
+
+        for stroke in sortedStrokes {
+            guard !current.isEmpty,
+                  let currentBounds = current.nonEmptyBounds else {
+                current = [stroke]
+                continue
+            }
+
+            let candidate = current + [stroke]
+            let candidateSymbol = SymbolObservation(strokes: candidate)
+            let currentIsBeamed = SymbolObservation(strokes: current)
+                .hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame)
+            let candidateIsBeamed = candidateSymbol
+                .hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame)
+            let horizontalGap = stroke.bounds.minX - currentBounds.maxX
+            let verticalOverlap = stroke.bounds.minY <= currentBounds.maxY + sceneBounds.height * 0.28
+                && stroke.bounds.maxY >= currentBounds.minY - sceneBounds.height * 0.28
+            let nearCurrent = horizontalGap <= attachmentGap && verticalOverlap
+            let separatedAway = horizontalGap > separationGap && !candidateIsBeamed
+            let canMutateOpenBeam = mode != .spacingOnly
+                && (currentIsBeamed || candidateIsBeamed || stroke.looksLikeVisualBeamSeed(in: sceneBounds))
+                && horizontalGap <= separationGap
+                && stroke.bounds.minY <= currentBounds.maxY + sceneBounds.height * 0.34
+                && stroke.bounds.maxY >= currentBounds.minY - sceneBounds.height * 0.34
+
+            if canMutateOpenBeam || (nearCurrent && !separatedAway) {
+                current.append(stroke)
+            } else {
+                closeCurrent()
+                current = [stroke]
+            }
+        }
+
+        closeCurrent()
+        return groups
+            .mergingLooseDots(drawingFrame: drawingFrame)
+            .reattachingLeadingNoteheadsToFollowingBeams(drawingFrame: drawingFrame)
+    }
+
+    private static func diagnosticCandidateGroups(
+        for group: SymbolObservation,
+        drawingFrame: CGRect
+    ) -> [[RhythmCandidate]] {
+        let beamedCount = group.beamedEighthNoteCount(drawingFrame: drawingFrame)
+        if beamedCount >= 2 {
+            return (0..<beamedCount).map { _ in
+                [RhythmCandidate(value: .eighth, score: 0.0)]
+            }
+        }
+
+        let candidates = RhythmicNotationQuantizer.classifyCandidates(
+            group,
+            drawingFrame: drawingFrame
+        )
+        return candidates.isEmpty ? [] : [candidates]
+    }
+
+    private static func closureSummary(
+        for group: SymbolObservation,
+        mode: GlyphClosureMode,
+        drawingFrame: CGRect
+    ) -> String {
+        if group.hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame) {
+            return mode == .spacingOnly ? "beamPresentButSpacingClosed" : "beamHeldOpenUntilSeparation"
+        }
+        return "spacingClosed"
+    }
+
+    private static func notesForLane(
+        mode: GlyphClosureMode,
+        groups: [SymbolObservation],
+        candidateGroupCount: Int,
+        drawingFrame: CGRect
+    ) -> [String] {
+        var notes: [String] = []
+        switch mode {
+        case .current:
+            notes.append("production grouping surface")
+        case .spacingOnly:
+            notes.append("spaces close glyphs unless tiny marks attach")
+        case .beamOpen:
+            notes.append("beam evidence keeps glyph open through later connected ink")
+        case .beamOpenConservative:
+            notes.append("beam-open lane with earlier separation close")
+        }
+        if groups.contains(where: { $0.strokes.count >= 3 && $0.hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame) }) {
+            notes.append("beamed group candidate present")
+        }
+        if candidateGroupCount == 0 {
+            notes.append("no candidate values from this grouping")
+        }
+        return notes
     }
 
     private static func notes(

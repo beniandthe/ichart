@@ -3076,8 +3076,8 @@ private struct RhythmDiagnosticPreviewStrip: View {
                         switch item {
                         case .single(let value):
                             RhythmDiagnosticPreviewGlyph(value: value)
-                        case .beamedEighths(let count):
-                            RhythmDiagnosticPreviewBeamedEighthGroup(count: count)
+                        case .beamedGroup(let values):
+                            RhythmDiagnosticPreviewBeamedGroup(values: values)
                         }
                     }
                 }
@@ -3120,7 +3120,7 @@ private enum RhythmDiagnosticPreviewMetrics {
 
 private enum RhythmDiagnosticPreviewItem {
     case single(RhythmValue)
-    case beamedEighths(Int)
+    case beamedGroup([RhythmValue])
 
     static func items(for values: [RhythmValue]) -> [RhythmDiagnosticPreviewItem] {
         var items: [RhythmDiagnosticPreviewItem] = []
@@ -3128,19 +3128,20 @@ private enum RhythmDiagnosticPreviewItem {
 
         while index < values.count {
             let value = values[index]
-            guard value == .eighth else {
+            guard value.isDiagnosticPreviewBeamable else {
                 items.append(.single(value))
                 index += 1
                 continue
             }
 
             var count = 1
-            while index + count < values.count, values[index + count] == .eighth {
+            while index + count < values.count,
+                  values[index + count].isDiagnosticPreviewBeamable {
                 count += 1
             }
 
             if count > 1 {
-                items.append(.beamedEighths(count))
+                items.append(.beamedGroup(Array(values[index..<index + count])))
             } else {
                 items.append(.single(value))
             }
@@ -3148,6 +3149,12 @@ private enum RhythmDiagnosticPreviewItem {
         }
 
         return items
+    }
+}
+
+private extension RhythmValue {
+    var isDiagnosticPreviewBeamable: Bool {
+        self == .eighth || self == .sixteenth
     }
 }
 
@@ -3185,6 +3192,9 @@ private struct RhythmDiagnosticPreviewGlyph: View {
             case .eighthRest:
                 symbol(.eighthRest, size: RhythmDiagnosticPreviewMetrics.restPointSize)
                     .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 1)
+            case .sixteenthRest:
+                symbol(.sixteenthRest, size: RhythmDiagnosticPreviewMetrics.restPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset - 4)
             case .whole:
                 symbol(.noteWhole, size: RhythmDiagnosticPreviewMetrics.wholeNotePointSize)
                     .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 3)
@@ -3203,6 +3213,8 @@ private struct RhythmDiagnosticPreviewGlyph: View {
                 dot
             case .eighth:
                 noteSymbol(.note8thUp)
+            case .sixteenth:
+                noteSymbol(.note16thUp)
             case .tiedContinuation:
                 RhythmDiagnosticTieShape()
                     .stroke(Color.primary, lineWidth: 1.4)
@@ -3233,26 +3245,26 @@ private struct RhythmDiagnosticPreviewGlyph: View {
     }
 }
 
-private struct RhythmDiagnosticPreviewBeamedEighthGroup: View {
-    let count: Int
+private struct RhythmDiagnosticPreviewBeamedGroup: View {
+    let values: [RhythmValue]
 
     var body: some View {
-        RhythmDiagnosticPreviewBeamedEighthShape(count: max(2, count))
+        RhythmDiagnosticPreviewBeamedShape(values: values)
             .fill(Color.primary)
             .accessibilityHidden(true)
             .frame(
-                width: CGFloat(max(2, count)) * RhythmDiagnosticPreviewMetrics.beamedGlyphAdvance,
+                width: CGFloat(max(2, values.count)) * RhythmDiagnosticPreviewMetrics.beamedGlyphAdvance,
                 height: RhythmDiagnosticPreviewMetrics.glyphHeight
             )
             .clipped()
     }
 }
 
-private struct RhythmDiagnosticPreviewBeamedEighthShape: Shape {
-    let count: Int
+private struct RhythmDiagnosticPreviewBeamedShape: Shape {
+    let values: [RhythmValue]
 
     func path(in rect: CGRect) -> Path {
-        let noteCount = max(2, count)
+        let noteCount = max(2, values.count)
         let advance = rect.width / CGFloat(noteCount)
         let stemWidth = RhythmDiagnosticPreviewMetrics.beamedStemWidth
         let beamThickness = RhythmDiagnosticPreviewMetrics.beamThickness
@@ -3271,6 +3283,14 @@ private struct RhythmDiagnosticPreviewBeamedEighthShape: Shape {
             width: max(stemWidth, lastStemX - firstStemX + stemWidth),
             height: beamThickness
         ))
+        path.addPath(secondaryBeamPath(
+            in: rect,
+            advance: advance,
+            stemAnchorRatio: stemAnchorRatio,
+            stemWidth: stemWidth,
+            beamY: beamY + beamThickness + 3,
+            beamThickness: max(beamThickness * 0.82, 2.5)
+        ))
 
         for index in 0..<noteCount {
             let originX = rect.minX + CGFloat(index) * advance
@@ -3287,6 +3307,61 @@ private struct RhythmDiagnosticPreviewBeamedEighthShape: Shape {
                 width: headWidth,
                 height: headHeight
             ))
+        }
+
+        return path
+    }
+
+    private func secondaryBeamPath(
+        in rect: CGRect,
+        advance: CGFloat,
+        stemAnchorRatio: CGFloat,
+        stemWidth: CGFloat,
+        beamY: CGFloat,
+        beamThickness: CGFloat
+    ) -> Path {
+        var path = Path()
+        let noteCount = max(2, values.count)
+        let normalizedValues = Array(values.prefix(noteCount))
+
+        func stemX(at index: Int) -> CGFloat {
+            rect.minX + CGFloat(index) * advance + advance * stemAnchorRatio
+        }
+
+        var index = 0
+        while index < normalizedValues.count {
+            guard normalizedValues[index] == .sixteenth else {
+                index += 1
+                continue
+            }
+
+            let runStart = index
+            while index < normalizedValues.count,
+                  normalizedValues[index] == .sixteenth {
+                index += 1
+            }
+            let runEnd = index - 1
+
+            if runEnd > runStart {
+                let startX = stemX(at: runStart)
+                let endX = stemX(at: runEnd)
+                path.addRect(CGRect(
+                    x: startX,
+                    y: beamY,
+                    width: max(stemWidth, endX - startX + stemWidth),
+                    height: beamThickness
+                ))
+            } else {
+                let anchorX = stemX(at: runStart)
+                let pointsRight = runStart == 0 || runStart < normalizedValues.count - 1
+                let width = min(advance * 0.72, 20)
+                path.addRect(CGRect(
+                    x: pointsRight ? anchorX : anchorX - width + stemWidth,
+                    y: beamY,
+                    width: width,
+                    height: beamThickness
+                ))
+            }
         }
 
         return path

@@ -119,6 +119,7 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
         case wholeRest
         case halfRest
         case quarterRest
+        case sixteenthRest
         case eighthRest
     }
 
@@ -131,6 +132,7 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
     enum FlagStyle: Hashable {
         case none
         case single
+        case double
     }
 
     var id: UUID
@@ -1965,6 +1967,8 @@ enum LeadSheetPageLayoutEngine {
                 return halfRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .quarterRest:
                 return quarterRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
+            case .sixteenthRest:
+                return sixteenthRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .eighthRest:
                 return eighthRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .tiedContinuation:
@@ -2004,15 +2008,15 @@ enum LeadSheetPageLayoutEngine {
                     staffFrame: staffFrame,
                     usableWidth: usableWidth
                 )
-                let isBeamedFromPrevious = isSlashEighthBeamedFromPrevious(
+                let isBeamedFromPrevious = isSlashBeamableValueBeamedFromPrevious(
                     at: index,
                     slots: slots,
                     meter: meter
                 )
-                let flagStyle: LeadSheetNoteLayout.FlagStyle = slot.duration == .eighth
+                let flagStyle: LeadSheetNoteLayout.FlagStyle = slot.duration.isSlashBeamableValue
                     && beamEndPoint == nil
                     && !isBeamedFromPrevious
-                    ? .single
+                    ? flagStyle(for: slot.duration)
                     : .none
                 let dotFrame = dottedDuration(slot.duration)
                     ? CGRect(x: noteheadFrame.maxX + 3, y: noteheadFrame.midY - 1.5, width: 3, height: 3)
@@ -2138,7 +2142,7 @@ enum LeadSheetPageLayoutEngine {
                     y: stemGoesUp ? start.y - stemLength : start.y + stemLength
                 )
             }
-            let flagStyle: LeadSheetNoteLayout.FlagStyle = slot.duration == .eighth ? .single : .none
+            let flagStyle: LeadSheetNoteLayout.FlagStyle = flagStyle(for: slot.duration)
             let dotFrame = dottedDuration(slot.duration)
                 ? CGRect(x: noteheadFrame.maxX + 3, y: noteheadFrame.midY - 1.5, width: 3, height: 3)
                 : nil
@@ -2179,9 +2183,9 @@ enum LeadSheetPageLayoutEngine {
         staffFrame: CGRect,
         usableWidth: CGFloat
     ) -> CGPoint? {
-        guard slots[index].duration == .eighth,
+        guard slots[index].duration.isSlashBeamableValue,
               index + 1 < slots.count,
-              slots[index + 1].duration == .eighth else {
+              slots[index + 1].duration.isSlashBeamableValue else {
             return nil
         }
 
@@ -2264,14 +2268,14 @@ enum LeadSheetPageLayoutEngine {
         return min(durationLength, meter.beatUnitWholeNoteLength)
     }
 
-    private static func isSlashEighthBeamedFromPrevious(
+    private static func isSlashBeamableValueBeamedFromPrevious(
         at index: Int,
         slots: [MeasureRhythmSlot],
         meter: Meter
     ) -> Bool {
         guard index > 0,
-              slots[index].duration == .eighth,
-              slots[index - 1].duration == .eighth,
+              slots[index].duration.isSlashBeamableValue,
+              slots[index - 1].duration.isSlashBeamableValue,
               slots[index - 1].startPosition.beat == slots[index].startPosition.beat else {
             return false
         }
@@ -2389,13 +2393,40 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
+    private static func sixteenthRestLayout(
+        centerX: CGFloat,
+        staffLineYPositions: [CGFloat]
+    ) -> LeadSheetNoteLayout {
+        let restFrame = CGRect(
+            x: centerX - 7,
+            y: staffLineYPositions[1] - 2,
+            width: 14,
+            height: 24
+        )
+        return LeadSheetNoteLayout(
+            id: UUID(),
+            symbolStyle: .sixteenthRest,
+            noteheadSymbol: nil,
+            noteheadFrame: restFrame,
+            staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
+            headStyle: .filled,
+            stemStart: nil,
+            stemEnd: nil,
+            stemGoesUp: true,
+            flagStyle: .none,
+            dotFrame: nil,
+            tieFrame: nil,
+            beamEndPoint: nil
+        )
+    }
+
     private static func headStyle(for duration: RhythmValue) -> LeadSheetNoteLayout.HeadStyle {
         switch duration {
         case .whole, .wholeRest:
             return .whole
         case .half, .dottedHalf, .halfRest:
             return .half
-        case .slash, .quarter, .dottedQuarter, .eighth, .quarterRest, .eighthRest, .tiedContinuation:
+        case .slash, .quarter, .dottedQuarter, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .tiedContinuation:
             return .filled
         }
     }
@@ -2404,8 +2435,20 @@ enum LeadSheetPageLayoutEngine {
         switch duration {
         case .dottedQuarter, .dottedHalf:
             return true
-        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
             return false
+        }
+    }
+
+    private static func flagStyle(for duration: RhythmValue) -> LeadSheetNoteLayout.FlagStyle {
+        switch duration {
+        case .sixteenth:
+            return .double
+        case .eighth:
+            return .single
+        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
+             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+            return .none
         }
     }
 
@@ -2531,6 +2574,12 @@ extension LeadSheetPageLayout {
         }
 
         return candidates.min { $0.score < $1.score }?.note.selection
+    }
+}
+
+private extension RhythmValue {
+    var isSlashBeamableValue: Bool {
+        self == .eighth || self == .sixteenth
     }
 }
 

@@ -7,11 +7,13 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
     case quarterNote
     case slash
     case dottedQuarterNote
+    case sixteenthNote
     case eighthNote
     case tie
     case wholeRest
     case halfRest
     case quarterRest
+    case sixteenthRest
     case eighthRest
 
     var id: String { rawValue }
@@ -30,6 +32,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "Slash"
         case .dottedQuarterNote:
             return "Dotted Quarter Note"
+        case .sixteenthNote:
+            return "Sixteenth Note"
         case .eighthNote:
             return "Eighth Note"
         case .tie:
@@ -40,6 +44,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "Half Rest"
         case .quarterRest:
             return "Quarter Rest"
+        case .sixteenthRest:
+            return "Sixteenth Rest"
         case .eighthRest:
             return "Eighth Rest"
         }
@@ -59,6 +65,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "/"
         case .dottedQuarterNote:
             return "Q."
+        case .sixteenthNote:
+            return "16"
         case .eighthNote:
             return "8"
         case .tie:
@@ -69,6 +77,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "HR"
         case .quarterRest:
             return "QR"
+        case .sixteenthRest:
+            return "16R"
         case .eighthRest:
             return "8R"
         }
@@ -216,6 +226,26 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                     "Multiple beams or extra flags make it a more complex value"
                 ]
             )
+        case .sixteenthNote:
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept a sounded sixteenth note as a filled notehead with a stem and double short-value evidence. In handwriting this is usually two flags, two beam marks, or a second beam added to a beamed group.",
+                mustContain: [
+                    "One filled notehead",
+                    "One upright stem",
+                    "Two clear short-value marks: either double flags or a second beam"
+                ],
+                allowedVariations: [
+                    "A second beam drawn after the first beamed connection",
+                    "Two compact top hooks on a standalone note",
+                    "Slightly uneven handwritten beam thickness"
+                ],
+                rejectWhen: [
+                    "Only one flag or beam is visible",
+                    "The head is missing or reads as a rest",
+                    "Extra ink belongs to the next glyph rather than the same beamed group"
+                ]
+            )
         case .quarterRest:
             return RhythmicNotationUniversalGuide(
                 primitive: self,
@@ -296,6 +326,26 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                     "The shape becomes a zig-zag quarter rest"
                 ]
             )
+        case .sixteenthRest:
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept the standard sixteenth-rest gesture as the eighth-rest family with two short-value hooks or flags. It should read as silence, not a double-flagged note.",
+                mustContain: [
+                    "Two compact flag, hook, or comma gestures in the upper and middle body",
+                    "One descending angled or curved tail",
+                    "No lower filled notehead"
+                ],
+                allowedVariations: [
+                    "Two hooks drawn as one continuous handwritten stroke",
+                    "Separate upper and middle hook strokes attached to the same descending tail",
+                    "Slightly uneven hook spacing as long as two levels are visible"
+                ],
+                rejectWhen: [
+                    "Only one hook or flag is visible",
+                    "A filled notehead appears at the bottom",
+                    "The shape becomes a zig-zag quarter rest"
+                ]
+            )
         case .tie:
             return nil
         }
@@ -373,14 +423,16 @@ enum RhythmicNotationReferenceCompendium {
         entry(value: .half, primitive: .halfNote, kind: .note, durationText: "2 beats in 4/4"),
         entry(value: .dottedQuarter, primitive: .dottedQuarterNote, kind: .note, durationText: "1.5 beats in 4/4"),
         entry(value: .quarter, primitive: .quarterNote, kind: .note, durationText: "1 beat in 4/4"),
-        entry(value: .eighth, primitive: .eighthNote, kind: .note, durationText: "Half beat in 4/4")
+        entry(value: .eighth, primitive: .eighthNote, kind: .note, durationText: "Half beat in 4/4"),
+        entry(value: .sixteenth, primitive: .sixteenthNote, kind: .note, durationText: "Quarter beat in 4/4")
     ]
 
     static let rests: [RhythmicNotationReferenceEntry] = [
         entry(value: .wholeRest, primitive: .wholeRest, kind: .rest, durationText: "4 beats of silence in 4/4"),
         entry(value: .halfRest, primitive: .halfRest, kind: .rest, durationText: "2 beats of silence in 4/4"),
         entry(value: .quarterRest, primitive: .quarterRest, kind: .rest, durationText: "1 beat of silence in 4/4"),
-        entry(value: .eighthRest, primitive: .eighthRest, kind: .rest, durationText: "Half beat of silence in 4/4")
+        entry(value: .eighthRest, primitive: .eighthRest, kind: .rest, durationText: "Half beat of silence in 4/4"),
+        entry(value: .sixteenthRest, primitive: .sixteenthRest, kind: .rest, durationText: "Quarter beat of silence in 4/4")
     ]
 
     static let all: [RhythmicNotationReferenceEntry] = rhythm + notes + rests
@@ -423,6 +475,10 @@ extension RhythmValue {
         switch self {
         case .slash:
             return "Slash"
+        case .sixteenth:
+            return "Sixteenth Note"
+        case .sixteenthRest:
+            return "Sixteenth Rest"
         case .eighth:
             return "Eighth Note"
         case .eighthRest:
@@ -452,7 +508,7 @@ extension RhythmValue {
         switch self {
         case .dottedQuarter, .dottedHalf:
             return true
-        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
             return false
         }
     }

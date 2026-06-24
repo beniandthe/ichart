@@ -198,7 +198,7 @@ private extension RhythmValue {
         case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter,
                 .half, .halfRest, .dottedHalf, .whole, .wholeRest:
             return true
-        case .tiedContinuation:
+        case .sixteenth, .sixteenthRest, .tiedContinuation:
             return false
         }
     }

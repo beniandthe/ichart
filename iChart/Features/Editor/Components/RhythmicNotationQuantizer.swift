@@ -327,6 +327,8 @@ enum RhythmicNotationQuantizer {
 
     private static func sameDurationRestValue(for value: RhythmValue) -> RhythmValue? {
         switch value {
+        case .sixteenth:
+            return .sixteenthRest
         case .eighth:
             return .eighthRest
         case .quarter:
@@ -335,8 +337,8 @@ enum RhythmicNotationQuantizer {
             return .halfRest
         case .whole:
             return .wholeRest
-        case .slash, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
-                .wholeRest, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
+             .wholeRest, .tiedContinuation:
             return nil
         }
     }
@@ -1271,7 +1273,7 @@ enum RhythmicNotationQuantizer {
     }
 
     static func rhythmUnits(forWholeNotes wholeNotes: Double) -> Int {
-        Int((wholeNotes * 8).rounded())
+        Int((wholeNotes * 16).rounded())
     }
 
     // Auto-apply is stricter than manual quantize because a bad live commit clears the user's ink.
@@ -1467,10 +1469,15 @@ enum RhythmicNotationQuantizer {
             candidateScores[value] = clampedScore
         }
 
+        let sixteenthRestMatch = looksLikeSixteenthRest(features)
         let quarterRestMatch = looksLikeQuarterRest(features)
         let eighthRestMatch = looksLikeEighthRest(features)
-        if quarterRestMatch || eighthRestMatch {
-            if eighthRestMatch {
+        if sixteenthRestMatch || quarterRestMatch || eighthRestMatch {
+            if sixteenthRestMatch {
+                add(.sixteenthRest, score: 0.0)
+                add(.eighthRest, score: 1.15)
+                add(.quarterRest, score: 1.55)
+            } else if eighthRestMatch {
                 add(.eighthRest, score: 0.0)
                 add(.quarterRest, score: 1.35)
             } else {
@@ -1574,6 +1581,12 @@ enum RhythmicNotationQuantizer {
                 return
             }
             candidateScores[value] = clampedScore
+        }
+
+        if looksLikeSixteenthRest(features) {
+            add(.sixteenthRest, score: 0.0)
+            add(.eighthRest, score: 1.15)
+            add(.quarterRest, score: 1.55)
         }
 
         if features.contentStrokes.count == 1,
@@ -1692,6 +1705,7 @@ enum RhythmicNotationQuantizer {
         }
         guard !stroke.looksLikeQuarterRestBody(in: symbol.bounds),
               !stroke.looksLikeFlexibleOneStrokeQuarterRest(in: symbol.bounds),
+              !stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: drawingFrame),
               !stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame) else {
             return false
         }
@@ -1704,6 +1718,7 @@ enum RhythmicNotationQuantizer {
               symbol.strokes.allSatisfy({
                   !$0.looksLikeQuarterRestBody(in: $0.bounds)
                       && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeSixteenthRest(in: drawingFrame)
                       && !$0.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
                       && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
               }) else {
@@ -1745,6 +1760,28 @@ enum RhythmicNotationQuantizer {
             stroke.looksLikeQuarterRestSegment(in: features.contentBounds)
         }
         return angularSegments.count >= 2
+    }
+
+    private static func looksLikeSixteenthRest(_ features: SymbolFeatures) -> Bool {
+        guard features.contentStrokes.count <= 6,
+              features.height > max(7, features.width * 0.72),
+              !features.hasDefiniteLowerNotehead,
+              !features.hasClearNoteGlyph else {
+            return false
+        }
+
+        let symbol = SymbolObservation(strokes: features.contentStrokes)
+        if symbol.sixteenthRestComparisonScore(in: features.drawingFrame) != nil {
+            return true
+        }
+
+        if features.contentStrokes.count == 1,
+           let stroke = features.contentStrokes.first,
+           stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: features.drawingFrame) {
+            return true
+        }
+
+        return false
     }
 
     private static func looksLikeEighthRest(_ features: SymbolFeatures) -> Bool {
@@ -2036,6 +2073,40 @@ struct StrokeObservation: Hashable {
             && !looksHollowNoteHead
     }
 
+    func looksLikeFlexibleOneStrokeSixteenthRest(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let diagonalSpan = hypot(bounds.width, bounds.height)
+        let horizontalDirections = zip(points, points.dropFirst()).compactMap { segment -> Int? in
+            let deltaX = segment.1.x - segment.0.x
+            guard abs(deltaX) >= 0.65 else {
+                return nil
+            }
+            return deltaX > 0 ? 1 : -1
+        }
+        let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
+            .filter { $0 != $1 }
+            .count
+        let compactHeight = bounds.height >= max(CGFloat(16), referenceHeight * 0.18)
+            && bounds.height <= max(CGFloat(42), referenceHeight * 0.58)
+        let narrowEnough = bounds.width <= max(CGFloat(24), bounds.height * 0.96)
+        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.2)
+        let hasTwoShortValueTurns = directionChangeCount >= 2
+            || horizontalTurnCount >= 2
+            || pathLength >= diagonalSpan * 1.24
+        let hasTwoFlagLevels = hasTwoRestFlagLevels(in: bounds)
+        let notQuarterRestSize = bounds.height < max(CGFloat(48), referenceHeight * 0.64)
+
+        return compactHeight
+            && narrowEnough
+            && drawnDownward
+            && hasTwoShortValueTurns
+            && hasTwoFlagLevels
+            && notQuarterRestSize
+            && !looksClosed
+            && !looksHollowNoteHead
+            && !looksFilledNoteHead
+    }
+
     func looksLikeQuarterRestSegment(in referenceBounds: CGRect) -> Bool {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
         let largeEnough = bounds.height >= referenceHeight * 0.18
@@ -2112,6 +2183,29 @@ struct StrokeObservation: Hashable {
             && topEnough
             && notTooFarRight
             && (filledCircle || tapDot || compactHandwrittenDot)
+    }
+
+    func hasTwoRestFlagLevels(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let referenceWidth = max(CGFloat(1), referenceBounds.width)
+        let upperPoints = points.filter { point in
+            point.y <= referenceBounds.minY + referenceHeight * 0.4
+        }
+        let middlePoints = points.filter { point in
+            point.y >= referenceBounds.minY + referenceHeight * 0.28
+                && point.y <= referenceBounds.minY + referenceHeight * 0.68
+        }
+        guard let upperBounds = upperPoints.nonEmptyBounds,
+              let middleBounds = middlePoints.nonEmptyBounds else {
+            return false
+        }
+
+        let upperHook = upperBounds.width >= max(CGFloat(3), referenceWidth * 0.16)
+            || upperBounds.height >= max(CGFloat(3), referenceHeight * 0.08)
+        let middleHook = middleBounds.width >= max(CGFloat(3), referenceWidth * 0.16)
+            || middleBounds.height >= max(CGFloat(4), referenceHeight * 0.12)
+        let separatedLevels = middleBounds.midY - upperBounds.midY >= max(CGFloat(3), referenceHeight * 0.12)
+        return upperHook && middleHook && separatedLevels
     }
 
     func looksLikeEighthRestDescendingTail(
@@ -3044,6 +3138,40 @@ struct SymbolObservation: Hashable {
 }
 
 extension SymbolObservation {
+    func sixteenthRestComparisonScore(in sceneBounds: CGRect) -> CGFloat? {
+        let points = strokes.flatMap(\.points)
+        guard !points.isEmpty else {
+            return nil
+        }
+
+        let sceneHeight = max(CGFloat(1), sceneBounds.height)
+        let symbolHeight = max(CGFloat(1), bounds.height)
+        let symbolWidth = max(CGFloat(1), bounds.width)
+        let narrowRestEnvelope = symbolWidth <= max(CGFloat(42), sceneHeight * 1.05)
+        let tallEnough = symbolHeight >= max(CGFloat(18), sceneHeight * 0.34)
+        guard narrowRestEnvelope,
+              tallEnough,
+              !containsLowerNoteheadMass(in: sceneBounds) else {
+            return nil
+        }
+
+        let singleStrokeDoubleFlag = strokes.contains { stroke in
+            stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: sceneBounds)
+        }
+        let twoFlagLevels = strokes.contains { stroke in
+            stroke.hasTwoRestFlagLevels(in: bounds)
+        } || hasTwoRestFlagLevels(in: sceneBounds)
+        guard singleStrokeDoubleFlag || twoFlagLevels else {
+            return nil
+        }
+
+        let baseScore = eighthRestComparisonScore(in: sceneBounds)
+            ?? sevenLikeEighthRestComparisonScore(in: sceneBounds)
+            ?? CGFloat(0.22)
+        let secondFlagPenalty = singleStrokeDoubleFlag ? CGFloat(0) : CGFloat(0.08)
+        return baseScore + secondFlagPenalty
+    }
+
     func eighthRestComparisonScore(in sceneBounds: CGRect) -> CGFloat? {
         let points = strokes.flatMap(\.points)
         guard !points.isEmpty else {
@@ -3177,6 +3305,38 @@ extension SymbolObservation {
         let tailScore = abs((tailBounds.midX - bounds.midX) / max(CGFloat(1), symbolWidth)) * 0.2
         let wobbleScore = CGFloat(max(0, totalDirectionChanges - 4)) * 0.015
         return aspectScore + topScore + tailScore + wobbleScore + 0.08
+    }
+
+    private func hasTwoRestFlagLevels(in sceneBounds: CGRect) -> Bool {
+        let points = strokes.flatMap(\.points)
+        let symbolHeight = max(CGFloat(1), bounds.height)
+        let symbolWidth = max(CGFloat(1), bounds.width)
+        let upperPoints = points.filter { point in
+            point.y <= bounds.minY + symbolHeight * 0.4
+        }
+        let middlePoints = points.filter { point in
+            point.y >= bounds.minY + symbolHeight * 0.28
+                && point.y <= bounds.minY + symbolHeight * 0.68
+        }
+        let lowerTailPoints = points.filter { point in
+            point.y >= bounds.minY + symbolHeight * 0.56
+        }
+        guard let upperBounds = upperPoints.nonEmptyBounds,
+              let middleBounds = middlePoints.nonEmptyBounds,
+              let lowerTailBounds = lowerTailPoints.nonEmptyBounds else {
+            return false
+        }
+
+        let upperHook = upperBounds.width >= max(CGFloat(3), symbolWidth * 0.16)
+            || upperBounds.height >= max(CGFloat(3), symbolHeight * 0.08)
+        let middleHook = middleBounds.width >= max(CGFloat(3), symbolWidth * 0.16)
+            || middleBounds.height >= max(CGFloat(4), symbolHeight * 0.12)
+        let separatedLevels = middleBounds.midY - upperBounds.midY >= max(CGFloat(3), symbolHeight * 0.12)
+        let descendingTail = lowerTailBounds.height >= max(CGFloat(5), symbolHeight * 0.18)
+            && lowerTailBounds.maxY >= bounds.minY + symbolHeight * 0.72
+        let compactEnough = bounds.width <= max(CGFloat(42), sceneBounds.height * 1.05)
+
+        return compactEnough && upperHook && middleHook && separatedLevels && descendingTail
     }
 
     func hasAttachedLowerNotehead(
@@ -4021,14 +4181,16 @@ struct SymbolFeatures {
             return false
         }
 
-        if symbol.eighthRestComparisonScore(in: drawingFrame) != nil
+        if symbol.sixteenthRestComparisonScore(in: drawingFrame) != nil
+            || symbol.eighthRestComparisonScore(in: drawingFrame) != nil
             || symbol.sevenLikeEighthRestComparisonScore(in: drawingFrame) != nil {
             return true
         }
 
         return contentStrokes.contains { stroke in
             (
-                stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
+                stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: drawingFrame)
+                    || stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
                     || stroke.looksLikeSingleStrokeEighthRest(in: drawingFrame)
             )
             && !stroke.looksFilledNoteHead

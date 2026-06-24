@@ -84,6 +84,8 @@ enum RhythmicNotationCompendium {
         .quarter,
         .half,
         .whole,
+        .sixteenth,
+        .sixteenthRest,
         .eighth,
         .dottedQuarter,
         .dottedHalf,
@@ -531,15 +533,15 @@ extension Measure {
 extension RhythmValue {
     var supportsPitchedLeadSheetNote: Bool {
         switch self {
-        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole:
+        case .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole:
             return true
-        case .slash, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
             return false
         }
     }
 
     static var sketchPalette: [RhythmValue] {
-        [.slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole]
+        [.slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole]
     }
 
     static var singularEditPalette: [RhythmValue] {
@@ -551,9 +553,11 @@ extension RhythmValue {
             .slash,
             .quarter,
             .eighth,
+            .sixteenth,
             .wholeRest,
             .halfRest,
             .quarterRest,
+            .sixteenthRest,
             .eighthRest
         ]
     }

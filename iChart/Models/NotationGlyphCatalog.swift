@@ -12,15 +12,19 @@ enum NotationGlyphCatalog {
         case noteHalfUp
         case noteQuarterUp
         case note8thUp
+        case note16thUp
         case slashNotehead
         case slashWholeNotehead
         case slashHalfNotehead
         case augmentationDot
         case flag8thUp
         case flag8thDown
+        case flag16thUp
+        case flag16thDown
         case wholeRest
         case halfRest
         case quarterRest
+        case sixteenthRest
         case eighthRest
         case accidentalFlat
         case accidentalSharp
@@ -38,15 +42,19 @@ enum NotationGlyphCatalog {
     static let noteHalfUp = "\u{E1D3}"
     static let noteQuarterUp = "\u{E1D5}"
     static let note8thUp = "\u{E1D7}"
+    static let note16thUp = "\u{E1D9}"
     static let slashNotehead = "\u{E100}"
     static let slashWholeNotehead = "\u{E102}"
     static let slashHalfNotehead = "\u{E103}"
     static let augmentationDot = "\u{E1E7}"
     static let flag8thUp = "\u{E240}"
     static let flag8thDown = "\u{E241}"
+    static let flag16thUp = "\u{E242}"
+    static let flag16thDown = "\u{E243}"
     static let wholeRest = "\u{E4E3}"
     static let halfRest = "\u{E4E4}"
     static let quarterRest = "\u{E4E5}"
+    static let sixteenthRest = "\u{E4E7}"
     static let eighthRest = "\u{E4E6}"
     static let accidentalFlat = "\u{E260}"
     static let accidentalSharp = "\u{E262}"
@@ -82,6 +90,8 @@ enum NotationGlyphCatalog {
             return noteQuarterUp
         case .note8thUp:
             return note8thUp
+        case .note16thUp:
+            return note16thUp
         case .slashNotehead:
             return slashNotehead
         case .slashWholeNotehead:
@@ -94,12 +104,18 @@ enum NotationGlyphCatalog {
             return flag8thUp
         case .flag8thDown:
             return flag8thDown
+        case .flag16thUp:
+            return flag16thUp
+        case .flag16thDown:
+            return flag16thDown
         case .wholeRest:
             return wholeRest
         case .halfRest:
             return halfRest
         case .quarterRest:
             return quarterRest
+        case .sixteenthRest:
+            return sixteenthRest
         case .eighthRest:
             return eighthRest
         case .accidentalFlat:
@@ -135,19 +151,19 @@ enum NotationGlyphCatalog {
             return 2.52
         case .noteHalfUp, .noteQuarterUp:
             return 4.9
-        case .note8thUp:
+        case .note8thUp, .note16thUp:
             return 5.05
         case .slashNotehead, .slashWholeNotehead, .slashHalfNotehead:
             return 2.29
         case .augmentationDot:
             return 1.24
-        case .flag8thUp, .flag8thDown:
+        case .flag8thUp, .flag8thDown, .flag16thUp, .flag16thDown:
             return 2.1
         case .wholeRest, .halfRest:
             return 2.19
         case .quarterRest:
             return 2.67
-        case .eighthRest:
+        case .sixteenthRest, .eighthRest:
             return 2.48
         case .accidentalFlat, .accidentalSharp:
             return 2.1
@@ -180,6 +196,8 @@ extension NotationGlyphCatalog.Symbol {
             return "noteQuarterUp"
         case .note8thUp:
             return "note8thUp"
+        case .note16thUp:
+            return "note16thUp"
         case .slashNotehead:
             return "noteheadSlashVerticalEnds"
         case .slashWholeNotehead:
@@ -192,12 +210,18 @@ extension NotationGlyphCatalog.Symbol {
             return "flag8thUp"
         case .flag8thDown:
             return "flag8thDown"
+        case .flag16thUp:
+            return "flag16thUp"
+        case .flag16thDown:
+            return "flag16thDown"
         case .wholeRest:
             return "restWhole"
         case .halfRest:
             return "restHalf"
         case .quarterRest:
             return "restQuarter"
+        case .sixteenthRest:
+            return "rest16th"
         case .eighthRest:
             return "rest8th"
         case .accidentalFlat:

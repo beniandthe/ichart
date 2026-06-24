@@ -787,10 +787,12 @@ final class ChartLibraryStoreTests: XCTestCase {
                 .quarterNote,
                 .slash,
                 .dottedQuarterNote,
+                .sixteenthNote,
                 .eighthNote,
                 .wholeRest,
                 .quarterRest,
                 .halfRest,
+                .sixteenthRest,
                 .eighthRest
             ])
         )
@@ -807,11 +809,11 @@ final class ChartLibraryStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             RhythmicNotationReferenceCompendium.notes.map(\.value),
-            [.whole, .dottedHalf, .half, .dottedQuarter, .quarter, .eighth]
+            [.whole, .dottedHalf, .half, .dottedQuarter, .quarter, .eighth, .sixteenth]
         )
         XCTAssertEqual(
             RhythmicNotationReferenceCompendium.rests.map(\.value),
-            [.wholeRest, .halfRest, .quarterRest, .eighthRest]
+            [.wholeRest, .halfRest, .quarterRest, .eighthRest, .sixteenthRest]
         )
         XCTAssertEqual(
             Set(RhythmicNotationReferenceCompendium.all.map(\.value)),

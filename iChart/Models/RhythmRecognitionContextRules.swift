@@ -140,10 +140,10 @@ enum RhythmRecognitionContextRules {
 private extension RhythmValue {
     var isBeamableRecognitionReferenceValue: Bool {
         switch self {
-        case .eighth:
+        case .sixteenth, .eighth:
             return true
-        case .slash, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-                .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
+             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
             return false
         }
     }

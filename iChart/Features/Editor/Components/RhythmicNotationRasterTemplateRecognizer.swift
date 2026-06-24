@@ -630,7 +630,20 @@ extension RhythmicNotationQuantizer {
                 for: crop,
                 input: input
             )
-            if let leadingRestValues = rasterTemplateBeamedEighthValuesWithLeadingRest(
+            if let beamedSixteenthRun = rasterTemplateBeamedSixteenthRunValues(
+                for: crop,
+                input: input
+            ) {
+                add(beamedSixteenthRun, score: 0.0, template: "beamed-sixteenth-run")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.65, template: "beamed-eighth-run")
+            } else if let beamedSixteenthPair = rasterTemplateBeamedSixteenthPairValues(
+                for: crop,
+                beamedCount: beamedCount,
+                input: input
+            ) {
+                add(beamedSixteenthPair, score: 0.0, template: "beamed-sixteenth-pair")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.55, template: "beamed-eighth-run")
+            } else if let leadingRestValues = rasterTemplateBeamedEighthValuesWithLeadingRest(
                 for: crop,
                 beamedCount: beamedCount,
                 input: input
@@ -679,6 +692,7 @@ extension RhythmicNotationQuantizer {
                 add([candidate.value], score: candidate.score, template: "rest-\(candidate.value.rawValue)")
             }
         }
+        let hasSixteenthRestMatch = symbol.sixteenthRestComparisonScore(in: input.sceneBounds) != nil
         let hasStrongNonEighthRestMatch = matches.contains { match in
             guard match.score <= 0.2,
                   match.values.count == 1,
@@ -686,7 +700,7 @@ extension RhythmicNotationQuantizer {
                 return false
             }
             return value.isRest && value != .eighthRest
-        }
+        } || hasSixteenthRestMatch
         let hasLaterInk = input.strokes.contains { stroke in
             stroke.bounds.minX > crop.bounds.maxX + max(CGFloat(2), input.drawingFrame.width * 0.006)
         }
@@ -698,6 +712,9 @@ extension RhythmicNotationQuantizer {
             && (symbol.eighthRestComparisonScore(in: input.sceneBounds) != nil
             || symbol.sevenLikeEighthRestComparisonScore(in: input.sceneBounds) != nil
             )
+        if hasSixteenthRestMatch {
+            add([.sixteenthRest], score: 0.0, template: "rest-sixteenth-raster")
+        }
         if hasEighthRestMatch && !hasStrongNonEighthRestMatch {
             add([.eighthRest], score: 0.0, template: "rest-eighth-raster")
         }
@@ -765,7 +782,13 @@ extension RhythmicNotationQuantizer {
            (features.hasFilledHead || hasFilledInkHead || hasUpperHeadMass || features.hasLowerHeadMass || features.hasStemAndKick || hasStemmedNoteRaster) {
             add([.quarter], score: 0.08, template: "filled-stem")
         }
+        let hasDoubleFlagEvidence = rasterTemplateHasDoubleFlagEvidence(crop, features: features)
         if features.hasStem,
+           hasDoubleFlagEvidence {
+            add([.sixteenth], score: 0.0, template: "double-flagged-stem")
+        }
+        if features.hasStem,
+           !hasDoubleFlagEvidence,
            (features.hasFlag || cropHasUpperFlagMass(crop, features: features)) {
             add([.eighth], score: 0.05, template: "flagged-stem")
         }
@@ -1214,6 +1237,15 @@ extension RhythmicNotationQuantizer {
         meter: Meter,
         drawingFrame: CGRect
     ) -> RhythmGridAlignment? {
+        if values.count == 4,
+           values.allSatisfy({ $0 == .sixteenth }) {
+            let beatUnits = rhythmUnits(forWholeNotes: meter.beatUnitWholeNoteLength)
+            guard beatUnits == 4,
+                  startUnits.isMultiple(of: beatUnits) else {
+                return nil
+            }
+        }
+
         let observedPositions: [CGFloat]
         if values.count > 1 {
             observedPositions = rasterTemplateAttackXPositions(
@@ -1663,6 +1695,36 @@ extension RhythmicNotationQuantizer {
         return nil
     }
 
+    private static func rasterTemplateBeamedSixteenthPairValues(
+        for crop: RhythmSymbolCrop,
+        beamedCount: Int,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        guard beamedCount == 2,
+              rasterTemplateHasBeamedSixteenthPairEvidence(
+                for: crop,
+                drawingFrame: input.drawingFrame
+              ) else {
+            return nil
+        }
+
+        return [.sixteenth, .sixteenth]
+    }
+
+    private static func rasterTemplateBeamedSixteenthRunValues(
+        for crop: RhythmSymbolCrop,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        guard rasterTemplateHasBeamedSixteenthRunEvidence(
+            for: crop,
+            drawingFrame: input.drawingFrame
+        ) else {
+            return nil
+        }
+
+        return Array(repeating: .sixteenth, count: 4)
+    }
+
     private static func rasterTemplateBeamedEighthCount(
         for crop: RhythmSymbolCrop,
         input: RhythmInkRasterInput
@@ -1719,6 +1781,247 @@ extension RhythmicNotationQuantizer {
             return 0
         }
         return clusteredStemXs.count
+    }
+
+    private static func rasterTemplateHasBeamedSixteenthPairEvidence(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> Bool {
+        let noteheadXs = crop.strokes
+            .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
+            .map(\.bounds.midX)
+            .clusteredXs(minimumSeparation: max(CGFloat(7), drawingFrame.width * 0.03))
+        let stems = crop.strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        let inferredStemXs = crop.strokes
+            .flatMap { $0.connectedBeamStemXs(in: crop.bounds) }
+        let anchorXs = (noteheadXs + stems.map(\.bounds.midX) + inferredStemXs)
+            .clusteredXs(minimumSeparation: max(CGFloat(7), drawingFrame.width * 0.03))
+            .sorted()
+
+        let activeAnchorXs: [CGFloat]
+        if let stemEndpoints = rasterTemplateEndpointAnchorPair(from: stems.map(\.bounds.midX)) {
+            activeAnchorXs = stemEndpoints
+        } else if let singleStemPair = rasterTemplateSingleStemBeamedAnchorPair(
+            stemX: stems.first?.bounds.midX,
+            noteheadXs: noteheadXs
+        ) {
+            activeAnchorXs = singleStemPair
+        } else if let inferredStemEndpoints = rasterTemplateEndpointAnchorPair(from: inferredStemXs) {
+            activeAnchorXs = inferredStemEndpoints
+        } else if let noteheadEndpoints = rasterTemplateEndpointAnchorPair(from: noteheadXs) {
+            activeAnchorXs = noteheadEndpoints
+        } else if let anchorEndpoints = rasterTemplateEndpointAnchorPair(from: anchorXs) {
+            activeAnchorXs = anchorEndpoints
+        } else {
+            return false
+        }
+
+        guard (noteheadXs.count >= 2 || stems.count >= 1),
+              crop.strokes.contains(where: { $0.looksLikeVisualNotehead(in: crop.bounds) }) else {
+            return false
+        }
+
+        let beamLevelYs = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+            for: crop,
+            anchorXs: activeAnchorXs,
+            stems: stems,
+            drawingFrame: drawingFrame
+        )
+        return beamLevelYs.count >= 2
+    }
+
+    private static func rasterTemplateHasBeamedSixteenthRunEvidence(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> Bool {
+        let anchors = rasterTemplateBeamedSixteenthRunAnchorXs(
+            for: crop,
+            drawingFrame: drawingFrame
+        )
+        guard anchors.count == 4 else {
+            return false
+        }
+
+        let stems = crop.strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        let firstPairLevels = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+            for: crop,
+            anchorXs: Array(anchors[0...1]),
+            stems: stems,
+            drawingFrame: drawingFrame
+        )
+        let secondPairLevels = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+            for: crop,
+            anchorXs: Array(anchors[2...3]),
+            stems: stems,
+            drawingFrame: drawingFrame
+        )
+
+        return firstPairLevels.count >= 2
+            && secondPairLevels.count >= 2
+    }
+
+    private static func rasterTemplateBeamedSixteenthRunAnchorXs(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> [CGFloat] {
+        let minimumSeparation = max(CGFloat(7), drawingFrame.width * 0.03)
+        let lowerNoteheadXs = crop.strokes
+            .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
+            .filter { $0.bounds.midY >= crop.bounds.minY + crop.bounds.height * 0.55 }
+            .map(\.bounds.midX)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        if lowerNoteheadXs.count >= 4 {
+            return Array(lowerNoteheadXs.prefix(4))
+        }
+
+        let stemXs = crop.strokes
+            .stemAnchorStrokes(drawingFrame: drawingFrame)
+            .map(\.bounds.midX)
+        let inferredStemXs = crop.strokes
+            .flatMap { $0.connectedBeamStemXs(in: crop.bounds) }
+        let anchors = (lowerNoteheadXs + stemXs + inferredStemXs)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        guard anchors.count >= 4 else {
+            return []
+        }
+        return Array(anchors.prefix(4))
+    }
+
+    private static func rasterTemplateEndpointAnchorPair(from xs: [CGFloat]) -> [CGFloat]? {
+        let sorted = xs.sorted()
+        guard let first = sorted.first,
+              let last = sorted.last,
+              abs(last - first) >= CGFloat(7) else {
+            return nil
+        }
+        return [first, last]
+    }
+
+    private static func rasterTemplateSingleStemBeamedAnchorPair(
+        stemX: CGFloat?,
+        noteheadXs: [CGFloat]
+    ) -> [CGFloat]? {
+        guard let stemX,
+              noteheadXs.count >= 2 else {
+            return nil
+        }
+
+        let minimumSeparation = CGFloat(7)
+        let farthestHeadX = noteheadXs
+            .max { lhs, rhs in
+                abs(lhs - stemX) < abs(rhs - stemX)
+            }
+        guard let farthestHeadX,
+              abs(farthestHeadX - stemX) >= minimumSeparation else {
+            return nil
+        }
+        return [stemX, farthestHeadX].sorted()
+    }
+
+    private static func rasterTemplateBeamedSixteenthPairBeamLevelYs(
+        for crop: RhythmSymbolCrop,
+        anchorXs: [CGFloat],
+        stems: [StrokeObservation],
+        drawingFrame: CGRect
+    ) -> [CGFloat] {
+        guard anchorXs.count == 2 else {
+            return []
+        }
+
+        let beamStrokes = crop.strokes.filter { stroke in
+            let beamLike = stroke.isSharedBeam(across: stems)
+                || stroke.isSharedBeam(overNoteheadXs: anchorXs, in: crop.bounds)
+                || stroke.isConnectedBeamFrame(overNoteheadXs: anchorXs, in: crop.bounds)
+                || stroke.looksLikeSlopedVisualBeamSeed(
+                    over: stems,
+                    in: crop.bounds,
+                    drawingFrame: drawingFrame
+                )
+            guard beamLike,
+                  stroke.bounds.midY <= crop.bounds.minY + crop.bounds.height * 0.64 else {
+                return false
+            }
+
+            let tolerance = stroke.beamedCoverageTolerance(in: crop.bounds)
+            let coveredAnchorCount = anchorXs.filter { anchorX in
+                stroke.bounds.minX <= anchorX + tolerance
+                    && stroke.bounds.maxX >= anchorX - tolerance
+            }.count
+            return coveredAnchorCount == 2
+        }
+        let connectedBeamMassStrokes = crop.strokes.filter { stroke in
+            !beamStrokes.contains(stroke)
+                && rasterTemplateLooksLikeConnectedSixteenthBeamMass(
+                    stroke,
+                    over: anchorXs,
+                    in: crop.bounds
+                )
+        }
+
+        let minimumYSeparation = max(CGFloat(3), crop.bounds.height * 0.08)
+        let separatedLevels = beamStrokes
+            .map(\.bounds.midY)
+            .sorted()
+            .reduce(into: [CGFloat]()) { levels, y in
+                guard let last = levels.last else {
+                    levels.append(y)
+                    return
+                }
+                if abs(y - last) >= minimumYSeparation {
+                    levels.append(y)
+                }
+            }
+        if separatedLevels.count >= 2 {
+            return separatedLevels
+        }
+
+        let sameLevelDoubleBeamStrokes = beamStrokes
+            .sorted { lhs, rhs in
+                if lhs.bounds.midY == rhs.bounds.midY {
+                    return lhs.bounds.width > rhs.bounds.width
+                }
+                return lhs.bounds.midY < rhs.bounds.midY
+            }
+        if sameLevelDoubleBeamStrokes.count >= 2 {
+            let first = sameLevelDoubleBeamStrokes[0].bounds.midY
+            let second = sameLevelDoubleBeamStrokes[1].bounds.midY
+            return [first, second]
+        }
+        if let beamY = beamStrokes.first?.bounds.midY,
+           let massY = connectedBeamMassStrokes.first?.bounds.midY {
+            return [beamY, massY]
+        }
+
+        return separatedLevels
+    }
+
+    private static func rasterTemplateLooksLikeConnectedSixteenthBeamMass(
+        _ stroke: StrokeObservation,
+        over anchorXs: [CGFloat],
+        in symbolBounds: CGRect
+    ) -> Bool {
+        guard anchorXs.count == 2,
+              stroke.bounds.midY <= symbolBounds.minY + symbolBounds.height * 0.56,
+              stroke.bounds.width >= max(CGFloat(16), symbolBounds.width * 0.52),
+              stroke.bounds.height >= max(CGFloat(10), symbolBounds.height * 0.26),
+              stroke.bounds.height <= max(CGFloat(42), symbolBounds.height * 0.86) else {
+            return false
+        }
+
+        let tolerance = stroke.beamedCoverageTolerance(in: symbolBounds)
+        let coveredAnchorCount = anchorXs.filter { anchorX in
+            stroke.bounds.minX <= anchorX + tolerance
+                && stroke.bounds.maxX >= anchorX - tolerance
+        }.count
+        guard coveredAnchorCount == 2 else {
+            return false
+        }
+
+        let topBandMaxY = stroke.bounds.minY + stroke.bounds.height * 0.45
+        let topBandPoints = stroke.points.filter { $0.y <= topBandMaxY }
+        return topBandPoints.xSpread >= max(CGFloat(12), symbolBounds.width * 0.34)
     }
 
     private static func rasterTemplateHasBeamedEighthEvidence(
@@ -1848,9 +2151,9 @@ extension RhythmicNotationQuantizer {
         }
         if features.hasNoNoteheadRestShape {
             switch value {
-            case .quarter, .dottedQuarter, .eighth, .half, .dottedHalf, .whole:
+            case .quarter, .dottedQuarter, .sixteenth, .eighth, .half, .dottedHalf, .whole:
                 return true
-            case .slash, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+            case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
                 break
             }
         }
@@ -1919,6 +2222,31 @@ extension RhythmicNotationQuantizer {
             return features.hasStem
                 && hasFilledNoteheadEvidence
                 && hasShortValueMarker
+        case .sixteenth:
+            guard !features.hasNoNoteheadRestShape else {
+                return false
+            }
+            if templateName == "beamed-sixteenth-pair" {
+                return features.hasStem
+                    && cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateHasBeamedSixteenthPairEvidence(
+                        for: crop,
+                        drawingFrame: features.drawingFrame
+                    )
+            }
+            if templateName == "beamed-sixteenth-run" {
+                return cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateHasBeamedSixteenthRunEvidence(
+                        for: crop,
+                        drawingFrame: features.drawingFrame
+                    )
+            }
+            if templateName == "double-flagged-stem" {
+                return features.hasStem
+                    && cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateHasDoubleFlagEvidence(crop, features: features)
+            }
+            return false
         case .dottedQuarter:
             return cropHasDetachedDotEvidence(features)
                 && features.hasStem
@@ -1940,7 +2268,7 @@ extension RhythmicNotationQuantizer {
         case .whole:
             return !features.hasStem
                 && (hasHollowNoteheadEvidence || cropLooksLikeWholeNoteCircle(crop, drawingFrame: features.drawingFrame))
-        case .eighthRest, .quarterRest:
+        case .sixteenthRest, .eighthRest, .quarterRest:
             return true
         case .halfRest, .wholeRest:
             return !cropHasStemmedNoteEvidence(crop, features: features)
@@ -2132,7 +2460,7 @@ extension RhythmicNotationQuantizer {
         switch value {
         case .slash:
             return rasterCellsMatchForwardSlash(crop.rasterCells) ? 0 : 0.12
-        case .quarter, .dottedQuarter, .eighth:
+        case .quarter, .dottedQuarter, .sixteenth, .eighth:
             return rasterCellsMatchStemmedNote(crop.rasterCells) ? 0 : 0.08
         case .half, .dottedHalf:
             return cropHasLowerHeadMass(crop) ? 0 : 0.08
@@ -2149,6 +2477,7 @@ extension RhythmicNotationQuantizer {
               crop.strokes.allSatisfy({
                   !$0.looksLikeQuarterRestBody(in: $0.bounds)
                       && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
+                      && !$0.looksLikeFlexibleOneStrokeSixteenthRest(in: input.drawingFrame)
                       && !$0.looksLikeFlexibleOneStrokeEighthRest(in: input.drawingFrame)
                       && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
                       && $0.isIsolatedPlaceholderSlash(
@@ -2230,6 +2559,34 @@ extension RhythmicNotationQuantizer {
 
         return upperBounds.width >= max(CGFloat(4), crop.bounds.width * 0.18)
             && upperBounds.height <= max(CGFloat(16), crop.bounds.height * 0.42)
+    }
+
+    private static func rasterTemplateHasDoubleFlagEvidence(
+        _ crop: RhythmSymbolCrop,
+        features: SymbolFeatures
+    ) -> Bool {
+        let flagLikeStrokes = features.flagStrokes.filter { stroke in
+            stroke.bounds.width >= max(CGFloat(3), features.height * 0.08)
+                || stroke.bounds.height >= max(CGFloat(5), features.height * 0.16)
+                || stroke.directionChangeCount >= 1
+        }
+        if flagLikeStrokes.count >= 2 {
+            return true
+        }
+
+        guard let stemStroke = features.stemStroke else {
+            return false
+        }
+
+        let upperMarks = crop.strokes.filter { stroke in
+            stroke != stemStroke
+                && !features.headStrokes.contains(stroke)
+                && stroke.center.y <= features.contentBounds.midY
+                && stroke.bounds.minX <= stemStroke.bounds.maxX + features.height * 0.55
+                && stroke.bounds.maxX >= stemStroke.bounds.minX - features.height * 0.2
+                && stroke.bounds.width >= max(CGFloat(4), features.width * 0.12)
+        }
+        return upperMarks.count >= 2
     }
 
     private static func cropHasUpperHeadMass(_ crop: RhythmSymbolCrop) -> Bool {
@@ -2384,9 +2741,11 @@ enum RhythmVisualCompendium {
         .quarter,
         .half,
         .whole,
+        .sixteenth,
         .eighth,
         .dottedQuarter,
         .dottedHalf,
+        .sixteenthRest,
         .eighthRest,
         .quarterRest,
         .halfRest,
@@ -2440,6 +2799,12 @@ enum RhythmVisualCompendium {
             RhythmRasterCell(x: 3, y: 2),
             RhythmRasterCell(x: 7, y: 4),
             RhythmRasterCell(x: 6, y: 9)
+        ]),
+        RhythmVisualTemplate(name: "sixteenth-rest", value: .sixteenthRest, expectedCells: [
+            RhythmRasterCell(x: 3, y: 2),
+            RhythmRasterCell(x: 7, y: 4),
+            RhythmRasterCell(x: 5, y: 6),
+            RhythmRasterCell(x: 6, y: 10)
         ]),
         RhythmVisualTemplate(name: "quarter-rest", value: .quarterRest, expectedCells: [
             RhythmRasterCell(x: 5, y: 1),

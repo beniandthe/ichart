@@ -62,6 +62,7 @@ final class SmuflFontMetadataTests: XCTestCase {
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .slashWholeNotehead), "noteheadSlashWhiteWhole")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .quarterRest), "restQuarter")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .eighthRest), "rest8th")
+        XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .sixteenthRest), "rest16th")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .accidentalFlat), "accidentalFlat")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .accidentalSharp), "accidentalSharp")
         XCTAssertEqual(NotationGlyphCatalog.smuflGlyphName(for: .coda), "coda")

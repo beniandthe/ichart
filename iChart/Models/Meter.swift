@@ -84,6 +84,8 @@ extension BeatPosition {
 
 enum RhythmValue: String, Codable, CaseIterable, Hashable {
     case slash
+    case sixteenth
+    case sixteenthRest
     case eighth
     case eighthRest
     case quarter
@@ -100,6 +102,10 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .slash:
             return "slash"
+        case .sixteenth:
+            return "sixteenth"
+        case .sixteenthRest:
+            return "sixteenth rest"
         case .eighth:
             return "eighth"
         case .eighthRest:
@@ -129,6 +135,10 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .slash:
             return 0.25
+        case .sixteenth:
+            return 0.0625
+        case .sixteenthRest:
+            return 0.0625
         case .eighth:
             return 0.125
         case .eighthRest:
@@ -158,17 +168,17 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .slash:
             return meter.beatUnitWholeNoteLength
-        case .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-                .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+        case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
+             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
             return wholeNoteLength
         }
     }
 
     var isRest: Bool {
         switch self {
-        case .eighthRest, .quarterRest, .halfRest, .wholeRest:
+        case .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest:
             return true
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
             return false
         }
     }

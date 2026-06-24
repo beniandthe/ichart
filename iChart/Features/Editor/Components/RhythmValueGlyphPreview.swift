@@ -20,8 +20,8 @@ struct RhythmValueGlyphPreview: View {
                         .offset(x: 8, y: 8)
                 }
 
-                if value == .eighth {
-                    glyphText(NotationGlyphCatalog.flag8thDown, size: 21)
+                if value == .eighth || value == .sixteenth {
+                    glyphText(value == .sixteenth ? NotationGlyphCatalog.flag16thDown : NotationGlyphCatalog.flag8thDown, size: 21)
                         .offset(x: 14, y: 14)
                 }
 
@@ -43,9 +43,11 @@ struct RhythmValueGlyphPreview: View {
             return NotationGlyphCatalog.halfRest
         case .quarterRest:
             return NotationGlyphCatalog.quarterRest
+        case .sixteenthRest:
+            return NotationGlyphCatalog.sixteenthRest
         case .eighthRest:
             return NotationGlyphCatalog.eighthRest
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
             return nil
         }
     }
@@ -56,9 +58,9 @@ struct RhythmValueGlyphPreview: View {
             return NotationGlyphCatalog.slashWholeNotehead
         case .half, .dottedHalf:
             return NotationGlyphCatalog.slashHalfNotehead
-        case .slash, .eighth, .quarter, .dottedQuarter:
+        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter:
             return NotationGlyphCatalog.slashNotehead
-        case .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+        case .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
             return NotationGlyphCatalog.slashNotehead
         }
     }
@@ -69,9 +71,9 @@ struct RhythmValueGlyphPreview: View {
 
     private var showsStem: Bool {
         switch value {
-        case .slash, .whole, .wholeRest, .halfRest, .quarterRest, .eighthRest, .tiedContinuation:
+        case .slash, .whole, .wholeRest, .halfRest, .quarterRest, .sixteenthRest, .eighthRest, .tiedContinuation:
             return false
-        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf:
+        case .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf:
             return true
         }
     }
@@ -80,11 +82,13 @@ struct RhythmValueGlyphPreview: View {
         switch value {
         case .quarterRest:
             return 29
+        case .sixteenthRest:
+            return 27
         case .eighthRest:
             return 27
         case .wholeRest, .halfRest:
             return 24
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
             return 24
         }
     }
@@ -93,13 +97,15 @@ struct RhythmValueGlyphPreview: View {
         switch value {
         case .quarterRest:
             return 0
+        case .sixteenthRest:
+            return -4
         case .eighthRest:
             return 1
         case .wholeRest:
             return -3
         case .halfRest:
             return 2
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
             return 0
         }
     }

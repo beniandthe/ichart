@@ -775,6 +775,8 @@ struct LeadSheetNotationRenderer {
             drawRest(.halfRest, for: noteLayout)
         case .quarterRest:
             drawRest(.quarterRest, for: noteLayout)
+        case .sixteenthRest:
+            drawRest(.sixteenthRest, for: noteLayout)
         case .eighthRest:
             drawRest(.eighthRest, for: noteLayout)
         }
@@ -1063,8 +1065,21 @@ struct LeadSheetNotationRenderer {
 
         if let beamEndPoint = noteLayout.beamEndPoint {
             drawBeam(from: stemEnd, to: beamEndPoint, staffSpace: noteLayout.staffSpace)
-        } else if noteLayout.flagStyle == .single {
-            drawFlag(from: stemEnd, stemGoesUp: noteLayout.stemGoesUp, staffSpace: noteLayout.staffSpace)
+            if noteLayout.flagStyle == .double {
+                let secondaryOffset = style.beamThickness(staffSpace: noteLayout.staffSpace) * 1.75
+                drawBeam(
+                    from: CGPoint(x: stemEnd.x, y: stemEnd.y + secondaryOffset),
+                    to: CGPoint(x: beamEndPoint.x, y: beamEndPoint.y + secondaryOffset),
+                    staffSpace: noteLayout.staffSpace
+                )
+            }
+        } else if noteLayout.flagStyle != .none {
+            drawFlag(
+                from: stemEnd,
+                stemGoesUp: noteLayout.stemGoesUp,
+                flagStyle: noteLayout.flagStyle,
+                staffSpace: noteLayout.staffSpace
+            )
         }
     }
 
@@ -1080,8 +1095,19 @@ struct LeadSheetNotationRenderer {
         beamPath.fill()
     }
 
-    private func drawFlag(from stemEnd: CGPoint, stemGoesUp: Bool, staffSpace: CGFloat) {
-        let flag: NotationGlyphCatalog.Symbol = stemGoesUp ? .flag8thUp : .flag8thDown
+    private func drawFlag(
+        from stemEnd: CGPoint,
+        stemGoesUp: Bool,
+        flagStyle: LeadSheetNoteLayout.FlagStyle,
+        staffSpace: CGFloat
+    ) {
+        let flag: NotationGlyphCatalog.Symbol
+        switch flagStyle {
+        case .double:
+            flag = stemGoesUp ? .flag16thUp : .flag16thDown
+        case .single, .none:
+            flag = stemGoesUp ? .flag8thUp : .flag8thDown
+        }
         let stemAnchorName = stemGoesUp ? "stemUpNW" : "stemDownSW"
         drawNotationSymbol(flag, anchoredAt: stemEnd, anchorName: stemAnchorName, staffSpace: staffSpace)
     }
@@ -1585,6 +1611,7 @@ private enum NotationRestGlyph {
     case wholeRest
     case halfRest
     case quarterRest
+    case sixteenthRest
     case eighthRest
 
     var symbol: NotationGlyphCatalog.Symbol {
@@ -1595,6 +1622,8 @@ private enum NotationRestGlyph {
             return .halfRest
         case .quarterRest:
             return .quarterRest
+        case .sixteenthRest:
+            return .sixteenthRest
         case .eighthRest:
             return .eighthRest
         }
@@ -1606,7 +1635,7 @@ private enum NotationRestGlyph {
             return layoutFrame.center
         case .quarterRest:
             return CGPoint(x: layoutFrame.midX, y: layoutFrame.midY - 1)
-        case .eighthRest:
+        case .sixteenthRest, .eighthRest:
             return CGPoint(x: layoutFrame.midX, y: layoutFrame.midY - 1)
         }
     }
