@@ -75,6 +75,156 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
 
+    func testRhythmDiagnosticsAreOptInAndLocalOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let diagnosticsText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let pipelinePreviewText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/RhythmRecognitionPipelinePreview.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("Rhythm Diagnostics"))
+        XCTAssertTrue(libraryText.contains("Diagnostics stay on this device in Application Support and do not upload chart ink."))
+        XCTAssertTrue(libraryText.contains("Experimental pipeline preview"))
+        XCTAssertTrue(libraryText.contains("Share Log"))
+        XCTAssertTrue(libraryText.contains("Clear Log"))
+        XCTAssertTrue(editorText.contains("rhythmDiagnosticStatusChip"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged"))
+        XCTAssertTrue(hostText.contains("RhythmRecognitionDiagnosticsRecorder.live().append(event)"))
+        XCTAssertTrue(diagnosticsText.contains("iChartRhythmRecognitionDiagnosticsEnabled"))
+        XCTAssertTrue(diagnosticsText.contains("rhythm-recognition-diagnostics.jsonl"))
+        XCTAssertTrue(diagnosticsText.contains("pipelinePreview"))
+        XCTAssertTrue(diagnosticsText.contains("maxLogSizeBytes"))
+        XCTAssertTrue(pipelinePreviewText.contains("RhythmRecognitionPipelinePreview"))
+        XCTAssertTrue(pipelinePreviewText.contains("statusText"))
+        XCTAssertFalse(diagnosticsText.contains("Supabase"))
+        XCTAssertFalse(diagnosticsText.contains("upload"))
+        XCTAssertFalse(pipelinePreviewText.contains("Supabase"))
+        XCTAssertFalse(pipelinePreviewText.contains("upload"))
+    }
+
+    func testRhythmRecognitionOverhaulParksLegacyAutoRenderButKeepsToolSet() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let gateText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/RhythmRecognitionOverhaulGate.swift")
+        )
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let modeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorCanvasMode.swift")
+        )
+        let mapText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/MeasureRhythmMapping.swift")
+        )
+        let parkingPlanText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-rhythm-recognition-overhaul-parking-2026-06-22.md")
+        )
+
+        XCTAssertTrue(gateText.contains("isLegacyAutoRenderParked = true"))
+        XCTAssertTrue(gateText.contains("isTapToRenderRecognitionEnabled = true"))
+        XCTAssertTrue(hostText.contains("persistRhythmicNotationInkIfStable"))
+        XCTAssertTrue(hostText.contains("LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy"))
+        XCTAssertTrue(hostText.contains("RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked"))
+        XCTAssertTrue(hostText.contains("RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled"))
+        XCTAssertTrue(hostText.contains("chartByPersistingLiveDrawing"))
+        XCTAssertTrue(modeText.contains("case rhythmicNotationEdit"))
+        XCTAssertTrue(modeText.contains("allowsDirectRhythmicNotationInk"))
+        XCTAssertTrue(mapText.contains("struct MeasureRhythmMap"))
+        XCTAssertTrue(mapText.contains("struct MeasureRhythmSlot"))
+        XCTAssertTrue(parkingPlanText.contains("Parked Legacy Recognition Systems"))
+        XCTAssertTrue(parkingPlanText.contains("Idle live advisory recognition"))
+        XCTAssertTrue(parkingPlanText.contains("Keep Active"))
+        XCTAssertTrue(parkingPlanText.contains("Legacy live rhythm auto-apply from handwritten ink"))
+        XCTAssertTrue(parkingPlanText.contains("tap outside to render"))
+    }
+
+    func testRhythmRecognitionReferenceIsBackendOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let referenceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/backend-rhythm-reference.md")
+        )
+        let visualBridgeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/visual-ink-reference-bridge.md")
+        )
+        let decisionContractText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/recognizer-decision-contract.md")
+        )
+        let goldenFixtureText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/golden-fixture-matrix.md")
+        )
+        let referenceReadmeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/references/README.md")
+        )
+        let simpleReferenceURL = projectRoot
+            .appendingPathComponent("docs/rhythm-recognition/references/simple-rest-and-rhythm.jpg")
+        let combinationsReferenceURL = projectRoot
+            .appendingPathComponent("docs/rhythm-recognition/references/rhythm-combinations.pdf")
+
+        XCTAssertFalse(libraryText.contains("case rhythmReference"))
+        XCTAssertFalse(libraryText.contains("IChartRhythmReferencePage"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: simpleReferenceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: combinationsReferenceURL.path))
+        XCTAssertTrue(referenceReadmeText.contains("not user-facing app assets"))
+        XCTAssertTrue(referenceReadmeText.contains("simple-rest-and-rhythm.jpg"))
+        XCTAssertTrue(referenceReadmeText.contains("rhythm-combinations.pdf"))
+        XCTAssertTrue(referenceText.contains("Backend Rhythm Recognition Reference"))
+        XCTAssertTrue(referenceText.contains("dotted quarter - eighth - eighth - dotted quarter"))
+        XCTAssertTrue(referenceText.contains("RhythmRecognitionContextRules"))
+        XCTAssertTrue(referenceText.contains("visual-ink-reference-bridge.md"))
+        XCTAssertTrue(referenceText.contains("recognizer-decision-contract.md"))
+        XCTAssertTrue(referenceText.contains("golden-fixture-matrix.md"))
+        XCTAssertTrue(referenceText.contains("LilyPond Notation Reference, Beams"))
+        XCTAssertTrue(referenceText.contains("MuseScore Studio Handbook, Beams"))
+        XCTAssertTrue(referenceText.contains("Steinberg Dorico Help"))
+        XCTAssertTrue(visualBridgeText.contains("Visual Ink Reference Bridge"))
+        XCTAssertTrue(visualBridgeText.contains("Eighth Rest Versus Eighth Note Decision Rule"))
+        XCTAssertTrue(visualBridgeText.contains("Do not let a neighboring note's head satisfy the notehead requirement"))
+        XCTAssertTrue(visualBridgeText.contains("Dotted Quarter - Eighth - Eighth - Dotted Quarter"))
+        XCTAssertTrue(decisionContractText.contains("Recognizer Decision Contract"))
+        XCTAssertTrue(decisionContractText.contains("Hard Negative Rules"))
+        XCTAssertTrue(goldenFixtureText.contains("Golden Fixture Matrix"))
+        XCTAssertTrue(goldenFixtureText.contains("eighth-rest-plus-eighth-not-note-pair"))
+        XCTAssertTrue(referenceReadmeText.contains("visual-ink-reference-bridge.md"))
+        XCTAssertTrue(referenceReadmeText.contains("recognizer-decision-contract.md"))
+        XCTAssertTrue(referenceReadmeText.contains("golden-fixture-matrix.md"))
+    }
+
     func testManualTextEntryPopoutsExposeKeyboardButtons() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

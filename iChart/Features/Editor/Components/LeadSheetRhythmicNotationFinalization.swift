@@ -35,7 +35,9 @@ enum LeadSheetRhythmicNotationFinalization {
             return true
         }
 
-        let activeWritingFrame = activeMeasureLayout.writableFrame.insetBy(dx: -8, dy: -8)
+        let activeWritingFrame = LeadSheetRhythmicNotationInkCapturePolicy.tapFinalizeFrame(
+            for: activeMeasureLayout
+        )
         return !activeWritingFrame.contains(location)
     }
 
@@ -61,10 +63,7 @@ enum LeadSheetRhythmicNotationFinalization {
         try RhythmicNotationQuantizer.quantize(
             drawingData: drawingData,
             meter: measure.resolvedMeter(defaultMeter: defaultMeter),
-            drawingFrame: CGRect(
-                origin: .zero,
-                size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-            )
+            drawingFrame: analysisDrawingFrame(for: measureLayout)
         )
     }
 
@@ -77,10 +76,7 @@ enum LeadSheetRhythmicNotationFinalization {
         try RhythmicNotationQuantizer.autoApplyProposal(
             drawingData: drawingData,
             meter: measure.resolvedMeter(defaultMeter: defaultMeter),
-            drawingFrame: CGRect(
-                origin: .zero,
-                size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-            )
+            drawingFrame: analysisDrawingFrame(for: measureLayout)
         )
     }
 
@@ -93,10 +89,7 @@ enum LeadSheetRhythmicNotationFinalization {
         try RhythmicNotationQuantizer.recognitionDecision(
             drawingData: drawingData,
             meter: measure.resolvedMeter(defaultMeter: defaultMeter),
-            drawingFrame: CGRect(
-                origin: .zero,
-                size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-            )
+            drawingFrame: analysisDrawingFrame(for: measureLayout)
         )
     }
 
@@ -159,10 +152,7 @@ enum LeadSheetRhythmicNotationFinalization {
             return nil
         }
 
-        let drawingFrame = CGRect(
-            origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-        )
+        let drawingFrame = analysisDrawingFrame(for: measureLayout)
         guard let anchors = try? RhythmicNotationQuantizer.visualNoteAnchors(
             drawingData: drawingData,
             drawingFrame: drawingFrame
@@ -191,10 +181,7 @@ enum LeadSheetRhythmicNotationFinalization {
             return nil
         }
 
-        let drawingFrame = CGRect(
-            origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
-        )
+        let drawingFrame = analysisDrawingFrame(for: measureLayout)
         guard let anchors = try? RhythmicNotationQuantizer.visualNoteAnchors(
             drawingData: drawingData,
             drawingFrame: drawingFrame
@@ -224,11 +211,20 @@ enum LeadSheetRhythmicNotationFinalization {
         for anchor: RhythmVisualNoteAnchor,
         measureLayout: LeadSheetMeasureLayout
     ) -> LeadSheetStaffPosition {
-        let activeFrame = measureLayout.writableFrame.insetBy(dx: 2, dy: 2)
+        let activeFrame = LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout)
         let staffLineSpacing = max(CGFloat(1), (measureLayout.staffFrame.height - 4) / 4)
         let topStaffLineY = measureLayout.staffFrame.minY + 2 - activeFrame.minY
         let staffStep = Int(((anchor.center.y - topStaffLineY) / (staffLineSpacing / 2)).rounded())
         return LeadSheetStaffPosition(staffStep: staffStep)
+    }
+
+    private static func analysisDrawingFrame(
+        for measureLayout: LeadSheetMeasureLayout
+    ) -> CGRect {
+        CGRect(
+            origin: .zero,
+            size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).size
+        )
     }
 }
 #endif

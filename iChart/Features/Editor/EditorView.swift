@@ -280,6 +280,8 @@ struct EditorView: View {
     @State private var chordToolInputMode: ChordToolInputMode = .read
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
+    @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
+    @State private var rhythmPreviewConfirmationRequestID: UUID?
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
     @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
@@ -1051,6 +1053,10 @@ struct EditorView: View {
                     .lineLimit(1)
                 }
 
+                if canvasMode == .rhythmicNotationEdit {
+                    rhythmDiagnosticStatusChip
+                }
+
                 Button {
                     activateSelectTool()
                 } label: {
@@ -1328,8 +1334,89 @@ struct EditorView: View {
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
-            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas
+            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas,
+            rhythmicNotationPreviewConfirmationRequestID: rhythmPreviewConfirmationRequestID,
+            onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged
         )
+    }
+
+    private var rhythmDiagnosticStatusChip: some View {
+        let preview = latestRhythmPreview
+        let tint = preview?.canConfirm == true
+            ? Color.orange
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return HStack(spacing: 8) {
+            Image(systemName: preview?.canConfirm == true ? "questionmark.circle.fill" : "waveform.path.ecg")
+                .font(.caption.weight(.bold))
+                .frame(width: 15)
+
+            RhythmDiagnosticPreviewStrip(
+                values: preview?.values ?? [],
+                meter: preview?.meter ?? chart.defaultMeter
+            )
+
+            if let preview {
+                if preview.canConfirm {
+                    HStack(spacing: 7) {
+                        Text("Is this correct?")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.86)
+
+                        Button {
+                            latestRhythmPreview = nil
+                            rhythmPreviewConfirmationRequestID = UUID()
+                        } label: {
+                            Text("Confirm")
+                                .font(.caption.weight(.bold))
+                                .padding(.horizontal, 9)
+                                .frame(height: 26)
+                                .foregroundStyle(Color.white)
+                                .background(tint)
+                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
+                } else if preview.isCertain {
+                    Text("Tap outside measure to render")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.86)
+                        .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
+                } else {
+                    Text("Reading")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
+                }
+            } else {
+                Text("Waiting for ink")
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
+            }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .frame(height: 50)
+        .background(tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(rhythmPreviewAccessibilityLabel)
+    }
+
+    private var rhythmPreviewAccessibilityLabel: String {
+        guard let preview = latestRhythmPreview,
+              !preview.values.isEmpty else {
+            return "Rhythm preview, waiting for ink"
+        }
+
+        let statusText = preview.canConfirm
+            ? "needs confirmation"
+            : preview.isCertain ? "ready to render" : "reading"
+        return "Rhythm preview, \(preview.values.map(\.displayText).joined(separator: ", ")), \(statusText)"
     }
 
     private func exitEditor() {
@@ -1948,6 +2035,8 @@ struct EditorView: View {
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
         selectedNoteSelection = nil
+        latestRhythmPreview = nil
+        rhythmPreviewConfirmationRequestID = nil
 
         if canvasMode == .rhythmicNotationEdit {
             activateSelectTool()
@@ -1957,6 +2046,10 @@ struct EditorView: View {
         inkToolMode = .write
         selectedMeasureID = resolvedMeasureActionTargetID()
         canvasMode = .rhythmicNotationEdit
+    }
+
+    private func handleRhythmicNotationPreviewChanged(_ preview: LeadSheetRhythmicNotationPreviewState?) {
+        latestRhythmPreview = preview
     }
 
     private func activateSelectTool(clearsMeasureSelection: Bool = false) {
@@ -1972,6 +2065,8 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         pendingMeasureStackInsertion = nil
+        latestRhythmPreview = nil
+        rhythmPreviewConfirmationRequestID = nil
         isNoteEditMenuPresented = false
         noteEditMenuStage = .actions
         canvasMode = .browse
@@ -2971,6 +3066,388 @@ private enum EditorSheet: Identifiable {
     }
 }
 
+private struct RhythmDiagnosticPreviewStrip: View {
+    let values: [RhythmValue]
+    let meter: Meter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: RhythmDiagnosticPreviewMetrics.glyphSpacing) {
+                if values.isEmpty {
+                    RhythmDiagnosticPreviewStaffPlaceholder()
+                } else {
+                    ForEach(Array(RhythmDiagnosticPreviewItem.items(for: values, meter: meter).enumerated()), id: \.offset) { _, item in
+                        switch item {
+                        case .single(let value):
+                            RhythmDiagnosticPreviewGlyph(value: value)
+                        case .beamedGroup(let values):
+                            RhythmDiagnosticPreviewBeamedGroup(values: values)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, RhythmDiagnosticPreviewMetrics.horizontalInset)
+            .frame(minWidth: RhythmDiagnosticPreviewMetrics.stripWidth, alignment: .leading)
+        }
+        .scrollDisabled(values.count <= RhythmDiagnosticPreviewMetrics.nonScrollingGlyphCount)
+        .frame(
+            width: RhythmDiagnosticPreviewMetrics.stripWidth,
+            height: RhythmDiagnosticPreviewMetrics.stripHeight,
+            alignment: .leading
+        )
+        .background(Color.primary.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .foregroundStyle(Color.primary)
+    }
+}
+
+private enum RhythmDiagnosticPreviewMetrics {
+    static let stripWidth: CGFloat = 216
+    static let stripHeight: CGFloat = 42
+    static let glyphWidth: CGFloat = 30
+    static let glyphHeight: CGFloat = 42
+    static let glyphSpacing: CGFloat = 8
+    static let horizontalInset: CGFloat = 7
+    static let nonScrollingGlyphCount = 5
+    static let statusWidth: CGFloat = 178
+    static let notePointSize: CGFloat = 30
+    static let wholeNotePointSize: CGFloat = 26
+    static let restPointSize: CGFloat = 27
+    static let restBlockPointSize: CGFloat = 23
+    static let slashPointSize: CGFloat = 27
+    static let dotSize: CGFloat = 5
+    static let glyphVerticalOffset: CGFloat = 8
+    static let beamedGlyphAdvance: CGFloat = 27
+    static let beamedDottedTrailingAllowance: CGFloat = 10
+    static let beamedDotRightPadding: CGFloat = 1.5
+    static let beamedStemWidth: CGFloat = 1.5
+    static let beamThickness: CGFloat = 4
+}
+
+private enum RhythmDiagnosticPreviewItem {
+    case single(RhythmValue)
+    case beamedGroup([RhythmValue])
+
+    static func items(for values: [RhythmValue], meter: Meter) -> [RhythmDiagnosticPreviewItem] {
+        var items: [RhythmDiagnosticPreviewItem] = []
+        var index = 0
+
+        while index < values.count {
+            let value = values[index]
+            guard value.isDiagnosticPreviewBeamable else {
+                items.append(.single(value))
+                index += 1
+                continue
+            }
+
+            var count = 1
+            while index + count < values.count,
+                  values[index + count].isDiagnosticPreviewBeamable,
+                  RhythmRecognitionContextRules.allowsBeamAcrossBoundary(
+                    beforeValueAt: index + count,
+                    in: values,
+                    meter: meter
+                  ) {
+                count += 1
+            }
+
+            if count > 1 {
+                items.append(.beamedGroup(Array(values[index..<index + count])))
+            } else {
+                items.append(.single(value))
+            }
+            index += count
+        }
+
+        return items
+    }
+}
+
+private extension RhythmValue {
+    var isDiagnosticPreviewBeamable: Bool {
+        self == .eighth || self == .dottedEighth || self == .sixteenth
+    }
+}
+
+private struct RhythmDiagnosticPreviewStaffPlaceholder: View {
+    var body: some View {
+        VStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { _ in
+                Rectangle()
+                    .fill(Color.primary.opacity(0.16))
+                    .frame(height: 1)
+            }
+        }
+        .frame(
+            width: RhythmDiagnosticPreviewMetrics.stripWidth - RhythmDiagnosticPreviewMetrics.horizontalInset * 2,
+            height: RhythmDiagnosticPreviewMetrics.stripHeight
+        )
+    }
+}
+
+private struct RhythmDiagnosticPreviewGlyph: View {
+    let value: RhythmValue
+
+    var body: some View {
+        ZStack {
+            switch value {
+            case .wholeRest:
+                symbol(.wholeRest, size: RhythmDiagnosticPreviewMetrics.restBlockPointSize)
+                    .offset(y: 0)
+            case .halfRest:
+                symbol(.halfRest, size: RhythmDiagnosticPreviewMetrics.restBlockPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset - 2)
+            case .quarterRest:
+                symbol(.quarterRest, size: RhythmDiagnosticPreviewMetrics.restPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset)
+            case .eighthRest:
+                symbol(.eighthRest, size: RhythmDiagnosticPreviewMetrics.restPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 1)
+            case .sixteenthRest:
+                symbol(.sixteenthRest, size: RhythmDiagnosticPreviewMetrics.restPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset - 4)
+            case .whole:
+                symbol(.noteWhole, size: RhythmDiagnosticPreviewMetrics.wholeNotePointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 3)
+            case .half:
+                noteSymbol(.noteHalfUp)
+            case .dottedHalf:
+                noteSymbol(.noteHalfUp)
+                dot
+            case .slash:
+                symbol(.slashNotehead, size: RhythmDiagnosticPreviewMetrics.slashPointSize)
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset)
+            case .quarter:
+                noteSymbol(.noteQuarterUp)
+            case .dottedQuarter:
+                noteSymbol(.noteQuarterUp)
+                dot
+            case .dottedEighth:
+                noteSymbol(.note8thUp)
+                dot
+            case .eighth:
+                noteSymbol(.note8thUp)
+            case .sixteenth:
+                noteSymbol(.note16thUp)
+            case .tiedContinuation:
+                RhythmDiagnosticTieShape()
+                    .stroke(Color.primary, lineWidth: 1.4)
+                    .frame(width: 24, height: 12)
+                    .offset(y: 5)
+            }
+        }
+        .frame(
+            width: glyphFrameWidth,
+            height: RhythmDiagnosticPreviewMetrics.glyphHeight
+        )
+        .clipped()
+    }
+
+    private func noteSymbol(_ symbol: NotationGlyphCatalog.Symbol) -> some View {
+        self.symbol(symbol, size: RhythmDiagnosticPreviewMetrics.notePointSize)
+            .offset(x: 1, y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset)
+    }
+
+    private var dot: some View {
+        Circle()
+            .fill(Color.primary)
+            .frame(
+                width: RhythmDiagnosticPreviewMetrics.dotSize,
+                height: RhythmDiagnosticPreviewMetrics.dotSize
+            )
+            .offset(x: 13, y: dotYOffset)
+    }
+
+    private func symbol(_ symbol: NotationGlyphCatalog.Symbol, size: CGFloat) -> Text {
+        Text(NotationGlyphCatalog.glyph(for: symbol) ?? "")
+            .font(NotationFontPreset.bravura.notationPreviewFont(size: size))
+    }
+
+    private var glyphFrameWidth: CGFloat {
+        value.isDottedReferenceValue
+            ? RhythmDiagnosticPreviewMetrics.glyphWidth + 6
+            : RhythmDiagnosticPreviewMetrics.glyphWidth
+    }
+
+    private var dotYOffset: CGFloat {
+        switch value {
+        case .dottedQuarter:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 5
+        case .dottedEighth, .dottedHalf:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest,
+             .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
+        }
+    }
+}
+
+private struct RhythmDiagnosticPreviewBeamedGroup: View {
+    let values: [RhythmValue]
+
+    var body: some View {
+        RhythmDiagnosticPreviewBeamedShape(values: values)
+            .fill(Color.primary)
+            .accessibilityHidden(true)
+            .frame(
+                width: previewWidth,
+                height: RhythmDiagnosticPreviewMetrics.glyphHeight
+            )
+            .clipped()
+    }
+
+    private var previewWidth: CGFloat {
+        let baseWidth = CGFloat(max(2, values.count)) * RhythmDiagnosticPreviewMetrics.beamedGlyphAdvance
+        guard values.last == .dottedEighth else {
+            return baseWidth
+        }
+        return baseWidth + RhythmDiagnosticPreviewMetrics.beamedDottedTrailingAllowance
+    }
+}
+
+private struct RhythmDiagnosticPreviewBeamedShape: Shape {
+    let values: [RhythmValue]
+
+    func path(in rect: CGRect) -> Path {
+        let noteCount = max(2, values.count)
+        let trailingDotAllowance = values.prefix(noteCount).last == .dottedEighth
+            ? RhythmDiagnosticPreviewMetrics.beamedDottedTrailingAllowance
+            : 0
+        let contentRect = CGRect(
+            x: rect.minX,
+            y: rect.minY,
+            width: max(1, rect.width - trailingDotAllowance),
+            height: rect.height
+        )
+        let advance = contentRect.width / CGFloat(noteCount)
+        let stemWidth = RhythmDiagnosticPreviewMetrics.beamedStemWidth
+        let beamThickness = RhythmDiagnosticPreviewMetrics.beamThickness
+        let beamY = contentRect.minY + 6
+        let headWidth = min(11, advance * 0.42)
+        let headHeight = max(11, contentRect.height * 0.27)
+        let headCenterY = contentRect.minY + contentRect.height * 0.72
+        let stemAnchorRatio: CGFloat = 0.66
+        let firstStemX = contentRect.minX + advance * stemAnchorRatio
+        let lastStemX = contentRect.minX + CGFloat(noteCount - 1) * advance + advance * stemAnchorRatio
+
+        var path = Path()
+        path.addRect(CGRect(
+            x: firstStemX,
+            y: beamY,
+            width: max(stemWidth, lastStemX - firstStemX + stemWidth),
+            height: beamThickness
+        ))
+        path.addPath(secondaryBeamPath(
+            in: contentRect,
+            advance: advance,
+            stemAnchorRatio: stemAnchorRatio,
+            stemWidth: stemWidth,
+            beamY: beamY + beamThickness + 3,
+            beamThickness: max(beamThickness * 0.82, 2.5)
+        ))
+
+        for index in 0..<noteCount {
+            let originX = contentRect.minX + CGFloat(index) * advance
+            let stemX = originX + advance * stemAnchorRatio
+            path.addRect(CGRect(
+                x: stemX,
+                y: beamY,
+                width: stemWidth,
+                height: max(1, headCenterY - beamY)
+            ))
+            path.addEllipse(in: CGRect(
+                x: stemX - headWidth + stemWidth,
+                y: headCenterY - headHeight / 2,
+                width: headWidth,
+                height: headHeight
+            ))
+            if values.indices.contains(index),
+               values[index] == .dottedEighth {
+                let dotSize = min(5, max(3.5, headWidth * 0.46))
+                let dotX = min(
+                    stemX + dotSize * 1.3,
+                    rect.maxX - dotSize - RhythmDiagnosticPreviewMetrics.beamedDotRightPadding
+                )
+                path.addEllipse(in: CGRect(
+                    x: dotX,
+                    y: headCenterY - dotSize * 0.55,
+                    width: dotSize,
+                    height: dotSize
+                ))
+            }
+        }
+
+        return path
+    }
+
+    private func secondaryBeamPath(
+        in rect: CGRect,
+        advance: CGFloat,
+        stemAnchorRatio: CGFloat,
+        stemWidth: CGFloat,
+        beamY: CGFloat,
+        beamThickness: CGFloat
+    ) -> Path {
+        var path = Path()
+        let noteCount = max(2, values.count)
+        let normalizedValues = Array(values.prefix(noteCount))
+
+        func stemX(at index: Int) -> CGFloat {
+            rect.minX + CGFloat(index) * advance + advance * stemAnchorRatio
+        }
+
+        var index = 0
+        while index < normalizedValues.count {
+            guard normalizedValues[index] == .sixteenth else {
+                index += 1
+                continue
+            }
+
+            let runStart = index
+            while index < normalizedValues.count,
+                  normalizedValues[index] == .sixteenth {
+                index += 1
+            }
+            let runEnd = index - 1
+
+            if runEnd > runStart {
+                let startX = stemX(at: runStart)
+                let endX = stemX(at: runEnd)
+                path.addRect(CGRect(
+                    x: startX,
+                    y: beamY,
+                    width: max(stemWidth, endX - startX + stemWidth),
+                    height: beamThickness
+                ))
+            } else {
+                let anchorX = stemX(at: runStart)
+                let pointsRight = runStart == 0 || runStart < normalizedValues.count - 1
+                let width = min(advance * 0.72, 20)
+                path.addRect(CGRect(
+                    x: pointsRight ? anchorX : anchorX - width + stemWidth,
+                    y: beamY,
+                    width: width,
+                    height: beamThickness
+                ))
+            }
+        }
+
+        return path
+    }
+}
+
+private struct RhythmDiagnosticTieShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.midY),
+            control: CGPoint(x: rect.midX, y: rect.maxY)
+        )
+        return path
+    }
+}
+
 private struct PendingTimeSignaturePlacement: Identifiable {
     let id = UUID()
     let sourceMeasureID: UUID
@@ -3067,7 +3544,7 @@ private struct RhythmEditChoiceRow: View {
             RhythmValueGlyphPreview(value: value, notationFont: notationFont)
                 .frame(width: 48, height: 36)
 
-            Text(value.editMenuTitle)
+            Text(value.referenceDisplayTitle)
                 .font(.subheadline.weight(.semibold))
 
             Spacer()
@@ -3084,157 +3561,6 @@ private struct RhythmEditChoiceRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
     }
-}
-
-private struct RhythmValueGlyphPreview: View {
-    let value: RhythmValue
-    let notationFont: NotationFontPreset
-
-    var body: some View {
-        ZStack {
-            if let restSymbol {
-                glyphText(restSymbol, size: restPointSize)
-                    .offset(y: restYOffset)
-            } else {
-                glyphText(noteheadSymbol, size: 24)
-                    .offset(x: noteheadXOffset, y: 3)
-
-                if showsStem {
-                    Rectangle()
-                        .fill(Color.primary)
-                        .frame(width: 1.4, height: 25)
-                        .offset(x: 8, y: 8)
-                }
-
-                if value == .eighth {
-                    glyphText(NotationGlyphCatalog.flag8thDown, size: 21)
-                        .offset(x: 14, y: 14)
-                }
-
-                if value.isDottedEditValue {
-                    glyphText(NotationGlyphCatalog.augmentationDot, size: 13)
-                        .offset(x: 17, y: 3)
-                }
-            }
-        }
-        .foregroundStyle(.primary)
-        .accessibilityLabel(value.editMenuTitle)
-    }
-
-    private var restSymbol: String? {
-        switch value {
-        case .wholeRest:
-            return NotationGlyphCatalog.wholeRest
-        case .halfRest:
-            return NotationGlyphCatalog.halfRest
-        case .quarterRest:
-            return NotationGlyphCatalog.quarterRest
-        case .eighthRest:
-            return NotationGlyphCatalog.eighthRest
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return nil
-        }
-    }
-
-    private var noteheadSymbol: String {
-        switch value {
-        case .whole:
-            return NotationGlyphCatalog.slashWholeNotehead
-        case .half, .dottedHalf:
-            return NotationGlyphCatalog.slashHalfNotehead
-        case .slash, .eighth, .quarter, .dottedQuarter:
-            return NotationGlyphCatalog.slashNotehead
-        case .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
-            return NotationGlyphCatalog.slashNotehead
-        }
-    }
-
-    private var noteheadXOffset: CGFloat {
-        value.isDottedEditValue ? -6 : -8
-    }
-
-    private var showsStem: Bool {
-        switch value {
-        case .slash, .whole, .wholeRest, .halfRest, .quarterRest, .eighthRest, .tiedContinuation:
-            return false
-        case .eighth, .quarter, .dottedQuarter, .half, .dottedHalf:
-            return true
-        }
-    }
-
-    private var restPointSize: CGFloat {
-        switch value {
-        case .quarterRest:
-            return 29
-        case .eighthRest:
-            return 27
-        case .wholeRest, .halfRest:
-            return 24
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return 24
-        }
-    }
-
-    private var restYOffset: CGFloat {
-        switch value {
-        case .quarterRest:
-            return 0
-        case .eighthRest:
-            return 1
-        case .wholeRest:
-            return -3
-        case .halfRest:
-            return 2
-        case .slash, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
-            return 0
-        }
-    }
-
-    private func glyphText(_ glyph: String, size: CGFloat) -> Text {
-        Text(glyph)
-            .font(notationFont.notationPreviewFont(size: size))
-    }
-}
-
-private extension RhythmValue {
-    var editMenuTitle: String {
-        switch self {
-        case .slash:
-            return "Slash"
-        case .eighth:
-            return "Eighth Note"
-        case .eighthRest:
-            return "Eighth Rest"
-        case .quarter:
-            return "Quarter Note"
-        case .quarterRest:
-            return "Quarter Rest"
-        case .dottedQuarter:
-            return "Dotted Quarter"
-        case .half:
-            return "Half Note"
-        case .halfRest:
-            return "Half Rest"
-        case .dottedHalf:
-            return "Dotted Half"
-        case .whole:
-            return "Whole Note"
-        case .wholeRest:
-            return "Whole Rest"
-        case .tiedContinuation:
-            return "Tie"
-        }
-    }
-
-    var isDottedEditValue: Bool {
-        switch self {
-        case .dottedQuarter, .dottedHalf:
-            return true
-        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
-            return false
-        }
-    }
-
 }
 
 private struct InkResponsivenessSheetView: View {

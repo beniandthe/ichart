@@ -1311,6 +1311,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(NotationGlyphCatalog.halfRest, "\u{E4E4}")
         XCTAssertEqual(NotationGlyphCatalog.quarterRest, "\u{E4E5}")
         XCTAssertEqual(NotationGlyphCatalog.eighthRest, "\u{E4E6}")
+        XCTAssertEqual(NotationGlyphCatalog.sixteenthRest, "\u{E4E7}")
         XCTAssertEqual(NotationGlyphCatalog.accidentalFlat, "\u{E260}")
         XCTAssertEqual(NotationGlyphCatalog.accidentalSharp, "\u{E262}")
         XCTAssertEqual(NotationGlyphCatalog.timeSignatureDigit(4), "\u{E084}")

@@ -25,6 +25,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
     var onFreehandSymbolSelected: ((UUID) -> Void)? = nil
+    var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
+    var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
+    var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -79,6 +82,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
         view.onFreehandSymbolSelected = onFreehandSymbolSelected
+        view.onRhythmicNotationPreviewChanged = onRhythmicNotationPreviewChanged
+        view.onRhythmicNotationDiagnostic = onRhythmicNotationDiagnostic
+        view.handleRhythmicNotationPreviewConfirmationRequest(rhythmicNotationPreviewConfirmationRequestID)
     }
 
     final class Coordinator {
@@ -127,7 +133,7 @@ enum LeadSheetInkResponsivenessPolicy {
 
     static func inputCoalescingDelay(for value: Double) -> TimeInterval {
         let normalizedValue = normalized(value)
-        return 0.01 + (normalizedValue * 0.05)
+        return 0.004 + (normalizedValue * 0.026)
     }
 }
 
@@ -351,6 +357,7 @@ enum LeadSheetInkCanvasSyncPolicy {
 
 enum LeadSheetRhythmicNotationAutoApplyPolicy {
     static let idleDelay: TimeInterval = 0.58
+    static let tapToRenderAdvisoryDelay: TimeInterval = 0.72
     static let exactFitGraceDelay: TimeInterval = 0.70
     static let ambiguousTerminalStemGraceDelay: TimeInterval = 0.85
 
@@ -391,12 +398,14 @@ enum LeadSheetRhythmicNotationAutoApplyPolicy {
 enum LeadSheetRhythmicNotationLiveDecisionPolicy {
     enum Route: Equatable {
         case commit(values: [RhythmValue], requiresExtendedStability: Bool)
+        case readyToRender(values: [RhythmValue])
         case preserveInk(showsUnreadFeedback: Bool)
     }
 
     static func route(
         for decision: RhythmRecognitionDecision,
-        requiresNaturalExactFitAfterErase: Bool
+        requiresNaturalExactFitAfterErase: Bool,
+        allowsCommit: Bool = false
     ) -> Route {
         switch decision {
         case .commit(let proposal, _)
@@ -404,6 +413,9 @@ enum LeadSheetRhythmicNotationLiveDecisionPolicy {
                 proposal,
                 requiresNaturalExactFitAfterErase: requiresNaturalExactFitAfterErase
             ):
+            guard allowsCommit else {
+                return .readyToRender(values: proposal.values)
+            }
             return .commit(
                 values: proposal.values,
                 requiresExtendedStability: proposal.requiresExtendedStability
@@ -418,16 +430,174 @@ enum LeadSheetRhythmicNotationLiveDecisionPolicy {
     }
 }
 
-struct LeadSheetRhythmicNotationUnreadInkFeedback: Equatable {
+enum LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy {
+    static let persistsLiveInkDuringAdvisory = false
+
+    static func shouldAnalyzeStableInk(
+        interactionMode: EditorCanvasMode,
+        selectedMeasureID: UUID?,
+        targetMeasureID: UUID,
+        currentInkSnapshot: LeadSheetInkDrawingSnapshot?,
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+    ) -> Bool {
+        interactionMode.allowsDirectRhythmicNotationInk
+            && selectedMeasureID == targetMeasureID
+            && LeadSheetRhythmicNotationAutoApplyPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: currentInkSnapshot,
+                scheduledInkSnapshot: scheduledInkSnapshot
+            )
+    }
+
+    static func shouldCommitFromAdvisoryRoute(
+        _ route: LeadSheetRhythmicNotationLiveDecisionPolicy.Route
+    ) -> Bool {
+        switch route {
+        case .commit:
+            return false
+        case .readyToRender, .preserveInk:
+            return false
+        }
+    }
+}
+
+private extension RhythmRecognitionDecision {
+    var diagnosticDecisionText: String {
+        switch self {
+        case .commit:
+            return "commit"
+        case .keepWriting:
+            return "keepWriting"
+        case .needsReview:
+            return "needsReview"
+        }
+    }
+}
+
+private extension LeadSheetRhythmicNotationLiveDecisionPolicy.Route {
+    var isReadyToRender: Bool {
+        if case .readyToRender = self {
+            return true
+        }
+
+        return false
+    }
+
+    var diagnosticRouteText: String {
+        switch self {
+        case .commit:
+            return "commit"
+        case .readyToRender:
+            return "readyToRender"
+        case .preserveInk:
+            return "preserveInk"
+        }
+    }
+}
+
+private extension RhythmicNotationMeasureProposalSafety {
+    var diagnosticText: String {
+        switch self {
+        case .autoApply:
+            return "autoApply"
+        case .extendedStability:
+            return "extendedStability"
+        case .manualReview:
+            return "manualReview"
+        }
+    }
+}
+
+struct LeadSheetRhythmicNotationPreviewState: Equatable {
+    enum ConfirmationAction: Equatable {
+        case none
+        case confirmSuggestion
+    }
+
     var measureID: UUID
-    var reason: RhythmRecognitionReason
-    var frame: CGRect
+    var meter: Meter
+    var reason: RhythmRecognitionReason?
+    var values: [RhythmValue]
+    var confirmationAction: ConfirmationAction
+    var isCertain: Bool
+
+    var canConfirm: Bool {
+        confirmationAction == .confirmSuggestion
+    }
 }
 
 enum LeadSheetRhythmicNotationFeedbackPolicy {
+    static func previewValues(for decision: RhythmRecognitionDecision) -> [RhythmValue] {
+        if decision.reason == .nonNaturalExactFit,
+           let naturalValues = decision.phrase?.naturalValues,
+           !naturalValues.isEmpty,
+           naturalValues.contains(where: \.isDottedReferenceValue) {
+            return naturalValues
+        }
+
+        if let values = decision.proposal?.values,
+           !values.isEmpty {
+            return values
+        }
+
+        if let values = decision.phrase?.naturalValues,
+           !values.isEmpty {
+            return values
+        }
+
+        return []
+    }
+
+    static func confirmationAction(for decision: RhythmRecognitionDecision) -> LeadSheetRhythmicNotationPreviewState.ConfirmationAction {
+        guard hasFullPreviewSuggestion(for: decision) else {
+            return .none
+        }
+
+        switch decision {
+        case .commit:
+            return .none
+        case .needsReview:
+            return .confirmSuggestion
+        case .keepWriting(let reason, _):
+            switch reason {
+            case .ambiguousPhrase, .manualReview, .competingExactPhrases:
+                return .confirmSuggestion
+            case .noInk,
+                 .underfilled,
+                 .overflow,
+                 .unsupported,
+                 .nonNaturalExactFit,
+                 .nonVisualFallback,
+                 .uncoveredStrokes:
+                return .none
+            }
+        }
+    }
+
+    static func hasFullPreviewSuggestion(for decision: RhythmRecognitionDecision) -> Bool {
+        let values = previewValues(for: decision)
+        guard !values.isEmpty,
+              let phrase = decision.phrase,
+              phrase.targetUnits > 0 else {
+            return false
+        }
+
+        if let proposal = decision.proposal,
+           proposal.values == values,
+           proposal.isNaturalExactFit {
+            return true
+        }
+
+        if values == phrase.naturalValues {
+            return phrase.naturalUnits == phrase.targetUnits
+        }
+
+        return values.reduce(0) { partialResult, value in
+            partialResult + RhythmicNotationQuantizer.rhythmUnits(for: value)
+        } == phrase.targetUnits
+    }
+
     static func shouldHighlightUnreadInk(for decision: RhythmRecognitionDecision) -> Bool {
-        guard let phrase = decision.phrase,
-              phraseIsReadyForUnreadFeedback(phrase) else {
+        guard let phrase = decision.phrase else {
             return false
         }
 
@@ -435,11 +605,16 @@ enum LeadSheetRhythmicNotationFeedbackPolicy {
         case .commit:
             return false
         case .needsReview:
+            guard phraseIsReadyForUnreadFeedback(phrase) else {
+                return false
+            }
             return true
         case .keepWriting(let reason, _):
             switch reason {
-            case .noInk, .underfilled:
+            case .noInk:
                 return false
+            case .underfilled:
+                return phraseHasRecognizedInk(phrase)
             case .overflow,
                  .unsupported,
                  .nonNaturalExactFit,
@@ -448,19 +623,58 @@ enum LeadSheetRhythmicNotationFeedbackPolicy {
                  .nonVisualFallback,
                  .uncoveredStrokes,
                  .competingExactPhrases:
-                return true
+                return phraseIsReadyForUnreadFeedback(phrase)
             }
         }
     }
 
+    static func feedbackMessage(for decision: RhythmRecognitionDecision) -> String? {
+        guard let reason = decision.reason else {
+            return nil
+        }
+
+        switch reason {
+        case .noInk:
+            return nil
+        case .underfilled:
+            guard let phrase = decision.phrase,
+                  phrase.targetUnits > phrase.naturalUnits else {
+                return "Measure is short"
+            }
+            return underfilledMessage(missingUnits: phrase.targetUnits - phrase.naturalUnits)
+        case .overflow:
+            return "Too many beats"
+        case .unsupported, .nonVisualFallback, .uncoveredStrokes:
+            return "Unread rhythm mark"
+        case .nonNaturalExactFit:
+            return "Does not fit measure"
+        case .ambiguousPhrase, .manualReview, .competingExactPhrases:
+            return "Check rhythm"
+        }
+    }
+
     static func unreadInkFrame(
-        for _: PKDrawing,
+        for drawing: PKDrawing,
         decision: RhythmRecognitionDecision,
         canvasFrame: CGRect,
         padding: CGFloat = 7
     ) -> CGRect? {
-        guard let phrase = decision.phrase,
-              phraseIsReadyForUnreadFeedback(phrase) else {
+        guard let phrase = decision.phrase else {
+            return nil
+        }
+
+        if decision.reason == .underfilled {
+            guard phraseHasRecognizedInk(phrase) else {
+                return nil
+            }
+            return unreadInkFrame(
+                for: drawing,
+                canvasFrame: canvasFrame,
+                padding: padding
+            )
+        }
+
+        guard phraseIsReadyForUnreadFeedback(phrase) else {
             return nil
         }
 
@@ -513,6 +727,18 @@ enum LeadSheetRhythmicNotationFeedbackPolicy {
         )
     }
 
+    static func readyToRenderFrame(
+        for drawing: PKDrawing,
+        canvasFrame: CGRect,
+        padding: CGFloat = 7
+    ) -> CGRect? {
+        unreadInkFrame(
+            for: drawing,
+            canvasFrame: canvasFrame,
+            padding: padding
+        )
+    }
+
     static func unreadInkFrame(
         for drawing: PKDrawing,
         canvasFrame: CGRect,
@@ -536,6 +762,28 @@ enum LeadSheetRhythmicNotationFeedbackPolicy {
 
     private static func phraseIsReadyForUnreadFeedback(_ phrase: RhythmPhraseHypothesis) -> Bool {
         phrase.targetUnits > 0 && phrase.naturalUnits >= phrase.targetUnits
+    }
+
+    private static func phraseHasRecognizedInk(_ phrase: RhythmPhraseHypothesis) -> Bool {
+        phrase.naturalUnits > 0
+            || !phrase.naturalValues.isEmpty
+            || !phrase.symbols.isEmpty
+            || !phrase.primitives.isEmpty
+    }
+
+    private static func underfilledMessage(missingUnits: Int) -> String {
+        guard missingUnits > 0 else {
+            return "Measure is short"
+        }
+
+        if missingUnits == 1 {
+            return "Needs 1 more eighth"
+        }
+        if missingUnits % 2 == 0 {
+            let beats = missingUnits / 2
+            return beats == 1 ? "Needs 1 more beat" : "Needs \(beats) more beats"
+        }
+        return "Measure is short"
     }
 
     private static func shouldShowStaleInkState(for decision: RhythmRecognitionDecision) -> Bool {
@@ -804,11 +1052,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)?
     var onHeaderAuthoringRequested: (() -> Void)?
     var onFreehandSymbolSelected: ((UUID) -> Void)?
+    var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
+    var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
 
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = LeadSheetScopedInkCanvasView()
     private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
-    private let rhythmicNotationFeedbackOverlayView = RhythmicNotationFeedbackOverlayView()
     private let chordEditHitOverlayView = ChordEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
     private let chordInkRecognizer = ChordInkRecognizer()
@@ -875,9 +1124,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingRhythmicNotationCommitWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
     private var chordObjectEditingSuppressedUntil: Date?
-    private var rhythmicNotationUnreadInkFeedback: LeadSheetRhythmicNotationUnreadInkFeedback? {
+    private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
+    private var rhythmicNotationPreviewState: LeadSheetRhythmicNotationPreviewState? {
         didSet {
-            rhythmicNotationFeedbackOverlayView.feedback = rhythmicNotationUnreadInkFeedback
+            onRhythmicNotationPreviewChanged?(rhythmicNotationPreviewState)
         }
     }
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
@@ -917,7 +1167,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         super.layoutSubviews()
         chordInkConfirmOverlayView.frame = bounds
         chordEditHitOverlayView.frame = bounds
-        rhythmicNotationFeedbackOverlayView.frame = bounds
         invalidateLayout()
         updateParentScrollGestureGate()
     }
@@ -1018,12 +1267,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkConfirmPanRecognizer.delaysTouchesEnded = false
         chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmPanRecognizer)
         addSubview(chordInkConfirmOverlayView)
-
-        rhythmicNotationFeedbackOverlayView.backgroundColor = .clear
-        rhythmicNotationFeedbackOverlayView.isOpaque = false
-        rhythmicNotationFeedbackOverlayView.isUserInteractionEnabled = false
-        rhythmicNotationFeedbackOverlayView.isHidden = true
-        addSubview(rhythmicNotationFeedbackOverlayView)
 
         chordEditHitOverlayView.backgroundColor = .clear
         chordEditHitOverlayView.isOpaque = false
@@ -1691,34 +1934,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             sourceMeasure.handwrittenRhythmicNotationData,
             in: measure
         )
-        drawSavedRhythmicNotationUnresolvedFeedback(
-            for: sourceMeasure,
-            in: measure
-        )
-    }
-
-    private func drawSavedRhythmicNotationUnresolvedFeedback(
-        for sourceMeasure: Measure,
-        in measureLayout: LeadSheetMeasureLayout
-    ) {
-        guard chart.layoutStyle == .rhythmSectionSheet,
-              sourceMeasure.rhythmMap == nil,
-              let drawingData = sourceMeasure.handwrittenRhythmicNotationData,
-              let drawing = try? PKDrawing(data: drawingData),
-              let feedbackFrame = LeadSheetRhythmicNotationFeedbackPolicy.unreadInkFrame(
-                for: drawing,
-                canvasFrame: measureLayout.writableFrame
-              ) else {
-            return
-        }
-
-        let path = UIBezierPath(roundedRect: feedbackFrame, cornerRadius: 7)
-        UIColor(red: 0.92, green: 0.12, blue: 0.18, alpha: 0.07).setFill()
-        path.fill()
-        UIColor(red: 0.92, green: 0.12, blue: 0.18, alpha: 0.62).setStroke()
-        path.lineWidth = 1.2
-        path.setLineDash([5, 3], count: 2, phase: 0)
-        path.stroke()
     }
 
     private func selectedMeasureLayout() -> LeadSheetMeasureLayout? {
@@ -2766,14 +2981,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pendingRhythmicNotationCommitWorkItem = nil
             let scheduledInkSnapshot = currentCanvasInkSnapshot()
             let workItem = DispatchWorkItem { [weak self] in
-                self?.autoApplyRhythmicNotationIfReady(
-                    for: selectedMeasureID,
-                    scheduledInkSnapshot: scheduledInkSnapshot
-                )
+                if RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled {
+                    self?.prepareRhythmicNotationTapToRenderIfStable(
+                        for: selectedMeasureID,
+                        scheduledInkSnapshot: scheduledInkSnapshot
+                    )
+                } else if RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked {
+                    self?.persistRhythmicNotationInkIfStable(
+                        for: selectedMeasureID,
+                        scheduledInkSnapshot: scheduledInkSnapshot
+                    )
+                } else {
+                    self?.autoApplyRhythmicNotationIfReady(
+                        for: selectedMeasureID,
+                        scheduledInkSnapshot: scheduledInkSnapshot
+                    )
+                }
             }
             pendingInkPersistWorkItem = workItem
+            let recognitionDelay = RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled
+                ? LeadSheetRhythmicNotationAutoApplyPolicy.tapToRenderAdvisoryDelay
+                : LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay,
+                deadline: .now() + recognitionDelay,
                 execute: workItem
             )
             return
@@ -3116,6 +3346,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return true
         }
 
+        guard !(RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked
+                && !RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled) else {
+            cancelPendingRhythmicNotationAutoApply()
+            clearRhythmicNotationUnreadInkFeedback()
+            return true
+        }
+
         do {
             let requiresNaturalExactFitAfterErase = rhythmicNotationEraseRecovery.requiresNaturalExactFit(
                 for: measureID
@@ -3128,9 +3365,20 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
                 for: decision,
-                requiresNaturalExactFitAfterErase: requiresNaturalExactFitAfterErase
+                requiresNaturalExactFitAfterErase: requiresNaturalExactFitAfterErase,
+                allowsCommit: true
             )
             guard case .commit(let quantizedValues, _) = route else {
+                recordRhythmicNotationDiagnostic(
+                    for: decision,
+                    route: route,
+                    stage: .inkPreserved,
+                    measureID: measureID,
+                    measure: measure,
+                    drawingStrokeCount: drawingStrokeCount(from: drawingData),
+                    drawingData: drawingData,
+                    measureLayout: measureLayout
+                )
                 applyRhythmicNotationUnreadInkFeedback(for: decision, route: route, measureID: measureID)
                 return false
             }
@@ -3147,6 +3395,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 chart = updatedChart
                 onChartChanged?(updatedChart)
                 setNeedsDisplay()
+                recordRhythmicNotationDiagnostic(
+                    for: decision,
+                    route: route,
+                    stage: .tapRendered,
+                    measureID: measureID,
+                    measure: measure,
+                    drawingStrokeCount: drawingStrokeCount(from: drawingData),
+                    drawingData: drawingData,
+                    measureLayout: measureLayout
+                )
             }
 
             return true
@@ -3159,10 +3417,107 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
+    private func persistRhythmicNotationInkIfStable(
+        for measureID: UUID,
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+    ) {
+        guard interactionMode.allowsDirectRhythmicNotationInk,
+              selectedMeasureID == measureID,
+              LeadSheetRhythmicNotationAutoApplyPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: currentCanvasInkSnapshot(),
+                scheduledInkSnapshot: scheduledInkSnapshot
+              ) else {
+            return
+        }
+
+        if let updatedChart = LeadSheetRhythmicNotationFinalization.chartByPersistingLiveDrawing(
+            currentCanvasDrawingData(),
+            for: measureID,
+            in: chart
+        ) {
+            clearDirtyInkAuthoringRole(.rhythm)
+            chart = updatedChart
+            onChartChanged?(updatedChart)
+            setNeedsDisplay()
+        }
+        clearRhythmicNotationUnreadInkFeedback()
+    }
+
+    private func prepareRhythmicNotationTapToRenderIfStable(
+        for measureID: UUID,
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+    ) {
+        guard LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy.shouldAnalyzeStableInk(
+            interactionMode: interactionMode,
+            selectedMeasureID: selectedMeasureID,
+            targetMeasureID: measureID,
+            currentInkSnapshot: currentCanvasInkSnapshot(),
+            scheduledInkSnapshot: scheduledInkSnapshot
+        ) else {
+            return
+        }
+
+        guard let measure = chart.measure(id: measureID),
+              let drawingData = currentCanvasDrawingData(),
+              let measureLayout = measureLayout(for: measureID) else {
+            clearRhythmicNotationUnreadInkFeedback()
+            return
+        }
+
+        let requiresNaturalExactFitAfterErase = rhythmicNotationEraseRecovery.requiresNaturalExactFit(
+            for: measureID
+        )
+        let decision: RhythmRecognitionDecision
+        do {
+            decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+                drawingData: drawingData,
+                measure: measure,
+                defaultMeter: chart.defaultMeter,
+                measureLayout: measureLayout
+            )
+        } catch {
+            clearRhythmicNotationUnreadInkFeedback()
+            return
+        }
+
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: requiresNaturalExactFitAfterErase,
+            allowsCommit: false
+        )
+        guard !LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy.shouldCommitFromAdvisoryRoute(route) else {
+            return
+        }
+        recordRhythmicNotationDiagnostic(
+            for: decision,
+            route: route,
+            stage: route.isReadyToRender ? .tapToRenderCandidate : .inkPreserved,
+            measureID: measureID,
+            measure: measure,
+            drawingStrokeCount: pageInkCanvasView.drawing.strokes.count,
+            drawingData: drawingData,
+            measureLayout: measureLayout
+        )
+        applyRhythmicNotationReadyOrUnreadFeedback(
+            for: decision,
+            route: route,
+            measureID: measureID,
+            showsUnreadFeedback: false
+        )
+    }
+
     private func autoApplyRhythmicNotationIfReady(
         for measureID: UUID,
         scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
     ) {
+        guard !RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked else {
+            persistRhythmicNotationInkIfStable(
+                for: measureID,
+                scheduledInkSnapshot: scheduledInkSnapshot
+            )
+            return
+        }
+
         guard let candidate = liveRhythmicNotationCandidate(
             for: measureID,
             scheduledInkSnapshot: scheduledInkSnapshot,
@@ -3240,6 +3595,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             requiresNaturalExactFitAfterErase: requiresNaturalExactFitAfterErase
         )
         guard case .commit(let values, let requiresExtendedStability) = route else {
+            recordRhythmicNotationDiagnostic(
+                for: decision,
+                route: route,
+                stage: .inkPreserved,
+                measureID: measureID,
+                measure: measure,
+                drawingStrokeCount: pageInkCanvasView.drawing.strokes.count,
+                drawingData: drawingData,
+                measureLayout: measureLayout
+            )
             let didShowFeedback = applyRhythmicNotationUnreadInkFeedback(
                 for: decision,
                 route: route,
@@ -3272,6 +3637,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         clearRhythmicNotationUnreadInkFeedback()
+        recordRhythmicNotationDiagnostic(
+            for: decision,
+            route: route,
+            stage: .autoApplyCandidate,
+            measureID: measureID,
+            measure: measure,
+            drawingStrokeCount: pageInkCanvasView.drawing.strokes.count,
+            drawingData: drawingData,
+            measureLayout: measureLayout
+        )
         return LiveRhythmicNotationCandidate(
             drawingData: drawingData,
             inkSnapshot: inkSnapshot,
@@ -3346,6 +3721,199 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chart = updatedChart
         onChartChanged?(updatedChart)
         setNeedsDisplay()
+        if let measure = chart.measure(id: measureID) {
+            let event = RhythmRecognitionDiagnosticEvent(
+                id: UUID(),
+                timestamp: .now,
+                chartID: chart.id,
+                chartTitle: chart.title,
+                measureID: measureID,
+                measureIndex: measure.index,
+                layoutStyle: chart.layoutStyle,
+                meterText: measure.resolvedMeter(defaultMeter: chart.defaultMeter).displayText,
+                stage: .autoApplied,
+                decision: "commit",
+                route: "commit",
+                reason: nil,
+                proposalValues: candidate.values,
+                proposalSafety: "autoApply",
+                proposalIsNaturalExactFit: true,
+                phraseSource: nil,
+                naturalValues: candidate.values,
+                naturalUnits: nil,
+                targetUnits: nil,
+                passesCompendium: true,
+                primitiveCount: nil,
+                symbolCount: nil,
+                unreadSymbolCount: nil,
+                uncoveredStrokeCount: nil,
+                inkStrokeCount: drawingStrokeCount(from: candidate.drawingData),
+                pipelinePreview: nil
+            )
+            publishRhythmicNotationDiagnostic(event)
+        }
+    }
+
+    private func confirmRhythmicNotationFeedback(_ feedback: LeadSheetRhythmicNotationPreviewState) {
+        rhythmicNotationPreviewState = nil
+
+        guard feedback.confirmationAction == .confirmSuggestion,
+              let drawingData = currentCanvasDrawingData(),
+              let measure = chart.measure(id: feedback.measureID),
+              let measureLayout = measureLayout(for: feedback.measureID) else {
+            return
+        }
+
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        guard RhythmicNotationCompendium.accepts(feedback.values, in: meter),
+              let updatedChart = LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
+                feedback.values,
+                drawingData: drawingData,
+                for: feedback.measureID,
+                measureLayout: measureLayout,
+                in: chart
+              ) else {
+            return
+        }
+
+        pendingInkPersistWorkItem?.cancel()
+        pendingInkPersistWorkItem = nil
+        pendingRhythmicNotationCommitWorkItem?.cancel()
+        pendingRhythmicNotationCommitWorkItem = nil
+        clearRhythmicNotationCanvas()
+        chart = updatedChart
+        onChartChanged?(updatedChart)
+        setNeedsDisplay()
+
+        if let appliedMeasure = updatedChart.measure(id: feedback.measureID) {
+            let event = RhythmRecognitionDiagnosticEvent(
+                id: UUID(),
+                timestamp: .now,
+                chartID: updatedChart.id,
+                chartTitle: updatedChart.title,
+                measureID: feedback.measureID,
+                measureIndex: appliedMeasure.index,
+                layoutStyle: updatedChart.layoutStyle,
+                meterText: meter.displayText,
+                stage: .tapRendered,
+                decision: "manualConfirm",
+                route: "confirmSuggestion",
+                reason: feedback.reason?.rawValue,
+                proposalValues: feedback.values,
+                proposalSafety: "manualReview",
+                proposalIsNaturalExactFit: true,
+                phraseSource: nil,
+                naturalValues: feedback.values,
+                naturalUnits: feedback.values.reduce(0) { partialResult, value in
+                    partialResult + RhythmicNotationQuantizer.rhythmUnits(for: value, meter: meter)
+                },
+                targetUnits: RhythmicNotationQuantizer.rhythmUnits(
+                    forWholeNotes: meter.measureLengthInWholeNotes
+                ),
+                passesCompendium: true,
+                primitiveCount: nil,
+                symbolCount: nil,
+                unreadSymbolCount: nil,
+                uncoveredStrokeCount: nil,
+                inkStrokeCount: drawingStrokeCount(from: drawingData),
+                pipelinePreview: nil
+            )
+            publishRhythmicNotationDiagnostic(event)
+        }
+    }
+
+    func handleRhythmicNotationPreviewConfirmationRequest(_ requestID: UUID?) {
+        guard let requestID,
+              lastHandledRhythmicNotationPreviewConfirmationRequestID != requestID else {
+            return
+        }
+
+        lastHandledRhythmicNotationPreviewConfirmationRequestID = requestID
+        guard let rhythmicNotationPreviewState else {
+            return
+        }
+
+        confirmRhythmicNotationFeedback(rhythmicNotationPreviewState)
+    }
+
+    private func recordRhythmicNotationDiagnostic(
+        for decision: RhythmRecognitionDecision,
+        route: LeadSheetRhythmicNotationLiveDecisionPolicy.Route,
+        stage: RhythmRecognitionDiagnosticStage,
+        measureID: UUID,
+        measure: Measure,
+        drawingStrokeCount: Int,
+        drawingData: Data? = nil,
+        measureLayout: LeadSheetMeasureLayout? = nil
+    ) {
+        guard IChartRuntimeDiagnostics.isRhythmRecognitionDiagnosticsEnabled else {
+            return
+        }
+
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        let pipelinePreview = drawingData.flatMap { drawingData in
+            measureLayout.flatMap { measureLayout in
+                RhythmRecognitionPipelinePreview.make(
+                    drawingData: drawingData,
+                    meter: meter,
+                    drawingFrame: CGRect(
+                        origin: .zero,
+                        size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(
+                            for: measureLayout
+                        ).size
+                    ),
+                    decision: decision,
+                    decisionText: decision.diagnosticDecisionText,
+                    routeText: route.diagnosticRouteText
+                )
+            }
+        }
+        let event = RhythmRecognitionDiagnosticEvent(
+            id: UUID(),
+            timestamp: .now,
+            chartID: chart.id,
+            chartTitle: chart.title,
+            measureID: measureID,
+            measureIndex: measure.index,
+            layoutStyle: chart.layoutStyle,
+            meterText: meter.displayText,
+            stage: stage,
+            decision: decision.diagnosticDecisionText,
+            route: route.diagnosticRouteText,
+            reason: decision.reason?.rawValue,
+            proposalValues: decision.proposal?.values ?? [],
+            proposalSafety: decision.proposal?.safety.diagnosticText,
+            proposalIsNaturalExactFit: decision.proposal?.isNaturalExactFit,
+            phraseSource: decision.phrase?.source.rawValue,
+            naturalValues: decision.phrase?.naturalValues ?? [],
+            naturalUnits: decision.phrase?.naturalUnits,
+            targetUnits: decision.phrase?.targetUnits,
+            passesCompendium: decision.phrase?.passesCompendium,
+            primitiveCount: decision.phrase?.primitives.count,
+            symbolCount: decision.phrase?.symbols.count,
+            unreadSymbolCount: decision.phrase?.symbols.filter { $0.selectedValue == nil }.count,
+            uncoveredStrokeCount: decision.phrase?.uncoveredStrokeIndices.count,
+            inkStrokeCount: drawingStrokeCount,
+            pipelinePreview: pipelinePreview
+        )
+        publishRhythmicNotationDiagnostic(event)
+    }
+
+    private func publishRhythmicNotationDiagnostic(_ event: RhythmRecognitionDiagnosticEvent) {
+        guard IChartRuntimeDiagnostics.isRhythmRecognitionDiagnosticsEnabled else {
+            return
+        }
+
+        onRhythmicNotationDiagnostic?(event)
+        do {
+            try RhythmRecognitionDiagnosticsRecorder.live().append(event)
+        } catch {
+            print("iChart rhythm diagnostic error: \(error)")
+        }
+    }
+
+    private func drawingStrokeCount(from drawingData: Data) -> Int {
+        (try? PKDrawing(data: drawingData).strokes.count) ?? 0
     }
 
     private func cancelPendingRhythmicNotationAutoApply() {
@@ -3376,21 +3944,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         for decision: RhythmRecognitionDecision,
         measureID: UUID
     ) {
+        let values = LeadSheetRhythmicNotationFeedbackPolicy.previewValues(for: decision)
         guard LeadSheetRhythmicNotationFeedbackPolicy.shouldHighlightUnreadInk(for: decision),
-              let reason = decision.reason,
-              let feedbackFrame = LeadSheetRhythmicNotationFeedbackPolicy.unreadInkFrame(
-                for: pageInkCanvasView.drawing,
-                decision: decision,
-                canvasFrame: pageInkCanvasView.frame
-              ) else {
+              !values.isEmpty,
+              let reason = decision.reason else {
             clearRhythmicNotationUnreadInkFeedback()
             return
         }
 
-        rhythmicNotationUnreadInkFeedback = LeadSheetRhythmicNotationUnreadInkFeedback(
+        rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: reason,
-            frame: feedbackFrame
+            values: values,
+            confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
+            isCertain: false
         )
     }
 
@@ -3398,21 +3966,65 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         for decision: RhythmRecognitionDecision,
         measureID: UUID
     ) {
-        guard let reason = decision.reason,
-              let feedbackFrame = LeadSheetRhythmicNotationFeedbackPolicy.staleInkFrame(
-                for: pageInkCanvasView.drawing,
-                decision: decision,
-                canvasFrame: pageInkCanvasView.frame
-              ) else {
+        let values = LeadSheetRhythmicNotationFeedbackPolicy.previewValues(for: decision)
+        guard !values.isEmpty,
+              let reason = decision.reason else {
             clearRhythmicNotationUnreadInkFeedback()
             return
         }
 
-        rhythmicNotationUnreadInkFeedback = LeadSheetRhythmicNotationUnreadInkFeedback(
+        rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: reason,
-            frame: feedbackFrame
+            values: values,
+            confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
+            isCertain: false
         )
+    }
+
+    private func showRhythmicNotationReadyToRenderFeedback(
+        for decision: RhythmRecognitionDecision,
+        measureID: UUID
+    ) {
+        let values = LeadSheetRhythmicNotationFeedbackPolicy.previewValues(for: decision)
+        guard !values.isEmpty else {
+            clearRhythmicNotationUnreadInkFeedback()
+            return
+        }
+
+        rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
+            measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
+            reason: nil,
+            values: values,
+            confirmationAction: .none,
+            isCertain: true
+        )
+    }
+
+    private func showRhythmicNotationLivePreviewFeedback(
+        for decision: RhythmRecognitionDecision,
+        measureID: UUID
+    ) {
+        let values = LeadSheetRhythmicNotationFeedbackPolicy.previewValues(for: decision)
+        guard !values.isEmpty else {
+            clearRhythmicNotationUnreadInkFeedback()
+            return
+        }
+
+        rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
+            measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
+            reason: decision.reason,
+            values: values,
+            confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
+            isCertain: decision.proposal?.isNaturalExactFit == true
+        )
+    }
+
+    private func rhythmicNotationPreviewMeter(for measureID: UUID) -> Meter {
+        chart.measure(id: measureID)?.resolvedMeter(defaultMeter: chart.defaultMeter) ?? chart.defaultMeter
     }
 
     @discardableResult
@@ -3421,18 +4033,45 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         route: LeadSheetRhythmicNotationLiveDecisionPolicy.Route,
         measureID: UUID
     ) -> Bool {
-        guard case .preserveInk(let showsUnreadFeedback) = route,
-              showsUnreadFeedback else {
+        guard case .preserveInk(let showsUnreadFeedback) = route else {
             clearRhythmicNotationUnreadInkFeedback()
             return false
         }
 
-        showRhythmicNotationUnreadInkFeedback(for: decision, measureID: measureID)
-        return rhythmicNotationUnreadInkFeedback != nil
+        if showsUnreadFeedback {
+            showRhythmicNotationUnreadInkFeedback(for: decision, measureID: measureID)
+        } else {
+            showRhythmicNotationLivePreviewFeedback(for: decision, measureID: measureID)
+        }
+        return rhythmicNotationPreviewState != nil
+    }
+
+    @discardableResult
+    private func applyRhythmicNotationReadyOrUnreadFeedback(
+        for decision: RhythmRecognitionDecision,
+        route: LeadSheetRhythmicNotationLiveDecisionPolicy.Route,
+        measureID: UUID,
+        showsUnreadFeedback: Bool = true
+    ) -> Bool {
+        if case .readyToRender = route {
+            showRhythmicNotationReadyToRenderFeedback(for: decision, measureID: measureID)
+            return rhythmicNotationPreviewState != nil
+        }
+
+        guard showsUnreadFeedback else {
+            showRhythmicNotationLivePreviewFeedback(for: decision, measureID: measureID)
+            return rhythmicNotationPreviewState != nil
+        }
+
+        return applyRhythmicNotationUnreadInkFeedback(
+            for: decision,
+            route: route,
+            measureID: measureID
+        )
     }
 
     private func clearRhythmicNotationUnreadInkFeedback() {
-        rhythmicNotationUnreadInkFeedback = nil
+        rhythmicNotationPreviewState = nil
     }
 
     private func recordRhythmicNotationDrawingChange() {
@@ -3966,39 +4605,6 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
 
     deinit {
         uninstall()
-    }
-}
-
-private final class RhythmicNotationFeedbackOverlayView: UIView {
-    var feedback: LeadSheetRhythmicNotationUnreadInkFeedback? {
-        didSet {
-            isHidden = feedback == nil
-            setNeedsDisplay()
-        }
-    }
-
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        false
-    }
-
-    override func draw(_ rect: CGRect) {
-        guard let feedback else {
-            return
-        }
-
-        let highlightFrame = feedback.frame.intersection(bounds)
-        guard !highlightFrame.isNull,
-              !highlightFrame.isEmpty else {
-            return
-        }
-
-        let path = UIBezierPath(roundedRect: highlightFrame, cornerRadius: 7)
-        UIColor(red: 0.92, green: 0.12, blue: 0.18, alpha: 0.09).setFill()
-        path.fill()
-        UIColor(red: 0.92, green: 0.12, blue: 0.18, alpha: 0.76).setStroke()
-        path.lineWidth = 1.5
-        path.setLineDash([5, 3], count: 2, phase: 0)
-        path.stroke()
     }
 }
 

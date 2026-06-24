@@ -13,6 +13,39 @@ struct LeadSheetActiveInkRegion: Equatable {
     }
 }
 
+enum LeadSheetRhythmicNotationInkCapturePolicy {
+    static let horizontalPadding: CGFloat = 18
+    static let verticalPadding: CGFloat = 16
+    static let measureEdgePadding: CGFloat = 8
+
+    static func captureFrame(for measureLayout: LeadSheetMeasureLayout) -> CGRect {
+        let expandedFrame = measureLayout.writableFrame.insetBy(
+            dx: -horizontalPadding,
+            dy: -verticalPadding
+        )
+        let boundedFrame = expandedFrame.intersection(
+            measureLayout.frame.insetBy(
+                dx: -measureEdgePadding,
+                dy: -measureEdgePadding
+            )
+        )
+
+        return usableFrame(boundedFrame, fallback: measureLayout.writableFrame)
+    }
+
+    static func analysisFrame(for measureLayout: LeadSheetMeasureLayout) -> CGRect {
+        captureFrame(for: measureLayout).insetBy(dx: 2, dy: 2)
+    }
+
+    static func tapFinalizeFrame(for measureLayout: LeadSheetMeasureLayout) -> CGRect {
+        captureFrame(for: measureLayout).insetBy(dx: -8, dy: -8)
+    }
+
+    private static func usableFrame(_ frame: CGRect, fallback: CGRect) -> CGRect {
+        frame.isNull || frame.isEmpty ? fallback : frame
+    }
+}
+
 enum LeadSheetActiveInkScope {
     case page(frame: CGRect)
     case header(frame: CGRect)
@@ -66,7 +99,9 @@ enum LeadSheetActiveInkScope {
            let selectedMeasureLayout {
             return .rhythmicMeasure(
                 measureID: selectedMeasureID,
-                frame: selectedMeasureLayout.writableFrame.insetBy(dx: 2, dy: 2)
+                frame: LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(
+                    for: selectedMeasureLayout
+                )
             )
         }
 

@@ -787,10 +787,13 @@ final class ChartLibraryStoreTests: XCTestCase {
                 .quarterNote,
                 .slash,
                 .dottedQuarterNote,
+                .dottedEighthNote,
+                .sixteenthNote,
                 .eighthNote,
                 .wholeRest,
                 .quarterRest,
                 .halfRest,
+                .sixteenthRest,
                 .eighthRest
             ])
         )
@@ -798,5 +801,26 @@ final class ChartLibraryStoreTests: XCTestCase {
             Set(RhythmicNotationPrimitive.pendingUniversalGuidePrimitives),
             Set([.tie])
         )
+    }
+
+    func testRhythmReferenceCompendiumCoversSupportedVisualValues() {
+        XCTAssertEqual(
+            RhythmicNotationReferenceCompendium.rhythm.map(\.value),
+            [.slash]
+        )
+        XCTAssertEqual(
+            RhythmicNotationReferenceCompendium.notes.map(\.value),
+            [.whole, .dottedHalf, .half, .dottedQuarter, .quarter, .dottedEighth, .eighth, .sixteenth]
+        )
+        XCTAssertEqual(
+            RhythmicNotationReferenceCompendium.rests.map(\.value),
+            [.wholeRest, .halfRest, .quarterRest, .eighthRest, .sixteenthRest]
+        )
+        XCTAssertEqual(
+            Set(RhythmicNotationReferenceCompendium.all.map(\.value)),
+            Set(RhythmicNotationCompendium.supportedValues)
+        )
+        XCTAssertTrue(RhythmicNotationReferenceCompendium.all.allSatisfy { !$0.guide.mustContain.isEmpty })
+        XCTAssertTrue(RhythmicNotationReferenceCompendium.all.allSatisfy { !$0.guide.rejectWhen.isEmpty })
     }
 }

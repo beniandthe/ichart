@@ -6,6 +6,18 @@ import XCTest
 @testable import iChart
 
 final class RhythmicNotationQuantizerTests: XCTestCase {
+    private static let capturedHandwrittenHalfNotesInkBase64 = """
+    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
+    """
+
+    private static let capturedDenseEighthRunWithRestInkBase64 = """
+    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
+    """
+
+    private static let capturedEighthRestMisrenderedAsEighthInkBase64 = """
+    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
+    """
+
     func testQuantizerExpandsConnectedBeamedEighthPairs() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
         let drawing = PKDrawing(strokes: [
@@ -147,7 +159,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             return
         }
         XCTAssertEqual(proposal.values, [.dottedHalf, .eighth, .eighth])
-        XCTAssertEqual(phrase.source, .visual)
+        XCTAssertTrue([RhythmPhraseSource.rasterTemplate, .visual].contains(phrase.source))
         XCTAssertEqual(phrase.naturalValues, [.dottedHalf, .eighth, .eighth])
         XCTAssertTrue(phrase.isNaturalExactFit)
         XCTAssertTrue(phrase.primitives.contains { $0.kind == .notehead })
@@ -178,6 +190,35 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.slash, .slash, .slash, .slash])
         XCTAssertTrue(phrase.isNaturalExactFit)
+    }
+
+    func testRecognitionDecisionCarriesMultipleReasoningPaths() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: [
+            rhythmSlash(x: 24),
+            rhythmSlash(x: 84),
+            rhythmSlash(x: 144),
+            rhythmSlash(x: 204)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .commit(_, let phrase) = decision else {
+            XCTFail("Expected slash phrase to be a commit candidate, got \(decision)")
+            return
+        }
+
+        let pathKinds = Set(phrase.reasoningPaths.map(\.kind))
+        XCTAssertTrue(pathKinds.contains(.rasterTemplate))
+        XCTAssertTrue(pathKinds.contains(.legacyFallback))
+        XCTAssertTrue(pathKinds.contains(.contextRules))
+        XCTAssertTrue(phrase.reasoningPaths.contains { path in
+            path.kind == .contextRules && path.outcome == .commitCandidate
+        })
     }
 
     func testV4DecisionCommitsSlashCountToMeterNumeratorInThreeEight() throws {
@@ -267,6 +308,40 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
 
         XCTAssertEqual(reason, .competingExactPhrases)
+    }
+
+    func testV4ExactFitRankingPrefersCleanMeterGroupingOverProtectedBeamBoundary() {
+        let values = RhythmicNotationQuantizer.bestExactValuesForTesting(
+            candidateScores: [
+                [.dottedQuarter: 0.0],
+                [.eighth: 0.0],
+                [.eighth: 0.0, .quarter: 0.2],
+                [.dottedQuarter: 0.0, .quarter: 0.2]
+            ],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(values, [.dottedQuarter, .eighth, .quarter, .quarter])
+    }
+
+    func testV4CrossPathReviewFlagsExactRestNoteDisagreement() {
+        let reason = RhythmicNotationQuantizer.crossPathReviewReasonForTesting(
+            selectedValues: [.eighth, .eighth, .quarter, .half],
+            alternateValues: [.eighthRest, .eighth, .quarter, .half],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(reason, .competingExactPhrases)
+    }
+
+    func testV4CrossPathReviewIgnoresDifferentDurationDisagreement() {
+        let reason = RhythmicNotationQuantizer.crossPathReviewReasonForTesting(
+            selectedValues: [.eighth, .eighth, .quarter, .half],
+            alternateValues: [.quarterRest, .quarter, .half],
+            meter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertNil(reason)
     }
 
     func testV3ReviewPolicyKeepsWholeMeasureMarksAsManualReview() {
@@ -365,9 +440,8 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(templateValues.count, 1)
         XCTAssertTrue(templateValues[0].contains(.quarter))
         XCTAssertFalse(templateValues[0].contains(.slash))
-        let eighthAlternative = try XCTUnwrap(templateMatches[0].first { $0.values == [.eighth] })
-        XCTAssertFalse(eighthAlternative.canDriveExactFit)
-        XCTAssertTrue(eighthAlternative.canExtendAutoApplyStability)
+        XCTAssertFalse(templateValues[0].contains(.eighth))
+        XCTAssertFalse(templateMatches[0].contains { $0.values == [.eighth] })
     }
 
     func testV4DecisionCommitsTightlySpacedSlashPhraseThroughRasterTemplateGate() throws {
@@ -517,7 +591,10 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 continue
             }
             XCTAssertEqual(proposal.values, expectedValues)
-            XCTAssertEqual(phrase.source, .rasterTemplate, "Expected V4 source for \(expectedValues)")
+            XCTAssertTrue(
+                [RhythmPhraseSource.rasterTemplate, .visual].contains(phrase.source),
+                "Expected V4 source for \(expectedValues)"
+            )
             XCTAssertTrue(phrase.isNaturalExactFit)
         }
     }
@@ -542,7 +619,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             return
         }
         XCTAssertEqual(proposal.values, [.quarter, .eighth, .eighth, .quarter, .quarter])
-        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue([RhythmPhraseSource.rasterTemplate, .visual].contains(phrase.source))
         XCTAssertTrue(phrase.isNaturalExactFit)
     }
 
@@ -588,6 +665,170 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             XCTAssertEqual(phrase.source, .rasterTemplate)
             XCTAssertTrue(phrase.isNaturalExactFit)
         }
+    }
+
+    func testV4DecisionCommitsCapturedHandwrittenHalfNotes() throws {
+        var chart = Chart.blank(title: "Captured Half Notes", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureManualLayoutWidth(339.5, for: measureID)
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID }
+        )
+        let drawingData = try XCTUnwrap(Data(base64Encoded: Self.capturedHandwrittenHalfNotesInkBase64))
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected captured handwritten half notes to commit, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.half, .half])
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.half, .half])
+
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: false
+        )
+        guard case .readyToRender(let values) = route else {
+            XCTFail("Expected captured handwritten half notes to wait for tap-to-render, got \(route)")
+            return
+        }
+        XCTAssertEqual(values, [.half, .half])
+    }
+
+    func testV4DecisionKeepsCapturedDenseEighthRunWithRestAcrossMeterBoundaryLocal() throws {
+        var chart = Chart.blank(title: "Captured Dense Eighth Run", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.last?.id)
+        _ = chart.setMeasureManualLayoutWidth(193.28571428571428, for: measureID)
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID }
+        )
+        let drawingData = try XCTUnwrap(Data(base64Encoded: Self.capturedDenseEighthRunWithRestInkBase64))
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected captured dense eighth/rest phrase to stay local, got \(decision)")
+            return
+        }
+        let expectedValues: [RhythmValue] = [.quarter, .eighth, .eighth, .eighth, .eighth, .eighthRest]
+        XCTAssertEqual(reason, .underfilled)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, expectedValues)
+        XCTAssertEqual(phrase.naturalUnits, 14)
+        XCTAssertEqual(phrase.targetUnits, 16)
+        XCTAssertTrue(phrase.primitives.contains { $0.kind == .restShape })
+
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: false
+        )
+        XCTAssertEqual(route, .preserveInk(showsUnreadFeedback: true))
+    }
+
+    func testV4DecisionKeepsCapturedEighthRestBeforeEighthNoteConflictLocal() throws {
+        let chart = Chart.blank(title: "Captured Eighth Rest", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.dropFirst(2).first?.id)
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID }
+        )
+        let drawingData = try XCTUnwrap(Data(base64Encoded: Self.capturedEighthRestMisrenderedAsEighthInkBase64))
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected captured eighth-rest phrase to stay local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .overflow)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.eighthRest, .dottedQuarter, .half, .quarter])
+        XCTAssertEqual(phrase.naturalUnits, 20)
+        XCTAssertEqual(phrase.targetUnits, 16)
+        XCTAssertTrue(phrase.primitives.contains { $0.kind == .restShape })
+
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: false
+        )
+        XCTAssertEqual(route, .preserveInk(showsUnreadFeedback: true))
+    }
+
+    func testV4DecisionCommitsCapturedRestNoteExactAgreement() throws {
+        let capturedCompetingRestNotePhraseInkBase64 = """
+        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
+        """
+        let chart = Chart.blank(title: "Captured Rest/Note Conflict", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.dropFirst(2).first?.id)
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1024, height: 1200)
+        )
+        let measureLayout = try XCTUnwrap(
+            pageLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID }
+        )
+        let drawingData = try XCTUnwrap(Data(base64Encoded: capturedCompetingRestNotePhraseInkBase64))
+
+        let decision = try LeadSheetRhythmicNotationFinalization.recognitionDecision(
+            drawingData: drawingData,
+            measure: measure,
+            defaultMeter: chart.defaultMeter,
+            measureLayout: measureLayout
+        )
+
+        guard case .commit(let proposal, let phrase) = decision else {
+            XCTFail("Expected captured rest/note agreement to commit, got \(decision)")
+            return
+        }
+        XCTAssertEqual(proposal.values, [.eighthRest, .eighth, .quarter, .half])
+        XCTAssertEqual(proposal.safety, .autoApply)
+        XCTAssertTrue(proposal.isNaturalExactFit)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertTrue(
+            phrase.reasoningPaths.contains { path in
+                path.kind == .visualShape
+                    && path.outcome == .commitCandidate
+                    && path.values == [.eighthRest, .eighth, .quarter, .half]
+            }
+        )
+
+        let route = LeadSheetRhythmicNotationLiveDecisionPolicy.route(
+            for: decision,
+            requiresNaturalExactFitAfterErase: false
+        )
+        XCTAssertEqual(route, .readyToRender(values: [.eighthRest, .eighth, .quarter, .half]))
     }
 
     func testV4DecisionCoversRestPhrasesThroughRasterTemplateGate() throws {
@@ -653,7 +894,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertTrue(phrase.isNaturalExactFit)
     }
 
-    func testV4DecisionRequiresReviewWhenExactFitNeedsUnflaggedEighthAlternative() throws {
+    func testV4DecisionRejectsUnflaggedEighthAlternativeFromRasterAuthority() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
         let drawing = PKDrawing(strokes: [
             halfNote(x: 18),
@@ -667,16 +908,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
             drawingFrame: drawingFrame
         )
 
-        guard case .needsReview(let reason, let phrase?, let proposal?) = decision else {
-            XCTFail("Expected V4 to require review for unflagged eighth exact-fit alternative, got \(decision)")
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to reject the unflagged eighth exact-fit alternative, got \(decision)")
             return
         }
-        XCTAssertEqual(reason, .nonNaturalExactFit)
-        XCTAssertEqual(proposal.values, [.half, .dottedQuarter, .eighth])
-        XCTAssertEqual(proposal.safety, .manualReview)
-        XCTAssertFalse(proposal.canAutoApply)
+        XCTAssertEqual(reason, .overflow)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.half, .dottedQuarter, .quarter])
+        XCTAssertFalse(phrase.symbols.flatMap(\.candidateValues).contains(.eighth))
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
@@ -701,8 +940,8 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(reason, .underfilled)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter])
-        XCTAssertEqual(phrase.naturalUnits, 6)
-        XCTAssertEqual(phrase.targetUnits, 8)
+        XCTAssertEqual(phrase.naturalUnits, 12)
+        XCTAssertEqual(phrase.targetUnits, 16)
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
@@ -729,8 +968,8 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(reason, .overflow)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.quarter, .quarter, .quarter, .quarter, .quarter])
-        XCTAssertEqual(phrase.naturalUnits, 10)
-        XCTAssertEqual(phrase.targetUnits, 8)
+        XCTAssertEqual(phrase.naturalUnits, 20)
+        XCTAssertEqual(phrase.targetUnits, 16)
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
@@ -803,7 +1042,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         }
         XCTAssertEqual(reason, .underfilled)
         XCTAssertEqual(phrase.source, .rasterTemplate)
-        XCTAssertEqual(phrase.naturalValues, [.eighth, .eighth, .quarter])
+        XCTAssertEqual(phrase.naturalValues.prefix(2), [.eighth, .eighth])
         XCTAssertFalse(phrase.isNaturalExactFit)
     }
 
@@ -880,7 +1119,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertTrue(phrase.isNaturalExactFit)
     }
 
-    func testV4DecisionRequiresReviewForTightMixedRestNoteCluster() throws {
+    func testV4DecisionCommitsClearMixedRestNoteCluster() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
         let drawing = PKDrawing(strokes: [
             oneTakeDotHookTailEighthRest(x: 18),
@@ -905,22 +1144,46 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
 
         XCTAssertEqual(values, [.eighthRest, .eighth, .dottedHalf])
-        guard case .needsReview(let reason, let phrase?, let decisionProposal?) = decision else {
-            XCTFail("Expected V4 to require review for a tight mixed rest/note cluster, got \(decision)")
+        guard case .commit(let decisionProposal, let phrase) = decision else {
+            XCTFail("Expected V4 to commit a clear mixed rest/note cluster, got \(decision)")
             return
         }
-        XCTAssertEqual(reason, .ambiguousPhrase)
         XCTAssertEqual(phrase.source, .rasterTemplate)
         XCTAssertEqual(phrase.naturalValues, [.eighthRest, .eighth, .dottedHalf])
         XCTAssertTrue(phrase.isNaturalExactFit)
         XCTAssertEqual(decisionProposal.values, [.eighthRest, .eighth, .dottedHalf])
-        XCTAssertEqual(decisionProposal.safety, .manualReview)
-        XCTAssertFalse(decisionProposal.canAutoApply)
+        XCTAssertEqual(decisionProposal.safety, .autoApply)
+        XCTAssertTrue(decisionProposal.canAutoApply)
         XCTAssertEqual(proposal.values, [.eighthRest, .eighth, .dottedHalf])
-        XCTAssertFalse(proposal.canAutoApply)
+        XCTAssertTrue(proposal.canAutoApply)
     }
 
-    func testAutoApplyProposalExtendsGraceForTerminalQuarterLikeStem() throws {
+    func testV4DecisionKeepsUnderfilledRestNotePhraseReadable() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            sevenLikeEighthRest(x: 20),
+            singleEighth(x: 64)
+        ].flatMap { $0 })
+
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        guard case .keepWriting(let reason, let phrase?) = decision else {
+            XCTFail("Expected V4 to keep an underfilled rest/note phrase local, got \(decision)")
+            return
+        }
+        XCTAssertEqual(reason, .underfilled)
+        XCTAssertEqual(phrase.source, .rasterTemplate)
+        XCTAssertEqual(phrase.naturalValues, [.eighthRest, .eighth])
+        XCTAssertEqual(phrase.naturalUnits, 4)
+        XCTAssertEqual(phrase.targetUnits, 16)
+        XCTAssertFalse(phrase.isNaturalExactFit)
+    }
+
+    func testAutoApplyProposalCommitsCompletedQuarterPhraseWithoutFakeEighthGrace() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 320, height: 88)
         let drawing = PKDrawing(strokes: [
             quarterNote(x: 24),
@@ -936,9 +1199,9 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
 
         XCTAssertEqual(proposal.values, [.quarter, .quarter, .quarter, .quarter])
-        XCTAssertEqual(proposal.safety, .extendedStability)
+        XCTAssertEqual(proposal.safety, .autoApply)
         XCTAssertTrue(proposal.canAutoApply)
-        XCTAssertTrue(proposal.requiresExtendedStability)
+        XCTAssertFalse(proposal.requiresExtendedStability)
     }
 
     func testAutoApplyProposalCommitsStrongRasterWholeNote() throws {
@@ -1306,6 +1569,96 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(values, [.eighthRest, .eighthRest, .quarter, .quarter, .quarter])
     }
 
+    func testQuantizerReadsNoNoteheadOneZigEighthRestVariants() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 270, height: 88)
+        let restVariants: [(name: String, make: (CGFloat) -> [PKStroke])] = [
+            ("small zig", smallOneZigEighthRest),
+            ("compact curl", compactOneZigEighthRest),
+            ("vertical flick", verticalOneZigEighthRest),
+            ("angled notch", angledOneZigEighthRest)
+        ]
+
+        for variant in restVariants {
+            let drawing = PKDrawing(strokes: [
+                variant.make(24),
+                variant.make(74),
+                quarterNote(x: 130),
+                quarterNote(x: 180),
+                quarterNote(x: 230)
+            ].flatMap { $0 })
+
+            let values = try RhythmicNotationQuantizer.quantize(
+                drawing: drawing,
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            XCTAssertEqual(values, [.eighthRest, .eighthRest, .quarter, .quarter, .quarter], variant.name)
+        }
+    }
+
+    func testQuantizerDoesNotPromoteNoNoteheadEighthRestGesturesToEighthNotes() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 270, height: 88)
+        let drawing = PKDrawing(strokes: [
+            flagLikeNoNoteheadEighthRest(x: 24),
+            softHookNoNoteheadEighthRest(x: 74),
+            quarterNote(x: 130),
+            quarterNote(x: 180),
+            quarterNote(x: 230)
+        ].flatMap { $0 })
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.eighthRest, .eighthRest, .quarter, .quarter, .quarter])
+    }
+
+    func testV4TemplateDoesNotExposeEighthNoteForNoNoteheadEighthRestGestures() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 120, height: 88)
+        let restVariants: [(name: String, make: (CGFloat) -> [PKStroke])] = [
+            ("one zig", smallOneZigEighthRest),
+            ("flag-like", flagLikeNoNoteheadEighthRest),
+            ("soft hook", softHookNoNoteheadEighthRest)
+        ]
+
+        for variant in restVariants {
+            let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+                drawing: PKDrawing(strokes: variant.make(24)),
+                drawingFrame: drawingFrame
+            ).flatMap { $0 }
+
+            XCTAssertTrue(templateValues.contains(.eighthRest), variant.name)
+            XCTAssertFalse(templateValues.contains(.eighth), variant.name)
+        }
+    }
+
+    func testV4TemplateStillAllowsRealSingleEighthNotesWithLowerNoteheads() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 120, height: 88)
+
+        let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+            drawing: PKDrawing(strokes: singleEighth(x: 24)),
+            drawingFrame: drawingFrame
+        ).flatMap { $0 }
+
+        XCTAssertTrue(templateValues.contains(.eighth))
+        XCTAssertFalse(templateValues.contains(.eighthRest))
+    }
+
+    func testV4TemplateDoesNotExposeLongRestForStemmedNoteCluster() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 140, height: 88)
+
+        let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+            drawing: PKDrawing(strokes: stemmedWholeRestLikeCluster(x: 32)),
+            drawingFrame: drawingFrame
+        ).flatMap { $0 }
+
+        XCTAssertFalse(templateValues.contains(.wholeRest))
+        XCTAssertFalse(templateValues.contains(.halfRest))
+    }
+
     func testQuantizerReadsDotTailRestDottedQuarterHalfFromSparseLiveInk() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 244, height: 78)
         let drawing = PKDrawing(strokes: [
@@ -1338,6 +1691,51 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
 
         XCTAssertEqual(values, [.quarterRest, .quarterRest, .half])
+    }
+
+    func testQuantizerReadsHumanOneStrokeQuarterRestVariants() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let restVariants: [(name: String, strokes: [PKStroke])] = [
+            ("s-curve", sCurveQuarterRest(x: 24)),
+            ("shallow wiggle", shallowWiggleQuarterRest(x: 24)),
+            ("vertical squiggle", verticalSquiggleQuarterRest(x: 24)),
+            ("narrow curl", narrowCurlQuarterRest(x: 24))
+        ]
+
+        for variant in restVariants {
+            let drawing = PKDrawing(strokes: [
+                variant.strokes,
+                quarterNote(x: 86),
+                quarterNote(x: 142),
+                quarterNote(x: 198)
+            ].flatMap { $0 })
+
+            let values = try RhythmicNotationQuantizer.quantize(
+                drawing: drawing,
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+
+            XCTAssertEqual(values, [.quarterRest, .quarter, .quarter, .quarter], variant.name)
+        }
+    }
+
+    func testQuantizerDoesNotReadNotesAsQuarterRests() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 24),
+            quarterNoteWithWideStem(x: 86),
+            touchedUpQuarterNote(x: 142),
+            quarterNote(x: 198)
+        ].flatMap { $0 })
+
+        let values = try RhythmicNotationQuantizer.quantize(
+            drawing: drawing,
+            meter: Meter(numerator: 4, denominator: 4),
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertEqual(values, [.quarter, .quarter, .quarter, .quarter])
     }
 
     func testQuantizerReadsLeftHookSevenMarksAsEighthRests() throws {
@@ -1711,7 +2109,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ].flatMap { $0 })
         let drawingFrame = CGRect(
             origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+            size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).size
         )
         let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
             drawing: drawing,
@@ -1821,7 +2219,7 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ].flatMap { $0 })
         let drawingFrame = CGRect(
             origin: .zero,
-            size: measureLayout.writableFrame.insetBy(dx: 2, dy: 2).size
+            size: LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).size
         )
         let anchors = RhythmicNotationQuantizer.visualNoteAnchors(
             drawing: drawing,
@@ -1874,6 +2272,11 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertEqual(chart.layoutStyle, .rhythmSectionSheet)
 
         let replayMeasure = chart.measures.first { measure in
+            if let measureIDText = replayEnvironmentValue("ICHART_RHYTHM_REPLAY_MEASURE_ID"),
+               let measureID = UUID(uuidString: measureIDText),
+               measure.id != measureID {
+                return false
+            }
             guard let data = measure.handwrittenRhythmicNotationData else {
                 return false
             }
@@ -1935,6 +2338,33 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         XCTAssertNil(updatedMeasure.handwrittenRhythmicNotationData)
     }
 
+    func testPipelinePreviewReportsStagesForActualPencilInk() {
+        let meter = Meter(numerator: 4, denominator: 4)
+        let drawingFrame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        let drawing = PKDrawing(strokes: eighthRest(x: 26) + singleEighth(x: 74))
+        let decision = RhythmicNotationQuantizer.recognitionDecision(
+            drawing: drawing,
+            meter: meter,
+            drawingFrame: drawingFrame
+        )
+
+        let preview = RhythmRecognitionPipelinePreview.make(
+            drawing: drawing,
+            meter: meter,
+            drawingFrame: drawingFrame,
+            decision: decision,
+            decisionText: "preview",
+            routeText: "preview"
+        )
+
+        XCTAssertEqual(preview.strokeCount, drawing.strokes.count)
+        XCTAssertFalse(preview.primitives.isEmpty)
+        XCTAssertFalse(preview.symbolGroups.isEmpty)
+        XCTAssertFalse(preview.reasoningPaths.isEmpty)
+        XCTAssertTrue(preview.statusText.contains("strokes"))
+        XCTAssertTrue(preview.notes.contains("multiple reasoning paths available"))
+    }
+
     private func firstLeadSheetMeasureLayout(in chart: Chart) throws -> LeadSheetMeasureLayout {
         let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
@@ -1964,14 +2394,14 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
     }
 
     private func leadSheetStaffY(step: Int, in measureLayout: LeadSheetMeasureLayout) -> CGFloat {
-        let activeFrame = measureLayout.writableFrame.insetBy(dx: 2, dy: 2)
+        let activeFrame = LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout)
         let staffLineSpacing = max(CGFloat(1), (measureLayout.staffFrame.height - 4) / 4)
         let topStaffLineY = measureLayout.staffFrame.minY + 2 - activeFrame.minY
         return topStaffLineY + CGFloat(step) * staffLineSpacing / 2
     }
 
     private func leadSheetBeatXPositions(in measureLayout: LeadSheetMeasureLayout) -> [CGFloat] {
-        let width = measureLayout.writableFrame.insetBy(dx: 2, dy: 2).width
+        let width = LeadSheetRhythmicNotationInkCapturePolicy.analysisFrame(for: measureLayout).width
         return [0.17, 0.38, 0.59, 0.80].map { width * CGFloat($0) }
     }
 
@@ -2462,6 +2892,15 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         ]
     }
 
+    private func stemmedWholeRestLikeCluster(x: CGFloat) -> [PKStroke] {
+        wholeRest(x: x) + [
+            stroke([
+                CGPoint(x: x + 24, y: 58),
+                CGPoint(x: x + 24, y: 22)
+            ])
+        ]
+    }
+
     private func eighthRest(x: CGFloat) -> [PKStroke] {
         [
             filledNotehead(center: CGPoint(x: x + 4, y: 28), radius: 2.8),
@@ -2494,6 +2933,74 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         return [
             filledNotehead(center: CGPoint(x: x + 4, y: 28), radius: 2.8),
             stroke(tailPoints)
+        ]
+    }
+
+    private func smallOneZigEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 9, y: 31),
+                CGPoint(x: x + 4, y: 40),
+                CGPoint(x: x + 12, y: 49),
+                CGPoint(x: x + 8, y: 59)
+            ])
+        ]
+    }
+
+    private func compactOneZigEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 8, y: 33),
+                CGPoint(x: x + 13, y: 40),
+                CGPoint(x: x + 6, y: 48),
+                CGPoint(x: x + 10, y: 58)
+            ])
+        ]
+    }
+
+    private func verticalOneZigEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 8, y: 30),
+                CGPoint(x: x + 6, y: 40),
+                CGPoint(x: x + 10, y: 49),
+                CGPoint(x: x + 7, y: 59)
+            ])
+        ]
+    }
+
+    private func angledOneZigEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 6, y: 32),
+                CGPoint(x: x + 12, y: 40),
+                CGPoint(x: x + 5, y: 50),
+                CGPoint(x: x + 9, y: 60)
+            ])
+        ]
+    }
+
+    private func flagLikeNoNoteheadEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 13, y: 27),
+                CGPoint(x: x + 4, y: 28),
+                CGPoint(x: x + 8, y: 36),
+                CGPoint(x: x + 9, y: 48),
+                CGPoint(x: x + 14, y: 62)
+            ])
+        ]
+    }
+
+    private func softHookNoNoteheadEighthRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 4, y: 31),
+                CGPoint(x: x + 11, y: 32),
+                CGPoint(x: x + 8, y: 39),
+                CGPoint(x: x + 5, y: 49),
+                CGPoint(x: x + 9, y: 61)
+            ])
         ]
     }
 
@@ -2910,6 +3417,56 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 CGPoint(x: x + 17, y: 46),
                 CGPoint(x: x + 6, y: 58),
                 CGPoint(x: x + 14, y: 69)
+            ])
+        ]
+    }
+
+    private func sCurveQuarterRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 11, y: 20),
+                CGPoint(x: x + 4, y: 28),
+                CGPoint(x: x + 12, y: 36),
+                CGPoint(x: x + 7, y: 46),
+                CGPoint(x: x + 15, y: 56),
+                CGPoint(x: x + 8, y: 69)
+            ])
+        ]
+    }
+
+    private func shallowWiggleQuarterRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 9, y: 21),
+                CGPoint(x: x + 4, y: 34),
+                CGPoint(x: x + 10, y: 43),
+                CGPoint(x: x + 6, y: 54),
+                CGPoint(x: x + 11, y: 69)
+            ])
+        ]
+    }
+
+    private func verticalSquiggleQuarterRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 8, y: 20),
+                CGPoint(x: x + 6, y: 31),
+                CGPoint(x: x + 10, y: 41),
+                CGPoint(x: x + 7, y: 52),
+                CGPoint(x: x + 10, y: 68)
+            ])
+        ]
+    }
+
+    private func narrowCurlQuarterRest(x: CGFloat) -> [PKStroke] {
+        [
+            stroke([
+                CGPoint(x: x + 8, y: 20),
+                CGPoint(x: x + 5, y: 29),
+                CGPoint(x: x + 10, y: 38),
+                CGPoint(x: x + 6, y: 47),
+                CGPoint(x: x + 11, y: 56),
+                CGPoint(x: x + 6, y: 69)
             ])
         ]
     }

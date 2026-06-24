@@ -911,6 +911,8 @@ struct LibraryView: View {
     @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
     @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
+    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
+    private var rhythmDiagnosticsEnabled = false
     @State private var userEmail = ""
     @State private var userPhone = ""
     @State private var userAddress = ""
@@ -1535,6 +1537,17 @@ struct LibraryView: View {
                                 )
                             }
                         }
+                    )
+                }
+
+                IChartHomePanel(
+                    title: "Diagnostics",
+                    systemImageName: "waveform.path.ecg",
+                    theme: homeTheme
+                ) {
+                    IChartDiagnosticsSettings(
+                        rhythmDiagnosticsEnabled: $rhythmDiagnosticsEnabled,
+                        theme: homeTheme
                     )
                 }
             }
@@ -5238,7 +5251,7 @@ private struct IChartPlanSettings: View {
         .onAppear {
             debugPreview = IChartDebugPlanPreview.preview(for: store.subscriptionState)
         }
-        .onChange(of: store.entitlements.subscription) { subscription in
+        .onChange(of: store.entitlements.subscription) { _, subscription in
             let nextPreview = IChartDebugPlanPreview.preview(for: subscription)
             if debugPreview != nextPreview {
                 debugPreview = nextPreview
@@ -5405,7 +5418,7 @@ private struct IChartPlanSettings: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: debugPreview) { preview in
+            .onChange(of: debugPreview) { _, preview in
                 let subscriptionState = preview.subscriptionState()
                 subscriptionStore.applyLocalPreview(subscriptionState)
                 onSelectSubscriptionState(subscriptionState)
@@ -5515,6 +5528,89 @@ private struct IChartCloudSyncSettings: View {
         case .syncing, .signedOut, .unconfigured:
             return IChartHomeBrand.blue
         }
+    }
+}
+
+private struct IChartDiagnosticsSettings: View {
+    @Binding var rhythmDiagnosticsEnabled: Bool
+    let theme: IChartHomeTheme
+    @State private var rhythmDiagnosticsLogURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $rhythmDiagnosticsEnabled) {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Rhythm Diagnostics")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(theme.panelTitle)
+                        Text("Show the Rhythm tool's last read and save local recognition notes for TestFlight QA.")
+                            .font(.caption)
+                            .foregroundStyle(theme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } icon: {
+                    Image(systemName: "waveform.path.ecg")
+                        .foregroundStyle(IChartHomeBrand.blue)
+                }
+            }
+            .toggleStyle(.switch)
+
+            if rhythmDiagnosticsEnabled {
+                Text("Diagnostics stay on this device in Application Support and do not upload chart ink.")
+                    .font(.caption2)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Experimental pipeline preview is included so rhythm reads can be checked before the new recognizer path is committed.")
+                    .font(.caption2)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    if let rhythmDiagnosticsLogURL {
+                        ShareLink(
+                            item: rhythmDiagnosticsLogURL,
+                            preview: SharePreview("iChart Rhythm Diagnostics")
+                        ) {
+                            Label("Share Log", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Label("No rhythm log yet", systemImage: "doc.badge.clock")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.panelSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Button(role: .destructive) {
+                        clearRhythmDiagnosticsLog()
+                    } label: {
+                        Label("Clear Log", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(rhythmDiagnosticsLogURL == nil)
+                }
+                .font(.caption.weight(.semibold))
+            }
+        }
+        .onAppear(perform: refreshRhythmDiagnosticsLog)
+        .onChange(of: rhythmDiagnosticsEnabled) {
+            refreshRhythmDiagnosticsLog()
+        }
+    }
+
+    private func refreshRhythmDiagnosticsLog() {
+        let recorder = RhythmRecognitionDiagnosticsRecorder.live()
+        rhythmDiagnosticsLogURL = recorder.hasLogFile ? recorder.url : nil
+    }
+
+    private func clearRhythmDiagnosticsLog() {
+        let recorder = RhythmRecognitionDiagnosticsRecorder.live()
+        try? recorder.reset()
+        refreshRhythmDiagnosticsLog()
     }
 }
 
