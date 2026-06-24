@@ -7,6 +7,7 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
     case quarterNote
     case slash
     case dottedQuarterNote
+    case dottedEighthNote
     case sixteenthNote
     case eighthNote
     case tie
@@ -32,6 +33,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "Slash"
         case .dottedQuarterNote:
             return "Dotted Quarter Note"
+        case .dottedEighthNote:
+            return "Dotted Eighth Note"
         case .sixteenthNote:
             return "Sixteenth Note"
         case .eighthNote:
@@ -65,6 +68,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "/"
         case .dottedQuarterNote:
             return "Q."
+        case .dottedEighthNote:
+            return "8."
         case .sixteenthNote:
             return "16"
         case .eighthNote:
@@ -204,6 +209,26 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                     "The dot merges into the note body",
                     "A top flag appears, making it closer to a dotted eighth-like form",
                     "The head is hollow"
+                ]
+            )
+        case .dottedEighthNote:
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept a dotted eighth as a filled notehead with one eighth-level flag or beam and a detached augmentation dot to the right of the note body. In beamed writing it most often shares a primary beam with a following sixteenth note.",
+                mustContain: [
+                    "One filled notehead",
+                    "One upright stem with one eighth-level flag or shared primary beam",
+                    "One separate dot to the right of the notehead/stem body"
+                ],
+                allowedVariations: [
+                    "The dot can sit slightly low or between the dotted eighth and following sixteenth",
+                    "The note can be standalone with a flag or beamed into the next short value",
+                    "The primary beam may be handwritten, sloped, or slightly uneven"
+                ],
+                rejectWhen: [
+                    "The dot merges into the notehead or following notehead",
+                    "There is no eighth-level flag or beam",
+                    "The dot belongs to a neighboring note or rest rather than this attack"
                 ]
             )
         case .eighthNote:
@@ -423,6 +448,7 @@ enum RhythmicNotationReferenceCompendium {
         entry(value: .half, primitive: .halfNote, kind: .note, durationText: "2 beats in 4/4"),
         entry(value: .dottedQuarter, primitive: .dottedQuarterNote, kind: .note, durationText: "1.5 beats in 4/4"),
         entry(value: .quarter, primitive: .quarterNote, kind: .note, durationText: "1 beat in 4/4"),
+        entry(value: .dottedEighth, primitive: .dottedEighthNote, kind: .note, durationText: "Three quarters of a beat in 4/4"),
         entry(value: .eighth, primitive: .eighthNote, kind: .note, durationText: "Half beat in 4/4"),
         entry(value: .sixteenth, primitive: .sixteenthNote, kind: .note, durationText: "Quarter beat in 4/4")
     ]
@@ -481,6 +507,8 @@ extension RhythmValue {
             return "Sixteenth Rest"
         case .eighth:
             return "Eighth Note"
+        case .dottedEighth:
+            return "Dotted Eighth Note"
         case .eighthRest:
             return "Eighth Rest"
         case .quarter:
@@ -506,7 +534,7 @@ extension RhythmValue {
 
     var isDottedReferenceValue: Bool {
         switch self {
-        case .dottedQuarter, .dottedHalf:
+        case .dottedEighth, .dottedQuarter, .dottedHalf:
             return true
         case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
             return false

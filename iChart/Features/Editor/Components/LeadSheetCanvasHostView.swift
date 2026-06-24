@@ -514,6 +514,7 @@ struct LeadSheetRhythmicNotationPreviewState: Equatable {
     }
 
     var measureID: UUID
+    var meter: Meter
     var reason: RhythmRecognitionReason?
     var values: [RhythmValue]
     var confirmationAction: ConfirmationAction
@@ -526,6 +527,13 @@ struct LeadSheetRhythmicNotationPreviewState: Equatable {
 
 enum LeadSheetRhythmicNotationFeedbackPolicy {
     static func previewValues(for decision: RhythmRecognitionDecision) -> [RhythmValue] {
+        if decision.reason == .nonNaturalExactFit,
+           let naturalValues = decision.phrase?.naturalValues,
+           !naturalValues.isEmpty,
+           naturalValues.contains(where: \.isDottedReferenceValue) {
+            return naturalValues
+        }
+
         if let values = decision.proposal?.values,
            !values.isEmpty {
             return values
@@ -3946,6 +3954,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: reason,
             values: values,
             confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
@@ -3966,6 +3975,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: reason,
             values: values,
             confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
@@ -3985,6 +3995,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: nil,
             values: values,
             confirmationAction: .none,
@@ -4004,11 +4015,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         rhythmicNotationPreviewState = LeadSheetRhythmicNotationPreviewState(
             measureID: measureID,
+            meter: rhythmicNotationPreviewMeter(for: measureID),
             reason: decision.reason,
             values: values,
             confirmationAction: LeadSheetRhythmicNotationFeedbackPolicy.confirmationAction(for: decision),
             isCertain: decision.proposal?.isNaturalExactFit == true
         )
+    }
+
+    private func rhythmicNotationPreviewMeter(for measureID: UUID) -> Meter {
+        chart.measure(id: measureID)?.resolvedMeter(defaultMeter: chart.defaultMeter) ?? chart.defaultMeter
     }
 
     @discardableResult

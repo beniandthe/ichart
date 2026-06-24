@@ -337,7 +337,7 @@ enum RhythmicNotationQuantizer {
             return .halfRest
         case .whole:
             return .wholeRest
-        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
+        case .slash, .dottedEighth, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
              .wholeRest, .tiedContinuation:
             return nil
         }
@@ -1513,6 +1513,9 @@ enum RhythmicNotationQuantizer {
 
         if features.hasStem {
             if features.hasFlag {
+                if features.hasDot {
+                    add(.dottedEighth, score: 0.02)
+                }
                 add(.eighth, score: features.hasDot ? 1.25 : (features.hasLowerHeadMass ? 0.02 : 0.18))
                 add(.quarter, score: features.hasDot ? 1.8 : 1.25)
             }
@@ -2784,6 +2787,7 @@ private struct VisualRhythmRecognizer {
                 }
 
                 return [
+                    RhythmCandidate(value: .dottedEighth, score: 0.0),
                     RhythmCandidate(value: .dottedQuarter, score: 0.0),
                     RhythmCandidate(value: .quarter, score: 1.5),
                     RhythmCandidate(value: .dottedHalf, score: 0.95)

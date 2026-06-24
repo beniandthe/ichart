@@ -1351,7 +1351,10 @@ struct EditorView: View {
                 .font(.caption.weight(.bold))
                 .frame(width: 15)
 
-            RhythmDiagnosticPreviewStrip(values: preview?.values ?? [])
+            RhythmDiagnosticPreviewStrip(
+                values: preview?.values ?? [],
+                meter: preview?.meter ?? chart.defaultMeter
+            )
 
             if let preview {
                 if preview.canConfirm {
@@ -3065,6 +3068,7 @@ private enum EditorSheet: Identifiable {
 
 private struct RhythmDiagnosticPreviewStrip: View {
     let values: [RhythmValue]
+    let meter: Meter
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -3072,7 +3076,7 @@ private struct RhythmDiagnosticPreviewStrip: View {
                 if values.isEmpty {
                     RhythmDiagnosticPreviewStaffPlaceholder()
                 } else {
-                    ForEach(Array(RhythmDiagnosticPreviewItem.items(for: values).enumerated()), id: \.offset) { _, item in
+                    ForEach(Array(RhythmDiagnosticPreviewItem.items(for: values, meter: meter).enumerated()), id: \.offset) { _, item in
                         switch item {
                         case .single(let value):
                             RhythmDiagnosticPreviewGlyph(value: value)
@@ -3111,9 +3115,11 @@ private enum RhythmDiagnosticPreviewMetrics {
     static let restPointSize: CGFloat = 27
     static let restBlockPointSize: CGFloat = 23
     static let slashPointSize: CGFloat = 27
-    static let dotPointSize: CGFloat = 10
+    static let dotSize: CGFloat = 5
     static let glyphVerticalOffset: CGFloat = 8
     static let beamedGlyphAdvance: CGFloat = 27
+    static let beamedDottedTrailingAllowance: CGFloat = 10
+    static let beamedDotRightPadding: CGFloat = 1.5
     static let beamedStemWidth: CGFloat = 1.5
     static let beamThickness: CGFloat = 4
 }
@@ -3122,7 +3128,7 @@ private enum RhythmDiagnosticPreviewItem {
     case single(RhythmValue)
     case beamedGroup([RhythmValue])
 
-    static func items(for values: [RhythmValue]) -> [RhythmDiagnosticPreviewItem] {
+    static func items(for values: [RhythmValue], meter: Meter) -> [RhythmDiagnosticPreviewItem] {
         var items: [RhythmDiagnosticPreviewItem] = []
         var index = 0
 
@@ -3136,7 +3142,12 @@ private enum RhythmDiagnosticPreviewItem {
 
             var count = 1
             while index + count < values.count,
-                  values[index + count].isDiagnosticPreviewBeamable {
+                  values[index + count].isDiagnosticPreviewBeamable,
+                  RhythmRecognitionContextRules.allowsBeamAcrossBoundary(
+                    beforeValueAt: index + count,
+                    in: values,
+                    meter: meter
+                  ) {
                 count += 1
             }
 
@@ -3154,7 +3165,7 @@ private enum RhythmDiagnosticPreviewItem {
 
 private extension RhythmValue {
     var isDiagnosticPreviewBeamable: Bool {
-        self == .eighth || self == .sixteenth
+        self == .eighth || self == .dottedEighth || self == .sixteenth
     }
 }
 
@@ -3211,6 +3222,9 @@ private struct RhythmDiagnosticPreviewGlyph: View {
             case .dottedQuarter:
                 noteSymbol(.noteQuarterUp)
                 dot
+            case .dottedEighth:
+                noteSymbol(.note8thUp)
+                dot
             case .eighth:
                 noteSymbol(.note8thUp)
             case .sixteenth:
@@ -3223,7 +3237,7 @@ private struct RhythmDiagnosticPreviewGlyph: View {
             }
         }
         .frame(
-            width: RhythmDiagnosticPreviewMetrics.glyphWidth,
+            width: glyphFrameWidth,
             height: RhythmDiagnosticPreviewMetrics.glyphHeight
         )
         .clipped()
@@ -3235,13 +3249,36 @@ private struct RhythmDiagnosticPreviewGlyph: View {
     }
 
     private var dot: some View {
-        symbol(.augmentationDot, size: RhythmDiagnosticPreviewMetrics.dotPointSize)
-            .offset(x: 12, y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8)
+        Circle()
+            .fill(Color.primary)
+            .frame(
+                width: RhythmDiagnosticPreviewMetrics.dotSize,
+                height: RhythmDiagnosticPreviewMetrics.dotSize
+            )
+            .offset(x: 13, y: dotYOffset)
     }
 
     private func symbol(_ symbol: NotationGlyphCatalog.Symbol, size: CGFloat) -> Text {
         Text(NotationGlyphCatalog.glyph(for: symbol) ?? "")
             .font(NotationFontPreset.bravura.notationPreviewFont(size: size))
+    }
+
+    private var glyphFrameWidth: CGFloat {
+        value.isDottedReferenceValue
+            ? RhythmDiagnosticPreviewMetrics.glyphWidth + 6
+            : RhythmDiagnosticPreviewMetrics.glyphWidth
+    }
+
+    private var dotYOffset: CGFloat {
+        switch value {
+        case .dottedQuarter:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 5
+        case .dottedEighth, .dottedHalf:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest,
+             .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+            return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
+        }
     }
 }
 
@@ -3253,10 +3290,18 @@ private struct RhythmDiagnosticPreviewBeamedGroup: View {
             .fill(Color.primary)
             .accessibilityHidden(true)
             .frame(
-                width: CGFloat(max(2, values.count)) * RhythmDiagnosticPreviewMetrics.beamedGlyphAdvance,
+                width: previewWidth,
                 height: RhythmDiagnosticPreviewMetrics.glyphHeight
             )
             .clipped()
+    }
+
+    private var previewWidth: CGFloat {
+        let baseWidth = CGFloat(max(2, values.count)) * RhythmDiagnosticPreviewMetrics.beamedGlyphAdvance
+        guard values.last == .dottedEighth else {
+            return baseWidth
+        }
+        return baseWidth + RhythmDiagnosticPreviewMetrics.beamedDottedTrailingAllowance
     }
 }
 
@@ -3265,16 +3310,25 @@ private struct RhythmDiagnosticPreviewBeamedShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let noteCount = max(2, values.count)
-        let advance = rect.width / CGFloat(noteCount)
+        let trailingDotAllowance = values.prefix(noteCount).last == .dottedEighth
+            ? RhythmDiagnosticPreviewMetrics.beamedDottedTrailingAllowance
+            : 0
+        let contentRect = CGRect(
+            x: rect.minX,
+            y: rect.minY,
+            width: max(1, rect.width - trailingDotAllowance),
+            height: rect.height
+        )
+        let advance = contentRect.width / CGFloat(noteCount)
         let stemWidth = RhythmDiagnosticPreviewMetrics.beamedStemWidth
         let beamThickness = RhythmDiagnosticPreviewMetrics.beamThickness
-        let beamY = rect.minY + 6
+        let beamY = contentRect.minY + 6
         let headWidth = min(11, advance * 0.42)
-        let headHeight = max(11, rect.height * 0.27)
-        let headCenterY = rect.minY + rect.height * 0.72
+        let headHeight = max(11, contentRect.height * 0.27)
+        let headCenterY = contentRect.minY + contentRect.height * 0.72
         let stemAnchorRatio: CGFloat = 0.66
-        let firstStemX = rect.minX + advance * stemAnchorRatio
-        let lastStemX = rect.minX + CGFloat(noteCount - 1) * advance + advance * stemAnchorRatio
+        let firstStemX = contentRect.minX + advance * stemAnchorRatio
+        let lastStemX = contentRect.minX + CGFloat(noteCount - 1) * advance + advance * stemAnchorRatio
 
         var path = Path()
         path.addRect(CGRect(
@@ -3284,7 +3338,7 @@ private struct RhythmDiagnosticPreviewBeamedShape: Shape {
             height: beamThickness
         ))
         path.addPath(secondaryBeamPath(
-            in: rect,
+            in: contentRect,
             advance: advance,
             stemAnchorRatio: stemAnchorRatio,
             stemWidth: stemWidth,
@@ -3293,7 +3347,7 @@ private struct RhythmDiagnosticPreviewBeamedShape: Shape {
         ))
 
         for index in 0..<noteCount {
-            let originX = rect.minX + CGFloat(index) * advance
+            let originX = contentRect.minX + CGFloat(index) * advance
             let stemX = originX + advance * stemAnchorRatio
             path.addRect(CGRect(
                 x: stemX,
@@ -3307,6 +3361,20 @@ private struct RhythmDiagnosticPreviewBeamedShape: Shape {
                 width: headWidth,
                 height: headHeight
             ))
+            if values.indices.contains(index),
+               values[index] == .dottedEighth {
+                let dotSize = min(5, max(3.5, headWidth * 0.46))
+                let dotX = min(
+                    stemX + dotSize * 1.3,
+                    rect.maxX - dotSize - RhythmDiagnosticPreviewMetrics.beamedDotRightPadding
+                )
+                path.addEllipse(in: CGRect(
+                    x: dotX,
+                    y: headCenterY - dotSize * 0.55,
+                    width: dotSize,
+                    height: dotSize
+                ))
+            }
         }
 
         return path

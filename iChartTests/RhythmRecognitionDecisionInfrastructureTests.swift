@@ -195,7 +195,7 @@ private enum GoldenRhythmDecision: Hashable {
 private extension RhythmValue {
     var isCurrentlyCommitSupportedByGoldenMatrix: Bool {
         switch self {
-        case .slash, .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter,
+        case .slash, .eighth, .dottedEighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter,
                 .half, .halfRest, .dottedHalf, .whole, .wholeRest:
             return true
         case .sixteenth, .sixteenthRest, .tiedContinuation:

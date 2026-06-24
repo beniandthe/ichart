@@ -636,6 +636,12 @@ extension RhythmicNotationQuantizer {
             ) {
                 add(beamedSixteenthRun, score: 0.0, template: "beamed-sixteenth-run")
                 add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.65, template: "beamed-eighth-run")
+            } else if let dottedEighthCell = rasterTemplateBeamedDottedEighthCellValues(
+                for: crop,
+                input: input
+            ) {
+                add(dottedEighthCell, score: 0.0, template: "beamed-dotted-eighth-cell")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.7, template: "beamed-eighth-run")
             } else if let beamedMixedSixteenthRun = rasterTemplateBeamedMixedSixteenthRunValues(
                 for: crop,
                 input: input
@@ -792,6 +798,13 @@ extension RhythmicNotationQuantizer {
         if features.hasStem,
            hasDoubleFlagEvidence {
             add([.sixteenth], score: 0.0, template: "double-flagged-stem")
+        }
+        if features.hasStem,
+           features.hasDot,
+           !hasDoubleFlagEvidence,
+           (features.hasFlag || cropHasUpperFlagMass(crop, features: features)),
+           (features.hasFilledHead || hasFilledInkHead || features.hasLowerHeadMass || features.hasStemAndKick || hasStemmedNoteRaster) {
+            add([.dottedEighth], score: 0.03, template: "dotted-flagged-stem")
         }
         if features.hasStem,
            !hasDoubleFlagEvidence,
@@ -1253,6 +1266,14 @@ extension RhythmicNotationQuantizer {
         }
         if values == [.eighth, .sixteenth, .sixteenth]
             || values == [.sixteenth, .sixteenth, .eighth] {
+            let beatUnits = rhythmUnits(forWholeNotes: meter.beatUnitWholeNoteLength)
+            guard beatUnits == 4,
+                  startUnits.isMultiple(of: beatUnits) else {
+                return nil
+            }
+        }
+        if values == [.dottedEighth, .sixteenth]
+            || values == [.sixteenth, .dottedEighth] {
             let beatUnits = rhythmUnits(forWholeNotes: meter.beatUnitWholeNoteLength)
             guard beatUnits == 4,
                   startUnits.isMultiple(of: beatUnits) else {
@@ -1754,6 +1775,21 @@ extension RhythmicNotationQuantizer {
         return evidence.values
     }
 
+    private static func rasterTemplateBeamedDottedEighthCellValues(
+        for crop: RhythmSymbolCrop,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        guard rasterTemplateHasBeamedEighthEvidence(for: crop, input: input),
+              let evidence = rasterTemplateBeamedDottedEighthCellEvidence(
+                for: crop,
+                drawingFrame: input.drawingFrame
+              ) else {
+            return nil
+        }
+
+        return evidence.values
+    }
+
     private static func rasterTemplateBeamedEighthCount(
         for crop: RhythmSymbolCrop,
         input: RhythmInkRasterInput
@@ -1940,6 +1976,210 @@ extension RhythmicNotationQuantizer {
             for: crop,
             drawingFrame: drawingFrame
         )?.anchors ?? []
+    }
+
+    private static func rasterTemplateBeamedDottedEighthCellAnchorXs(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> [CGFloat] {
+        rasterTemplateBeamedDottedEighthCellEvidence(
+            for: crop,
+            drawingFrame: drawingFrame
+        )?.anchors ?? []
+    }
+
+    private static func rasterTemplateBeamedDottedEighthCellEvidence(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> (values: [RhythmValue], anchors: [CGFloat])? {
+        let minimumSeparation = max(CGFloat(7), drawingFrame.width * 0.03)
+        let lowerNoteheadXs = crop.strokes
+            .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
+            .filter { $0.bounds.midY >= crop.bounds.minY + crop.bounds.height * 0.50 }
+            .map(\.bounds.midX)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        let stems = crop.strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        let stemXs = stems.map(\.bounds.midX)
+        let inferredStemXs = crop.strokes
+            .flatMap { $0.connectedBeamStemXs(in: crop.bounds) }
+        let allAnchors = (lowerNoteheadXs + stemXs + inferredStemXs)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        var anchorCandidates: [[CGFloat]] = []
+
+        func appendPair(from xs: [CGFloat]) {
+            guard let pair = rasterTemplateEndpointAnchorPair(from: xs),
+                  !anchorCandidates.contains(pair) else {
+                return
+            }
+            anchorCandidates.append(pair)
+        }
+
+        appendPair(from: stemXs)
+        appendPair(from: inferredStemXs)
+        appendPair(from: lowerNoteheadXs)
+        appendPair(from: allAnchors)
+
+        guard !anchorCandidates.isEmpty,
+              (lowerNoteheadXs.count >= 2 || stems.count >= 1),
+              crop.strokes.contains(where: { $0.looksLikeVisualNotehead(in: crop.bounds) }) else {
+            return nil
+        }
+
+        for anchors in anchorCandidates {
+            guard rasterTemplateHasDottedEighthAugmentationDot(
+                for: crop,
+                anchors: anchors,
+                dottedAttackIndex: 0,
+                drawingFrame: drawingFrame
+            ),
+            rasterTemplateHasSixteenthSecondaryBeam(
+                for: crop,
+                anchors: anchors,
+                sixteenthAttackIndex: 1,
+                stems: stems,
+                drawingFrame: drawingFrame
+            ) else {
+                if rasterTemplateHasDottedEighthAugmentationDot(
+                    for: crop,
+                    anchors: anchors,
+                    dottedAttackIndex: 1,
+                    drawingFrame: drawingFrame
+                ),
+                rasterTemplateHasSixteenthSecondaryBeam(
+                    for: crop,
+                    anchors: anchors,
+                    sixteenthAttackIndex: 0,
+                    stems: stems,
+                    drawingFrame: drawingFrame
+                ) {
+                    return ([.sixteenth, .dottedEighth], anchors)
+                }
+                continue
+            }
+
+            return ([.dottedEighth, .sixteenth], anchors)
+        }
+
+        return nil
+    }
+
+    private static func rasterTemplateHasDottedEighthAugmentationDot(
+        for crop: RhythmSymbolCrop,
+        anchors: [CGFloat],
+        dottedAttackIndex: Int,
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard anchors.count == 2,
+              anchors.indices.contains(dottedAttackIndex) else {
+            return false
+        }
+
+        let firstAttackX = anchors[0]
+        let secondAttackX = anchors[1]
+        let minimumX: CGFloat
+        let maximumX: CGFloat
+        if dottedAttackIndex == 0 {
+            minimumX = firstAttackX + max(CGFloat(3), crop.bounds.width * 0.05)
+            maximumX = secondAttackX - max(CGFloat(1), crop.bounds.width * 0.02)
+        } else {
+            minimumX = secondAttackX + max(CGFloat(2), crop.bounds.width * 0.03)
+            maximumX = crop.bounds.maxX + max(CGFloat(2), crop.bounds.width * 0.08)
+        }
+        let dotBandTop = crop.bounds.minY + crop.bounds.height * 0.42
+        let dotBandBottom = crop.bounds.maxY + crop.bounds.height * 0.18
+        let maxDotWidth = max(CGFloat(7), min(CGFloat(14), crop.bounds.width * 0.24))
+        let maxDotHeight = max(CGFloat(7), min(CGFloat(14), crop.bounds.height * 0.34))
+        let dotSizeLimit = max(CGFloat(5), min(CGFloat(10), drawingFrame.height * 0.10))
+
+        return crop.strokes.contains { stroke in
+            let compact = stroke.isDotLike(in: crop.bounds)
+                && stroke.bounds.width <= max(maxDotWidth, dotSizeLimit)
+                && stroke.bounds.height <= max(maxDotHeight, dotSizeLimit)
+                && stroke.pathLength <= max(CGFloat(30), crop.bounds.height * 1.6)
+            let ownedByDottedAttack = stroke.center.x >= minimumX
+                && stroke.center.x <= maximumX
+            let inDotBand = stroke.center.y >= dotBandTop
+                && stroke.center.y <= dotBandBottom
+            let separatedFromOtherHead = dottedAttackIndex == 0
+                ? stroke.bounds.maxX <= secondAttackX - max(CGFloat(1), crop.bounds.width * 0.01)
+                : stroke.bounds.minX >= secondAttackX + max(CGFloat(0.5), crop.bounds.width * 0.005)
+
+            return compact
+                && ownedByDottedAttack
+                && inDotBand
+                && separatedFromOtherHead
+        }
+    }
+
+    private static func rasterTemplateHasSixteenthSecondaryBeam(
+        for crop: RhythmSymbolCrop,
+        anchors: [CGFloat],
+        sixteenthAttackIndex: Int,
+        stems: [StrokeObservation],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard anchors.count == 2,
+              anchors.indices.contains(sixteenthAttackIndex) else {
+            return false
+        }
+
+        let pairLevels = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+            for: crop,
+            anchorXs: anchors,
+            stems: stems,
+            drawingFrame: drawingFrame
+        )
+        if pairLevels.count >= 2 {
+            return true
+        }
+
+        let sixteenthAttackX = anchors[sixteenthAttackIndex]
+        let otherAttackX = anchors[1 - sixteenthAttackIndex]
+        let primaryBeamY = crop.strokes
+            .filter { stroke in
+                stroke.isSharedBeam(across: stems)
+                    || stroke.isSharedBeam(overNoteheadXs: anchors, in: crop.bounds)
+                    || stroke.isConnectedBeamFrame(overNoteheadXs: anchors, in: crop.bounds)
+                    || stroke.looksLikeSlopedVisualBeamSeed(
+                        over: stems,
+                        in: crop.bounds,
+                        drawingFrame: drawingFrame
+                    )
+            }
+            .map(\.bounds.midY)
+            .min()
+        let minimumVerticalSeparation = max(CGFloat(2.5), crop.bounds.height * 0.055)
+
+        return crop.strokes.contains { stroke in
+            let tolerance = stroke.beamedCoverageTolerance(in: crop.bounds)
+            let reachesSixteenthAttack = stroke.bounds.minX <= sixteenthAttackX + tolerance
+                && stroke.bounds.maxX >= sixteenthAttackX - tolerance
+            let avoidsOtherAttack = stroke.bounds.minX > otherAttackX + tolerance * 0.10
+                || stroke.bounds.maxX < otherAttackX - tolerance * 0.10
+            let sitsInBeamBand = stroke.bounds.midY <= crop.bounds.minY + crop.bounds.height * 0.70
+            let isBelowPrimaryBeam = primaryBeamY.map {
+                stroke.bounds.midY >= $0 + minimumVerticalSeparation
+            } ?? true
+            let wideEnough = stroke.bounds.width >= max(CGFloat(6), crop.bounds.width * 0.12)
+            let compactEnough = stroke.bounds.height <= max(CGFloat(13), crop.bounds.height * 0.36)
+            let beamLike = stroke.looksLikeVisualBeamSeed(in: crop.bounds)
+                || stroke.looksLikeSlopedVisualBeamSeed(
+                    over: stems,
+                    in: crop.bounds,
+                    drawingFrame: drawingFrame
+                )
+                || (stroke.isMostlyHorizontal && stroke.pathLength <= hypot(stroke.bounds.width, stroke.bounds.height) * 1.7)
+
+            return reachesSixteenthAttack
+                && avoidsOtherAttack
+                && sitsInBeamBand
+                && isBelowPrimaryBeam
+                && wideEnough
+                && compactEnough
+                && beamLike
+        }
     }
 
     private static func rasterTemplateBeamedMixedSixteenthRunEvidence(
@@ -2269,7 +2509,7 @@ extension RhythmicNotationQuantizer {
         }
         if features.hasNoNoteheadRestShape {
             switch value {
-            case .quarter, .dottedQuarter, .sixteenth, .eighth, .half, .dottedHalf, .whole:
+            case .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .half, .dottedHalf, .whole:
                 return true
             case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
                 break
@@ -2340,9 +2580,33 @@ extension RhythmicNotationQuantizer {
             return features.hasStem
                 && hasFilledNoteheadEvidence
                 && hasShortValueMarker
+        case .dottedEighth:
+            guard !features.hasNoNoteheadRestShape else {
+                return false
+            }
+            if templateName == "beamed-dotted-eighth-cell" {
+                return cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateBeamedDottedEighthCellEvidence(
+                        for: crop,
+                        drawingFrame: features.drawingFrame
+                    ) != nil
+            }
+            let hasShortValueMarker = features.hasFlag
+                || cropHasUpperFlagMass(crop, features: features)
+            return cropHasDetachedDotEvidence(features)
+                && features.hasStem
+                && hasFilledNoteheadEvidence
+                && hasShortValueMarker
         case .sixteenth:
             guard !features.hasNoNoteheadRestShape else {
                 return false
+            }
+            if templateName == "beamed-dotted-eighth-cell" {
+                return cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateBeamedDottedEighthCellEvidence(
+                        for: crop,
+                        drawingFrame: features.drawingFrame
+                    ) != nil
             }
             if templateName == "beamed-sixteenth-pair" {
                 return features.hasStem
@@ -2485,6 +2749,15 @@ extension RhythmicNotationQuantizer {
         valueCount: Int,
         drawingFrame: CGRect
     ) -> [CGFloat] {
+        if valueCount == 2 {
+            let dottedEighthCellAnchors = rasterTemplateBeamedDottedEighthCellAnchorXs(
+                for: crop,
+                drawingFrame: drawingFrame
+            )
+            if dottedEighthCellAnchors.count == valueCount {
+                return dottedEighthCellAnchors
+            }
+        }
         if valueCount == 3 {
             let mixedBeamAnchors = rasterTemplateBeamedMixedSixteenthRunAnchorXs(
                 for: crop,
@@ -2598,7 +2871,7 @@ extension RhythmicNotationQuantizer {
         switch value {
         case .slash:
             return rasterCellsMatchForwardSlash(crop.rasterCells) ? 0 : 0.12
-        case .quarter, .dottedQuarter, .sixteenth, .eighth:
+        case .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth:
             return rasterCellsMatchStemmedNote(crop.rasterCells) ? 0 : 0.08
         case .half, .dottedHalf:
             return cropHasLowerHeadMass(crop) ? 0 : 0.08
@@ -2881,6 +3154,7 @@ enum RhythmVisualCompendium {
         .whole,
         .sixteenth,
         .eighth,
+        .dottedEighth,
         .dottedQuarter,
         .dottedHalf,
         .sixteenthRest,

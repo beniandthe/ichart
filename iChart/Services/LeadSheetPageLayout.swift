@@ -2426,14 +2426,14 @@ enum LeadSheetPageLayoutEngine {
             return .whole
         case .half, .dottedHalf, .halfRest:
             return .half
-        case .slash, .quarter, .dottedQuarter, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .tiedContinuation:
+        case .slash, .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .tiedContinuation:
             return .filled
         }
     }
 
     private static func dottedDuration(_ duration: RhythmValue) -> Bool {
         switch duration {
-        case .dottedQuarter, .dottedHalf:
+        case .dottedEighth, .dottedQuarter, .dottedHalf:
             return true
         case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
             return false
@@ -2444,7 +2444,7 @@ enum LeadSheetPageLayoutEngine {
         switch duration {
         case .sixteenth:
             return .double
-        case .eighth:
+        case .dottedEighth, .eighth:
             return .single
         case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
              .dottedHalf, .whole, .wholeRest, .tiedContinuation:
@@ -2579,7 +2579,7 @@ extension LeadSheetPageLayout {
 
 private extension RhythmValue {
     var isSlashBeamableValue: Bool {
-        self == .eighth || self == .sixteenth
+        self == .eighth || self == .dottedEighth || self == .sixteenth
     }
 }
 

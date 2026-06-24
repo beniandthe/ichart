@@ -37,8 +37,16 @@ struct BeatPosition: Codable, Hashable {
     var displayText: String {
         guard subdivision > 0 else { return "\(beat)" }
 
-        let markers = ["", "&", "a", "e", "+"]
-        let safeMarker = subdivision < markers.count ? markers[subdivision] : ".\(subdivision)"
+        let marker: String
+        if subdivisionsPerBeat == 2 {
+            marker = subdivision == 1 ? "&" : ".\(subdivision)"
+        } else if subdivisionsPerBeat == 4 {
+            let markers = ["", "e", "&", "a"]
+            marker = subdivision < markers.count ? markers[subdivision] : ".\(subdivision)"
+        } else {
+            marker = ".\(subdivision)"
+        }
+        let safeMarker = marker
         return "\(beat)\(safeMarker)"
     }
 
@@ -78,6 +86,16 @@ extension BeatPosition {
             return
         }
 
+        if abs(remainder - 0.25) < 0.0001 {
+            self.init(beat: wholeBeats + 1, subdivision: 1, subdivisionsPerBeat: 4)
+            return
+        }
+
+        if abs(remainder - 0.75) < 0.0001 {
+            self.init(beat: wholeBeats + 1, subdivision: 3, subdivisionsPerBeat: 4)
+            return
+        }
+
         return nil
     }
 }
@@ -88,6 +106,7 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
     case sixteenthRest
     case eighth
     case eighthRest
+    case dottedEighth
     case quarter
     case quarterRest
     case dottedQuarter
@@ -110,6 +129,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return "eighth"
         case .eighthRest:
             return "eighth rest"
+        case .dottedEighth:
+            return "dotted eighth"
         case .quarter:
             return "quarter"
         case .quarterRest:
@@ -143,6 +164,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return 0.125
         case .eighthRest:
             return 0.125
+        case .dottedEighth:
+            return 0.1875
         case .quarter:
             return 0.25
         case .quarterRest:
@@ -168,8 +191,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .slash:
             return meter.beatUnitWholeNoteLength
-        case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+        case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .dottedEighth, .quarter, .quarterRest, .dottedQuarter,
+             .half, .halfRest, .dottedHalf, .whole, .wholeRest, .tiedContinuation:
             return wholeNoteLength
         }
     }
@@ -178,7 +201,7 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest:
             return true
-        case .slash, .sixteenth, .eighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
             return false
         }
     }
