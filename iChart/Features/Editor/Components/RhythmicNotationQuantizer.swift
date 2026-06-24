@@ -3466,6 +3466,87 @@ extension SymbolObservation {
         return anchorCount == beamedCount
     }
 
+    func isSelfContainedMixedBeamedSixteenthRun(drawingFrame: CGRect) -> Bool {
+        guard hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame) else {
+            return false
+        }
+
+        let anchors = beamedNoteheadXs(drawingFrame: drawingFrame).sorted()
+        guard anchors.count >= 3 else {
+            return false
+        }
+
+        let activeAnchors = Array(anchors.suffix(3))
+        return hasLeadingSecondaryBeam(over: activeAnchors, drawingFrame: drawingFrame)
+            || hasTrailingSecondaryBeam(over: activeAnchors, drawingFrame: drawingFrame)
+    }
+
+    private func hasLeadingSecondaryBeam(
+        over anchors: [CGFloat],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard anchors.count == 3 else {
+            return false
+        }
+
+        let stems = strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        let leadingAnchors = Array(anchors[0...1])
+        return strokes.contains { stroke in
+            let beamLike = stroke.isSharedBeam(overNoteheadXs: leadingAnchors, in: bounds)
+                || stroke.looksLikeSlopedVisualBeamSeed(
+                    over: stems,
+                    in: bounds,
+                    drawingFrame: drawingFrame
+                )
+            guard beamLike,
+                  stroke.bounds.height <= max(CGFloat(10), bounds.height * 0.32),
+                  stroke.bounds.midY <= bounds.minY + bounds.height * 0.62 else {
+                return false
+            }
+
+            let tolerance = stroke.beamedCoverageTolerance(in: bounds)
+            let coversLeadingPair = leadingAnchors.allSatisfy { anchorX in
+                stroke.bounds.minX <= anchorX + tolerance
+                    && stroke.bounds.maxX >= anchorX - tolerance
+            }
+            let endsBeforeTrailingAttack = stroke.bounds.maxX < anchors[2] - tolerance * 0.35
+            return coversLeadingPair && endsBeforeTrailingAttack
+        }
+    }
+
+    private func hasTrailingSecondaryBeam(
+        over anchors: [CGFloat],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard anchors.count == 3 else {
+            return false
+        }
+
+        let stems = strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        let trailingAnchors = Array(anchors[1...2])
+        return strokes.contains { stroke in
+            let beamLike = stroke.isSharedBeam(overNoteheadXs: trailingAnchors, in: bounds)
+                || stroke.looksLikeSlopedVisualBeamSeed(
+                    over: stems,
+                    in: bounds,
+                    drawingFrame: drawingFrame
+                )
+            guard beamLike,
+                  stroke.bounds.height <= max(CGFloat(10), bounds.height * 0.32),
+                  stroke.bounds.midY <= bounds.minY + bounds.height * 0.62 else {
+                return false
+            }
+
+            let tolerance = stroke.beamedCoverageTolerance(in: bounds)
+            let coversTrailingPair = trailingAnchors.allSatisfy { anchorX in
+                stroke.bounds.minX <= anchorX + tolerance
+                    && stroke.bounds.maxX >= anchorX - tolerance
+            }
+            let startsAfterLeadingAttack = stroke.bounds.minX > anchors[0] + tolerance * 0.35
+            return coversTrailingPair && startsAfterLeadingAttack
+        }
+    }
+
     func hasExplicitBeamedEighthConnector(drawingFrame: CGRect) -> Bool {
         let stems = strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
         let noteheadXs = beamedNoteheadXs(drawingFrame: drawingFrame)
@@ -3633,7 +3714,9 @@ extension Array where Element == [StrokeObservation] {
                 return splitGroups
             }
 
-            if SymbolObservation(strokes: group).isSelfContainedBeamedEighthRun(drawingFrame: drawingFrame) {
+            let symbol = SymbolObservation(strokes: group)
+            if symbol.isSelfContainedBeamedEighthRun(drawingFrame: drawingFrame)
+                || symbol.isSelfContainedMixedBeamedSixteenthRun(drawingFrame: drawingFrame) {
                 return [group]
             }
 

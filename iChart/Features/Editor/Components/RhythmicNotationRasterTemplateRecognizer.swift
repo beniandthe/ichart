@@ -636,6 +636,12 @@ extension RhythmicNotationQuantizer {
             ) {
                 add(beamedSixteenthRun, score: 0.0, template: "beamed-sixteenth-run")
                 add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.65, template: "beamed-eighth-run")
+            } else if let beamedMixedSixteenthRun = rasterTemplateBeamedMixedSixteenthRunValues(
+                for: crop,
+                input: input
+            ) {
+                add(beamedMixedSixteenthRun, score: 0.0, template: "beamed-sixteenth-mixed-run")
+                add(Array(repeating: .eighth, count: min(beamedCount, 4)), score: 0.6, template: "beamed-eighth-run")
             } else if let beamedSixteenthPair = rasterTemplateBeamedSixteenthPairValues(
                 for: crop,
                 beamedCount: beamedCount,
@@ -1245,6 +1251,14 @@ extension RhythmicNotationQuantizer {
                 return nil
             }
         }
+        if values == [.eighth, .sixteenth, .sixteenth]
+            || values == [.sixteenth, .sixteenth, .eighth] {
+            let beatUnits = rhythmUnits(forWholeNotes: meter.beatUnitWholeNoteLength)
+            guard beatUnits == 4,
+                  startUnits.isMultiple(of: beatUnits) else {
+                return nil
+            }
+        }
 
         let observedPositions: [CGFloat]
         if values.count > 1 {
@@ -1725,6 +1739,21 @@ extension RhythmicNotationQuantizer {
         return Array(repeating: .sixteenth, count: 4)
     }
 
+    private static func rasterTemplateBeamedMixedSixteenthRunValues(
+        for crop: RhythmSymbolCrop,
+        input: RhythmInkRasterInput
+    ) -> [RhythmValue]? {
+        guard rasterTemplateHasBeamedEighthEvidence(for: crop, input: input),
+              let evidence = rasterTemplateBeamedMixedSixteenthRunEvidence(
+                for: crop,
+                drawingFrame: input.drawingFrame
+              ) else {
+            return nil
+        }
+
+        return evidence.values
+    }
+
     private static func rasterTemplateBeamedEighthCount(
         for crop: RhythmSymbolCrop,
         input: RhythmInkRasterInput
@@ -1860,6 +1889,20 @@ extension RhythmicNotationQuantizer {
             && secondPairLevels.count >= 2
     }
 
+    private static func rasterTemplateHasBeamedMixedSixteenthRunEvidence(
+        for crop: RhythmSymbolCrop,
+        input: RhythmInkRasterInput
+    ) -> Bool {
+        guard rasterTemplateHasBeamedEighthEvidence(for: crop, input: input) else {
+            return false
+        }
+
+        return rasterTemplateBeamedMixedSixteenthRunEvidence(
+            for: crop,
+            drawingFrame: input.drawingFrame
+        ) != nil
+    }
+
     private static func rasterTemplateBeamedSixteenthRunAnchorXs(
         for crop: RhythmSymbolCrop,
         drawingFrame: CGRect
@@ -1887,6 +1930,81 @@ extension RhythmicNotationQuantizer {
             return []
         }
         return Array(anchors.prefix(4))
+    }
+
+    private static func rasterTemplateBeamedMixedSixteenthRunAnchorXs(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> [CGFloat] {
+        rasterTemplateBeamedMixedSixteenthRunEvidence(
+            for: crop,
+            drawingFrame: drawingFrame
+        )?.anchors ?? []
+    }
+
+    private static func rasterTemplateBeamedMixedSixteenthRunEvidence(
+        for crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> (values: [RhythmValue], anchors: [CGFloat])? {
+        let minimumSeparation = max(CGFloat(7), drawingFrame.width * 0.03)
+        let lowerNoteheadXs = crop.strokes
+            .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
+            .filter { $0.bounds.midY >= crop.bounds.minY + crop.bounds.height * 0.55 }
+            .map(\.bounds.midX)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        let stemXs = crop.strokes
+            .stemAnchorStrokes(drawingFrame: drawingFrame)
+            .map(\.bounds.midX)
+        let inferredStemXs = crop.strokes
+            .flatMap { $0.connectedBeamStemXs(in: crop.bounds) }
+        let allAnchors = (lowerNoteheadXs + stemXs + inferredStemXs)
+            .clusteredXs(minimumSeparation: minimumSeparation)
+            .sorted()
+        var candidates: [[CGFloat]] = []
+
+        func appendWindows(from anchors: [CGFloat]) {
+            guard anchors.count >= 3 else {
+                return
+            }
+
+            for index in 0...(anchors.count - 3) {
+                let window = Array(anchors[index..<(index + 3)])
+                if !candidates.contains(window) {
+                    candidates.append(window)
+                }
+            }
+        }
+
+        appendWindows(from: lowerNoteheadXs)
+        appendWindows(from: allAnchors)
+
+        let stems = crop.strokes.stemAnchorStrokes(drawingFrame: drawingFrame)
+        for anchors in candidates {
+            let leadingPairLevels = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+                for: crop,
+                anchorXs: Array(anchors[0...1]),
+                stems: stems,
+                drawingFrame: drawingFrame
+            )
+            let trailingPairLevels = rasterTemplateBeamedSixteenthPairBeamLevelYs(
+                for: crop,
+                anchorXs: Array(anchors[1...2]),
+                stems: stems,
+                drawingFrame: drawingFrame
+            )
+
+            if leadingPairLevels.count >= 2,
+               trailingPairLevels.count < 2 {
+                return ([.sixteenth, .sixteenth, .eighth], anchors)
+            }
+            if trailingPairLevels.count >= 2,
+               leadingPairLevels.count < 2 {
+                return ([.eighth, .sixteenth, .sixteenth], anchors)
+            }
+        }
+
+        return nil
     }
 
     private static func rasterTemplateEndpointAnchorPair(from xs: [CGFloat]) -> [CGFloat]? {
@@ -2241,6 +2359,16 @@ extension RhythmicNotationQuantizer {
                         drawingFrame: features.drawingFrame
                     )
             }
+            if templateName == "beamed-sixteenth-mixed-run" {
+                return cropHasNoteGlyphEvidence(crop, features: features)
+                    && rasterTemplateHasBeamedMixedSixteenthRunEvidence(
+                        for: crop,
+                        input: rasterTemplateInput(
+                            strokeObservations: crop.strokes,
+                            drawingFrame: features.drawingFrame
+                        )
+                    )
+            }
             if templateName == "double-flagged-stem" {
                 return features.hasStem
                     && cropHasNoteGlyphEvidence(crop, features: features)
@@ -2357,6 +2485,16 @@ extension RhythmicNotationQuantizer {
         valueCount: Int,
         drawingFrame: CGRect
     ) -> [CGFloat] {
+        if valueCount == 3 {
+            let mixedBeamAnchors = rasterTemplateBeamedMixedSixteenthRunAnchorXs(
+                for: crop,
+                drawingFrame: drawingFrame
+            )
+            if mixedBeamAnchors.count == valueCount {
+                return mixedBeamAnchors
+            }
+        }
+
         let noteheadXs = crop.strokes
             .filter { $0.looksLikeVisualNotehead(in: crop.bounds) }
             .map(\.bounds.midX)
