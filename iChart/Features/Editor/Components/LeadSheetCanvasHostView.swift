@@ -357,7 +357,7 @@ enum LeadSheetInkCanvasSyncPolicy {
 
 enum LeadSheetRhythmicNotationAutoApplyPolicy {
     static let idleDelay: TimeInterval = 0.58
-    static let tapToRenderAdvisoryDelay: TimeInterval = 0.38
+    static let tapToRenderAdvisoryDelay: TimeInterval = 0.72
     static let exactFitGraceDelay: TimeInterval = 0.70
     static let ambiguousTerminalStemGraceDelay: TimeInterval = 0.85
 

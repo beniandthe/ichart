@@ -2013,11 +2013,17 @@ enum LeadSheetPageLayoutEngine {
                     slots: slots,
                     meter: meter
                 )
-                let flagStyle: LeadSheetNoteLayout.FlagStyle = slot.duration.isSlashBeamableValue
-                    && beamEndPoint == nil
-                    && !isBeamedFromPrevious
-                    ? flagStyle(for: slot.duration)
-                    : .none
+                let resolvedFlagStyle: LeadSheetNoteLayout.FlagStyle
+                if slot.duration == .sixteenth,
+                   beamEndPoint != nil {
+                    resolvedFlagStyle = .double
+                } else if slot.duration.isSlashBeamableValue,
+                          beamEndPoint == nil,
+                          !isBeamedFromPrevious {
+                    resolvedFlagStyle = flagStyle(for: slot.duration)
+                } else {
+                    resolvedFlagStyle = .none
+                }
                 let dotFrame = dottedDuration(slot.duration)
                     ? CGRect(x: noteheadFrame.maxX + 3, y: noteheadFrame.midY - 1.5, width: 3, height: 3)
                     : nil
@@ -2032,7 +2038,7 @@ enum LeadSheetPageLayoutEngine {
                     stemStart: stemStart,
                     stemEnd: stemEnd,
                     stemGoesUp: false,
-                    flagStyle: flagStyle,
+                    flagStyle: resolvedFlagStyle,
                     dotFrame: dotFrame,
                     tieFrame: nil,
                     beamEndPoint: beamEndPoint

@@ -981,6 +981,13 @@ extension RhythmicNotationQuantizer {
         guard crops.count >= 2 else {
             return nil
         }
+        guard rasterTemplateShouldUseGridFirstRepair(
+            crops: crops,
+            matchesByCrop: matchesByCrop,
+            input: input
+        ) else {
+            return nil
+        }
 
         let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
         guard targetUnits > 0 else {
@@ -1142,6 +1149,34 @@ extension RhythmicNotationQuantizer {
             maxAlignmentDiff: exactState.maxAlignmentDiff,
             requiresManualReview: averageScore > 0.72 || exactState.maxAlignmentDiff > max(CGFloat(30), drawingFrame.width * 0.095)
         )
+    }
+
+    private static func rasterTemplateShouldUseGridFirstRepair(
+        crops: [RhythmSymbolCrop],
+        matchesByCrop: [[RhythmTemplateMatch]],
+        input: RhythmInkRasterInput
+    ) -> Bool {
+        zip(crops, matchesByCrop).contains { crop, matches in
+            matches.contains { match in
+                let valuesNeedGridRepair = match.values.contains { value in
+                    value == .sixteenth
+                        || value == .sixteenthRest
+                        || value == .dottedEighth
+                }
+                guard valuesNeedGridRepair
+                        || match.templateName.contains("sixteenth")
+                        || match.templateName.contains("dotted-eighth") else {
+                    return false
+                }
+
+                let symbol = SymbolObservation(strokes: crop.strokes)
+                return symbol.hasExplicitBeamedEighthConnector(drawingFrame: input.drawingFrame)
+                    || symbol.sixteenthRestComparisonScore(in: input.sceneBounds) != nil
+                    || crop.strokes.contains { stroke in
+                        stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: input.sceneBounds)
+                    }
+            }
+        }
     }
 
     private static func rasterTemplateCombinedCrop(

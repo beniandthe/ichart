@@ -154,7 +154,11 @@ enum RhythmicNotationQuantizer {
             legacyDecision.reasoningPath(kind: .legacyFallback)
         ].compactMap { $0 }
 
-        let selectedDecision = rasterTemplateDecision ?? visualDecision ?? legacyDecision
+        let selectedDecision = preferredRecognitionDecision(
+            rasterTemplateDecision: rasterTemplateDecision,
+            visualDecision: visualDecision,
+            legacyDecision: legacyDecision
+        )
         let contextCheckedDecision = decisionByApplyingContextRules(
             selectedDecision,
             meter: meter
@@ -174,6 +178,39 @@ enum RhythmicNotationQuantizer {
             meter: meter
         )
         return evidenceCheckedDecision.addingReasoningPaths(reasoningPaths + [contextPath])
+    }
+
+    private static func preferredRecognitionDecision(
+        rasterTemplateDecision: RhythmRecognitionDecision?,
+        visualDecision: RhythmRecognitionDecision?,
+        legacyDecision: RhythmRecognitionDecision
+    ) -> RhythmRecognitionDecision {
+        guard let rasterTemplateDecision else {
+            return visualDecision ?? legacyDecision
+        }
+
+        guard let visualDecision,
+              case .commit(let visualProposal, let visualPhrase) = visualDecision,
+              visualPhrase.isNaturalExactFit,
+              visualProposal.safety != .manualReview else {
+            return rasterTemplateDecision
+        }
+
+        switch rasterTemplateDecision {
+        case .keepWriting:
+            return visualDecision
+        case .needsReview(let reason, let rasterPhrase, let rasterProposal):
+            let rasterValues = rasterProposal?.values ?? rasterPhrase?.naturalValues ?? []
+            let visualValues = visualProposal.values
+            let sameValues = rasterValues == visualValues
+            let rasterIsNaturalExactFit = rasterPhrase?.isNaturalExactFit == true
+            if sameValues || !rasterIsNaturalExactFit || reason == .nonNaturalExactFit {
+                return visualDecision
+            }
+            return rasterTemplateDecision
+        case .commit:
+            return rasterTemplateDecision
+        }
     }
 
     private static func decisionByApplyingCrossPathReviewRules(
@@ -882,6 +919,18 @@ enum RhythmicNotationQuantizer {
             drawingFrame: drawingFrame
         ),
            visualRecognition.uncoveredStrokes.isEmpty {
+            let visualNaturalPath = bestNaturalPath(from: visualRecognition.candidateGroups, meter: meter)
+            if visualRecognition.containsBeamedEighthEvent,
+               visualNaturalPath.units == rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
+               RhythmicNotationCompendium.accepts(visualNaturalPath.values, in: meter) {
+                return measureProposal(
+                    from: visualRecognition.candidateGroups,
+                    exactPath: visualNaturalPath,
+                    meter: meter,
+                    includeExtendedStability: includeExtendedStability
+                )
+            }
+
             if let visualPath = bestMeasureAlignedPath(from: visualRecognition.candidateGroups, meter: meter) {
                 return measureProposal(
                     from: visualRecognition.candidateGroups,
@@ -1086,8 +1135,12 @@ enum RhythmicNotationQuantizer {
 
             let combinedStrokes = currentGroup + [stroke]
             let combinedBounds = currentBounds.union(stroke.bounds)
-            let beamConnectsGlyphs = SymbolObservation(strokes: combinedStrokes)
-                .hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame)
+            let currentBeamCount = SymbolObservation(strokes: currentGroup)
+                .beamedEighthNoteCount(drawingFrame: drawingFrame)
+            let combinedBeamCount = SymbolObservation(strokes: combinedStrokes)
+                .beamedEighthNoteCount(drawingFrame: drawingFrame)
+            let beamConnectsGlyphs = combinedBeamCount >= 2
+                && combinedBeamCount > currentBeamCount
             let attachesWithinGlyph = horizontalGap <= glyphAttachThreshold
                 || currentGroup.canAttachStrokeWithinSingleGlyph(stroke, drawingFrame: drawingFrame)
 
@@ -2391,12 +2444,21 @@ private struct VisualRhythmRecognizer {
         let noteheads = noteheadClusters(from: availableStrokes, sceneBounds: sceneBounds)
         let stems = availableStrokes.filter { $0.looksLikeVisualStem(in: sceneBounds) }
         let beamSeeds = availableStrokes.filter { stroke in
-            if let restCandidates = RhythmicNotationQuantizer.visualRestCandidates(
-                for: SymbolObservation(strokes: [stroke]),
-                drawingFrame: drawingFrame
-            ),
-               restCandidates.first?.value == .quarterRest {
-                return false
+            let connectedStemXs = stroke.connectedBeamStemXs(in: stroke.bounds)
+            let frameNoteheadCount = noteheads.filter { head in
+                connectedStemXs.contains { stemX in
+                    abs(stemX - head.bounds.midX) <= max(CGFloat(12), drawingFrame.width * 0.04)
+                }
+            }.count
+            let connectedFrameHasNoteheads = connectedStemXs.count >= 2 && frameNoteheadCount >= 2
+            if !connectedFrameHasNoteheads {
+                if let restCandidates = RhythmicNotationQuantizer.visualRestCandidates(
+                    for: SymbolObservation(strokes: [stroke]),
+                    drawingFrame: drawingFrame
+                ),
+                   restCandidates.first?.value == .quarterRest {
+                    return false
+                }
             }
 
             return stroke.looksLikeVisualBeamSeed(in: sceneBounds)
@@ -2410,7 +2472,7 @@ private struct VisualRhythmRecognizer {
                     in: sceneBounds,
                     drawingFrame: drawingFrame
                 )
-                || stroke.connectedBeamStemXs(in: stroke.bounds).count >= 2
+                || connectedFrameHasNoteheads
         }
 
         var events: [VisualRhythmEvent] = []
@@ -3148,6 +3210,16 @@ extension SymbolObservation {
             return nil
         }
 
+        let features = SymbolFeatures(symbol: self, drawingFrame: sceneBounds)
+        guard !features.hasStem,
+              !features.hasClearNoteGlyph,
+              !features.hasFilledHead,
+              !features.hasHollowHead,
+              !features.hasLowerHeadMass,
+              !containsNoteheadSizedMass(in: sceneBounds) else {
+            return nil
+        }
+
         let sceneHeight = max(CGFloat(1), sceneBounds.height)
         let symbolHeight = max(CGFloat(1), bounds.height)
         let symbolWidth = max(CGFloat(1), bounds.width)
@@ -3443,6 +3515,10 @@ extension SymbolObservation {
             if beamedNoteheadXs.count >= 2 {
                 return min(beamedNoteheadXs.count, 4)
             }
+
+            if hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame) {
+                return min(noteheadXs.count, 4)
+            }
         }
 
         let beamedStemXs = stemXs.filter { stemX in
@@ -3451,6 +3527,10 @@ extension SymbolObservation {
             }
         }
         guard beamedStemXs.count >= 2 else {
+            if stemXs.count >= 2,
+               hasExplicitBeamedEighthConnector(drawingFrame: drawingFrame) {
+                return min(stemXs.count, 4)
+            }
             return 0
         }
 
