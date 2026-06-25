@@ -895,7 +895,8 @@ enum RhythmicNotationQuantizer {
         meter: Meter
     ) -> RhythmicNotationQuantizationError {
         let expectedBeats = meter.measureLengthInWholeNotes / meter.beatUnitWholeNoteLength
-        let actualBeats = (Double(phrase?.naturalUnits ?? 0) / 8.0) / meter.beatUnitWholeNoteLength
+        let actualWholeNotes = Double(phrase?.naturalUnits ?? 0) / Double(rhythmUnits(forWholeNotes: 1))
+        let actualBeats = actualWholeNotes / meter.beatUnitWholeNoteLength
 
         switch reason {
         case .underfilled, .noInk:

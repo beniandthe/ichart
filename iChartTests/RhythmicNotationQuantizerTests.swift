@@ -106,6 +106,24 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         }
     }
 
+    func testQuantizerReportsUnderfilledBeatCountFromSixteenthUnitGrid() throws {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 180, height: 88)
+        let drawing = PKDrawing(strokes: [
+            quarterNote(x: 36)
+        ].flatMap { $0 })
+
+        do {
+            _ = try RhythmicNotationQuantizer.quantize(
+                drawing: drawing,
+                meter: Meter(numerator: 4, denominator: 4),
+                drawingFrame: drawingFrame
+            )
+            XCTFail("Expected a single quarter note in 4/4 to remain underfilled")
+        } catch let error as RhythmicNotationQuantizationError {
+            XCTAssertEqual(error, .underfilled(expectedBeats: 4, actualBeats: 1))
+        }
+    }
+
     func testQuantizerReadsFoldedRightStemBeamedEighthPairs() throws {
         let drawingFrame = CGRect(x: 0, y: 0, width: 260, height: 88)
         let drawing = PKDrawing(strokes: [

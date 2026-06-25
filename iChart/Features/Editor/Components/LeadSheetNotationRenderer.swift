@@ -1073,6 +1073,12 @@ struct LeadSheetNotationRenderer {
                     staffSpace: noteLayout.staffSpace
                 )
             }
+        } else if noteLayout.flagStyle == .secondaryBackward {
+            drawSecondaryBeamBackward(
+                from: stemEnd,
+                stemGoesUp: noteLayout.stemGoesUp,
+                staffSpace: noteLayout.staffSpace
+            )
         } else if noteLayout.flagStyle != .none {
             drawFlag(
                 from: stemEnd,
@@ -1095,6 +1101,18 @@ struct LeadSheetNotationRenderer {
         beamPath.fill()
     }
 
+    private func drawSecondaryBeamBackward(from stemEnd: CGPoint, stemGoesUp: Bool, staffSpace: CGFloat) {
+        let beamThickness = style.beamThickness(staffSpace: staffSpace)
+        let secondaryOffset = beamThickness * (stemGoesUp ? -1.75 : 1.75)
+        let beamLength = staffSpace * 1.25
+        let secondaryBeamY = stemEnd.y + secondaryOffset
+        drawBeam(
+            from: CGPoint(x: stemEnd.x - beamLength, y: secondaryBeamY),
+            to: CGPoint(x: stemEnd.x, y: secondaryBeamY),
+            staffSpace: staffSpace
+        )
+    }
+
     private func drawFlag(
         from stemEnd: CGPoint,
         stemGoesUp: Bool,
@@ -1105,7 +1123,7 @@ struct LeadSheetNotationRenderer {
         switch flagStyle {
         case .double:
             flag = stemGoesUp ? .flag16thUp : .flag16thDown
-        case .single, .none:
+        case .single, .secondaryBackward, .none:
             flag = stemGoesUp ? .flag8thUp : .flag8thDown
         }
         let stemAnchorName = stemGoesUp ? "stemUpNW" : "stemDownSW"

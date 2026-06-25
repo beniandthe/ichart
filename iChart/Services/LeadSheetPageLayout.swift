@@ -133,6 +133,7 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
         case none
         case single
         case double
+        case secondaryBackward
     }
 
     var id: UUID
@@ -2017,6 +2018,9 @@ enum LeadSheetPageLayoutEngine {
                 if slot.duration == .sixteenth,
                    beamEndPoint != nil {
                     resolvedFlagStyle = .double
+                } else if slot.duration == .sixteenth,
+                          isBeamedFromPrevious {
+                    resolvedFlagStyle = .secondaryBackward
                 } else if slot.duration.isSlashBeamableValue,
                           beamEndPoint == nil,
                           !isBeamedFromPrevious {
