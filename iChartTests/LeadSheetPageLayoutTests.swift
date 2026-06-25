@@ -1854,6 +1854,31 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.noteLayouts[4].symbolStyle, .quarterRest)
     }
 
+    func testLeadSheetLayoutMarksTrailingBeamedSixteenthWithSecondaryBeamCue() throws {
+        var chart = makeBlankLeadSheet()
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap(
+            [.eighth, .sixteenth, .sixteenth, .dottedHalf],
+            for: firstMeasureID
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let noteLayouts = firstMeasure.noteLayouts
+
+        XCTAssertEqual(noteLayouts.map(\.symbolStyle), [.slash, .slash, .slash, .slash])
+        XCTAssertNotNil(noteLayouts[0].beamEndPoint)
+        XCTAssertEqual(noteLayouts[0].flagStyle, .none)
+        XCTAssertNotNil(noteLayouts[1].beamEndPoint)
+        XCTAssertEqual(noteLayouts[1].flagStyle, .double)
+        XCTAssertNil(noteLayouts[2].beamEndPoint)
+        XCTAssertEqual(noteLayouts[2].flagStyle, .secondaryBackward)
+    }
+
     func testLeadSheetLayoutRendersSlashPlaceholdersAsStemlessBeatSlots() throws {
         var chart = makeBlankLeadSheet()
         let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
