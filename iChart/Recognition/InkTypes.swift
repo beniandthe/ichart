@@ -101,6 +101,95 @@ struct InkCluster: Codable, Hashable {
     }
 }
 
+struct ChordInkBatchCluster: Hashable {
+    var strokeIndices: [Int]
+    var bounds: InkBounds
+
+    var isUsable: Bool {
+        bounds.width >= 4 || bounds.height >= 4
+    }
+}
+
+enum ChordInkBatchClusterer {
+    static let maximumClusterCount = 4
+
+    static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
+        let indexedStrokes = strokes.enumerated()
+            .filter { _, stroke in
+                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.bounds.minX == rhs.element.bounds.minX {
+                    return lhs.offset < rhs.offset
+                }
+
+                return lhs.element.bounds.minX < rhs.element.bounds.minX
+            }
+
+        guard indexedStrokes.count > 1 else {
+            return indexedStrokes.map { indexedStroke in
+                ChordInkBatchCluster(
+                    strokeIndices: [indexedStroke.offset],
+                    bounds: indexedStroke.element.bounds
+                )
+            }
+        }
+
+        let splitGap = horizontalSplitGap(for: indexedStrokes.map(\.element))
+        var clusters = [ChordInkBatchCluster]()
+        var currentIndices = [Int]()
+        var currentBounds: InkBounds?
+
+        for indexedStroke in indexedStrokes {
+            let stroke = indexedStroke.element
+            if let bounds = currentBounds {
+                let gap = stroke.bounds.minX - bounds.maxX
+                if gap > splitGap {
+                    clusters.append(
+                        ChordInkBatchCluster(
+                            strokeIndices: currentIndices,
+                            bounds: bounds
+                        )
+                    )
+                    currentIndices = [indexedStroke.offset]
+                    currentBounds = stroke.bounds
+                } else {
+                    currentIndices.append(indexedStroke.offset)
+                    currentBounds = bounds.union(stroke.bounds)
+                }
+            } else {
+                currentIndices = [indexedStroke.offset]
+                currentBounds = stroke.bounds
+            }
+        }
+
+        if let currentBounds {
+            clusters.append(
+                ChordInkBatchCluster(
+                    strokeIndices: currentIndices,
+                    bounds: currentBounds
+                )
+            )
+        }
+
+        let usableClusters = clusters.filter(\.isUsable)
+        guard usableClusters.count <= maximumClusterCount else {
+            return [ChordInkBatchCluster(strokeIndices: indexedStrokes.map(\.offset), bounds: InkBounds.enclosing(indexedStrokes.map(\.element.bounds)))]
+        }
+
+        return usableClusters
+    }
+
+    private static func horizontalSplitGap(for strokes: [InkStroke]) -> Double {
+        let heights = strokes
+            .map(\.bounds.height)
+            .filter { $0 > 0 }
+            .sorted()
+        let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
+        return max(36, min(70, medianHeight * 0.9))
+    }
+}
+
 enum RecognitionSource: String, Codable, Hashable {
     case template
     case heuristic

@@ -282,6 +282,7 @@ struct EditorView: View {
     @State private var noteEditErrorMessage = ""
     @State private var showingNoteEditError = false
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
+    @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
@@ -433,6 +434,17 @@ struct EditorView: View {
                     _ = candidateText
                     return .unavailable
                     #endif
+                },
+                onClearAndRewrite: {
+                    handleChordInkRewriteRequested()
+                }
+            )
+        }
+        .sheet(item: $pendingChordInkBatchConfirmation) { batch in
+            ChordInkBatchConfirmationSheetView(
+                batch: batch,
+                onAcceptAll: { candidateTextByID in
+                    handleChordInkBatchAccepted(candidateTextByID, batch: batch)
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
@@ -1413,6 +1425,7 @@ struct EditorView: View {
             inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
+            onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
@@ -2600,6 +2613,131 @@ struct EditorView: View {
         handleTapConfirmedChordRecognition(confirmation)
     }
 
+    private func handleChordInkBatchRecognitionProposal(
+        payloads: [ChordInkRecognitionProposalPayload],
+        flow: ChordInkRecognitionFlow
+    ) {
+        #if DEBUG || targetEnvironment(simulator)
+        let proposalReceivedAt = Date()
+        #endif
+        guard canvasMode == .chordEntry,
+              pendingChordInkConfirmation == nil,
+              pendingChordInkBatchConfirmation == nil,
+              pendingChordCorrection == nil,
+              flow.canRenderChord,
+              payloads.count > 1 else {
+            return
+        }
+
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+
+        let confirmations = payloads.compactMap { payload -> PendingChordInkConfirmation? in
+            guard let measure = chart.measure(id: payload.target.measureID) else {
+                return nil
+            }
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: payload.drawingData,
+                correctionMemory: chordInkUserCorrectionMemory
+            )
+            #if DEBUG || targetEnvironment(simulator)
+            let proposalDecisionMilliseconds = Date().timeIntervalSince(proposalReceivedAt) * 1_000
+            #else
+            let proposalDecisionMilliseconds: Double? = nil
+            #endif
+
+            return PendingChordInkConfirmation(
+                measureID: payload.target.measureID,
+                measureIndex: measure.index,
+                result: payload.result,
+                drawingData: payload.drawingData,
+                targetFraction: payload.target.fraction,
+                recognitionTiming: payload.timing,
+                proposalDecisionMilliseconds: proposalDecisionMilliseconds,
+                primaryDecision: resolution.primaryDecision,
+                decision: resolution.decision,
+                candidateTexts: resolution.candidateTexts
+            )
+        }
+
+        guard confirmations.count > 1 else {
+            return
+        }
+
+        let batch = PendingChordInkBatchConfirmation(confirmations: confirmations)
+        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
+            || editorGuidedTourStep == .chordConfirm
+        let autoRenderTextsByID = Dictionary(
+            uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
+                guard confirmation.decision.action == .autoRender,
+                      let acceptedText = confirmation.decision.acceptedText else {
+                    return nil
+                }
+
+                return (confirmation.id, acceptedText)
+            }
+        )
+
+        if !isGuidedChordConfirmation,
+           autoRenderTextsByID.count == confirmations.count,
+           commitChordInkBatchCandidates(
+                autoRenderTextsByID,
+                batch: batch,
+                resolution: .autoRendered
+           ) {
+            return
+        }
+
+        pendingChordInkBatchConfirmation = batch
+    }
+
+    private func handleChordInkBatchAccepted(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation
+    ) {
+        let trimmedCandidateTextByID = candidateTextByID.reduce(into: [UUID: String]()) { result, element in
+            result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let didCommit = commitChordInkBatchCandidates(
+            trimmedCandidateTextByID,
+            batch: batch,
+            resolution: .confirmedSuggestion
+        )
+
+        guard didCommit else {
+            return
+        }
+
+        var didUpdateMemory = false
+        for confirmation in batch.confirmations {
+            guard let acceptedText = trimmedCandidateTextByID[confirmation.id] else {
+                continue
+            }
+
+            if confirmation.visibleCandidateTexts.contains(acceptedText) {
+                didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                    acceptedText: acceptedText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts,
+                    decision: confirmation.decision
+                ) || didUpdateMemory
+            } else {
+                didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
+                    acceptedText: acceptedText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts
+                ) || didUpdateMemory
+            }
+        }
+
+        if didUpdateMemory {
+            persistChordInkUserCorrectionMemory()
+        }
+    }
+
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
@@ -2763,9 +2901,101 @@ struct EditorView: View {
         return true
     }
 
+    @discardableResult
+    private func commitChordInkBatchCandidates(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation,
+        resolution: ChordEntryDiagnosticResolution
+    ) -> Bool {
+        #if DEBUG || targetEnvironment(simulator)
+        let commitStartedAt = Date()
+        #endif
+        let acceptedCandidates = batch.confirmations.compactMap { confirmation -> (PendingChordInkConfirmation, String, ChordRecognitionMatch)? in
+            guard let candidateText = candidateTextByID[confirmation.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !candidateText.isEmpty else {
+                return nil
+            }
+
+            guard let match = ChordRecognitionCompendium.match(candidateText) else {
+                return nil
+            }
+
+            return (confirmation, candidateText, match)
+        }
+
+        guard acceptedCandidates.count == batch.confirmations.count else {
+            chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
+            showingChordInkError = true
+            return false
+        }
+
+        var updatedChart = chart
+        var committedEvents = [(PendingChordInkConfirmation, String, ChordRecognitionMatch, UUID)]()
+        for acceptedCandidate in acceptedCandidates {
+            let confirmation = acceptedCandidate.0
+            let candidateText = acceptedCandidate.1
+            let match = acceptedCandidate.2
+            guard let chordEventID = updatedChart.appendRecognizedChordEvent(
+                match.symbol,
+                rawInput: candidateText,
+                to: confirmation.measureID,
+                atFraction: confirmation.targetFraction,
+                sourceInkData: confirmation.drawingData,
+                sourceCandidateSignature: ChordInkUserCorrectionMemoryPolicy.candidateSignature(
+                    from: confirmation.candidateTexts
+                )
+            ) else {
+                chordInkErrorMessage = "One of those measures is no longer available. Keep the ink and try again."
+                showingChordInkError = true
+                return false
+            }
+
+            committedEvents.append((confirmation, candidateText, match, chordEventID))
+        }
+
+        _ = updatedChart.setPageHandwrittenChordDrawing(nil)
+        chart = updatedChart
+        chordInkAutomaticRewriteFailures.reset()
+
+        #if DEBUG || targetEnvironment(simulator)
+        let commitMutationMilliseconds = Date().timeIntervalSince(commitStartedAt) * 1_000
+        let commitObservedAt = Date()
+        for committedEvent in committedEvents {
+            recordChordEntryDiagnostic(
+                acceptedText: committedEvent.1,
+                match: committedEvent.2,
+                confirmation: committedEvent.0,
+                resolution: resolution,
+                chordEventID: committedEvent.3,
+                chartSnapshot: updatedChart,
+                commitMutationMilliseconds: commitMutationMilliseconds,
+                commitObservedAt: commitObservedAt
+            )
+            logChordInkCommitTiming(
+                acceptedText: committedEvent.1,
+                resolution: resolution,
+                chordEventID: committedEvent.3,
+                commitMilliseconds: commitMutationMilliseconds
+            )
+        }
+        #endif
+
+        selectedMeasureID = committedEvents.last?.0.measureID
+        selectedNoteSelection = nil
+        canvasMode = .chordEntry
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        if editorGuidedTourStep == .chordWrite || editorGuidedTourStep == .chordConfirm {
+            editorGuidedTourStep = .chordDone
+        }
+
+        return true
+    }
+
     private func handleChordCorrectionRequested(_ chordEventID: UUID) {
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
+              pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
               let chordEvent = chart.chordEvent(id: chordEventID),
               let measure = chart.measureContainingChordEvent(id: chordEventID) else {
@@ -3095,6 +3325,7 @@ struct EditorView: View {
         _ = updatedChart.setPageHandwrittenChordDrawing(nil)
         chart = updatedChart
         pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
         canvasMode = .chordEntry
     }
 

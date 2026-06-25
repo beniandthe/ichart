@@ -16,6 +16,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
+    var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
@@ -75,6 +76,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         }
         view.onTimeSignatureTargetRequested = onTimeSignatureTargetRequested
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        view.onChordInkBatchRecognitionProposal = onChordInkBatchRecognitionProposal
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
@@ -1050,6 +1052,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChartChanged: ((Chart) -> Void)?
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)?
+    var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
@@ -3429,6 +3432,36 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         persistActiveInkIfNeeded(cancelPendingRecognition: false)
 
+        if flow == .tapToConfirm {
+            let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+                for: pageInkCanvasView.drawing,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
+            if batchTargets.count > 1 {
+                let sessionRequests = batchTargets.map { batchTarget in
+                    let drawingForOCR = batchTarget.drawing
+                    return ChordInkRecognitionSessionRequest(
+                        requestID: requestID,
+                        scheduledAt: scheduledAt,
+                        requestedDelay: requestedDelay,
+                        strokes: batchTarget.strokes,
+                        drawingData: batchTarget.drawingData,
+                        target: (batchTarget.measureID, batchTarget.fraction),
+                        options: chordInkRecognitionOptions,
+                        ocrImageProvider: {
+                            LeadSheetChordInkImageRenderer.ocrImage(for: drawingForOCR)
+                        }
+                    )
+                }
+
+                chordInkRecognitionSession.startBatch(requests: sessionRequests) { [weak self] payloads in
+                    self?.finishChordInkBatchRecognition(payloads, flow: flow)
+                }
+                return
+            }
+        }
+
         guard let target = LeadSheetChordInkRecognitionTargeting.target(
             for: pageInkCanvasView.drawing,
             chordFrame: chordFrame,
@@ -3509,6 +3542,30 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             payload.timing,
             flow
         )
+    }
+
+    private func finishChordInkBatchRecognition(
+        _ payloads: [ChordInkRecognitionProposalPayload],
+        flow: ChordInkRecognitionFlow
+    ) {
+        guard let requestID = payloads.first?.requestID,
+              chordInkRecognitionRequestState.finishActiveRequest(requestID) else {
+            return
+        }
+
+        for payload in payloads {
+            LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
+        }
+
+        guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
+              payloads.count > 1 else {
+            return
+        }
+
+        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
+        chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
+        onChordInkBatchRecognitionProposal?(payloads, flow)
     }
 
     private func shouldGiveChordInkContinuationGrace(
