@@ -197,6 +197,22 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(parkingPlanText.contains("tap outside to render"))
     }
 
+    func testRhythmToolExposesRenderedRhythmClearAction() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+
+        XCTAssertTrue(editorText.contains("rhythmActiveToolActions"))
+        XCTAssertTrue(editorText.contains("canClearRenderedRhythmAtSelectedMeasure"))
+        XCTAssertTrue(editorText.contains("handleClearRenderedRhythmAtSelectedMeasure"))
+        XCTAssertTrue(editorText.contains("clearRenderedRhythm(in measureID: UUID)"))
+        XCTAssertTrue(editorText.contains("clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true)"))
+    }
+
     func testRhythmRecognitionReferenceIsBackendOnly() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

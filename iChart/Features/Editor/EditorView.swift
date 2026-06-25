@@ -1118,6 +1118,7 @@ struct EditorView: View {
                 }
 
                 if canvasMode == .rhythmicNotationEdit {
+                    rhythmActiveToolActions
                     rhythmDiagnosticStatusChip
                 }
 
@@ -1309,6 +1310,18 @@ struct EditorView: View {
                     chordToolInputMode = mode
                 }
             }
+        }
+    }
+
+    private var rhythmActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "Clear",
+                systemImage: "trash",
+                isDestructive: true,
+                isDisabled: !canClearRenderedRhythmAtSelectedMeasure,
+                action: handleClearRenderedRhythmAtSelectedMeasure
+            )
         }
     }
 
@@ -1519,6 +1532,20 @@ struct EditorView: View {
 
     private var allowsUserFacingRhythmNoteEditing: Bool {
         chart.layoutStyle.profile.allowsUserFacingRhythmNoteEditing
+    }
+
+    private var selectedRhythmActionMeasureID: UUID? {
+        selectedNoteSelection?.measureID ?? selectedMeasureID
+    }
+
+    private var canClearRenderedRhythmAtSelectedMeasure: Bool {
+        guard chart.layoutStyle.profile.allowsRhythmicNotationInk,
+              let measureID = selectedRhythmActionMeasureID,
+              let measure = chart.measure(id: measureID) else {
+            return false
+        }
+
+        return measure.rhythmMap != nil || measure.handwrittenRhythmicNotationData != nil
     }
 
     private var canRemoveRepeatAtSelectedMeasure: Bool {
@@ -2115,6 +2142,43 @@ struct EditorView: View {
 
     private func handleRhythmicNotationPreviewChanged(_ preview: LeadSheetRhythmicNotationPreviewState?) {
         latestRhythmPreview = preview
+    }
+
+    private func handleClearRenderedRhythmAtSelectedMeasure() {
+        guard let measureID = selectedRhythmActionMeasureID else {
+            noteEditErrorMessage = "Select a measure with rendered rhythm first."
+            showingNoteEditError = true
+            return
+        }
+
+        clearRenderedRhythm(in: measureID)
+    }
+
+    @discardableResult
+    private func clearRenderedRhythm(in measureID: UUID) -> Bool {
+        guard chart.layoutStyle.profile.allowsRhythmicNotationInk else {
+            noteEditErrorMessage = "This chart does not support rhythm writing."
+            showingNoteEditError = true
+            return false
+        }
+
+        var updatedChart = chart
+        guard updatedChart.clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true) else {
+            noteEditErrorMessage = "There is no rendered rhythm to clear in that measure."
+            showingNoteEditError = true
+            return false
+        }
+
+        chart = updatedChart
+        selectedMeasureID = measureID
+        selectedNoteSelection = nil
+        latestRhythmPreview = nil
+        rhythmPreviewConfirmationRequestID = nil
+        isNoteEditMenuPresented = false
+        noteEditMenuStage = .actions
+        inkToolMode = .write
+        canvasMode = .rhythmicNotationEdit
+        return true
     }
 
     private func activateSelectTool(clearsMeasureSelection: Bool = false) {
