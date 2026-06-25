@@ -222,6 +222,28 @@ private struct IChartEditorGuidedTourPrompt: View {
     }
 }
 
+private struct IChartEditorOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+    }
+}
+
 struct EditorView: View {
     private static let supportedTimeSignatureChoices = [
         Meter(numerator: 4, denominator: 4),
@@ -249,6 +271,8 @@ struct EditorView: View {
     @State private var showingTypographySheet = false
     @State private var showingInkResponsivenessSheet = false
     @State private var isExporting = false
+    @State private var activeEditorOperationMessage: String?
+    @State private var activeEditorOperationID = UUID()
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
     @State private var selectedCueTextID: UUID?
@@ -258,6 +282,7 @@ struct EditorView: View {
     @State private var noteEditErrorMessage = ""
     @State private var showingNoteEditError = false
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
+    @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
@@ -273,6 +298,7 @@ struct EditorView: View {
     @State private var pendingMeasureStackInsertion: PendingMeasureStackInsertion?
     @State private var pendingCueTextMeasureID: UUID?
     @State private var pendingCueTextPosition: CuePosition?
+    @State private var editingCueTextID: UUID?
     @State private var cueTextDraft = ""
     @State private var showingCueTextEntry = false
     @State private var canvasMode: EditorCanvasMode = .browse
@@ -333,6 +359,13 @@ struct EditorView: View {
                 .padding(editorGuidedTourStep.contentPromptPadding)
             }
         }
+        .overlay {
+            if let activeEditorOperationMessage {
+                IChartEditorOperationOverlay(message: activeEditorOperationMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: activeEditorOperationMessage)
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -372,6 +405,7 @@ struct EditorView: View {
         .sheet(isPresented: $showingCueTextEntry) {
             CueTextEntrySheetView(
                 text: $cueTextDraft,
+                actionTitle: editingCueTextID == nil ? "Add" : "Apply",
                 onAdd: handleCueTextEntryAccepted,
                 onCancel: clearPendingCueTextEntry
             )
@@ -400,6 +434,17 @@ struct EditorView: View {
                     _ = candidateText
                     return .unavailable
                     #endif
+                },
+                onClearAndRewrite: {
+                    handleChordInkRewriteRequested()
+                }
+            )
+        }
+        .sheet(item: $pendingChordInkBatchConfirmation) { batch in
+            ChordInkBatchConfirmationSheetView(
+                batch: batch,
+                onAcceptAll: { candidateTextByID in
+                    handleChordInkBatchAccepted(candidateTextByID, batch: batch)
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
@@ -601,6 +646,23 @@ struct EditorView: View {
         pendingSimpleChartTour = false
         withAnimation(.easeInOut(duration: 0.18)) {
             editorGuidedTourStep = nil
+        }
+    }
+
+    private func runEditorOperation(_ message: String, perform work: @escaping () -> Void) {
+        let operationID = UUID()
+        activeEditorOperationID = operationID
+        activeEditorOperationMessage = message
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            work()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard activeEditorOperationID == operationID else {
+                return
+            }
+
+            activeEditorOperationMessage = nil
         }
     }
 
@@ -807,16 +869,21 @@ struct EditorView: View {
                     Divider()
 
                     Menu {
-                        ForEach(StylePreset.allCases, id: \.self) { preset in
+                        ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
                             Button {
                                 activateSelectTool(clearsMeasureSelection: true)
-                                chart.setStylePreset(preset)
+                                runEditorOperation("Updating page style...") {
+                                    chart.setStylePreset(preset)
+                                }
                             } label: {
-                                notationMenuLabel(preset.displayText, isSelected: chart.stylePreset == preset)
+                                notationMenuLabel(
+                                    preset.sheetDisplayText(for: chart.layoutStyle),
+                                    isSelected: chart.stylePreset == preset
+                                )
                             }
                         }
                     } label: {
-                        Label("Style", systemImage: "paintpalette")
+                        Label("Sheet Style", systemImage: "paintpalette")
                     }
 
                     Button {
@@ -837,7 +904,9 @@ struct EditorView: View {
                         ForEach(EngravingPreset.allCases, id: \.self) { preset in
                             Button {
                                 activateSelectTool(clearsMeasureSelection: true)
-                                chart.setEngravingPreset(preset)
+                                runEditorOperation("Updating engraving...") {
+                                    chart.setEngravingPreset(preset)
+                                }
                             } label: {
                                 notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
                             }
@@ -917,6 +986,36 @@ struct EditorView: View {
                 .buttonStyle(.plain)
 
                 Menu {
+                    if selectedCueText != nil {
+                        Button {
+                            handleEditSelectedCueText()
+                        } label: {
+                            Label("Edit Selected Text", systemImage: "pencil")
+                        }
+
+                        Button {
+                            resizeSelectedCueText(by: CueText.scaleStep)
+                        } label: {
+                            Label("Make Text Larger", systemImage: "plus.magnifyingglass")
+                        }
+                        .disabled(!canGrowSelectedCueText)
+
+                        Button {
+                            resizeSelectedCueText(by: -CueText.scaleStep)
+                        } label: {
+                            Label("Make Text Smaller", systemImage: "minus.magnifyingglass")
+                        }
+                        .disabled(!canShrinkSelectedCueText)
+
+                        Button(role: .destructive) {
+                            deleteSelectedCueText()
+                        } label: {
+                            Label("Delete Selected Text", systemImage: "trash")
+                        }
+
+                        Divider()
+                    }
+
                     Button {
                         handleAddCueText(position: .below)
                     } label: {
@@ -1054,6 +1153,7 @@ struct EditorView: View {
                 }
 
                 if canvasMode == .rhythmicNotationEdit {
+                    rhythmActiveToolActions
                     rhythmDiagnosticStatusChip
                 }
 
@@ -1248,6 +1348,18 @@ struct EditorView: View {
         }
     }
 
+    private var rhythmActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "Clear",
+                systemImage: "trash",
+                isDestructive: true,
+                isDisabled: !canClearRenderedRhythmAtSelectedMeasure,
+                action: handleClearRenderedRhythmAtSelectedMeasure
+            )
+        }
+    }
+
     private func activeToolButton(
         title: String,
         systemImage: String,
@@ -1326,12 +1438,14 @@ struct EditorView: View {
             inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
+            onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
             onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
+            onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas,
@@ -1456,6 +1570,20 @@ struct EditorView: View {
         chart.layoutStyle.profile.allowsUserFacingRhythmNoteEditing
     }
 
+    private var selectedRhythmActionMeasureID: UUID? {
+        selectedNoteSelection?.measureID ?? selectedMeasureID
+    }
+
+    private var canClearRenderedRhythmAtSelectedMeasure: Bool {
+        guard chart.layoutStyle.profile.allowsRhythmicNotationInk,
+              let measureID = selectedRhythmActionMeasureID,
+              let measure = chart.measure(id: measureID) else {
+            return false
+        }
+
+        return measure.rhythmMap != nil || measure.handwrittenRhythmicNotationData != nil
+    }
+
     private var canRemoveRepeatAtSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
@@ -1494,6 +1622,26 @@ struct EditorView: View {
         }
 
         return !chart.cueTextIDs(attachedTo: targetMeasureID).isEmpty
+    }
+
+    private var selectedCueText: CueText? {
+        selectedCueTextID.flatMap { chart.cueText(id: $0) }
+    }
+
+    private var canShrinkSelectedCueText: Bool {
+        guard let selectedCueText else {
+            return false
+        }
+
+        return selectedCueText.scale > CueText.minimumScale
+    }
+
+    private var canGrowSelectedCueText: Bool {
+        guard let selectedCueText else {
+            return false
+        }
+
+        return selectedCueText.scale < CueText.maximumScale
     }
 
     private var canDeleteSelectedMeasure: Bool {
@@ -1931,6 +2079,7 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
         pendingCueTextMeasureID = targetMeasureID
         pendingCueTextPosition = position
+        editingCueTextID = nil
         cueTextDraft = ""
         showingCueTextEntry = true
     }
@@ -1940,17 +2089,32 @@ struct EditorView: View {
             clearPendingCueTextEntry()
         }
 
+        if let editingCueTextID {
+            guard chart.updateCueText(editingCueTextID, text: cueTextDraft),
+                  let cueText = chart.cueText(id: editingCueTextID) else {
+                return
+            }
+
+            selectedCueTextID = editingCueTextID
+            selectedMeasureID = cueText.anchorMeasureID
+            selectedRoadmapMarkerID = nil
+            canvasMode = .browse
+            return
+        }
+
         guard let pendingCueTextMeasureID,
               let pendingCueTextPosition,
-              chart.addCueText(
+              let cueTextID = chart.addCueText(
                 cueTextDraft,
                 anchorMeasureID: pendingCueTextMeasureID,
                 position: pendingCueTextPosition
-              ) != nil else {
+              ) else {
             return
         }
 
         selectedMeasureID = pendingCueTextMeasureID
+        selectedCueTextID = cueTextID
+        selectedRoadmapMarkerID = nil
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
@@ -1965,10 +2129,71 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
     }
 
+    private func handleCueTextEditRequestedFromCanvas(_ cueTextID: UUID) {
+        beginCueTextEdit(cueTextID)
+    }
+
+    private func handleEditSelectedCueText() {
+        guard let selectedCueTextID else {
+            return
+        }
+
+        beginCueTextEdit(selectedCueTextID)
+    }
+
+    private func beginCueTextEdit(_ cueTextID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let cueText = chart.cueText(id: cueTextID) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        pendingMeasureStackInsertion = nil
+        pendingCueTextMeasureID = nil
+        pendingCueTextPosition = nil
+        selectedCueTextID = cueTextID
+        selectedRoadmapMarkerID = nil
+        selectedMeasureID = cueText.anchorMeasureID
+        selectedNoteSelection = nil
+        editingCueTextID = cueTextID
+        cueTextDraft = cueText.text
+        canvasMode = .browse
+        showingCueTextEntry = true
+    }
+
+    private func resizeSelectedCueText(by scaleDelta: Double) {
+        guard let selectedCueTextID,
+              chart.resizeCueText(selectedCueTextID, byScaleDelta: scaleDelta),
+              let cueText = chart.cueText(id: selectedCueTextID) else {
+            return
+        }
+
+        selectedMeasureID = cueText.anchorMeasureID
+        selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
+    private func deleteSelectedCueText() {
+        guard let selectedCueTextID,
+              let cueText = chart.cueText(id: selectedCueTextID),
+              chart.deleteCueText(selectedCueTextID) else {
+            return
+        }
+
+        selectedMeasureID = cueText.anchorMeasureID
+        self.selectedCueTextID = nil
+        selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
     private func clearPendingCueTextEntry() {
         cueTextDraft = ""
         pendingCueTextMeasureID = nil
         pendingCueTextPosition = nil
+        editingCueTextID = nil
         showingCueTextEntry = false
     }
 
@@ -1980,6 +2205,7 @@ struct EditorView: View {
         pendingMeasureStackInsertion = nil
         pendingCueTextMeasureID = nil
         pendingCueTextPosition = nil
+        editingCueTextID = nil
         cueTextDraft = ""
         showingCueTextEntry = false
         pendingTimeSignatureSourceMeasureID = nil
@@ -2050,6 +2276,43 @@ struct EditorView: View {
 
     private func handleRhythmicNotationPreviewChanged(_ preview: LeadSheetRhythmicNotationPreviewState?) {
         latestRhythmPreview = preview
+    }
+
+    private func handleClearRenderedRhythmAtSelectedMeasure() {
+        guard let measureID = selectedRhythmActionMeasureID else {
+            noteEditErrorMessage = "Select a measure with rendered rhythm first."
+            showingNoteEditError = true
+            return
+        }
+
+        clearRenderedRhythm(in: measureID)
+    }
+
+    @discardableResult
+    private func clearRenderedRhythm(in measureID: UUID) -> Bool {
+        guard chart.layoutStyle.profile.allowsRhythmicNotationInk else {
+            noteEditErrorMessage = "This chart does not support rhythm writing."
+            showingNoteEditError = true
+            return false
+        }
+
+        var updatedChart = chart
+        guard updatedChart.clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true) else {
+            noteEditErrorMessage = "There is no rendered rhythm to clear in that measure."
+            showingNoteEditError = true
+            return false
+        }
+
+        chart = updatedChart
+        selectedMeasureID = measureID
+        selectedNoteSelection = nil
+        latestRhythmPreview = nil
+        rhythmPreviewConfirmationRequestID = nil
+        isNoteEditMenuPresented = false
+        noteEditMenuStage = .actions
+        inkToolMode = .write
+        canvasMode = .rhythmicNotationEdit
+        return true
     }
 
     private func activateSelectTool(clearsMeasureSelection: Bool = false) {
@@ -2414,6 +2677,131 @@ struct EditorView: View {
         handleTapConfirmedChordRecognition(confirmation)
     }
 
+    private func handleChordInkBatchRecognitionProposal(
+        payloads: [ChordInkRecognitionProposalPayload],
+        flow: ChordInkRecognitionFlow
+    ) {
+        #if DEBUG || targetEnvironment(simulator)
+        let proposalReceivedAt = Date()
+        #endif
+        guard canvasMode == .chordEntry,
+              pendingChordInkConfirmation == nil,
+              pendingChordInkBatchConfirmation == nil,
+              pendingChordCorrection == nil,
+              flow.canRenderChord,
+              payloads.count > 1 else {
+            return
+        }
+
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+
+        let confirmations = payloads.compactMap { payload -> PendingChordInkConfirmation? in
+            guard let measure = chart.measure(id: payload.target.measureID) else {
+                return nil
+            }
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: payload.drawingData,
+                correctionMemory: chordInkUserCorrectionMemory
+            )
+            #if DEBUG || targetEnvironment(simulator)
+            let proposalDecisionMilliseconds = Date().timeIntervalSince(proposalReceivedAt) * 1_000
+            #else
+            let proposalDecisionMilliseconds: Double? = nil
+            #endif
+
+            return PendingChordInkConfirmation(
+                measureID: payload.target.measureID,
+                measureIndex: measure.index,
+                result: payload.result,
+                drawingData: payload.drawingData,
+                targetFraction: payload.target.fraction,
+                recognitionTiming: payload.timing,
+                proposalDecisionMilliseconds: proposalDecisionMilliseconds,
+                primaryDecision: resolution.primaryDecision,
+                decision: resolution.decision,
+                candidateTexts: resolution.candidateTexts
+            )
+        }
+
+        guard confirmations.count > 1 else {
+            return
+        }
+
+        let batch = PendingChordInkBatchConfirmation(confirmations: confirmations)
+        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
+            || editorGuidedTourStep == .chordConfirm
+        let autoRenderTextsByID = Dictionary(
+            uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
+                guard confirmation.decision.action == .autoRender,
+                      let acceptedText = confirmation.decision.acceptedText else {
+                    return nil
+                }
+
+                return (confirmation.id, acceptedText)
+            }
+        )
+
+        if !isGuidedChordConfirmation,
+           autoRenderTextsByID.count == confirmations.count,
+           commitChordInkBatchCandidates(
+                autoRenderTextsByID,
+                batch: batch,
+                resolution: .autoRendered
+           ) {
+            return
+        }
+
+        pendingChordInkBatchConfirmation = batch
+    }
+
+    private func handleChordInkBatchAccepted(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation
+    ) {
+        let trimmedCandidateTextByID = candidateTextByID.reduce(into: [UUID: String]()) { result, element in
+            result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let didCommit = commitChordInkBatchCandidates(
+            trimmedCandidateTextByID,
+            batch: batch,
+            resolution: .confirmedSuggestion
+        )
+
+        guard didCommit else {
+            return
+        }
+
+        var didUpdateMemory = false
+        for confirmation in batch.confirmations {
+            guard let acceptedText = trimmedCandidateTextByID[confirmation.id] else {
+                continue
+            }
+
+            if confirmation.visibleCandidateTexts.contains(acceptedText) {
+                didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                    acceptedText: acceptedText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts,
+                    decision: confirmation.decision
+                ) || didUpdateMemory
+            } else {
+                didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
+                    acceptedText: acceptedText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts
+                ) || didUpdateMemory
+            }
+        }
+
+        if didUpdateMemory {
+            persistChordInkUserCorrectionMemory()
+        }
+    }
+
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
@@ -2577,9 +2965,101 @@ struct EditorView: View {
         return true
     }
 
+    @discardableResult
+    private func commitChordInkBatchCandidates(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation,
+        resolution: ChordEntryDiagnosticResolution
+    ) -> Bool {
+        #if DEBUG || targetEnvironment(simulator)
+        let commitStartedAt = Date()
+        #endif
+        let acceptedCandidates = batch.confirmations.compactMap { confirmation -> (PendingChordInkConfirmation, String, ChordRecognitionMatch)? in
+            guard let candidateText = candidateTextByID[confirmation.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !candidateText.isEmpty else {
+                return nil
+            }
+
+            guard let match = ChordRecognitionCompendium.match(candidateText) else {
+                return nil
+            }
+
+            return (confirmation, candidateText, match)
+        }
+
+        guard acceptedCandidates.count == batch.confirmations.count else {
+            chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
+            showingChordInkError = true
+            return false
+        }
+
+        var updatedChart = chart
+        var committedEvents = [(PendingChordInkConfirmation, String, ChordRecognitionMatch, UUID)]()
+        for acceptedCandidate in acceptedCandidates {
+            let confirmation = acceptedCandidate.0
+            let candidateText = acceptedCandidate.1
+            let match = acceptedCandidate.2
+            guard let chordEventID = updatedChart.appendRecognizedChordEvent(
+                match.symbol,
+                rawInput: candidateText,
+                to: confirmation.measureID,
+                atFraction: confirmation.targetFraction,
+                sourceInkData: confirmation.drawingData,
+                sourceCandidateSignature: ChordInkUserCorrectionMemoryPolicy.candidateSignature(
+                    from: confirmation.candidateTexts
+                )
+            ) else {
+                chordInkErrorMessage = "One of those measures is no longer available. Keep the ink and try again."
+                showingChordInkError = true
+                return false
+            }
+
+            committedEvents.append((confirmation, candidateText, match, chordEventID))
+        }
+
+        _ = updatedChart.setPageHandwrittenChordDrawing(nil)
+        chart = updatedChart
+        chordInkAutomaticRewriteFailures.reset()
+
+        #if DEBUG || targetEnvironment(simulator)
+        let commitMutationMilliseconds = Date().timeIntervalSince(commitStartedAt) * 1_000
+        let commitObservedAt = Date()
+        for committedEvent in committedEvents {
+            recordChordEntryDiagnostic(
+                acceptedText: committedEvent.1,
+                match: committedEvent.2,
+                confirmation: committedEvent.0,
+                resolution: resolution,
+                chordEventID: committedEvent.3,
+                chartSnapshot: updatedChart,
+                commitMutationMilliseconds: commitMutationMilliseconds,
+                commitObservedAt: commitObservedAt
+            )
+            logChordInkCommitTiming(
+                acceptedText: committedEvent.1,
+                resolution: resolution,
+                chordEventID: committedEvent.3,
+                commitMilliseconds: commitMutationMilliseconds
+            )
+        }
+        #endif
+
+        selectedMeasureID = committedEvents.last?.0.measureID
+        selectedNoteSelection = nil
+        canvasMode = .chordEntry
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        if editorGuidedTourStep == .chordWrite || editorGuidedTourStep == .chordConfirm {
+            editorGuidedTourStep = .chordDone
+        }
+
+        return true
+    }
+
     private func handleChordCorrectionRequested(_ chordEventID: UUID) {
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
+              pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
               let chordEvent = chart.chordEvent(id: chordEventID),
               let measure = chart.measureContainingChordEvent(id: chordEventID) else {
@@ -2909,6 +3389,7 @@ struct EditorView: View {
         _ = updatedChart.setPageHandwrittenChordDrawing(nil)
         chart = updatedChart
         pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
         canvasMode = .chordEntry
     }
 
@@ -3649,6 +4130,7 @@ private struct InkResponsivenessSheetView: View {
 private struct CueTextEntrySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var text: String
+    let actionTitle: String
     let onAdd: () -> Void
     let onCancel: () -> Void
     @FocusState private var isTextFocused: Bool
@@ -3661,10 +4143,32 @@ private struct CueTextEntrySheetView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 10) {
-                    TextField("Text", text: $text, axis: .vertical)
-                        .focused($isTextFocused)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(2...4)
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.secondarySystemBackground))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
+                            )
+
+                        if text.isEmpty {
+                            Text("Text")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 11)
+                                .allowsHitTesting(false)
+                        }
+
+                        TextEditor(text: $text)
+                            .focused($isTextFocused)
+                            .textInputAutocapitalization(.sentences)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .accessibilityLabel("Text")
+                    }
+                    .frame(minHeight: 118)
 
                     Button {
                         isTextFocused = true
@@ -3691,7 +4195,7 @@ private struct CueTextEntrySheetView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add") {
+                    Button(actionTitle) {
                         onAdd()
                         dismiss()
                     }
@@ -3699,10 +4203,7 @@ private struct CueTextEntrySheetView: View {
                 }
             }
         }
-        .presentationDetents([.height(190)])
-        .task {
-            isTextFocused = true
-        }
+        .presentationDetents([.height(275)])
     }
 }
 

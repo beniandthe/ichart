@@ -49,7 +49,6 @@ struct IChartUserProfile: Codable, Equatable {
     var phone: String?
     var firstName: String?
     var lastName: String?
-    var mailingAddress: String?
     var paymentSummary: String?
     var stripeCustomerID: String?
 
@@ -59,7 +58,6 @@ struct IChartUserProfile: Codable, Equatable {
         case phone
         case firstName = "first_name"
         case lastName = "last_name"
-        case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
         case stripeCustomerID = "stripe_customer_id"
     }
@@ -69,14 +67,12 @@ private struct IChartUserProfileUpdate: Encodable {
     let id: UUID
     var email: String?
     var phone: String?
-    var mailingAddress: String?
     var paymentSummary: String?
 
     init(profile: IChartUserProfile) {
         id = profile.id
         email = profile.email
         phone = profile.phone
-        mailingAddress = profile.mailingAddress
         paymentSummary = profile.paymentSummary
     }
 
@@ -84,7 +80,6 @@ private struct IChartUserProfileUpdate: Encodable {
         case id
         case email
         case phone
-        case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
     }
 }
@@ -135,6 +130,7 @@ private protocol IChartAccountServicing {
         password: String,
         firstName: String?,
         lastName: String?,
+        phone: String?,
         redirectURL: URL
     ) async throws -> IChartAuthState
     func signIn(email: String, password: String) async throws -> IChartAuthState
@@ -216,7 +212,8 @@ final class IChartAuthStore: ObservableObject {
         email: String,
         password: String,
         firstName: String? = nil,
-        lastName: String? = nil
+        lastName: String? = nil,
+        phone: String? = nil
     ) async {
         await run("Account created. Check your email to finish verification.") {
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
@@ -227,6 +224,7 @@ final class IChartAuthStore: ObservableObject {
                     password: password,
                     firstName: sanitized(firstName ?? ""),
                     lastName: sanitized(lastName ?? ""),
+                    phone: sanitized(phone ?? ""),
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
             } catch {
@@ -340,8 +338,7 @@ final class IChartAuthStore: ObservableObject {
 
     func saveProfile(
         email: String,
-        phone: String,
-        mailingAddress: String
+        phone: String
     ) async {
         guard let session = state.signedInSession else {
             errorMessage = "Sign in before saving profile info."
@@ -354,7 +351,6 @@ final class IChartAuthStore: ObservableObject {
             phone: sanitized(phone) ?? session.phone,
             firstName: self.profile?.firstName,
             lastName: self.profile?.lastName,
-            mailingAddress: sanitized(mailingAddress),
             paymentSummary: self.profile?.paymentSummary,
             stripeCustomerID: self.profile?.stripeCustomerID
         )
@@ -603,6 +599,7 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
         password: String,
         firstName: String?,
         lastName: String?,
+        phone: String?,
         redirectURL: URL
     ) async throws -> IChartAuthState {
         .unconfigured
@@ -668,12 +665,13 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         password: String,
         firstName: String?,
         lastName: String?,
+        phone: String?,
         redirectURL: URL
     ) async throws -> IChartAuthState {
         let response = try await authClient.auth.signUp(
             email: normalized(email),
             password: password,
-            data: signupMetadata(firstName: firstName, lastName: lastName),
+            data: signupMetadata(firstName: firstName, lastName: lastName, phone: phone),
             redirectTo: redirectURL
         )
 
@@ -852,7 +850,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func signupMetadata(firstName: String?, lastName: String?) -> [String: AnyJSON] {
+    private func signupMetadata(firstName: String?, lastName: String?, phone: String?) -> [String: AnyJSON] {
         var metadata: [String: AnyJSON] = [:]
 
         if let firstName = firstName.map(normalized), !firstName.isEmpty {
@@ -861,6 +859,10 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
         if let lastName = lastName.map(normalized), !lastName.isEmpty {
             metadata["last_name"] = .string(lastName)
+        }
+
+        if let phone = phone.map(normalized), !phone.isEmpty {
+            metadata["phone"] = .string(phone)
         }
 
         return metadata

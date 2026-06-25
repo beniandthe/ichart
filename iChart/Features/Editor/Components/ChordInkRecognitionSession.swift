@@ -81,5 +81,60 @@ final class ChordInkRecognitionSession {
             }
         }
     }
+
+    func startBatch(
+        requests: [ChordInkRecognitionSessionRequest],
+        completion: @escaping ([ChordInkRecognitionProposalPayload]) -> Void
+    ) {
+        guard !requests.isEmpty else {
+            DispatchQueue.main.async {
+                completion([])
+            }
+            return
+        }
+
+        let recognizer = recognizer
+        let ocrCandidateProvider = ocrCandidateProvider
+        queue.async {
+            let payloads = requests.map { request in
+                let recognitionStartedAt = Date()
+                var result = recognizer.recognize(
+                    strokes: request.strokes,
+                    options: request.options
+                )
+                let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
+                if ChordRecognitionTrustArbiter.shouldRequestOCR(
+                    for: result,
+                    primaryDecision: primaryDecision
+                ),
+                   let ocrCandidateProvider,
+                   let ocrImage = request.ocrImageProvider() {
+                    let ocrStartedAt = Date()
+                    result.ocrCandidates = ocrCandidateProvider.recognizeCandidates(in: ocrImage)
+                    result.metrics.ocrMilliseconds = Date().timeIntervalSince(ocrStartedAt) * 1_000
+                }
+
+                let recognitionFinishedAt = Date()
+                return ChordInkRecognitionProposalPayload(
+                    requestID: request.requestID,
+                    result: result,
+                    drawingData: request.drawingData,
+                    target: request.target,
+                    timing: ChordInkRecognitionTiming(
+                        scheduledAt: request.scheduledAt,
+                        requestedDelay: request.requestedDelay,
+                        recognitionStartedAt: recognitionStartedAt,
+                        recognitionFinishedAt: recognitionFinishedAt,
+                        strokeCount: request.strokes.count,
+                        ocrCandidateCount: result.ocrCandidates?.count ?? 0
+                    )
+                )
+            }
+
+            DispatchQueue.main.async {
+                completion(payloads)
+            }
+        }
+    }
 }
 #endif

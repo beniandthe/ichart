@@ -193,6 +193,125 @@ struct ActiveRoadmapMarkerEditDrag {
     var movementFrame: CGRect
 }
 
+struct ActiveCueTextMoveDrag {
+    var cueTextID: UUID
+}
+
+struct LeadSheetCueTextEditControlFrames {
+    let edit: CGRect
+    let shrink: CGRect
+    let grow: CGRect
+    let delete: CGRect
+}
+
+struct CueTextEditHitTarget {
+    enum Action {
+        case select
+        case edit
+        case shrink
+        case grow
+        case delete
+    }
+
+    var cueTextID: UUID
+    var action: Action
+}
+
+enum LeadSheetCueTextEditOverlayGeometry {
+    static let controlSize: CGFloat = 20
+    static let controlGap: CGFloat = 5
+    static let controlHitOutset: CGFloat = 7
+    static let editFrameHitOutset: CGFloat = 8
+
+    static func editFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
+        let paddedFrame = cueTextLayout.frame.insetBy(dx: -5, dy: -4)
+        return CGRect(
+            x: paddedFrame.minX,
+            y: paddedFrame.minY,
+            width: max(32, paddedFrame.width),
+            height: max(22, paddedFrame.height)
+        )
+    }
+
+    static func editHitFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
+        editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+    }
+
+    static func controlFrames(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextEditControlFrames {
+        let editFrame = editFrame(for: cueTextLayout)
+        let originY = editFrame.minY - controlSize - 4
+        let startX = editFrame.minX
+        let controlStep = controlSize + controlGap
+
+        return LeadSheetCueTextEditControlFrames(
+            edit: CGRect(x: startX, y: originY, width: controlSize, height: controlSize),
+            shrink: CGRect(
+                x: startX + controlStep,
+                y: originY,
+                width: controlSize,
+                height: controlSize
+            ),
+            grow: CGRect(
+                x: startX + controlStep * 2,
+                y: originY,
+                width: controlSize,
+                height: controlSize
+            ),
+            delete: CGRect(
+                x: startX + controlStep * 3,
+                y: originY,
+                width: controlSize,
+                height: controlSize
+            )
+        )
+    }
+
+    static func hitTarget(
+        at location: CGPoint,
+        in cueTextLayouts: [LeadSheetCueTextLayout],
+        selectedCueTextID: UUID?
+    ) -> CueTextEditHitTarget? {
+        for cueTextLayout in cueTextLayouts.reversed() {
+            let isSelected = selectedCueTextID == cueTextLayout.id
+            let controlFrames = controlFrames(for: cueTextLayout)
+
+            if isSelected {
+                if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .delete)
+                }
+                if controlFrames.edit.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .edit)
+                }
+                if controlFrames.shrink.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .shrink)
+                }
+                if controlFrames.grow.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .grow)
+                }
+            }
+
+            if editHitFrame(for: cueTextLayout).contains(location) {
+                return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .select)
+            }
+        }
+
+        return nil
+    }
+
+    static func moveHitTarget(
+        at location: CGPoint,
+        in cueTextLayouts: [LeadSheetCueTextLayout]
+    ) -> LeadSheetCueTextLayout? {
+        for cueTextLayout in cueTextLayouts.reversed() {
+            if editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset).contains(location) {
+                return cueTextLayout
+            }
+        }
+
+        return nil
+    }
+}
+
 enum LeadSheetRoadmapMarkerEditOverlayGeometry {
     static let controlSize: CGFloat = 18
     static let controlHitOutset: CGFloat = 6

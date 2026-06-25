@@ -9,6 +9,7 @@ final class ChartEditingTests: XCTestCase {
 
         XCTAssertEqual(chart.cueTexts.count, 1)
         XCTAssertEqual(chart.cueTexts.first?.text, "hits")
+        XCTAssertEqual(chart.cueTexts.first?.scale, CueText.defaultScale)
         XCTAssertEqual(chart.systems[0].measures[0].cueTextIDs, [chart.cueTexts[0].id])
     }
 
@@ -57,6 +58,54 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNotNil(chart.cueText(id: secondCueID))
         XCTAssertTrue(chart.measure(id: firstMeasureID)?.cueTextIDs.isEmpty == true)
         XCTAssertEqual(chart.measure(id: secondMeasureID)?.cueTextIDs, [secondCueID])
+    }
+
+    func testCueTextCanUpdateResizeAndDeleteSingleObject() throws {
+        var chart = Chart.blank(title: "Cue Text", measureCount: 1)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let cueTextID = try XCTUnwrap(chart.addCueText("hits", anchorMeasureID: measureID))
+
+        XCTAssertTrue(
+            chart.updateCueText(
+                cueTextID,
+                text: "  stop time  ",
+                scale: CueText.maximumScale + 4,
+                emphasis: .strong,
+                position: .above
+            )
+        )
+
+        var cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
+        XCTAssertEqual(cueText.text, "stop time")
+        XCTAssertEqual(cueText.rawInput, "stop time")
+        XCTAssertEqual(cueText.scale, CueText.maximumScale)
+        XCTAssertEqual(cueText.emphasis, .strong)
+        XCTAssertEqual(cueText.position, .above)
+        XCTAssertEqual(chart.measure(id: measureID)?.cueTextIDs, [cueTextID])
+
+        XCTAssertTrue(chart.resizeCueText(cueTextID, byScaleDelta: -10))
+        cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
+        XCTAssertEqual(cueText.scale, CueText.minimumScale)
+
+        XCTAssertFalse(chart.updateCueText(cueTextID, text: "   "))
+        XCTAssertTrue(chart.deleteCueText(cueTextID))
+        XCTAssertNil(chart.cueText(id: cueTextID))
+        XCTAssertTrue(chart.measure(id: measureID)?.cueTextIDs.isEmpty == true)
+        XCTAssertFalse(chart.deleteCueText(cueTextID))
+    }
+
+    func testCueTextMoveSnapsToBeatAndUpdatesMeasureBackReferences() throws {
+        var chart = Chart.blank(title: "Cue Text", measureCount: 2)
+        let measureIDs = chart.measures.map(\.id)
+        let cueTextID = try XCTUnwrap(chart.addCueText("hits", anchorMeasureID: measureIDs[0]))
+
+        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureIDs[1], atFraction: 0.52))
+
+        let cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
+        XCTAssertEqual(cueText.anchorMeasureID, measureIDs[1])
+        XCTAssertEqual(try XCTUnwrap(cueText.beatFraction), 0.5, accuracy: 0.0001)
+        XCTAssertTrue(chart.measure(id: measureIDs[0])?.cueTextIDs.isEmpty == true)
+        XCTAssertEqual(chart.measure(id: measureIDs[1])?.cueTextIDs, [cueTextID])
     }
 
     func testAddRoadmapObjectUpdatesChartAndMeasure() {
@@ -943,6 +992,29 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures[0].barlineAfter, .single)
     }
 
+    func testCompleteInitialSetupStoresSelectedSheetStyle() {
+        var chordChart = Chart.draft(title: "Staff Chords", layoutStyle: .simpleChordSheet)
+        var rhythmChart = Chart.draft(title: "Plain Rhythm", layoutStyle: .rhythmSectionSheet)
+
+        chordChart.completeInitialSetup(
+            title: chordChart.title,
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            stylePreset: .gigSheet
+        )
+        rhythmChart.completeInitialSetup(
+            title: rhythmChart.title,
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            stylePreset: .rehearsalDraft
+        )
+
+        XCTAssertEqual(chordChart.stylePreset, .gigSheet)
+        XCTAssertEqual(rhythmChart.stylePreset, .rehearsalDraft)
+    }
+
     func testDraftStoresSelectedLayoutStyleAndDefaults() {
         let chordSheet = Chart.draft(title: "Quick Roadmap", layoutStyle: .simpleChordSheet)
         let rhythmSheet = Chart.draft(title: "Pocket Chart", layoutStyle: .rhythmSectionSheet)
@@ -957,6 +1029,22 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(leadSheet.layoutStyle, .leadSheet)
         XCTAssertEqual(leadSheet.engravingPreset, .balanced)
         XCTAssertEqual(leadSheet.stylePreset, .cleanStudio)
+    }
+
+    func testStylePresetsUseLayoutSpecificSheetLabels() {
+        XCTAssertEqual(StylePreset.cleanStudio.sheetDisplayText(for: .simpleChordSheet), "Real Book")
+        XCTAssertEqual(StylePreset.gigSheet.sheetDisplayText(for: .simpleChordSheet), "Staff Paper")
+        XCTAssertEqual(StylePreset.plainWhite.sheetDisplayText(for: .simpleChordSheet), "White")
+        XCTAssertEqual(StylePreset.rehearsalDraft.sheetDisplayText(for: .simpleChordSheet), "White Staff")
+
+        XCTAssertEqual(StylePreset.cleanStudio.sheetDisplayText(for: .rhythmSectionSheet), "Paper")
+        XCTAssertEqual(StylePreset.gigSheet.sheetDisplayText(for: .rhythmSectionSheet), "Warm Paper")
+        XCTAssertEqual(StylePreset.rehearsalDraft.sheetDisplayText(for: .rhythmSectionSheet), "White")
+        XCTAssertEqual(
+            StylePreset.sheetPresets(for: .simpleChordSheet),
+            [.cleanStudio, .gigSheet, .plainWhite, .rehearsalDraft]
+        )
+        XCTAssertEqual(StylePreset.sheetPresets(for: .rhythmSectionSheet), [.cleanStudio, .gigSheet, .rehearsalDraft])
     }
 
     func testLayoutProfilesDefineSeparateChartStructureContracts() {

@@ -7,12 +7,14 @@ struct ChartSetupSheetView: View {
     @State private var numerator: Int
     @State private var denominator: Int
     @State private var startingMeasureCount: Int
+    @State private var selectedStylePreset: StylePreset
 
     init(chart: Binding<Chart>) {
         self._chart = chart
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
         _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
         _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
+        _selectedStylePreset = State(initialValue: chart.wrappedValue.stylePreset)
         _startingMeasureCount = State(
             initialValue: chart.wrappedValue.hasCompletedInitialSetup
                 ? max(1, chart.wrappedValue.measures.count)
@@ -31,6 +33,7 @@ struct ChartSetupSheetView: View {
                     if setupPolicy.includesStartingMeasureSelection, !chart.hasCompletedInitialSetup {
                         startingMeasuresSection
                     }
+                    sheetStyleSection
                 }
                 .padding(24)
             }
@@ -87,6 +90,53 @@ struct ChartSetupSheetView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var sheetStyleSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sheet Style")
+                .font(.headline)
+
+            VStack(spacing: 8) {
+                ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
+                    Button {
+                        selectedStylePreset = preset
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: selectedStylePreset == preset ? "checkmark.circle.fill" : "circle")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(selectedStylePreset == preset ? Color.accentColor : .secondary)
+                                .frame(width: 24, height: 24)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(preset.sheetDisplayText(for: chart.layoutStyle))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+
+                                Text(preset.sheetDetailText(for: chart.layoutStyle))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            selectedStylePreset == preset
+                                ? Color.accentColor.opacity(0.10)
+                                : Color(uiColor: .secondarySystemBackground)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
+                    .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
+                }
+            }
         }
     }
 
@@ -158,7 +208,8 @@ struct ChartSetupSheetView: View {
             meter: resolvedMeter,
             staffStyle: .fiveLine,
             startingMeasureCount: startingMeasureCount,
-            clef: chart.defaultClef
+            clef: chart.defaultClef,
+            stylePreset: selectedStylePreset
         )
     }
 

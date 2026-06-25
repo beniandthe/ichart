@@ -16,12 +16,14 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
+    var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onChordSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onCueTextEditRequested: ((UUID) -> Void)? = nil
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
     var onFreehandSymbolSelected: ((UUID) -> Void)? = nil
@@ -74,11 +76,13 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         }
         view.onTimeSignatureTargetRequested = onTimeSignatureTargetRequested
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
+        view.onChordInkBatchRecognitionProposal = onChordInkBatchRecognitionProposal
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
         view.onChordSelectedFromCanvas = onChordSelectedFromCanvas
         view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
+        view.onCueTextEditRequested = onCueTextEditRequested
         view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
         view.onFreehandSymbolSelected = onFreehandSymbolSelected
@@ -924,6 +928,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                chart.roadmapObject(id: selectedRoadmapMarkerID) == nil {
                 updateSelectedRoadmapMarkerID(nil)
             }
+            if let selectedCueTextID,
+               chart.cueText(id: selectedCueTextID) == nil {
+                self.selectedCueTextID = nil
+                activeCueTextMoveDrag = nil
+            }
             invalidateLayout()
         }
     }
@@ -1025,6 +1034,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if interactionMode != .browse {
                 activeRoadmapMarkerEditDrag = nil
+                activeCueTextMoveDrag = nil
             }
 
             if oldValue.allowsChordObjectEditing && !interactionMode.allowsChordObjectEditing {
@@ -1042,6 +1052,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChartChanged: ((Chart) -> Void)?
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)?
+    var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
@@ -1049,6 +1060,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)?
     var onChordSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)?
+    var onCueTextEditRequested: ((UUID) -> Void)?
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)?
     var onHeaderAuthoringRequested: (() -> Void)?
     var onFreehandSymbolSelected: ((UUID) -> Void)?
@@ -1133,6 +1145,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
     private var activeChordMoveDrag: ActiveChordMoveDrag?
+    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
@@ -1523,10 +1536,51 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func drawCueTextSelection(_ cueTextLayout: LeadSheetCueTextLayout) {
-        drawObjectSelection(
-            cueTextLayout.frame.insetBy(dx: -5, dy: -4),
-            cornerRadius: 7
+        let editFrame = LeadSheetCueTextEditOverlayGeometry.editFrame(for: cueTextLayout)
+        let selectionPath = UIBezierPath(roundedRect: editFrame, cornerRadius: 7)
+        UIColor(red: 0.91, green: 0.96, blue: 1.0, alpha: 0.5).setFill()
+        selectionPath.fill()
+        UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.78).setStroke()
+        selectionPath.lineWidth = 1.2
+        selectionPath.stroke()
+
+        let controlFrames = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout)
+        drawCueTextEditControl(controlFrames.edit, label: "Aa")
+        drawCueTextEditControl(controlFrames.shrink, label: "-")
+        drawCueTextEditControl(controlFrames.grow, label: "+")
+        drawCueTextEditControl(
+            controlFrames.delete,
+            label: "x",
+            fillColor: UIColor(red: 0.99, green: 0.91, blue: 0.89, alpha: 0.96),
+            strokeColor: UIColor(red: 0.72, green: 0.18, blue: 0.15, alpha: 0.72),
+            textColor: UIColor(red: 0.66, green: 0.12, blue: 0.11, alpha: 0.95)
         )
+    }
+
+    private func drawCueTextEditControl(
+        _ frame: CGRect,
+        label: String,
+        fillColor: UIColor = UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.98),
+        strokeColor: UIColor = UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.72),
+        textColor: UIColor = UIColor(red: 0.14, green: 0.27, blue: 0.58, alpha: 0.96)
+    ) {
+        let controlPath = UIBezierPath(roundedRect: frame, cornerRadius: 6)
+        fillColor.setFill()
+        controlPath.fill()
+        strokeColor.setStroke()
+        controlPath.lineWidth = 1
+        controlPath.stroke()
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: textColor
+        ]
+        let textSize = label.size(withAttributes: attributes)
+        let textOrigin = CGPoint(
+            x: frame.midX - textSize.width / 2,
+            y: frame.midY - textSize.height / 2
+        )
+        label.draw(at: textOrigin, withAttributes: attributes)
     }
 
     private func drawObjectSelection(_ frame: CGRect, cornerRadius: CGFloat) {
@@ -2061,11 +2115,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private enum EditableOverlayHitTarget {
         case roadmap(RoadmapMarkerEditHitTarget)
+        case cueText(CueTextEditHitTarget)
         case chord(ChordEditHitTarget)
         case freehand(FreehandSymbolEditHitTarget)
     }
 
     private func editableOverlayHitTarget(at location: CGPoint) -> EditableOverlayHitTarget? {
+        if let cueTextTarget = cueTextEditHitTarget(at: location) {
+            return .cueText(cueTextTarget)
+        }
+
         if let roadmapTarget = roadmapMarkerEditHitTarget(at: location) {
             return .roadmap(roadmapTarget)
         }
@@ -2083,6 +2142,35 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func roadmapMarkerLayouts() -> [LeadSheetRoadmapMarkerLayout] {
         pageLayout?.systems.flatMap(\.roadmapMarkerLayouts) ?? []
+    }
+
+    private func cueTextLayouts() -> [LeadSheetCueTextLayout] {
+        pageLayout?.systems.flatMap { system in
+            system.measures.flatMap(\.cueTextLayouts)
+        } ?? []
+    }
+
+    private func cueTextEditHitTarget(at location: CGPoint) -> CueTextEditHitTarget? {
+        guard interactionMode == .browse else {
+            return nil
+        }
+
+        return LeadSheetCueTextEditOverlayGeometry.hitTarget(
+            at: location,
+            in: cueTextLayouts(),
+            selectedCueTextID: selectedCueTextID
+        )
+    }
+
+    private func cueTextMoveHitTarget(at location: CGPoint) -> LeadSheetCueTextLayout? {
+        guard interactionMode == .browse else {
+            return nil
+        }
+
+        return LeadSheetCueTextEditOverlayGeometry.moveHitTarget(
+            at: location,
+            in: cueTextLayouts()
+        )
     }
 
     private func roadmapMarkerEditHitTarget(at location: CGPoint) -> RoadmapMarkerEditHitTarget? {
@@ -2132,7 +2220,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         for system in pageLayout.systems.reversed() {
             for measure in system.measures.reversed() {
                 for cueTextLayout in measure.cueTextLayouts.reversed() {
-                    if cueTextLayout.frame.insetBy(dx: -8, dy: -6).contains(location) {
+                    if cueTextLayout.hitFrame.contains(location) {
                         return cueTextLayout
                     }
                 }
@@ -2202,6 +2290,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func lastRoadmapMarkerDragHitTarget() -> RoadmapMarkerEditHitTarget? {
         guard case let .roadmap(hitTarget)? = lastEditableOverlayHitTarget,
               hitTarget.action != .delete else {
+            return nil
+        }
+
+        return hitTarget
+    }
+
+    private func lastCueTextDragHitTarget() -> CueTextEditHitTarget? {
+        guard case let .cueText(hitTarget)? = lastEditableOverlayHitTarget,
+              hitTarget.action == .select else {
             return nil
         }
 
@@ -2354,6 +2451,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: chordEditHitOverlayView)
+        if let hitTarget = cueTextEditHitTarget(at: location) {
+            handleCueTextEditTap(hitTarget)
+            return
+        }
+
         if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
             handleRoadmapMarkerEditTap(hitTarget)
             return
@@ -2394,6 +2496,27 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 onChordSelectedFromCanvas?(hitTarget.chordID)
             }
             setNeedsDisplay()
+        }
+    }
+
+    private func handleCueTextEditTap(_ hitTarget: CueTextEditHitTarget) {
+        switch hitTarget.action {
+        case .select:
+            guard let cueText = chart.cueText(id: hitTarget.cueTextID) else {
+                return
+            }
+
+            selectCueTextFromCanvas(cueText)
+        case .edit:
+            selectedCueTextID = hitTarget.cueTextID
+            onCueTextEditRequested?(hitTarget.cueTextID)
+            setNeedsDisplay()
+        case .shrink:
+            resizeCueText(hitTarget.cueTextID, by: -CueText.scaleStep)
+        case .grow:
+            resizeCueText(hitTarget.cueTextID, by: CueText.scaleStep)
+        case .delete:
+            deleteCueText(hitTarget.cueTextID)
         }
     }
 
@@ -2582,6 +2705,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         setNeedsDisplay()
     }
 
+    private func resizeCueText(_ cueTextID: UUID, by scaleDelta: Double) {
+        var updatedChart = chart
+        guard updatedChart.resizeCueText(cueTextID, byScaleDelta: scaleDelta) else {
+            return
+        }
+
+        chart = updatedChart
+        selectedCueTextID = cueTextID
+        onChartChanged?(updatedChart)
+        setNeedsDisplay()
+    }
+
+    private func deleteCueText(_ cueTextID: UUID) {
+        var updatedChart = chart
+        guard updatedChart.deleteCueText(cueTextID) else {
+            return
+        }
+
+        if selectedCueTextID == cueTextID {
+            selectedCueTextID = nil
+        }
+        chart = updatedChart
+        onChartChanged?(updatedChart)
+        setNeedsDisplay()
+    }
+
     private func deleteRoadmapMarker(_ markerID: UUID) {
         var updatedChart = chart
         guard updatedChart.deleteRoadmapObject(markerID) else {
@@ -2696,6 +2845,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     @objc
     private func handleChordMovePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
+        if activeCueTextMoveDrag != nil
+            || (recognizer.state == .began
+                && (cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
+                    || lastCueTextDragHitTarget() != nil)) {
+            handleCueTextMovePan(recognizer)
+            return
+        }
+
         if activeRoadmapMarkerEditDrag != nil
             || (recognizer.state == .began
                 && (roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
@@ -2757,6 +2914,79 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeChordMoveDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
+        default:
+            break
+        }
+    }
+
+    private func handleCueTextMovePan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            let startLocation = panStartLocation(for: recognizer)
+            let resolvedCueTextLayout = cueTextMoveHitTarget(at: startLocation)
+                ?? lastCueTextDragHitTarget().flatMap { hitTarget in
+                    cueTextLayouts().first { $0.id == hitTarget.cueTextID }
+                }
+            guard let cueTextLayout = resolvedCueTextLayout,
+                  let cueText = chart.cueText(id: cueTextLayout.id) else {
+                activeCueTextMoveDrag = nil
+                setNeedsDisplay()
+                return
+            }
+
+            selectCueTextFromCanvas(cueText)
+            activeCueTextMoveDrag = ActiveCueTextMoveDrag(cueTextID: cueTextLayout.id)
+            lockParentScrollForChordMove()
+            setNeedsDisplay()
+
+        case .changed, .ended:
+            guard let activeCueTextMoveDrag else {
+                if recognizer.state == .ended {
+                    unlockParentScrollForChordMove()
+                }
+                return
+            }
+
+            guard let target = LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
+                at: recognizer.location(in: self),
+                in: pageLayout,
+                chart: chart
+            ) else {
+                if recognizer.state == .ended {
+                    self.activeCueTextMoveDrag = nil
+                    lastEditableOverlayHitTarget = nil
+                    unlockParentScrollForChordMove()
+                    setNeedsDisplay()
+                }
+                return
+            }
+
+            var updatedChart = chart
+            if updatedChart.moveCueText(
+                activeCueTextMoveDrag.cueTextID,
+                to: target.measureID,
+                atFraction: target.fraction
+            ) {
+                chart = updatedChart
+                selectedCueTextID = activeCueTextMoveDrag.cueTextID
+                selectedMeasureID = target.measureID
+                onChartChanged?(updatedChart)
+                setNeedsDisplay()
+            }
+
+            if recognizer.state == .ended {
+                self.activeCueTextMoveDrag = nil
+                lastEditableOverlayHitTarget = nil
+                unlockParentScrollForChordMove()
+                setNeedsDisplay()
+            }
+
+        case .cancelled, .failed:
+            activeCueTextMoveDrag = nil
+            lastEditableOverlayHitTarget = nil
+            unlockParentScrollForChordMove()
+            setNeedsDisplay()
+
         default:
             break
         }
@@ -3202,6 +3432,36 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         persistActiveInkIfNeeded(cancelPendingRecognition: false)
 
+        if flow == .tapToConfirm {
+            let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+                for: pageInkCanvasView.drawing,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
+            if batchTargets.count > 1 {
+                let sessionRequests = batchTargets.map { batchTarget in
+                    let drawingForOCR = batchTarget.drawing
+                    return ChordInkRecognitionSessionRequest(
+                        requestID: requestID,
+                        scheduledAt: scheduledAt,
+                        requestedDelay: requestedDelay,
+                        strokes: batchTarget.strokes,
+                        drawingData: batchTarget.drawingData,
+                        target: (batchTarget.measureID, batchTarget.fraction),
+                        options: chordInkRecognitionOptions,
+                        ocrImageProvider: {
+                            LeadSheetChordInkImageRenderer.ocrImage(for: drawingForOCR)
+                        }
+                    )
+                }
+
+                chordInkRecognitionSession.startBatch(requests: sessionRequests) { [weak self] payloads in
+                    self?.finishChordInkBatchRecognition(payloads, flow: flow)
+                }
+                return
+            }
+        }
+
         guard let target = LeadSheetChordInkRecognitionTargeting.target(
             for: pageInkCanvasView.drawing,
             chordFrame: chordFrame,
@@ -3282,6 +3542,30 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             payload.timing,
             flow
         )
+    }
+
+    private func finishChordInkBatchRecognition(
+        _ payloads: [ChordInkRecognitionProposalPayload],
+        flow: ChordInkRecognitionFlow
+    ) {
+        guard let requestID = payloads.first?.requestID,
+              chordInkRecognitionRequestState.finishActiveRequest(requestID) else {
+            return
+        }
+
+        for payload in payloads {
+            LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
+        }
+
+        guard interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
+              payloads.count > 1 else {
+            return
+        }
+
+        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
+        chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
+        onChordInkBatchRecognitionProposal?(payloads, flow)
     }
 
     private func shouldGiveChordInkContinuationGrace(
@@ -4352,6 +4636,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if policy.clearsChordInteractionState {
             activeChordMoveDrag = nil
+            activeCueTextMoveDrag = nil
             activeRoadmapMarkerEditDrag = nil
             unlockParentScrollForChordMove()
         }
@@ -4448,6 +4733,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 x: location.x - translation.x,
                 y: location.y - translation.y
             )
+            if cueTextMoveHitTarget(at: startLocation) != nil
+                || lastCueTextDragHitTarget() != nil {
+                return true
+            }
+
             if roadmapMarkerMoveHitTarget(at: startLocation) != nil
                 || lastRoadmapMarkerDragHitTarget() != nil {
                 return true

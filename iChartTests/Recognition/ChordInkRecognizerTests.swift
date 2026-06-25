@@ -55,6 +55,34 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertTrue(supportedDisplayTexts.contains("G/B"))
     }
 
+    func testChordInkBatchClustererSplitsClearlySeparatedChordGroups() {
+        let clusters = ChordInkBatchClusterer.clusters(
+            for: [
+                testStroke(minX: 0, maxX: 12),
+                testStroke(minX: 18, maxX: 30),
+                testStroke(minX: 88, maxX: 100),
+                testStroke(minX: 108, maxX: 120)
+            ]
+        )
+
+        XCTAssertEqual(clusters.count, 2)
+        XCTAssertEqual(clusters[0].strokeIndices, [0, 1])
+        XCTAssertEqual(clusters[1].strokeIndices, [2, 3])
+    }
+
+    func testChordInkBatchClustererKeepsOneChordCharactersTogether() {
+        let clusters = ChordInkBatchClusterer.clusters(
+            for: [
+                testStroke(minX: 0, maxX: 12),
+                testStroke(minX: 24, maxX: 36),
+                testStroke(minX: 49, maxX: 62)
+            ]
+        )
+
+        XCTAssertEqual(clusters.count, 1)
+        XCTAssertEqual(clusters[0].strokeIndices, [0, 1, 2])
+    }
+
     func testRecognizesDefaultRegressionFixturesThroughPureSwiftPipeline() throws {
         try assertRecognizes(fixtures: allFixtures())
     }
@@ -805,6 +833,15 @@ final class ChordInkRecognizerTests: XCTestCase {
             text: text,
             displayText: match?.displayText,
             confidence: confidence
+        )
+    }
+
+    private func testStroke(minX: Double, maxX: Double) -> InkStroke {
+        InkStroke(
+            points: [
+                InkPoint(x: minX, y: 0, timeOffset: nil),
+                InkPoint(x: maxX, y: 42, timeOffset: nil)
+            ]
         )
     }
 

@@ -435,6 +435,7 @@ enum ChartFontPreset: String, Codable, CaseIterable, Hashable {
 enum StylePreset: String, Codable, CaseIterable, Hashable {
     case cleanStudio
     case gigSheet
+    case plainWhite
     case rehearsalDraft
 }
 

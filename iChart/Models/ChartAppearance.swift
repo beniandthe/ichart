@@ -413,26 +413,76 @@ extension StylePreset: Identifiable {
     var id: String { rawValue }
 
     var displayText: String {
-        switch self {
-        case .cleanStudio:
-            return "Classic Real Book"
-        case .gigSheet:
-            return "Gig Sheet"
-        case .rehearsalDraft:
-            return "Rehearsal Draft"
-        }
+        sheetDisplayText(for: .simpleChordSheet)
     }
 
     var detailText: String {
-        switch self {
-        case .cleanStudio:
-            return "Centered title, clean paper, and polished chart hierarchy."
-        case .gigSheet:
-            return "Looser handwritten title treatment for jazz chart sketches."
-        case .rehearsalDraft:
-            return "Plain working-copy style for fast revisions."
+        sheetDetailText(for: .simpleChordSheet)
+    }
+
+    static func sheetPresets(for layoutStyle: ChartLayoutStyle) -> [StylePreset] {
+        switch layoutStyle {
+        case .simpleChordSheet, .leadSheet:
+            return [.cleanStudio, .gigSheet, .plainWhite, .rehearsalDraft]
+        case .rhythmSectionSheet:
+            return [.cleanStudio, .gigSheet, .rehearsalDraft]
         }
     }
+
+    func sheetDisplayText(for layoutStyle: ChartLayoutStyle) -> String {
+        switch layoutStyle {
+        case .simpleChordSheet, .leadSheet:
+            switch self {
+            case .cleanStudio:
+                return "Real Book"
+            case .gigSheet:
+                return "Staff Paper"
+            case .plainWhite:
+                return "White"
+            case .rehearsalDraft:
+                return "White Staff"
+            }
+        case .rhythmSectionSheet:
+            switch self {
+            case .cleanStudio:
+                return "Paper"
+            case .gigSheet:
+                return "Warm Paper"
+            case .plainWhite:
+                return "White"
+            case .rehearsalDraft:
+                return "White"
+            }
+        }
+    }
+
+    func sheetDetailText(for layoutStyle: ChartLayoutStyle) -> String {
+        switch layoutStyle {
+        case .simpleChordSheet, .leadSheet:
+            switch self {
+            case .cleanStudio:
+                return "Warm real-book paper for chord-first charts."
+            case .gigSheet:
+                return "Natural staff paper for chord charts that need lines."
+            case .plainWhite:
+                return "Plain white page with no background staff lines."
+            case .rehearsalDraft:
+                return "White staff paper for clean rehearsal copies."
+            }
+        case .rhythmSectionSheet:
+            switch self {
+            case .cleanStudio:
+                return "Plain paper with standard rhythm staff weight."
+            case .gigSheet:
+                return "Warmer plain paper with stronger rhythm staff weight."
+            case .plainWhite:
+                return "Plain white paper with standard rhythm staff weight."
+            case .rehearsalDraft:
+                return "Plain white paper with lighter rhythm staff weight."
+            }
+        }
+    }
+
 }
 
 enum LeadSheetBarlineMetrics {
