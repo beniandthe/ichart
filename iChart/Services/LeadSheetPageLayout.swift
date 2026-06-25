@@ -233,8 +233,11 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var id: UUID
     var text: String
     var frame: CGRect
+    var hitFrame: CGRect
     var position: CuePosition
     var emphasis: CueEmphasis
+    var scale: CGFloat
+    var beatFraction: CGFloat?
 }
 
 struct LeadSheetNoteSelection: Identifiable, Hashable {
@@ -1394,8 +1397,8 @@ enum LeadSheetPageLayoutEngine {
             .sorted {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
                     ($1.startPosition.startOffset(in: meter) ?? 0)
-            }
-        let chordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
+        }
+        let rawChordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
             let nextPlacementIndex = placementIndex + 1
             let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
                 ? displayedPlacements[nextPlacementIndex]
@@ -1410,6 +1413,9 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy
             )
         }
+        let chordLayouts = isSimpleChordSheet
+            ? resolvedSimpleChordCollisions(in: rawChordLayouts)
+            : rawChordLayouts
         let noteLayouts = isSimpleChordSheet ? [] : noteLayouts(
             for: measure,
             chart: chart,
@@ -1477,6 +1483,8 @@ enum LeadSheetPageLayoutEngine {
             let fitFrame = simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
+                symbol: displayedSymbol,
+                text: displayedText,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
                 visualPolicy: visualPolicy
@@ -1526,9 +1534,289 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
+    private static func resolvedSimpleChordCollisions(
+        in chordLayouts: [LeadSheetChordLayout]
+    ) -> [LeadSheetChordLayout] {
+        guard chordLayouts.count > 1 else {
+            return chordLayouts
+        }
+
+        let minimumGap: CGFloat = 7
+        var resolvedLayouts = [LeadSheetChordLayout]()
+        resolvedLayouts.reserveCapacity(chordLayouts.count)
+
+        for chordLayout in chordLayouts {
+            var resolvedLayout = chordLayout
+            if let previousLayout = resolvedLayouts.last,
+               resolvedLayout.frame.minX < previousLayout.frame.maxX + minimumGap {
+                let collisionWidth = previousLayout.frame.maxX + minimumGap - resolvedLayout.frame.minX
+                let reductions = weightedSimpleChordCollisionReductions(
+                    collisionWidth: collisionWidth,
+                    previousFrame: previousLayout.frame,
+                    currentFrame: resolvedLayout.frame
+                )
+
+                if let previousIndex = resolvedLayouts.indices.last {
+                    resolvedLayouts[previousIndex] = chordLayoutByReducingTrailingEdge(
+                        of: previousLayout,
+                        by: reductions.previous
+                    )
+                }
+
+                resolvedLayout = chordLayoutByReducingLeadingEdge(
+                    of: resolvedLayout,
+                    by: reductions.current
+                )
+
+                if let balancedPreviousLayout = resolvedLayouts.last {
+                    let minimumMinX = balancedPreviousLayout.frame.maxX + minimumGap
+                    let remainingOverlap = minimumMinX - resolvedLayout.frame.minX
+                    if remainingOverlap > 0 {
+                        resolvedLayout = chordLayoutByReducingLeadingEdge(
+                            of: resolvedLayout,
+                            by: remainingOverlap
+                        )
+                    }
+                }
+            }
+
+            if let previousIndex = resolvedLayouts.indices.last,
+               let redistributedPair = redistributedTightSimpleChordPair(
+                    previous: resolvedLayouts[previousIndex],
+                    current: resolvedLayout,
+                    minimumGap: minimumGap
+               ) {
+                resolvedLayouts[previousIndex] = redistributedPair.previous
+                resolvedLayout = redistributedPair.current
+            }
+
+            resolvedLayouts.append(resolvedLayout)
+        }
+
+        return resolvedLayouts
+    }
+
+    private static func redistributedTightSimpleChordPair(
+        previous: LeadSheetChordLayout,
+        current: LeadSheetChordLayout,
+        minimumGap: CGFloat
+    ) -> (previous: LeadSheetChordLayout, current: LeadSheetChordLayout)? {
+        let tightGapTolerance: CGFloat = 0.5
+        let currentGap = current.frame.minX - previous.frame.maxX
+        guard currentGap <= minimumGap + tightGapTolerance else {
+            return nil
+        }
+
+        let pairMinX = previous.frame.minX
+        let pairMaxX = current.frame.maxX
+        let availableWidth = pairMaxX - pairMinX - minimumGap
+        guard availableWidth > 2 else {
+            return nil
+        }
+
+        let previousDesiredWidth = desiredSimpleChordFrameWidth(for: previous)
+        let currentDesiredWidth = desiredSimpleChordFrameWidth(for: current)
+        guard previousDesiredWidth + currentDesiredWidth > availableWidth + 0.001 else {
+            return nil
+        }
+
+        let targetWidths = weightedSimpleChordPairWidths(
+            availableWidth: availableWidth,
+            previousDesiredWidth: previousDesiredWidth,
+            currentDesiredWidth: currentDesiredWidth
+        )
+        let redistributedPrevious = chordLayoutBySettingTrailingEdgeWidth(
+            of: previous,
+            width: targetWidths.previous
+        )
+        let redistributedCurrent = chordLayoutBySettingLeadingEdgeWidth(
+            of: current,
+            width: targetWidths.current
+        )
+
+        return (redistributedPrevious, redistributedCurrent)
+    }
+
+    private static func desiredSimpleChordFrameWidth(for chordLayout: LeadSheetChordLayout) -> CGFloat {
+        let fontSize = preferredSimpleChordFontSize()
+        let estimatedWidth = estimatedSimpleChordTextWidth(
+            for: chordLayout.symbol,
+            fallbackText: chordLayout.text,
+            fontSize: fontSize
+        ) + 2
+        return max(estimatedWidth, chordLayout.fitFrame.height * 0.92)
+    }
+
+    private static func weightedSimpleChordPairWidths(
+        availableWidth: CGFloat,
+        previousDesiredWidth: CGFloat,
+        currentDesiredWidth: CGFloat
+    ) -> (previous: CGFloat, current: CGFloat) {
+        let totalDesiredWidth = max(1, previousDesiredWidth + currentDesiredWidth)
+        let minimumWidth: CGFloat = min(18, max(1, availableWidth / 2))
+        let minimumTotalWidth = minimumWidth * 2
+        guard availableWidth > minimumTotalWidth else {
+            let previousWidth = max(1, availableWidth * previousDesiredWidth / totalDesiredWidth)
+            return (previousWidth, max(1, availableWidth - previousWidth))
+        }
+
+        let remainingWidth = availableWidth - minimumTotalWidth
+        let previousDesiredRemainder = max(0, previousDesiredWidth - minimumWidth)
+        let currentDesiredRemainder = max(0, currentDesiredWidth - minimumWidth)
+        let totalDesiredRemainder = max(1, previousDesiredRemainder + currentDesiredRemainder)
+        let previousWidth = minimumWidth
+            + remainingWidth * previousDesiredRemainder / totalDesiredRemainder
+
+        return (previousWidth, max(1, availableWidth - previousWidth))
+    }
+
+    private static func weightedSimpleChordCollisionReductions(
+        collisionWidth: CGFloat,
+        previousFrame: CGRect,
+        currentFrame: CGRect
+    ) -> (previous: CGFloat, current: CGFloat) {
+        let previousCapacity = max(0, previousFrame.width - 1)
+        let currentCapacity = max(0, currentFrame.width - 1)
+        guard collisionWidth > 0, previousCapacity + currentCapacity > 0 else {
+            return (0, 0)
+        }
+
+        let combinedWidth = max(1, previousFrame.width + currentFrame.width)
+        var previousReduction = min(
+            collisionWidth * previousFrame.width / combinedWidth,
+            previousCapacity
+        )
+        var currentReduction = min(
+            collisionWidth * currentFrame.width / combinedWidth,
+            currentCapacity
+        )
+        var remainingCollision = max(0, collisionWidth - previousReduction - currentReduction)
+
+        while remainingCollision > 0.001 {
+            let previousRemainingCapacity = max(0, previousCapacity - previousReduction)
+            let currentRemainingCapacity = max(0, currentCapacity - currentReduction)
+            guard previousRemainingCapacity + currentRemainingCapacity > 0 else {
+                break
+            }
+
+            if previousRemainingCapacity >= currentRemainingCapacity {
+                let extraReduction = min(remainingCollision, previousRemainingCapacity)
+                previousReduction += extraReduction
+                remainingCollision -= extraReduction
+            } else {
+                let extraReduction = min(remainingCollision, currentRemainingCapacity)
+                currentReduction += extraReduction
+                remainingCollision -= extraReduction
+            }
+        }
+
+        return (previousReduction, currentReduction)
+    }
+
+    private static func chordLayoutBySettingTrailingEdgeWidth(
+        of chordLayout: LeadSheetChordLayout,
+        width: CGFloat
+    ) -> LeadSheetChordLayout {
+        var resolvedLayout = chordLayout
+        let resolvedWidth = max(1, width)
+        resolvedLayout.frame = CGRect(
+            x: resolvedLayout.frame.minX,
+            y: resolvedLayout.frame.minY,
+            width: resolvedWidth,
+            height: resolvedLayout.frame.height
+        )
+        resolvedLayout.fitFrame = CGRect(
+            x: resolvedLayout.fitFrame.minX,
+            y: resolvedLayout.fitFrame.minY,
+            width: resolvedWidth,
+            height: resolvedLayout.fitFrame.height
+        )
+        return resolvedLayout
+    }
+
+    private static func chordLayoutBySettingLeadingEdgeWidth(
+        of chordLayout: LeadSheetChordLayout,
+        width: CGFloat
+    ) -> LeadSheetChordLayout {
+        var resolvedLayout = chordLayout
+        let resolvedWidth = max(1, width)
+        let resolvedMinX = resolvedLayout.frame.maxX - resolvedWidth
+        resolvedLayout.frame = CGRect(
+            x: resolvedMinX,
+            y: resolvedLayout.frame.minY,
+            width: resolvedWidth,
+            height: resolvedLayout.frame.height
+        )
+        resolvedLayout.fitFrame = CGRect(
+            x: resolvedMinX,
+            y: resolvedLayout.fitFrame.minY,
+            width: max(resolvedWidth, resolvedLayout.fitFrame.maxX - resolvedMinX),
+            height: resolvedLayout.fitFrame.height
+        )
+        return resolvedLayout
+    }
+
+    private static func chordLayoutByReducingTrailingEdge(
+        of chordLayout: LeadSheetChordLayout,
+        by reduction: CGFloat
+    ) -> LeadSheetChordLayout {
+        guard reduction > 0 else {
+            return chordLayout
+        }
+
+        var resolvedLayout = chordLayout
+        let resolvedWidth = max(1, resolvedLayout.frame.width - reduction)
+        resolvedLayout.frame = CGRect(
+            x: resolvedLayout.frame.minX,
+            y: resolvedLayout.frame.minY,
+            width: resolvedWidth,
+            height: resolvedLayout.frame.height
+        )
+        resolvedLayout.fitFrame = CGRect(
+            x: resolvedLayout.fitFrame.minX,
+            y: resolvedLayout.fitFrame.minY,
+            width: max(resolvedWidth, min(resolvedLayout.fitFrame.width, resolvedLayout.frame.maxX - resolvedLayout.fitFrame.minX)),
+            height: resolvedLayout.fitFrame.height
+        )
+        return resolvedLayout
+    }
+
+    private static func chordLayoutByReducingLeadingEdge(
+        of chordLayout: LeadSheetChordLayout,
+        by reduction: CGFloat
+    ) -> LeadSheetChordLayout {
+        guard reduction > 0 else {
+            return chordLayout
+        }
+
+        var resolvedLayout = chordLayout
+        let resolvedMinX = min(
+            resolvedLayout.frame.maxX - 1,
+            resolvedLayout.frame.minX + reduction
+        )
+        let resolvedWidth = max(1, resolvedLayout.frame.maxX - resolvedMinX)
+        let fitFrameMaxX = resolvedLayout.fitFrame.maxX
+        resolvedLayout.frame = CGRect(
+            x: resolvedMinX,
+            y: resolvedLayout.frame.minY,
+            width: resolvedWidth,
+            height: resolvedLayout.frame.height
+        )
+        resolvedLayout.fitFrame = CGRect(
+            x: resolvedMinX,
+            y: resolvedLayout.fitFrame.minY,
+            width: max(1, fitFrameMaxX - resolvedMinX),
+            height: resolvedLayout.fitFrame.height
+        )
+
+        return resolvedLayout
+    }
+
     private static func simpleChordFitFrame(
         for placement: MeasureChordPlacement,
         nextPlacement: MeasureChordPlacement?,
+        symbol: ChordSymbol?,
+        text: String,
         meter: Meter,
         chordBandFrame: CGRect,
         visualPolicy: VisualPolicy
@@ -1549,8 +1837,30 @@ enum LeadSheetPageLayoutEngine {
         )
         let startFraction = startOffset / measureLength
         let endFraction = max(startFraction, endOffset / measureLength)
-        let rawMinX = chordBandFrame.minX + chordBandFrame.width * CGFloat(startFraction)
-        let rawMaxX = chordBandFrame.minX + chordBandFrame.width * CGFloat(endFraction)
+        var rawMinX = chordBandFrame.minX + chordBandFrame.width * CGFloat(startFraction)
+        var rawMaxX = chordBandFrame.minX + chordBandFrame.width * CGFloat(endFraction)
+        let visibleWidth = min(
+            chordBandFrame.width - visualPolicy.simpleChordHorizontalInset * 2,
+            max(
+                chordBandFrame.height * 1.1,
+                estimatedSimpleChordTextWidth(
+                    for: symbol,
+                    fallbackText: text,
+                    fontSize: preferredSimpleChordFontSize()
+                ) + 8
+            )
+        )
+        let desiredRawWidth = min(
+            chordBandFrame.width,
+            visibleWidth + visualPolicy.simpleChordHorizontalInset * 2
+        )
+        if rawMaxX - rawMinX < desiredRawWidth {
+            if nextPlacement == nil {
+                rawMinX = max(chordBandFrame.minX, min(rawMinX, rawMaxX - desiredRawWidth))
+            } else {
+                rawMaxX = min(chordBandFrame.maxX, max(rawMaxX, rawMinX + desiredRawWidth))
+            }
+        }
         let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, (rawMaxX - rawMinX) / 4))
         let minX = rawMinX + inset
         let maxX = max(minX + 1, rawMaxX - inset)
@@ -1579,7 +1889,10 @@ enum LeadSheetPageLayoutEngine {
             estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize)
                 * max(0.01, min(1, horizontalCompressionScale)) + 2
         )
-        let frameWidth = min(estimatedWidth, visualSlotFrame.width)
+        let frameWidth = min(
+            max(estimatedWidth, fitFrame.height * 0.92),
+            visualSlotFrame.width
+        )
         return CGRect(
             x: visualSlotFrame.minX,
             y: fitFrame.minY,
@@ -1749,18 +2062,31 @@ enum LeadSheetPageLayoutEngine {
             .filter { $0.anchorMeasureID == measure.id }
             .enumerated()
             .map { cueIndex, cueText in
-                LeadSheetCueTextLayout(
+                let frame = cueTextFrame(
+                    for: cueText,
+                    cueIndex: cueIndex,
+                    measureFrame: measureFrame,
+                    chordBandFrame: chordBandFrame,
+                    staffFrame: staffFrame
+                )
+                let hitFrame = cueTextHitFrame(
+                    for: cueText,
+                    cueIndex: cueIndex,
+                    measureFrame: measureFrame,
+                    chordBandFrame: chordBandFrame,
+                    staffFrame: staffFrame
+                )
+                let beatFraction = cueText.beatFraction.map { CGFloat($0) }
+
+                return LeadSheetCueTextLayout(
                     id: cueText.id,
                     text: cueText.text,
-                    frame: cueTextFrame(
-                        for: cueText,
-                        cueIndex: cueIndex,
-                        measureFrame: measureFrame,
-                        chordBandFrame: chordBandFrame,
-                        staffFrame: staffFrame
-                    ),
+                    frame: frame,
+                    hitFrame: hitFrame,
                     position: cueText.position,
-                    emphasis: cueText.emphasis
+                    emphasis: cueText.emphasis,
+                    scale: CGFloat(cueText.scale),
+                    beatFraction: beatFraction
                 )
             }
     }
@@ -1772,28 +2098,40 @@ enum LeadSheetPageLayoutEngine {
         chordBandFrame: CGRect,
         staffFrame: CGRect
     ) -> CGRect {
-        let lineHeight: CGFloat = 17
-        let lineGap: CGFloat = 2
+        let textSize = cueTextSize(for: cueText)
+        let lineHeight = textSize.height
+        let lineGap: CGFloat = 3
         let offset = CGFloat(cueIndex) * (lineHeight + lineGap)
-        let width = max(1, staffFrame.width - 12)
+        let maximumWidth = max(1, staffFrame.width - 12)
+        let width = min(maximumWidth, textSize.width)
+        let leadingWidth = min(width, max(1, staffFrame.width - 8))
+        let defaultTextX = staffFrame.minX + 6
+        let beatAnchoredTextX = cueText.beatFraction.map { fraction in
+            clampedCueTextX(
+                staffFrame.minX + CGFloat(fraction) * staffFrame.width,
+                width: width,
+                staffFrame: staffFrame
+            )
+        }
         let leadingFrame = CGRect(
             x: measureFrame.minX + 4,
             y: staffFrame.minY,
-            width: min(58, max(1, staffFrame.width - 8)),
+            width: leadingWidth,
             height: lineHeight
         )
         let trailingFrame = CGRect(
-            x: max(measureFrame.minX + 4, staffFrame.maxX - min(58, max(1, staffFrame.width - 8)) - 4),
+            x: max(measureFrame.minX + 4, staffFrame.maxX - leadingWidth - 4),
             y: staffFrame.minY,
-            width: min(58, max(1, staffFrame.width - 8)),
+            width: leadingWidth,
             height: lineHeight
         )
 
         switch cueText.position {
         case .above:
+            let textX = beatAnchoredTextX ?? defaultTextX
             if chordBandFrame.intersects(staffFrame) {
                 return CGRect(
-                    x: staffFrame.minX + 6,
+                    x: textX,
                     y: min(measureFrame.maxY - lineHeight - 2, staffFrame.minY + 4 + offset),
                     width: width,
                     height: lineHeight
@@ -1801,14 +2139,14 @@ enum LeadSheetPageLayoutEngine {
             }
 
             return CGRect(
-                x: staffFrame.minX + 6,
+                x: textX,
                 y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
                 width: width,
                 height: lineHeight
             )
         case .below:
             return CGRect(
-                x: staffFrame.minX + 6,
+                x: beatAnchoredTextX ?? defaultTextX,
                 y: min(measureFrame.maxY - lineHeight - 2, staffFrame.maxY + 5 + offset),
                 width: width,
                 height: lineHeight
@@ -1817,6 +2155,65 @@ enum LeadSheetPageLayoutEngine {
             return leadingFrame.offsetBy(dx: 0, dy: offset)
         case .trailingEdge:
             return trailingFrame.offsetBy(dx: 0, dy: offset)
+        }
+    }
+
+    private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {
+        let minimumX = staffFrame.minX + 4
+        let maximumX = max(minimumX, staffFrame.maxX - width - 4)
+        return min(max(proposedX, minimumX), maximumX)
+    }
+
+    private static func cueTextHitFrame(
+        for cueText: CueText,
+        cueIndex: Int,
+        measureFrame: CGRect,
+        chordBandFrame: CGRect,
+        staffFrame: CGRect
+    ) -> CGRect {
+        cueTextFrame(
+            for: cueText,
+            cueIndex: cueIndex,
+            measureFrame: measureFrame,
+            chordBandFrame: chordBandFrame,
+            staffFrame: staffFrame
+        )
+        .insetBy(dx: -6, dy: -5)
+    }
+
+    private static func cueTextSize(for cueText: CueText) -> CGSize {
+        let fontSize = cueTextFontSize(for: cueText)
+        let estimatedWidth = cueText.text.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedCueTextCharacterWidth(character, fontSize: fontSize)
+        }
+        let height = max(16, fontSize * 1.34)
+        return CGSize(width: max(28, estimatedWidth + 12), height: height)
+    }
+
+    private static func cueTextFontSize(for cueText: CueText) -> CGFloat {
+        let baseSize: CGFloat
+        switch cueText.emphasis {
+        case .subtle:
+            baseSize = 12.5
+        case .normal:
+            baseSize = 14
+        case .strong:
+            baseSize = 15.5
+        }
+
+        return baseSize * CGFloat(cueText.scale)
+    }
+
+    private static func estimatedCueTextCharacterWidth(_ character: Character, fontSize: CGFloat) -> CGFloat {
+        switch character {
+        case "i", "l", "I", "1", ".", ",", "'", " ":
+            return fontSize * 0.32
+        case "m", "M", "w", "W":
+            return fontSize * 0.9
+        case "A"..."Z":
+            return fontSize * 0.68
+        default:
+            return fontSize * 0.56
         }
     }
 

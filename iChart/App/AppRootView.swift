@@ -5,6 +5,8 @@ struct AppRootView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @State private var projectPath: [ProjectRoute] = []
     @State private var isLaunchAnimationVisible: Bool
+    @State private var activeOperationMessage: String?
+    @State private var activeOperationID = UUID()
 
     private static let hasSeenAccountLandingKey = "iChartHasSeenAccountLanding"
 
@@ -24,6 +26,8 @@ struct AppRootView: View {
                         return
                     }
 
+                    let chartTitle = store.charts.first(where: { $0.id == chartID })?.title ?? "Chart"
+                    showAppOperation("Opening \(chartTitle)...")
                     store.selectedChartID = chartID
                     projectPath = [.chart(chartID, initialCanvasMode)]
                 }
@@ -61,6 +65,12 @@ struct AppRootView: View {
                 }
             }
 
+            if let activeOperationMessage {
+                IChartAppOperationOverlay(message: activeOperationMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(0.5)
+            }
+
             if isLaunchAnimationVisible {
                 IChartLaunchScreenView(capturedHandwritingSample: launchHandwritingSample) {
                     withAnimation(.easeOut(duration: 0.22)) {
@@ -71,10 +81,26 @@ struct AppRootView: View {
                 .zIndex(1)
             }
         }
+        .animation(.easeOut(duration: 0.16), value: activeOperationMessage)
     }
 
     private var launchHandwritingSample: IChartLaunchHandwritingSample? {
         IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()
+    }
+
+    private func showAppOperation(_ message: String) {
+        let operationID = UUID()
+        activeOperationID = operationID
+        activeOperationMessage = message
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard activeOperationID == operationID else {
+                return
+            }
+
+            activeOperationMessage = nil
+        }
     }
 
     private func chartBinding(for chartID: Chart.ID) -> Binding<Chart>? {
@@ -88,6 +114,28 @@ struct AppRootView: View {
 
 private enum ProjectRoute: Hashable {
     case chart(UUID, EditorCanvasMode)
+}
+
+private struct IChartAppOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+    }
 }
 
 struct IChartLaunchScreenView: View {

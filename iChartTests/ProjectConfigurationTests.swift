@@ -65,12 +65,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("User Info"))
         XCTAssertTrue(libraryText.contains("@State private var userEmail"))
         XCTAssertTrue(libraryText.contains("@State private var userPhone"))
-        XCTAssertTrue(libraryText.contains("@State private var userAddress"))
+        XCTAssertFalse(libraryText.contains("@State private var userAddress"))
         XCTAssertFalse(libraryText.contains("iChartUserEmail"))
         XCTAssertFalse(libraryText.contains("iChartUserPhone"))
         XCTAssertFalse(libraryText.contains("iChartUserAddress"))
         XCTAssertFalse(libraryText.contains("iChartUserPaymentSummary"))
         XCTAssertFalse(libraryText.contains("Payment Info"))
+        XCTAssertFalse(libraryText.contains("Mailing address"))
+        XCTAssertFalse(libraryText.contains("title: \"Address\""))
         XCTAssertTrue(libraryText.contains("Resend Email"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
@@ -255,6 +257,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
         XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
         XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
+        XCTAssertTrue(editorText.contains("TextEditor(text: $text)"))
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
@@ -317,7 +320,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
         XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
         XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
-        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
+        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName, phone: phone)"))
         XCTAssertFalse(authStoreText.contains("firstName = profile.firstName"))
         XCTAssertFalse(authStoreText.contains("lastName = profile.lastName"))
         XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists first_name text"))
@@ -327,7 +330,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
         XCTAssertTrue(rlsTestText.contains("client cannot update locked profile name fields"))
-        XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, email, and password"))
+        XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, phone, email, and password"))
         XCTAssertTrue(planPolicyText.contains("First and last name are locked account identity fields after signup"))
     }
 
@@ -389,6 +392,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let chartModelText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Models/Chart.swift")
+        )
+        let chartAppearanceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartAppearance.swift")
         )
         let measureTimingText = try String(
             contentsOf: projectRoot
@@ -535,11 +542,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("handleMeasureSelectedFromCanvas"))
         XCTAssertTrue(editorText.contains("handleChordSelectedFromCanvas"))
         XCTAssertTrue(editorText.contains("handleCueTextSelectedFromCanvas"))
+        XCTAssertTrue(editorText.contains("handleCueTextEditRequestedFromCanvas"))
+        XCTAssertTrue(editorText.contains("Edit Selected Text"))
         XCTAssertTrue(editorText.contains("handleRoadmapMarkerSelectedFromCanvas"))
         XCTAssertTrue(editorText.contains("selectedCueTextID == nil"))
         XCTAssertTrue(editorText.contains("selectedRoadmapMarkerID != nil"))
         XCTAssertTrue(canvasHostText.contains("roadmapMarkerHitTarget(at: location)"))
         XCTAssertTrue(canvasHostText.contains("cueTextHitTarget(at: location)"))
+        XCTAssertTrue(canvasHostText.contains("onCueTextEditRequested"))
+        XCTAssertTrue(canvasHostText.contains("LeadSheetCueTextEditOverlayGeometry"))
+        XCTAssertTrue(canvasHostText.contains("resizeCueText"))
+        XCTAssertTrue(canvasHostText.contains("deleteCueText"))
+        XCTAssertTrue(canvasHostText.contains("moveCueText"))
+        XCTAssertTrue(canvasHostText.contains("cueTextMoveTarget"))
+        XCTAssertTrue(canvasHostText.contains("handleCueTextMovePan"))
         XCTAssertTrue(canvasHostText.contains("selectedRoadmapMarkerID == nil"))
         XCTAssertTrue(canvasHostText.contains("drawRoadmapMarkerEditOverlay"))
         XCTAssertTrue(canvasHostText.contains("LeadSheetRoadmapMarkerEditOverlayGeometry"))
@@ -582,10 +598,27 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("Create a new chart to start the first project."))
         XCTAssertTrue(libraryText.contains("Not For Me"))
         XCTAssertFalse(libraryText.contains("Downvote"))
+        XCTAssertTrue(appearanceSheetText.contains("Sheet Style"))
+        XCTAssertTrue(appearanceSheetText.contains("Change the chart page surface without changing the app controls."))
         XCTAssertTrue(appearanceSheetText.contains("Choose the notation symbol style used in the chart."))
         XCTAssertTrue(appearanceSheetText.contains("Section(\"Notation Font\")"))
         XCTAssertFalse(appearanceSheetText.contains("Choose the SMuFL notation family used for glyphs."))
         XCTAssertFalse(appearanceSheetText.contains("Section(\"SMuFL Font\")"))
+        XCTAssertTrue(setupSheetText.contains("Sheet Style"))
+        XCTAssertTrue(setupSheetText.contains("selectedStylePreset"))
+        XCTAssertTrue(notationRendererText.contains("guard layoutStyle == .simpleChordSheet else"))
+        XCTAssertFalse(
+            chartAppearanceText.contains(
+                """
+                case .rhythmSectionSheet:
+                            switch self {
+                            case .cleanStudio:
+                                return "Paper"
+                            case .gigSheet:
+                                return "Staff Paper"
+                """
+            )
+        )
         XCTAssertTrue(chartModelText.contains("Staff-based page for melody, chords, and standard notation."))
         XCTAssertFalse(chartModelText.contains("current iChart workflow"))
         XCTAssertTrue(measureTimingText.contains("is tied to a rhythm position that changed"))
@@ -637,6 +670,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("editorToolChrome"))
         XCTAssertTrue(editorText.contains(".toolbar(.hidden, for: .navigationBar)"))
         XCTAssertTrue(editorText.contains(".frame(width: 44, height: 44)"))
+    }
+
+    func testSlowChartOperationsHaveVisibleFeedback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
+        let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        let typographySheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
+        )
+        let appearanceSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartAppearanceSheetView.swift")
+        )
+
+        XCTAssertTrue(appRootText.contains("IChartAppOperationOverlay"))
+        XCTAssertTrue(appRootText.contains("Opening \\(chartTitle)..."))
+        XCTAssertTrue(libraryText.contains("IChartLibraryOperationOverlay"))
+        XCTAssertTrue(libraryText.contains("Creating \\(layoutName)..."))
+        XCTAssertTrue(libraryText.contains("Deleting \\(title)..."))
+        XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
+        XCTAssertTrue(editorText.contains("Updating page style..."))
+        XCTAssertTrue(editorText.contains("Updating engraving..."))
+        XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
+        XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
+        XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))
     }
 
     func testSupabasePackageAndConfigurationAreWired() throws {
@@ -1153,6 +1215,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260621001910_security_hardening.sql")
         )
+        let removeProfileAddressMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260624184032_remove_profile_mailing_address.sql")
+        )
         let configText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/config.toml")
@@ -1175,6 +1241,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
         XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
+        XCTAssertTrue(removeProfileAddressMigrationText.contains("revoke insert (mailing_address)"))
+        XCTAssertTrue(removeProfileAddressMigrationText.contains("revoke update (mailing_address)"))
+        XCTAssertTrue(removeProfileAddressMigrationText.contains("drop column if exists mailing_address"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))

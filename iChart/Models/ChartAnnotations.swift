@@ -20,7 +20,74 @@ struct CueText: Identifiable, Codable, Hashable {
     var anchorMeasureID: UUID
     var position: CuePosition
     var emphasis: CueEmphasis
+    var scale: Double
+    var beatFraction: Double?
     var rawInput: String?
+
+    init(
+        id: UUID,
+        text: String,
+        anchorMeasureID: UUID,
+        position: CuePosition,
+        emphasis: CueEmphasis,
+        scale: Double = Self.defaultScale,
+        beatFraction: Double? = nil,
+        rawInput: String? = nil
+    ) {
+        self.id = id
+        self.text = text
+        self.anchorMeasureID = anchorMeasureID
+        self.position = position
+        self.emphasis = emphasis
+        self.scale = Self.clampedScale(scale)
+        self.beatFraction = Self.clampedBeatFraction(beatFraction)
+        self.rawInput = rawInput
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case anchorMeasureID
+        case position
+        case emphasis
+        case scale
+        case beatFraction
+        case rawInput
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        text = try container.decode(String.self, forKey: .text)
+        anchorMeasureID = try container.decode(UUID.self, forKey: .anchorMeasureID)
+        position = try container.decode(CuePosition.self, forKey: .position)
+        emphasis = try container.decode(CueEmphasis.self, forKey: .emphasis)
+        scale = Self.clampedScale(try container.decodeIfPresent(Double.self, forKey: .scale) ?? Self.defaultScale)
+        beatFraction = Self.clampedBeatFraction(try container.decodeIfPresent(Double.self, forKey: .beatFraction))
+        rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
+    }
+
+    static let defaultScale: Double = 1
+    static let minimumScale: Double = 0.75
+    static let maximumScale: Double = 1.8
+    static let scaleStep: Double = 0.125
+
+    static func clampedScale(_ scale: Double) -> Double {
+        guard scale.isFinite else {
+            return defaultScale
+        }
+
+        return min(max(scale, minimumScale), maximumScale)
+    }
+
+    static func clampedBeatFraction(_ fraction: Double?) -> Double? {
+        guard let fraction,
+              fraction.isFinite else {
+            return nil
+        }
+
+        return min(max(fraction, 0), 0.9999)
+    }
 }
 
 enum CuePosition: String, Codable, CaseIterable, Hashable {

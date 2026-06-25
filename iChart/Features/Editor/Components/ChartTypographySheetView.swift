@@ -3,6 +3,8 @@ import SwiftUI
 struct ChartTypographySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var chart: Chart
+    @State private var operationMessage: String?
+    @State private var operationID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -16,7 +18,9 @@ struct ChartTypographySheetView: View {
                             previewFont: preset.chordTextPreviewFont(size: 24),
                             isSelected: chart.typography.matchedSet == preset
                         ) {
-                            chart.setMatchedFontFamily(preset)
+                            applyTypographyChange {
+                                chart.setMatchedFontFamily(preset)
+                            }
                         }
                     }
                 }
@@ -26,7 +30,11 @@ struct ChartTypographySheetView: View {
                     selected: chart.typography.chordOverride,
                     preview: chordPreviewText,
                     previewFont: { $0.chordTextPreviewFont(size: 24) },
-                    action: { chart.setChordFontOverride($0) }
+                    action: { preset in
+                        applyTypographyChange {
+                            chart.setChordFontOverride(preset)
+                        }
+                    }
                 )
 
                 overrideSection(
@@ -34,7 +42,11 @@ struct ChartTypographySheetView: View {
                     selected: chart.typography.headerOverride,
                     preview: "Almost Like Being In Love",
                     previewFont: { $0.textPreviewFont(size: 20) },
-                    action: { chart.setHeaderFontOverride($0) }
+                    action: { preset in
+                        applyTypographyChange {
+                            chart.setHeaderFontOverride(preset)
+                        }
+                    }
                 )
 
                 overrideSection(
@@ -42,7 +54,11 @@ struct ChartTypographySheetView: View {
                     selected: chart.typography.textOverride,
                     preview: "(Medium Swing)  To Coda",
                     previewFont: { $0.textPreviewFont(size: 17) },
-                    action: { chart.setTextFontOverride($0) }
+                    action: { preset in
+                        applyTypographyChange {
+                            chart.setTextFontOverride(preset)
+                        }
+                    }
                 )
 
                 Section("Notation Symbols") {
@@ -54,7 +70,9 @@ struct ChartTypographySheetView: View {
                             previewFont: preset.notationPreviewFont(size: 22),
                             isSelected: chart.notationFont == preset
                         ) {
-                            chart.setNotationFont(preset)
+                            applyTypographyChange {
+                                chart.setNotationFont(preset)
+                            }
                         }
                     }
                 }
@@ -69,6 +87,13 @@ struct ChartTypographySheetView: View {
                 }
             }
         }
+        .overlay {
+            if let operationMessage {
+                ChartTypographyOperationOverlay(message: operationMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: operationMessage)
         .presentationDetents([.medium, .large])
     }
 
@@ -113,6 +138,45 @@ struct ChartTypographySheetView: View {
         let four = NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"
         let three = NotationGlyphCatalog.timeSignatureDigit(3) ?? "3"
         return "\(four)\(four)   \(three)\(four)"
+    }
+
+    private func applyTypographyChange(_ work: @escaping () -> Void) {
+        let nextOperationID = UUID()
+        operationID = nextOperationID
+        operationMessage = "Updating fonts..."
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            work()
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard operationID == nextOperationID else {
+                return
+            }
+
+            operationMessage = nil
+        }
+    }
+}
+
+private struct ChartTypographyOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 

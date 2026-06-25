@@ -21,7 +21,6 @@ final class SupabaseIntegrationTests: XCTestCase {
             accessToken: session.accessToken,
             email: email,
             phone: "+15555550123",
-            mailingAddress: "123 iChart Test Lane",
             paymentSummary: "Processor customer reference only"
         )
         try await client.grantActiveProEntitlement(
@@ -455,7 +454,6 @@ private struct SupabaseRESTClient {
         accessToken: String,
         email: String,
         phone: String,
-        mailingAddress: String,
         paymentSummary: String
     ) async throws {
         _ = try await requestArray(
@@ -468,7 +466,6 @@ private struct SupabaseRESTClient {
                 "id": userID,
                 "email": email,
                 "phone": phone,
-                "mailing_address": mailingAddress,
                 "payment_summary": paymentSummary
             ]
         )

@@ -264,7 +264,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "account",
                     title: "Account",
-                    detail: "Create your account with first name, last name, email, and password. Verify the email, then return to iChart."
+                    detail: "Create your account with first name, last name, phone, email, and password. Verify the email, then return to iChart."
                 ),
                 IChartTutorialStep(
                     id: "chart-type",
@@ -608,7 +608,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "user-info",
                     title: "User Info",
-                    detail: "Settings shows your account name, email, phone, and mailing address. First and last name stay tied to the account identity."
+                    detail: "Settings shows your account name, email, and phone. First and last name stay tied to the account identity."
                 ),
                 IChartTutorialStep(
                     id: "subscription",
@@ -915,7 +915,6 @@ struct LibraryView: View {
     private var rhythmDiagnosticsEnabled = false
     @State private var userEmail = ""
     @State private var userPhone = ""
-    @State private var userAddress = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -932,6 +931,8 @@ struct LibraryView: View {
     @State private var forumSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
+    @State private var activeLibraryOperation: IChartLibraryOperation?
+    @State private var activeLibraryOperationID = UUID()
 
     init(onOpenChart: @escaping (Chart.ID, EditorCanvasMode) -> Void) {
         self.onOpenChart = onOpenChart
@@ -1055,6 +1056,13 @@ struct LibraryView: View {
                 .padding(.trailing, 28)
             }
         }
+        .overlay {
+            if let activeLibraryOperation {
+                IChartLibraryOperationOverlay(message: activeLibraryOperation.message)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: activeLibraryOperation)
         .task {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
@@ -1241,8 +1249,10 @@ struct LibraryView: View {
             presenting: deleteRequest
         ) { request in
             Button("Delete", role: .destructive) {
-                store.deleteChart(id: request.chartID)
                 deleteRequest = nil
+                runLibraryOperation(.deletingChart(request.title)) {
+                    store.deleteChart(id: request.chartID)
+                }
             }
             Button("Cancel", role: .cancel) {
                 deleteRequest = nil
@@ -1524,7 +1534,6 @@ struct LibraryView: View {
                         accountName: accountNameText,
                         email: $userEmail,
                         phone: $userPhone,
-                        address: $userAddress,
                         theme: homeTheme,
                         authState: authStore.state,
                         isSaving: authStore.isWorking,
@@ -1532,8 +1541,7 @@ struct LibraryView: View {
                             Task {
                                 await authStore.saveProfile(
                                     email: userEmail,
-                                    phone: userPhone,
-                                    mailingAddress: userAddress
+                                    phone: userPhone
                                 )
                             }
                         }
@@ -1645,13 +1653,17 @@ struct LibraryView: View {
                                 renameRequest = ChartRenameRequest(chart: chart)
                             },
                             onDuplicate: {
-                                store.duplicateChart(id: chart.id)
+                                runLibraryOperation(.duplicatingChart(chart.title)) {
+                                    store.duplicateChart(id: chart.id)
+                                }
                             },
                             onShareToForum: {
                                 forumPublishRequest = IChartForumPublishRequest(chart: chart)
                             },
                             onRemoveLocal: {
-                                store.pruneLocalChartForCurrentPlan(id: chart.id)
+                                runLibraryOperation(.removingLocalChart(chart.title)) {
+                                    store.pruneLocalChartForCurrentPlan(id: chart.id)
+                                }
                             },
                             onDelete: {
                                 deleteRequest = ChartDeleteRequest(chart: chart)
@@ -1727,20 +1739,39 @@ struct LibraryView: View {
         let startsGuidedSimpleChartTour = guidedTourStep == .simpleChart && layoutStyle == .simpleChordSheet
         pendingProjectForNewChart = nil
 
-        guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
-              let chartID = store.selectedChartID else {
-            return
-        }
+        runLibraryOperation(.creatingChart(layoutStyle.displayText)) {
+            guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
+                  let chartID = store.selectedChartID else {
+                return
+            }
 
-        if guidedTourStep == .simpleChart {
-            guidedTourStep = nil
-        }
+            if guidedTourStep == .simpleChart {
+                guidedTourStep = nil
+            }
 
-        if startsGuidedSimpleChartTour {
-            pendingSimpleChartTour = true
-        }
+            if startsGuidedSimpleChartTour {
+                pendingSimpleChartTour = true
+            }
 
-        onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+            onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+        }
+    }
+
+    private func runLibraryOperation(_ operation: IChartLibraryOperation, perform work: @escaping () -> Void) {
+        let operationID = UUID()
+        activeLibraryOperationID = operationID
+        activeLibraryOperation = operation
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            work()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard activeLibraryOperationID == operationID else {
+                return
+            }
+
+            activeLibraryOperation = nil
+        }
     }
 
     private func updateAccountLandingPresentation() {
@@ -1783,9 +1814,6 @@ struct LibraryView: View {
             userPhone = phone
         }
 
-        if let mailingAddress = profile.mailingAddress {
-            userAddress = mailingAddress
-        }
     }
 
     private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
@@ -1829,6 +1857,48 @@ struct LibraryView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             guidedTourStep = nil
         }
+    }
+}
+
+private struct IChartLibraryOperation: Equatable {
+    let message: String
+
+    static func creatingChart(_ layoutName: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Creating \(layoutName)...")
+    }
+
+    static func duplicatingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Duplicating \(title)...")
+    }
+
+    static func deletingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Deleting \(title)...")
+    }
+
+    static func removingLocalChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Removing \(title)...")
+    }
+}
+
+private struct IChartLibraryOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 
@@ -4731,6 +4801,7 @@ private struct IChartKeyboardFocusButton: View {
 private enum IChartAccountInputField: Hashable {
     case firstName
     case lastName
+    case phone
     case email
     case password
     case newPassword
@@ -4743,6 +4814,7 @@ private struct IChartAccountSettings: View {
     var showsSignedInActions = true
     @State private var firstName = ""
     @State private var lastName = ""
+    @State private var phone = ""
     @State private var email = ""
     @State private var password = ""
     @State private var newPassword = ""
@@ -4756,7 +4828,7 @@ private struct IChartAccountSettings: View {
 
     private var canCreateAccount: Bool {
         canSubmitCredentials
-            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty))
+            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty && !trimmed(phone).isEmpty))
     }
 
     private var canSignIn: Bool {
@@ -4852,6 +4924,17 @@ private struct IChartAccountSettings: View {
                     textInputAutocapitalization: .words,
                     autocorrectionDisabled: false
                 )
+
+                IChartAccountTextField(
+                    title: "Phone",
+                    placeholder: "(555) 555-5555",
+                    text: $phone,
+                    systemImageName: "phone",
+                    keyboardType: .phonePad,
+                    theme: theme,
+                    focusedField: $focusedField,
+                    field: .phone
+                )
             }
 
             IChartAccountTextField(
@@ -4885,7 +4968,8 @@ private struct IChartAccountSettings: View {
                         email: email,
                         password: password,
                         firstName: firstName,
-                        lastName: lastName
+                        lastName: lastName,
+                        phone: phone
                     )
                 }
             } label: {
@@ -5720,7 +5804,6 @@ private struct IChartUserInfoSettings: View {
     let accountName: String
     @Binding var email: String
     @Binding var phone: String
-    @Binding var address: String
     let theme: IChartHomeTheme
     let authState: IChartAuthState
     let isSaving: Bool
@@ -5754,17 +5837,6 @@ private struct IChartUserInfoSettings: View {
                 text: $phone,
                 systemImageName: "phone",
                 keyboardType: .phonePad,
-                theme: theme
-            )
-
-            settingsDivider
-
-            IChartSettingsTextFieldRow(
-                title: "Address",
-                placeholder: "Mailing address",
-                text: $address,
-                systemImageName: "house",
-                isMultiline: true,
                 theme: theme
             )
 
