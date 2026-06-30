@@ -35,6 +35,14 @@ final class ChartLibraryStore: ObservableObject {
     private let chordDiagnosticsResetter: (() -> Void)?
     private var persistenceEnabled = false
     private var cloudSyncNotificationsEnabled = true
+    private let asyncPersistenceQueue = DispatchQueue(label: "com.ichart.chart-library-store.persistence", qos: .utility)
+    private var pendingAsyncPersistence: (
+        snapshot: ChartLibrarySnapshot,
+        notifyCloudSync: Bool,
+        generation: Int
+    )?
+    private var asyncPersistenceInFlight = false
+    private var persistenceGeneration = 0
 
     init(
         charts: [Chart],
@@ -413,10 +421,77 @@ final class ChartLibraryStore: ObservableObject {
             return
         }
 
+        let snapshotToPersist = snapshot
+        let shouldNotifyCloudSync = cloudSyncNotificationsEnabled
+        guard repository.savesSnapshotsOffMainThread else {
+            persistSnapshotSynchronously(
+                snapshotToPersist,
+                repository: repository,
+                notifyCloudSync: shouldNotifyCloudSync
+            )
+            return
+        }
+
+        persistenceGeneration += 1
+        pendingAsyncPersistence = (
+            snapshot: snapshotToPersist,
+            notifyCloudSync: shouldNotifyCloudSync,
+            generation: persistenceGeneration
+        )
+        scheduleAsyncPersistenceIfNeeded(repository: repository)
+    }
+
+    private func scheduleAsyncPersistenceIfNeeded(repository: ChartRepository) {
+        guard !asyncPersistenceInFlight,
+              let pendingPersistence = pendingAsyncPersistence else {
+            return
+        }
+
+        pendingAsyncPersistence = nil
+        asyncPersistenceInFlight = true
+        asyncPersistenceQueue.async { [weak self, repository] in
+            let result: Result<Void, Error>
+            do {
+                try repository.saveSnapshot(pendingPersistence.snapshot)
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.asyncPersistenceInFlight = false
+                switch result {
+                case .success:
+                    if pendingPersistence.generation == self.persistenceGeneration {
+                        self.persistenceStatus = .saved(at: .now)
+                        if pendingPersistence.notifyCloudSync {
+                            self.onSnapshotSaved?(pendingPersistence.snapshot)
+                        }
+                    }
+                case let .failure(error):
+                    if pendingPersistence.generation == self.persistenceGeneration {
+                        self.persistenceStatus = .failed(message: error.localizedDescription)
+                    }
+                }
+
+                self.scheduleAsyncPersistenceIfNeeded(repository: repository)
+            }
+        }
+    }
+
+    private func persistSnapshotSynchronously(
+        _ snapshot: ChartLibrarySnapshot,
+        repository: ChartRepository,
+        notifyCloudSync: Bool
+    ) {
         do {
             try repository.saveSnapshot(snapshot)
             persistenceStatus = .saved(at: .now)
-            if cloudSyncNotificationsEnabled {
+            if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
         } catch {
