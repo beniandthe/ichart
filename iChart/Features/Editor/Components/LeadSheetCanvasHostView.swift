@@ -1073,8 +1073,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return .live
     }
     private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
-    private let chordInkIdleDelay = ChordInkAutomaticRecognitionPolicy.defaultIdleDelay
-    private let chordInkContinuationGraceDelay = ChordInkAutomaticRecognitionPolicy.defaultContinuationGraceDelay
     private let chordInkRecognitionQueue = DispatchQueue(
         label: "com.ichart.chord-ink-recognition",
         qos: .userInitiated
@@ -1112,10 +1110,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleChordInkConfirmTap(_:))
     )
-    private lazy var chordInkConfirmPanRecognizer = UIPanGestureRecognizer(
-        target: self,
-        action: #selector(handleChordInkConfirmPan(_:))
-    )
     private var isSyncingInkCanvasFromModel = false
     private var inkAuthoringSessionState = LeadSheetInkAuthoringSessionState()
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
@@ -1137,7 +1131,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
-    private var chordInkConfirmPanStartLocation: CGPoint?
     private var selectedFreehandSymbolID: UUID?
     private var activeFreehandSymbolEditDrag: ActiveFreehandSymbolEditDrag?
     private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
@@ -1261,11 +1254,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkConfirmTapRecognizer.delegate = self
         chordInkConfirmTapRecognizer.cancelsTouchesInView = false
         chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmTapRecognizer)
-        chordInkConfirmPanRecognizer.delegate = self
-        chordInkConfirmPanRecognizer.cancelsTouchesInView = false
-        chordInkConfirmPanRecognizer.delaysTouchesBegan = false
-        chordInkConfirmPanRecognizer.delaysTouchesEnded = false
-        chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmPanRecognizer)
         addSubview(chordInkConfirmOverlayView)
 
         chordEditHitOverlayView.backgroundColor = .clear
@@ -2467,34 +2455,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         confirmChordInkFromUserTapIfNeeded()
     }
 
-    @objc
-    private func handleChordInkConfirmPan(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            chordInkConfirmPanStartLocation = recognizer.location(in: self)
-        case .ended:
-            defer {
-                chordInkConfirmPanStartLocation = nil
-            }
-
-            guard let startLocation = chordInkConfirmPanStartLocation,
-                  ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                    startLocation: startLocation,
-                    currentLocation: recognizer.location(in: self),
-                    pageLayout: pageLayout,
-                    hasChordInk: currentCanvasDrawingData() != nil
-                  ) else {
-                return
-            }
-
-            confirmChordInkFromUserTapIfNeeded()
-        case .cancelled, .failed:
-            chordInkConfirmPanStartLocation = nil
-        default:
-            break
-        }
-    }
-
     private func chordInkConfirmSurfaceContains(_ location: CGPoint) -> Bool {
         guard interactionMode.allowsChordInkEditing,
               recognizesChordInk,
@@ -2540,11 +2500,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        scheduleChordInkRecognition(
-            after: 0,
-            scheduledInkSnapshot: currentCanvasInkSnapshot(),
-            flow: .tapToConfirm
+        startTapConfirmedChordInkRecognition(
+            scheduledInkSnapshot: currentCanvasInkSnapshot()
         )
     }
 
@@ -2965,11 +2922,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            if recognizesChordInk {
-                scheduleChordInkRecognition()
-            } else {
-                schedulePassiveChordInkPersistence()
-            }
+            schedulePassiveChordInkPersistence()
             return
 
         case .rhythm:
@@ -3087,38 +3040,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         persistActiveInkIfNeeded()
     }
 
-    private func scheduleChordInkRecognition() {
-        scheduleChordInkRecognition(
-            after: ChordInkAutomaticRecognitionPolicy.idleDelay(
-                for: pageInkCanvasView.drawing,
-                defaultDelay: chordInkIdleDelay
-            ),
-            scheduledInkSnapshot: currentCanvasInkSnapshot(),
-            flow: .automaticPreview
-        )
-    }
-
-    private func scheduleChordInkRecognition(
-        after requestedDelay: TimeInterval,
-        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
-        flow: ChordInkRecognitionFlow
+    private func startTapConfirmedChordInkRecognition(
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
     ) {
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
 
         let requestID = UUID()
         let scheduledAt = Date()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.recognizeChordInkIfNeeded(
-                requestID: requestID,
-                scheduledAt: scheduledAt,
-                requestedDelay: requestedDelay,
-                scheduledInkSnapshot: scheduledInkSnapshot,
-                flow: flow
-            )
-        }
-        chordInkRecognitionRequestState.schedule(requestID: requestID, workItem: workItem)
-        DispatchQueue.main.asyncAfter(deadline: .now() + requestedDelay, execute: workItem)
+        chordInkRecognitionRequestState.beginRequest(requestID)
+        recognizeChordInkIfNeeded(
+            requestID: requestID,
+            scheduledAt: scheduledAt,
+            requestedDelay: 0,
+            scheduledInkSnapshot: scheduledInkSnapshot,
+            flow: .tapToConfirm
+        )
     }
 
     private func persistActiveInkIfNeeded(
@@ -3164,8 +3101,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
         flow: ChordInkRecognitionFlow
     ) {
-        chordInkRecognitionRequestState.markPendingWorkStarted()
-
         guard chordInkRecognitionRequestState.isActive(requestID) else {
             return
         }
@@ -3190,12 +3125,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if inkAuthoringSessionState.isDirty(.chord) {
                 persistActiveInkIfNeeded(cancelPendingRecognition: false)
             }
-            chordInkRecognitionRequestState.clearActiveRequest()
-            return
-        }
-
-        guard flow == .tapToConfirm
-                || drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
         }
@@ -3250,30 +3179,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if shouldGiveChordInkContinuationGrace(
-            flow: flow,
-            result: payload.result,
-            drawingData: payload.drawingData,
-            timing: payload.timing
-        ) {
-            chordInkRecognitionRequestState.continuationGraceDrawingData = payload.drawingData
-            scheduleChordInkRecognition(
-                after: ChordInkAutomaticRecognitionPolicy.continuationGraceDelay(
-                    for: payload.result,
-                    defaultDelay: chordInkContinuationGraceDelay
-                ),
-                scheduledInkSnapshot: currentCanvasInkSnapshot(),
-                flow: .automaticPreview
-            )
-            return
-        }
-
-        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        if flow.recordsPreviewSnapshot {
-            chordInkRecognitionRequestState.lastRecognizedDrawingData = payload.drawingData
-        } else {
-            chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
-        }
         onChordInkRecognitionProposal?(
             payload.target.measureID,
             payload.result,
@@ -3281,22 +3186,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             payload.target.fraction,
             payload.timing,
             flow
-        )
-    }
-
-    private func shouldGiveChordInkContinuationGrace(
-        flow: ChordInkRecognitionFlow,
-        result: ChordInkRecognitionResult,
-        drawingData: Data,
-        timing: ChordInkRecognitionTiming
-    ) -> Bool {
-        ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
-            flow: flow,
-            previousDrawingData: chordInkRecognitionRequestState.continuationGraceDrawingData,
-            drawingData: drawingData,
-            timing: timing,
-            idleDelay: chordInkIdleDelay,
-            result: result
         )
     }
 
@@ -4437,10 +4326,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
         }
 
-        if gestureRecognizer === chordInkConfirmPanRecognizer {
-            return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
-        }
-
         if gestureRecognizer === chordMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
             let translation = chordMovePanRecognizer.translation(in: self)
@@ -4476,11 +4361,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             || otherGestureRecognizer === chordMovePanRecognizer
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
-        let involvesChordInkConfirmPan = gestureRecognizer === chordInkConfirmPanRecognizer
-            || otherGestureRecognizer === chordInkConfirmPanRecognizer
-        if involvesChordInkConfirmPan {
-            return true
-        }
         if !LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
             involvesChordMove: involvesChordMove,
             involvesParentScroll: involvesParentScroll

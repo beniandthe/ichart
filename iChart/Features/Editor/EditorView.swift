@@ -2369,7 +2369,8 @@ struct EditorView: View {
         #endif
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
-              let measure = chart.measure(id: measureID) else {
+              let measure = chart.measure(id: measureID),
+              flow.canRenderChord else {
             return
         }
 
@@ -2406,10 +2407,6 @@ struct EditorView: View {
             decisionMilliseconds: proposalDecisionMilliseconds
         )
         #endif
-
-        guard flow.canRenderChord else {
-            return
-        }
 
         handleTapConfirmedChordRecognition(confirmation)
     }

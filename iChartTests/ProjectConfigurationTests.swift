@@ -53,6 +53,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
     }
 
+    func testChordInkRenderIsTapConfirmedOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let flowText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkRecognitionFlow.swift")
+        )
+        let gesturePolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkTapConfirmGesturePolicy.swift")
+        )
+        let automaticPolicyURL = projectRoot
+            .appendingPathComponent("iChart/Features/Editor/Components/ChordInkAutomaticRecognitionPolicy.swift")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
+        XCTAssertTrue(hostText.contains("startTapConfirmedChordInkRecognition"))
+        XCTAssertTrue(flowText.contains("case tapToConfirm"))
+        XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
+        XCTAssertFalse(hostText.contains(".automaticPreview"))
+        XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
+        XCTAssertFalse(hostText.contains("continuationGrace"))
+        XCTAssertFalse(gesturePolicyText.contains("shouldConfirmOutsideLaneGesture"))
+    }
+
     func testSettingsContainUserInfoWithoutPaymentInfo() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
