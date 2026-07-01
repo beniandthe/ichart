@@ -3,6 +3,14 @@ import Foundation
 import PencilKit
 import UIKit
 
+struct LeadSheetChordInkRecognitionBatchTarget {
+    var measureID: UUID
+    var fraction: Double
+    var strokes: [InkStroke]
+    var drawingData: Data
+    var drawing: PKDrawing
+}
+
 enum LeadSheetChordInkRecognitionTargeting {
     static func target(
         for drawing: PKDrawing,
@@ -14,6 +22,63 @@ enum LeadSheetChordInkRecognitionTargeting {
         }
 
         let inkBounds = LeadSheetChordInkImageRenderer.renderBounds(for: drawing)
+        guard !inkBounds.isNull,
+              inkBounds.width >= 4 || inkBounds.height >= 4 else {
+            return nil
+        }
+
+        return target(forInkBounds: inkBounds, chordFrame: chordFrame, pageLayout: pageLayout)
+    }
+
+    static func batchTargets(
+        for drawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> [LeadSheetChordInkRecognitionBatchTarget] {
+        guard let pageLayout else {
+            return []
+        }
+
+        let inkStrokes = PencilKitInkAdapter.inkStrokes(from: drawing)
+        let clusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
+        guard clusters.count > 1,
+              clusters.count <= ChordInkBatchClusterer.maximumClusterCount else {
+            return []
+        }
+
+        return clusters.compactMap { cluster in
+            guard let target = target(forInkBounds: cluster.bounds.cgRect, chordFrame: chordFrame, pageLayout: pageLayout) else {
+                return nil
+            }
+
+            let strokePairs = cluster.strokeIndices.compactMap { index -> (PKStroke, InkStroke)? in
+                guard drawing.strokes.indices.contains(index),
+                      inkStrokes.indices.contains(index) else {
+                    return nil
+                }
+
+                return (drawing.strokes[index], inkStrokes[index])
+            }
+            guard !strokePairs.isEmpty else {
+                return nil
+            }
+
+            let clusterDrawing = PKDrawing(strokes: strokePairs.map(\.0))
+            return LeadSheetChordInkRecognitionBatchTarget(
+                measureID: target.measureID,
+                fraction: target.fraction,
+                strokes: strokePairs.map(\.1),
+                drawingData: clusterDrawing.dataRepresentation(),
+                drawing: clusterDrawing
+            )
+        }
+    }
+
+    private static func target(
+        forInkBounds inkBounds: CGRect,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> (measureID: UUID, fraction: Double)? {
         guard !inkBounds.isNull,
               inkBounds.width >= 4 || inkBounds.height >= 4 else {
             return nil
@@ -55,6 +120,17 @@ enum LeadSheetChordInkRecognitionTargeting {
         let centerBonus: CGFloat = generousBandFrame.contains(center) ? 10_000 : 0
 
         return intersectionArea + centerBonus
+    }
+}
+
+private extension InkBounds {
+    var cgRect: CGRect {
+        CGRect(
+            x: minX,
+            y: minY,
+            width: width,
+            height: height
+        )
     }
 }
 #endif

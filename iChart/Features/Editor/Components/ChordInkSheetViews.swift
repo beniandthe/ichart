@@ -58,6 +58,15 @@ struct PendingChordInkConfirmation: Identifiable {
     }
 }
 
+struct PendingChordInkBatchConfirmation: Identifiable {
+    let id = UUID()
+    let confirmations: [PendingChordInkConfirmation]
+
+    var displayTitle: String {
+        "\(confirmations.count) Chords"
+    }
+}
+
 struct PendingChordCorrection: Identifiable {
     let id = UUID()
     let chordEventID: UUID
@@ -85,6 +94,137 @@ struct PendingChordCorrection: Identifiable {
 
             result.append(trimmedText)
         }
+    }
+}
+
+struct ChordInkBatchConfirmationSheetView: View {
+    let batch: PendingChordInkBatchConfirmation
+    let onAcceptAll: ([UUID: String]) -> Void
+    let onClearAndRewrite: () -> Void
+    @State private var candidateTextByID: [UUID: String]
+    @FocusState private var focusedConfirmationID: UUID?
+
+    init(
+        batch: PendingChordInkBatchConfirmation,
+        onAcceptAll: @escaping ([UUID: String]) -> Void,
+        onClearAndRewrite: @escaping () -> Void
+    ) {
+        self.batch = batch
+        self.onAcceptAll = onAcceptAll
+        self.onClearAndRewrite = onClearAndRewrite
+        _candidateTextByID = State(
+            initialValue: Dictionary(
+                uniqueKeysWithValues: batch.confirmations.map { confirmation in
+                    (confirmation.id, confirmation.bestCandidateText ?? "")
+                }
+            )
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 14) {
+                VStack(spacing: 5) {
+                    Text(batch.displayTitle)
+                        .font(.system(.title2, design: .rounded).weight(.bold))
+
+                    Text("Review each chord, then render them together.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(batch.confirmations) { confirmation in
+                            chordRow(for: confirmation)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Rewrite Ink") {
+                        onClearAndRewrite()
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+
+                    Button("Render All") {
+                        onAcceptAll(trimmedCandidateTextByID)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canRenderAll)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Confirm Chords")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(true)
+    }
+
+    private var trimmedCandidateTextByID: [UUID: String] {
+        candidateTextByID.reduce(into: [UUID: String]()) { result, element in
+            result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private var canRenderAll: Bool {
+        batch.confirmations.allSatisfy { confirmation in
+            !(trimmedCandidateTextByID[confirmation.id] ?? "").isEmpty
+        }
+    }
+
+    private func chordRow(for confirmation: PendingChordInkConfirmation) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Measure \(confirmation.displayMeasureNumber)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if confirmation.decision.isCloseRace {
+                    Text("Check")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            TextField(
+                "Chord",
+                text: Binding(
+                    get: { candidateTextByID[confirmation.id] ?? "" },
+                    set: { candidateTextByID[confirmation.id] = $0 }
+                )
+            )
+            .textInputAutocapitalization(.characters)
+            .disableAutocorrection(true)
+            .font(.system(.title3, design: .rounded).weight(.semibold))
+            .textFieldStyle(.roundedBorder)
+            .focused($focusedConfirmationID, equals: confirmation.id)
+
+            if !confirmation.visibleCandidateTexts.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(confirmation.visibleCandidateTexts, id: \.self) { candidate in
+                        Button(candidate) {
+                            candidateTextByID[confirmation.id] = candidate
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
