@@ -2440,8 +2440,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout),
-           !shouldConfirmChordInkTap(at: location) {
+        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout) {
+            return
+        }
+
+        guard ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+            location: location,
+            pageLayout: pageLayout,
+            hasChordInk: currentCanvasDrawingData() != nil
+        ) else {
             return
         }
 
@@ -2471,29 +2478,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         return bounds.contains(location)
-    }
-
-    private func shouldConfirmChordInkTap(at location: CGPoint) -> Bool {
-        guard currentCanvasDrawingData() != nil,
-              let inkBounds = currentChordInkBoundsInView() else {
-            return false
-        }
-
-        return !inkBounds.insetBy(dx: -18, dy: -18).contains(location)
-    }
-
-    private func currentChordInkBoundsInView() -> CGRect? {
-        guard let activeInkScope = activeInkScope(),
-              case .chords(let chordFrame, _) = activeInkScope else {
-            return nil
-        }
-
-        let inkBounds = LeadSheetChordInkImageRenderer.renderBounds(for: pageInkCanvasView.drawing)
-        guard !inkBounds.isNull else {
-            return nil
-        }
-
-        return inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
     }
 
     private func confirmChordInkFromUserTapIfNeeded() {

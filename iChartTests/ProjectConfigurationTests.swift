@@ -74,11 +74,14 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
         XCTAssertTrue(hostText.contains("startTapConfirmedChordInkRecognition"))
+        XCTAssertTrue(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
         XCTAssertTrue(flowText.contains("case tapToConfirm"))
         XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
         XCTAssertFalse(hostText.contains(".automaticPreview"))
         XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
         XCTAssertFalse(hostText.contains("continuationGrace"))
+        XCTAssertFalse(hostText.contains("shouldConfirmChordInkTap"))
+        XCTAssertFalse(hostText.contains("currentChordInkBoundsInView"))
         XCTAssertFalse(gesturePolicyText.contains("shouldConfirmOutsideLaneGesture"))
     }
 
