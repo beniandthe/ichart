@@ -87,8 +87,14 @@ struct ChartCloudMetadata: Codable, Hashable {
 }
 
 protocol ChartRepository {
+    var savesSnapshotsOffMainThread: Bool { get }
+
     func loadSnapshot() throws -> ChartLibrarySnapshot?
     func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws
+}
+
+extension ChartRepository {
+    var savesSnapshotsOffMainThread: Bool { false }
 }
 
 struct InMemoryChartRepository: ChartRepository {
@@ -106,6 +112,8 @@ struct InMemoryChartRepository: ChartRepository {
 struct FileChartRepository: ChartRepository {
     let url: URL
     private let fileManager: FileManager
+
+    var savesSnapshotsOffMainThread: Bool { true }
 
     init(url: URL, fileManager: FileManager = .default) {
         self.url = url

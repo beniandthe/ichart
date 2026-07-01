@@ -17,6 +17,7 @@ final class ChartLibraryStoreTests: XCTestCase {
     }
 
     private final class RecordingChartRepository: ChartRepository {
+        var savesSnapshotsOffMainThread = false
         var snapshotToLoad: ChartLibrarySnapshot?
         var loadError: Error?
         var saveError: Error?
@@ -35,6 +36,62 @@ final class ChartLibraryStoreTests: XCTestCase {
             }
             savedSnapshots.append(snapshot)
         }
+    }
+
+    private final class BlockingAsyncChartRepository: ChartRepository {
+        var savesSnapshotsOffMainThread = true
+        var onSaveStarted: (() -> Void)?
+        var onSaveFinished: (() -> Void)?
+        private let releaseSave = DispatchSemaphore(value: 0)
+        private let stateLock = NSLock()
+        private var savedSnapshotsStorage: [ChartLibrarySnapshot] = []
+        private var saveStartedCountStorage = 0
+
+        var savedSnapshots: [ChartLibrarySnapshot] {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return savedSnapshotsStorage
+        }
+
+        var saveStartedCount: Int {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return saveStartedCountStorage
+        }
+
+        func loadSnapshot() throws -> ChartLibrarySnapshot? {
+            nil
+        }
+
+        func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws {
+            stateLock.lock()
+            saveStartedCountStorage += 1
+            stateLock.unlock()
+            onSaveStarted?()
+            releaseSave.wait()
+            stateLock.lock()
+            savedSnapshotsStorage.append(snapshot)
+            stateLock.unlock()
+            onSaveFinished?()
+        }
+
+        func unblockSave() {
+            releaseSave.signal()
+        }
+    }
+
+    private func waitUntil(
+        _ condition: @autoclosure () -> Bool,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertTrue(condition(), "Timed out waiting for condition", file: file, line: line)
     }
 
     func testBasicAccountPreventsCreatingPastTheChartLimit() {
@@ -242,6 +299,51 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         XCTAssertLessThan(Date().timeIntervalSince(savedAt), 5)
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
+    }
+
+    func testAsyncRepositoryDoesNotBlockChartCreation() {
+        let repository = BlockingAsyncChartRepository()
+        let saveStarted = expectation(description: "save started")
+        let saveFinished = expectation(description: "save finished")
+        repository.onSaveStarted = {
+            saveStarted.fulfill()
+        }
+        repository.onSaveFinished = {
+            saveFinished.fulfill()
+        }
+
+        let store = ChartLibraryStore(charts: [], repository: repository)
+        let start = Date()
+
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
+
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.2)
+        XCTAssertEqual(store.charts.count, 1)
+        XCTAssertEqual(store.selectedChartID, store.charts.first?.id)
+        wait(for: [saveStarted], timeout: 1)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+
+        repository.unblockSave()
+        wait(for: [saveFinished], timeout: 1)
+        XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
+    }
+
+    func testAsyncRepositoryPersistsLatestSnapshotAfterBlockedSave() {
+        let repository = BlockingAsyncChartRepository()
+        let store = ChartLibraryStore(charts: [], repository: repository)
+
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
+        waitUntil(repository.saveStartedCount == 1)
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .rhythmSectionSheet))
+        let expectedSelectedChartID = store.selectedChartID
+
+        repository.unblockSave()
+        waitUntil(repository.saveStartedCount == 2)
+        repository.unblockSave()
+        waitUntil(repository.savedSnapshots.count == 2)
+
+        XCTAssertEqual(repository.savedSnapshots.last?.charts.count, 2)
+        XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, expectedSelectedChartID)
     }
 
     func testFailedSaveReportsPersistenceIssueWithoutDroppingInMemoryMutation() {
