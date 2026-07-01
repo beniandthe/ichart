@@ -671,6 +671,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains(".frame(width: 44, height: 44)"))
     }
 
+    func testSlowChartOperationsHaveVisibleFeedback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
+        let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        let typographySheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
+        )
+        let appearanceSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartAppearanceSheetView.swift")
+        )
+
+        XCTAssertTrue(appRootText.contains("IChartAppOperationOverlay"))
+        XCTAssertTrue(appRootText.contains("Opening \\(chartTitle)..."))
+        XCTAssertTrue(libraryText.contains("IChartLibraryOperationOverlay"))
+        XCTAssertTrue(libraryText.contains("Creating \\(layoutName)..."))
+        XCTAssertTrue(libraryText.contains("Deleting \\(title)..."))
+        XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
+        XCTAssertTrue(editorText.contains("Updating page style..."))
+        XCTAssertTrue(editorText.contains("Updating engraving..."))
+        XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
+        XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
+        XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))
+    }
+
     func testSupabasePackageAndConfigurationAreWired() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

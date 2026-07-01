@@ -932,6 +932,8 @@ struct LibraryView: View {
     @State private var forumSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
+    @State private var activeLibraryOperation: IChartLibraryOperation?
+    @State private var activeLibraryOperationID = UUID()
 
     init(onOpenChart: @escaping (Chart.ID, EditorCanvasMode) -> Void) {
         self.onOpenChart = onOpenChart
@@ -1055,6 +1057,13 @@ struct LibraryView: View {
                 .padding(.trailing, 28)
             }
         }
+        .overlay {
+            if let activeLibraryOperation {
+                IChartLibraryOperationOverlay(message: activeLibraryOperation.message)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: activeLibraryOperation)
         .task {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
@@ -1241,7 +1250,9 @@ struct LibraryView: View {
             presenting: deleteRequest
         ) { request in
             Button("Delete", role: .destructive) {
-                store.deleteChart(id: request.chartID)
+                runLibraryOperation(.deletingChart(request.title)) {
+                    store.deleteChart(id: request.chartID)
+                }
                 deleteRequest = nil
             }
             Button("Cancel", role: .cancel) {
@@ -1645,13 +1656,17 @@ struct LibraryView: View {
                                 renameRequest = ChartRenameRequest(chart: chart)
                             },
                             onDuplicate: {
-                                store.duplicateChart(id: chart.id)
+                                runLibraryOperation(.duplicatingChart(chart.title)) {
+                                    store.duplicateChart(id: chart.id)
+                                }
                             },
                             onShareToForum: {
                                 forumPublishRequest = IChartForumPublishRequest(chart: chart)
                             },
                             onRemoveLocal: {
-                                store.pruneLocalChartForCurrentPlan(id: chart.id)
+                                runLibraryOperation(.removingLocalChart(chart.title)) {
+                                    store.pruneLocalChartForCurrentPlan(id: chart.id)
+                                }
                             },
                             onDelete: {
                                 deleteRequest = ChartDeleteRequest(chart: chart)
@@ -1727,20 +1742,39 @@ struct LibraryView: View {
         let startsGuidedSimpleChartTour = guidedTourStep == .simpleChart && layoutStyle == .simpleChordSheet
         pendingProjectForNewChart = nil
 
-        guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
-              let chartID = store.selectedChartID else {
-            return
-        }
+        runLibraryOperation(.creatingChart(layoutStyle.displayText)) {
+            guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
+                  let chartID = store.selectedChartID else {
+                return
+            }
 
-        if guidedTourStep == .simpleChart {
-            guidedTourStep = nil
-        }
+            if guidedTourStep == .simpleChart {
+                guidedTourStep = nil
+            }
 
-        if startsGuidedSimpleChartTour {
-            pendingSimpleChartTour = true
-        }
+            if startsGuidedSimpleChartTour {
+                pendingSimpleChartTour = true
+            }
 
-        onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+            onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+        }
+    }
+
+    private func runLibraryOperation(_ operation: IChartLibraryOperation, perform work: @escaping () -> Void) {
+        let operationID = UUID()
+        activeLibraryOperationID = operationID
+        activeLibraryOperation = operation
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            work()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard activeLibraryOperationID == operationID else {
+                return
+            }
+
+            activeLibraryOperation = nil
+        }
     }
 
     private func updateAccountLandingPresentation() {
@@ -1880,6 +1914,48 @@ private struct ChartProjectDuplicateVariantRequest: Identifiable, Hashable {
 
     var id: String {
         "\(project.id.uuidString)-\(chart.id.uuidString)"
+    }
+}
+
+private struct IChartLibraryOperation: Equatable {
+    let message: String
+
+    static func creatingChart(_ layoutName: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Creating \(layoutName)...")
+    }
+
+    static func duplicatingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Duplicating \(title)...")
+    }
+
+    static func deletingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Deleting \(title)...")
+    }
+
+    static func removingLocalChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Removing \(title)...")
+    }
+}
+
+private struct IChartLibraryOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 

@@ -222,6 +222,28 @@ private struct IChartEditorGuidedTourPrompt: View {
     }
 }
 
+private struct IChartEditorOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+    }
+}
+
 struct EditorView: View {
     private static let supportedTimeSignatureChoices = [
         Meter(numerator: 4, denominator: 4),
@@ -249,6 +271,8 @@ struct EditorView: View {
     @State private var showingTypographySheet = false
     @State private var showingInkResponsivenessSheet = false
     @State private var isExporting = false
+    @State private var activeEditorOperationMessage: String?
+    @State private var activeEditorOperationID = UUID()
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
     @State private var selectedCueTextID: UUID?
@@ -334,6 +358,13 @@ struct EditorView: View {
                 .padding(editorGuidedTourStep.contentPromptPadding)
             }
         }
+        .overlay {
+            if let activeEditorOperationMessage {
+                IChartEditorOperationOverlay(message: activeEditorOperationMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: activeEditorOperationMessage)
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -616,6 +647,23 @@ struct EditorView: View {
         }
     }
 
+    private func runEditorOperation(_ message: String, perform work: @escaping () -> Void) {
+        let operationID = UUID()
+        activeEditorOperationID = operationID
+        activeEditorOperationMessage = message
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            work()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard activeEditorOperationID == operationID else {
+                return
+            }
+
+            activeEditorOperationMessage = nil
+        }
+    }
+
     private var editorNavigationChrome: some View {
         HStack(spacing: 12) {
             Button {
@@ -822,7 +870,9 @@ struct EditorView: View {
                         ForEach(StylePreset.allCases, id: \.self) { preset in
                             Button {
                                 activateSelectTool(clearsMeasureSelection: true)
-                                chart.setStylePreset(preset)
+                                runEditorOperation("Updating page style...") {
+                                    chart.setStylePreset(preset)
+                                }
                             } label: {
                                 notationMenuLabel(preset.displayText, isSelected: chart.stylePreset == preset)
                             }
@@ -849,7 +899,9 @@ struct EditorView: View {
                         ForEach(EngravingPreset.allCases, id: \.self) { preset in
                             Button {
                                 activateSelectTool(clearsMeasureSelection: true)
-                                chart.setEngravingPreset(preset)
+                                runEditorOperation("Updating engraving...") {
+                                    chart.setEngravingPreset(preset)
+                                }
                             } label: {
                                 notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
                             }
