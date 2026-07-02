@@ -169,9 +169,42 @@ struct LeadSheetNotationRenderer {
         let paperPath = UIBezierPath(rect: frame)
         style.paperFillColor.setFill()
         paperPath.fill()
-        UIColor(white: 0.35, alpha: 1).setStroke()
+        drawPaperRuling(in: frame, context: context)
+        style.paperBorderColor.setStroke()
         paperPath.lineWidth = 1.2 * style.strokeScale
         paperPath.stroke()
+    }
+
+    private func drawPaperRuling(in frame: CGRect, context: CGContext) {
+        guard style.paperRuling == .staffPaper else {
+            return
+        }
+
+        context.saveGState()
+        UIBezierPath(rect: frame).addClip()
+
+        let rulingBounds = frame.insetBy(dx: 34, dy: 48)
+        let staffLineSpacing: CGFloat = style.paperRulingStaffLineSpacing
+        let staffGroupSpacing: CGFloat = style.paperRulingStaffGroupSpacing
+        var groupTop = rulingBounds.minY
+        style.paperRulingColor.setStroke()
+
+        while groupTop <= rulingBounds.maxY {
+            let groupPath = UIBezierPath()
+            for lineIndex in 0..<5 {
+                let y = groupTop + CGFloat(lineIndex) * staffLineSpacing
+                guard y <= rulingBounds.maxY else {
+                    continue
+                }
+                groupPath.move(to: CGPoint(x: rulingBounds.minX, y: y))
+                groupPath.addLine(to: CGPoint(x: rulingBounds.maxX, y: y))
+            }
+            groupPath.lineWidth = style.paperRulingLineWidth
+            groupPath.stroke()
+            groupTop += staffGroupSpacing
+        }
+
+        context.restoreGState()
     }
 
     func drawHeader(_ header: LeadSheetHeaderLayout) {
@@ -368,7 +401,7 @@ struct LeadSheetNotationRenderer {
             path.move(to: CGPoint(x: horizontalSpan.minX, y: lineY))
             path.addLine(to: CGPoint(x: horizontalSpan.maxX, y: lineY))
             path.lineWidth = style.staffLineWidth(staffSpace: staffSpace)
-            style.inkColor.withAlphaComponent(chart.layoutStyle == .rhythmSectionSheet ? 0.82 : 0.72).setStroke()
+            style.inkColor.withAlphaComponent(style.staffLineAlpha).setStroke()
             path.stroke()
         }
     }
@@ -1301,6 +1334,11 @@ struct LeadSheetNotationRenderer {
     }
 }
 
+private enum LeadSheetPaperRuling {
+    case none
+    case staffPaper
+}
+
 private struct LeadSheetNotationStyle {
     let layoutStyle: ChartLayoutStyle
     let documentStyle: StylePreset
@@ -1326,6 +1364,7 @@ private struct LeadSheetNotationStyle {
 
     func staffLineWidth(staffSpace: CGFloat) -> CGFloat {
         scaledStaffSpaceValue(smuflDefaults.staffLineThickness, staffSpace: staffSpace, minimum: 0.7)
+            * sheetStaffLineScale
     }
 
     func stemWidth(staffSpace: CGFloat) -> CGFloat {
@@ -1394,23 +1433,146 @@ private struct LeadSheetNotationStyle {
             return UIColor(white: 0.055, alpha: 1)
         case .gigSheet:
             return UIColor(white: 0.035, alpha: 1)
+        case .plainWhite:
+            return UIColor(white: 0.07, alpha: 1)
         case .rehearsalDraft:
             return UIColor(white: 0.18, alpha: 1)
         }
     }
 
     var paperFillColor: UIColor {
-        if layoutStyle == .simpleChordSheet {
-            return .white
+        switch layoutStyle {
+        case .simpleChordSheet, .leadSheet:
+            switch documentStyle {
+            case .cleanStudio:
+                return UIColor(red: 1.0, green: 0.976, blue: 0.892, alpha: 1)
+            case .gigSheet:
+                return UIColor(red: 0.988, green: 0.965, blue: 0.906, alpha: 1)
+            case .plainWhite:
+                return UIColor(white: 1.0, alpha: 1)
+            case .rehearsalDraft:
+                return UIColor(white: 1.0, alpha: 1)
+            }
+        case .rhythmSectionSheet:
+            switch documentStyle {
+            case .cleanStudio:
+                return UIColor(red: 0.992, green: 0.975, blue: 0.922, alpha: 1)
+            case .gigSheet:
+                return UIColor(red: 0.962, green: 0.986, blue: 0.982, alpha: 1)
+            case .plainWhite:
+                return UIColor(white: 1.0, alpha: 1)
+            case .rehearsalDraft:
+                return UIColor(red: 0.988, green: 0.992, blue: 0.996, alpha: 1)
+            }
+        }
+    }
+
+    var paperBorderColor: UIColor {
+        switch documentStyle {
+        case .cleanStudio:
+            return UIColor(red: 0.62, green: 0.52, blue: 0.38, alpha: 1)
+        case .gigSheet:
+            return layoutStyle == .rhythmSectionSheet
+                ? UIColor(red: 0.42, green: 0.54, blue: 0.55, alpha: 1)
+                : UIColor(red: 0.55, green: 0.48, blue: 0.38, alpha: 1)
+        case .plainWhite:
+            return UIColor(white: 0.70, alpha: 1)
+        case .rehearsalDraft:
+            return UIColor(white: 0.62, alpha: 1)
+        }
+    }
+
+    var paperRuling: LeadSheetPaperRuling {
+        guard layoutStyle == .simpleChordSheet else {
+            return .none
+        }
+
+        switch documentStyle {
+        case .cleanStudio, .plainWhite:
+            return .none
+        case .gigSheet, .rehearsalDraft:
+            return .staffPaper
+        }
+    }
+
+    var paperRulingColor: UIColor {
+        switch documentStyle {
+        case .cleanStudio, .plainWhite:
+            return UIColor.clear
+        case .gigSheet:
+            return UIColor(red: 0.34, green: 0.40, blue: 0.42, alpha: 0.14)
+        case .rehearsalDraft:
+            return UIColor(white: 0.42, alpha: 0.12)
+        }
+    }
+
+    var paperRulingLineWidth: CGFloat {
+        switch documentStyle {
+        case .cleanStudio, .plainWhite:
+            return 0
+        case .gigSheet:
+            return 0.7
+        case .rehearsalDraft:
+            return 0.55
+        }
+    }
+
+    var paperRulingStaffLineSpacing: CGFloat {
+        switch documentStyle {
+        case .cleanStudio, .plainWhite:
+            return 0
+        case .gigSheet:
+            return 7.2
+        case .rehearsalDraft:
+            return 7.0
+        }
+    }
+
+    var paperRulingStaffGroupSpacing: CGFloat {
+        switch documentStyle {
+        case .cleanStudio, .plainWhite:
+            return 0
+        case .gigSheet:
+            return 74
+        case .rehearsalDraft:
+            return 78
+        }
+    }
+
+    var staffLineAlpha: CGFloat {
+        switch layoutStyle {
+        case .simpleChordSheet:
+            return 0.72
+        case .leadSheet:
+            return 0.74
+        case .rhythmSectionSheet:
+            switch documentStyle {
+            case .cleanStudio:
+                return 0.78
+            case .gigSheet:
+                return 0.9
+            case .plainWhite:
+                return 0.72
+            case .rehearsalDraft:
+                return 0.58
+            }
+        }
+    }
+
+    private var sheetStaffLineScale: CGFloat {
+        guard layoutStyle == .rhythmSectionSheet else {
+            return 1
         }
 
         switch documentStyle {
         case .cleanStudio:
-            return UIColor(white: 0.995, alpha: 1)
+            return 1
         case .gigSheet:
-            return UIColor(red: 1, green: 0.992, blue: 0.962, alpha: 1)
+            return 1.18
+        case .plainWhite:
+            return 1
         case .rehearsalDraft:
-            return UIColor(red: 0.985, green: 0.988, blue: 0.975, alpha: 1)
+            return 0.82
         }
     }
 
@@ -1447,7 +1609,7 @@ private struct LeadSheetNotationStyle {
         switch documentStyle {
         case .cleanStudio:
             fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
-        case .gigSheet:
+        case .gigSheet, .plainWhite:
             fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .rehearsalDraft:
             fallback = UIFont.systemFont(ofSize: size * 0.9, weight: .bold)
@@ -1466,7 +1628,7 @@ private struct LeadSheetNotationStyle {
 
         let fallback: UIFont
         switch documentStyle {
-        case .cleanStudio, .gigSheet:
+        case .cleanStudio, .gigSheet, .plainWhite:
             fallback = UIFont.systemFont(ofSize: size, weight: .semibold)
         case .rehearsalDraft:
             fallback = UIFont.systemFont(ofSize: size, weight: .semibold)

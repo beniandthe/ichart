@@ -867,14 +867,17 @@ struct EditorView: View {
                     Divider()
 
                     Menu {
-                        ForEach(StylePreset.allCases, id: \.self) { preset in
+                        ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
                             Button {
                                 activateSelectTool(clearsMeasureSelection: true)
                                 runEditorOperation("Updating page style...") {
                                     chart.setStylePreset(preset)
                                 }
                             } label: {
-                                notationMenuLabel(preset.displayText, isSelected: chart.stylePreset == preset)
+                                notationMenuLabel(
+                                    preset.sheetDisplayText(for: chart.layoutStyle),
+                                    isSelected: chart.stylePreset == preset
+                                )
                             }
                         }
                     } label: {

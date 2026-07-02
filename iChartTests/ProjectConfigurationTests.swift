@@ -440,6 +440,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Models/Chart.swift")
         )
+        let chartAppearanceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartAppearance.swift")
+        )
         let measureTimingText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Services/MeasureTimingValidator.swift")
@@ -632,10 +636,28 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("Create a new chart to start the first project."))
         XCTAssertTrue(libraryText.contains("Not For Me"))
         XCTAssertFalse(libraryText.contains("Downvote"))
+        XCTAssertTrue(appearanceSheetText.contains("Sheet Style"))
+        XCTAssertTrue(appearanceSheetText.contains("Change the chart page surface without changing the app controls."))
         XCTAssertTrue(appearanceSheetText.contains("Choose the notation symbol style used in the chart."))
         XCTAssertTrue(appearanceSheetText.contains("Section(\"Notation Font\")"))
         XCTAssertFalse(appearanceSheetText.contains("Choose the SMuFL notation family used for glyphs."))
         XCTAssertFalse(appearanceSheetText.contains("Section(\"SMuFL Font\")"))
+        XCTAssertTrue(setupSheetText.contains("Sheet Style"))
+        XCTAssertTrue(setupSheetText.contains("selectedStylePreset"))
+        XCTAssertTrue(editorText.contains("StylePreset.sheetPresets(for: chart.layoutStyle)"))
+        XCTAssertTrue(notationRendererText.contains("guard layoutStyle == .simpleChordSheet else"))
+        XCTAssertFalse(
+            chartAppearanceText.contains(
+                """
+                case .rhythmSectionSheet:
+                            switch self {
+                            case .cleanStudio:
+                                return "Paper"
+                            case .gigSheet:
+                                return "Staff Paper"
+                """
+            )
+        )
         XCTAssertTrue(chartModelText.contains("Staff-based page for melody, chords, and standard notation."))
         XCTAssertFalse(chartModelText.contains("current iChart workflow"))
         XCTAssertTrue(measureTimingText.contains("is tied to a rhythm position that changed"))

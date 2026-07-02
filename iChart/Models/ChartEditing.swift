@@ -18,13 +18,17 @@ extension Chart {
         meter: Meter,
         staffStyle: StaffStyle,
         startingMeasureCount: Int = 1,
-        clef: ChartClef = .treble
+        clef: ChartClef = .treble,
+        stylePreset: StylePreset? = nil
     ) {
         self.title = title
         documentKey = key
         defaultMeter = meter
         self.staffStyle = staffStyle
         defaultClef = clef
+        if let stylePreset {
+            self.stylePreset = stylePreset
+        }
         timeSignatureChanges = []
         ensureInitialSystem()
         if measures.isEmpty {

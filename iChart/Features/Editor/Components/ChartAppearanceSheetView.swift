@@ -10,7 +10,7 @@ enum ChartAppearancePanel: String, Identifiable {
     var title: String {
         switch self {
         case .documentStyle:
-            return "Document Style"
+            return "Sheet Style"
         case .notationFont:
             return "Notation Fonts"
         case .engraving:
@@ -21,7 +21,7 @@ enum ChartAppearancePanel: String, Identifiable {
     var subtitle: String {
         switch self {
         case .documentStyle:
-            return "Set the overall visual personality of the chart."
+            return "Change the chart page surface without changing the app controls."
         case .notationFont:
             return "Choose the notation symbol style used in the chart."
         case .engraving:
@@ -76,10 +76,10 @@ struct ChartAppearanceSheetView: View {
 
     private var documentStyleRows: some View {
         Section("Style") {
-            ForEach(StylePreset.allCases, id: \.self) { preset in
+            ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
                 AppearanceChoiceRow(
-                    title: preset.displayText,
-                    detail: preset.detailText,
+                    title: preset.sheetDisplayText(for: chart.layoutStyle),
+                    detail: preset.sheetDetailText(for: chart.layoutStyle),
                     isSelected: chart.stylePreset == preset
                 ) {
                     applyAppearanceChange("Updating page style...") {

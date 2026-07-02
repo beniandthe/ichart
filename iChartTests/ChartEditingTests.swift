@@ -943,6 +943,29 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures[0].barlineAfter, .single)
     }
 
+    func testCompleteInitialSetupStoresSelectedSheetStyle() {
+        var chordChart = Chart.draft(title: "Staff Chords", layoutStyle: .simpleChordSheet)
+        var rhythmChart = Chart.draft(title: "Plain Rhythm", layoutStyle: .rhythmSectionSheet)
+
+        chordChart.completeInitialSetup(
+            title: chordChart.title,
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            stylePreset: .gigSheet
+        )
+        rhythmChart.completeInitialSetup(
+            title: rhythmChart.title,
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            stylePreset: .rehearsalDraft
+        )
+
+        XCTAssertEqual(chordChart.stylePreset, .gigSheet)
+        XCTAssertEqual(rhythmChart.stylePreset, .rehearsalDraft)
+    }
+
     func testDraftStoresSelectedLayoutStyleAndDefaults() {
         let chordSheet = Chart.draft(title: "Quick Roadmap", layoutStyle: .simpleChordSheet)
         let rhythmSheet = Chart.draft(title: "Pocket Chart", layoutStyle: .rhythmSectionSheet)
@@ -957,6 +980,22 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(leadSheet.layoutStyle, .leadSheet)
         XCTAssertEqual(leadSheet.engravingPreset, .balanced)
         XCTAssertEqual(leadSheet.stylePreset, .cleanStudio)
+    }
+
+    func testStylePresetsUseLayoutSpecificSheetLabels() {
+        XCTAssertEqual(StylePreset.cleanStudio.sheetDisplayText(for: .simpleChordSheet), "Real Book")
+        XCTAssertEqual(StylePreset.gigSheet.sheetDisplayText(for: .simpleChordSheet), "Staff Paper")
+        XCTAssertEqual(StylePreset.plainWhite.sheetDisplayText(for: .simpleChordSheet), "White")
+        XCTAssertEqual(StylePreset.rehearsalDraft.sheetDisplayText(for: .simpleChordSheet), "White Staff")
+
+        XCTAssertEqual(StylePreset.cleanStudio.sheetDisplayText(for: .rhythmSectionSheet), "Paper")
+        XCTAssertEqual(StylePreset.gigSheet.sheetDisplayText(for: .rhythmSectionSheet), "Warm Paper")
+        XCTAssertEqual(StylePreset.rehearsalDraft.sheetDisplayText(for: .rhythmSectionSheet), "White")
+        XCTAssertEqual(
+            StylePreset.sheetPresets(for: .simpleChordSheet),
+            [.cleanStudio, .gigSheet, .plainWhite, .rehearsalDraft]
+        )
+        XCTAssertEqual(StylePreset.sheetPresets(for: .rhythmSectionSheet), [.cleanStudio, .gigSheet, .rehearsalDraft])
     }
 
     func testLayoutProfilesDefineSeparateChartStructureContracts() {
