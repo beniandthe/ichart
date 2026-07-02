@@ -300,6 +300,7 @@ struct EditorView: View {
     @State private var pendingCueTextPosition: CuePosition?
     @State private var cueTextDraft = ""
     @State private var showingCueTextEntry = false
+    @State private var editingCueTextID: UUID?
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var chordToolInputMode: ChordToolInputMode = .read
@@ -404,6 +405,7 @@ struct EditorView: View {
         .sheet(isPresented: $showingCueTextEntry) {
             CueTextEntrySheetView(
                 text: $cueTextDraft,
+                actionTitle: editingCueTextID == nil ? "Add" : "Apply",
                 onAdd: handleCueTextEntryAccepted,
                 onCancel: clearPendingCueTextEntry
             )
@@ -984,6 +986,36 @@ struct EditorView: View {
                 .buttonStyle(.plain)
 
                 Menu {
+                    if selectedCueText != nil {
+                        Button {
+                            handleEditSelectedCueText()
+                        } label: {
+                            Label("Edit Selected Text", systemImage: "pencil")
+                        }
+
+                        Button {
+                            resizeSelectedCueText(by: CueText.scaleStep)
+                        } label: {
+                            Label("Make Text Larger", systemImage: "plus.magnifyingglass")
+                        }
+                        .disabled(!canGrowSelectedCueText)
+
+                        Button {
+                            resizeSelectedCueText(by: -CueText.scaleStep)
+                        } label: {
+                            Label("Make Text Smaller", systemImage: "minus.magnifyingglass")
+                        }
+                        .disabled(!canShrinkSelectedCueText)
+
+                        Button(role: .destructive) {
+                            deleteSelectedCueText()
+                        } label: {
+                            Label("Delete Selected Text", systemImage: "trash")
+                        }
+
+                        Divider()
+                    }
+
                     Button {
                         handleAddCueText(position: .below)
                     } label: {
@@ -1413,6 +1445,7 @@ struct EditorView: View {
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
             onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
+            onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas,
@@ -1589,6 +1622,26 @@ struct EditorView: View {
         }
 
         return !chart.cueTextIDs(attachedTo: targetMeasureID).isEmpty
+    }
+
+    private var selectedCueText: CueText? {
+        selectedCueTextID.flatMap { chart.cueText(id: $0) }
+    }
+
+    private var canShrinkSelectedCueText: Bool {
+        guard let selectedCueText else {
+            return false
+        }
+
+        return selectedCueText.scale > CueText.minimumScale
+    }
+
+    private var canGrowSelectedCueText: Bool {
+        guard let selectedCueText else {
+            return false
+        }
+
+        return selectedCueText.scale < CueText.maximumScale
     }
 
     private var canDeleteSelectedMeasure: Bool {
@@ -2026,6 +2079,7 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
         pendingCueTextMeasureID = targetMeasureID
         pendingCueTextPosition = position
+        editingCueTextID = nil
         cueTextDraft = ""
         showingCueTextEntry = true
     }
@@ -2035,17 +2089,32 @@ struct EditorView: View {
             clearPendingCueTextEntry()
         }
 
+        if let editingCueTextID {
+            guard chart.updateCueText(editingCueTextID, text: cueTextDraft),
+                  let cueText = chart.cueText(id: editingCueTextID) else {
+                return
+            }
+
+            selectedCueTextID = editingCueTextID
+            selectedMeasureID = cueText.anchorMeasureID
+            selectedRoadmapMarkerID = nil
+            canvasMode = .browse
+            return
+        }
+
         guard let pendingCueTextMeasureID,
               let pendingCueTextPosition,
-              chart.addCueText(
+              let cueTextID = chart.addCueText(
                 cueTextDraft,
                 anchorMeasureID: pendingCueTextMeasureID,
                 position: pendingCueTextPosition
-              ) != nil else {
+              ) else {
             return
         }
 
         selectedMeasureID = pendingCueTextMeasureID
+        selectedCueTextID = cueTextID
+        selectedRoadmapMarkerID = nil
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
@@ -2060,10 +2129,71 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
     }
 
+    private func handleCueTextEditRequestedFromCanvas(_ cueTextID: UUID) {
+        beginCueTextEdit(cueTextID)
+    }
+
+    private func handleEditSelectedCueText() {
+        guard let selectedCueTextID else {
+            return
+        }
+
+        beginCueTextEdit(selectedCueTextID)
+    }
+
+    private func beginCueTextEdit(_ cueTextID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let cueText = chart.cueText(id: cueTextID) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        pendingMeasureStackInsertion = nil
+        pendingCueTextMeasureID = nil
+        pendingCueTextPosition = nil
+        selectedCueTextID = cueTextID
+        selectedRoadmapMarkerID = nil
+        selectedMeasureID = cueText.anchorMeasureID
+        selectedNoteSelection = nil
+        editingCueTextID = cueTextID
+        cueTextDraft = cueText.text
+        canvasMode = .browse
+        showingCueTextEntry = true
+    }
+
+    private func resizeSelectedCueText(by scaleDelta: Double) {
+        guard let selectedCueTextID,
+              chart.resizeCueText(selectedCueTextID, byScaleDelta: scaleDelta),
+              let cueText = chart.cueText(id: selectedCueTextID) else {
+            return
+        }
+
+        selectedMeasureID = cueText.anchorMeasureID
+        selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
+    private func deleteSelectedCueText() {
+        guard let selectedCueTextID,
+              let cueText = chart.cueText(id: selectedCueTextID),
+              chart.deleteCueText(selectedCueTextID) else {
+            return
+        }
+
+        selectedMeasureID = cueText.anchorMeasureID
+        self.selectedCueTextID = nil
+        selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
     private func clearPendingCueTextEntry() {
         cueTextDraft = ""
         pendingCueTextMeasureID = nil
         pendingCueTextPosition = nil
+        editingCueTextID = nil
         showingCueTextEntry = false
     }
 
@@ -2075,6 +2205,7 @@ struct EditorView: View {
         pendingMeasureStackInsertion = nil
         pendingCueTextMeasureID = nil
         pendingCueTextPosition = nil
+        editingCueTextID = nil
         cueTextDraft = ""
         showingCueTextEntry = false
         pendingTimeSignatureSourceMeasureID = nil
@@ -3998,6 +4129,7 @@ private struct InkResponsivenessSheetView: View {
 private struct CueTextEntrySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var text: String
+    let actionTitle: String
     let onAdd: () -> Void
     let onCancel: () -> Void
     @FocusState private var isTextFocused: Bool
@@ -4010,10 +4142,32 @@ private struct CueTextEntrySheetView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 10) {
-                    TextField("Text", text: $text, axis: .vertical)
-                        .focused($isTextFocused)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(2...4)
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.secondarySystemBackground))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
+                            )
+
+                        if text.isEmpty {
+                            Text("Text")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 11)
+                                .allowsHitTesting(false)
+                        }
+
+                        TextEditor(text: $text)
+                            .focused($isTextFocused)
+                            .textInputAutocapitalization(.sentences)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .accessibilityLabel("Text")
+                    }
+                    .frame(minHeight: 118)
 
                     Button {
                         isTextFocused = true
@@ -4040,7 +4194,7 @@ private struct CueTextEntrySheetView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add") {
+                    Button(actionTitle) {
                         onAdd()
                         dismiss()
                     }
@@ -4048,7 +4202,7 @@ private struct CueTextEntrySheetView: View {
                 }
             }
         }
-        .presentationDetents([.height(190)])
+        .presentationDetents([.height(275)])
         .task {
             isTextFocused = true
         }

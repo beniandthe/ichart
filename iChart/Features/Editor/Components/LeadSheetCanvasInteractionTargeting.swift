@@ -60,6 +60,43 @@ enum LeadSheetCanvasInteractionTargeting {
             / max(1, targetMeasure.chordBandFrame.width)
         return (measureID, Double(min(max(fraction, 0), 0.9999)))
     }
+
+    static func cueTextMoveTarget(
+        at location: CGPoint,
+        in pageLayout: LeadSheetPageLayout?,
+        chart: Chart
+    ) -> (measureID: UUID, fraction: Double)? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        let measures = pageLayout.systems.flatMap(\.measures)
+        guard let targetMeasure = measures.first(where: { measure in
+            measure.frame.insetBy(dx: -6, dy: -18).contains(location)
+        }),
+              let measureID = targetMeasure.sourceMeasureID,
+              let sourceMeasure = chart.measure(id: measureID) else {
+            return nil
+        }
+
+        let rawFraction = (location.x - targetMeasure.staffFrame.minX)
+            / max(1, targetMeasure.staffFrame.width)
+        let meter = sourceMeasure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        return (
+            measureID,
+            snappedBeatFraction(
+                Double(min(max(rawFraction, 0), 0.9999)),
+                meter: meter
+            )
+        )
+    }
+
+    private static func snappedBeatFraction(_ fraction: Double, meter: Meter) -> Double {
+        let beatCount = max(1, meter.numerator)
+        let beatIndex = Int((fraction * Double(beatCount)).rounded())
+        let clampedBeatIndex = min(max(0, beatIndex), beatCount - 1)
+        return Double(clampedBeatIndex) / Double(beatCount)
+    }
 }
 
 #endif
