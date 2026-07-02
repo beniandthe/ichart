@@ -4,17 +4,8 @@ import SwiftUI
 struct AppRootView: View {
     @EnvironmentObject private var store: ChartLibraryStore
     @State private var projectPath: [ProjectRoute] = []
-    @State private var isLaunchAnimationVisible: Bool
     @State private var activeOperationMessage: String?
     @State private var activeOperationID = UUID()
-
-    private static let hasSeenAccountLandingKey = "iChartHasSeenAccountLanding"
-
-    init() {
-        _isLaunchAnimationVisible = State(
-            initialValue: UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)
-        )
-    }
 
     var body: some View {
         ZStack {
@@ -70,22 +61,8 @@ struct AppRootView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(0.5)
             }
-
-            if isLaunchAnimationVisible {
-                IChartLaunchScreenView(capturedHandwritingSample: launchHandwritingSample) {
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        isLaunchAnimationVisible = false
-                    }
-                }
-                .transition(.opacity)
-                .zIndex(1)
-            }
         }
         .animation(.easeOut(duration: 0.16), value: activeOperationMessage)
-    }
-
-    private var launchHandwritingSample: IChartLaunchHandwritingSample? {
-        IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()
     }
 
     private func showAppOperation(_ message: String) {

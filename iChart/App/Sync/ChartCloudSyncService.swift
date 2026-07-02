@@ -52,6 +52,7 @@ actor ChartCloudSyncService {
         }
 
         var updatedSnapshot = snapshotToReturn
+        updatedSnapshot.deletionTombstones = []
         updatedSnapshot.cloudMetadata.lastRemoteBackupAt = lastBackupAt
         updatedSnapshot.cloudMetadata.lastSyncAt = Date()
         updatedSnapshot.cloudMetadata.ownerID = ownerID

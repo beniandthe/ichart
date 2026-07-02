@@ -13,6 +13,7 @@ final class ChartCloudSyncStore: ObservableObject {
     private var isSignedIn = false
     private var queuedUploadTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
+    private var lastAuthSyncContext: AuthSyncContext?
 
     init(service: ChartCloudSyncService?) {
         self.service = service
@@ -48,6 +49,16 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     func authStateChanged(_ authState: IChartAuthState) {
+        let syncContext = AuthSyncContext(
+            authState: authState,
+            serviceIsConfigured: service != nil,
+            isCloudSyncEntitled: isCloudSyncEntitled
+        )
+        guard syncContext != lastAuthSyncContext else {
+            return
+        }
+        lastAuthSyncContext = syncContext
+
         guard service != nil else {
             cancelPendingSyncWork()
             state = .unconfigured
@@ -150,10 +161,11 @@ final class ChartCloudSyncStore: ObservableObject {
 
         do {
             let result = try await service.pushLocalSnapshot(snapshot)
-            libraryStore?.updateCloudMetadataFromSync(
+            libraryStore?.applyCloudPushResult(
                 ownerID: result.ownerID,
                 lastSyncAt: Date(),
-                lastRemoteBackupAt: result.lastRemoteBackupAt
+                lastRemoteBackupAt: result.lastRemoteBackupAt,
+                syncedDeletionTombstones: snapshot.deletionTombstones
             )
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
@@ -247,5 +259,44 @@ final class ChartCloudSyncStore: ObservableObject {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
             .lowercased()
+    }
+}
+
+private struct AuthSyncContext: Equatable {
+    enum Phase: Equatable {
+        case unconfigured
+        case signedOut
+        case temporarilyOffline(UUID)
+        case pendingEmailVerification(String)
+        case passwordRecovery(UUID)
+        case signedIn(UUID)
+    }
+
+    let phase: Phase
+    let serviceIsConfigured: Bool
+    let isCloudSyncEntitled: Bool
+
+    init(
+        authState: IChartAuthState,
+        serviceIsConfigured: Bool,
+        isCloudSyncEntitled: Bool
+    ) {
+        self.serviceIsConfigured = serviceIsConfigured
+        self.isCloudSyncEntitled = isCloudSyncEntitled
+
+        switch authState {
+        case .unconfigured:
+            phase = .unconfigured
+        case .signedOut:
+            phase = .signedOut
+        case .temporarilyOffline(let session):
+            phase = .temporarilyOffline(session.id)
+        case .pendingEmailVerification(let email):
+            phase = .pendingEmailVerification(email)
+        case .passwordRecovery(let session):
+            phase = .passwordRecovery(session.id)
+        case .signedIn(let session):
+            phase = .signedIn(session.id)
+        }
     }
 }

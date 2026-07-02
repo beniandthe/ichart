@@ -147,6 +147,36 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(repository.savedSnapshots.last?.entitlements.subscription.status, .proActive)
     }
 
+    func testApplySubscriptionStateSkipsPersistenceWhenLibraryAccessIsUnchanged() {
+        let repository = RecordingChartRepository()
+        let initialVerificationDate = Date(timeIntervalSinceReferenceDate: 41)
+        let store = ChartLibraryStore(
+            charts: ChartSamples.previewCharts,
+            entitlements: AppEntitlements(subscription: .activePro(verifiedAt: initialVerificationDate)),
+            repository: repository
+        )
+
+        store.applySubscriptionState(.activePro(verifiedAt: Date(timeIntervalSinceReferenceDate: 42)))
+
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertEqual(store.entitlements.subscription.lastVerifiedAt, initialVerificationDate)
+        XCTAssertTrue(store.canUse(.cloudBackup))
+    }
+
+    func testSetPlanSkipsPersistenceWhenPlanIsUnchanged() {
+        let repository = RecordingChartRepository()
+        let store = ChartLibraryStore(
+            charts: ChartSamples.previewCharts,
+            entitlements: AppEntitlements(activePlan: .studioSubscription),
+            repository: repository
+        )
+
+        store.setPlan(.studioSubscription)
+
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertEqual(store.entitlements.activePlan, .studioSubscription)
+    }
+
     func testExpiredSubscriptionRequiresBasicChartPruningWithoutCloudAccess() {
         let charts = (1...4).map {
             Chart.blank(title: "Chart \($0)")
@@ -742,6 +772,67 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(savedSnapshot.cloudMetadata.lastSyncAt, syncDate)
         XCTAssertEqual(savedSnapshot.cloudMetadata.lastRemoteBackupAt, backupDate)
         XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
+    func testCloudPushResultClearsSyncedDeletionTombstonesWithoutSchedulingUpload() throws {
+        let repository = RecordingChartRepository()
+        let syncedTombstone = ChartDeletionTombstone(
+            chartID: UUID(uuidString: "00000000-0000-0000-0000-000000000801")!,
+            deletedAt: Date(timeIntervalSinceReferenceDate: 8_200)
+        )
+        let unrelatedTombstone = ChartDeletionTombstone(
+            chartID: UUID(uuidString: "00000000-0000-0000-0000-000000000802")!,
+            deletedAt: Date(timeIntervalSinceReferenceDate: 8_300)
+        )
+        let store = ChartLibraryStore(
+            charts: [],
+            deletionTombstones: [syncedTombstone, unrelatedTombstone],
+            repository: repository
+        )
+        var scheduledUploadCount = 0
+        store.onSnapshotSaved = { _ in
+            scheduledUploadCount += 1
+        }
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000803")!
+
+        store.applyCloudPushResult(
+            ownerID: ownerID,
+            lastSyncAt: Date(timeIntervalSinceReferenceDate: 8_400),
+            lastRemoteBackupAt: Date(timeIntervalSinceReferenceDate: 8_500),
+            syncedDeletionTombstones: [syncedTombstone]
+        )
+
+        XCTAssertEqual(store.deletionTombstones.map(\.chartID), [unrelatedTombstone.chartID])
+        XCTAssertEqual(repository.savedSnapshots.last?.deletionTombstones.map(\.chartID), [unrelatedTombstone.chartID])
+        XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
+    func testCloudPushResultKeepsNewerLocalTombstoneForSameChart() throws {
+        let repository = RecordingChartRepository()
+        let chartID = UUID(uuidString: "00000000-0000-0000-0000-000000000804")!
+        let olderSyncedTombstone = ChartDeletionTombstone(
+            chartID: chartID,
+            deletedAt: Date(timeIntervalSinceReferenceDate: 8_600)
+        )
+        let newerLocalTombstone = ChartDeletionTombstone(
+            chartID: chartID,
+            deletedAt: Date(timeIntervalSinceReferenceDate: 8_700)
+        )
+        let store = ChartLibraryStore(
+            charts: [],
+            deletionTombstones: [newerLocalTombstone],
+            repository: repository
+        )
+
+        store.applyCloudPushResult(
+            ownerID: UUID(uuidString: "00000000-0000-0000-0000-000000000805")!,
+            lastSyncAt: Date(timeIntervalSinceReferenceDate: 8_800),
+            lastRemoteBackupAt: nil,
+            syncedDeletionTombstones: [olderSyncedTombstone]
+        )
+
+        XCTAssertEqual(store.deletionTombstones, [newerLocalTombstone])
+        XCTAssertEqual(repository.savedSnapshots.last?.deletionTombstones, [newerLocalTombstone])
     }
 
     func testV1NewChartOptionsExposeOnlyActiveReleaseStyles() {

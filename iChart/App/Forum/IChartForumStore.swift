@@ -47,6 +47,7 @@ final class IChartForumStore: ObservableObject {
     private let service: IChartForumServicing
     private let qaSampleService = IChartForumQASampleService()
     private var lastQuery = ""
+    private var activeRefreshContext: ForumRefreshContext?
 
     private init(service: IChartForumServicing) {
         self.service = service
@@ -123,9 +124,20 @@ final class IChartForumStore: ObservableObject {
         }
 
         let nextQuery = query ?? lastQuery
+        let refreshContext = ForumRefreshContext(
+            userID: signedInSession.id,
+            entitlements: entitlements,
+            query: nextQuery
+        )
+        guard activeRefreshContext != refreshContext else {
+            return
+        }
+
         lastQuery = nextQuery
+        activeRefreshContext = refreshContext
         state = .loading
         await run {
+            defer { activeRefreshContext = nil }
             let summaries = try await requestService.loadHome(query: nextQuery)
             state = .loaded(summaries)
         }
@@ -266,6 +278,12 @@ final class IChartForumStore: ObservableObject {
     private static var temporaryServiceInterruptionText: String {
         "We can’t reach community charts right now. Your local charts are safe, and this page will work again when service returns."
     }
+}
+
+private struct ForumRefreshContext: Equatable {
+    let userID: UUID
+    let entitlements: AppEntitlements
+    let query: String
 }
 
 private protocol IChartForumServicing: Sendable {

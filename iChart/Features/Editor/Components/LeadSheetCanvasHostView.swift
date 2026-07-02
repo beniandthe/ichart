@@ -936,7 +936,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                chart.cueText(id: activeCueTextMoveDrag.cueTextID) == nil {
                 self.activeCueTextMoveDrag = nil
             }
-            invalidateLayout()
+            invalidateLayout(force: true)
         }
     }
     var inkToolMode: EditorInkToolMode = .write {
@@ -1156,6 +1156,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var notationRenderer: LeadSheetNotationRenderer {
         LeadSheetNotationRenderer(chart: chart)
     }
+    private var pageLayoutSize: CGSize?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1365,15 +1366,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
-    private func invalidateLayout() {
+    private func invalidateLayout(force: Bool = false) {
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
+            pageLayoutSize = nil
             syncPageInkCanvas()
             setNeedsDisplay()
             return
         }
 
-        pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: bounds.size)
+        let currentSize = bounds.size
+        guard force || pageLayout == nil || pageLayoutSize != currentSize else {
+            return
+        }
+
+        pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: currentSize)
+        pageLayoutSize = currentSize
         syncPageInkCanvas()
         setNeedsDisplay()
     }

@@ -129,10 +129,17 @@ final class ChartLibraryStore: ObservableObject {
     func setPlan(_ plan: IChartPlan) {
         var updatedEntitlements = entitlements
         updatedEntitlements.applyLegacyPlan(plan)
+        guard updatedEntitlements != entitlements else {
+            return
+        }
         entitlements = updatedEntitlements
     }
 
     func applySubscriptionState(_ subscription: IChartSubscriptionEntitlement) {
+        guard !entitlements.subscription.hasSameLibraryAccess(as: subscription) else {
+            return
+        }
+
         var updatedEntitlements = entitlements
         updatedEntitlements.applySubscription(subscription)
         entitlements = updatedEntitlements
@@ -364,15 +371,46 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     func updateCloudMetadataFromSync(ownerID: UUID, lastSyncAt: Date, lastRemoteBackupAt: Date?) {
+        applyCloudPushResult(
+            ownerID: ownerID,
+            lastSyncAt: lastSyncAt,
+            lastRemoteBackupAt: lastRemoteBackupAt,
+            syncedDeletionTombstones: []
+        )
+    }
+
+    func applyCloudPushResult(
+        ownerID: UUID,
+        lastSyncAt: Date,
+        lastRemoteBackupAt: Date?,
+        syncedDeletionTombstones: [ChartDeletionTombstone]
+    ) {
         var updatedMetadata = cloudMetadata
         updatedMetadata.ownerID = ownerID
         updatedMetadata.lastSyncAt = lastSyncAt
         if let lastRemoteBackupAt {
             updatedMetadata.lastRemoteBackupAt = lastRemoteBackupAt
         }
+        let syncedTombstonesByChartID = Dictionary(
+            grouping: syncedDeletionTombstones,
+            by: \.chartID
+        ).compactMapValues { tombstones in
+            tombstones.max { $0.deletedAt < $1.deletedAt }
+        }
 
         performPersistedBatch(notifyCloudSync: false) {
             cloudMetadata = updatedMetadata
+            if !syncedTombstonesByChartID.isEmpty {
+                deletionTombstones = Self.normalizedTombstones(
+                    deletionTombstones.filter { tombstone in
+                        guard let syncedTombstone = syncedTombstonesByChartID[tombstone.chartID] else {
+                            return true
+                        }
+
+                        return tombstone.deletedAt > syncedTombstone.deletedAt
+                    }
+                )
+            }
         }
     }
 
@@ -587,5 +625,11 @@ final class ChartLibraryStore: ObservableObject {
                 .filter { availableChartIDs.contains($0) }
             return normalizedProject
         }
+    }
+}
+
+private extension IChartSubscriptionEntitlement {
+    func hasSameLibraryAccess(as other: IChartSubscriptionEntitlement) -> Bool {
+        status == other.status && graceEndsAt == other.graceEndsAt
     }
 }
