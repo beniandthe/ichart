@@ -1146,6 +1146,95 @@ extension Chart {
         return cue.id
     }
 
+    @discardableResult
+    mutating func updateCueText(
+        _ cueTextID: UUID,
+        text: String? = nil,
+        scale: Double? = nil,
+        emphasis: CueEmphasis? = nil,
+        position: CuePosition? = nil
+    ) -> Bool {
+        guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }) else {
+            return false
+        }
+
+        if let text {
+            let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedText.isEmpty else {
+                return false
+            }
+
+            cueTexts[cueTextIndex].text = normalizedText
+            cueTexts[cueTextIndex].rawInput = normalizedText
+        }
+
+        if let scale {
+            cueTexts[cueTextIndex].scale = CueText.clampedScale(scale)
+        }
+
+        if let emphasis {
+            cueTexts[cueTextIndex].emphasis = emphasis
+        }
+
+        if let position {
+            cueTexts[cueTextIndex].position = position
+        }
+
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func resizeCueText(_ cueTextID: UUID, byScaleDelta delta: Double) -> Bool {
+        guard let cueText = cueText(id: cueTextID) else {
+            return false
+        }
+
+        return updateCueText(cueTextID, scale: cueText.scale + delta)
+    }
+
+    @discardableResult
+    mutating func moveCueText(
+        _ cueTextID: UUID,
+        to targetMeasureID: UUID,
+        atFraction fraction: Double?
+    ) -> Bool {
+        guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+              let targetLocation = measureLocation(id: targetMeasureID) else {
+            return false
+        }
+
+        let targetMeasure = systems[targetLocation.systemIndex].measures[targetLocation.measureIndex]
+        let snappedFraction = snappedCueTextBeatFraction(
+            CueText.clampedBeatFraction(fraction),
+            in: targetMeasure
+        )
+        let previousMeasureID = cueTexts[cueTextIndex].anchorMeasureID
+
+        cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
+        cueTexts[cueTextIndex].beatFraction = snappedFraction
+
+        if previousMeasureID != targetMeasureID {
+            removeCueTextIDFromMeasures(cueTextID)
+            attachCueText(cueTextID, to: targetMeasureID)
+        }
+
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func deleteCueText(_ cueTextID: UUID) -> Bool {
+        guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }) else {
+            return false
+        }
+
+        cueTexts.remove(at: cueTextIndex)
+        removeCueTextIDFromMeasures(cueTextID)
+        updatedAt = .now
+        return true
+    }
+
     func cueText(id cueTextID: UUID) -> CueText? {
         cueTexts.first { $0.id == cueTextID }
     }
@@ -1154,6 +1243,18 @@ extension Chart {
         cueTexts
             .filter { $0.anchorMeasureID == measureID }
             .map(\.id)
+    }
+
+    private func snappedCueTextBeatFraction(_ fraction: Double?, in measure: Measure) -> Double? {
+        guard let fraction else {
+            return nil
+        }
+
+        let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
+        let beatCount = max(1, meter.numerator)
+        let beatIndex = Int((fraction * Double(beatCount)).rounded())
+        let clampedBeatIndex = min(max(0, beatIndex), beatCount - 1)
+        return Double(clampedBeatIndex) / Double(beatCount)
     }
 
     @discardableResult

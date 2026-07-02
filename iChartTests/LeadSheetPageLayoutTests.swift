@@ -986,6 +986,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(cueTextLayout.position, .below)
         XCTAssertGreaterThan(cueTextLayout.frame.minY, measure.staffFrame.maxY)
         XCTAssertLessThanOrEqual(cueTextLayout.frame.maxX, measure.staffFrame.maxX)
+        XCTAssertLessThan(cueTextLayout.frame.width, measure.staffFrame.width)
+        XCTAssertTrue(cueTextLayout.hitFrame.contains(cueTextLayout.frame))
     }
 
     func testSimpleChordSheetCueTextRendersAsSecondaryMeasureText() throws {
@@ -1009,6 +1011,30 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(cueTextLayout.emphasis, .subtle)
         XCTAssertTrue(measure.frame.contains(CGPoint(x: cueTextLayout.frame.midX, y: cueTextLayout.frame.midY)))
         XCTAssertLessThan(cueTextLayout.frame.midY, measure.staffFrame.midY)
+        XCTAssertLessThan(cueTextLayout.frame.width, measure.staffFrame.width)
+        XCTAssertTrue(cueTextLayout.hitFrame.contains(cueTextLayout.frame))
+    }
+
+    func testCueTextLayoutFollowsMovedBeatFraction() throws {
+        var chart = Chart.blank(title: "Moved Cue", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let cueTextID = try XCTUnwrap(
+            chart.addCueText("hits", anchorMeasureID: measureID, position: .above)
+        )
+        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureID, atFraction: 0.52))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let cueTextLayout = try XCTUnwrap(measure.cueTextLayouts.first)
+        let expectedBeatThreeX = measure.staffFrame.minX + measure.staffFrame.width * 0.5
+
+        XCTAssertEqual(cueTextLayout.id, cueTextID)
+        XCTAssertEqual(try XCTUnwrap(cueTextLayout.beatFraction), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(cueTextLayout.frame.minX, expectedBeatThreeX, accuracy: 1)
     }
 
     func testSimpleChordSheetRepeatSpanAddsCompactEdgeMarkers() throws {

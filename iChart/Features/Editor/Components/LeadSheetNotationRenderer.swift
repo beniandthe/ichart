@@ -315,20 +315,20 @@ struct LeadSheetNotationRenderer {
         let alpha: CGFloat
         switch cueTextLayout.emphasis {
         case .subtle:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 11 : 10.5
-            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.64 : 0.56
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 12.5 : 12
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.72 : 0.68
         case .normal:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 12 : 11.5
-            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.76 : 0.68
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 14 : 13.5
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.82 : 0.78
         case .strong:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 13 : 12.5
-            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.88 : 0.82
+            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 15.5 : 15
+            alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.92 : 0.88
         }
 
         drawText(
             cueTextLayout.text,
             in: cueTextLayout.frame,
-            font: style.textFont(size: fontSize),
+            font: style.textFont(size: fontSize * cueTextLayout.scale),
             color: style.inkColor.withAlphaComponent(alpha),
             alignment: cueTextLayout.position == .trailingEdge ? .right : .left
         )

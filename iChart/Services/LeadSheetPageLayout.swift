@@ -234,8 +234,11 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var id: UUID
     var text: String
     var frame: CGRect
+    var hitFrame: CGRect
     var position: CuePosition
     var emphasis: CueEmphasis
+    var scale: CGFloat
+    var beatFraction: CGFloat?
 }
 
 struct LeadSheetNoteSelection: Identifiable, Hashable {
@@ -2063,18 +2066,31 @@ enum LeadSheetPageLayoutEngine {
             .filter { $0.anchorMeasureID == measure.id }
             .enumerated()
             .map { cueIndex, cueText in
-                LeadSheetCueTextLayout(
+                let frame = cueTextFrame(
+                    for: cueText,
+                    cueIndex: cueIndex,
+                    measureFrame: measureFrame,
+                    chordBandFrame: chordBandFrame,
+                    staffFrame: staffFrame
+                )
+                let hitFrame = cueTextHitFrame(
+                    for: cueText,
+                    cueIndex: cueIndex,
+                    measureFrame: measureFrame,
+                    chordBandFrame: chordBandFrame,
+                    staffFrame: staffFrame
+                )
+                let beatFraction = cueText.beatFraction.map { CGFloat($0) }
+
+                return LeadSheetCueTextLayout(
                     id: cueText.id,
                     text: cueText.text,
-                    frame: cueTextFrame(
-                        for: cueText,
-                        cueIndex: cueIndex,
-                        measureFrame: measureFrame,
-                        chordBandFrame: chordBandFrame,
-                        staffFrame: staffFrame
-                    ),
+                    frame: frame,
+                    hitFrame: hitFrame,
                     position: cueText.position,
-                    emphasis: cueText.emphasis
+                    emphasis: cueText.emphasis,
+                    scale: CGFloat(cueText.scale),
+                    beatFraction: beatFraction
                 )
             }
     }
@@ -2086,28 +2102,40 @@ enum LeadSheetPageLayoutEngine {
         chordBandFrame: CGRect,
         staffFrame: CGRect
     ) -> CGRect {
-        let lineHeight: CGFloat = 17
-        let lineGap: CGFloat = 2
+        let textSize = cueTextSize(for: cueText)
+        let lineHeight = textSize.height
+        let lineGap: CGFloat = 3
         let offset = CGFloat(cueIndex) * (lineHeight + lineGap)
-        let width = max(1, staffFrame.width - 12)
+        let maximumWidth = max(1, staffFrame.width - 12)
+        let width = min(maximumWidth, textSize.width)
+        let leadingWidth = min(width, max(1, staffFrame.width - 8))
+        let defaultTextX = staffFrame.minX + 6
+        let beatAnchoredTextX = cueText.beatFraction.map { fraction in
+            clampedCueTextX(
+                staffFrame.minX + CGFloat(fraction) * staffFrame.width,
+                width: width,
+                staffFrame: staffFrame
+            )
+        }
         let leadingFrame = CGRect(
             x: measureFrame.minX + 4,
             y: staffFrame.minY,
-            width: min(58, max(1, staffFrame.width - 8)),
+            width: leadingWidth,
             height: lineHeight
         )
         let trailingFrame = CGRect(
-            x: max(measureFrame.minX + 4, staffFrame.maxX - min(58, max(1, staffFrame.width - 8)) - 4),
+            x: max(measureFrame.minX + 4, staffFrame.maxX - leadingWidth - 4),
             y: staffFrame.minY,
-            width: min(58, max(1, staffFrame.width - 8)),
+            width: leadingWidth,
             height: lineHeight
         )
 
         switch cueText.position {
         case .above:
+            let textX = beatAnchoredTextX ?? defaultTextX
             if chordBandFrame.intersects(staffFrame) {
                 return CGRect(
-                    x: staffFrame.minX + 6,
+                    x: textX,
                     y: min(measureFrame.maxY - lineHeight - 2, staffFrame.minY + 4 + offset),
                     width: width,
                     height: lineHeight
@@ -2115,14 +2143,14 @@ enum LeadSheetPageLayoutEngine {
             }
 
             return CGRect(
-                x: staffFrame.minX + 6,
+                x: textX,
                 y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
                 width: width,
                 height: lineHeight
             )
         case .below:
             return CGRect(
-                x: staffFrame.minX + 6,
+                x: beatAnchoredTextX ?? defaultTextX,
                 y: min(measureFrame.maxY - lineHeight - 2, staffFrame.maxY + 5 + offset),
                 width: width,
                 height: lineHeight
@@ -2131,6 +2159,65 @@ enum LeadSheetPageLayoutEngine {
             return leadingFrame.offsetBy(dx: 0, dy: offset)
         case .trailingEdge:
             return trailingFrame.offsetBy(dx: 0, dy: offset)
+        }
+    }
+
+    private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {
+        let minimumX = staffFrame.minX + 4
+        let maximumX = max(minimumX, staffFrame.maxX - width - 4)
+        return min(max(proposedX, minimumX), maximumX)
+    }
+
+    private static func cueTextHitFrame(
+        for cueText: CueText,
+        cueIndex: Int,
+        measureFrame: CGRect,
+        chordBandFrame: CGRect,
+        staffFrame: CGRect
+    ) -> CGRect {
+        cueTextFrame(
+            for: cueText,
+            cueIndex: cueIndex,
+            measureFrame: measureFrame,
+            chordBandFrame: chordBandFrame,
+            staffFrame: staffFrame
+        )
+        .insetBy(dx: -6, dy: -5)
+    }
+
+    private static func cueTextSize(for cueText: CueText) -> CGSize {
+        let fontSize = cueTextFontSize(for: cueText)
+        let estimatedWidth = cueText.text.reduce(CGFloat(0)) { partialWidth, character in
+            partialWidth + estimatedCueTextCharacterWidth(character, fontSize: fontSize)
+        }
+        let height = max(16, fontSize * 1.34)
+        return CGSize(width: max(28, estimatedWidth + 12), height: height)
+    }
+
+    private static func cueTextFontSize(for cueText: CueText) -> CGFloat {
+        let baseSize: CGFloat
+        switch cueText.emphasis {
+        case .subtle:
+            baseSize = 12.5
+        case .normal:
+            baseSize = 14
+        case .strong:
+            baseSize = 15.5
+        }
+
+        return baseSize * CGFloat(cueText.scale)
+    }
+
+    private static func estimatedCueTextCharacterWidth(_ character: Character, fontSize: CGFloat) -> CGFloat {
+        switch character {
+        case "i", "l", "I", "1", ".", ",", "'", " ":
+            return fontSize * 0.32
+        case "m", "M", "w", "W":
+            return fontSize * 0.9
+        case "A"..."Z":
+            return fontSize * 0.68
+        default:
+            return fontSize * 0.58
         }
     }
 
