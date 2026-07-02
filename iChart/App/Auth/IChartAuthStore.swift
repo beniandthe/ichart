@@ -49,7 +49,6 @@ struct IChartUserProfile: Codable, Equatable {
     var phone: String?
     var firstName: String?
     var lastName: String?
-    var mailingAddress: String?
     var paymentSummary: String?
     var stripeCustomerID: String?
 
@@ -59,7 +58,6 @@ struct IChartUserProfile: Codable, Equatable {
         case phone
         case firstName = "first_name"
         case lastName = "last_name"
-        case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
         case stripeCustomerID = "stripe_customer_id"
     }
@@ -69,14 +67,12 @@ private struct IChartUserProfileUpdate: Encodable {
     let id: UUID
     var email: String?
     var phone: String?
-    var mailingAddress: String?
     var paymentSummary: String?
 
     init(profile: IChartUserProfile) {
         id = profile.id
         email = profile.email
         phone = profile.phone
-        mailingAddress = profile.mailingAddress
         paymentSummary = profile.paymentSummary
     }
 
@@ -84,7 +80,6 @@ private struct IChartUserProfileUpdate: Encodable {
         case id
         case email
         case phone
-        case mailingAddress = "mailing_address"
         case paymentSummary = "payment_summary"
     }
 }
@@ -340,8 +335,7 @@ final class IChartAuthStore: ObservableObject {
 
     func saveProfile(
         email: String,
-        phone: String,
-        mailingAddress: String
+        phone: String
     ) async {
         guard let session = state.signedInSession else {
             errorMessage = "Sign in before saving profile info."
@@ -354,7 +348,6 @@ final class IChartAuthStore: ObservableObject {
             phone: sanitized(phone) ?? session.phone,
             firstName: self.profile?.firstName,
             lastName: self.profile?.lastName,
-            mailingAddress: sanitized(mailingAddress),
             paymentSummary: self.profile?.paymentSummary,
             stripeCustomerID: self.profile?.stripeCustomerID
         )

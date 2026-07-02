@@ -71,7 +71,7 @@ Fresh-account cloud gate:
 - Initial sync for the fresh account hit `Cloud permissions blocked backup` because the simulator still had a local library snapshot from a different authenticated owner. This confirmed RLS was blocking cross-user chart ownership as intended, but exposed an account-switch UX edge.
 - Backed up and removed the stale local `library-state.json`, then relaunched with the same verified fresh account.
 - Settings showed `Verified`, `0 charts`, and `Synced 2:11 PM`.
-- Saved profile fields for email, phone, address, and a text-only payment/customer reference. The app showed `Profile saved.`
+- Saved profile fields for email, phone, and a text-only payment/customer reference. The app showed `Profile saved.`
 - Created a Simple Chord Sheet and a Rhythm Section Sheet through the real `New Chart` flows.
 - Settings showed `2 charts` and `Synced 2:13 PM`.
 - Relaunched against an intentionally bad endpoint, confirmed the account state showed `Temporarily offline`, Chart Sync showed `Offline`, and local chart creation still worked.

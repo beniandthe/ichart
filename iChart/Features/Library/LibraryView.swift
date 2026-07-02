@@ -608,7 +608,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "user-info",
                     title: "User Info",
-                    detail: "Settings shows your account name, email, phone, and mailing address. First and last name stay tied to the account identity."
+                    detail: "Settings shows your account name, email, and phone. First and last name stay tied to the account identity."
                 ),
                 IChartTutorialStep(
                     id: "subscription",
@@ -915,7 +915,6 @@ struct LibraryView: View {
     private var rhythmDiagnosticsEnabled = false
     @State private var userEmail = ""
     @State private var userPhone = ""
-    @State private var userAddress = ""
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -1535,7 +1534,6 @@ struct LibraryView: View {
                         accountName: accountNameText,
                         email: $userEmail,
                         phone: $userPhone,
-                        address: $userAddress,
                         theme: homeTheme,
                         authState: authStore.state,
                         isSaving: authStore.isWorking,
@@ -1543,8 +1541,7 @@ struct LibraryView: View {
                             Task {
                                 await authStore.saveProfile(
                                     email: userEmail,
-                                    phone: userPhone,
-                                    mailingAddress: userAddress
+                                    phone: userPhone
                                 )
                             }
                         }
@@ -1815,10 +1812,6 @@ struct LibraryView: View {
 
         if let phone = profile.phone {
             userPhone = phone
-        }
-
-        if let mailingAddress = profile.mailingAddress {
-            userAddress = mailingAddress
         }
     }
 
@@ -5796,7 +5789,6 @@ private struct IChartUserInfoSettings: View {
     let accountName: String
     @Binding var email: String
     @Binding var phone: String
-    @Binding var address: String
     let theme: IChartHomeTheme
     let authState: IChartAuthState
     let isSaving: Bool
@@ -5834,15 +5826,6 @@ private struct IChartUserInfoSettings: View {
             )
 
             settingsDivider
-
-            IChartSettingsTextFieldRow(
-                title: "Address",
-                placeholder: "Mailing address",
-                text: $address,
-                systemImageName: "house",
-                isMultiline: true,
-                theme: theme
-            )
 
             Button {
                 onSaveProfile()

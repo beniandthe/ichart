@@ -97,7 +97,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("User Info"))
         XCTAssertTrue(libraryText.contains("@State private var userEmail"))
         XCTAssertTrue(libraryText.contains("@State private var userPhone"))
-        XCTAssertTrue(libraryText.contains("@State private var userAddress"))
+        XCTAssertFalse(libraryText.contains("@State private var userAddress"))
+        XCTAssertFalse(libraryText.contains("Mailing address"))
+        XCTAssertFalse(libraryText.contains("title: \"Address\""))
         XCTAssertFalse(libraryText.contains("iChartUserEmail"))
         XCTAssertFalse(libraryText.contains("iChartUserPhone"))
         XCTAssertFalse(libraryText.contains("iChartUserAddress"))
@@ -750,7 +752,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.0\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"6\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"7\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))
@@ -1214,6 +1216,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260621001910_security_hardening.sql")
         )
+        let profileAddressRemovalMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260702001739_remove_profile_mailing_address.sql")
+        )
         let configText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/config.toml")
@@ -1236,6 +1242,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
         XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant insert (id, email, phone, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant update (id, email, phone, payment_summary)"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))

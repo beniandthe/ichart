@@ -400,7 +400,7 @@ Source: `iChart/Features/Library/LibraryView.swift`
 Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/IChartSubscriptionEntitlement.swift`, `iChart/Models/AppEntitlements.swift`, `iChart/Features/Editor/Components/UpgradeSheetView.swift`, `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
 - [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Cloud Backup", "User Info"
-- [ ] User info labels: "Account Name", "Email", "Phone", "Address", "Mailing address", "Save Profile"
+- [ ] User info labels: "Account Name", "Email", "Phone", "Save Profile"
 - [ ] Account name fallback: "Set at account creation"
 - [ ] Plan rows: "Local Charts", "Cloud Backup", "Forums", "Grace Ends"
 - [ ] Plan values: "Unlimited", "{used} of {limit} used"
