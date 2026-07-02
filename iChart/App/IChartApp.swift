@@ -36,10 +36,7 @@ struct IChartApp: App {
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
                 .task {
-                    await subscriptionStore.bootstrap()
-                    applySubscriptionState(subscriptionStore.entitlement)
-                    cloudSyncStore.authStateChanged(authStore.state)
-                    await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+                    await bootstrapSubscriptionAfterInitialRender()
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
@@ -51,8 +48,10 @@ struct IChartApp: App {
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)
                     Task {
-                        await subscriptionStore.refreshEntitlements()
-                        applySubscriptionState(subscriptionStore.entitlement)
+                        if subscriptionStore.hasBootstrapped {
+                            await subscriptionStore.refreshEntitlements()
+                            applySubscriptionState(subscriptionStore.entitlement)
+                        }
                         await forumStore.refresh(authState: state, entitlements: store.entitlements)
                     }
                 }
@@ -60,12 +59,26 @@ struct IChartApp: App {
                     Task {
                         await authStore.handleAuthCallback(url: url)
                         cloudSyncStore.authStateChanged(authStore.state)
-                        await subscriptionStore.refreshEntitlements()
-                        applySubscriptionState(subscriptionStore.entitlement)
+                        if subscriptionStore.hasBootstrapped {
+                            await subscriptionStore.refreshEntitlements()
+                            applySubscriptionState(subscriptionStore.entitlement)
+                        }
                         await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                     }
                 }
         }
+    }
+
+    private func bootstrapSubscriptionAfterInitialRender() async {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        guard !Task.isCancelled else {
+            return
+        }
+
+        await subscriptionStore.bootstrap()
+        applySubscriptionState(subscriptionStore.entitlement)
+        cloudSyncStore.authStateChanged(authStore.state)
     }
 
     private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {

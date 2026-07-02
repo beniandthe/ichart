@@ -11,9 +11,11 @@ final class ChartCloudSyncStore: ObservableObject {
     private let service: ChartCloudSyncService?
     private weak var libraryStore: ChartLibraryStore?
     private var isSignedIn = false
+    private var scheduledFullSyncTask: Task<Void, Never>?
     private var queuedUploadTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
     private var lastAuthSyncContext: AuthSyncContext?
+    private static let automaticFullSyncDelayNanoseconds: UInt64 = 2_500_000_000
 
     init(service: ChartCloudSyncService?) {
         self.service = service
@@ -75,7 +77,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 return
             }
 
-            syncNow()
+            scheduleAutomaticFullSync()
         case .temporarilyOffline:
             cancelPendingSyncWork()
             isSignedIn = true
@@ -92,6 +94,38 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     func syncNow() {
+        scheduledFullSyncTask?.cancel()
+        scheduledFullSyncTask = nil
+        startFullSync()
+    }
+
+    private func scheduleAutomaticFullSync() {
+        guard isSignedIn, let service, let libraryStore else {
+            state = service == nil ? .unconfigured : .signedOut
+            return
+        }
+
+        guard isCloudSyncEntitled else {
+            cancelPendingSyncWork()
+            state = .requiresPro
+            return
+        }
+
+        queuedUploadTask?.cancel()
+        syncTask?.cancel()
+        scheduledFullSyncTask?.cancel()
+        let snapshot = libraryStore.snapshot
+        scheduledFullSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.automaticFullSyncDelayNanoseconds)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await self?.runFullSync(snapshot: snapshot, service: service)
+        }
+    }
+
+    private func startFullSync() {
         guard isSignedIn, let service, let libraryStore else {
             state = service == nil ? .unconfigured : .signedOut
             return
@@ -134,19 +168,22 @@ final class ChartCloudSyncStore: ObservableObject {
 
     private func runFullSync(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
         isWorking = true
+        defer { isWorking = false }
         lastSyncAttemptAt = Date()
         state = .syncing
 
         do {
             let result = try await service.syncNow(localSnapshot: snapshot)
-            libraryStore?.applySyncedSnapshot(result.snapshot)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            applySyncResult(result)
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
         } catch {
             state = Self.failureState(for: error)
         }
-
-        isWorking = false
     }
 
     private func runPush(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
@@ -176,7 +213,41 @@ final class ChartCloudSyncStore: ObservableObject {
         isWorking = false
     }
 
+    private func applySyncResult(_ result: ChartCloudSyncResult) {
+        guard let libraryStore else {
+            return
+        }
+
+        guard let ownerID = result.snapshot.cloudMetadata.ownerID else {
+            libraryStore.applySyncedSnapshot(result.snapshot)
+            return
+        }
+
+        if shouldApplyFullSnapshot(result.snapshot, to: libraryStore.snapshot) {
+            libraryStore.applySyncedSnapshot(result.snapshot)
+        } else {
+            libraryStore.updateCloudMetadataFromSync(
+                ownerID: ownerID,
+                lastSyncAt: result.snapshot.cloudMetadata.lastSyncAt ?? Date(),
+                lastRemoteBackupAt: result.lastRemoteBackupAt
+            )
+        }
+    }
+
+    private func shouldApplyFullSnapshot(
+        _ incoming: ChartLibrarySnapshot,
+        to current: ChartLibrarySnapshot
+    ) -> Bool {
+        current.charts != incoming.charts
+            || current.selectedChartID != incoming.selectedChartID
+            || current.entitlements != incoming.entitlements
+            || current.deletionTombstones != incoming.deletionTombstones
+            || current.projects != incoming.projects
+    }
+
     private func cancelPendingSyncWork() {
+        scheduledFullSyncTask?.cancel()
+        scheduledFullSyncTask = nil
         queuedUploadTask?.cancel()
         queuedUploadTask = nil
         syncTask?.cancel()
