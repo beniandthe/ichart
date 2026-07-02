@@ -800,7 +800,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.0\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"10\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"9\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))

@@ -62,7 +62,6 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     private let subscriptionClaimService: IChartStoreKitSubscriptionClaiming?
     private var productsByID: [String: Product] = [:]
     private var transactionUpdatesTask: Task<Void, Never>?
-    private(set) var hasBootstrapped = false
 
     private init(
         productIDs: [String] = IChartStoreKitProductCatalog.proProductIDs,
@@ -90,11 +89,6 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func bootstrap() async {
-        guard !hasBootstrapped else {
-            return
-        }
-
-        hasBootstrapped = true
         removeLegacyDebugSignedTransactionCapture()
 
         guard !productIDs.isEmpty else {

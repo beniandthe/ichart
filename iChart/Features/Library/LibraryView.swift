@@ -933,7 +933,6 @@ struct LibraryView: View {
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
     @State private var activeLibraryOperation: IChartLibraryOperation?
     @State private var activeLibraryOperationID = UUID()
-    @State private var didStartInitialServices = false
 
     init(onOpenChart: @escaping (Chart.ID, EditorCanvasMode) -> Void) {
         self.onOpenChart = onOpenChart
@@ -1065,7 +1064,11 @@ struct LibraryView: View {
         }
         .animation(.easeOut(duration: 0.16), value: activeLibraryOperation)
         .task {
-            await startInitialServicesAfterFirstFrame()
+            cloudSyncStore.attach(libraryStore: store)
+            await authStore.bootstrap()
+            cloudSyncStore.authStateChanged(authStore.state)
+            await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+            updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
@@ -1779,27 +1782,6 @@ struct LibraryView: View {
         }
 
         showingAccountLanding = true
-    }
-
-    @MainActor
-    private func startInitialServicesAfterFirstFrame() async {
-        guard !didStartInitialServices else {
-            return
-        }
-
-        didStartInitialServices = true
-        cloudSyncStore.attach(libraryStore: store)
-        updateAccountLandingPresentation()
-        await Task.yield()
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        guard !Task.isCancelled else {
-            return
-        }
-
-        await authStore.bootstrap()
-        cloudSyncStore.authStateChanged(authStore.state)
-        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
-        updateAccountLandingPresentation()
     }
 
     private func completeFirstRunAccountLanding() {
