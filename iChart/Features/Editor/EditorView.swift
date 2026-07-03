@@ -754,182 +754,199 @@ struct EditorView: View {
         canvasMode.showsActiveToolControls
     }
 
+    @ViewBuilder
+    private var pageToolControl: some View {
+        if editorGuidedTourStep == .page {
+            Button {
+                advanceEditorGuidedTourAfterPageToolTapIfNeeded()
+            } label: {
+                pageToolLabel
+            }
+        } else {
+            Menu {
+                pageToolMenuContent
+            } label: {
+                pageToolLabel
+            }
+        }
+    }
+
+    private var pageToolLabel: some View {
+        EditorMenuTabLabel(
+            title: "Page",
+            systemImage: "doc.text",
+            isSelected: canvasMode == .headerEntry
+        )
+    }
+
+    @ViewBuilder
+    private var pageToolMenuContent: some View {
+        if !chart.hasCompletedInitialSetup {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                showingSetupSheet = true
+            } label: {
+                Label("Setup", systemImage: "doc.text")
+            }
+
+            Divider()
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            handleExportTapped()
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+
+        Menu {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.setHeaderInputMode(.typed)
+                showingHeaderSheet = true
+            } label: {
+                notationMenuLabel("Typed", isSelected: chart.headerInputMode == .typed)
+            }
+
+            Button {
+                activateHeaderWritingTool()
+            } label: {
+                notationMenuLabel("Handwritten", isSelected: chart.headerInputMode == .handwritten)
+            }
+
+            if chart.pageHandwrittenHeaderData != nil {
+                Divider()
+
+                Button(role: .destructive) {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setPageHandwrittenHeaderDrawing(nil)
+                } label: {
+                    Label("Clear Handwritten Header", systemImage: "trash")
+                }
+            }
+        } label: {
+            Label("Header (\(chart.headerInputMode.displayText))", systemImage: "character.cursor.ibeam")
+        }
+
+        Menu {
+            ForEach(TranspositionView.instrumentOptions) { view in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setInstrumentTranspositionView(view)
+                } label: {
+                    notationMenuLabel(
+                        "\(view.displayText) (\(view.intervalDisplayText))",
+                        isSelected: chart.defaultTranspositionView == view
+                            && chart.chordTranspositionSemitones == 0
+                    )
+                }
+            }
+        } label: {
+            Label(
+                "Instrument (\(chart.defaultTranspositionView.displayText))",
+                systemImage: "music.note"
+            )
+        }
+
+        Menu {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.transposeChordsByHalfSteps(1)
+            } label: {
+                Label("Up Half Step", systemImage: "arrow.up")
+            }
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.transposeChordsByHalfSteps(-1)
+            } label: {
+                Label("Down Half Step", systemImage: "arrow.down")
+            }
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.setChordTranspositionSemitones(0)
+            } label: {
+                Label("Reset to Written", systemImage: "arrow.uturn.backward")
+            }
+
+            Divider()
+
+            ForEach(Array(0...11), id: \.self) { semitones in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setChordTranspositionSemitones(semitones)
+                } label: {
+                    notationMenuLabel(
+                        chordTranspositionOptionTitle(semitones),
+                        isSelected: chart.chordTranspositionSemitones == semitones
+                    )
+                }
+            }
+        } label: {
+            Label(
+                "Transpose (\(chart.chordTranspositionDisplayText))",
+                systemImage: "arrow.up.arrow.down"
+            )
+        }
+
+        Divider()
+
+        Menu {
+            ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating page style...") {
+                        chart.setStylePreset(preset)
+                    }
+                } label: {
+                    notationMenuLabel(
+                        preset.sheetDisplayText(for: chart.layoutStyle),
+                        isSelected: chart.stylePreset == preset
+                    )
+                }
+            }
+        } label: {
+            Label("Style", systemImage: "paintpalette")
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            showingTypographySheet = true
+        } label: {
+            Label("Fonts", systemImage: "textformat")
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            showingInkResponsivenessSheet = true
+        } label: {
+            Label("Pen Responsiveness", systemImage: "pencil.tip")
+        }
+
+        Menu {
+            ForEach(EngravingPreset.allCases, id: \.self) { preset in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating engraving...") {
+                        chart.setEngravingPreset(preset)
+                    }
+                } label: {
+                    notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
+                }
+            }
+        } label: {
+            Label("Engraving", systemImage: "slider.horizontal.3")
+        }
+    }
+
     private func toolStrip(minWidth: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                Menu {
-                    if !chart.hasCompletedInitialSetup {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            showingSetupSheet = true
-                        } label: {
-                            Label("Setup", systemImage: "doc.text")
-                        }
-
-                        Divider()
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        handleExportTapped()
-                    } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
-
-                    Menu {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.setHeaderInputMode(.typed)
-                            showingHeaderSheet = true
-                        } label: {
-                            notationMenuLabel("Typed", isSelected: chart.headerInputMode == .typed)
-                        }
-
-                        Button {
-                            activateHeaderWritingTool()
-                        } label: {
-                            notationMenuLabel("Handwritten", isSelected: chart.headerInputMode == .handwritten)
-                        }
-
-                        if chart.pageHandwrittenHeaderData != nil {
-                            Divider()
-
-                            Button(role: .destructive) {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setPageHandwrittenHeaderDrawing(nil)
-                            } label: {
-                                Label("Clear Handwritten Header", systemImage: "trash")
-                            }
-                        }
-                    } label: {
-                        Label("Header (\(chart.headerInputMode.displayText))", systemImage: "character.cursor.ibeam")
-                    }
-
-                    Menu {
-                        ForEach(TranspositionView.instrumentOptions) { view in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setInstrumentTranspositionView(view)
-                            } label: {
-                                notationMenuLabel(
-                                    "\(view.displayText) (\(view.intervalDisplayText))",
-                                    isSelected: chart.defaultTranspositionView == view
-                                        && chart.chordTranspositionSemitones == 0
-                                )
-                            }
-                        }
-                    } label: {
-                        Label(
-                            "Instrument (\(chart.defaultTranspositionView.displayText))",
-                            systemImage: "music.note"
-                        )
-                    }
-
-                    Menu {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.transposeChordsByHalfSteps(1)
-                        } label: {
-                            Label("Up Half Step", systemImage: "arrow.up")
-                        }
-
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.transposeChordsByHalfSteps(-1)
-                        } label: {
-                            Label("Down Half Step", systemImage: "arrow.down")
-                        }
-
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.setChordTranspositionSemitones(0)
-                        } label: {
-                            Label("Reset to Written", systemImage: "arrow.uturn.backward")
-                        }
-
-                        Divider()
-
-                        ForEach(Array(0...11), id: \.self) { semitones in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setChordTranspositionSemitones(semitones)
-                            } label: {
-                                notationMenuLabel(
-                                    chordTranspositionOptionTitle(semitones),
-                                    isSelected: chart.chordTranspositionSemitones == semitones
-                                )
-                            }
-                        }
-                    } label: {
-                        Label(
-                            "Transpose (\(chart.chordTranspositionDisplayText))",
-                            systemImage: "arrow.up.arrow.down"
-                        )
-                    }
-
-                    Divider()
-
-                    Menu {
-                        ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                runEditorOperation("Updating page style...") {
-                                    chart.setStylePreset(preset)
-                                }
-                            } label: {
-                                notationMenuLabel(
-                                    preset.sheetDisplayText(for: chart.layoutStyle),
-                                    isSelected: chart.stylePreset == preset
-                                )
-                            }
-                        }
-                    } label: {
-                        Label("Style", systemImage: "paintpalette")
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        showingTypographySheet = true
-                    } label: {
-                        Label("Fonts", systemImage: "textformat")
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        showingInkResponsivenessSheet = true
-                    } label: {
-                        Label("Pen Responsiveness", systemImage: "pencil.tip")
-                    }
-
-                    Menu {
-                        ForEach(EngravingPreset.allCases, id: \.self) { preset in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                runEditorOperation("Updating engraving...") {
-                                    chart.setEngravingPreset(preset)
-                                }
-                            } label: {
-                                notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
-                            }
-                        }
-                    } label: {
-                        Label("Engraving", systemImage: "slider.horizontal.3")
-                    }
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Page",
-                        systemImage: "doc.text",
-                        isSelected: canvasMode == .headerEntry
-                    )
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            advanceEditorGuidedTourAfterPageToolTapIfNeeded()
-                        }
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
+                pageToolControl
+                    .disabled(canvasMode.locksDocumentActions)
+                    .buttonStyle(.plain)
 
                 Button {
                     activateSelectTool()
