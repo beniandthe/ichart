@@ -941,6 +941,38 @@ struct EditorView: View {
         }
     }
 
+    @ViewBuilder
+    private var codaToolControl: some View {
+        if editorGuidedTourStep == .repeatsActive {
+            Button {
+                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
+            } label: {
+                codaToolLabel
+            }
+        } else {
+            Menu {
+                codaToolMenuContent
+            } label: {
+                codaToolLabel
+            }
+        }
+    }
+
+    private var codaToolLabel: some View {
+        EditorCodaTabLabel(isSelected: selectedRoadmapMarkerID != nil)
+    }
+
+    @ViewBuilder
+    private var codaToolMenuContent: some View {
+        ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
+            Button {
+                handleAddPointRoadmapMarker(roadmapType)
+            } label: {
+                Text(roadmapType.editorMenuDisplayText)
+            }
+        }
+    }
+
     private func toolStrip(minWidth: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -985,22 +1017,7 @@ struct EditorView: View {
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
 
-                Menu {
-                    ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
-                        Button {
-                            handleAddPointRoadmapMarker(roadmapType)
-                        } label: {
-                            Text(roadmapType.editorMenuDisplayText)
-                        }
-                    }
-                } label: {
-                    EditorCodaTabLabel(isSelected: selectedRoadmapMarkerID != nil)
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
-                            }
-                        )
-                }
+                codaToolControl
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
 
