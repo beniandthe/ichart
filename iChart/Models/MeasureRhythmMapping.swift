@@ -267,11 +267,7 @@ extension Measure {
         }
 
         if let fraction {
-            let quantizedPosition = quantizedBeatPosition(
-                for: fraction,
-                meter: meter,
-                subdivisionsPerBeat: 1
-            )
+            let quantizedPosition = MeasurePlacementGrid.beatPosition(for: fraction, in: meter)
             return MeasureChordInsertionSuggestion(
                 startPosition: quantizedPosition,
                 duration: .quarter,
@@ -290,8 +286,7 @@ extension Measure {
 
         let occupiedBeats = Set<Int>(
             chordEvents.compactMap { event in
-                guard event.id != chordEventID,
-                      event.startPosition.subdivision == 0 else {
+                guard event.id != chordEventID else {
                     return nil
                 }
 
@@ -381,25 +376,6 @@ extension Measure {
         slot.startPosition.startOffset(in: meter)
             .map { $0 / meter.measureLengthInWholeNotes }
             ?? 0
-    }
-
-    private func quantizedBeatPosition(
-        for fraction: Double,
-        meter: Meter,
-        subdivisionsPerBeat: Int
-    ) -> BeatPosition {
-        let clampedFraction = min(max(fraction, 0), 0.9999)
-        let totalSubdivisions = max(1, meter.numerator * subdivisionsPerBeat)
-        let rawSubdivisionIndex = Int((clampedFraction * Double(totalSubdivisions)).rounded())
-        let subdivisionIndex = min(max(0, rawSubdivisionIndex), totalSubdivisions - 1)
-        let beat = subdivisionIndex / subdivisionsPerBeat + 1
-        let subdivision = subdivisionIndex % subdivisionsPerBeat
-
-        return BeatPosition(
-            beat: beat,
-            subdivision: subdivision,
-            subdivisionsPerBeat: subdivisionsPerBeat
-        )
     }
 
     func renderedChordPlacements(defaultMeter: Meter) -> [MeasureChordPlacement] {

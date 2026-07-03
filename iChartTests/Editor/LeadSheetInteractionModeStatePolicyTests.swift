@@ -143,6 +143,31 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(expandedLanePoint, in: layout))
     }
 
+    func testCueTextMoveTargetSnapsToPlacementSubdivision() throws {
+        var chart = Chart.blank(title: "Cue Move", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        chart.defaultMeter = Meter(numerator: 6, denominator: 8)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let targetPoint = CGPoint(
+            x: measure.staffFrame.minX + measure.staffFrame.width * 0.10,
+            y: measure.staffFrame.midY
+        )
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
+                at: targetPoint,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(target.measureID, chart.measures.first?.id)
+        XCTAssertEqual(target.fraction, 1.0 / 12.0, accuracy: 0.0001)
+    }
+
     func testOnlyOutsideChordLaneTapConfirmsWaitingChordInk() {
         let chart = Chart.blank(title: "Confirm Drag", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(

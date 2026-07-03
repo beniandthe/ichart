@@ -796,8 +796,7 @@ extension Chart {
         let beatCount = max(1, meter.numerator)
         let occupiedBeats = Set<Int>(
             measure.chordEvents.compactMap { event in
-                guard event.id != chordEventID,
-                      event.startPosition.subdivision == 0 else {
+                guard event.id != chordEventID else {
                     return nil
                 }
 
@@ -1251,10 +1250,7 @@ extension Chart {
         }
 
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
-        let beatCount = max(1, meter.numerator)
-        let beatIndex = Int((fraction * Double(beatCount)).rounded())
-        let clampedBeatIndex = min(max(0, beatIndex), beatCount - 1)
-        return Double(clampedBeatIndex) / Double(beatCount)
+        return MeasurePlacementGrid.snappedFraction(fraction, in: meter)
     }
 
     @discardableResult

@@ -92,10 +92,7 @@ enum LeadSheetCanvasInteractionTargeting {
     }
 
     private static func snappedBeatFraction(_ fraction: Double, meter: Meter) -> Double {
-        let beatCount = max(1, meter.numerator)
-        let beatIndex = Int((fraction * Double(beatCount)).rounded())
-        let clampedBeatIndex = min(max(0, beatIndex), beatCount - 1)
-        return Double(clampedBeatIndex) / Double(beatCount)
+        MeasurePlacementGrid.snappedFraction(fraction, in: meter)
     }
 }
 

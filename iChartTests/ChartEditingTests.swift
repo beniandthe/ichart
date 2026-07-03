@@ -94,18 +94,30 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(chart.deleteCueText(cueTextID))
     }
 
-    func testCueTextMoveSnapsToBeatAndUpdatesMeasureBackReferences() throws {
+    func testCueTextMoveSnapsToPlacementSubdivisionAndUpdatesMeasureBackReferences() throws {
         var chart = Chart.blank(title: "Cue Text", measureCount: 2)
         let measureIDs = chart.measures.map(\.id)
         let cueTextID = try XCTUnwrap(chart.addCueText("hits", anchorMeasureID: measureIDs[0]))
 
-        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureIDs[1], atFraction: 0.52))
+        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureIDs[1], atFraction: 0.38))
 
         let cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
         XCTAssertEqual(cueText.anchorMeasureID, measureIDs[1])
-        XCTAssertEqual(try XCTUnwrap(cueText.beatFraction), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(cueText.beatFraction), 0.375, accuracy: 0.0001)
         XCTAssertTrue(chart.measure(id: measureIDs[0])?.cueTextIDs.isEmpty == true)
         XCTAssertEqual(chart.measure(id: measureIDs[1])?.cueTextIDs, [cueTextID])
+    }
+
+    func testCueTextMoveUsesSixteenthPlacementSubdivisionForEighthNoteMeter() throws {
+        var chart = Chart.blank(title: "Cue Text", measureCount: 1)
+        chart.defaultMeter = Meter(numerator: 6, denominator: 8)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let cueTextID = try XCTUnwrap(chart.addCueText("hits", anchorMeasureID: measureID))
+
+        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureID, atFraction: 0.10))
+
+        let cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
+        XCTAssertEqual(try XCTUnwrap(cueText.beatFraction), 1.0 / 12.0, accuracy: 0.0001)
     }
 
     func testAddRoadmapObjectUpdatesChartAndMeasure() {
@@ -1948,7 +1960,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(chart.deleteChordEvent(chordID))
     }
 
-    func testMoveChordEventSnapsExistingChordToRequestedBeat() throws {
+    func testMoveChordEventSnapsExistingChordToRequestedPlacementSubdivision() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(
             title: "Pocket Groove",
@@ -1965,7 +1977,8 @@ final class ChartEditingTests: XCTestCase {
 
         let movedChord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
         XCTAssertEqual(movedChord.id, chordID)
-        XCTAssertEqual(movedChord.startPosition.displayText, "4")
+        XCTAssertEqual(movedChord.startPosition.displayText, "3&")
+        XCTAssertEqual(movedChord.startPosition.subdivisionsPerBeat, 2)
         XCTAssertNil(movedChord.mappedRhythmSlotIndex)
     }
 
@@ -1996,7 +2009,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(chart.moveChordEvent(chordID, to: measureID, atFraction: 0.68))
 
         let movedChord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
-        XCTAssertEqual(movedChord.startPosition.displayText, "4")
+        XCTAssertEqual(movedChord.startPosition.displayText, "3&")
         XCTAssertNil(movedChord.mappedRhythmSlotIndex)
     }
 
@@ -2027,11 +2040,11 @@ final class ChartEditingTests: XCTestCase {
 
         let chords = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
         XCTAssertEqual(chords.map(\.rawInput), ["C-7", "D-7"])
-        XCTAssertEqual(chords.map(\.startPosition.displayText), ["3", "4"])
+        XCTAssertEqual(chords.map(\.startPosition.displayText), ["3&", "4"])
         XCTAssertTrue(chords.allSatisfy { $0.mappedRhythmSlotIndex == nil })
     }
 
-    func testSimpleChordSheetMoveSnapsChordToRequestedBeatWithoutChangingSizeManually() throws {
+    func testSimpleChordSheetMoveSnapsChordToRequestedPlacementSubdivisionWithoutChangingSizeManually() throws {
         var chart = Chart.blank(title: "Simple Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let symbol = ChordSymbol(root: .f, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil)
@@ -2042,7 +2055,7 @@ final class ChartEditingTests: XCTestCase {
 
         let movedChord = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
         XCTAssertEqual(movedChord.id, chordID)
-        XCTAssertEqual(movedChord.startPosition.displayText, "4")
+        XCTAssertEqual(movedChord.startPosition.displayText, "3&")
         XCTAssertEqual(movedChord.duration, .quarter)
         XCTAssertNil(movedChord.mappedRhythmSlotIndex)
     }

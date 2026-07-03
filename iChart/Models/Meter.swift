@@ -65,6 +65,38 @@ struct BeatPosition: Codable, Hashable {
     }
 }
 
+enum MeasurePlacementGrid {
+    static let subdivisionsPerBeat = 2
+
+    static func snappedFraction(_ fraction: Double, in meter: Meter) -> Double {
+        let subdivisionIndex = snappedSubdivisionIndex(for: fraction, in: meter)
+        return Double(subdivisionIndex) / Double(subdivisionCount(in: meter))
+    }
+
+    static func beatPosition(for fraction: Double, in meter: Meter) -> BeatPosition {
+        let subdivisionIndex = snappedSubdivisionIndex(for: fraction, in: meter)
+        let beat = subdivisionIndex / subdivisionsPerBeat + 1
+        let subdivision = subdivisionIndex % subdivisionsPerBeat
+
+        return BeatPosition(
+            beat: beat,
+            subdivision: subdivision,
+            subdivisionsPerBeat: subdivisionsPerBeat
+        )
+    }
+
+    private static func snappedSubdivisionIndex(for fraction: Double, in meter: Meter) -> Int {
+        let clampedFraction = fraction.isFinite ? min(max(fraction, 0), 0.9999) : 0
+        let subdivisionCount = subdivisionCount(in: meter)
+        let rawSubdivisionIndex = Int((clampedFraction * Double(subdivisionCount)).rounded())
+        return min(max(0, rawSubdivisionIndex), subdivisionCount - 1)
+    }
+
+    private static func subdivisionCount(in meter: Meter) -> Int {
+        max(1, meter.numerator * subdivisionsPerBeat)
+    }
+}
+
 extension BeatPosition {
     init?(offsetInWholeNotes offset: Double, meter: Meter) {
         let beatLength = meter.measureLengthInWholeNotes / Double(meter.numerator)

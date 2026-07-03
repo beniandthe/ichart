@@ -193,7 +193,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
-    func testChordLayoutsSnapToBeatGridWhenMeasureHasNoRhythmMap() throws {
+    func testChordLayoutsSnapToPlacementGridWhenMeasureHasNoRhythmMap() throws {
         var chart = makeBlankLeadSheet()
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         XCTAssertTrue(
@@ -225,7 +225,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let usableWidth = firstMeasure.staffFrame.width - 16
         let beatStep = usableWidth / 4
         XCTAssertEqual(chordLayouts[0].frame.midX, firstMeasure.staffFrame.minX + 8 + beatStep * 0.5, accuracy: 0.001)
-        XCTAssertEqual(chordLayouts[1].frame.midX, firstMeasure.staffFrame.minX + 8 + beatStep * 2.5, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[1].frame.midX, firstMeasure.staffFrame.minX + 8 + beatStep * 3, accuracy: 0.001)
         XCTAssertTrue(firstMeasure.noteLayouts.isEmpty)
     }
 
@@ -705,7 +705,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let chordLayouts = firstMeasure.chordLayouts
         let chordEvents = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
 
-        XCTAssertEqual(chordEvents.map(\.startPosition.displayText), ["3", "4"])
+        XCTAssertEqual(chordEvents.map(\.startPosition.displayText), ["3&", "4"])
         XCTAssertEqual(chordLayouts.map(\.text), ["C-7", "D-7"])
         XCTAssertGreaterThan(chordLayouts[1].fitFrame.minX, chordLayouts[0].fitFrame.minX)
     }
