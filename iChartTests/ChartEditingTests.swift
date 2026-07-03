@@ -975,6 +975,21 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.last?.authoringState, .open)
     }
 
+    func testRenderedClefUsesBassForRhythmSectionAndDefaultForLeadSheets() {
+        var rhythmChart = Chart.blank(title: "Pocket", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        var leadChart = Chart.blank(title: "Lead", measureCount: 4, layoutStyle: .leadSheet)
+
+        rhythmChart.defaultClef = .treble
+        leadChart.defaultClef = .treble
+
+        XCTAssertEqual(rhythmChart.renderedClef, .bass)
+        XCTAssertEqual(leadChart.renderedClef, .treble)
+
+        leadChart.defaultClef = .bass
+
+        XCTAssertEqual(leadChart.renderedClef, .bass)
+    }
+
     func testCompleteInitialSetupNeverCreatesZeroStartingMeasures() {
         var chart = Chart.draft(title: "No Zero Measures", layoutStyle: .simpleChordSheet)
 

@@ -88,27 +88,27 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .setup:
-            "Confirm the starting options, then iChart will make a blank Simple Chord Sheet for the tour."
+            "Confirm the page setup, time signature, starting measure count, and sheet style. Create Blank Page opens the chart for the hands-on tour."
         case .chordWrite:
-            "Use the chord lane above the measure. Write a chord, then tap outside of the chord lane to ask iChart to read it."
+            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Ink Only when the chord should stay handwritten."
         case .chordConfirm:
-            "Tap the chord you meant. If iChart is unsure, use the keyboard or rewrite the ink."
+            "Tap the chord you meant. Keyboard opens manual entry, Keep Ink leaves handwriting in place, and Rewrite clears the attempt."
         case .chordDone:
-            "Tap Done to return to the main tool row."
+            "Tap Done to leave Chord mode and return to Select before using the other editor tools."
         case .page:
-            "Open Page for Setup, Export, Header, Instrument Transposition, Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
+            "Page holds whole-chart actions: Setup, Export, Header, Instrument Transposition, Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
         case .measures:
-            "Measures is only for measure layout: Add, Stack, First, Double, New Row or Join, Delete, and Range."
+            "Measures is for layout only. Select a measure, then use Add, Stack, First, Double, New Row or Join, Delete, and Range."
         case .measuresActive:
-            "Use Add, Stack, First, Double, New Row or Join, Delete, Range, Delete To, and Clear."
+            "Measure actions affect the selected measure. Add and Stack insert measures, New Row and Join control row flow, and Range deletes a span."
         case .repeatsActive:
-            "Repeats is only for repeat structure: One Bar, Start, End Rep, 1st and 2nd endings, Remove Repeat, Remove Ending, and Clear."
+            "Repeats is for repeat structure. Use One Bar, Start, End Rep, 1st and 2nd endings, Remove Repeat, Remove Ending, and Clear."
         case .coda:
-            "Coda is only for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. Select a marker, drag it left or right within the measure, or tap its x to delete it."
+            "Coda is for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. In Select, drag a marker or tap its x to delete it."
         case .freeHandActive:
-            "Free-Hand is for quick notes, rehearsal marks, and cues you want to leave as ink. Tap Done when you are finished."
+            "Free-Hand is raw page ink for quick marks, notes, and cues. It does not attach to measures or create movable symbols; erase and rewrite it manually."
         case .select:
-            "Select is where you move, edit, delete, scroll, and head back to setup or export."
+            "Select is the resting mode for scrolling, choosing rendered objects, editing text or markers, and returning to Page for setup or export."
         }
     }
 
@@ -142,16 +142,18 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     var contentPromptAlignment: Alignment {
         switch self {
         case .setup:
-            .topTrailing
-        case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
             .bottomTrailing
+        case .chordWrite, .chordConfirm, .select:
+            .bottomTrailing
+        case .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive:
+            .bottomLeading
         }
     }
 
     var contentPromptPadding: EdgeInsets {
         switch self {
         case .setup:
-            EdgeInsets(top: 72, leading: 24, bottom: 24, trailing: 24)
+            EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24)
         case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
             EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24)
         }
@@ -380,7 +382,7 @@ struct EditorView: View {
             }
         }
         .sheet(isPresented: $showingSetupSheet) {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottomTrailing) {
                 ChartSetupSheetView(chart: $chart)
 
                 if editorGuidedTourStep == .setup {
@@ -388,8 +390,8 @@ struct EditorView: View {
                         step: .setup,
                         onFinish: finishEditorGuidedTour
                     )
-                    .padding(.top, 72)
-                    .padding(.trailing, 24)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 28)
                 }
             }
         }

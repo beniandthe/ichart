@@ -463,7 +463,7 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawClef(in frame: CGRect) {
-        let symbol: NotationGlyphCatalog.Symbol = chart.defaultClef == .bass ? .bassClef : .trebleClef
+        let symbol: NotationGlyphCatalog.Symbol = chart.renderedClef == .bass ? .bassClef : .trebleClef
         drawNotationSymbol(
             symbol,
             centeredAt: CGPoint(x: frame.midX, y: frame.midY + 2),

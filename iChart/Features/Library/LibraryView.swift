@@ -325,17 +325,17 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "top-row",
                     title: "Top Row",
-                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand."
+                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand. Tap Done in an active tool before switching tools."
                 ),
                 IChartTutorialStep(
                     id: "active-row",
                     title: "Active Row",
-                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions or Repeats actions."
+                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions, Repeats actions, Write, Erase, Read, Ink Only, and Done."
                 ),
                 IChartTutorialStep(
                     id: "write-erase",
                     title: "Write And Erase",
-                    detail: "Ink tools show Write and Erase. Write adds ink for the active tool, and Erase removes ink from that same tool area."
+                    detail: "Ink tools show Write and Erase. Write adds ink for the active tool, and Erase removes ink from that same tool area without changing other rendered objects."
                 ),
                 IChartTutorialStep(
                     id: "safe-exit",
@@ -353,7 +353,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "setup-export",
                     title: "Setup And Export",
-                    detail: "Setup changes the starting chart options before the page is created. Export saves a finished PDF to the PDF Library."
+                    detail: "Setup changes page style, time signature, and starting measure count. Export saves the current chart as a finished PDF in the PDF Library."
                 ),
                 IChartTutorialStep(
                     id: "header",
@@ -363,7 +363,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "transpose",
                     title: "Instrument Transposition",
-                    detail: "Instrument Transposition chooses the instrument preset. Transpose moves the written chords up or down by half step or selected interval."
+                    detail: "Instrument Transposition chooses the reading view, such as Concert or Bb Horn. Transpose moves the written chords up or down by half step or selected interval."
                 ),
                 IChartTutorialStep(
                     id: "appearance",
@@ -378,6 +378,11 @@ private struct IChartTutorialSection: Identifiable {
             summary: "Use Measures only for measure layout, row flow, and measure deletion.",
             systemImageName: "rectangle.split.3x1",
             steps: [
+                IChartTutorialStep(
+                    id: "select-measure",
+                    title: "Select A Measure",
+                    detail: "Tap a measure first. Measure actions use that selected measure as the insertion, row, or deletion target."
+                ),
                 IChartTutorialStep(
                     id: "add-stack",
                     title: "Add And Stack",
@@ -406,6 +411,11 @@ private struct IChartTutorialSection: Identifiable {
             summary: "Use Repeats only for repeat barlines and first or second endings.",
             systemImageName: "repeat",
             steps: [
+                IChartTutorialStep(
+                    id: "repeat-targets",
+                    title: "Select The Boundary",
+                    detail: "Tap the measure where the repeat or ending starts, then use the Repeats row to place or close the structure."
+                ),
                 IChartTutorialStep(
                     id: "one-bar",
                     title: "One Bar",
@@ -437,7 +447,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "markers",
                     title: "Markers",
-                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. at the selected measure."
+                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. at the selected measure as a point marker."
                 ),
                 IChartTutorialStep(
                     id: "edit-markers",
@@ -455,17 +465,17 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "above",
                     title: "Add Text Above Selected Measure",
-                    detail: "Adds cue text above the selected measure."
+                    detail: "Select a measure, then add cue text above it for rehearsal cues, feel notes, hits, or reminders."
                 ),
                 IChartTutorialStep(
                     id: "below",
                     title: "Add Text Below Selected Measure",
-                    detail: "Adds cue text below the selected measure."
+                    detail: "Add cue text below the selected measure when the note belongs under the staff or chord grid."
                 ),
                 IChartTutorialStep(
                     id: "remove-text",
                     title: "Remove Text At Selected Measure",
-                    detail: "Removes cue text attached to the selected measure."
+                    detail: "Remove Text clears cue text attached to the selected measure. In Select, tap existing text to edit, resize, move, or delete it."
                 )
             ]
         ),
@@ -506,12 +516,12 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "write-rhythm",
                     title: "Write",
-                    detail: "Tap Rhythm, choose Write, then write the rhythm figure in the target measure."
+                    detail: "Tap Rhythm, choose Write, then write the rhythm figure in the target measure. Tap outside the measure when the rhythm is ready to render."
                 ),
                 IChartTutorialStep(
                     id: "erase-rhythm",
                     title: "Erase",
-                    detail: "Choose Erase inside Rhythm when you want to remove rhythm ink from that tool area."
+                    detail: "Choose Erase inside Rhythm to remove rhythm ink from the target measure before rewriting it."
                 )
             ]
         ),
@@ -529,7 +539,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "confirm",
                     title: "Confirm",
-                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it."
+                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it. Confirmed chords become rendered objects."
                 ),
                 IChartTutorialStep(
                     id: "ink-only",
@@ -539,7 +549,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "move",
                     title: "Move",
-                    detail: "Use Select to drag a rendered chord inside its box and move it within the measure."
+                    detail: "Use Select to drag a rendered chord inside its box and move it within the measure. Chord movement stays tied to the measure."
                 ),
                 IChartTutorialStep(
                     id: "edit",
@@ -557,12 +567,12 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "write-freehand",
                     title: "Write",
-                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders that should stay as ink."
+                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders as raw page ink. Free-Hand does not create movable boxes."
                 ),
                 IChartTutorialStep(
                     id: "erase-freehand",
                     title: "Erase",
-                    detail: "Choose Erase to remove Free-Hand ink."
+                    detail: "Choose Erase to remove Free-Hand ink. Rewrite the mark manually if it needs to move."
                 ),
                 IChartTutorialStep(
                     id: "done-freehand",

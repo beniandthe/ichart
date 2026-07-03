@@ -36,6 +36,10 @@ struct Chart: Identifiable, Codable, Hashable {
         systems.flatMap(\.measures)
     }
 
+    var renderedClef: ChartClef {
+        layoutStyle == .rhythmSectionSheet ? .bass : defaultClef
+    }
+
     init(
         id: UUID,
         title: String,
