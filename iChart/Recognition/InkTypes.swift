@@ -555,7 +555,8 @@ enum ChordInkRecognitionPolicy {
     }
 
     private static func hasUncommonRootSpelling(_ text: String) -> Bool {
-        guard let symbol = try? ChordSymbolParser.parse(text) else {
+        guard let symbol = try? ChordSymbolParser.parse(text),
+              symbol.kind == .rooted else {
             return false
         }
 
@@ -569,6 +570,7 @@ enum ChordInkRecognitionPolicy {
     ) -> Bool {
         guard rankedScores.count == 1,
               let acceptedSymbol = try? ChordSymbolParser.parse(acceptedText),
+              acceptedSymbol.kind == .rooted,
               let rootEvidence = rootGlyphEvidence(
                 for: acceptedSymbol.root.rawValue,
                 glyphCandidates: glyphCandidates

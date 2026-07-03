@@ -1,5 +1,9 @@
 import SwiftUI
 
+private enum ChordInkManualEntryShortcut {
+    static let chordRepeatText = ChordSymbol.chordRepeatDisplayText
+}
+
 struct PendingChordInkConfirmation: Identifiable {
     let id = UUID()
     let measureID: UUID
@@ -222,6 +226,16 @@ struct ChordInkBatchConfirmationSheetView: View {
                     }
                 }
             }
+
+            Button {
+                candidateTextByID[confirmation.id] = ChordInkManualEntryShortcut.chordRepeatText
+            } label: {
+                Label("Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)", systemImage: "repeat")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Use chord repeat symbol")
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -476,6 +490,17 @@ struct ChordInkConfirmationSheetView: View {
                         .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.06), lineWidth: 1)
                 }
                 .accessibilityLabel("Manual chord entry")
+
+            Button {
+                manualCandidateText = ChordInkManualEntryShortcut.chordRepeatText
+                isManualEntryFocused = false
+            } label: {
+                Label("Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)", systemImage: "repeat")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Use chord repeat symbol")
         }
     }
 
@@ -655,7 +680,7 @@ struct ChordCorrectionSheetView: View {
                 .font(.headline.weight(.semibold))
 
             FlowLayout(spacing: 8, rowSpacing: 8) {
-                ForEach(correction.candidateTexts, id: \.self) { candidate in
+                ForEach(correctionShortcutTexts, id: \.self) { candidate in
                     Button {
                         candidateText = candidate
                     } label: {
@@ -681,6 +706,14 @@ struct ChordCorrectionSheetView: View {
                 }
             }
         }
+    }
+
+    private var correctionShortcutTexts: [String] {
+        var texts = correction.candidateTexts
+        if !texts.contains(ChordInkManualEntryShortcut.chordRepeatText) {
+            texts.append(ChordInkManualEntryShortcut.chordRepeatText)
+        }
+        return texts
     }
 
     private var correctionEntry: some View {

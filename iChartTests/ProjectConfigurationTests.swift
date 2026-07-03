@@ -51,6 +51,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("No confident suggestions"))
         XCTAssertTrue(sheetText.contains("Open keyboard for manual chord entry"))
         XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
+        XCTAssertTrue(sheetText.contains("Chord Repeat"))
+        XCTAssertTrue(sheetText.contains("Use chord repeat symbol"))
     }
 
     func testChordInkRenderIsTapConfirmedOnly() throws {
