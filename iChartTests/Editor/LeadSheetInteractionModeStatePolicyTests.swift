@@ -217,9 +217,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeCanPromoteFreehandInstancesIntoFreehandTool() {
-        XCTAssertTrue(EditorCanvasMode.browse.allowsFreehandObjectSelection)
-        XCTAssertTrue(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
+    func testFreehandObjectSelectionIsDisabledForRawPageInk() {
+        XCTAssertFalse(EditorCanvasMode.browse.allowsFreehandObjectSelection)
+        XCTAssertFalse(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
         XCTAssertFalse(EditorCanvasMode.measureEdit.allowsFreehandObjectSelection)
         XCTAssertFalse(EditorCanvasMode.chordEntry.allowsFreehandObjectSelection)
     }
@@ -402,11 +402,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testInkCanvasSyncPolicyPreservesDirtyFreehandInkFromStaleModelReload() {
         XCTAssertTrue(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
-                activeInkScope: .freehandSymbols(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
                 interactionMode: .freeHand,
                 sessionState: dirtyInkSessionState(.passive),
                 currentDrawingData: Data([0x01]),
-                desiredDrawingData: nil
+                desiredDrawingData: Data([0x02])
             )
         )
     }
@@ -458,7 +458,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testFreehandActiveInkScopeRequiresProfileSymbolLanes() {
+    func testFreehandActiveInkScopeUsesRawPageInkForAllV1Styles() {
         let simplePage = LeadSheetPageLayoutEngine.pageLayout(
             for: Chart.blank(title: "Simple", measureCount: 1, layoutStyle: .simpleChordSheet),
             pageSize: CGSize(width: 900, height: 1400)
@@ -494,20 +494,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             pageLayout: leadPage
         )
 
-        guard case .freehandSymbols(let simpleFrame) = simpleScope,
-              case .freehandSymbols(let rhythmFrame) = rhythmScope else {
-            XCTFail("Simple and Rhythm Section should resolve freehand symbol ink scopes")
+        guard case .page(let simpleFrame) = simpleScope,
+              case .page(let rhythmFrame) = rhythmScope,
+              case .page(let leadFrame) = leadScope else {
+            XCTFail("Free-Hand should resolve to raw page ink scopes")
             return
         }
         XCTAssertEqual(simpleFrame, LeadSheetActiveInkScope.pageWritingFrame(for: simplePage))
-        XCTAssertNotEqual(rhythmFrame, LeadSheetActiveInkScope.pageWritingFrame(for: rhythmPage))
-        XCTAssertTrue(
-            rhythmPage.systems
-                .flatMap(\.measures)
-                .compactMap(\.freehandBelowFrame)
-                .allSatisfy { rhythmFrame.contains($0) }
-        )
-        XCTAssertNil(leadScope)
+        XCTAssertEqual(rhythmFrame, LeadSheetActiveInkScope.pageWritingFrame(for: rhythmPage))
+        XCTAssertEqual(leadFrame, LeadSheetActiveInkScope.pageWritingFrame(for: leadPage))
     }
 
     func testHeaderActiveInkScopeUsesHeaderFrameForAllV1Styles() {

@@ -480,7 +480,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Time only for measure-level time-signature changes"))
         XCTAssertTrue(libraryText.contains("Use Rhythm for supported rhythm notation ink"))
         XCTAssertTrue(libraryText.contains("Use Chord only for handwritten chord entry"))
-        XCTAssertTrue(libraryText.contains("Use Free-Hand only for marks that should remain as handwritten ink"))
+        XCTAssertTrue(libraryText.contains("Use Free-Hand as literal page ink for quick marks, notes, and cues."))
         XCTAssertTrue(libraryText.contains("Account, Pro, And Forums"))
         XCTAssertTrue(libraryText.contains("Settings"))
         XCTAssertTrue(libraryText.contains("Instrument Transposition chooses the instrument preset"))

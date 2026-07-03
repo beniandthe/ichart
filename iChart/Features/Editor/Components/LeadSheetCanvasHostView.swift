@@ -1215,17 +1215,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawChordWritingLanes(pageLayout)
         }
 
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            drawFreehandSymbolLanes(pageLayout)
-        }
-
         drawSavedFreehandSymbols()
-
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            drawFreehandSymbolEditOverlays(using: renderer)
-        }
 
         if interactionMode.showsMeasureResizeHandles {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
@@ -2329,12 +2319,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolTap(at: recognizer.location(in: self))
-            return
-        }
-
         if interactionMode.allowsChordInkEditing {
             handleChordEntryTap(at: recognizer.location(in: self))
             return
@@ -2449,12 +2433,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
             handleRoadmapMarkerEditTap(hitTarget)
-            return
-        }
-
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolTap(at: location)
             return
         }
 
@@ -2806,12 +2784,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 && (roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
                     || lastRoadmapMarkerDragHitTarget() != nil)) {
             handleRoadmapMarkerEditPan(recognizer)
-            return
-        }
-
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolEditPan(recognizer)
             return
         }
 
@@ -4612,15 +4584,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if roadmapMarkerMoveHitTarget(at: startLocation) != nil
                 || lastRoadmapMarkerDragHitTarget() != nil {
                 return true
-            }
-
-            if interactionMode.allowsPageInkEditing,
-               !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-                if let hitTarget = freehandSymbolEditHitTarget(at: startLocation) {
-                    return hitTarget.action != .delete
-                }
-
-                return lastFreehandSymbolDragHitTarget() != nil
             }
 
             return chordMoveHitTarget(at: location) != nil

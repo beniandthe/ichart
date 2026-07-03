@@ -96,7 +96,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordDone:
             "Tap Done to return to the main tool row."
         case .page:
-            "Open Page for Setup, Export, Header, Instrument Transposition, Manual Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
+            "Open Page for Setup, Export, Header, Instrument Transposition, Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
         case .measures:
             "Measures is only for measure layout: Add, Stack, First, Double, New Row or Join, Delete, and Range."
         case .measuresActive:
@@ -861,7 +861,7 @@ struct EditorView: View {
                         }
                     } label: {
                         Label(
-                            "Manual Transpose (\(chart.chordTranspositionDisplayText))",
+                            "Transpose (\(chart.chordTranspositionDisplayText))",
                             systemImage: "arrow.up.arrow.down"
                         )
                     }

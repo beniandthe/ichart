@@ -233,7 +233,7 @@ Source: `iChart/Features/Editor/Components/ChartSetupSheetView.swift`, `iChart/M
 Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/EditorCanvasMode.swift`, `iChart/Features/Editor/EditorInkToolMode.swift`, `iChart/Models/ChartAnnotations.swift`
 
 - [ ] Exit accessibility: "Exit Chart"
-- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Manual Transpose ({interval})", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
+- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose ({interval})", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
 - [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Hand"
 - [ ] Ink tool labels: "Write", "Erase"
 - [ ] Chord row modes: "Read", "Ink Only", "Ink Only: handwritten chords stay as ink; transposition and chord systems will not apply."

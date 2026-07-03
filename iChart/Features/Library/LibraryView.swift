@@ -363,7 +363,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "transpose",
                     title: "Instrument Transposition",
-                    detail: "Instrument Transposition chooses the instrument preset. Manual Transpose moves the written chords up or down by half step or selected interval."
+                    detail: "Instrument Transposition chooses the instrument preset. Transpose moves the written chords up or down by half step or selected interval."
                 ),
                 IChartTutorialStep(
                     id: "appearance",
@@ -551,7 +551,7 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "free-hand-tool",
             title: "Free-Hand",
-            summary: "Use Free-Hand only for marks that should remain as handwritten ink.",
+            summary: "Use Free-Hand as literal page ink for quick marks, notes, and cues.",
             systemImageName: "pencil.and.scribble",
             steps: [
                 IChartTutorialStep(
