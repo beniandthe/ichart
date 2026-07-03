@@ -246,6 +246,20 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(result.glyphCandidates.count, 5)
     }
 
+    func testRecognizesChordRepeatSymbolFromDotSlashDotInk() throws {
+        let strokes = try shiftedTemplateStrokes("•", offsetX: 0)
+            + shiftedTemplateStrokes("/", offsetX: 35)
+            + shiftedTemplateStrokes("•", offsetX: 90)
+
+        let result = recognizer.recognize(strokes: strokes)
+
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) })"
+
+        XCTAssertEqual(result.match?.displayText, "•/•", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("•/•"), debugSummary)
+        XCTAssertEqual(result.glyphCandidates.count, 3)
+    }
+
     func testRecognizesDominantSuspendedInkFixtures() throws {
         let fixtures = try allFixtures()
             .filter { $0.expectedDisplayText.contains("7sus") }

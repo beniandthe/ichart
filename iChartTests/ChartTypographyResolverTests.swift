@@ -117,6 +117,23 @@ final class ChartTypographyResolverTests: XCTestCase {
         )
     }
 
+    func testChordRepeatTokenizesAsSinglePrimarySymbol() {
+        XCTAssertEqual(
+            ChartTypographyResolver.chordTokens(for: .chordRepeat),
+            [
+                ChordTypographyToken(text: "•/•", role: .primaryText)
+            ]
+        )
+        XCTAssertGreaterThan(
+            ChartTypographyResolver.estimatedChordTokenWidth(
+                for: .chordRepeat,
+                primaryFontSize: 46,
+                suffixFontSize: 24
+            ),
+            20
+        )
+    }
+
     func testChordSymbolTokenizationPreservesTextAccidentalsAlterationsAndSlashBass() {
         XCTAssertEqual(
             ChartTypographyResolver.chordTokens(

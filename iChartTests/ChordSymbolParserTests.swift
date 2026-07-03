@@ -35,6 +35,28 @@ final class ChordSymbolParserTests: XCTestCase {
         }
     }
 
+    func testChordRepeatSymbolParsesMatchesPersistsAndDoesNotTranspose() throws {
+        for spelling in ["•/•", "• / •", "%", "./."] {
+            let symbol = try ChordSymbolParser.parse(spelling)
+
+            XCTAssertEqual(symbol.kind, .chordRepeat, spelling)
+            XCTAssertEqual(symbol.displayText, "•/•", spelling)
+            XCTAssertEqual(ChordRecognitionCompendium.match(spelling)?.displayText, "•/•", spelling)
+        }
+
+        let symbol = try ChordSymbolParser.parse("•/•")
+
+        XCTAssertEqual(symbol.transposed(by: 2).displayText, "•/•")
+        XCTAssertEqual(symbol.transposedForChartDisplay(by: 5).displayText, "•/•")
+
+        let data = try JSONEncoder().encode(symbol)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertTrue(json.contains("\"kind\":\"chordRepeat\""))
+        XCTAssertFalse(json.contains("\"root\""))
+        XCTAssertEqual(try JSONDecoder().decode(ChordSymbol.self, from: data), symbol)
+    }
+
     func testBasicMajorChordCompendiumRecognizesChromaticSpellings() throws {
         for spelling in chromaticSpellings {
             let match = try XCTUnwrap(

@@ -68,6 +68,15 @@ struct ChartTypographyResolver: Hashable {
     }
 
     static func chordTokens(for symbol: ChordSymbol) -> [ChordTypographyToken] {
+        if symbol.kind == .chordRepeat {
+            return [
+                ChordTypographyToken(
+                    text: symbol.displayText,
+                    role: .primaryText
+                )
+            ]
+        }
+
         let qualityText = normalizedQualityText(for: symbol.quality)
         var tokens: [ChordTypographyToken] = [
             ChordTypographyToken(
@@ -215,6 +224,7 @@ struct ChartTypographyResolver: Hashable {
 
     private static func estimatedChordCharacterWidth(_ character: Character) -> CGFloat {
         if character == "/" { return 5 }
+        if character == "•" { return 8 }
         if character == "(" || character == ")" { return 4 }
         if character == "△" || character == "Δ" || character == "∆" { return 10 }
         if character == "°" { return 6 }

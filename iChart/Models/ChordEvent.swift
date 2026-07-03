@@ -118,6 +118,14 @@ struct ChordEvent: Identifiable, Codable, Hashable {
 }
 
 struct ChordSymbol: Codable, Hashable {
+    enum Kind: String, Codable, Hashable {
+        case rooted
+        case chordRepeat
+    }
+
+    static let chordRepeatDisplayText = "•/•"
+
+    var kind: Kind
     var root: ChordRoot
     var accidental: Accidental
     var quality: String
@@ -125,7 +133,89 @@ struct ChordSymbol: Codable, Hashable {
     var alterations: [String]
     var slashBass: String?
 
+    init(
+        root: ChordRoot,
+        accidental: Accidental,
+        quality: String,
+        extensions: [String],
+        alterations: [String],
+        slashBass: String?,
+        kind: Kind = .rooted
+    ) {
+        self.kind = kind
+        self.root = root
+        self.accidental = accidental
+        self.quality = quality
+        self.extensions = extensions
+        self.alterations = alterations
+        self.slashBass = slashBass
+    }
+
+    static var chordRepeat: ChordSymbol {
+        ChordSymbol(
+            root: .c,
+            accidental: .natural,
+            quality: "",
+            extensions: [],
+            alterations: [],
+            slashBass: nil,
+            kind: .chordRepeat
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case root
+        case accidental
+        case quality
+        case extensions
+        case alterations
+        case slashBass
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .rooted
+
+        if kind == .chordRepeat {
+            root = try container.decodeIfPresent(ChordRoot.self, forKey: .root) ?? .c
+            accidental = try container.decodeIfPresent(Accidental.self, forKey: .accidental) ?? .natural
+            quality = try container.decodeIfPresent(String.self, forKey: .quality) ?? ""
+            extensions = try container.decodeIfPresent([String].self, forKey: .extensions) ?? []
+            alterations = try container.decodeIfPresent([String].self, forKey: .alterations) ?? []
+            slashBass = nil
+            return
+        }
+
+        root = try container.decode(ChordRoot.self, forKey: .root)
+        accidental = try container.decode(Accidental.self, forKey: .accidental)
+        quality = try container.decode(String.self, forKey: .quality)
+        extensions = try container.decode([String].self, forKey: .extensions)
+        alterations = try container.decode([String].self, forKey: .alterations)
+        slashBass = try container.decodeIfPresent(String.self, forKey: .slashBass)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        if kind == .chordRepeat {
+            try container.encode(kind, forKey: .kind)
+            return
+        }
+
+        try container.encode(root, forKey: .root)
+        try container.encode(accidental, forKey: .accidental)
+        try container.encode(quality, forKey: .quality)
+        try container.encode(extensions, forKey: .extensions)
+        try container.encode(alterations, forKey: .alterations)
+        try container.encodeIfPresent(slashBass, forKey: .slashBass)
+    }
+
     var displayText: String {
+        if kind == .chordRepeat {
+            return Self.chordRepeatDisplayText
+        }
+
         let qualityText = displayQualityText
         let extensionText = extensions.joined()
         let alterationText = alterations.map { "(\($0))" }.joined()
@@ -151,7 +241,7 @@ struct ChordSymbol: Codable, Hashable {
     }
 
     func transposed(by semitones: Int) -> ChordSymbol {
-        guard semitones != 0 else { return self }
+        guard semitones != 0, kind == .rooted else { return self }
 
         let originalPitch = ChordPitch(root: root, accidental: accidental)
         let preference = PitchSpellingPreference.forAccidental(accidental)
@@ -171,6 +261,8 @@ struct ChordSymbol: Codable, Hashable {
     }
 
     func transposedForChartDisplay(by semitones: Int) -> ChordSymbol {
+        guard kind == .rooted else { return self }
+
         let normalizedSemitones = Chart.normalizedChordTranspositionSemitones(semitones)
         guard normalizedSemitones != 0 else { return self }
 

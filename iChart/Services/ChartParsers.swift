@@ -37,6 +37,10 @@ enum MeterParser {
 enum ChordSymbolParser {
     static func parse(_ text: String) throws -> ChordSymbol {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isChordRepeatText(trimmed) {
+            return .chordRepeat
+        }
+
         guard let rootPitch = parseLeadingPitch(from: trimmed) else {
             throw ChordSymbolParseError.invalidRoot
         }
@@ -70,6 +74,18 @@ enum ChordSymbolParser {
             alterations: parsedDescriptor.alterations,
             slashBass: parsedSlashBass?.displayText
         )
+    }
+
+    static func isChordRepeatText(_ text: String) -> Bool {
+        let compact = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { !$0.isWhitespace }
+            .replacingOccurrences(of: "·", with: "•")
+            .replacingOccurrences(of: "∙", with: "•")
+
+        return compact == ChordSymbol.chordRepeatDisplayText
+            || compact == "%"
+            || compact == "./."
     }
 
     private static func parseLeadingPitch(from text: String) -> ChordPitch? {

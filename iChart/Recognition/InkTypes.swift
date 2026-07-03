@@ -353,6 +353,7 @@ enum ChordInkContinuationGracePolicy {
     ) -> Bool {
         guard strokeCount <= 8,
               let symbol = result.match?.symbol,
+              symbol.kind == .rooted,
               symbol.alterations.isEmpty,
               symbol.slashBass == nil,
               symbol.extensions.count <= 1 else {

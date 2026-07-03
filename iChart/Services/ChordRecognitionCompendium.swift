@@ -12,9 +12,12 @@ struct ChordRecognitionMatch: Hashable {
 typealias BasicMajorChordMatch = ChordRecognitionMatch
 
 enum ChordRecognitionCompendium {
-    static let recognitionWords: [String] = entries.flatMap(\.aliases)
+    static let recognitionWords: [String] = chordRepeatAliases + entries.flatMap(\.aliases)
     static var supportedMatches: [ChordRecognitionMatch] {
-        entries.map { entry in
+        [ChordRecognitionMatch(
+            rawInput: ChordSymbol.chordRepeatDisplayText,
+            symbol: .chordRepeat
+        )] + entries.map { entry in
             ChordRecognitionMatch(
                 rawInput: entry.aliases.first ?? entry.symbol.displayText,
                 symbol: entry.symbol
@@ -25,6 +28,10 @@ enum ChordRecognitionCompendium {
     static func match(_ text: String) -> ChordRecognitionMatch? {
         guard !usesUnsupportedMajorSuffix(text) else {
             return nil
+        }
+
+        if ChordSymbolParser.isChordRepeatText(text) {
+            return ChordRecognitionMatch(rawInput: text, symbol: .chordRepeat)
         }
 
         let normalizedInput = normalized(text)
@@ -80,6 +87,8 @@ enum ChordRecognitionCompendium {
             .replacingOccurrences(of: "º", with: "°")
             .replacingOccurrences(of: "Ø", with: "ø")
             .replacingOccurrences(of: "⌀", with: "ø")
+            .replacingOccurrences(of: "·", with: "•")
+            .replacingOccurrences(of: "∙", with: "•")
             .replacingOccurrences(of: "FLAT", with: "b")
             .replacingOccurrences(of: "SHARP", with: "#")
             .filter { character in
@@ -89,6 +98,9 @@ enum ChordRecognitionCompendium {
                     || character == "+"
                     || character == "-"
                     || character == "/"
+                    || character == "%"
+                    || character == "."
+                    || character == "•"
                     || character == "△"
                     || character == "°"
                     || character == "ø"
@@ -115,6 +127,13 @@ enum ChordRecognitionCompendium {
 
         return suffix == "MAJ" || suffix == "MAJOR"
     }
+
+    private static let chordRepeatAliases = [
+        ChordSymbol.chordRepeatDisplayText,
+        "• / •",
+        "%",
+        "./."
+    ]
 
     private static let entries: [ChordRecognitionEntry] = baseEntries.flatMap { entry in
         [

@@ -1138,6 +1138,27 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: flatCandidates.map(\.text))?.displayText, "Bb7sus")
     }
 
+    func testSemanticComposerRecognizesChordRepeatDotSlashDot() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("•", confidence: 0.92)],
+                [glyph("/", confidence: 0.88)],
+                [glyph("•", confidence: 0.91)]
+            ],
+            clusters: [
+                cluster(minX: 10, minY: 24, maxX: 18, maxY: 32),
+                cluster(minX: 34, minY: 10, maxX: 50, maxY: 56),
+                cluster(minX: 66, minY: 36, maxX: 74, maxY: 44)
+            ]
+        )
+
+        XCTAssertEqual(result.candidates.first?.text, "•/•")
+        XCTAssertEqual(
+            ChordRecognitionCompendium.match(candidates: result.candidates.map(\.text))?.displayText,
+            "•/•"
+        )
+    }
+
     func testAugmentedSymbolBeatsPromotedSixWhenPlusEvidenceIsStronger() {
         let candidates = composer.compose(glyphCandidates: [
             [glyph("G", confidence: 0.97)],
