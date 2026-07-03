@@ -1,25 +1,13 @@
 import Foundation
 
 struct LeadSheetChordInkRecognitionRequestState {
-    var pendingWorkItem: DispatchWorkItem?
     var activeRequestID: UUID?
-    var lastRecognizedDrawingData: Data?
-    var continuationGraceDrawingData: Data?
 
-    mutating func schedule(requestID: UUID, workItem: DispatchWorkItem) {
-        pendingWorkItem?.cancel()
+    mutating func beginRequest(_ requestID: UUID) {
         activeRequestID = requestID
-        pendingWorkItem = workItem
-    }
-
-    mutating func markPendingWorkStarted() {
-        pendingWorkItem?.cancel()
-        pendingWorkItem = nil
     }
 
     mutating func cancelPendingRequest() {
-        pendingWorkItem?.cancel()
-        pendingWorkItem = nil
         activeRequestID = nil
     }
 
@@ -29,7 +17,6 @@ struct LeadSheetChordInkRecognitionRequestState {
 
     mutating func clearForChordEditingDisabled() {
         cancelPendingRequest()
-        lastRecognizedDrawingData = nil
     }
 
     func isActive(_ requestID: UUID) -> Bool {

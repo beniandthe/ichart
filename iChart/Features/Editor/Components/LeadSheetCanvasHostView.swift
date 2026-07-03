@@ -931,7 +931,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if let selectedCueTextID,
                chart.cueText(id: selectedCueTextID) == nil {
                 self.selectedCueTextID = nil
-                activeCueTextMoveDrag = nil
+            }
+            if let activeCueTextMoveDrag,
+               chart.cueText(id: activeCueTextMoveDrag.cueTextID) == nil {
+                self.activeCueTextMoveDrag = nil
             }
             invalidateLayout()
         }
@@ -1085,8 +1088,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return .live
     }
     private let chordOCRCandidateProvider = ChordOCRCandidateProviderFactory.liveProvider()
-    private let chordInkIdleDelay = ChordInkAutomaticRecognitionPolicy.defaultIdleDelay
-    private let chordInkContinuationGraceDelay = ChordInkAutomaticRecognitionPolicy.defaultContinuationGraceDelay
     private let chordInkRecognitionQueue = DispatchQueue(
         label: "com.ichart.chord-ink-recognition",
         qos: .userInitiated
@@ -1124,10 +1125,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleChordInkConfirmTap(_:))
     )
-    private lazy var chordInkConfirmPanRecognizer = UIPanGestureRecognizer(
-        target: self,
-        action: #selector(handleChordInkConfirmPan(_:))
-    )
     private var isSyncingInkCanvasFromModel = false
     private var inkAuthoringSessionState = LeadSheetInkAuthoringSessionState()
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
@@ -1145,12 +1142,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
     private var activeChordMoveDrag: ActiveChordMoveDrag?
-    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
+    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
-    private var chordInkConfirmPanStartLocation: CGPoint?
     private var selectedFreehandSymbolID: UUID?
     private var activeFreehandSymbolEditDrag: ActiveFreehandSymbolEditDrag?
     private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
@@ -1274,11 +1270,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkConfirmTapRecognizer.delegate = self
         chordInkConfirmTapRecognizer.cancelsTouchesInView = false
         chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmTapRecognizer)
-        chordInkConfirmPanRecognizer.delegate = self
-        chordInkConfirmPanRecognizer.cancelsTouchesInView = false
-        chordInkConfirmPanRecognizer.delaysTouchesBegan = false
-        chordInkConfirmPanRecognizer.delaysTouchesEnded = false
-        chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmPanRecognizer)
         addSubview(chordInkConfirmOverlayView)
 
         chordEditHitOverlayView.backgroundColor = .clear
@@ -2114,8 +2105,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private enum EditableOverlayHitTarget {
-        case roadmap(RoadmapMarkerEditHitTarget)
         case cueText(CueTextEditHitTarget)
+        case roadmap(RoadmapMarkerEditHitTarget)
         case chord(ChordEditHitTarget)
         case freehand(FreehandSymbolEditHitTarget)
     }
@@ -2500,12 +2491,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func handleCueTextEditTap(_ hitTarget: CueTextEditHitTarget) {
+        guard let cueText = chart.cueText(id: hitTarget.cueTextID) else {
+            return
+        }
+
         switch hitTarget.action {
         case .select:
-            guard let cueText = chart.cueText(id: hitTarget.cueTextID) else {
-                return
-            }
-
             selectCueTextFromCanvas(cueText)
         case .edit:
             selectedCueTextID = hitTarget.cueTextID
@@ -2572,8 +2563,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout),
-           !shouldConfirmChordInkTap(at: location) {
+        if LeadSheetCanvasInteractionTargeting.chordWritingBandContains(location, in: pageLayout) {
+            return
+        }
+
+        guard ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+            location: location,
+            pageLayout: pageLayout,
+            hasChordInk: currentCanvasDrawingData() != nil
+        ) else {
             return
         }
 
@@ -2588,34 +2586,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         confirmChordInkFromUserTapIfNeeded()
-    }
-
-    @objc
-    private func handleChordInkConfirmPan(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            chordInkConfirmPanStartLocation = recognizer.location(in: self)
-        case .ended:
-            defer {
-                chordInkConfirmPanStartLocation = nil
-            }
-
-            guard let startLocation = chordInkConfirmPanStartLocation,
-                  ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                    startLocation: startLocation,
-                    currentLocation: recognizer.location(in: self),
-                    pageLayout: pageLayout,
-                    hasChordInk: currentCanvasDrawingData() != nil
-                  ) else {
-                return
-            }
-
-            confirmChordInkFromUserTapIfNeeded()
-        case .cancelled, .failed:
-            chordInkConfirmPanStartLocation = nil
-        default:
-            break
-        }
     }
 
     private func chordInkConfirmSurfaceContains(_ location: CGPoint) -> Bool {
@@ -2633,29 +2603,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return bounds.contains(location)
     }
 
-    private func shouldConfirmChordInkTap(at location: CGPoint) -> Bool {
-        guard currentCanvasDrawingData() != nil,
-              let inkBounds = currentChordInkBoundsInView() else {
-            return false
-        }
-
-        return !inkBounds.insetBy(dx: -18, dy: -18).contains(location)
-    }
-
-    private func currentChordInkBoundsInView() -> CGRect? {
-        guard let activeInkScope = activeInkScope(),
-              case .chords(let chordFrame, _) = activeInkScope else {
-            return nil
-        }
-
-        let inkBounds = LeadSheetChordInkImageRenderer.renderBounds(for: pageInkCanvasView.drawing)
-        guard !inkBounds.isNull else {
-            return nil
-        }
-
-        return inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
-    }
-
     private func confirmChordInkFromUserTapIfNeeded() {
         guard interactionMode.allowsChordInkEditing,
               recognizesChordInk,
@@ -2663,11 +2610,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        scheduleChordInkRecognition(
-            after: 0,
-            scheduledInkSnapshot: currentCanvasInkSnapshot(),
-            flow: .tapToConfirm
+        startTapConfirmedChordInkRecognition(
+            scheduledInkSnapshot: currentCanvasInkSnapshot()
         )
     }
 
@@ -2726,6 +2670,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if selectedCueTextID == cueTextID {
             selectedCueTextID = nil
         }
+        if activeCueTextMoveDrag?.cueTextID == cueTextID {
+            activeCueTextMoveDrag = nil
+        }
+
         chart = updatedChart
         onChartChanged?(updatedChart)
         setNeedsDisplay()
@@ -2969,7 +2917,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ) {
                 chart = updatedChart
                 selectedCueTextID = activeCueTextMoveDrag.cueTextID
-                selectedMeasureID = target.measureID
                 onChartChanged?(updatedChart)
                 setNeedsDisplay()
             }
@@ -3195,11 +3142,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            if recognizesChordInk {
-                scheduleChordInkRecognition()
-            } else {
-                schedulePassiveChordInkPersistence()
-            }
+            schedulePassiveChordInkPersistence()
             return
 
         case .rhythm:
@@ -3317,38 +3260,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         persistActiveInkIfNeeded()
     }
 
-    private func scheduleChordInkRecognition() {
-        scheduleChordInkRecognition(
-            after: ChordInkAutomaticRecognitionPolicy.idleDelay(
-                for: pageInkCanvasView.drawing,
-                defaultDelay: chordInkIdleDelay
-            ),
-            scheduledInkSnapshot: currentCanvasInkSnapshot(),
-            flow: .automaticPreview
-        )
-    }
-
-    private func scheduleChordInkRecognition(
-        after requestedDelay: TimeInterval,
-        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
-        flow: ChordInkRecognitionFlow
+    private func startTapConfirmedChordInkRecognition(
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
     ) {
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
 
         let requestID = UUID()
         let scheduledAt = Date()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.recognizeChordInkIfNeeded(
-                requestID: requestID,
-                scheduledAt: scheduledAt,
-                requestedDelay: requestedDelay,
-                scheduledInkSnapshot: scheduledInkSnapshot,
-                flow: flow
-            )
-        }
-        chordInkRecognitionRequestState.schedule(requestID: requestID, workItem: workItem)
-        DispatchQueue.main.asyncAfter(deadline: .now() + requestedDelay, execute: workItem)
+        chordInkRecognitionRequestState.beginRequest(requestID)
+        recognizeChordInkIfNeeded(
+            requestID: requestID,
+            scheduledAt: scheduledAt,
+            requestedDelay: 0,
+            scheduledInkSnapshot: scheduledInkSnapshot,
+            flow: .tapToConfirm
+        )
     }
 
     private func persistActiveInkIfNeeded(
@@ -3394,8 +3321,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?,
         flow: ChordInkRecognitionFlow
     ) {
-        chordInkRecognitionRequestState.markPendingWorkStarted()
-
         guard chordInkRecognitionRequestState.isActive(requestID) else {
             return
         }
@@ -3424,42 +3349,34 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard flow == .tapToConfirm
-                || drawingData != chordInkRecognitionRequestState.lastRecognizedDrawingData else {
-            chordInkRecognitionRequestState.clearActiveRequest()
-            return
-        }
-
         persistActiveInkIfNeeded(cancelPendingRecognition: false)
 
-        if flow == .tapToConfirm {
-            let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
-                for: pageInkCanvasView.drawing,
-                chordFrame: chordFrame,
-                pageLayout: pageLayout
-            )
-            if batchTargets.count > 1 {
-                let sessionRequests = batchTargets.map { batchTarget in
-                    let drawingForOCR = batchTarget.drawing
-                    return ChordInkRecognitionSessionRequest(
-                        requestID: requestID,
-                        scheduledAt: scheduledAt,
-                        requestedDelay: requestedDelay,
-                        strokes: batchTarget.strokes,
-                        drawingData: batchTarget.drawingData,
-                        target: (batchTarget.measureID, batchTarget.fraction),
-                        options: chordInkRecognitionOptions,
-                        ocrImageProvider: {
-                            LeadSheetChordInkImageRenderer.ocrImage(for: drawingForOCR)
-                        }
-                    )
-                }
-
-                chordInkRecognitionSession.startBatch(requests: sessionRequests) { [weak self] payloads in
-                    self?.finishChordInkBatchRecognition(payloads, flow: flow)
-                }
-                return
+        let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: pageInkCanvasView.drawing,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )
+        if batchTargets.count > 1 {
+            let sessionRequests = batchTargets.map { batchTarget in
+                let drawingForOCR = batchTarget.drawing
+                return ChordInkRecognitionSessionRequest(
+                    requestID: requestID,
+                    scheduledAt: scheduledAt,
+                    requestedDelay: requestedDelay,
+                    strokes: batchTarget.strokes,
+                    drawingData: batchTarget.drawingData,
+                    target: (batchTarget.measureID, batchTarget.fraction),
+                    options: chordInkRecognitionOptions,
+                    ocrImageProvider: {
+                        LeadSheetChordInkImageRenderer.ocrImage(for: drawingForOCR)
+                    }
+                )
             }
+
+            chordInkRecognitionSession.startBatch(requests: sessionRequests) { [weak self] payloads in
+                self?.finishChordInkBatchRecognition(payloads, flow: flow)
+            }
+            return
         }
 
         guard let target = LeadSheetChordInkRecognitionTargeting.target(
@@ -3510,30 +3427,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if shouldGiveChordInkContinuationGrace(
-            flow: flow,
-            result: payload.result,
-            drawingData: payload.drawingData,
-            timing: payload.timing
-        ) {
-            chordInkRecognitionRequestState.continuationGraceDrawingData = payload.drawingData
-            scheduleChordInkRecognition(
-                after: ChordInkAutomaticRecognitionPolicy.continuationGraceDelay(
-                    for: payload.result,
-                    defaultDelay: chordInkContinuationGraceDelay
-                ),
-                scheduledInkSnapshot: currentCanvasInkSnapshot(),
-                flow: .automaticPreview
-            )
-            return
-        }
-
-        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        if flow.recordsPreviewSnapshot {
-            chordInkRecognitionRequestState.lastRecognizedDrawingData = payload.drawingData
-        } else {
-            chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
-        }
         onChordInkRecognitionProposal?(
             payload.target.measureID,
             payload.result,
@@ -3563,25 +3456,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chordInkRecognitionRequestState.continuationGraceDrawingData = nil
-        chordInkRecognitionRequestState.lastRecognizedDrawingData = nil
         onChordInkBatchRecognitionProposal?(payloads, flow)
-    }
-
-    private func shouldGiveChordInkContinuationGrace(
-        flow: ChordInkRecognitionFlow,
-        result: ChordInkRecognitionResult,
-        drawingData: Data,
-        timing: ChordInkRecognitionTiming
-    ) -> Bool {
-        ChordInkAutomaticRecognitionPolicy.shouldGiveContinuationGrace(
-            flow: flow,
-            previousDrawingData: chordInkRecognitionRequestState.continuationGraceDrawingData,
-            drawingData: drawingData,
-            timing: timing,
-            idleDelay: chordInkIdleDelay,
-            result: result
-        )
     }
 
     private func shouldFinalizeRhythmicNotation(from previousMeasureID: UUID?, to nextMeasureID: UUID?) -> Bool {
@@ -4636,8 +4511,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if policy.clearsChordInteractionState {
             activeChordMoveDrag = nil
-            activeCueTextMoveDrag = nil
             activeRoadmapMarkerEditDrag = nil
+            activeCueTextMoveDrag = nil
             unlockParentScrollForChordMove()
         }
 
@@ -4722,10 +4597,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
         }
 
-        if gestureRecognizer === chordInkConfirmPanRecognizer {
-            return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
-        }
-
         if gestureRecognizer === chordMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
             let translation = chordMovePanRecognizer.translation(in: self)
@@ -4766,11 +4637,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             || otherGestureRecognizer === chordMovePanRecognizer
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
-        let involvesChordInkConfirmPan = gestureRecognizer === chordInkConfirmPanRecognizer
-            || otherGestureRecognizer === chordInkConfirmPanRecognizer
-        if involvesChordInkConfirmPan {
-            return true
-        }
         if !LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
             involvesChordMove: involvesChordMove,
             involvesParentScroll: involvesParentScroll

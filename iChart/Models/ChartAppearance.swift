@@ -482,7 +482,6 @@ extension StylePreset: Identifiable {
             }
         }
     }
-
 }
 
 enum LeadSheetBarlineMetrics {

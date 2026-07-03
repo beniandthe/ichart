@@ -255,8 +255,8 @@ Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/Compo
 - [ ] Rhythm alert: "Rhythm Edit", "OK"
 - [ ] Chord alert: "Chord Recognition", "OK"
 - [ ] Header sheet: "Header", "Header Mode", "Mode", "Chart", "Title", "Composer / Credit", "Style Note", "Untitled Chart", "Cancel", "Apply", "Open keyboard for {title}"
-- [ ] Appearance panels: "Sheet Style", "Notation Fonts", "Engraving"
-- [ ] Appearance subtitles: "Change the chart page surface without changing the app controls.", "Choose the notation symbol style used in the chart.", "Control spacing and stroke weight for the page."
+- [ ] Appearance panels: "Document Style", "Notation Fonts", "Engraving"
+- [ ] Appearance subtitles: "Set the overall visual personality of the chart.", "Choose the notation symbol style used in the chart.", "Control spacing and stroke weight for the page."
 - [ ] Appearance sections/actions: "Style", "Notation Font", "Preset", "Done"
 - [ ] Typography sections: "Matched Set", "Chord Font", "Header Font", "Text / Cue Font", "Notation Symbols", "Use Matched Set", "Selected", "Fonts", "Done"
 - [ ] Typography previews: "Almost Like Being In Love", "(Medium Swing)  To Coda", "Bb△7  C°7  Fø7"
@@ -470,8 +470,7 @@ Source: `iChart/Models/ChartAppearance.swift`
   - "Loose handwritten Finale family."
 - [ ] Engraving presets: "Compact", "Balanced", "Wide", "Bold"
 - [ ] Engraving descriptions: "Tighter spacing for dense lead sheets.", "Default real-book spacing and staff weight.", "More horizontal room for handwriting and rhythms.", "Heavier staff, barlines, stems, and glyphs."
-- [ ] Chord sheet styles: "Real Book", "Staff Paper", "White", "White Staff"
-- [ ] Rhythm sheet styles: "Paper", "Warm Paper", "White"
+- [ ] Document styles: "Classic Real Book", "Gig Sheet", "Rehearsal Draft"
 - [ ] Document style descriptions: "Centered title, clean paper, and polished chart hierarchy.", "Looser handwritten title treatment for jazz chart sketches.", "Plain working-copy style for fast revisions."
 
 ## Generated, Seed, And PDF Text

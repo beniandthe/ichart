@@ -53,6 +53,38 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
     }
 
+    func testChordInkRenderIsTapConfirmedOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let flowText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkRecognitionFlow.swift")
+        )
+        let gesturePolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkTapConfirmGesturePolicy.swift")
+        )
+        let automaticPolicyURL = projectRoot
+            .appendingPathComponent("iChart/Features/Editor/Components/ChordInkAutomaticRecognitionPolicy.swift")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
+        XCTAssertTrue(hostText.contains("startTapConfirmedChordInkRecognition"))
+        XCTAssertTrue(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
+        XCTAssertTrue(flowText.contains("case tapToConfirm"))
+        XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
+        XCTAssertFalse(hostText.contains(".automaticPreview"))
+        XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
+        XCTAssertFalse(hostText.contains("continuationGrace"))
+        XCTAssertFalse(hostText.contains("shouldConfirmChordInkTap"))
+        XCTAssertFalse(hostText.contains("currentChordInkBoundsInView"))
+        XCTAssertFalse(gesturePolicyText.contains("shouldConfirmOutsideLaneGesture"))
+    }
+
     func testSettingsContainUserInfoWithoutPaymentInfo() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -66,13 +98,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("@State private var userEmail"))
         XCTAssertTrue(libraryText.contains("@State private var userPhone"))
         XCTAssertFalse(libraryText.contains("@State private var userAddress"))
+        XCTAssertFalse(libraryText.contains("Mailing address"))
+        XCTAssertFalse(libraryText.contains("title: \"Address\""))
         XCTAssertFalse(libraryText.contains("iChartUserEmail"))
         XCTAssertFalse(libraryText.contains("iChartUserPhone"))
         XCTAssertFalse(libraryText.contains("iChartUserAddress"))
         XCTAssertFalse(libraryText.contains("iChartUserPaymentSummary"))
         XCTAssertFalse(libraryText.contains("Payment Info"))
-        XCTAssertFalse(libraryText.contains("Mailing address"))
-        XCTAssertFalse(libraryText.contains("title: \"Address\""))
         XCTAssertTrue(libraryText.contains("Resend Email"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
@@ -273,7 +305,6 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
         XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
         XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
-        XCTAssertTrue(editorText.contains("TextEditor(text: $text)"))
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
@@ -336,7 +367,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
         XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
         XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
-        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName, phone: phone)"))
+        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
         XCTAssertFalse(authStoreText.contains("firstName = profile.firstName"))
         XCTAssertFalse(authStoreText.contains("lastName = profile.lastName"))
         XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists first_name text"))
@@ -346,7 +377,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
         XCTAssertTrue(rlsTestText.contains("client cannot update locked profile name fields"))
-        XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, phone, email, and password"))
+        XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, email, and password"))
         XCTAssertTrue(planPolicyText.contains("First and last name are locked account identity fields after signup"))
     }
 
@@ -528,6 +559,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("Rm End"))
         XCTAssertTrue(editorText.contains("Repeats is only for repeat structure"))
         XCTAssertTrue(editorText.contains("Coda is only for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda"))
+        XCTAssertTrue(editorText.contains("TextEditor(text: $text)"))
         XCTAssertTrue(editorText.contains("Select a marker, drag it left or right within the measure"))
         XCTAssertFalse(editorText.contains("Coda is only for point roadmap markers: 𝄌"))
         XCTAssertTrue(editorText.contains("Text(roadmapType.editorMenuDisplayText)"))
@@ -622,6 +654,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(appearanceSheetText.contains("Section(\"SMuFL Font\")"))
         XCTAssertTrue(setupSheetText.contains("Sheet Style"))
         XCTAssertTrue(setupSheetText.contains("selectedStylePreset"))
+        XCTAssertTrue(editorText.contains("StylePreset.sheetPresets(for: chart.layoutStyle)"))
         XCTAssertTrue(notationRendererText.contains("guard layoutStyle == .simpleChordSheet else"))
         XCTAssertFalse(
             chartAppearanceText.contains(
@@ -767,7 +800,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.0\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"6\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"8\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))
@@ -1231,9 +1264,9 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260621001910_security_hardening.sql")
         )
-        let removeProfileAddressMigrationText = try String(
+        let profileAddressRemovalMigrationText = try String(
             contentsOf: projectRoot
-                .appendingPathComponent("supabase/migrations/20260624184032_remove_profile_mailing_address.sql")
+                .appendingPathComponent("supabase/migrations/20260702001739_remove_profile_mailing_address.sql")
         )
         let configText = try String(
             contentsOf: projectRoot
@@ -1257,9 +1290,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
         XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
-        XCTAssertTrue(removeProfileAddressMigrationText.contains("revoke insert (mailing_address)"))
-        XCTAssertTrue(removeProfileAddressMigrationText.contains("revoke update (mailing_address)"))
-        XCTAssertTrue(removeProfileAddressMigrationText.contains("drop column if exists mailing_address"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant insert (id, email, phone, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant update (id, email, phone, payment_summary)"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))

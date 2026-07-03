@@ -303,15 +303,6 @@ final class ChartLibraryStoreTests: XCTestCase {
 
     func testAsyncRepositoryDoesNotBlockChartCreation() {
         let repository = BlockingAsyncChartRepository()
-        let saveStarted = expectation(description: "save started")
-        let saveFinished = expectation(description: "save finished")
-        repository.onSaveStarted = {
-            saveStarted.fulfill()
-        }
-        repository.onSaveFinished = {
-            saveFinished.fulfill()
-        }
-
         let store = ChartLibraryStore(charts: [], repository: repository)
         let start = Date()
 
@@ -320,11 +311,11 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 0.2)
         XCTAssertEqual(store.charts.count, 1)
         XCTAssertEqual(store.selectedChartID, store.charts.first?.id)
-        wait(for: [saveStarted], timeout: 1)
+        waitUntil(repository.saveStartedCount == 1)
         XCTAssertTrue(repository.savedSnapshots.isEmpty)
 
         repository.unblockSave()
-        wait(for: [saveFinished], timeout: 1)
+        waitUntil(repository.savedSnapshots.count == 1)
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
     }
 

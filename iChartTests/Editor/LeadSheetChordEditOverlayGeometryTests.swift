@@ -312,6 +312,71 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         XCTAssertEqual(offset, 1, accuracy: 0.001)
     }
 
+    func testCueTextBodySelectsAndCanStartMove() {
+        let cueTextID = UUID()
+        let cueTextLayout = cueTextLayout(id: cueTextID)
+
+        let tapTarget = LeadSheetCueTextEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: cueTextLayout.frame.midX, y: cueTextLayout.frame.midY),
+            in: [cueTextLayout],
+            selectedCueTextID: nil
+        )
+        let moveTarget = LeadSheetCueTextEditOverlayGeometry.moveHitTarget(
+            at: CGPoint(x: cueTextLayout.frame.midX, y: cueTextLayout.frame.midY),
+            in: [cueTextLayout]
+        )
+
+        XCTAssertEqual(tapTarget?.cueTextID, cueTextID)
+        assertCueTextAction(tapTarget?.action, is: .select)
+        XCTAssertEqual(moveTarget?.id, cueTextID)
+    }
+
+    func testCueTextControlsOnlyActivateForSelectedCueText() {
+        let cueTextID = UUID()
+        let cueTextLayout = cueTextLayout(id: cueTextID)
+        let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout)
+
+        let unselectedControlTarget = LeadSheetCueTextEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: controls.delete.midX, y: controls.delete.midY),
+            in: [cueTextLayout],
+            selectedCueTextID: nil
+        )
+        XCTAssertNil(unselectedControlTarget)
+
+        let selectedDeleteTarget = LeadSheetCueTextEditOverlayGeometry.hitTarget(
+            at: CGPoint(x: controls.delete.midX, y: controls.delete.midY),
+            in: [cueTextLayout],
+            selectedCueTextID: cueTextID
+        )
+        XCTAssertEqual(selectedDeleteTarget?.cueTextID, cueTextID)
+        assertCueTextAction(selectedDeleteTarget?.action, is: .delete)
+
+        XCTAssertEqual(
+            LeadSheetCueTextEditOverlayGeometry.hitTarget(
+                at: CGPoint(x: controls.edit.midX, y: controls.edit.midY),
+                in: [cueTextLayout],
+                selectedCueTextID: cueTextID
+            )?.action,
+            .edit
+        )
+        XCTAssertEqual(
+            LeadSheetCueTextEditOverlayGeometry.hitTarget(
+                at: CGPoint(x: controls.shrink.midX, y: controls.shrink.midY),
+                in: [cueTextLayout],
+                selectedCueTextID: cueTextID
+            )?.action,
+            .shrink
+        )
+        XCTAssertEqual(
+            LeadSheetCueTextEditOverlayGeometry.hitTarget(
+                at: CGPoint(x: controls.grow.midX, y: controls.grow.midY),
+                in: [cueTextLayout],
+                selectedCueTextID: cueTextID
+            )?.action,
+            .grow
+        )
+    }
+
     func testRoadmapLabelFittingShrinksLongLabelsIntoMarkerFrame() {
         let frame = CGRect(x: 0, y: 0, width: 104, height: 40)
         let fittedSize = LeadSheetRoadmapLabelFitting.fittedBaseFontSize(
@@ -376,6 +441,24 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         }
     }
 
+    private func assertCueTextAction(
+        _ action: CueTextEditHitTarget.Action?,
+        is expectedAction: CueTextEditHitTarget.Action,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch (action, expectedAction) {
+        case (.select?, .select),
+             (.edit?, .edit),
+             (.shrink?, .shrink),
+             (.grow?, .grow),
+             (.delete?, .delete):
+            break
+        default:
+            XCTFail("Expected \(expectedAction), got \(String(describing: action))", file: file, line: line)
+        }
+    }
+
     private static func testBaseFont(size: CGFloat) -> UIFont {
         UIFont.systemFont(ofSize: size)
     }
@@ -396,6 +479,22 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             frame: frame,
             movementFrame: movementFrame,
             anchorMeasureID: UUID()
+        )
+    }
+
+    private func cueTextLayout(
+        id: UUID = UUID(),
+        frame: CGRect = CGRect(x: 150, y: 94, width: 86, height: 24)
+    ) -> LeadSheetCueTextLayout {
+        LeadSheetCueTextLayout(
+            id: id,
+            text: "Repeat 3x",
+            frame: frame,
+            hitFrame: frame.insetBy(dx: -8, dy: -6),
+            position: .above,
+            emphasis: .normal,
+            scale: 1,
+            beatFraction: 0.5
         )
     }
 

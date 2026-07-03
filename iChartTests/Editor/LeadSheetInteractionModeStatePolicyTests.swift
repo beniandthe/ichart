@@ -143,15 +143,13 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(expandedLanePoint, in: layout))
     }
 
-    func testSmallOutsideChordLaneDragConfirmsWaitingChordInk() {
+    func testOnlyOutsideChordLaneTapConfirmsWaitingChordInk() {
         let chart = Chart.blank(title: "Confirm Drag", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
         )
         let outsideLaneStart = CGPoint(x: layout.paperFrame.midX, y: layout.paperFrame.maxY - 28)
-        let smallDragEnd = CGPoint(x: outsideLaneStart.x + 10, y: outsideLaneStart.y + 8)
-        let largeDragEnd = CGPoint(x: outsideLaneStart.x + 120, y: outsideLaneStart.y)
         let insideLaneStart = CGPoint(
             x: layout.systems[0].measures[0].chordWritingFrame.midX,
             y: layout.systems[0].measures[0].chordWritingFrame.midY
@@ -171,34 +169,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 hasChordInk: true
             )
         )
-        XCTAssertTrue(
-            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                startLocation: outsideLaneStart,
-                currentLocation: smallDragEnd,
-                pageLayout: layout,
-                hasChordInk: true
-            )
-        )
         XCTAssertFalse(
-            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                startLocation: outsideLaneStart,
-                currentLocation: largeDragEnd,
-                pageLayout: layout,
-                hasChordInk: true
-            )
-        )
-        XCTAssertFalse(
-            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                startLocation: insideLaneStart,
-                currentLocation: CGPoint(x: insideLaneStart.x + 4, y: insideLaneStart.y + 4),
-                pageLayout: layout,
-                hasChordInk: true
-            )
-        )
-        XCTAssertFalse(
-            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneGesture(
-                startLocation: outsideLaneStart,
-                currentLocation: smallDragEnd,
+            ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap(
+                location: outsideLaneStart,
                 pageLayout: layout,
                 hasChordInk: false
             )

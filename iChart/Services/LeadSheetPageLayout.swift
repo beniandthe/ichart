@@ -1398,7 +1398,7 @@ enum LeadSheetPageLayoutEngine {
             .sorted {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
                     ($1.startPosition.startOffset(in: meter) ?? 0)
-        }
+            }
         let rawChordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
             let nextPlacementIndex = placementIndex + 1
             let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
@@ -1776,7 +1776,10 @@ enum LeadSheetPageLayoutEngine {
         resolvedLayout.fitFrame = CGRect(
             x: resolvedLayout.fitFrame.minX,
             y: resolvedLayout.fitFrame.minY,
-            width: max(resolvedWidth, min(resolvedLayout.fitFrame.width, resolvedLayout.frame.maxX - resolvedLayout.fitFrame.minX)),
+            width: max(
+                resolvedWidth,
+                min(resolvedLayout.fitFrame.width, resolvedLayout.frame.maxX - resolvedLayout.fitFrame.minX)
+            ),
             height: resolvedLayout.fitFrame.height
         )
         return resolvedLayout
@@ -2214,7 +2217,7 @@ enum LeadSheetPageLayoutEngine {
         case "A"..."Z":
             return fontSize * 0.68
         default:
-            return fontSize * 0.56
+            return fontSize * 0.58
         }
     }
 

@@ -14,7 +14,7 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 ## 2. Account Policy
 
 - Account creation/sign-in is mandatory for production Basic and Pro users.
-- In-app account creation requires first name, last name, phone, email, and password before entering the chart library.
+- In-app account creation requires first name, last name, email, and password before entering the chart library.
 - First and last name are locked account identity fields after signup so forum attribution and support identity stay stable.
 - First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
 - Account/auth is not the paywall.

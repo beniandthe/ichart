@@ -264,7 +264,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "account",
                     title: "Account",
-                    detail: "Create your account with first name, last name, phone, email, and password. Verify the email, then return to iChart."
+                    detail: "Create your account with first name, last name, email, and password. Verify the email, then return to iChart."
                 ),
                 IChartTutorialStep(
                     id: "chart-type",
@@ -1249,10 +1249,10 @@ struct LibraryView: View {
             presenting: deleteRequest
         ) { request in
             Button("Delete", role: .destructive) {
-                deleteRequest = nil
                 runLibraryOperation(.deletingChart(request.title)) {
                     store.deleteChart(id: request.chartID)
                 }
+                deleteRequest = nil
             }
             Button("Cancel", role: .cancel) {
                 deleteRequest = nil
@@ -1813,7 +1813,6 @@ struct LibraryView: View {
         if let phone = profile.phone {
             userPhone = phone
         }
-
     }
 
     private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
@@ -1857,48 +1856,6 @@ struct LibraryView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             guidedTourStep = nil
         }
-    }
-}
-
-private struct IChartLibraryOperation: Equatable {
-    let message: String
-
-    static func creatingChart(_ layoutName: String) -> IChartLibraryOperation {
-        IChartLibraryOperation(message: "Creating \(layoutName)...")
-    }
-
-    static func duplicatingChart(_ title: String) -> IChartLibraryOperation {
-        IChartLibraryOperation(message: "Duplicating \(title)...")
-    }
-
-    static func deletingChart(_ title: String) -> IChartLibraryOperation {
-        IChartLibraryOperation(message: "Deleting \(title)...")
-    }
-
-    static func removingLocalChart(_ title: String) -> IChartLibraryOperation {
-        IChartLibraryOperation(message: "Removing \(title)...")
-    }
-}
-
-private struct IChartLibraryOperationOverlay: View {
-    let message: String
-
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .progressViewStyle(.circular)
-
-            Text(message)
-                .font(.subheadline.weight(.semibold))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .foregroundStyle(.primary)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(message)
     }
 }
 
@@ -1950,6 +1907,48 @@ private struct ChartProjectDuplicateVariantRequest: Identifiable, Hashable {
 
     var id: String {
         "\(project.id.uuidString)-\(chart.id.uuidString)"
+    }
+}
+
+private struct IChartLibraryOperation: Equatable {
+    let message: String
+
+    static func creatingChart(_ layoutName: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Creating \(layoutName)...")
+    }
+
+    static func duplicatingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Duplicating \(title)...")
+    }
+
+    static func deletingChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Deleting \(title)...")
+    }
+
+    static func removingLocalChart(_ title: String) -> IChartLibraryOperation {
+        IChartLibraryOperation(message: "Removing \(title)...")
+    }
+}
+
+private struct IChartLibraryOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 
@@ -4801,7 +4800,6 @@ private struct IChartKeyboardFocusButton: View {
 private enum IChartAccountInputField: Hashable {
     case firstName
     case lastName
-    case phone
     case email
     case password
     case newPassword
@@ -4814,7 +4812,6 @@ private struct IChartAccountSettings: View {
     var showsSignedInActions = true
     @State private var firstName = ""
     @State private var lastName = ""
-    @State private var phone = ""
     @State private var email = ""
     @State private var password = ""
     @State private var newPassword = ""
@@ -4828,7 +4825,7 @@ private struct IChartAccountSettings: View {
 
     private var canCreateAccount: Bool {
         canSubmitCredentials
-            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty && !trimmed(phone).isEmpty))
+            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty))
     }
 
     private var canSignIn: Bool {
@@ -4924,17 +4921,6 @@ private struct IChartAccountSettings: View {
                     textInputAutocapitalization: .words,
                     autocorrectionDisabled: false
                 )
-
-                IChartAccountTextField(
-                    title: "Phone",
-                    placeholder: "(555) 555-5555",
-                    text: $phone,
-                    systemImageName: "phone",
-                    keyboardType: .phonePad,
-                    theme: theme,
-                    focusedField: $focusedField,
-                    field: .phone
-                )
             }
 
             IChartAccountTextField(
@@ -4968,8 +4954,7 @@ private struct IChartAccountSettings: View {
                         email: email,
                         password: password,
                         firstName: firstName,
-                        lastName: lastName,
-                        phone: phone
+                        lastName: lastName
                     )
                 }
             } label: {
@@ -5839,6 +5824,8 @@ private struct IChartUserInfoSettings: View {
                 keyboardType: .phonePad,
                 theme: theme
             )
+
+            settingsDivider
 
             Button {
                 onSaveProfile()

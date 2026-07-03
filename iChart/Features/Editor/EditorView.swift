@@ -298,9 +298,9 @@ struct EditorView: View {
     @State private var pendingMeasureStackInsertion: PendingMeasureStackInsertion?
     @State private var pendingCueTextMeasureID: UUID?
     @State private var pendingCueTextPosition: CuePosition?
-    @State private var editingCueTextID: UUID?
     @State private var cueTextDraft = ""
     @State private var showingCueTextEntry = false
+    @State private var editingCueTextID: UUID?
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var chordToolInputMode: ChordToolInputMode = .read
@@ -883,7 +883,7 @@ struct EditorView: View {
                             }
                         }
                     } label: {
-                        Label("Sheet Style", systemImage: "paintpalette")
+                        Label("Style", systemImage: "paintpalette")
                     }
 
                     Button {
@@ -2632,7 +2632,10 @@ struct EditorView: View {
         #endif
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
-              let measure = chart.measure(id: measureID) else {
+              pendingChordInkBatchConfirmation == nil,
+              pendingChordCorrection == nil,
+              let measure = chart.measure(id: measureID),
+              flow.canRenderChord else {
             return
         }
 
@@ -2669,10 +2672,6 @@ struct EditorView: View {
             decisionMilliseconds: proposalDecisionMilliseconds
         )
         #endif
-
-        guard flow.canRenderChord else {
-            return
-        }
 
         handleTapConfirmedChordRecognition(confirmation)
     }
@@ -4204,6 +4203,9 @@ private struct CueTextEntrySheetView: View {
             }
         }
         .presentationDetents([.height(275)])
+        .task {
+            isTextFocused = true
+        }
     }
 }
 

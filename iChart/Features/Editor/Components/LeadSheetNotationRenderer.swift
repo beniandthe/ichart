@@ -1565,12 +1565,14 @@ private struct LeadSheetNotationStyle {
         }
 
         switch documentStyle {
-        case .cleanStudio, .plainWhite:
+        case .cleanStudio:
             return 1
         case .gigSheet:
-            return 1.14
+            return 1.18
+        case .plainWhite:
+            return 1
         case .rehearsalDraft:
-            return 0.9
+            return 0.82
         }
     }
 
@@ -1605,9 +1607,9 @@ private struct LeadSheetNotationStyle {
 
         let fallback: UIFont
         switch documentStyle {
-        case .cleanStudio, .plainWhite:
+        case .cleanStudio:
             fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
-        case .gigSheet:
+        case .gigSheet, .plainWhite:
             fallback = UIFont.systemFont(ofSize: size * 0.94, weight: .semibold)
         case .rehearsalDraft:
             fallback = UIFont.systemFont(ofSize: size * 0.9, weight: .bold)
