@@ -142,7 +142,7 @@ enum EditorCanvasMode: Hashable {
     }
 
     var drawsAllChordObjectEditBoxes: Bool {
-        self == .browse || self == .chordEntry
+        self == .chordEntry
     }
 
     var drawsAllChordObjectEditControls: Bool {

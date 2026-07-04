@@ -203,7 +203,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvas() {
+    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
         XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
@@ -212,7 +212,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(policy.chordEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
-        XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
+        XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
