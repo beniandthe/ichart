@@ -24,7 +24,23 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
     case finaleAsh
     case finaleLegacy
 
+    static let selectableCases: [NotationFontPreset] = [
+        .bravura,
+        .petaluma,
+        .leland,
+        .museJazz,
+        .finaleMaestro,
+        .finaleJazz,
+        .finaleBroadway,
+        .finaleEngraver,
+        .finaleLegacy
+    ]
+
     var id: String { rawValue }
+
+    var releaseSafePreset: NotationFontPreset {
+        self == .finaleAsh ? .finaleJazz : self
+    }
 
     var displayText: String {
         switch self {
@@ -239,7 +255,21 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     case finaleBroadway
     case finaleAsh
 
+    static let selectableCases: [ChartFontFamilyPreset] = [
+        .bravura,
+        .petaluma,
+        .leland,
+        .museJazz,
+        .finaleMaestro,
+        .finaleJazz,
+        .finaleBroadway
+    ]
+
     var id: String { rawValue }
+
+    var releaseSafeTextFamily: ChartFontFamilyPreset {
+        self == .finaleAsh ? .finaleJazz : self
+    }
 
     var displayText: String {
         switch self {
@@ -300,7 +330,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
         case .finaleBroadway:
             return .finaleBroadway
         case .finaleAsh:
-            return .finaleAsh
+            return .finaleJazz
         }
     }
 
@@ -321,7 +351,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
         case .finaleBroadway:
             self = .finaleBroadway
         case .finaleAsh:
-            self = .finaleAsh
+            self = .finaleJazz
         case .finaleEngraver, .finaleLegacy:
             self = .bravura
         }
@@ -345,6 +375,35 @@ struct ChartTypographySettings: Codable, Hashable {
     var chordOverride: ChartFontFamilyPreset?
     var headerOverride: ChartFontFamilyPreset?
     var textOverride: ChartFontFamilyPreset?
+
+    init(
+        matchedSet: ChartFontFamilyPreset,
+        chordOverride: ChartFontFamilyPreset? = nil,
+        headerOverride: ChartFontFamilyPreset? = nil,
+        textOverride: ChartFontFamilyPreset? = nil
+    ) {
+        self.matchedSet = matchedSet.releaseSafeTextFamily
+        self.chordOverride = chordOverride?.releaseSafeTextFamily
+        self.headerOverride = headerOverride?.releaseSafeTextFamily
+        self.textOverride = textOverride?.releaseSafeTextFamily
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case matchedSet
+        case chordOverride
+        case headerOverride
+        case textOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            matchedSet: try container.decodeIfPresent(ChartFontFamilyPreset.self, forKey: .matchedSet) ?? .petaluma,
+            chordOverride: try container.decodeIfPresent(ChartFontFamilyPreset.self, forKey: .chordOverride),
+            headerOverride: try container.decodeIfPresent(ChartFontFamilyPreset.self, forKey: .headerOverride),
+            textOverride: try container.decodeIfPresent(ChartFontFamilyPreset.self, forKey: .textOverride)
+        )
+    }
 
     static func `default`(for notationFont: NotationFontPreset = .petaluma) -> ChartTypographySettings {
         ChartTypographySettings(matchedSet: ChartFontFamilyPreset(notationFont: notationFont))

@@ -1359,6 +1359,22 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(NotationFontPreset.petaluma.chordTextPostScriptName, NotationFontPreset.petaluma.textPostScriptName)
     }
 
+    func testFinaleAshSettersNormalizeToLowercaseSafeFinaleJazz() {
+        var chart = Chart.blank(title: "Ash Fonts")
+
+        chart.setNotationFont(.finaleAsh)
+        chart.setMatchedFontFamily(.finaleAsh)
+        chart.setChordFontOverride(.finaleAsh)
+        chart.setHeaderFontOverride(.finaleAsh)
+        chart.setTextFontOverride(.finaleAsh)
+
+        XCTAssertEqual(chart.notationFont, .finaleJazz)
+        XCTAssertEqual(chart.typography.matchedSet, .finaleJazz)
+        XCTAssertEqual(chart.typography.chordOverride, .finaleJazz)
+        XCTAssertEqual(chart.typography.headerOverride, .finaleJazz)
+        XCTAssertEqual(chart.typography.textOverride, .finaleJazz)
+    }
+
     func testChartDecodingDefaultsMissingAppearanceFieldsForOlderSnapshots() throws {
         let chart = Chart.blank(title: "Older Snapshot")
         let encodedData = try JSONEncoder().encode(chart)

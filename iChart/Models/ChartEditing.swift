@@ -49,28 +49,29 @@ extension Chart {
     }
 
     mutating func setNotationFont(_ preset: NotationFontPreset) {
-        notationFont = preset
+        notationFont = preset.releaseSafePreset
         updatedAt = .now
     }
 
     mutating func setMatchedFontFamily(_ preset: ChartFontFamilyPreset) {
-        typography.matchedSet = preset
-        notationFont = preset.notationFont
+        let safePreset = preset.releaseSafeTextFamily
+        typography.matchedSet = safePreset
+        notationFont = safePreset.notationFont
         updatedAt = .now
     }
 
     mutating func setChordFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.chordOverride = preset
+        typography.chordOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 
     mutating func setHeaderFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.headerOverride = preset
+        typography.headerOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 
     mutating func setTextFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.textOverride = preset
+        typography.textOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 

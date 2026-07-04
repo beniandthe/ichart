@@ -81,8 +81,8 @@ struct Chart: Identifiable, Codable, Hashable {
         self.layoutStyle = layoutStyle
         self.documentKey = documentKey
         self.documentFont = documentFont
-        self.notationFont = notationFont
-        self.typography = typography ?? ChartTypographySettings.default(for: notationFont)
+        self.notationFont = notationFont.releaseSafePreset
+        self.typography = typography ?? ChartTypographySettings.default(for: self.notationFont)
         self.defaultTranspositionView = defaultTranspositionView
         self.chordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(chordTranspositionSemitones)
         self.defaultMeter = defaultMeter
@@ -148,7 +148,8 @@ struct Chart: Identifiable, Codable, Hashable {
         layoutStyle = try container.decodeIfPresent(ChartLayoutStyle.self, forKey: .layoutStyle) ?? .leadSheet
         documentKey = try container.decode(DocumentKey.self, forKey: .documentKey)
         documentFont = try container.decode(ChartFontPreset.self, forKey: .documentFont)
-        notationFont = try container.decodeIfPresent(NotationFontPreset.self, forKey: .notationFont) ?? .petaluma
+        notationFont = (try container.decodeIfPresent(NotationFontPreset.self, forKey: .notationFont) ?? .petaluma)
+            .releaseSafePreset
         typography = try container.decodeIfPresent(ChartTypographySettings.self, forKey: .typography)
             ?? ChartTypographySettings.default(for: notationFont)
         defaultTranspositionView = try container.decode(TranspositionView.self, forKey: .defaultTranspositionView)

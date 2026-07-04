@@ -10,7 +10,7 @@ struct ChartTypographySheetView: View {
         NavigationStack {
             List {
                 Section("Matched Set") {
-                    ForEach(ChartFontFamilyPreset.allCases) { preset in
+                    ForEach(ChartFontFamilyPreset.selectableCases) { preset in
                         TypographyChoiceRow(
                             title: preset.displayText,
                             detail: preset.detailText,
@@ -62,7 +62,7 @@ struct ChartTypographySheetView: View {
                 )
 
                 Section("Notation Symbols") {
-                    ForEach(NotationFontPreset.allCases) { preset in
+                    ForEach(NotationFontPreset.selectableCases) { preset in
                         TypographyChoiceRow(
                             title: preset.displayText,
                             detail: preset.detailText,
@@ -116,7 +116,7 @@ struct ChartTypographySheetView: View {
                 action(nil)
             }
 
-            ForEach(ChartFontFamilyPreset.allCases) { preset in
+            ForEach(ChartFontFamilyPreset.selectableCases) { preset in
                 TypographyChoiceRow(
                     title: preset.displayText,
                     detail: preset.detailText,
