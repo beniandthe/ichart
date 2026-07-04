@@ -396,12 +396,12 @@ struct ChordInkConfirmationSheetView: View {
                     Button {
                         focusManualEntry()
                     } label: {
-                        Label("Keyboard", systemImage: "keyboard")
+                        Label("Text Entry", systemImage: "keyboard")
                             .font(.headline.weight(.semibold))
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Open keyboard for manual chord entry")
+                    .accessibilityLabel("Focus manual chord entry")
                 }
                 .padding(.vertical, 4)
             } else {
@@ -454,13 +454,13 @@ struct ChordInkConfirmationSheetView: View {
                 Button {
                     focusManualEntry()
                 } label: {
-                    Label("Keyboard", systemImage: "keyboard")
+                    Label("Text Entry", systemImage: "keyboard")
                         .labelStyle(.iconOnly)
                         .frame(width: 32, height: 28)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .accessibilityLabel("Open keyboard for manual chord entry")
+                .accessibilityLabel("Focus manual chord entry")
             }
 
             TextField("Type chord", text: $manualCandidateText)
@@ -727,13 +727,13 @@ struct ChordCorrectionSheetView: View {
                 Button {
                     isCandidateFocused = true
                 } label: {
-                    Label("Keyboard", systemImage: "keyboard")
+                    Label("Text Entry", systemImage: "keyboard")
                         .labelStyle(.iconOnly)
                         .frame(width: 34, height: 30)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .accessibilityLabel("Open keyboard for chord correction")
+                .accessibilityLabel("Focus chord correction text entry")
             }
 
             HStack(spacing: 10) {

@@ -4214,7 +4214,7 @@ private struct CueTextEntrySheetView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .accessibilityLabel("Open keyboard for text entry")
+                    .accessibilityLabel("Focus text entry")
                 }
 
                 Spacer(minLength: 0)

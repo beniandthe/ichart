@@ -39,7 +39,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(bundledLaunchSampleText.contains("\"strokes\""))
     }
 
-    func testChordConfirmationOffersKeyboardManualEntry() throws {
+    func testChordConfirmationOffersManualChordTextEntry() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -49,8 +49,11 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(sheetText.contains("No confident suggestions"))
-        XCTAssertTrue(sheetText.contains("Open keyboard for manual chord entry"))
+        XCTAssertTrue(sheetText.contains("Focus manual chord entry"))
+        XCTAssertTrue(sheetText.contains("Label(\"Text Entry\", systemImage: \"keyboard\")"))
+        XCTAssertTrue(sheetText.contains("TextField(\"Type chord\""))
         XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
+        XCTAssertFalse(sheetText.contains("\"Keyboard\""))
         XCTAssertTrue(sheetText.contains("Chord Repeat"))
         XCTAssertTrue(sheetText.contains("Use chord repeat symbol"))
     }
@@ -277,7 +280,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(referenceReadmeText.contains("golden-fixture-matrix.md"))
     }
 
-    func testManualTextEntryPopoutsExposeKeyboardButtons() throws {
+    func testManualTextEntryPopoutsUseNativeTextControlsForPencilScribble() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -300,14 +303,30 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(libraryText.contains("IChartKeyboardFocusButton"))
         XCTAssertTrue(libraryText.contains("field: .firstName"))
-        XCTAssertTrue(libraryText.contains("accessibilityLabel: \"Open keyboard for \\(title)\""))
-        XCTAssertTrue(libraryText.contains("Open keyboard for chart title"))
-        XCTAssertTrue(libraryText.contains("Open keyboard for project title"))
-        XCTAssertTrue(libraryText.contains("Open keyboard for variant title"))
+        XCTAssertTrue(libraryText.contains("TextField(\"Chart title\""))
+        XCTAssertTrue(libraryText.contains("TextField(\"Song or project title\""))
+        XCTAssertTrue(libraryText.contains("TextField(\"Horn section chart\""))
+        XCTAssertTrue(libraryText.contains("TextField(\"Add a comment\", text: $commentText, axis: .vertical)"))
+        XCTAssertTrue(libraryText.contains("IChartAccountTextField("))
+        XCTAssertTrue(libraryText.contains("IChartSettingsTextFieldRow"))
+        XCTAssertTrue(libraryText.contains("SecureField(placeholder, text: $text)"))
+        XCTAssertTrue(libraryText.contains("accessibilityLabel: \"Focus \\(title) text entry\""))
+        XCTAssertTrue(libraryText.contains("Focus chart title text entry"))
+        XCTAssertTrue(libraryText.contains("Focus project title text entry"))
+        XCTAssertTrue(libraryText.contains("Focus variant title text entry"))
+        XCTAssertTrue(libraryText.contains("Focus secure \\(title) entry"))
         XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
-        XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
-        XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
-        XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
+        XCTAssertTrue(headerSheetText.contains("TextField(title, text: text)"))
+        XCTAssertTrue(headerSheetText.contains("Focus \\(title) text entry"))
+        XCTAssertTrue(editorText.contains("TextEditor(text: $text)"))
+        XCTAssertTrue(editorText.contains("Focus text entry"))
+        XCTAssertTrue(chordSheetText.contains("TextField(\"Type chord\""))
+        XCTAssertTrue(chordSheetText.contains("TextField(\"C, Bb, Db7(b9), G/B\""))
+        XCTAssertTrue(chordSheetText.contains("Focus chord correction text entry"))
+        XCTAssertFalse(libraryText.contains("Open keyboard"))
+        XCTAssertFalse(headerSheetText.contains("Open keyboard"))
+        XCTAssertFalse(editorText.contains("Open keyboard"))
+        XCTAssertFalse(chordSheetText.contains("Open keyboard"))
     }
 
     func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
