@@ -4207,45 +4207,32 @@ private struct CueTextEntryPanelView: View {
                         .disabled(!canAdd)
                     }
 
-                    HStack(alignment: .top, spacing: 10) {
-                        ZStack(alignment: .topLeading) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(.secondarySystemBackground))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
-                                )
-
-                            if text.isEmpty {
-                                Text("Text")
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 11)
-                                    .allowsHitTesting(false)
-                            }
-
-                            CueTextInputView(
-                                text: $text,
-                                keyboardFocusRequestID: keyboardFocusRequestID
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.secondarySystemBackground))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
                             )
-                            .accessibilityLabel("Text")
-                        }
-                        .frame(height: 118)
-                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .onTapGesture {
-                            requestTextFocus()
+
+                        if text.isEmpty {
+                            Text("Text")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 11)
+                                .allowsHitTesting(false)
                         }
 
-                        Button {
-                            requestTextFocus()
-                        } label: {
-                            Image(systemName: "keyboard")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .accessibilityLabel("Open keyboard for text entry")
+                        CueTextInputView(
+                            text: $text,
+                            keyboardFocusRequestID: keyboardFocusRequestID
+                        )
+                        .accessibilityLabel("Text")
+                    }
+                    .frame(height: 118)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .onTapGesture {
+                        requestTextFocus()
                     }
                 }
                 .padding(18)
