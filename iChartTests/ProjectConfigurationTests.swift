@@ -310,6 +310,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
+    func testApplePencilDoesNotStartObjectMovePan() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasHostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
+        XCTAssertTrue(canvasHostText.contains("gestureRecognizer === chordMovePanRecognizer"))
+        XCTAssertTrue(canvasHostText.contains("touch.type == .pencil"))
+    }
+
     func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

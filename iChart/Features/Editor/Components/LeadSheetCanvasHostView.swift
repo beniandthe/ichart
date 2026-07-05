@@ -4611,6 +4611,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             || otherGestureRecognizer === inkSelectionTapRecognizer
             || involvesChordMove
     }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        if gestureRecognizer === chordMovePanRecognizer,
+           touch.type == .pencil {
+            return false
+        }
+
+        return true
+    }
 }
 
 private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecognizerDelegate {
