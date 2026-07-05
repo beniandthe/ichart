@@ -14,6 +14,11 @@ private enum IChartHomeBrand {
     static let staffOnDark = Color.white.opacity(0.23)
 }
 
+private enum IChartSupportLinks {
+    static let supportURL = URL(string: "https://useichart.com/support")!
+    static let supportEmail = "support@useichart.com"
+}
+
 private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     case light
     case dark
@@ -242,7 +247,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .legal:
             "Plain-language terms, privacy, subscription, and community notes for iChart."
         case .contactUs:
-            "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account."
+            "For feedback, bug reports, account questions, or Pro support, use the hosted support page and include the email tied to your iChart account."
         }
     }
 }
@@ -804,7 +809,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "contact-feedback",
             title: "Feedback And Bugs",
             systemImageName: "exclamationmark.triangle",
-            body: "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account.",
+            body: "For feedback, bug reports, account questions, or Pro support, contact iChart through the hosted support page.",
             bullets: [
                 "For chart-writing bugs, mention the chart type, active tool, and what you expected to happen.",
                 "For account or Pro questions, include your account email and whether you are on Basic or Pro.",
@@ -921,8 +926,10 @@ struct LibraryView: View {
     @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
     @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
+    #if DEBUG && targetEnvironment(simulator)
     @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
     private var rhythmDiagnosticsEnabled = false
+    #endif
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -1507,6 +1514,7 @@ struct LibraryView: View {
                     IChartCloudSyncSettings(syncStore: cloudSyncStore, theme: homeTheme)
                 }
 
+                #if DEBUG && targetEnvironment(simulator)
                 IChartHomePanel(
                     title: "Diagnostics",
                     systemImageName: "waveform.path.ecg",
@@ -1517,6 +1525,7 @@ struct LibraryView: View {
                         theme: homeTheme
                     )
                 }
+                #endif
             }
         }
     }
@@ -4336,6 +4345,18 @@ private struct IChartHelpArticlePage: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if topic == .contactUs {
+                    Link(destination: IChartSupportLinks.supportURL) {
+                        Label("Open Support Site", systemImage: "safari")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(IChartHomeBrand.blue)
+                    .accessibilityHint("Opens useichart.com/support")
+                }
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -5557,6 +5578,7 @@ private struct IChartCloudSyncSettings: View {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
 private struct IChartDiagnosticsSettings: View {
     @Binding var rhythmDiagnosticsEnabled: Bool
     let theme: IChartHomeTheme
@@ -5639,6 +5661,7 @@ private struct IChartDiagnosticsSettings: View {
         refreshRhythmDiagnosticsLog()
     }
 }
+#endif
 
 private struct IChartAccountTextField: View {
     let title: String

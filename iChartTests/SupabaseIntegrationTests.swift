@@ -16,7 +16,7 @@ final class SupabaseIntegrationTests: XCTestCase {
         let snapshotID = UUID().uuidString.lowercased()
         let timestamp = ISO8601DateFormatter.smartChartIntegration.string(from: Date())
 
-        try await client.upsertProfile(
+        try await client.assertProfilePaymentSummaryWriteRejected(
             userID: session.userID,
             accessToken: session.accessToken,
             paymentSummary: "Processor customer reference only"
@@ -446,22 +446,27 @@ private struct SupabaseRESTClient {
         return session
     }
 
-    func upsertProfile(
+    func assertProfilePaymentSummaryWriteRejected(
         userID: String,
         accessToken: String,
         paymentSummary: String
     ) async throws {
-        _ = try await requestArray(
-            path: "rest/v1/profiles",
-            method: "POST",
-            queryItems: [URLQueryItem(name: "on_conflict", value: "id")],
-            accessToken: accessToken,
-            prefer: "resolution=merge-duplicates,return=representation",
-            body: [
-                "id": userID,
-                "payment_summary": paymentSummary
-            ]
-        )
+        do {
+            _ = try await requestArray(
+                path: "rest/v1/profiles",
+                method: "POST",
+                queryItems: [URLQueryItem(name: "on_conflict", value: "id")],
+                accessToken: accessToken,
+                prefer: "resolution=merge-duplicates,return=representation",
+                body: [
+                    "id": userID,
+                    "payment_summary": paymentSummary
+                ]
+            )
+            XCTFail("Client profile writes must not update server-owned payment summary fields.")
+        } catch let error as SupabaseRequestError {
+            XCTAssertEqual(error.statusCode, 403)
+        }
     }
 
     func insertChartDocument(

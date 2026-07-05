@@ -155,7 +155,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - App Store notification replay metadata is server-only and not readable or writable by app roles.
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
-- `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
+- `profiles.payment_summary`, `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
 - App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
 - StoreKit transaction-claim events cannot update `subscriptions` unless the server first verifies the Apple signed transaction and resolves the authenticated account owner.
 - Forum chart post attribution is server-owned from locked profile names; client-supplied creator names are overwritten.

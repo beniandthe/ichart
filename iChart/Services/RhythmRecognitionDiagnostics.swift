@@ -4,9 +4,13 @@ enum IChartRuntimeDiagnostics {
     static let rhythmRecognitionDiagnosticsKey = "iChartRhythmRecognitionDiagnosticsEnabled"
 
     static var isRhythmRecognitionDiagnosticsEnabled: Bool {
+        #if DEBUG && targetEnvironment(simulator)
         UserDefaults.standard.bool(forKey: rhythmRecognitionDiagnosticsKey)
             || ProcessInfo.processInfo.arguments.contains("-iChartRhythmDiagnostics")
             || ProcessInfo.processInfo.environment["ICHART_RHYTHM_DIAGNOSTICS"] == "1"
+        #else
+        false
+        #endif
     }
 }
 

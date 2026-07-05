@@ -1,5 +1,5 @@
-revoke insert (email, phone) on table public.profiles from authenticated;
-revoke update (email, phone) on table public.profiles from authenticated;
+revoke insert (email, phone, payment_summary) on table public.profiles from authenticated;
+revoke update (email, phone, payment_summary) on table public.profiles from authenticated;
 
 create or replace function private.lock_profile_contact_identity()
 returns trigger
@@ -14,6 +14,10 @@ begin
 
     if new.phone is distinct from old.phone then
         new.phone = old.phone;
+    end if;
+
+    if new.payment_summary is distinct from old.payment_summary then
+        new.payment_summary = old.payment_summary;
     end if;
 
     return new;

@@ -18,6 +18,7 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 - Name and email are locked account identity fields after signup so forum attribution, support identity, recovery, and subscription ownership stay stable.
 - Users cannot edit account identity from Settings. Identity changes are customer-support operations.
 - Phone setup and verification are legacy/post-v1. Existing phone values remain support-controlled data, but new users are not asked to set up or verify a phone number in V1.
+- Existing payment or customer-reference metadata is backend/support controlled and must not be writable from the app.
 - First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
 - Signing out returns immediately to the account creation/sign-in gate.
 - Account/auth is not the paywall.
@@ -188,7 +189,7 @@ Chart sync states should communicate the user's real situation:
 - Annual should be positioned as the best value at roughly 32% savings against twelve monthly payments.
 - No raw card data is collected or stored by iChart.
 - Settings should not expose user-editable payment fields.
-- Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only.
+- Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only and are not client-writable profile fields.
 - StoreKit owns Apple subscription purchase/restore.
 - First App Store product IDs are `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual`.
 - StoreKit purchase/restore state feeds `IChartSubscriptionEntitlement`; the rest of the app must continue reading capability from `AppEntitlements` rather than from StoreKit UI directly.

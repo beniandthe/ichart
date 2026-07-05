@@ -87,3 +87,19 @@ p {
   font-weight: 700;
   text-decoration: none;
 }
+
+.contact-action {
+  margin: 24px 0 6px;
+}
+
+.contact-action a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #fffaf0;
+  font-weight: 700;
+  text-decoration: none;
+}

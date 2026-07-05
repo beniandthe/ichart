@@ -34,7 +34,7 @@ struct UpgradeSheetView: View {
 
                 storeKitPurchaseControls
 
-                #if DEBUG || targetEnvironment(simulator)
+                #if DEBUG && targetEnvironment(simulator)
                 Text("Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -43,7 +43,7 @@ struct UpgradeSheetView: View {
                 Spacer()
 
                 VStack(spacing: 12) {
-                    #if DEBUG || targetEnvironment(simulator)
+                    #if DEBUG && targetEnvironment(simulator)
                     Button {
                         store.applySubscriptionState(.activePro(verifiedAt: Date()))
                         dismiss()

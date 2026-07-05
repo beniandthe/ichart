@@ -36,17 +36,17 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
 - [x] Plan/StoreKit QA copy is developer-facing. Fixed in triage 2 with user-facing subscription and local preview copy.
   - Source: `iChart/Features/Library/LibraryView.swift:4848`, `:4941`, `:4954`, `:4957`; `iChart/Features/Editor/Components/UpgradeSheetView.swift:38`, `:102`; `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift:45`, `:86`, `:378`
   - New: "Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."
-  - New: "Use local preview controls on this device. Purchases and account backup still use their normal flows."
-  - New: "Sample Forum Charts"
-  - New: "Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow."
-  - New: "Pro preview is active on this device."
+  - Debug-simulator only: "Use local preview controls on this device. Purchases and account backup still use their normal flows."
+  - Debug-simulator only: "Sample Forum Charts"
+  - Debug-simulator only: "Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow."
+  - Debug-simulator only: "Pro preview is active on this device."
 
 - [x] Chord fixture tools expose regression terminology. Fixed in triage 2 by relabeling debug capture as ink samples.
   - Source: `iChart/Features/Editor/Components/ChordInkSheetViews.swift:98`, `:347`, `:354`; `iChart/Features/Editor/EditorView.swift:2710`, `:2729`
-  - New: "Copied {chord} ink sample as {sample name}."
-  - New: "Ink sample capture"
-  - New: "Copy Ink Sample"
-  - New: "Could not copy this ink sample. Keep the ink and try again."
+  - Debug-simulator only: "Copied {chord} ink sample as {sample name}."
+  - Debug-simulator only: "Ink sample capture"
+  - Debug-simulator only: "Copy Ink Sample"
+  - Debug-simulator only: "Could not copy this ink sample. Keep the ink and try again."
 
 - [x] Forum seed/QA text can leak if QA samples are enabled. Fixed in triage 2 by renaming QA sample strings to local forum samples.
   - Source: `iChart/App/Forum/IChartForumStore.swift:90`, `:456`, `:520`, `:603`, `:757`
@@ -282,7 +282,7 @@ Source: `iChart/Features/Editor/Components/ChordInkSheetViews.swift`, `iChart/Fe
 - [ ] Correction actions: "Quick choices", "Chord", "Update Chord", "Update to {chord}", "Cancel"
 - [ ] Memory message: "This ink previously rendered as {acceptedText} and was deleted. Choose the intended chord, or type it in."
 - [ ] Errors: "That chord candidate is not supported yet. Try another candidate or edit the text.", "That measure is no longer available. Keep the ink and try again.", "That chord is no longer available. Try writing it again."
-- [ ] Ink sample copy: "Ink sample capture", "Copy Ink Sample", "Copied {chord} ink sample as {sample name}.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not copy this ink sample. Keep the ink and try again."
+- [ ] Debug-simulator ink sample copy: "Ink sample capture", "Copy Ink Sample", "Copied {chord} ink sample as {sample name}.", "Unsupported chord. Use a supported target like C, Bb, F#, C-, C-△7, C△7, C7alt, Db7(b9), or G/B.", "Could not copy this ink sample. Keep the ink and try again."
 - [x] REVIEW: fixture/debug copy should not appear in production. Fixed in triage 2 by relabeling the disabled debug capture surface.
 
 ## Rhythm Recognition And Editing
@@ -399,7 +399,7 @@ Source: `iChart/Features/Library/LibraryView.swift`
 
 Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/IChartSubscriptionEntitlement.swift`, `iChart/Models/AppEntitlements.swift`, `iChart/Features/Editor/Components/UpgradeSheetView.swift`, `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
-- [ ] Settings panels: "Settings", "Library", "Plan", "Cloud Backup", "Diagnostics"
+- [ ] Settings panels: "Settings", "Library", "Plan", "Cloud Backup"; "Diagnostics" is debug-simulator only and must not appear in TestFlight/App Store builds.
 - [ ] Account identity editing is not exposed in Settings; name and email are set at account creation and changed only through support.
 - [ ] Phone setup/verification is not active V1 UI; any existing phone data is legacy/support-controlled.
 - [ ] Plan rows: "Local Charts", "Cloud Backup", "Forums", "Grace Ends"
@@ -419,8 +419,8 @@ Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/IChartSubscr
 - [ ] Entitled feature names: "Unlimited Local Charts", "PDF Export", "Instrument Transposition", "Font Presets", "Repeats And Coda", "Rhythm Editing", "Cloud Backup And Restore", "Cloud Backup", "Forums", "Community Chart Library", "Project Organization", "Handwriting Recognition", "Projects"
 - [ ] Upgrade sheet title/action: "Unlock Pro", "Upgrade", "Not Now"
 - [ ] Upgrade benefits: "Unlimited local charts", "Projects for song variants", "Cloud backup and restore", "Forums access"
-- [ ] Purchase actions: "Restore Purchases", "Manage Subscription", "Use Pro Preview"
-- [ ] Subscription status: "Checking subscription...", "Verifying subscription with iChart...", "Opening purchase...", "Restoring purchases...", "Opening subscription management...", "Pro preview is active on this device."
+- [ ] Purchase actions: "Restore Purchases", "Manage Subscription"; "Use Pro Preview" is debug-simulator only and must not appear in TestFlight/App Store builds.
+- [ ] Subscription status: "Checking subscription...", "Verifying subscription with iChart...", "Opening purchase...", "Restoring purchases...", "Opening subscription management..."; "Pro preview is active on this device." is debug-simulator only.
 - [ ] Subscription error/status: "Purchase could not be verified.", "Purchase is pending approval.", "Purchase status is unavailable.", "Purchase failed. Try again from Settings.", "Pro subscriptions could not be loaded.", "Restore failed. Try again when you are online.", "Subscription management is unavailable from this window.", "Could not open subscription management.", "Subscription management is unavailable on this platform.", "Subscription could not be verified with iChart. Try again when you are online.", "Subscription transaction could not be verified."
 - [ ] Value badge: "Save {percent}%"
 - [x] REVIEW: StoreKit/debug copy listed in Review Flags. Fixed in triage 2.

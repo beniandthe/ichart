@@ -50,7 +50,7 @@ final class IChartForumStore: ObservableObject {
 
     private init(service: IChartForumServicing) {
         self.service = service
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         isQASampleDataEnabled = UserDefaults.standard.bool(forKey: Self.qaSampleDataStorageKey)
         #else
         isQASampleDataEnabled = false
@@ -78,7 +78,7 @@ final class IChartForumStore: ObservableObject {
     static let qaSampleDataStorageKey = "iChartForumQASampleDataEnabled"
 
     func setQASampleDataEnabled(_ isEnabled: Bool) {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         guard isQASampleDataEnabled != isEnabled else {
             return
         }
