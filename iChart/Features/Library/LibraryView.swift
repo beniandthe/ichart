@@ -1990,7 +1990,7 @@ private struct RenameChartSheetView: View {
                             .onSubmit(save)
 
                         IChartKeyboardFocusButton(
-                            accessibilityLabel: "Focus chart title text entry"
+                            accessibilityLabel: "Open keyboard for chart title"
                         ) {
                             isTitleFocused = true
                         }
@@ -2223,7 +2223,7 @@ private struct IChartProjectFormSheet: View {
                             .onSubmit(save)
 
                         IChartKeyboardFocusButton(
-                            accessibilityLabel: "Focus project title text entry"
+                            accessibilityLabel: "Open keyboard for project title"
                         ) {
                             isProjectTitleFocused = true
                         }
@@ -2377,7 +2377,7 @@ private struct IChartProjectDuplicateVariantSheet: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                             IChartKeyboardFocusButton(
-                                accessibilityLabel: "Focus variant title text entry"
+                                accessibilityLabel: "Open keyboard for variant title"
                             ) {
                                 isTitleFocused = true
                             }
@@ -3812,7 +3812,7 @@ private struct IChartForumPublishSheet: View {
                     .focused($focusedField, equals: field)
             }
 
-            IChartKeyboardFocusButton(accessibilityLabel: "Focus \(title) text entry") {
+            IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for \(title)") {
                 focusedField = field
             }
         }
@@ -3835,7 +3835,7 @@ private struct IChartForumPublishSheet: View {
                     .focused($focusedField, equals: field)
             }
 
-            IChartKeyboardFocusButton(accessibilityLabel: "Focus \(title) text entry") {
+            IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for \(title)") {
                 focusedField = field
             }
         }
@@ -4022,7 +4022,7 @@ private struct IChartForumPostDetailView: View {
                         .textFieldStyle(.roundedBorder)
                         .focused($isCommentFocused)
 
-                    IChartKeyboardFocusButton(accessibilityLabel: "Focus forum comment text entry") {
+                    IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for forum comment") {
                         isCommentFocused = true
                     }
 
@@ -5738,7 +5738,7 @@ private struct IChartAccountTextField: View {
                 }
 
             IChartKeyboardFocusButton(
-                accessibilityLabel: "Focus \(title) text entry"
+                accessibilityLabel: "Open keyboard for \(title)"
             ) {
                 focusedField.wrappedValue = field
             }
@@ -5787,7 +5787,7 @@ private struct IChartAccountSecureField: View {
                 }
 
             IChartKeyboardFocusButton(
-                accessibilityLabel: "Focus secure \(title) entry"
+                accessibilityLabel: "Open keyboard for \(title)"
             ) {
                 focusedField.wrappedValue = field
             }
@@ -5939,7 +5939,7 @@ private struct IChartSettingsTextFieldRow: View {
                 }
 
             IChartKeyboardFocusButton(
-                accessibilityLabel: "Focus \(title) text entry"
+                accessibilityLabel: "Open keyboard for \(title)"
             ) {
                 isFocused = true
             }

@@ -125,7 +125,7 @@ struct ChartHeaderSheetView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityLabel("Focus \(title) text entry")
+            .accessibilityLabel("Open keyboard for \(title)")
         }
     }
 
