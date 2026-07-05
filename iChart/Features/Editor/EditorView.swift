@@ -4168,7 +4168,7 @@ private struct CueTextEntrySheetView: View {
     let actionTitle: String
     let onAdd: () -> Void
     let onCancel: () -> Void
-    @FocusState private var isTextFocused: Bool
+    @State private var focusRequestID = UUID()
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -4194,19 +4194,12 @@ private struct CueTextEntrySheetView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        TextEditor(text: $text)
-                            .focused($isTextFocused)
-                            .textInputAutocapitalization(.sentences)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .accessibilityLabel("Text")
+                        CueTextInputSurface(text: $text, focusRequestID: focusRequestID)
                     }
                     .frame(minHeight: 118)
 
                     Button {
-                        isTextFocused = true
+                        focusRequestID = UUID()
                     } label: {
                         Image(systemName: "keyboard")
                             .font(.subheadline.weight(.semibold))
@@ -4240,10 +4233,96 @@ private struct CueTextEntrySheetView: View {
         }
         .presentationDetents([.height(275)])
         .task {
-            isTextFocused = true
+            await Task.yield()
+            focusRequestID = UUID()
         }
     }
 }
+
+private struct CueTextInputSurface: View {
+    @Binding var text: String
+    let focusRequestID: UUID
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        #if canImport(UIKit)
+        CueTextUIKitTextView(text: $text, focusRequestID: focusRequestID)
+            .accessibilityLabel("Text")
+        #else
+        TextEditor(text: $text)
+            .focused($isFocused)
+            .textInputAutocapitalization(.sentences)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .accessibilityLabel("Text")
+            .task(id: focusRequestID) {
+                await Task.yield()
+                isFocused = true
+            }
+        #endif
+    }
+}
+
+#if canImport(UIKit)
+private struct CueTextUIKitTextView: UIViewRepresentable {
+    @Binding var text: String
+    let focusRequestID: UUID
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.autocapitalizationType = .sentences
+        textView.autocorrectionType = .default
+        textView.keyboardDismissMode = .interactive
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        textView.accessibilityLabel = "Text"
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        context.coordinator.text = $text
+        if textView.text != text {
+            textView.text = text
+        }
+
+        guard context.coordinator.focusRequestID != focusRequestID else {
+            return
+        }
+
+        context.coordinator.focusRequestID = focusRequestID
+        DispatchQueue.main.async {
+            guard textView.window != nil else {
+                return
+            }
+
+            textView.becomeFirstResponder()
+            textView.reloadInputViews()
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        var focusRequestID: UUID?
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+        }
+    }
+}
+#endif
 
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss
