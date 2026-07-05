@@ -307,9 +307,6 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
         XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
         XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
-        XCTAssertTrue(editorText.contains("CueTextInputSurface(text: $text, focusRequestID: focusRequestID)"))
-        XCTAssertTrue(editorText.contains("CueTextUIKitTextView(text: $text, focusRequestID: focusRequestID)"))
-        XCTAssertTrue(editorText.contains("textView.becomeFirstResponder()"))
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
@@ -569,7 +566,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("Rm End"))
         XCTAssertTrue(editorText.contains("Repeats is for repeat structure"))
         XCTAssertTrue(editorText.contains("Coda is for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda"))
-        XCTAssertTrue(editorText.contains("CueTextInputSurface(text: $text, focusRequestID: focusRequestID)"))
+        XCTAssertTrue(editorText.contains("TextEditor(text: $text)"))
         XCTAssertTrue(editorText.contains("In Select, drag a marker or tap its x to delete it."))
         XCTAssertFalse(editorText.contains("Coda is only for point roadmap markers: 𝄌"))
         XCTAssertTrue(editorText.contains("Text(roadmapType.editorMenuDisplayText)"))
