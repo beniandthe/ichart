@@ -4178,35 +4178,27 @@ private struct CueTextEntrySheetView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 10) {
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.secondarySystemBackground))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
-                            )
-
-                        if text.isEmpty {
-                            Text("Text")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 11)
-                                .allowsHitTesting(false)
+                    TextField("Text", text: $text, axis: .vertical)
+                        .focused($isTextFocused)
+                        .textInputAutocapitalization(.sentences)
+                        .lineLimit(4...6)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(minHeight: 118, alignment: .topLeading)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
                         }
-
-                        TextEditor(text: $text)
-                            .focused($isTextFocused)
-                            .textInputAutocapitalization(.sentences)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .accessibilityLabel("Text")
-                    }
-                    .frame(minHeight: 118)
+                        .accessibilityLabel("Text")
 
                     Button {
-                        isTextFocused = true
+                        isTextFocused = false
+                        Task { @MainActor in
+                            await Task.yield()
+                            isTextFocused = true
+                        }
                     } label: {
                         Image(systemName: "keyboard")
                             .font(.subheadline.weight(.semibold))
@@ -4240,6 +4232,7 @@ private struct CueTextEntrySheetView: View {
         }
         .presentationDetents([.height(275)])
         .task {
+            await Task.yield()
             isTextFocused = true
         }
     }
