@@ -1339,7 +1339,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let profileAddressRemovalMigrationText = try String(
             contentsOf: projectRoot
-                .appendingPathComponent("supabase/migrations/20260702001739_remove_profile_mailing_address.sql")
+                .appendingPathComponent("supabase/migrations/20260624184032_remove_profile_mailing_address.sql")
         )
         let contactIdentityMigrationText = try String(
             contentsOf: projectRoot
@@ -1378,8 +1378,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(serviceRoleForumGrantMigrationText.contains("grant select, update on table public.forum_chart_posts to service_role"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
-        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant insert (id, email, phone, payment_summary)"))
-        XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant update (id, email, phone, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke insert (mailing_address)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke update (mailing_address)"))
         XCTAssertTrue(contactIdentityMigrationText.contains("revoke insert (email, phone, payment_summary)"))
         XCTAssertTrue(contactIdentityMigrationText.contains("revoke update (email, phone, payment_summary)"))
         XCTAssertTrue(contactIdentityMigrationText.contains("new.payment_summary = old.payment_summary"))
