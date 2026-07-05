@@ -1345,6 +1345,14 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260705180650_lock_profile_contact_identity.sql")
         )
+        let serviceRoleSubscriptionGrantMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705210845_grant_service_role_subscription_rest_access.sql")
+        )
+        let serviceRoleForumGrantMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705211043_grant_service_role_forum_post_finalization_access.sql")
+        )
         let configText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/config.toml")
@@ -1366,6 +1374,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(migrationText.contains("stripe_customer_id"))
         XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
         XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
+        XCTAssertTrue(serviceRoleSubscriptionGrantMigrationText.contains("grant select, insert, update, delete on table public.subscriptions to service_role"))
+        XCTAssertTrue(serviceRoleForumGrantMigrationText.contains("grant select, update on table public.forum_chart_posts to service_role"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant insert (id, email, phone, payment_summary)"))
