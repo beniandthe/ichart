@@ -1152,7 +1152,8 @@ extension Chart {
         text: String? = nil,
         scale: Double? = nil,
         emphasis: CueEmphasis? = nil,
-        position: CuePosition? = nil
+        position: CuePosition? = nil,
+        verticalOffset: Double? = nil
     ) -> Bool {
         guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }) else {
             return false
@@ -1180,6 +1181,10 @@ extension Chart {
             cueTexts[cueTextIndex].position = position
         }
 
+        if let verticalOffset {
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+        }
+
         updatedAt = .now
         return true
     }
@@ -1197,7 +1202,8 @@ extension Chart {
     mutating func moveCueText(
         _ cueTextID: UUID,
         to targetMeasureID: UUID,
-        atFraction fraction: Double?
+        atFraction fraction: Double?,
+        verticalOffset: Double? = nil
     ) -> Bool {
         guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
               let targetLocation = measureLocation(id: targetMeasureID) else {
@@ -1213,6 +1219,9 @@ extension Chart {
 
         cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
         cueTexts[cueTextIndex].beatFraction = snappedFraction
+        if let verticalOffset {
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+        }
 
         if previousMeasureID != targetMeasureID {
             removeCueTextIDFromMeasures(cueTextID)

@@ -70,10 +70,24 @@ enum LeadSheetCanvasInteractionTargeting {
             return nil
         }
 
+        let verticalPadding = CGFloat(CueText.maximumVerticalOffset + 18)
         let measures = pageLayout.systems.flatMap(\.measures)
-        guard let targetMeasure = measures.first(where: { measure in
-            measure.frame.insetBy(dx: -6, dy: -18).contains(location)
-        }),
+        let targetMeasure = measures
+            .compactMap { measure -> (measure: LeadSheetMeasureLayout, distance: CGFloat)? in
+                guard measure.frame
+                    .insetBy(dx: -6, dy: -verticalPadding)
+                    .contains(location) else {
+                    return nil
+                }
+
+                let horizontalDistance = distance(from: location.x, to: measure.frame.minX...measure.frame.maxX)
+                let verticalDistance = distance(from: location.y, to: measure.frame.minY...measure.frame.maxY)
+                return (measure, horizontalDistance + verticalDistance)
+            }
+            .min(by: { $0.distance < $1.distance })?
+            .measure
+
+        guard let targetMeasure,
               let measureID = targetMeasure.sourceMeasureID,
               let sourceMeasure = chart.measure(id: measureID) else {
             return nil
@@ -93,6 +107,18 @@ enum LeadSheetCanvasInteractionTargeting {
 
     private static func snappedBeatFraction(_ fraction: Double, meter: Meter) -> Double {
         MeasurePlacementGrid.snappedFraction(fraction, in: meter)
+    }
+
+    private static func distance(from value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
+        if value < range.lowerBound {
+            return range.lowerBound - value
+        }
+
+        if value > range.upperBound {
+            return value - range.upperBound
+        }
+
+        return 0
     }
 }
 

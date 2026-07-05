@@ -10,11 +10,12 @@ enum EditorCanvasMode: Hashable {
     case chordEntry
     case noteEdit
     case freeHand
+    case textEdit
 
     var freeHandTabTitle: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
-                .headerEntry, .chordEntry, .noteEdit, .freeHand:
+                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
             return "Free-Hand"
         }
     }
@@ -22,7 +23,7 @@ enum EditorCanvasMode: Hashable {
     var freeHandTabSymbol: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
-                .headerEntry, .chordEntry, .noteEdit, .freeHand:
+                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
             return "pencil.and.scribble"
         }
     }
@@ -51,6 +52,8 @@ enum EditorCanvasMode: Hashable {
             return "Rhythm Edit"
         case .freeHand:
             return "Free-Hand"
+        case .textEdit:
+            return "Text"
         }
     }
 
@@ -74,6 +77,8 @@ enum EditorCanvasMode: Hashable {
             return "selection.pin.in.out"
         case .freeHand:
             return "pencil.and.scribble"
+        case .textEdit:
+            return "text.bubble"
         }
     }
 
@@ -102,7 +107,11 @@ enum EditorCanvasMode: Hashable {
     }
 
     var allowsMeasureSelection: Bool {
-        self != .freeHand && self != .headerEntry && self != .chordEntry && self != .noteEdit
+        self != .freeHand
+            && self != .headerEntry
+            && self != .chordEntry
+            && self != .noteEdit
+            && self != .textEdit
     }
 
     var allowsNoteSelection: Bool {
@@ -127,6 +136,10 @@ enum EditorCanvasMode: Hashable {
 
     var allowsChordObjectEditing: Bool {
         self == .browse || self == .chordEntry
+    }
+
+    var allowsCueTextEditing: Bool {
+        self == .browse || self == .textEdit
     }
 
     var allowsHeaderAuthoringSelection: Bool {

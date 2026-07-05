@@ -510,7 +510,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             position: .above,
             emphasis: .normal,
             scale: 1,
-            beatFraction: 0.5
+            beatFraction: 0.5,
+            verticalOffset: 0
         )
     }
 

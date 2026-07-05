@@ -195,6 +195,8 @@ struct ActiveRoadmapMarkerEditDrag {
 
 struct ActiveCueTextMoveDrag {
     var cueTextID: UUID
+    var startLocation: CGPoint
+    var startingVerticalOffset: Double
 }
 
 struct LeadSheetCueTextEditControlFrames {

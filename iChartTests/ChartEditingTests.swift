@@ -71,7 +71,8 @@ final class ChartEditingTests: XCTestCase {
                 text: "  stop time  ",
                 scale: CueText.maximumScale + 4,
                 emphasis: .strong,
-                position: .above
+                position: .above,
+                verticalOffset: CueText.maximumVerticalOffset + 40
             )
         )
 
@@ -79,6 +80,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(cueText.text, "stop time")
         XCTAssertEqual(cueText.rawInput, "stop time")
         XCTAssertEqual(cueText.scale, CueText.maximumScale)
+        XCTAssertEqual(cueText.verticalOffset, CueText.maximumVerticalOffset)
         XCTAssertEqual(cueText.emphasis, .strong)
         XCTAssertEqual(cueText.position, .above)
         XCTAssertEqual(chart.measure(id: measureID)?.cueTextIDs, [cueTextID])
@@ -99,11 +101,19 @@ final class ChartEditingTests: XCTestCase {
         let measureIDs = chart.measures.map(\.id)
         let cueTextID = try XCTUnwrap(chart.addCueText("hits", anchorMeasureID: measureIDs[0]))
 
-        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureIDs[1], atFraction: 0.38))
+        XCTAssertTrue(
+            chart.moveCueText(
+                cueTextID,
+                to: measureIDs[1],
+                atFraction: 0.38,
+                verticalOffset: -22
+            )
+        )
 
         let cueText = try XCTUnwrap(chart.cueText(id: cueTextID))
         XCTAssertEqual(cueText.anchorMeasureID, measureIDs[1])
         XCTAssertEqual(try XCTUnwrap(cueText.beatFraction), 0.375, accuracy: 0.0001)
+        XCTAssertEqual(cueText.verticalOffset, -22)
         XCTAssertTrue(chart.measure(id: measureIDs[0])?.cueTextIDs.isEmpty == true)
         XCTAssertEqual(chart.measure(id: measureIDs[1])?.cueTextIDs, [cueTextID])
     }

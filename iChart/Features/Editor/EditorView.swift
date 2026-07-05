@@ -1007,7 +1007,7 @@ struct EditorView: View {
                         isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive
                     )
                 }
-                .disabled(canvasMode.locksDocumentActions)
+                .disabled(canvasMode.locksDocumentActions || canvasMode == .textEdit)
                 .buttonStyle(.plain)
 
                 Button {
@@ -1079,7 +1079,7 @@ struct EditorView: View {
                     EditorMenuTabLabel(
                         title: "Text",
                         systemImage: "text.bubble",
-                        isSelected: showingCueTextEntry || selectedCueTextID != nil
+                        isSelected: canvasMode == .textEdit || showingCueTextEntry || selectedCueTextID != nil
                     )
                 }
                 .disabled(canvasMode.locksDocumentActions)
@@ -2108,8 +2108,11 @@ struct EditorView: View {
 
     private func handleAddCueText(position: CuePosition) {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard chart.hasCompletedInitialSetup,
               let targetMeasureID else {
+            if !chart.hasCompletedInitialSetup {
+                showingSetupSheet = true
+            }
             return
         }
 
@@ -2122,6 +2125,7 @@ struct EditorView: View {
         pendingCueTextPosition = position
         editingCueTextID = nil
         cueTextDraft = ""
+        canvasMode = .textEdit
         showingCueTextEntry = true
     }
 
@@ -2139,7 +2143,7 @@ struct EditorView: View {
             selectedCueTextID = editingCueTextID
             selectedMeasureID = cueText.anchorMeasureID
             selectedRoadmapMarkerID = nil
-            canvasMode = .browse
+            canvasMode = .textEdit
             return
         }
 
@@ -2156,6 +2160,7 @@ struct EditorView: View {
         selectedMeasureID = pendingCueTextMeasureID
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
+        canvasMode = .textEdit
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
@@ -2201,7 +2206,7 @@ struct EditorView: View {
         selectedNoteSelection = nil
         editingCueTextID = cueTextID
         cueTextDraft = cueText.text
-        canvasMode = .browse
+        canvasMode = .textEdit
         showingCueTextEntry = true
     }
 
@@ -2214,7 +2219,7 @@ struct EditorView: View {
 
         selectedMeasureID = cueText.anchorMeasureID
         selectedRoadmapMarkerID = nil
-        canvasMode = .browse
+        canvasMode = .textEdit
     }
 
     private func deleteSelectedCueText() {
@@ -2409,7 +2414,7 @@ struct EditorView: View {
     private func handleCueTextSelectedFromCanvas(_ cueTextID: UUID) {
         guard chart.hasCompletedInitialSetup,
               let cueText = chart.cueText(id: cueTextID),
-              canvasMode == .browse else {
+              canvasMode == .browse || canvasMode == .textEdit else {
             return
         }
 
@@ -2422,6 +2427,7 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
+        canvasMode = .textEdit
     }
 
     private func handleRoadmapMarkerSelectedFromCanvas(_ roadmapMarkerID: UUID) {

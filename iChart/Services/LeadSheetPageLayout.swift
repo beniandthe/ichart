@@ -239,6 +239,7 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var emphasis: CueEmphasis
     var scale: CGFloat
     var beatFraction: CGFloat?
+    var verticalOffset: CGFloat
 }
 
 struct LeadSheetNoteSelection: Identifiable, Hashable {
@@ -2127,7 +2128,8 @@ enum LeadSheetPageLayoutEngine {
                     position: cueText.position,
                     emphasis: cueText.emphasis,
                     scale: CGFloat(cueText.scale),
-                    beatFraction: beatFraction
+                    beatFraction: beatFraction,
+                    verticalOffset: CGFloat(cueText.verticalOffset)
                 )
             }
     }
@@ -2167,36 +2169,39 @@ enum LeadSheetPageLayoutEngine {
             height: lineHeight
         )
 
+        let baseFrame: CGRect
         switch cueText.position {
         case .above:
             let textX = beatAnchoredTextX ?? defaultTextX
             if chordBandFrame.intersects(staffFrame) {
-                return CGRect(
+                baseFrame = CGRect(
                     x: textX,
                     y: min(measureFrame.maxY - lineHeight - 2, staffFrame.minY + 4 + offset),
                     width: width,
                     height: lineHeight
                 )
+            } else {
+                baseFrame = CGRect(
+                    x: textX,
+                    y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
+                    width: width,
+                    height: lineHeight
+                )
             }
-
-            return CGRect(
-                x: textX,
-                y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
-                width: width,
-                height: lineHeight
-            )
         case .below:
-            return CGRect(
+            baseFrame = CGRect(
                 x: beatAnchoredTextX ?? defaultTextX,
                 y: min(measureFrame.maxY - lineHeight - 2, staffFrame.maxY + 5 + offset),
                 width: width,
                 height: lineHeight
             )
         case .leadingEdge:
-            return leadingFrame.offsetBy(dx: 0, dy: offset)
+            baseFrame = leadingFrame.offsetBy(dx: 0, dy: offset)
         case .trailingEdge:
-            return trailingFrame.offsetBy(dx: 0, dy: offset)
+            baseFrame = trailingFrame.offsetBy(dx: 0, dy: offset)
         }
+
+        return baseFrame.offsetBy(dx: 0, dy: CGFloat(cueText.verticalOffset))
     }
 
     private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {

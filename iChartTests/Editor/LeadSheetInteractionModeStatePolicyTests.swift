@@ -54,6 +54,23 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
     }
 
+    func testTextEditModeKeepsCueTextEditableWithoutMeasureSelection() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .textEdit)
+
+        XCTAssertFalse(policy.selectionTapEnabled)
+        XCTAssertTrue(policy.chordEditTapEnabled)
+        XCTAssertTrue(policy.chordMovePanEnabled)
+        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertFalse(EditorCanvasMode.textEdit.allowsMeasureSelection)
+        XCTAssertTrue(EditorCanvasMode.textEdit.allowsCueTextEditing)
+        XCTAssertFalse(EditorCanvasMode.textEdit.allowsChordObjectEditing)
+        XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
+    }
+
+    func testBrowseModeKeepsCueTextEditable() {
+        XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
+    }
+
     func testChordTargetingAcceptsInkAcrossFullRhythmSectionChordLane() throws {
         let chart = Chart.blank(title: "Top Lane Chord", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -299,6 +316,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.chordEntry.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.noteEdit.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.freeHand.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.textEdit.showsActiveToolControls)
     }
 
     func testActiveToolMetadataMatchesPrimaryEditorModes() {
@@ -309,6 +327,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
         XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chord")
         XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
     func testScrollMarginPolicyBlocksPaperGesturesOnlyWhenRestricted() {

@@ -1037,6 +1037,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if interactionMode != .browse {
                 activeRoadmapMarkerEditDrag = nil
+            }
+
+            if !interactionMode.allowsCueTextEditing {
                 activeCueTextMoveDrag = nil
             }
 
@@ -2132,7 +2135,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cueTextEditHitTarget(at location: CGPoint) -> CueTextEditHitTarget? {
-        guard interactionMode == .browse else {
+        guard interactionMode.allowsCueTextEditing else {
             return nil
         }
 
@@ -2144,7 +2147,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cueTextMoveHitTarget(at location: CGPoint) -> LeadSheetCueTextLayout? {
-        guard interactionMode == .browse else {
+        guard interactionMode.allowsCueTextEditing else {
             return nil
         }
 
@@ -2329,10 +2332,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard interactionMode.allowsMeasureSelection else {
-            return
-        }
-
         let location = recognizer.location(in: self)
         if interactionMode.allowsHeaderAuthoringSelection,
            LeadSheetCanvasInteractionTargeting.headerAuthoringContains(location, in: pageLayout) {
@@ -2346,10 +2345,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if interactionMode == .browse,
+        if interactionMode.allowsCueTextEditing,
            let cueTextLayout = cueTextHitTarget(at: location),
            let cueText = chart.cueText(id: cueTextLayout.id) {
             selectCueTextFromCanvas(cueText)
+            return
+        }
+
+        guard interactionMode.allowsMeasureSelection else {
             return
         }
 
@@ -2855,7 +2858,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             selectCueTextFromCanvas(cueText)
-            activeCueTextMoveDrag = ActiveCueTextMoveDrag(cueTextID: cueTextLayout.id)
+            activeCueTextMoveDrag = ActiveCueTextMoveDrag(
+                cueTextID: cueTextLayout.id,
+                startLocation: startLocation,
+                startingVerticalOffset: cueText.verticalOffset
+            )
             lockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -2882,10 +2889,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             var updatedChart = chart
+            let verticalOffset = activeCueTextMoveDrag.startingVerticalOffset
+                + Double(recognizer.location(in: self).y - activeCueTextMoveDrag.startLocation.y)
             if updatedChart.moveCueText(
                 activeCueTextMoveDrag.cueTextID,
                 to: target.measureID,
-                atFraction: target.fraction
+                atFraction: target.fraction,
+                verticalOffset: verticalOffset
             ) {
                 chart = updatedChart
                 selectedCueTextID = activeCueTextMoveDrag.cueTextID

@@ -1042,6 +1042,31 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(cueTextLayout.frame.minX, expectedBeatThreeX, accuracy: 1)
     }
 
+    func testCueTextLayoutAppliesMovedVerticalOffset() throws {
+        var chart = Chart.blank(title: "Moved Cue", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let cueTextID = try XCTUnwrap(
+            chart.addCueText("hits", anchorMeasureID: measureID, position: .above)
+        )
+        let originalLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let originalCueTextLayout = try XCTUnwrap(originalLayout.systems.first?.measures.first?.cueTextLayouts.first)
+
+        XCTAssertTrue(chart.moveCueText(cueTextID, to: measureID, atFraction: nil, verticalOffset: 24))
+        let movedLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let movedCueTextLayout = try XCTUnwrap(movedLayout.systems.first?.measures.first?.cueTextLayouts.first)
+
+        XCTAssertEqual(movedCueTextLayout.id, cueTextID)
+        XCTAssertEqual(movedCueTextLayout.verticalOffset, 24)
+        XCTAssertEqual(movedCueTextLayout.frame.minY - originalCueTextLayout.frame.minY, 24, accuracy: 0.5)
+        XCTAssertEqual(movedCueTextLayout.hitFrame.minY - originalCueTextLayout.hitFrame.minY, 24, accuracy: 0.5)
+    }
+
     func testSimpleChordSheetRepeatSpanAddsCompactEdgeMarkers() throws {
         var chart = Chart.blank(title: "Simple Repeats", measureCount: 2, layoutStyle: .simpleChordSheet)
         let startMeasureID = chart.measures[0].id
