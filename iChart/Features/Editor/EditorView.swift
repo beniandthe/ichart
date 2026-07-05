@@ -4172,7 +4172,7 @@ private struct CueTextEntryPanelView: View {
     let actionTitle: String
     let onAdd: () -> Void
     let onCancel: () -> Void
-    @FocusState private var isTextFocused: Bool
+    @State private var keyboardFocusRequestID = 0
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -4224,17 +4224,11 @@ private struct CueTextEntryPanelView: View {
                                     .allowsHitTesting(false)
                             }
 
-                            TextEditor(text: $text)
-                                .focused($isTextFocused)
-                                .textInputAutocapitalization(.sentences)
-                                .scrollContentBackground(.hidden)
-                                .background(Color.clear)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 4)
-                                .accessibilityLabel("Text")
-                                .onTapGesture {
-                                    requestTextFocus()
-                                }
+                            CueTextInputView(
+                                text: $text,
+                                keyboardFocusRequestID: keyboardFocusRequestID
+                            )
+                            .accessibilityLabel("Text")
                         }
                         .frame(height: 118)
                         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -4270,13 +4264,70 @@ private struct CueTextEntryPanelView: View {
     }
 
     private func requestTextFocus() {
-        isTextFocused = false
-        Task { @MainActor in
-            await Task.yield()
-            isTextFocused = true
+        keyboardFocusRequestID += 1
+    }
+}
+
+#if canImport(UIKit)
+private struct CueTextInputView: UIViewRepresentable {
+    @Binding var text: String
+    let keyboardFocusRequestID: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.autocapitalizationType = .sentences
+        textView.autocorrectionType = .yes
+        textView.isScrollEnabled = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.keyboardDismissMode = .interactive
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        context.coordinator.text = $text
+
+        if textView.text != text {
+            textView.text = text
+        }
+
+        guard keyboardFocusRequestID > 0,
+              context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
+        else {
+            return
+        }
+
+        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
+        DispatchQueue.main.async {
+            textView.resignFirstResponder()
+            textView.becomeFirstResponder()
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        var lastKeyboardFocusRequestID = 0
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
         }
     }
 }
+#endif
 
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss
