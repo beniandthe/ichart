@@ -342,6 +342,7 @@ struct EditorView: View {
                 editorSurface(availableSize: proxy.size)
             }
         }
+        .allowsHitTesting(!showingCueTextEntry)
         .background(
             LinearGradient(
                 colors: [
@@ -367,7 +368,19 @@ struct EditorView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
+        .overlay {
+            if showingCueTextEntry {
+                CueTextEntryPanelView(
+                    text: $cueTextDraft,
+                    actionTitle: editingCueTextID == nil ? "Add" : "Apply",
+                    onAdd: handleCueTextEntryAccepted,
+                    onCancel: clearPendingCueTextEntry
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
         .animation(.easeOut(duration: 0.16), value: activeEditorOperationMessage)
+        .animation(.easeOut(duration: 0.16), value: showingCueTextEntry)
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -403,14 +416,6 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingInkResponsivenessSheet) {
             InkResponsivenessSheetView(value: $inkResponsivenessValue)
-        }
-        .sheet(isPresented: $showingCueTextEntry) {
-            CueTextEntrySheetView(
-                text: $cueTextDraft,
-                actionTitle: editingCueTextID == nil ? "Add" : "Apply",
-                onAdd: handleCueTextEntryAccepted,
-                onCancel: clearPendingCueTextEntry
-            )
         }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
@@ -4162,8 +4167,7 @@ private struct InkResponsivenessSheetView: View {
     }
 }
 
-private struct CueTextEntrySheetView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct CueTextEntryPanelView: View {
     @Binding var text: String
     let actionTitle: String
     let onAdd: () -> Void
@@ -4175,71 +4179,100 @@ private struct CueTextEntrySheetView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 10) {
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.secondarySystemBackground))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
-                            )
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.14)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        requestTextFocus()
+                    }
 
-                        if text.isEmpty {
-                            Text("Text")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 11)
-                                .allowsHitTesting(false)
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Button("Cancel") {
+                            onCancel()
                         }
 
-                        TextEditor(text: $text)
-                            .focused($isTextFocused)
-                            .textInputAutocapitalization(.sentences)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .accessibilityLabel("Text")
-                    }
-                    .frame(minHeight: 118)
+                        Spacer()
 
-                    Button {
-                        isTextFocused = true
-                    } label: {
-                        Image(systemName: "keyboard")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 34, height: 34)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel("Open keyboard for text entry")
-                }
+                        Text("Text")
+                            .font(.headline.weight(.semibold))
 
-                Spacer(minLength: 0)
-            }
-            .padding(24)
-            .navigationTitle("Text")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        onCancel()
-                        dismiss()
+                        Spacer()
+
+                        Button(actionTitle) {
+                            onAdd()
+                        }
+                        .disabled(!canAdd)
+                    }
+
+                    HStack(alignment: .top, spacing: 10) {
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(.secondarySystemBackground))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
+                                )
+
+                            if text.isEmpty {
+                                Text("Text")
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 11)
+                                    .allowsHitTesting(false)
+                            }
+
+                            TextEditor(text: $text)
+                                .focused($isTextFocused)
+                                .textInputAutocapitalization(.sentences)
+                                .scrollContentBackground(.hidden)
+                                .background(Color.clear)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .accessibilityLabel("Text")
+                                .onTapGesture {
+                                    requestTextFocus()
+                                }
+                        }
+                        .frame(height: 118)
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .onTapGesture {
+                            requestTextFocus()
+                        }
+
+                        Button {
+                            requestTextFocus()
+                        } label: {
+                            Image(systemName: "keyboard")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityLabel("Open keyboard for text entry")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(actionTitle) {
-                        onAdd()
-                        dismiss()
-                    }
-                    .disabled(!canAdd)
+                .padding(18)
+                .frame(width: min(proxy.size.width - 48, 520))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color(.separator).opacity(0.35), lineWidth: 1)
                 }
+                .shadow(color: Color.black.opacity(0.18), radius: 22, y: 12)
             }
         }
-        .presentationDetents([.height(275)])
         .task {
+            requestTextFocus()
+        }
+    }
+
+    private func requestTextFocus() {
+        isTextFocused = false
+        Task { @MainActor in
+            await Task.yield()
             isTextFocused = true
         }
     }

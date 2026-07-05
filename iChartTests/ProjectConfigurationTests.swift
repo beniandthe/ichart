@@ -307,6 +307,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(headerSheetText.contains("focusedField = .title"))
         XCTAssertTrue(headerSheetText.contains("Open keyboard for \\(title)"))
         XCTAssertTrue(editorText.contains("Open keyboard for text entry"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelView("))
+        XCTAssertTrue(editorText.contains(".allowsHitTesting(!showingCueTextEntry)"))
+        XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
+        XCTAssertFalse(editorText.contains(".sheet(isPresented: $showingCueTextEntry)"))
+        XCTAssertFalse(editorText.contains(".presentationDetents([.height(275)])"))
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
