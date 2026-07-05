@@ -15,8 +15,11 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 
 - Account creation/sign-in is mandatory for production Basic and Pro users.
 - In-app account creation requires first name, last name, email, and password before entering the chart library.
-- First and last name are locked account identity fields after signup so forum attribution and support identity stay stable.
+- Name and email are locked account identity fields after signup so forum attribution, support identity, recovery, and subscription ownership stay stable.
+- Users cannot edit account identity from Settings. Identity changes are customer-support operations.
+- Phone setup and verification are legacy/post-v1. Existing phone values remain support-controlled data, but new users are not asked to set up or verify a phone number in V1.
 - First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
+- Signing out returns immediately to the account creation/sign-in gate.
 - Account/auth is not the paywall.
 - Email verification, password recovery, profile, subscription identity, and support identity are part of the base trust layer.
 - Production auth starts with email/password plus email verification.

@@ -124,7 +124,7 @@ Source: `iChart/Features/Library/LibraryView.swift`, `iChart/App/Auth/IChartAuth
 - [ ] Panel title: "Account"
 - [ ] Primary continue action: "Continue"
 - [ ] Account status labels: "Account unavailable", "Signed out", "Temporarily offline", "Verify email", "Set new password", "Verified", "Signed in"
-- [ ] Signed-out helper: "Create an account or sign in to manage your profile and subscription."
+- [ ] Signed-out helper: "Create an account or sign in for recovery, subscriptions, cloud backup, and Forums."
 - [ ] Offline helper with email: "Using local charts for {email}. Reconnect to back up."
 - [ ] Offline helper without email: "Using local charts. Reconnect to back up."
 - [ ] Pending verification helper: "Open the verification link sent to {email}, then sign in."
@@ -399,9 +399,9 @@ Source: `iChart/Features/Library/LibraryView.swift`
 
 Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/IChartSubscriptionEntitlement.swift`, `iChart/Models/AppEntitlements.swift`, `iChart/Features/Editor/Components/UpgradeSheetView.swift`, `iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift`
 
-- [ ] Settings panels: "Settings", "Library", "Plan", "Account", "Cloud Backup", "User Info"
-- [ ] User info labels: "Account Name", "Email", "Phone", "Save Profile"
-- [ ] Account name fallback: "Set at account creation"
+- [ ] Settings panels: "Settings", "Library", "Plan", "Cloud Backup", "Diagnostics"
+- [ ] Account identity editing is not exposed in Settings; name and email are set at account creation and changed only through support.
+- [ ] Phone setup/verification is not active V1 UI; any existing phone data is legacy/support-controlled.
 - [ ] Plan rows: "Local Charts", "Cloud Backup", "Forums", "Grace Ends"
 - [ ] Plan values: "Unlimited", "{used} of {limit} used"
 - [ ] Plan preview segments: "Basic", "Pro", "Grace", "Expired", "Offline"

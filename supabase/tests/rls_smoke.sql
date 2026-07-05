@@ -226,6 +226,18 @@ select throws_ok(
 
 select throws_ok(
     $$
+    update public.profiles
+    set email = 'changed@example.com',
+        phone = '+15555559999'
+    where id = '00000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update locked email or legacy phone fields'
+);
+
+select throws_ok(
+    $$
     insert into public.subscriptions (
         owner_id,
         plan,

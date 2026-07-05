@@ -19,8 +19,6 @@ final class SupabaseIntegrationTests: XCTestCase {
         try await client.upsertProfile(
             userID: session.userID,
             accessToken: session.accessToken,
-            email: email,
-            phone: "+15555550123",
             paymentSummary: "Processor customer reference only"
         )
         try await client.grantActiveProEntitlement(
@@ -38,7 +36,6 @@ final class SupabaseIntegrationTests: XCTestCase {
         )
         let profile: [String: Any] = try XCTUnwrap(profileRows.first)
         XCTAssertEqual(profile["email"] as? String, email)
-        XCTAssertEqual(profile["phone"] as? String, "+15555550123")
         XCTAssertNil(profile["card_number"])
 
         try await client.insertChartDocument(
@@ -452,8 +449,6 @@ private struct SupabaseRESTClient {
     func upsertProfile(
         userID: String,
         accessToken: String,
-        email: String,
-        phone: String,
         paymentSummary: String
     ) async throws {
         _ = try await requestArray(
@@ -464,8 +459,6 @@ private struct SupabaseRESTClient {
             prefer: "resolution=merge-duplicates,return=representation",
             body: [
                 "id": userID,
-                "email": email,
-                "phone": phone,
                 "payment_summary": paymentSummary
             ]
         )

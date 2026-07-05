@@ -54,7 +54,7 @@ For temporary local or alternate-project simulator QA, make sure override values
 }
 ```
 
-If Settings shows account services unavailable and Cloud Backup shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
+If the account gate shows account services unavailable and Settings > Cloud Backup shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
 
 For local simulator QA after the app has already been built and installed, use:
 

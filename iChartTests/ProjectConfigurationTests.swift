@@ -87,7 +87,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(gesturePolicyText.contains("shouldConfirmOutsideLaneGesture"))
     }
 
-    func testSettingsContainUserInfoWithoutPaymentInfo() throws {
+    func testSettingsKeepAccountIdentityNonEditable() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -96,9 +96,12 @@ final class ProjectConfigurationTests: XCTestCase {
                 .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
         )
 
-        XCTAssertTrue(libraryText.contains("User Info"))
-        XCTAssertTrue(libraryText.contains("@State private var userEmail"))
-        XCTAssertTrue(libraryText.contains("@State private var userPhone"))
+        XCTAssertFalse(libraryText.contains("User Info"))
+        XCTAssertFalse(libraryText.contains("IChartUserInfoSettings"))
+        XCTAssertFalse(libraryText.contains("@State private var userEmail"))
+        XCTAssertFalse(libraryText.contains("@State private var userPhone"))
+        XCTAssertFalse(libraryText.contains("IChartAccountSettings(authStore: authStore, theme: homeTheme)"))
+        XCTAssertFalse(libraryText.contains("Save Profile"))
         XCTAssertFalse(libraryText.contains("@State private var userAddress"))
         XCTAssertFalse(libraryText.contains("Mailing address"))
         XCTAssertFalse(libraryText.contains("title: \"Address\""))
@@ -368,12 +371,14 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(libraryText.contains("IChartFirstRunAccountLandingView"))
         XCTAssertTrue(libraryText.contains("var requiresNameForSignup = true"))
+        XCTAssertFalse(libraryText.contains("requiresPhoneForSignup"))
         XCTAssertTrue(libraryText.contains("requiresNameForSignup: true"))
         XCTAssertTrue(libraryText.contains("First Name"))
         XCTAssertTrue(libraryText.contains("Last Name"))
-        XCTAssertTrue(libraryText.contains("Account Name"))
-        XCTAssertTrue(libraryText.contains("IChartSettingsLockedValueRow"))
-        XCTAssertTrue(libraryText.contains("Set at account creation"))
+        XCTAssertFalse(libraryText.contains("field: .phone"))
+        XCTAssertFalse(libraryText.contains("phone: phone"))
+        XCTAssertFalse(libraryText.contains("IChartSettingsLockedValueRow"))
+        XCTAssertFalse(libraryText.contains("Set at account creation"))
         XCTAssertTrue(libraryText.contains(".fullScreenCover(isPresented: $showingAccountLanding)"))
         XCTAssertTrue(libraryText.contains(".frame(maxWidth: 640)"))
         XCTAssertTrue(libraryText.contains(".frame(minHeight: proxy.size.height, alignment: .center)"))
@@ -392,6 +397,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
         XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
         XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
+        XCTAssertFalse(authStoreText.contains("metadata[\"phone\"]"))
         XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
         XCTAssertFalse(authStoreText.contains("firstName = profile.firstName"))
         XCTAssertFalse(authStoreText.contains("lastName = profile.lastName"))
@@ -402,8 +408,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
         XCTAssertTrue(rlsTestText.contains("client cannot update locked profile name fields"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update locked email or legacy phone fields"))
         XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, email, and password"))
-        XCTAssertTrue(planPolicyText.contains("First and last name are locked account identity fields after signup"))
+        XCTAssertTrue(planPolicyText.contains("Name and email are locked account identity fields after signup"))
+        XCTAssertTrue(planPolicyText.contains("Phone setup and verification are legacy/post-v1"))
     }
 
     func testHomeShellPrimaryControlsKeepExplicitHitAreas() throws {
@@ -920,7 +928,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authStoreText.contains("redirectTo: redirectURL"))
         XCTAssertTrue(authStoreText.contains("emailRedirectTo: redirectURL"))
         XCTAssertTrue(authStoreText.contains("IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)"))
-        XCTAssertTrue(authStoreText.contains("IChartUserProfileUpdate"))
+        XCTAssertFalse(authStoreText.contains("IChartUserProfileUpdate"))
+        XCTAssertFalse(authStoreText.contains("saveProfile"))
         XCTAssertTrue(authStoreText.contains("IChartAuthError.invalidAuthCallback"))
         XCTAssertTrue(authStoreText.contains("session(from:"))
         XCTAssertFalse(authStoreText.contains("client.auth.currentUser"))
@@ -1307,6 +1316,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260702001739_remove_profile_mailing_address.sql")
         )
+        let contactIdentityMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705180650_lock_profile_contact_identity.sql")
+        )
         let configText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/config.toml")
@@ -1332,6 +1345,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant insert (id, email, phone, payment_summary)"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("grant update (id, email, phone, payment_summary)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("revoke insert (email, phone)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("revoke update (email, phone)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("private.lock_profile_contact_identity"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))
