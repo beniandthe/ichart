@@ -1377,6 +1377,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(serviceRoleSubscriptionGrantMigrationText.contains("grant select, insert, update, delete on table public.subscriptions to service_role"))
         XCTAssertTrue(serviceRoleForumGrantMigrationText.contains("grant select, update on table public.forum_chart_posts to service_role"))
         XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("information_schema.columns"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("column_name = 'mailing_address'"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke insert (mailing_address)"))
         XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke update (mailing_address)"))
