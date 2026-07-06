@@ -433,6 +433,31 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
     }
 
+    func testHostedSupportSiteRoutesToRealContactPath() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let siteRoot = projectRoot.appendingPathComponent("public-site/useichart")
+        let supportText = try String(contentsOf: siteRoot.appendingPathComponent("support.html"))
+        let privacyText = try String(contentsOf: siteRoot.appendingPathComponent("privacy.html"))
+        let indexText = try String(contentsOf: siteRoot.appendingPathComponent("index.html"))
+        let htaccessText = try String(contentsOf: siteRoot.appendingPathComponent(".htaccess"))
+
+        XCTAssertTrue(supportText.contains("<title>Support - iChart</title>"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com?subject=iChart%20Support"))
+        XCTAssertTrue(supportText.contains("What To Include"))
+        XCTAssertTrue(supportText.contains("What Not To Send"))
+        XCTAssertTrue(supportText.contains("<a href=\"/privacy\">Privacy Policy</a>"))
+        XCTAssertTrue(supportText.contains("<a href=\"/\">iChart Home</a>"))
+
+        XCTAssertTrue(indexText.contains("<a href=\"/support\">Support</a>"))
+        XCTAssertTrue(privacyText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support/?$ support.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy/?$ privacy.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]"))
+    }
+
     func testHelpSurfaceIncludesTutorialWalkthrough() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
