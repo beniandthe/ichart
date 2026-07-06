@@ -7,15 +7,10 @@ struct ChartLayoutProfile: Hashable {
     var setupPolicy: ChartLayoutSetupPolicy
     var measureDefaults: ChartLayoutMeasureDefaults
     var notationLanePolicy: ChartLayoutNotationLanePolicy
-    var freehandSymbolLanes: Set<FreehandSymbolLane>
     var allowsUserFacingRhythmNoteEditing: Bool
     var rendererRoute: ChartLayoutRendererRoute
     var defaultStylePreset: StylePreset
     var defaultEngravingPreset: EngravingPreset
-
-    var allowsFreehandSymbolInk: Bool {
-        !freehandSymbolLanes.isEmpty
-    }
 
     var allowsRhythmicNotationInk: Bool {
         primaryToolFocus.contains(.rhythmNotation)
@@ -139,7 +134,6 @@ extension ChartLayoutStyle {
                     beatGridPreset: .simple
                 ),
                 notationLanePolicy: .chordGrid,
-                freehandSymbolLanes: [.chartArea],
                 allowsUserFacingRhythmNoteEditing: false,
                 rendererRoute: .currentLeadSheetRenderer,
                 defaultStylePreset: .cleanStudio,
@@ -164,7 +158,6 @@ extension ChartLayoutStyle {
                     beatGridPreset: .eighthSubdivision
                 ),
                 notationLanePolicy: .rhythmHits,
-                freehandSymbolLanes: [.belowMeasure],
                 allowsUserFacingRhythmNoteEditing: false,
                 rendererRoute: .currentLeadSheetRenderer,
                 defaultStylePreset: .gigSheet,
@@ -189,7 +182,6 @@ extension ChartLayoutStyle {
                     beatGridPreset: .simple
                 ),
                 notationLanePolicy: .leadSheetStaff,
-                freehandSymbolLanes: [],
                 allowsUserFacingRhythmNoteEditing: true,
                 rendererRoute: .currentLeadSheetRenderer,
                 defaultStylePreset: .cleanStudio,

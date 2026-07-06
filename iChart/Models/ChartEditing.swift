@@ -927,114 +927,6 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func addFreehandSymbol(
-        anchorMeasureID: UUID,
-        lane: FreehandSymbolLane,
-        normalizedFrame: FreehandSymbolNormalizedFrame,
-        measureRelativeFrame: FreehandSymbolMeasureFrame? = nil,
-        drawingData: Data
-    ) -> UUID? {
-        guard layoutStyle.profile.freehandSymbolLanes.contains(lane),
-              measureLocation(id: anchorMeasureID) != nil,
-              !drawingData.isEmpty else {
-            return nil
-        }
-
-        switch lane {
-        case .chartArea:
-            guard let measureRelativeFrame,
-                  measureRelativeFrame.width > 0,
-                  measureRelativeFrame.height > 0 else {
-                return nil
-            }
-        case .aboveMeasure, .belowMeasure:
-            guard normalizedFrame.width > 0,
-                  normalizedFrame.height > 0 else {
-                return nil
-            }
-        }
-
-        let symbolID = UUID()
-        let nextZIndex = (freehandSymbols.map(\.zIndex).max() ?? -1) + 1
-        freehandSymbols.append(
-            FreehandSymbol(
-                id: symbolID,
-                anchorMeasureID: anchorMeasureID,
-                lane: lane,
-                normalizedFrame: normalizedFrame,
-                measureRelativeFrame: measureRelativeFrame,
-                drawingData: drawingData,
-                zIndex: nextZIndex
-            )
-        )
-        updatedAt = .now
-        return symbolID
-    }
-
-    func freehandSymbol(id symbolID: UUID) -> FreehandSymbol? {
-        freehandSymbols.first { $0.id == symbolID }
-    }
-
-    @discardableResult
-    mutating func moveFreehandSymbol(
-        _ symbolID: UUID,
-        to normalizedFrame: FreehandSymbolNormalizedFrame
-    ) -> Bool {
-        guard normalizedFrame.width > 0,
-              normalizedFrame.height > 0,
-              let symbolIndex = freehandSymbols.firstIndex(where: { $0.id == symbolID }),
-              freehandSymbols[symbolIndex].lane != .chartArea,
-              layoutStyle.profile.freehandSymbolLanes.contains(freehandSymbols[symbolIndex].lane),
-              measureLocation(id: freehandSymbols[symbolIndex].anchorMeasureID) != nil,
-              freehandSymbols[symbolIndex].normalizedFrame != normalizedFrame else {
-            return false
-        }
-
-        freehandSymbols[symbolIndex].normalizedFrame = normalizedFrame
-        updatedAt = .now
-        return true
-    }
-
-    @discardableResult
-    mutating func moveFreehandSymbol(
-        _ symbolID: UUID,
-        to measureRelativeFrame: FreehandSymbolMeasureFrame,
-        anchorMeasureID: UUID
-    ) -> Bool {
-        guard measureRelativeFrame.width > 0,
-              measureRelativeFrame.height > 0,
-              let symbolIndex = freehandSymbols.firstIndex(where: { $0.id == symbolID }),
-              freehandSymbols[symbolIndex].lane == .chartArea,
-              layoutStyle.profile.freehandSymbolLanes.contains(.chartArea),
-              measureLocation(id: anchorMeasureID) != nil else {
-            return false
-        }
-
-        let currentSymbol = freehandSymbols[symbolIndex]
-        guard currentSymbol.anchorMeasureID != anchorMeasureID
-            || currentSymbol.measureRelativeFrame != measureRelativeFrame else {
-            return false
-        }
-
-        freehandSymbols[symbolIndex].anchorMeasureID = anchorMeasureID
-        freehandSymbols[symbolIndex].measureRelativeFrame = measureRelativeFrame
-        updatedAt = .now
-        return true
-    }
-
-    @discardableResult
-    mutating func deleteFreehandSymbol(_ symbolID: UUID) -> Bool {
-        guard let symbolIndex = freehandSymbols.firstIndex(where: { $0.id == symbolID }),
-              layoutStyle.profile.freehandSymbolLanes.contains(freehandSymbols[symbolIndex].lane) else {
-            return false
-        }
-
-        freehandSymbols.remove(at: symbolIndex)
-        updatedAt = .now
-        return true
-    }
-
-    @discardableResult
     mutating func commitOpenMeasure(barlineAfter: BarlineType? = nil) -> UUID? {
         guard let location = openMeasureLocation() else {
             return nil
@@ -1826,7 +1718,6 @@ extension Chart {
         return measure.chordEvents.isEmpty
             && measure.rhythmMap == nil
             && measure.handwrittenRhythmicNotationData == nil
-            && !freehandSymbols.contains { $0.anchorMeasureID == measure.id }
             && measure.cueTextIDs.isEmpty
             && measure.roadmapObjectIDs.isEmpty
     }
@@ -2069,7 +1960,6 @@ extension Chart {
         }
         roadmapObjects.removeAll { removedRoadmapObjectIDs.contains($0.id) }
         clearRoadmapLinks(toDeletedRoadmapObjectIDs: removedRoadmapObjectIDs)
-        freehandSymbols.removeAll { $0.anchorMeasureID == removedMeasureID }
 
         for measureIndex in remainingMeasures.indices {
             remainingMeasures[measureIndex].cueTextIDs.removeAll { removedCueTextIDs.contains($0) }

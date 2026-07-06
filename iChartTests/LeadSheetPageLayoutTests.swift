@@ -376,8 +376,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(firstMeasure.frame.minX, firstSystem.frame.minX)
         XCTAssertLessThan(timeSignatureFrame.maxX, firstMeasure.frame.minX)
         XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 42, accuracy: 0.001)
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
-        XCTAssertNil(firstMeasure.freehandBelowFrame)
         XCTAssertTrue(firstMeasure.staffFrame.contains(firstMeasure.chordBandFrame))
         XCTAssertGreaterThanOrEqual(firstMeasure.staffFrame.height, 56)
         XCTAssertGreaterThan(firstMeasure.staffFrame.height, firstMeasure.chordBandFrame.height)
@@ -869,12 +867,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(timeSignatureFrame.midY, firstMeasure.staffFrame.midY, accuracy: 0.001)
         XCTAssertGreaterThanOrEqual(firstMeasure.frame.minX - timeSignatureFrame.maxX, 6)
         XCTAssertLessThanOrEqual(firstMeasure.frame.minX - timeSignatureFrame.maxX, 10)
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
-        let freehandBelowFrame = try XCTUnwrap(firstMeasure.freehandBelowFrame)
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
-        XCTAssertEqual(freehandBelowFrame.minY, firstMeasure.staffFrame.maxY + 4, accuracy: 0.001)
-        XCTAssertEqual(freehandBelowFrame.maxY, firstMeasure.frame.maxY, accuracy: 0.001)
-        XCTAssertGreaterThanOrEqual(freehandBelowFrame.height, 40)
     }
 
     func testRhythmSectionManualSystemBreakControlsRenderedRows() throws {
@@ -892,7 +885,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(layout.systems[0].measures.compactMap(\.sourceMeasureID), Array(measureIDs[0..<2]))
         XCTAssertEqual(layout.systems[1].measures.compactMap(\.sourceMeasureID), Array(measureIDs[2..<4]))
         XCTAssertTrue(layout.systems.allSatisfy { $0.staffLineYPositions.count == 5 })
-        XCTAssertTrue(layout.systems.allSatisfy { $0.measures.allSatisfy { $0.freehandAboveFrame == nil } })
         XCTAssertTrue(layout.systems.allSatisfy { $0.frame.width <= layout.paperFrame.width })
         let firstRowFirstMeasure = try XCTUnwrap(layout.systems[0].measures.first)
         let firstRowLastMeasure = try XCTUnwrap(layout.systems[0].measures.last)
@@ -968,7 +960,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(firstMeasure.staffFrame.minY - firstMeasure.chordBandFrame.maxY, 5)
         XCTAssertGreaterThanOrEqual(chordLayout.frame.minY, firstMeasure.chordBandFrame.minY)
         XCTAssertFalse(sectionTextFrame.intersects(firstMeasure.staffFrame))
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
     }
 
     func testRhythmSectionCueTextRendersBelowSelectedMeasure() throws {
@@ -1401,8 +1392,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertNotNil(firstSystem.clefFrame)
         XCTAssertNotNil(firstSystem.timeSignatureFrame)
         XCTAssertTrue(firstSystem.keySignatureLayouts.isEmpty)
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
-        XCTAssertNotNil(firstMeasure.freehandBelowFrame)
         XCTAssertLessThan(firstMeasure.chordBandFrame.maxY, firstMeasure.staffFrame.minY)
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[0].frame.minY, firstMeasure.chordBandFrame.minY + CGFloat(16.0 / 3.0), accuracy: 0.001)
@@ -1412,7 +1401,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordLayouts[1].frame.midX, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[0].snapGuideTarget.x, firstMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[1].snapGuideTarget.x, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
-        XCTAssertTrue(layout.freehandSymbolLayouts(for: chart).isEmpty)
     }
 
     func testRhythmSectionSheetRendersChartWideChordTranspositionWithoutMovingSnaps() throws {
@@ -1455,15 +1443,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         chart.addSectionLabel(text: "Intro")
         _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3]))
         _ = try XCTUnwrap(chart.addCueText("freely", anchorMeasureID: measureIDs[1], position: .above, emphasis: .subtle))
-        _ = try XCTUnwrap(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureIDs[0],
-                lane: .chartArea,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.1, y: 0.1, width: 0.3, height: 0.4),
-                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 16, offsetY: -22, width: 44, height: 18),
-                drawingData: Data([1, 2, 3])
-            )
-        )
         try appendChord("C", to: measureIDs[0], in: &chart, atFraction: 0.05)
         try appendChord("F", to: measureIDs[1], in: &chart, atFraction: 0.05)
         try appendChord("G/B", to: measureIDs[2], in: &chart, atFraction: 0.05)
@@ -1477,7 +1456,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let firstMeasure = try XCTUnwrap(firstSystem.measures.first { $0.sourceMeasureID == measureIDs[0] })
         let secondMeasure = try XCTUnwrap(firstSystem.measures.first { $0.sourceMeasureID == measureIDs[1] })
         let cueTextLayout = try XCTUnwrap(secondMeasure.cueTextLayouts.first)
-        let freehandLayout = try XCTUnwrap(layout.freehandSymbolLayouts(for: chart).first)
 
         XCTAssertNil(layout.header.keyFrame)
         XCTAssertTrue(layout.systems.allSatisfy(\.staffLineYPositions.isEmpty))
@@ -1487,11 +1465,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstSystem.measures.last?.repeatMarkerLayouts.first?.edge, .trailing)
         XCTAssertEqual(cueTextLayout.text, "freely")
         XCTAssertTrue(secondMeasure.frame.contains(CGPoint(x: cueTextLayout.frame.midX, y: cueTextLayout.frame.midY)))
-        XCTAssertEqual(freehandLayout.symbol.lane, .chartArea)
-        XCTAssertEqual(freehandLayout.laneFrame, layout.paperFrame)
-        XCTAssertTrue(layout.paperFrame.contains(freehandLayout.frame))
-        XCTAssertEqual(freehandLayout.frame.minX, firstMeasure.frame.minX + 16, accuracy: 0.001)
-        XCTAssertEqual(freehandLayout.frame.minY, firstMeasure.frame.minY - 22, accuracy: 0.001)
     }
 
     func testRhythmSectionExportReadinessKeepsProfessionalHitChartHierarchy() throws {
@@ -1500,14 +1473,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         chart.addSectionLabel(text: "A")
         _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3]))
         _ = try XCTUnwrap(chart.addCueText("stop time", anchorMeasureID: measureIDs[1], position: .below))
-        _ = try XCTUnwrap(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureIDs[2],
-                lane: .belowMeasure,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.2, y: 0.2, width: 0.25, height: 0.35),
-                drawingData: Data([4, 5, 6])
-            )
-        )
         XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measureIDs[0]))
         XCTAssertTrue(chart.setMeasureRhythmMap([.dottedHalf, .eighth, .eighth], for: measureIDs[1]))
         try appendChord("C7", to: measureIDs[0], in: &chart, atFraction: 0.05)
@@ -1523,11 +1488,9 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let allMeasures = layout.systems.flatMap(\.measures)
         let firstMeasure = try XCTUnwrap(allMeasures.first { $0.sourceMeasureID == measureIDs[0] })
         let secondMeasure = try XCTUnwrap(allMeasures.first { $0.sourceMeasureID == measureIDs[1] })
-        let thirdMeasure = try XCTUnwrap(allMeasures.first { $0.sourceMeasureID == measureIDs[2] })
         let fourthMeasure = try XCTUnwrap(allMeasures.first { $0.sourceMeasureID == measureIDs[3] })
         let sectionTextFrame = try XCTUnwrap(firstSystem.sectionTextFrame)
         let cueTextLayout = try XCTUnwrap(secondMeasure.cueTextLayouts.first)
-        let freehandLayout = try XCTUnwrap(layout.freehandSymbolLayouts(for: chart).first)
 
         XCTAssertNil(layout.header.keyFrame)
         XCTAssertNil(layout.header.meterFrame)
@@ -1543,75 +1506,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstSystem.measures.flatMap(\.chordLayouts).allSatisfy { $0.frame.maxY < firstMeasure.staffFrame.minY })
         XCTAssertGreaterThan(cueTextLayout.frame.minY, secondMeasure.staffFrame.maxY)
         XCTAssertFalse(cueTextLayout.frame.intersects(secondMeasure.staffFrame))
-        XCTAssertTrue(try XCTUnwrap(thirdMeasure.freehandBelowFrame).contains(freehandLayout.frame))
-        XCTAssertFalse(thirdMeasure.chordBandFrame.intersects(freehandLayout.frame))
-        XCTAssertFalse(thirdMeasure.staffFrame.intersects(freehandLayout.frame))
-    }
-
-    func testRhythmSectionFreehandSymbolLayoutsResolveBelowStaffOnly() throws {
-        var chart = Chart.blank(title: "Pocket", measureCount: 1, layoutStyle: .rhythmSectionSheet)
-        let measureID = try XCTUnwrap(chart.measures.first?.id)
-        let belowFrame = FreehandSymbolNormalizedFrame(x: 0.15, y: 0.2, width: 0.4, height: 0.5)
-
-        XCTAssertNotNil(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureID,
-                lane: .belowMeasure,
-                normalizedFrame: belowFrame,
-                drawingData: Data([4, 5, 6])
-            )
-        )
-
-        let layout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: CGSize(width: 900, height: 1400)
-        )
-
-        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
-        let symbolLayout = try XCTUnwrap(layout.freehandSymbolLayouts(for: chart).first)
-        let expectedBelowLane = try XCTUnwrap(firstMeasure.freehandBelowFrame)
-
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
-        XCTAssertTrue(expectedBelowLane.contains(symbolLayout.frame))
-        XCTAssertFalse(firstMeasure.chordBandFrame.intersects(symbolLayout.frame))
-        XCTAssertFalse(firstMeasure.staffFrame.intersects(symbolLayout.frame))
-    }
-
-    func testSimpleFreehandSymbolLayoutsResolveAsMeasureAttachedChartAreaInk() throws {
-        var chart = Chart.blank(title: "Roadmap", measureCount: 1, layoutStyle: .simpleChordSheet)
-        let measureID = try XCTUnwrap(chart.measures.first?.id)
-        let normalizedFrame = FreehandSymbolNormalizedFrame(x: 0.2, y: 0.1, width: 0.3, height: 0.4)
-        let measureRelativeFrame = FreehandSymbolMeasureFrame(offsetX: -14, offsetY: -22, width: 46, height: 18)
-
-        XCTAssertNotNil(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureID,
-                lane: .chartArea,
-                normalizedFrame: normalizedFrame,
-                measureRelativeFrame: measureRelativeFrame,
-                drawingData: Data([1, 2, 3])
-            )
-        )
-
-        let layout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: CGSize(width: 900, height: 1400)
-        )
-
-        let symbolLayouts = layout.freehandSymbolLayouts(for: chart)
-        XCTAssertEqual(symbolLayouts.count, 1)
-        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
-        let resolvedSymbol = try XCTUnwrap(symbolLayouts.first)
-
-        XCTAssertNil(firstMeasure.freehandAboveFrame)
-        XCTAssertNil(firstMeasure.freehandBelowFrame)
-        XCTAssertEqual(resolvedSymbol.symbol.lane, .chartArea)
-        XCTAssertEqual(resolvedSymbol.laneFrame, layout.paperFrame)
-        XCTAssertTrue(layout.paperFrame.contains(resolvedSymbol.frame))
-        XCTAssertEqual(resolvedSymbol.frame.minX, firstMeasure.frame.minX - 14, accuracy: 0.001)
-        XCTAssertEqual(resolvedSymbol.frame.minY, firstMeasure.frame.minY - 22, accuracy: 0.001)
-        XCTAssertEqual(resolvedSymbol.frame.width, 46, accuracy: 0.001)
-        XCTAssertEqual(resolvedSymbol.frame.height, 18, accuracy: 0.001)
     }
 
     func testLeadSheetLayoutKeepsKeyHeaderAndLeadingNotation() throws {
@@ -1630,8 +1524,6 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertNotNil(firstSystem.clefFrame)
         XCTAssertNotNil(firstSystem.timeSignatureFrame)
         XCTAssertTrue(firstSystem.keySignatureLayouts.isEmpty)
-        XCTAssertNil(try XCTUnwrap(firstSystem.measures.first).freehandAboveFrame)
-        XCTAssertNil(try XCTUnwrap(firstSystem.measures.first).freehandBelowFrame)
     }
 
     func testLeadSheetLayoutPlacesKeySignatureBeforeFirstMeasure() throws {

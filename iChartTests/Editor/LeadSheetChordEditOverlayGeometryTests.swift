@@ -525,8 +525,6 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             index: 1,
             frame: CGRect(x: 100, y: 80, width: 180, height: 90),
             staffFrame: CGRect(x: 108, y: 116, width: 164, height: 34),
-            freehandAboveFrame: nil,
-            freehandBelowFrame: nil,
             chordBandFrame: CGRect(x: 104, y: 84, width: 172, height: 34),
             writableFrame: CGRect(x: 104, y: 84, width: 172, height: 72),
             chordLayouts: [chordLayout],

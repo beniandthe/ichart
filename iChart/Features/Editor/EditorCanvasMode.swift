@@ -146,10 +146,6 @@ enum EditorCanvasMode: Hashable {
         self == .browse
     }
 
-    var allowsFreehandObjectSelection: Bool {
-        self == .browse
-    }
-
     var requiresChordSelectionBeforeObjectActions: Bool {
         self == .browse || self == .chordEntry
     }

@@ -48,8 +48,6 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var index: Int
     var frame: CGRect
     var staffFrame: CGRect
-    var freehandAboveFrame: CGRect?
-    var freehandBelowFrame: CGRect?
     var chordBandFrame: CGRect
     var writableFrame: CGRect
     var chordLayouts: [LeadSheetChordLayout]
@@ -260,13 +258,6 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
     var id: String {
         selection.id
     }
-}
-
-struct LeadSheetFreehandSymbolLayout: Identifiable, Hashable {
-    var id: UUID
-    var symbol: FreehandSymbol
-    var frame: CGRect
-    var laneFrame: CGRect
 }
 
 enum LeadSheetPageLayoutEngine {
@@ -1364,22 +1355,6 @@ enum LeadSheetPageLayoutEngine {
         meterChange: Meter?
     ) -> LeadSheetMeasureLayout {
         let isSimpleChordSheet = layoutStyle == .simpleChordSheet
-        let isRhythmSectionSheet = layoutStyle == .rhythmSectionSheet
-        let freehandSymbolLanes = layoutStyle.profile.freehandSymbolLanes
-        let freehandAboveFrame = freehandSymbolLanes.contains(.aboveMeasure) ? CGRect(
-            x: staffFrame.minX + 4,
-            y: frame.minY + 2,
-            width: max(1, staffFrame.width - 8),
-            height: max(1, staffFrame.minY - frame.minY - 8)
-        ) : nil
-        let freehandBelowTopInset: CGFloat = isRhythmSectionSheet ? 4 : 6
-        let freehandBelowBottomInset: CGFloat = isRhythmSectionSheet ? 0 : 2
-        let freehandBelowFrame = freehandSymbolLanes.contains(.belowMeasure) ? CGRect(
-            x: staffFrame.minX + 4,
-            y: staffFrame.maxY + freehandBelowTopInset,
-            width: max(1, staffFrame.width - 8),
-            height: max(1, frame.maxY - staffFrame.maxY - freehandBelowTopInset - freehandBelowBottomInset)
-        ) : nil
         let chordBandFrame = isSimpleChordSheet ? CGRect(
             x: staffFrame.minX + 8,
             y: staffFrame.minY + 4,
@@ -1414,8 +1389,6 @@ enum LeadSheetPageLayoutEngine {
                 index: index + 1,
                 frame: frame,
                 staffFrame: staffFrame,
-                freehandAboveFrame: freehandAboveFrame,
-                freehandBelowFrame: freehandBelowFrame,
                 chordBandFrame: chordBandFrame,
                 writableFrame: writableFrame,
                 chordLayouts: [],
@@ -1481,8 +1454,6 @@ enum LeadSheetPageLayoutEngine {
             index: measure.index,
             frame: frame,
             staffFrame: staffFrame,
-            freehandAboveFrame: freehandAboveFrame,
-            freehandBelowFrame: freehandBelowFrame,
             chordBandFrame: chordBandFrame,
             writableFrame: writableFrame,
             chordLayouts: chordLayouts,
@@ -2928,56 +2899,6 @@ enum LeadSheetPageLayoutEngine {
 }
 
 extension LeadSheetPageLayout {
-    func freehandSymbolLayouts(for chart: Chart) -> [LeadSheetFreehandSymbolLayout] {
-        let supportedLanes = chart.layoutStyle.profile.freehandSymbolLanes
-        guard !supportedLanes.isEmpty else {
-            return []
-        }
-
-        let measureLayoutByID = Dictionary(
-            uniqueKeysWithValues: systems
-                .flatMap(\.measures)
-                .compactMap { measureLayout -> (UUID, LeadSheetMeasureLayout)? in
-                    guard let sourceMeasureID = measureLayout.sourceMeasureID else {
-                        return nil
-                    }
-
-                    return (sourceMeasureID, measureLayout)
-                }
-        )
-
-        return chart.freehandSymbols
-            .filter { supportedLanes.contains($0.lane) }
-            .sorted { $0.zIndex < $1.zIndex }
-            .compactMap { symbol in
-                guard let measureLayout = measureLayoutByID[symbol.anchorMeasureID] else {
-                    return nil
-                }
-
-                let frame: CGRect
-                let laneFrame: CGRect
-                if symbol.lane == .chartArea {
-                    laneFrame = paperFrame
-                    frame = symbol.measureRelativeFrame?.resolved(relativeTo: measureLayout.frame)
-                        ?? symbol.normalizedFrame.resolved(in: measureLayout.frame)
-                } else {
-                    guard let resolvedLaneFrame = measureLayout.freehandFrame(for: symbol.lane) else {
-                        return nil
-                    }
-
-                    laneFrame = resolvedLaneFrame
-                    frame = symbol.normalizedFrame.resolved(in: resolvedLaneFrame)
-                }
-
-                return LeadSheetFreehandSymbolLayout(
-                    id: symbol.id,
-                    symbol: symbol,
-                    frame: frame,
-                    laneFrame: laneFrame
-                )
-            }
-    }
-
     func selectableNotes() -> [LeadSheetSelectableNote] {
         systems.flatMap { system in
             system.measures.flatMap { measure in
@@ -3032,19 +2953,6 @@ extension LeadSheetPageLayout {
 private extension RhythmValue {
     var isSlashBeamableValue: Bool {
         self == .eighth || self == .dottedEighth || self == .sixteenth
-    }
-}
-
-extension LeadSheetMeasureLayout {
-    func freehandFrame(for lane: FreehandSymbolLane) -> CGRect? {
-        switch lane {
-        case .chartArea:
-            return frame
-        case .aboveMeasure:
-            return freehandAboveFrame
-        case .belowMeasure:
-            return freehandBelowFrame
-        }
     }
 }
 

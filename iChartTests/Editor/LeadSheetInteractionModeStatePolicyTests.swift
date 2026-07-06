@@ -259,13 +259,6 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseCanSelectLegacyFreehandObjectsButFreehandUsesRawPageInk() {
-        XCTAssertTrue(EditorCanvasMode.browse.allowsFreehandObjectSelection)
-        XCTAssertFalse(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
-        XCTAssertFalse(EditorCanvasMode.measureEdit.allowsFreehandObjectSelection)
-        XCTAssertFalse(EditorCanvasMode.chordEntry.allowsFreehandObjectSelection)
-    }
-
     func testOnlyInkModesRestrictPageScrollToOutsideMargins() {
         XCTAssertFalse(EditorCanvasMode.browse.restrictsPageScrollToOutsideMargins)
         XCTAssertFalse(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
