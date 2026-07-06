@@ -162,6 +162,81 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
     }
 
+    func testDeveloperOnlySurfacesStayOutOfReleaseBuilds() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let sourceFileURLs = try XCTUnwrap(
+            FileManager.default.enumerator(
+                at: appSourceRoot,
+                includingPropertiesForKeys: nil
+            )?.compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" }
+        )
+        let appSourceText = try sourceFileURLs
+            .map { try String(contentsOf: $0) }
+            .joined(separator: "\n")
+        let projectText = try String(contentsOf: projectRoot.appendingPathComponent("project.yml"))
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let upgradeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let chordSheetText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Forum/IChartForumStore.swift")
+        )
+        let authStorageText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Supabase/IChartSupabaseAuthLocalStorage.swift")
+        )
+        let chordDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/ChordEntryDiagnostics.swift")
+        )
+        let rhythmDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let timingText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetChordInkRecognitionTiming.swift")
+        )
+        let canvasHostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertFalse(appSourceText.contains("#if DEBUG || targetEnvironment(simulator)"))
+        XCTAssertTrue(libraryText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(libraryText.contains("title: \"Diagnostics\""))
+        XCTAssertTrue(libraryText.contains("Sample Forum Charts"))
+        XCTAssertTrue(upgradeText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(upgradeText.contains("Use Pro Preview"))
+        XCTAssertTrue(chordSheetText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordSheetText.contains("Ink sample capture"))
+        XCTAssertTrue(chordSheetText.contains("Copy Ink Sample"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(forumStoreText.contains("iChartForumQASamplePDFs"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG && targetEnvironment(simulator)\nprivate actor IChartForumQASampleService"))
+        XCTAssertTrue(authStorageText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension ChordEntryDiagnosticsRecorder"))
+        XCTAssertTrue(rhythmDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension RhythmRecognitionDiagnosticsRecorder"))
+        XCTAssertTrue(timingText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(canvasHostText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(projectText.contains("SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("Release:\n      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("- path: StoreKit\n        buildPhase: resources"))
+    }
+
     func testRhythmRecognitionOverhaulParksLegacyAutoRenderButKeepsToolSet() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

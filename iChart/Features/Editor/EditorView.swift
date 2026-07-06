@@ -566,7 +566,7 @@ struct EditorView: View {
         .onChange(of: chart) { _, updatedChart in
             scheduleChordEntryDiagnosticReconciliation(for: updatedChart)
             advanceEditorGuidedTourAfterSetupIfNeeded(updatedChart)
-            #if DEBUG || targetEnvironment(simulator)
+            #if DEBUG && targetEnvironment(simulator)
             recordPendingChordRenderHandoff()
             #endif
         }
@@ -2642,7 +2642,7 @@ struct EditorView: View {
         timing: ChordInkRecognitionTiming,
         flow: ChordInkRecognitionFlow
     ) {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let proposalReceivedAt = Date()
         #endif
         guard canvasMode == .chordEntry,
@@ -2661,7 +2661,7 @@ struct EditorView: View {
             drawingData: drawingData,
             correctionMemory: chordInkUserCorrectionMemory
         )
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let proposalDecisionMilliseconds = Date().timeIntervalSince(proposalReceivedAt) * 1_000
         #else
         let proposalDecisionMilliseconds: Double? = nil
@@ -2679,7 +2679,7 @@ struct EditorView: View {
             candidateTexts: resolution.candidateTexts
         )
 
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         logChordInkProposalTiming(
             result: result,
             primaryDecision: resolution.primaryDecision,
@@ -2695,7 +2695,7 @@ struct EditorView: View {
         payloads: [ChordInkRecognitionProposalPayload],
         flow: ChordInkRecognitionFlow
     ) {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let proposalReceivedAt = Date()
         #endif
         guard canvasMode == .chordEntry,
@@ -2720,7 +2720,7 @@ struct EditorView: View {
                 drawingData: payload.drawingData,
                 correctionMemory: chordInkUserCorrectionMemory
             )
-            #if DEBUG || targetEnvironment(simulator)
+            #if DEBUG && targetEnvironment(simulator)
             let proposalDecisionMilliseconds = Date().timeIntervalSince(proposalReceivedAt) * 1_000
             #else
             let proposalDecisionMilliseconds: Double? = nil
@@ -2916,7 +2916,7 @@ struct EditorView: View {
         confirmation: PendingChordInkConfirmation,
         resolution: ChordEntryDiagnosticResolution
     ) -> Bool {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let commitStartedAt = Date()
         #endif
         guard let match = ChordRecognitionCompendium.match(candidateText) else {
@@ -2944,7 +2944,7 @@ struct EditorView: View {
         chart = updatedChart
         chordInkAutomaticRewriteFailures.reset()
 
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let commitMutationMilliseconds = Date().timeIntervalSince(commitStartedAt) * 1_000
         let commitObservedAt = Date()
         recordChordEntryDiagnostic(
@@ -2967,7 +2967,7 @@ struct EditorView: View {
             editorGuidedTourStep = .chordDone
         }
 
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         logChordInkCommitTiming(
             acceptedText: candidateText,
             resolution: resolution,
@@ -2985,7 +2985,7 @@ struct EditorView: View {
         batch: PendingChordInkBatchConfirmation,
         resolution: ChordEntryDiagnosticResolution
     ) -> Bool {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let commitStartedAt = Date()
         #endif
         let acceptedCandidates = batch.confirmations.compactMap { confirmation -> (PendingChordInkConfirmation, String, ChordRecognitionMatch)? in
@@ -3035,7 +3035,7 @@ struct EditorView: View {
         chart = updatedChart
         chordInkAutomaticRewriteFailures.reset()
 
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let commitMutationMilliseconds = Date().timeIntervalSince(commitStartedAt) * 1_000
         let commitObservedAt = Date()
         for committedEvent in committedEvents {
@@ -3128,7 +3128,7 @@ struct EditorView: View {
 
         chart = updatedChart
 
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         recordChordCorrectionDiagnostic(
             acceptedText: trimmedCandidateText,
             match: match,
@@ -3143,7 +3143,7 @@ struct EditorView: View {
         canvasMode = .chordEntry
     }
 
-    #if DEBUG || targetEnvironment(simulator)
+    #if DEBUG && targetEnvironment(simulator)
     private func logChordInkProposalTiming(
         result: ChordInkRecognitionResult,
         primaryDecision: ChordInkRecognitionDecision,
@@ -3338,7 +3338,7 @@ struct EditorView: View {
     #endif
 
     private func scheduleChordEntryDiagnosticReconciliation(for chartSnapshot: Chart) {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let hasRenderedChordEvents = chartSnapshot.systems
             .flatMap(\.measures)
             .contains { !$0.chordEvents.isEmpty }
@@ -3411,7 +3411,7 @@ struct EditorView: View {
         do {
             try chordInkUserCorrectionMemoryStore.save(chordInkUserCorrectionMemory)
         } catch {
-            #if DEBUG || targetEnvironment(simulator)
+            #if DEBUG && targetEnvironment(simulator)
             print("iChart chord user correction memory error: \(error)")
             #endif
         }
