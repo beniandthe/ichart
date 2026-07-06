@@ -54,7 +54,7 @@ For temporary local or alternate-project simulator QA, make sure override values
 }
 ```
 
-If Settings shows account services unavailable and Cloud Backup shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
+If the account gate shows account services unavailable and Settings > Cloud Backup shows `Cloud backup unavailable`, the app is running unconfigured. First verify the installed app Info.plist contains non-empty `SupabaseURL` and `SupabasePublishableKey`; then use runtime env only for local/alternate-project overrides.
 
 For local simulator QA after the app has already been built and installed, use:
 
@@ -103,7 +103,7 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 - Unconfigured build launches and edits charts locally.
 - Create account, resend verification, sign in, refresh session, and sign out.
 - Request password reset and return to the app through `ichart://auth-callback`.
-- Save profile fields to `profiles`.
+- Confirm client profile writes cannot change locked identity, legacy phone, or backend-owned payment/customer metadata.
 - With active Pro entitlement, create, edit, delete, relaunch, sync, and restore charts after reinstall/sign-in.
 - Without active Pro entitlement, confirm charts save locally, PDF/export remains available, Cloud Backup clearly reports that cloud backup requires Pro, and Forums are locked.
 - When a Basic account already has more than 3 local charts from a prior Pro period, confirm the app requires user-selected local pruning down to 3 charts.

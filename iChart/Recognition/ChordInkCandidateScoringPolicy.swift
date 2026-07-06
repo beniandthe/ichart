@@ -282,7 +282,8 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func isMinorSixthSymbol(_ symbol: ChordSymbol?) -> Bool {
-        guard let symbol else {
+        guard let symbol,
+              symbol.kind == .rooted else {
             return false
         }
 
@@ -292,7 +293,8 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func isPlainFlatRootSlashBassSymbol(_ symbol: ChordSymbol?) -> Bool {
-        guard let symbol else {
+        guard let symbol,
+              symbol.kind == .rooted else {
             return false
         }
 
@@ -313,7 +315,8 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func isMajorSixthSymbol(_ symbol: ChordSymbol?) -> Bool {
-        guard let symbol else {
+        guard let symbol,
+              symbol.kind == .rooted else {
             return false
         }
 
@@ -367,7 +370,8 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func hasTriangleQuality(_ symbol: ChordSymbol?) -> Bool {
-        guard let symbol else {
+        guard let symbol,
+              symbol.kind == .rooted else {
             return false
         }
 
@@ -376,7 +380,8 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func isNinthSharpFiveSymbol(_ symbol: ChordSymbol?) -> Bool {
-        guard let symbol else {
+        guard let symbol,
+              symbol.kind == .rooted else {
             return false
         }
 

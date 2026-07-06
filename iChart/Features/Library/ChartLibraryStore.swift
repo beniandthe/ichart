@@ -325,7 +325,7 @@ final class ChartLibraryStore: ObservableObject {
         return true
     }
 
-    #if DEBUG || targetEnvironment(simulator)
+    #if DEBUG
     @discardableResult
     func createChordWritingTestChart() -> Chart.ID {
         let testChartTitle = "Chord Writing Test Chart"

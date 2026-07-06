@@ -7,7 +7,7 @@ final class ChordGlyphTemplateLibraryTests: XCTestCase {
 
         XCTAssertEqual(
             templateTexts,
-            ["A", "B", "C", "D", "E", "F", "G", "#", "b", "+", "△", "°", "ø", "m", "-", "a", "l", "t", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"]
+            ["A", "B", "C", "D", "E", "F", "G", "#", "b", "+", "△", "°", "ø", "•", "m", "-", "a", "l", "t", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"]
         )
     }
 

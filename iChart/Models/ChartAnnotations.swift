@@ -22,6 +22,7 @@ struct CueText: Identifiable, Codable, Hashable {
     var emphasis: CueEmphasis
     var scale: Double
     var beatFraction: Double?
+    var verticalOffset: Double
     var rawInput: String?
 
     init(
@@ -32,6 +33,7 @@ struct CueText: Identifiable, Codable, Hashable {
         emphasis: CueEmphasis,
         scale: Double = Self.defaultScale,
         beatFraction: Double? = nil,
+        verticalOffset: Double = 0,
         rawInput: String? = nil
     ) {
         self.id = id
@@ -41,6 +43,7 @@ struct CueText: Identifiable, Codable, Hashable {
         self.emphasis = emphasis
         self.scale = Self.clampedScale(scale)
         self.beatFraction = Self.clampedBeatFraction(beatFraction)
+        self.verticalOffset = Self.clampedVerticalOffset(verticalOffset)
         self.rawInput = rawInput
     }
 
@@ -52,6 +55,7 @@ struct CueText: Identifiable, Codable, Hashable {
         case emphasis
         case scale
         case beatFraction
+        case verticalOffset
         case rawInput
     }
 
@@ -64,6 +68,9 @@ struct CueText: Identifiable, Codable, Hashable {
         emphasis = try container.decode(CueEmphasis.self, forKey: .emphasis)
         scale = Self.clampedScale(try container.decodeIfPresent(Double.self, forKey: .scale) ?? Self.defaultScale)
         beatFraction = Self.clampedBeatFraction(try container.decodeIfPresent(Double.self, forKey: .beatFraction))
+        verticalOffset = Self.clampedVerticalOffset(
+            try container.decodeIfPresent(Double.self, forKey: .verticalOffset) ?? 0
+        )
         rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
     }
 
@@ -71,6 +78,8 @@ struct CueText: Identifiable, Codable, Hashable {
     static let minimumScale: Double = 0.75
     static let maximumScale: Double = 1.8
     static let scaleStep: Double = 0.125
+    static let minimumVerticalOffset: Double = -72
+    static let maximumVerticalOffset: Double = 72
 
     static func clampedScale(_ scale: Double) -> Double {
         guard scale.isFinite else {
@@ -87,6 +96,14 @@ struct CueText: Identifiable, Codable, Hashable {
         }
 
         return min(max(fraction, 0), 0.9999)
+    }
+
+    static func clampedVerticalOffset(_ offset: Double) -> Double {
+        guard offset.isFinite else {
+            return 0
+        }
+
+        return min(max(offset, minimumVerticalOffset), maximumVerticalOffset)
     }
 }
 

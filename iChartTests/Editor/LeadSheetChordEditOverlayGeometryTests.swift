@@ -171,17 +171,33 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         )
     }
 
-    func testSelectFirstPolicyDrawsAllBoxesButOnlySelectedOrMovingControls() {
+    func testSelectFirstPolicyDrawsBoxesOnlyAfterSelectionOrMove() {
         let selectedChordID = UUID()
         let movingChordID = UUID()
         let idleChordID = UUID()
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
                 for: idleChordID,
                 selectedChordID: selectedChordID,
                 activeMoveChordID: movingChordID,
-                drawsAllBoxes: true
+                drawsAllBoxes: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
+                for: selectedChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: nil,
+                drawsAllBoxes: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
+                for: movingChordID,
+                selectedChordID: selectedChordID,
+                activeMoveChordID: movingChordID,
+                drawsAllBoxes: false
             )
         )
         XCTAssertFalse(
@@ -494,7 +510,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             position: .above,
             emphasis: .normal,
             scale: 1,
-            beatFraction: 0.5
+            beatFraction: 0.5,
+            verticalOffset: 0
         )
     }
 

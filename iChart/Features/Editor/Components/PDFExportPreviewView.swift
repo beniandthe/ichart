@@ -88,6 +88,10 @@ private struct PDFDocumentView: UIViewRepresentable {
     }
 
     func updateUIView(_ pdfView: PDFView, context: Context) {
+        guard pdfView.document?.documentURL != url else {
+            return
+        }
+
         pdfView.document = PDFDocument(url: url)
     }
 }

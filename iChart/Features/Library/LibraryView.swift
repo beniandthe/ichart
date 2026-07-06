@@ -14,6 +14,11 @@ private enum IChartHomeBrand {
     static let staffOnDark = Color.white.opacity(0.23)
 }
 
+private enum IChartSupportLinks {
+    static let supportURL = URL(string: "https://useichart.com/support")!
+    static let supportEmail = "support@useichart.com"
+}
+
 private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     case light
     case dark
@@ -242,7 +247,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .legal:
             "Plain-language terms, privacy, subscription, and community notes for iChart."
         case .contactUs:
-            "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account."
+            "For feedback, bug reports, account questions, or Pro support, use the hosted support page and include the email tied to your iChart account."
         }
     }
 }
@@ -325,17 +330,17 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "top-row",
                     title: "Top Row",
-                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand."
+                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand. Tap Done in an active tool before switching tools."
                 ),
                 IChartTutorialStep(
                     id: "active-row",
                     title: "Active Row",
-                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions or Repeats actions."
+                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions, Repeats actions, Write, Erase, Read, Ink Only, and Done."
                 ),
                 IChartTutorialStep(
                     id: "write-erase",
                     title: "Write And Erase",
-                    detail: "Ink tools show Write and Erase. Write adds ink for the active tool, and Erase removes ink from that same tool area."
+                    detail: "Ink tools show Write and Erase. Write adds ink for the active tool, and Erase removes ink from that same tool area without changing other rendered objects."
                 ),
                 IChartTutorialStep(
                     id: "safe-exit",
@@ -353,7 +358,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "setup-export",
                     title: "Setup And Export",
-                    detail: "Setup changes the starting chart options before the page is created. Export saves a finished PDF to the PDF Library."
+                    detail: "Setup changes page style, time signature, and starting measure count. Export saves the current chart as a finished PDF in the PDF Library."
                 ),
                 IChartTutorialStep(
                     id: "header",
@@ -363,7 +368,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "transpose",
                     title: "Instrument Transposition",
-                    detail: "Instrument Transposition chooses the instrument preset. Manual Transpose moves the written chords up or down by half step or selected interval."
+                    detail: "Instrument Transposition chooses the reading view, such as Concert or Bb Horn. Transpose moves the written chords up or down by half step or selected interval."
                 ),
                 IChartTutorialStep(
                     id: "appearance",
@@ -378,6 +383,11 @@ private struct IChartTutorialSection: Identifiable {
             summary: "Use Measures only for measure layout, row flow, and measure deletion.",
             systemImageName: "rectangle.split.3x1",
             steps: [
+                IChartTutorialStep(
+                    id: "select-measure",
+                    title: "Select A Measure",
+                    detail: "Tap a measure first. Measure actions use that selected measure as the insertion, row, or deletion target."
+                ),
                 IChartTutorialStep(
                     id: "add-stack",
                     title: "Add And Stack",
@@ -406,6 +416,11 @@ private struct IChartTutorialSection: Identifiable {
             summary: "Use Repeats only for repeat barlines and first or second endings.",
             systemImageName: "repeat",
             steps: [
+                IChartTutorialStep(
+                    id: "repeat-targets",
+                    title: "Select The Boundary",
+                    detail: "Tap the measure where the repeat or ending starts, then use the Repeats row to place or close the structure."
+                ),
                 IChartTutorialStep(
                     id: "one-bar",
                     title: "One Bar",
@@ -437,7 +452,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "markers",
                     title: "Markers",
-                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. at the selected measure."
+                    detail: "Add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. at the selected measure as a point marker."
                 ),
                 IChartTutorialStep(
                     id: "edit-markers",
@@ -455,17 +470,17 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "above",
                     title: "Add Text Above Selected Measure",
-                    detail: "Adds cue text above the selected measure."
+                    detail: "Select a measure, then add cue text above it for rehearsal cues, feel notes, hits, or reminders."
                 ),
                 IChartTutorialStep(
                     id: "below",
                     title: "Add Text Below Selected Measure",
-                    detail: "Adds cue text below the selected measure."
+                    detail: "Add cue text below the selected measure when the note belongs under the staff or chord grid."
                 ),
                 IChartTutorialStep(
                     id: "remove-text",
                     title: "Remove Text At Selected Measure",
-                    detail: "Removes cue text attached to the selected measure."
+                    detail: "Remove Text clears cue text attached to the selected measure. In Select, tap existing text to edit, resize, move, or delete it."
                 )
             ]
         ),
@@ -506,12 +521,12 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "write-rhythm",
                     title: "Write",
-                    detail: "Tap Rhythm, choose Write, then write the rhythm figure in the target measure."
+                    detail: "Tap Rhythm, choose Write, then write the rhythm figure in the target measure. Tap outside the measure when the rhythm is ready to render."
                 ),
                 IChartTutorialStep(
                     id: "erase-rhythm",
                     title: "Erase",
-                    detail: "Choose Erase inside Rhythm when you want to remove rhythm ink from that tool area."
+                    detail: "Choose Erase inside Rhythm to remove rhythm ink from the target measure before rewriting it."
                 )
             ]
         ),
@@ -529,7 +544,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "confirm",
                     title: "Confirm",
-                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it."
+                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it. Confirmed chords become rendered objects."
                 ),
                 IChartTutorialStep(
                     id: "ink-only",
@@ -539,7 +554,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "move",
                     title: "Move",
-                    detail: "Use Select to drag a rendered chord inside its box and move it within the measure."
+                    detail: "Use Select to drag a rendered chord inside its box and move it within the measure. Chord movement stays tied to the measure."
                 ),
                 IChartTutorialStep(
                     id: "edit",
@@ -551,18 +566,18 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "free-hand-tool",
             title: "Free-Hand",
-            summary: "Use Free-Hand only for marks that should remain as handwritten ink.",
+            summary: "Use Free-Hand as literal page ink for quick marks, notes, and cues.",
             systemImageName: "pencil.and.scribble",
             steps: [
                 IChartTutorialStep(
                     id: "write-freehand",
                     title: "Write",
-                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders that should stay as ink."
+                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders as raw page ink. Free-Hand does not create movable boxes."
                 ),
                 IChartTutorialStep(
                     id: "erase-freehand",
                     title: "Erase",
-                    detail: "Choose Erase to remove Free-Hand ink."
+                    detail: "Choose Erase to remove Free-Hand ink. Rewrite the mark manually if it needs to move."
                 ),
                 IChartTutorialStep(
                     id: "done-freehand",
@@ -602,13 +617,13 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "settings-help",
             title: "Settings",
-            summary: "Manage account details, subscription state, verification, appearance, and support.",
+            summary: "Manage subscription state, cloud backup, appearance, and support.",
             systemImageName: "gearshape",
             steps: [
                 IChartTutorialStep(
-                    id: "user-info",
-                    title: "User Info",
-                    detail: "Settings shows your account name, email, and phone. First and last name stay tied to the account identity."
+                    id: "account-identity",
+                    title: "Account Identity",
+                    detail: "Name and email are set during account creation. Contact support if an identifier needs to change."
                 ),
                 IChartTutorialStep(
                     id: "subscription",
@@ -666,9 +681,9 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "person.crop.circle.badge.checkmark",
             body: "Accounts support verification, password recovery, subscription identity, cloud backup, Forums, and support.",
             bullets: [
-                "First and last name are set at account creation for stable support and community credit.",
+                "First name, last name, and email are set at account creation for stable support and community credit.",
                 "Email verification protects account recovery and Pro subscription access.",
-                "Settings shows account and subscription state."
+                "Contact support if an account identifier needs to change."
             ]
         )
     ]
@@ -680,7 +695,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "person.text.rectangle",
             body: "Use your own account and keep the email reachable for verification, recovery, subscription support, and community credit.",
             bullets: [
-                "First and last name are tied to the account after signup.",
+                "Name and email are tied to the account after signup.",
                 "Forum posts and comments use the verified account identity, not anonymous or misleading credit.",
                 "Never share passwords, verification links, recovery links, or purchase credentials."
             ]
@@ -794,7 +809,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "contact-feedback",
             title: "Feedback And Bugs",
             systemImageName: "exclamationmark.triangle",
-            body: "For feedback, bug reports, account questions, or Pro support, include the email tied to your iChart account.",
+            body: "For feedback, bug reports, account questions, or Pro support, contact iChart through the hosted support page.",
             bullets: [
                 "For chart-writing bugs, mention the chart type, active tool, and what you expected to happen.",
                 "For account or Pro questions, include your account email and whether you are on Basic or Pro.",
@@ -911,10 +926,10 @@ struct LibraryView: View {
     @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
     @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
+    #if DEBUG && targetEnvironment(simulator)
     @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
     private var rhythmDiagnosticsEnabled = false
-    @State private var userEmail = ""
-    @State private var userPhone = ""
+    #endif
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
     @State private var selectedHomeTab: IChartHomeTab = .charts
     @State private var selectedHelpTopic: IChartHelpTopic?
@@ -941,19 +956,6 @@ struct LibraryView: View {
     private var chartCountText: String {
         let count = store.charts.count
         return count == 1 ? "1 chart" : "\(count) charts"
-    }
-
-    private var accountNameText: String {
-        let fullName = [
-            authStore.profile?.firstName,
-            authStore.profile?.lastName
-        ]
-        .compactMap { $0 }
-        .map(ForumPublishDraft.normalizedDisplayText)
-        .filter { !$0.isEmpty }
-        .joined(separator: " ")
-
-        return fullName.isEmpty ? "Set at account creation" : fullName
     }
 
     private var forumCreatorDisplayName: String {
@@ -1075,9 +1077,7 @@ struct LibraryView: View {
             Task {
                 await forumStore.refresh(authState: state, entitlements: store.entitlements)
             }
-            if !hasSeenAccountLanding {
-                updateAccountLandingPresentation()
-            }
+            updateAccountLandingPresentation()
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
@@ -1085,9 +1085,6 @@ struct LibraryView: View {
             Task {
                 await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
             }
-        }
-        .onChange(of: authStore.profile) { _, profile in
-            apply(profile: profile)
         }
         .sheet(isPresented: $showingLayoutPicker) {
             NewChartLayoutPickerView(
@@ -1510,14 +1507,6 @@ struct LibraryView: View {
                 }
 
                 IChartHomePanel(
-                    title: "Account",
-                    systemImageName: "person.crop.circle.badge.checkmark",
-                    theme: homeTheme
-                ) {
-                    IChartAccountSettings(authStore: authStore, theme: homeTheme)
-                }
-
-                IChartHomePanel(
                     title: "Cloud Backup",
                     systemImageName: "icloud.and.arrow.up",
                     theme: homeTheme
@@ -1525,29 +1514,7 @@ struct LibraryView: View {
                     IChartCloudSyncSettings(syncStore: cloudSyncStore, theme: homeTheme)
                 }
 
-                IChartHomePanel(
-                    title: "User Info",
-                    systemImageName: "person.text.rectangle",
-                    theme: homeTheme
-                ) {
-                    IChartUserInfoSettings(
-                        accountName: accountNameText,
-                        email: $userEmail,
-                        phone: $userPhone,
-                        theme: homeTheme,
-                        authState: authStore.state,
-                        isSaving: authStore.isWorking,
-                        onSaveProfile: {
-                            Task {
-                                await authStore.saveProfile(
-                                    email: userEmail,
-                                    phone: userPhone
-                                )
-                            }
-                        }
-                    )
-                }
-
+                #if DEBUG && targetEnvironment(simulator)
                 IChartHomePanel(
                     title: "Diagnostics",
                     systemImageName: "waveform.path.ecg",
@@ -1558,6 +1525,7 @@ struct LibraryView: View {
                         theme: homeTheme
                     )
                 }
+                #endif
             }
         }
     }
@@ -1775,9 +1743,17 @@ struct LibraryView: View {
     }
 
     private func updateAccountLandingPresentation() {
-        guard !hasSeenAccountLanding,
-              !showingAccountLanding,
-              authStore.state.shouldPresentFirstRunAccountLanding else {
+        let shouldPresent = authStore.state.shouldPresentFirstRunAccountLanding
+            && (!hasSeenAccountLanding || !authStore.state.isVerifiedSignedIn)
+
+        guard shouldPresent else {
+            if showingAccountLanding {
+                showingAccountLanding = false
+            }
+            return
+        }
+
+        guard !showingAccountLanding else {
             return
         }
 
@@ -1799,20 +1775,6 @@ struct LibraryView: View {
         selectedHomeTab = .charts
         chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
         guidedTourStep = .welcome
-    }
-
-    private func apply(profile: IChartUserProfile?) {
-        guard let profile else {
-            return
-        }
-
-        if let email = profile.email {
-            userEmail = email
-        }
-
-        if let phone = profile.phone {
-            userPhone = phone
-        }
     }
 
     private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
@@ -4383,6 +4345,18 @@ private struct IChartHelpArticlePage: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if topic == .contactUs {
+                    Link(destination: IChartSupportLinks.supportURL) {
+                        Label("Open Support Site", systemImage: "safari")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(IChartHomeBrand.blue)
+                    .accessibilityHint("Opens useichart.com/support")
+                }
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -4717,7 +4691,7 @@ private struct IChartFirstRunAccountLandingView: View {
                                     .foregroundStyle(theme.panelTitle)
                                     .frame(maxWidth: .infinity, alignment: .center)
 
-                                Text("Create your account to keep profile, recovery, and subscription access tied to you from the start.")
+                                Text("Create your account to keep identity, recovery, and subscription access tied to you from the start.")
                                     .font(.body)
                                     .foregroundStyle(theme.panelSecondary)
                                     .multilineTextAlignment(.center)
@@ -5129,7 +5103,7 @@ private struct IChartAccountSettings: View {
         case .unconfigured:
             return "Account sign-in and cloud backup are unavailable right now."
         case .signedOut:
-            return "Create an account or sign in to manage your profile and subscription."
+            return "Create an account or sign in for recovery, subscriptions, cloud backup, and Forums."
         case .temporarilyOffline(let session):
             if let email = session.email {
                 return "Using local charts for \(email). Reconnect to back up."
@@ -5160,7 +5134,11 @@ private struct IChartAccountSettings: View {
 
         switch authStore.state {
         case .signedOut:
-            focusedField = requiresNameForSignup ? .firstName : .email
+            if requiresNameForSignup {
+                focusedField = .firstName
+            } else {
+                focusedField = .email
+            }
         case .passwordRecovery:
             focusedField = .newPassword
         case .unconfigured, .temporarilyOffline, .pendingEmailVerification, .signedIn:
@@ -5600,6 +5578,7 @@ private struct IChartCloudSyncSettings: View {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
 private struct IChartDiagnosticsSettings: View {
     @Binding var rhythmDiagnosticsEnabled: Bool
     let theme: IChartHomeTheme
@@ -5682,6 +5661,7 @@ private struct IChartDiagnosticsSettings: View {
         refreshRhythmDiagnosticsLog()
     }
 }
+#endif
 
 private struct IChartAccountTextField: View {
     let title: String
@@ -5781,170 +5761,6 @@ private struct IChartAccountSecureField: View {
             ) {
                 focusedField.wrappedValue = field
             }
-        }
-    }
-}
-
-private struct IChartUserInfoSettings: View {
-    let accountName: String
-    @Binding var email: String
-    @Binding var phone: String
-    let theme: IChartHomeTheme
-    let authState: IChartAuthState
-    let isSaving: Bool
-    let onSaveProfile: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            IChartSettingsLockedValueRow(
-                title: "Account Name",
-                value: accountName,
-                systemImageName: "person.crop.circle.badge.checkmark",
-                theme: theme
-            )
-
-            settingsDivider
-
-            IChartSettingsTextFieldRow(
-                title: "Email",
-                placeholder: "name@example.com",
-                text: $email,
-                systemImageName: "envelope",
-                keyboardType: .emailAddress,
-                theme: theme
-            )
-
-            settingsDivider
-
-            IChartSettingsTextFieldRow(
-                title: "Phone",
-                placeholder: "(555) 555-5555",
-                text: $phone,
-                systemImageName: "phone",
-                keyboardType: .phonePad,
-                theme: theme
-            )
-
-            settingsDivider
-
-            Button {
-                onSaveProfile()
-            } label: {
-                Label("Save Profile", systemImage: "icloud.and.arrow.up")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(IChartHomeBrand.blue)
-            .disabled(authState.signedInSession == nil || isSaving)
-            .padding(.top, 14)
-        }
-    }
-
-    private var settingsDivider: some View {
-        Divider()
-            .overlay(theme.panelBorder)
-            .padding(.leading, 44)
-    }
-}
-
-private struct IChartSettingsLockedValueRow: View {
-    let title: String
-    let value: String
-    let systemImageName: String
-    let theme: IChartHomeTheme
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: systemImageName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.blue)
-                .frame(width: 30, height: 30)
-
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.panelTitle)
-                .frame(minWidth: 104, alignment: .leading)
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 6) {
-                Text(value)
-                    .font(.subheadline)
-                    .foregroundStyle(theme.panelSecondary)
-                    .multilineTextAlignment(.trailing)
-
-                Image(systemName: "lock.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.panelSecondary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-        }
-        .padding(.vertical, 14)
-    }
-}
-
-private struct IChartSettingsTextFieldRow: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    let systemImageName: String
-    var keyboardType: UIKeyboardType = .default
-    var isMultiline = false
-    let theme: IChartHomeTheme
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(alignment: isMultiline ? .top : .center, spacing: 14) {
-            Image(systemName: systemImageName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.blue)
-                .frame(width: 30, height: 30)
-
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.panelTitle)
-                .frame(minWidth: 104, alignment: .leading)
-
-            Spacer(minLength: 12)
-
-            field
-                .focused($isFocused)
-                .keyboardType(keyboardType)
-                .font(.subheadline)
-                .foregroundStyle(theme.panelTitle)
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(.horizontal, 11)
-                .padding(.vertical, isMultiline ? 9 : 7)
-                .frame(maxWidth: 340, alignment: .trailing)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.emptyStateBackground)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.panelBorder, lineWidth: 1)
-                }
-
-            IChartKeyboardFocusButton(
-                accessibilityLabel: "Open keyboard for \(title)"
-            ) {
-                isFocused = true
-            }
-        }
-        .padding(.vertical, 12)
-    }
-
-    @ViewBuilder
-    private var field: some View {
-        if isMultiline {
-            TextField(placeholder, text: $text, axis: .vertical)
-                .lineLimit(2...4)
-        } else {
-            TextField(placeholder, text: $text)
-                .lineLimit(1)
         }
     }
 }

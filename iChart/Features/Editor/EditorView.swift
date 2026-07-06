@@ -88,27 +88,27 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .setup:
-            "Confirm the starting options, then iChart will make a blank Simple Chord Sheet for the tour."
+            "Confirm the page setup, time signature, starting measure count, and sheet style. Create Blank Page opens the chart for the hands-on tour."
         case .chordWrite:
-            "Use the chord lane above the measure. Write a chord, then tap outside of the chord lane to ask iChart to read it."
+            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Ink Only when the chord should stay handwritten."
         case .chordConfirm:
-            "Tap the chord you meant. If iChart is unsure, use the keyboard or rewrite the ink."
+            "Tap the chord you meant. Keyboard opens manual entry, Keep Ink leaves handwriting in place, and Rewrite clears the attempt."
         case .chordDone:
-            "Tap Done to return to the main tool row."
+            "Tap Done to leave Chord mode and return to Select before using the other editor tools."
         case .page:
-            "Open Page for Setup, Export, Header, Instrument Transposition, Manual Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
+            "Page holds whole-chart actions: Setup, Export, Header, Instrument Transposition, Transpose, Style, Fonts, Pen Responsiveness, and Engraving."
         case .measures:
-            "Measures is only for measure layout: Add, Stack, First, Double, New Row or Join, Delete, and Range."
+            "Measures is for layout only. Select a measure, then use Add, Stack, First, Double, New Row or Join, Delete, and Range."
         case .measuresActive:
-            "Use Add, Stack, First, Double, New Row or Join, Delete, Range, Delete To, and Clear."
+            "Measure actions affect the selected measure. Add and Stack insert measures, New Row and Join control row flow, and Range deletes a span."
         case .repeatsActive:
-            "Repeats is only for repeat structure: One Bar, Start, End Rep, 1st and 2nd endings, Remove Repeat, Remove Ending, and Clear."
+            "Repeats is for repeat structure. Use One Bar, Start, End Rep, 1st and 2nd endings, Remove Repeat, Remove Ending, and Clear."
         case .coda:
-            "Coda is only for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. Select a marker, drag it left or right within the measure, or tap its x to delete it."
+            "Coda is for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. In Select, drag a marker or tap its x to delete it."
         case .freeHandActive:
-            "Free-Hand is for quick notes, rehearsal marks, and cues you want to leave as ink. Tap Done when you are finished."
+            "Free-Hand is raw page ink for quick marks, notes, and cues. It does not attach to measures or create movable symbols; erase and rewrite it manually."
         case .select:
-            "Select is where you move, edit, delete, scroll, and head back to setup or export."
+            "Select is the resting mode for scrolling, choosing rendered objects, editing text or markers, and returning to Page for setup or export."
         }
     }
 
@@ -142,16 +142,18 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     var contentPromptAlignment: Alignment {
         switch self {
         case .setup:
-            .topTrailing
-        case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
             .bottomTrailing
+        case .chordWrite, .chordConfirm, .select:
+            .bottomTrailing
+        case .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive:
+            .bottomLeading
         }
     }
 
     var contentPromptPadding: EdgeInsets {
         switch self {
         case .setup:
-            EdgeInsets(top: 72, leading: 24, bottom: 24, trailing: 24)
+            EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24)
         case .chordWrite, .chordConfirm, .chordDone, .page, .measures, .measuresActive, .repeatsActive, .coda, .freeHandActive, .select:
             EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24)
         }
@@ -340,6 +342,7 @@ struct EditorView: View {
                 editorSurface(availableSize: proxy.size)
             }
         }
+        .allowsHitTesting(!showingCueTextEntry)
         .background(
             LinearGradient(
                 colors: [
@@ -365,7 +368,19 @@ struct EditorView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
+        .overlay {
+            if showingCueTextEntry {
+                CueTextEntryPanelView(
+                    text: $cueTextDraft,
+                    actionTitle: editingCueTextID == nil ? "Add" : "Apply",
+                    onAdd: handleCueTextEntryAccepted,
+                    onCancel: clearPendingCueTextEntry
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
         .animation(.easeOut(duration: 0.16), value: activeEditorOperationMessage)
+        .animation(.easeOut(duration: 0.16), value: showingCueTextEntry)
         .navigationTitle(chart.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -380,7 +395,7 @@ struct EditorView: View {
             }
         }
         .sheet(isPresented: $showingSetupSheet) {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottomTrailing) {
                 ChartSetupSheetView(chart: $chart)
 
                 if editorGuidedTourStep == .setup {
@@ -388,8 +403,8 @@ struct EditorView: View {
                         step: .setup,
                         onFinish: finishEditorGuidedTour
                     )
-                    .padding(.top, 72)
-                    .padding(.trailing, 24)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 28)
                 }
             }
         }
@@ -401,14 +416,6 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingInkResponsivenessSheet) {
             InkResponsivenessSheetView(value: $inkResponsivenessValue)
-        }
-        .sheet(isPresented: $showingCueTextEntry) {
-            CueTextEntrySheetView(
-                text: $cueTextDraft,
-                actionTitle: editingCueTextID == nil ? "Add" : "Apply",
-                onAdd: handleCueTextEntryAccepted,
-                onCancel: clearPendingCueTextEntry
-            )
         }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
@@ -752,182 +759,231 @@ struct EditorView: View {
         canvasMode.showsActiveToolControls
     }
 
+    @ViewBuilder
+    private var pageToolControl: some View {
+        if editorGuidedTourStep == .page {
+            Button {
+                advanceEditorGuidedTourAfterPageToolTapIfNeeded()
+            } label: {
+                pageToolLabel
+            }
+        } else {
+            Menu {
+                pageToolMenuContent
+            } label: {
+                pageToolLabel
+            }
+        }
+    }
+
+    private var pageToolLabel: some View {
+        EditorMenuTabLabel(
+            title: "Page",
+            systemImage: "doc.text",
+            isSelected: canvasMode == .headerEntry
+        )
+    }
+
+    @ViewBuilder
+    private var pageToolMenuContent: some View {
+        if !chart.hasCompletedInitialSetup {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                showingSetupSheet = true
+            } label: {
+                Label("Setup", systemImage: "doc.text")
+            }
+
+            Divider()
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            handleExportTapped()
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+
+        Menu {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.setHeaderInputMode(.typed)
+                showingHeaderSheet = true
+            } label: {
+                notationMenuLabel("Typed", isSelected: chart.headerInputMode == .typed)
+            }
+
+            Button {
+                activateHeaderWritingTool()
+            } label: {
+                notationMenuLabel("Handwritten", isSelected: chart.headerInputMode == .handwritten)
+            }
+
+            if chart.pageHandwrittenHeaderData != nil {
+                Divider()
+
+                Button(role: .destructive) {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setPageHandwrittenHeaderDrawing(nil)
+                } label: {
+                    Label("Clear Handwritten Header", systemImage: "trash")
+                }
+            }
+        } label: {
+            Label("Header (\(chart.headerInputMode.displayText))", systemImage: "character.cursor.ibeam")
+        }
+
+        Menu {
+            ForEach(TranspositionView.instrumentOptions) { view in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setInstrumentTranspositionView(view)
+                } label: {
+                    notationMenuLabel(
+                        "\(view.displayText) (\(view.intervalDisplayText))",
+                        isSelected: chart.defaultTranspositionView == view
+                            && chart.chordTranspositionSemitones == 0
+                    )
+                }
+            }
+        } label: {
+            Label(
+                "Instrument (\(chart.defaultTranspositionView.displayText))",
+                systemImage: "music.note"
+            )
+        }
+
+        Menu {
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.transposeChordsByHalfSteps(1)
+            } label: {
+                Label("Up Half Step", systemImage: "arrow.up")
+            }
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.transposeChordsByHalfSteps(-1)
+            } label: {
+                Label("Down Half Step", systemImage: "arrow.down")
+            }
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                chart.setChordTranspositionSemitones(0)
+            } label: {
+                Label("Reset to Written", systemImage: "arrow.uturn.backward")
+            }
+
+            Divider()
+
+            ForEach(Array(0...11), id: \.self) { semitones in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setChordTranspositionSemitones(semitones)
+                } label: {
+                    notationMenuLabel(
+                        chordTranspositionOptionTitle(semitones),
+                        isSelected: chart.chordTranspositionSemitones == semitones
+                    )
+                }
+            }
+        } label: {
+            Label(
+                "Transpose (\(chart.chordTranspositionDisplayText))",
+                systemImage: "arrow.up.arrow.down"
+            )
+        }
+
+        Divider()
+
+        Menu {
+            ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating page style...") {
+                        chart.setStylePreset(preset)
+                    }
+                } label: {
+                    notationMenuLabel(
+                        preset.sheetDisplayText(for: chart.layoutStyle),
+                        isSelected: chart.stylePreset == preset
+                    )
+                }
+            }
+        } label: {
+            Label("Style", systemImage: "paintpalette")
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            showingTypographySheet = true
+        } label: {
+            Label("Fonts", systemImage: "textformat")
+        }
+
+        Button {
+            activateSelectTool(clearsMeasureSelection: true)
+            showingInkResponsivenessSheet = true
+        } label: {
+            Label("Pen Responsiveness", systemImage: "pencil.tip")
+        }
+
+        Menu {
+            ForEach(EngravingPreset.allCases, id: \.self) { preset in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating engraving...") {
+                        chart.setEngravingPreset(preset)
+                    }
+                } label: {
+                    notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
+                }
+            }
+        } label: {
+            Label("Engraving", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    @ViewBuilder
+    private var codaToolControl: some View {
+        if editorGuidedTourStep == .repeatsActive {
+            Button {
+                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
+            } label: {
+                codaToolLabel
+            }
+        } else {
+            Menu {
+                codaToolMenuContent
+            } label: {
+                codaToolLabel
+            }
+        }
+    }
+
+    private var codaToolLabel: some View {
+        EditorCodaTabLabel(isSelected: selectedRoadmapMarkerID != nil)
+    }
+
+    @ViewBuilder
+    private var codaToolMenuContent: some View {
+        ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
+            Button {
+                handleAddPointRoadmapMarker(roadmapType)
+            } label: {
+                Text(roadmapType.editorMenuDisplayText)
+            }
+        }
+    }
+
     private func toolStrip(minWidth: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                Menu {
-                    if !chart.hasCompletedInitialSetup {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            showingSetupSheet = true
-                        } label: {
-                            Label("Setup", systemImage: "doc.text")
-                        }
-
-                        Divider()
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        handleExportTapped()
-                    } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
-
-                    Menu {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.setHeaderInputMode(.typed)
-                            showingHeaderSheet = true
-                        } label: {
-                            notationMenuLabel("Typed", isSelected: chart.headerInputMode == .typed)
-                        }
-
-                        Button {
-                            activateHeaderWritingTool()
-                        } label: {
-                            notationMenuLabel("Handwritten", isSelected: chart.headerInputMode == .handwritten)
-                        }
-
-                        if chart.pageHandwrittenHeaderData != nil {
-                            Divider()
-
-                            Button(role: .destructive) {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setPageHandwrittenHeaderDrawing(nil)
-                            } label: {
-                                Label("Clear Handwritten Header", systemImage: "trash")
-                            }
-                        }
-                    } label: {
-                        Label("Header (\(chart.headerInputMode.displayText))", systemImage: "character.cursor.ibeam")
-                    }
-
-                    Menu {
-                        ForEach(TranspositionView.instrumentOptions) { view in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setInstrumentTranspositionView(view)
-                            } label: {
-                                notationMenuLabel(
-                                    "\(view.displayText) (\(view.intervalDisplayText))",
-                                    isSelected: chart.defaultTranspositionView == view
-                                        && chart.chordTranspositionSemitones == 0
-                                )
-                            }
-                        }
-                    } label: {
-                        Label(
-                            "Instrument (\(chart.defaultTranspositionView.displayText))",
-                            systemImage: "music.note"
-                        )
-                    }
-
-                    Menu {
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.transposeChordsByHalfSteps(1)
-                        } label: {
-                            Label("Up Half Step", systemImage: "arrow.up")
-                        }
-
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.transposeChordsByHalfSteps(-1)
-                        } label: {
-                            Label("Down Half Step", systemImage: "arrow.down")
-                        }
-
-                        Button {
-                            activateSelectTool(clearsMeasureSelection: true)
-                            chart.setChordTranspositionSemitones(0)
-                        } label: {
-                            Label("Reset to Written", systemImage: "arrow.uturn.backward")
-                        }
-
-                        Divider()
-
-                        ForEach(Array(0...11), id: \.self) { semitones in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                chart.setChordTranspositionSemitones(semitones)
-                            } label: {
-                                notationMenuLabel(
-                                    chordTranspositionOptionTitle(semitones),
-                                    isSelected: chart.chordTranspositionSemitones == semitones
-                                )
-                            }
-                        }
-                    } label: {
-                        Label(
-                            "Manual Transpose (\(chart.chordTranspositionDisplayText))",
-                            systemImage: "arrow.up.arrow.down"
-                        )
-                    }
-
-                    Divider()
-
-                    Menu {
-                        ForEach(StylePreset.sheetPresets(for: chart.layoutStyle), id: \.self) { preset in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                runEditorOperation("Updating page style...") {
-                                    chart.setStylePreset(preset)
-                                }
-                            } label: {
-                                notationMenuLabel(
-                                    preset.sheetDisplayText(for: chart.layoutStyle),
-                                    isSelected: chart.stylePreset == preset
-                                )
-                            }
-                        }
-                    } label: {
-                        Label("Style", systemImage: "paintpalette")
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        showingTypographySheet = true
-                    } label: {
-                        Label("Fonts", systemImage: "textformat")
-                    }
-
-                    Button {
-                        activateSelectTool(clearsMeasureSelection: true)
-                        showingInkResponsivenessSheet = true
-                    } label: {
-                        Label("Pen Responsiveness", systemImage: "pencil.tip")
-                    }
-
-                    Menu {
-                        ForEach(EngravingPreset.allCases, id: \.self) { preset in
-                            Button {
-                                activateSelectTool(clearsMeasureSelection: true)
-                                runEditorOperation("Updating engraving...") {
-                                    chart.setEngravingPreset(preset)
-                                }
-                            } label: {
-                                notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
-                            }
-                        }
-                    } label: {
-                        Label("Engraving", systemImage: "slider.horizontal.3")
-                    }
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Page",
-                        systemImage: "doc.text",
-                        isSelected: canvasMode == .headerEntry
-                    )
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            advanceEditorGuidedTourAfterPageToolTapIfNeeded()
-                        }
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
+                pageToolControl
+                    .disabled(canvasMode.locksDocumentActions)
+                    .buttonStyle(.plain)
 
                 Button {
                     activateSelectTool()
@@ -951,7 +1007,7 @@ struct EditorView: View {
                         isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive
                     )
                 }
-                .disabled(canvasMode.locksDocumentActions)
+                .disabled(canvasMode.locksDocumentActions || canvasMode == .textEdit)
                 .buttonStyle(.plain)
 
                 Button {
@@ -966,22 +1022,7 @@ struct EditorView: View {
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
 
-                Menu {
-                    ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
-                        Button {
-                            handleAddPointRoadmapMarker(roadmapType)
-                        } label: {
-                            Text(roadmapType.editorMenuDisplayText)
-                        }
-                    }
-                } label: {
-                    EditorCodaTabLabel(isSelected: selectedRoadmapMarkerID != nil)
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
-                            }
-                        )
-                }
+                codaToolControl
                 .disabled(canvasMode.locksDocumentActions)
                 .buttonStyle(.plain)
 
@@ -1038,7 +1079,7 @@ struct EditorView: View {
                     EditorMenuTabLabel(
                         title: "Text",
                         systemImage: "text.bubble",
-                        isSelected: showingCueTextEntry || selectedCueTextID != nil
+                        isSelected: canvasMode == .textEdit || showingCueTextEntry || selectedCueTextID != nil
                     )
                 }
                 .disabled(canvasMode.locksDocumentActions)
@@ -2067,8 +2108,11 @@ struct EditorView: View {
 
     private func handleAddCueText(position: CuePosition) {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        guard chart.hasCompletedInitialSetup,
               let targetMeasureID else {
+            if !chart.hasCompletedInitialSetup {
+                showingSetupSheet = true
+            }
             return
         }
 
@@ -2081,6 +2125,7 @@ struct EditorView: View {
         pendingCueTextPosition = position
         editingCueTextID = nil
         cueTextDraft = ""
+        canvasMode = .textEdit
         showingCueTextEntry = true
     }
 
@@ -2098,7 +2143,7 @@ struct EditorView: View {
             selectedCueTextID = editingCueTextID
             selectedMeasureID = cueText.anchorMeasureID
             selectedRoadmapMarkerID = nil
-            canvasMode = .browse
+            canvasMode = .textEdit
             return
         }
 
@@ -2115,6 +2160,7 @@ struct EditorView: View {
         selectedMeasureID = pendingCueTextMeasureID
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
+        canvasMode = .textEdit
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
@@ -2160,7 +2206,7 @@ struct EditorView: View {
         selectedNoteSelection = nil
         editingCueTextID = cueTextID
         cueTextDraft = cueText.text
-        canvasMode = .browse
+        canvasMode = .textEdit
         showingCueTextEntry = true
     }
 
@@ -2173,7 +2219,7 @@ struct EditorView: View {
 
         selectedMeasureID = cueText.anchorMeasureID
         selectedRoadmapMarkerID = nil
-        canvasMode = .browse
+        canvasMode = .textEdit
     }
 
     private func deleteSelectedCueText() {
@@ -2368,7 +2414,7 @@ struct EditorView: View {
     private func handleCueTextSelectedFromCanvas(_ cueTextID: UUID) {
         guard chart.hasCompletedInitialSetup,
               let cueText = chart.cueText(id: cueTextID),
-              canvasMode == .browse else {
+              canvasMode == .browse || canvasMode == .textEdit else {
             return
         }
 
@@ -2381,6 +2427,7 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
+        canvasMode = .textEdit
     }
 
     private func handleRoadmapMarkerSelectedFromCanvas(_ roadmapMarkerID: UUID) {
@@ -4126,22 +4173,46 @@ private struct InkResponsivenessSheetView: View {
     }
 }
 
-private struct CueTextEntrySheetView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct CueTextEntryPanelView: View {
     @Binding var text: String
     let actionTitle: String
     let onAdd: () -> Void
     let onCancel: () -> Void
-    @FocusState private var isTextFocused: Bool
+    @State private var keyboardFocusRequestID = 0
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 10) {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.14)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        requestTextFocus()
+                    }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Button("Cancel") {
+                            onCancel()
+                        }
+
+                        Spacer()
+
+                        Text("Text")
+                            .font(.headline.weight(.semibold))
+
+                        Spacer()
+
+                        Button(actionTitle) {
+                            onAdd()
+                        }
+                        .disabled(!canAdd)
+                    }
+
                     ZStack(alignment: .topLeading) {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(.secondarySystemBackground))
@@ -4158,56 +4229,98 @@ private struct CueTextEntrySheetView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        TextEditor(text: $text)
-                            .focused($isTextFocused)
-                            .textInputAutocapitalization(.sentences)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .accessibilityLabel("Text")
+                        CueTextInputView(
+                            text: $text,
+                            keyboardFocusRequestID: keyboardFocusRequestID
+                        )
+                        .accessibilityLabel("Text")
                     }
-                    .frame(minHeight: 118)
-
-                    Button {
-                        isTextFocused = true
-                    } label: {
-                        Image(systemName: "keyboard")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 34, height: 34)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel("Open keyboard for text entry")
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(24)
-            .navigationTitle("Text")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        onCancel()
-                        dismiss()
+                    .frame(height: 118)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .onTapGesture {
+                        requestTextFocus()
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(actionTitle) {
-                        onAdd()
-                        dismiss()
-                    }
-                    .disabled(!canAdd)
+                .padding(18)
+                .frame(width: min(proxy.size.width - 48, 520))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color(.separator).opacity(0.35), lineWidth: 1)
                 }
+                .shadow(color: Color.black.opacity(0.18), radius: 22, y: 12)
             }
         }
-        .presentationDetents([.height(275)])
         .task {
-            isTextFocused = true
+            requestTextFocus()
+        }
+    }
+
+    private func requestTextFocus() {
+        keyboardFocusRequestID += 1
+    }
+}
+
+#if canImport(UIKit)
+private struct CueTextInputView: UIViewRepresentable {
+    @Binding var text: String
+    let keyboardFocusRequestID: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.autocapitalizationType = .sentences
+        textView.autocorrectionType = .yes
+        textView.isScrollEnabled = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.keyboardDismissMode = .interactive
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        context.coordinator.text = $text
+
+        if textView.text != text {
+            textView.text = text
+        }
+
+        guard keyboardFocusRequestID > 0,
+              context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
+        else {
+            return
+        }
+
+        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
+        DispatchQueue.main.async {
+            textView.resignFirstResponder()
+            textView.becomeFirstResponder()
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        var lastKeyboardFocusRequestID = 0
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
         }
     }
 }
+#endif
 
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss

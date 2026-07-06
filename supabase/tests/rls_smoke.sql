@@ -192,13 +192,15 @@ select is(
     'owner can read server-owned subscription authority fields'
 );
 
-select lives_ok(
+select throws_ok(
     $$
     update public.profiles
     set payment_summary = 'Processor reference only'
     where id = '00000000-0000-0000-0000-000000000001'
     $$,
-    'owner can update client-writable profile fields'
+    '42501',
+    null,
+    'client cannot update server-owned payment summary fields'
 );
 
 select throws_ok(
@@ -222,6 +224,18 @@ select throws_ok(
     '42501',
     null,
     'client cannot update locked profile name fields'
+);
+
+select throws_ok(
+    $$
+    update public.profiles
+    set email = 'changed@example.com',
+        phone = '+15555559999'
+    where id = '00000000-0000-0000-0000-000000000001'
+    $$,
+    '42501',
+    null,
+    'client cannot update locked email or legacy phone fields'
 );
 
 select throws_ok(

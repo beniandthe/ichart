@@ -16,11 +16,9 @@ final class SupabaseIntegrationTests: XCTestCase {
         let snapshotID = UUID().uuidString.lowercased()
         let timestamp = ISO8601DateFormatter.smartChartIntegration.string(from: Date())
 
-        try await client.upsertProfile(
+        try await client.assertProfilePaymentSummaryWriteRejected(
             userID: session.userID,
             accessToken: session.accessToken,
-            email: email,
-            phone: "+15555550123",
             paymentSummary: "Processor customer reference only"
         )
         try await client.grantActiveProEntitlement(
@@ -38,7 +36,6 @@ final class SupabaseIntegrationTests: XCTestCase {
         )
         let profile: [String: Any] = try XCTUnwrap(profileRows.first)
         XCTAssertEqual(profile["email"] as? String, email)
-        XCTAssertEqual(profile["phone"] as? String, "+15555550123")
         XCTAssertNil(profile["card_number"])
 
         try await client.insertChartDocument(
@@ -449,26 +446,27 @@ private struct SupabaseRESTClient {
         return session
     }
 
-    func upsertProfile(
+    func assertProfilePaymentSummaryWriteRejected(
         userID: String,
         accessToken: String,
-        email: String,
-        phone: String,
         paymentSummary: String
     ) async throws {
-        _ = try await requestArray(
-            path: "rest/v1/profiles",
-            method: "POST",
-            queryItems: [URLQueryItem(name: "on_conflict", value: "id")],
-            accessToken: accessToken,
-            prefer: "resolution=merge-duplicates,return=representation",
-            body: [
-                "id": userID,
-                "email": email,
-                "phone": phone,
-                "payment_summary": paymentSummary
-            ]
-        )
+        do {
+            _ = try await requestArray(
+                path: "rest/v1/profiles",
+                method: "POST",
+                queryItems: [URLQueryItem(name: "on_conflict", value: "id")],
+                accessToken: accessToken,
+                prefer: "resolution=merge-duplicates,return=representation",
+                body: [
+                    "id": userID,
+                    "payment_summary": paymentSummary
+                ]
+            )
+            XCTFail("Client profile writes must not update server-owned payment summary fields.")
+        } catch let error as SupabaseRequestError {
+            XCTAssertEqual(error.statusCode, 403)
+        }
     }
 
     func insertChartDocument(

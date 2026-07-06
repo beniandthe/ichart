@@ -311,7 +311,7 @@ final class MeasureRhythmMappingTests: XCTestCase {
         XCTAssertEqual(suggestion.duration, .quarter)
     }
 
-    func testSuggestedChordInsertionAtFractionQuantizesToNearestBeatWithoutRhythmMap() {
+    func testSuggestedChordInsertionAtFractionQuantizesToNearestPlacementSubdivisionWithoutRhythmMap() {
         let meter = Meter(numerator: 4, denominator: 4)
         let measure = Measure(
             id: UUID(),
@@ -327,8 +327,29 @@ final class MeasureRhythmMappingTests: XCTestCase {
         let suggestion = measure.suggestedChordInsertion(atFraction: 0.61, defaultMeter: meter)
 
         XCTAssertNil(suggestion.mappedRhythmSlotIndex)
-        XCTAssertEqual(suggestion.startPosition.displayText, "3")
-        XCTAssertEqual(suggestion.startPosition.subdivisionsPerBeat, 1)
+        XCTAssertEqual(suggestion.startPosition.displayText, "3&")
+        XCTAssertEqual(suggestion.startPosition.subdivisionsPerBeat, 2)
+        XCTAssertEqual(suggestion.duration, .quarter)
+    }
+
+    func testSuggestedChordInsertionAtFractionUsesSixteenthPlacementSubdivisionForEighthNoteMeter() {
+        let meter = Meter(numerator: 6, denominator: 8)
+        let measure = Measure(
+            id: UUID(),
+            index: 1,
+            meterOverride: nil,
+            beatGridPreset: .simple,
+            barlineAfter: .single,
+            chordEvents: [],
+            cueTextIDs: [],
+            roadmapObjectIDs: []
+        )
+
+        let suggestion = measure.suggestedChordInsertion(atFraction: 0.10, defaultMeter: meter)
+
+        XCTAssertNil(suggestion.mappedRhythmSlotIndex)
+        XCTAssertEqual(suggestion.startPosition.displayText, "1&")
+        XCTAssertEqual(suggestion.startPosition.subdivisionsPerBeat, 2)
         XCTAssertEqual(suggestion.duration, .quarter)
     }
 
@@ -349,7 +370,7 @@ final class MeasureRhythmMappingTests: XCTestCase {
 
         XCTAssertNil(suggestion.mappedRhythmSlotIndex)
         XCTAssertEqual(suggestion.startPosition.displayText, "1")
-        XCTAssertEqual(suggestion.startPosition.subdivisionsPerBeat, 1)
+        XCTAssertEqual(suggestion.startPosition.subdivisionsPerBeat, 2)
         XCTAssertEqual(suggestion.duration, .quarter)
     }
 

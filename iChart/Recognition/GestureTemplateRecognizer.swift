@@ -311,6 +311,10 @@ struct GestureTemplateRecognizer {
             candidates.append(heuristicCandidate("△", confidence: 0.999))
         }
 
+        if isChordRepeatDotLike(features) {
+            candidates.append(heuristicCandidate("•", confidence: 0.997))
+        }
+
         if isSixLike(features) {
             candidates.append(heuristicCandidate("6", confidence: 0.995))
         }
@@ -437,6 +441,23 @@ struct GestureTemplateRecognizer {
         }
 
         return isDiminishedCircleStroke(stroke)
+    }
+
+    private func isChordRepeatDotLike(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 1,
+              let stroke = features.strokes.first else {
+            return false
+        }
+
+        return stroke.pointCount >= 2
+            && stroke.bounds.width >= 2
+            && stroke.bounds.width <= 18
+            && stroke.bounds.height >= 2
+            && stroke.bounds.height <= 18
+            && stroke.aspectRatio >= 0.35
+            && stroke.aspectRatio <= 1.85
+            && stroke.endpointClosureRatio <= 0.90
+            && !stroke.hasEarlyTopHorizontalRun
     }
 
     private func isHalfDiminishedLike(_ features: RootGlyphFeatures) -> Bool {

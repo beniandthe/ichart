@@ -19,6 +19,21 @@ final class ChartTypographyResolverTests: XCTestCase {
         XCTAssertNil(decodedChart.typography.textOverride)
     }
 
+    func testLegacyFinaleAshChartDecodesToLowercaseSafeFinaleJazz() throws {
+        let chart = Chart.blank(title: "Legacy Ash")
+        let encodedData = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        object["notationFont"] = "finaleAsh"
+        object.removeValue(forKey: "typography")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.notationFont, .finaleJazz)
+        XCTAssertEqual(decodedChart.typography.matchedSet, .finaleJazz)
+        XCTAssertEqual(decodedChart.typography.resolvedChordFont.chordTextPostScriptName, "FinaleJazzTextLowercase")
+    }
+
     func testMatchedSetUpdatesRoleDefaultsAndNotationRole() {
         var chart = Chart.blank(title: "Matched Set")
 
@@ -55,6 +70,46 @@ final class ChartTypographyResolverTests: XCTestCase {
 
         XCTAssertEqual(resolver.chordFamily, .finaleJazz)
         XCTAssertEqual(resolver.chordFamily.chordTextPostScriptName, "FinaleJazzTextLowercase")
+    }
+
+    func testFinaleAshIsLegacyOnlyAndHiddenFromSelectableFontLists() {
+        XCTAssertTrue(NotationFontPreset.allCases.contains(.finaleAsh))
+        XCTAssertTrue(ChartFontFamilyPreset.allCases.contains(.finaleAsh))
+        XCTAssertFalse(NotationFontPreset.selectableCases.contains(.finaleAsh))
+        XCTAssertFalse(ChartFontFamilyPreset.selectableCases.contains(.finaleAsh))
+    }
+
+    func testFinaleAshTypographyNormalizesToLowercaseSafeFinaleJazz() throws {
+        let settings = ChartTypographySettings(
+            matchedSet: .finaleAsh,
+            chordOverride: .finaleAsh,
+            headerOverride: .finaleAsh,
+            textOverride: .finaleAsh
+        )
+
+        XCTAssertEqual(settings.matchedSet, .finaleJazz)
+        XCTAssertEqual(settings.resolvedChordFont, .finaleJazz)
+        XCTAssertEqual(settings.resolvedHeaderFont, .finaleJazz)
+        XCTAssertEqual(settings.resolvedTextFont, .finaleJazz)
+        XCTAssertEqual(settings.resolvedChordFont.chordTextPostScriptName, "FinaleJazzTextLowercase")
+        XCTAssertEqual(ChartFontFamilyPreset.finaleAsh.notationFont, .finaleJazz)
+        XCTAssertEqual(ChartFontFamilyPreset.finaleAsh.chordTextPostScriptName, "FinaleJazzTextLowercase")
+
+        let legacyJSON = """
+        {
+          "matchedSet": "finaleAsh",
+          "chordOverride": "finaleAsh",
+          "headerOverride": "finaleAsh",
+          "textOverride": "finaleAsh"
+        }
+        """.data(using: .utf8)!
+
+        let decodedSettings = try JSONDecoder().decode(ChartTypographySettings.self, from: legacyJSON)
+
+        XCTAssertEqual(decodedSettings.matchedSet, .finaleJazz)
+        XCTAssertEqual(decodedSettings.chordOverride, .finaleJazz)
+        XCTAssertEqual(decodedSettings.headerOverride, .finaleJazz)
+        XCTAssertEqual(decodedSettings.textOverride, .finaleJazz)
     }
 
     func testSimpleChordTypographyUsesSharedTextSizeContract() {
@@ -114,6 +169,23 @@ final class ChartTypographyResolverTests: XCTestCase {
                 ChordTypographyToken(text: "ø", role: .musicSymbol),
                 ChordTypographyToken(text: "7", role: .suffixText)
             ]
+        )
+    }
+
+    func testChordRepeatTokenizesAsSinglePrimarySymbol() {
+        XCTAssertEqual(
+            ChartTypographyResolver.chordTokens(for: .chordRepeat),
+            [
+                ChordTypographyToken(text: "•/•", role: .primaryText)
+            ]
+        )
+        XCTAssertGreaterThan(
+            ChartTypographyResolver.estimatedChordTokenWidth(
+                for: .chordRepeat,
+                primaryFontSize: 46,
+                suffixFontSize: 24
+            ),
+            20
         )
     }
 

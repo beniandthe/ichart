@@ -239,6 +239,7 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var emphasis: CueEmphasis
     var scale: CGFloat
     var beatFraction: CGFloat?
+    var verticalOffset: CGFloat
 }
 
 struct LeadSheetNoteSelection: Identifiable, Hashable {
@@ -293,9 +294,40 @@ enum LeadSheetPageLayoutEngine {
         var headerMetadataTopSpacing: CGFloat { 6 }
         var headerMetadataHeight: CGFloat { 20 }
         var simpleLeadingMeterGutterWidth: CGFloat { 42 }
+        var rhythmLeadingSignatureWidth: CGFloat { max(56, metrics.firstSystemSignatureWidth - 22) }
         var simpleTitleFrameHeight: CGFloat { 36 }
         var simpleMetadataHeight: CGFloat { 24 }
         var simpleChordHorizontalInset: CGFloat { 6 }
+
+        func leadingClefFrame(in frame: CGRect, staffFrame: CGRect) -> CGRect {
+            guard layoutStyle == .rhythmSectionSheet else {
+                return CGRect(x: frame.minX, y: staffFrame.minY - 10, width: 26, height: 54)
+            }
+
+            return CGRect(
+                x: frame.minX,
+                y: staffFrame.midY - 29,
+                width: 24,
+                height: 54
+            )
+        }
+
+        func leadingTimeSignatureFrame(
+            in frame: CGRect,
+            staffFrame: CGRect,
+            x: CGFloat
+        ) -> CGRect {
+            guard layoutStyle == .rhythmSectionSheet else {
+                return CGRect(x: x, y: staffFrame.minY - 11, width: 24, height: 56)
+            }
+
+            return CGRect(
+                x: x,
+                y: staffFrame.midY - 28,
+                width: 24,
+                height: 56
+            )
+        }
 
         func headerTitleFrame(in frame: CGRect) -> CGRect {
             guard layoutStyle == .simpleChordSheet else {
@@ -577,7 +609,7 @@ enum LeadSheetPageLayoutEngine {
         let shouldShowLeadingNotation = index == 0 && !isSimpleChordSheet
         let shouldShowSimpleTimeSignature = index == 0 && isSimpleChordSheet
         let clefFrame = shouldShowLeadingNotation
-            ? CGRect(x: frame.minX, y: staffTop - 12, width: 26, height: 54)
+            ? visualPolicy.leadingClefFrame(in: frame, staffFrame: staffFrame)
             : nil
         let keyLayouts = shouldShowLeadingNotation && chart.layoutStyle == .leadSheet
             ? keySignatureLayouts(
@@ -587,10 +619,16 @@ enum LeadSheetPageLayoutEngine {
                 staffSpace: lineSpacing
             )
             : []
-        let timeSignatureX = keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
+        let timeSignatureX = isRhythmSectionSheet
+            ? (clefFrame?.maxX ?? frame.minX) + 4
+            : keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
         let timeSignatureFrame: CGRect?
         if shouldShowLeadingNotation {
-            timeSignatureFrame = CGRect(x: timeSignatureX, y: staffTop - 13, width: 24, height: 56)
+            timeSignatureFrame = visualPolicy.leadingTimeSignatureFrame(
+                in: frame,
+                staffFrame: staffFrame,
+                x: timeSignatureX
+            )
         } else if shouldShowSimpleTimeSignature {
             timeSignatureFrame = visualPolicy.simpleInitialTimeSignatureFrame(
                 in: frame,
@@ -1152,7 +1190,7 @@ enum LeadSheetPageLayoutEngine {
         }
         let metrics = visualPolicy.metrics
         if chart.layoutStyle == .rhythmSectionSheet {
-            return metrics.firstSystemSignatureWidth
+            return visualPolicy.rhythmLeadingSignatureWidth
         }
         guard systemIndex == 0 else { return metrics.continuationSystemSignatureWidth }
 
@@ -2090,7 +2128,8 @@ enum LeadSheetPageLayoutEngine {
                     position: cueText.position,
                     emphasis: cueText.emphasis,
                     scale: CGFloat(cueText.scale),
-                    beatFraction: beatFraction
+                    beatFraction: beatFraction,
+                    verticalOffset: CGFloat(cueText.verticalOffset)
                 )
             }
     }
@@ -2130,36 +2169,39 @@ enum LeadSheetPageLayoutEngine {
             height: lineHeight
         )
 
+        let baseFrame: CGRect
         switch cueText.position {
         case .above:
             let textX = beatAnchoredTextX ?? defaultTextX
             if chordBandFrame.intersects(staffFrame) {
-                return CGRect(
+                baseFrame = CGRect(
                     x: textX,
                     y: min(measureFrame.maxY - lineHeight - 2, staffFrame.minY + 4 + offset),
                     width: width,
                     height: lineHeight
                 )
+            } else {
+                baseFrame = CGRect(
+                    x: textX,
+                    y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
+                    width: width,
+                    height: lineHeight
+                )
             }
-
-            return CGRect(
-                x: textX,
-                y: max(measureFrame.minY + 2, chordBandFrame.maxY - lineHeight - 2 - offset),
-                width: width,
-                height: lineHeight
-            )
         case .below:
-            return CGRect(
+            baseFrame = CGRect(
                 x: beatAnchoredTextX ?? defaultTextX,
                 y: min(measureFrame.maxY - lineHeight - 2, staffFrame.maxY + 5 + offset),
                 width: width,
                 height: lineHeight
             )
         case .leadingEdge:
-            return leadingFrame.offsetBy(dx: 0, dy: offset)
+            baseFrame = leadingFrame.offsetBy(dx: 0, dy: offset)
         case .trailingEdge:
-            return trailingFrame.offsetBy(dx: 0, dy: offset)
+            baseFrame = trailingFrame.offsetBy(dx: 0, dy: offset)
         }
+
+        return baseFrame.offsetBy(dx: 0, dy: CGFloat(cueText.verticalOffset))
     }
 
     private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {

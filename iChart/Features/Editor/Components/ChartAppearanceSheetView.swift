@@ -92,7 +92,7 @@ struct ChartAppearanceSheetView: View {
 
     private var notationFontRows: some View {
         Section("Notation Font") {
-            ForEach(NotationFontPreset.allCases) { preset in
+            ForEach(NotationFontPreset.selectableCases) { preset in
                 AppearanceChoiceRow(
                     title: preset.displayText,
                     detail: preset.detailText,

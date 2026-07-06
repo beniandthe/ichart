@@ -63,27 +63,6 @@ struct IChartUserProfile: Codable, Equatable {
     }
 }
 
-private struct IChartUserProfileUpdate: Encodable {
-    let id: UUID
-    var email: String?
-    var phone: String?
-    var paymentSummary: String?
-
-    init(profile: IChartUserProfile) {
-        id = profile.id
-        email = profile.email
-        phone = profile.phone
-        paymentSummary = profile.paymentSummary
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case email
-        case phone
-        case paymentSummary = "payment_summary"
-    }
-}
-
 enum IChartAuthError: LocalizedError {
     case invalidAuthCallback
     case unexpectedAuthCallback
@@ -139,7 +118,6 @@ private protocol IChartAccountServicing {
     func handleAuthCallback(url: URL) async throws -> IChartAuthState
     func updatePassword(_ password: String) async throws -> IChartAuthState
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile?
-    func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile
 }
 
 @MainActor
@@ -330,30 +308,6 @@ final class IChartAuthStore: ObservableObject {
 
         await run("Signed in.") {
             try await applyAuthState(.signedIn(session))
-        }
-    }
-
-    func saveProfile(
-        email: String,
-        phone: String
-    ) async {
-        guard let session = state.signedInSession else {
-            errorMessage = "Sign in before saving profile info."
-            return
-        }
-
-        let profile = IChartUserProfile(
-            id: session.id,
-            email: sanitized(email) ?? session.email,
-            phone: sanitized(phone) ?? session.phone,
-            firstName: self.profile?.firstName,
-            lastName: self.profile?.lastName,
-            paymentSummary: self.profile?.paymentSummary,
-            stripeCustomerID: self.profile?.stripeCustomerID
-        )
-
-        await run("Profile updated.") {
-            self.profile = try await service.saveProfile(profile)
         }
     }
 
@@ -623,9 +577,6 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
         nil
     }
 
-    func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile {
-        profile
-    }
 }
 
 private struct IChartSupabaseAccountService: IChartAccountServicing {
@@ -758,18 +709,6 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             .value
 
         return profiles.first
-    }
-
-    func saveProfile(_ profile: IChartUserProfile) async throws -> IChartUserProfile {
-        let update = IChartUserProfileUpdate(profile: profile)
-        let profiles: [IChartUserProfile] = try await dataClient
-            .from("profiles")
-            .upsert(update, onConflict: "id")
-            .select()
-            .execute()
-            .value
-
-        return profiles.first ?? profile
     }
 
     private func accountSession(for user: User) -> IChartAccountSession {

@@ -126,16 +126,7 @@ enum LeadSheetActiveInkScope {
             return nil
         }
 
-        guard chartLayoutStyle.profile.allowsFreehandSymbolInk else {
-            return nil
-        }
-
-        return .freehandSymbols(
-            frame: freehandSymbolWritingFrame(
-                for: pageLayout,
-                layoutStyle: chartLayoutStyle
-            )
-        )
+        return .page(frame: pageWritingFrame(for: pageLayout))
     }
 
     static func pageWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {

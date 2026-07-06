@@ -246,6 +246,70 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(result.glyphCandidates.count, 5)
     }
 
+    func testRecognizesChordRepeatSymbolFromDotSlashDotInk() throws {
+        let strokes = try shiftedTemplateStrokes("•", offsetX: 0)
+            + shiftedTemplateStrokes("/", offsetX: 35)
+            + shiftedTemplateStrokes("•", offsetX: 90)
+
+        let result = recognizer.recognize(strokes: strokes)
+
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) })"
+
+        XCTAssertEqual(result.match?.displayText, "•/•", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("•/•"), debugSummary)
+        XCTAssertEqual(result.glyphCandidates.count, 3)
+    }
+
+    func testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries() {
+        let slash = InkStroke(points: [
+            InkPoint(x: 30, y: 58, timeOffset: nil),
+            InkPoint(x: 39, y: 36, timeOffset: nil),
+            InkPoint(x: 51, y: 10, timeOffset: nil)
+        ])
+        let lowerDot = InkStroke(points: [
+            InkPoint(x: 52, y: 45, timeOffset: nil),
+            InkPoint(x: 56, y: 42, timeOffset: nil),
+            InkPoint(x: 60, y: 45, timeOffset: nil),
+            InkPoint(x: 59, y: 50, timeOffset: nil),
+            InkPoint(x: 54, y: 51, timeOffset: nil),
+            InkPoint(x: 52, y: 48, timeOffset: nil)
+        ])
+        let upperDot = InkStroke(points: [
+            InkPoint(x: 19, y: 17, timeOffset: nil),
+            InkPoint(x: 23, y: 13, timeOffset: nil),
+            InkPoint(x: 28, y: 15, timeOffset: nil),
+            InkPoint(x: 29, y: 20, timeOffset: nil),
+            InkPoint(x: 24, y: 22, timeOffset: nil),
+            InkPoint(x: 20, y: 20, timeOffset: nil)
+        ])
+
+        let result = recognizer.recognize(strokes: [slash, lowerDot, upperDot])
+
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) })"
+
+        XCTAssertEqual(result.match?.displayText, "•/•", debugSummary)
+        XCTAssertEqual(result.rawCandidates.first, "•/•", debugSummary)
+        XCTAssertGreaterThanOrEqual(result.confidence, 4.90, debugSummary)
+    }
+
+    func testChordRepeatRecognitionCanAutoRenderWithoutRootEvidence() {
+        let result = recognitionResult(
+            matchText: "•/•",
+            confidence: 4.95,
+            scores: [candidateScore("•/•", confidence: 4.95)],
+            glyphCandidates: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.acceptedText, "•/•")
+    }
+
     func testRecognizesDominantSuspendedInkFixtures() throws {
         let fixtures = try allFixtures()
             .filter { $0.expectedDisplayText.contains("7sus") }

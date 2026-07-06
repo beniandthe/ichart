@@ -1037,6 +1037,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if interactionMode != .browse {
                 activeRoadmapMarkerEditDrag = nil
+            }
+
+            if !interactionMode.allowsCueTextEditing {
                 activeCueTextMoveDrag = nil
             }
 
@@ -1215,17 +1218,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawChordWritingLanes(pageLayout)
         }
 
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            drawFreehandSymbolLanes(pageLayout)
-        }
-
         drawSavedFreehandSymbols()
-
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            drawFreehandSymbolEditOverlays(using: renderer)
-        }
 
         if interactionMode.showsMeasureResizeHandles {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
@@ -2142,7 +2135,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cueTextEditHitTarget(at location: CGPoint) -> CueTextEditHitTarget? {
-        guard interactionMode == .browse else {
+        guard interactionMode.allowsCueTextEditing else {
             return nil
         }
 
@@ -2154,7 +2147,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cueTextMoveHitTarget(at location: CGPoint) -> LeadSheetCueTextLayout? {
-        guard interactionMode == .browse else {
+        guard interactionMode.allowsCueTextEditing else {
             return nil
         }
 
@@ -2329,12 +2322,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolTap(at: recognizer.location(in: self))
-            return
-        }
-
         if interactionMode.allowsChordInkEditing {
             handleChordEntryTap(at: recognizer.location(in: self))
             return
@@ -2342,10 +2329,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if interactionMode.allowsNoteSelection {
             handleNoteSelectionTap(at: recognizer.location(in: self))
-            return
-        }
-
-        guard interactionMode.allowsMeasureSelection else {
             return
         }
 
@@ -2362,10 +2345,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if interactionMode == .browse,
+        if interactionMode.allowsCueTextEditing,
            let cueTextLayout = cueTextHitTarget(at: location),
            let cueText = chart.cueText(id: cueTextLayout.id) {
             selectCueTextFromCanvas(cueText)
+            return
+        }
+
+        guard interactionMode.allowsMeasureSelection else {
             return
         }
 
@@ -2449,12 +2436,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
             handleRoadmapMarkerEditTap(hitTarget)
-            return
-        }
-
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolTap(at: location)
             return
         }
 
@@ -2809,12 +2790,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if interactionMode.allowsPageInkEditing,
-           !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-            handleFreehandSymbolEditPan(recognizer)
-            return
-        }
-
         switch recognizer.state {
         case .began:
             guard let hitTarget = chordMoveHitTarget(at: location) else {
@@ -2883,7 +2858,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             selectCueTextFromCanvas(cueText)
-            activeCueTextMoveDrag = ActiveCueTextMoveDrag(cueTextID: cueTextLayout.id)
+            activeCueTextMoveDrag = ActiveCueTextMoveDrag(
+                cueTextID: cueTextLayout.id,
+                startLocation: startLocation,
+                startingVerticalOffset: cueText.verticalOffset
+            )
             lockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -2910,10 +2889,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             var updatedChart = chart
+            let verticalOffset = activeCueTextMoveDrag.startingVerticalOffset
+                + Double(recognizer.location(in: self).y - activeCueTextMoveDrag.startLocation.y)
             if updatedChart.moveCueText(
                 activeCueTextMoveDrag.cueTextID,
                 to: target.measureID,
-                atFraction: target.fraction
+                atFraction: target.fraction,
+                verticalOffset: verticalOffset
             ) {
                 chart = updatedChart
                 selectedCueTextID = activeCueTextMoveDrag.cueTextID
@@ -4614,15 +4596,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return true
             }
 
-            if interactionMode.allowsPageInkEditing,
-               !chart.layoutStyle.profile.freehandSymbolLanes.isEmpty {
-                if let hitTarget = freehandSymbolEditHitTarget(at: startLocation) {
-                    return hitTarget.action != .delete
-                }
-
-                return lastFreehandSymbolDragHitTarget() != nil
-            }
-
             return chordMoveHitTarget(at: location) != nil
         }
 
@@ -4647,6 +4620,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return gestureRecognizer === inkSelectionTapRecognizer
             || otherGestureRecognizer === inkSelectionTapRecognizer
             || involvesChordMove
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        if gestureRecognizer === chordMovePanRecognizer,
+           touch.type == .pencil {
+            return false
+        }
+
+        return true
     }
 }
 

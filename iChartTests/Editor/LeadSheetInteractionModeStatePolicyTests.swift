@@ -54,6 +54,23 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
     }
 
+    func testTextEditModeKeepsCueTextEditableWithoutMeasureSelection() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .textEdit)
+
+        XCTAssertFalse(policy.selectionTapEnabled)
+        XCTAssertTrue(policy.chordEditTapEnabled)
+        XCTAssertTrue(policy.chordMovePanEnabled)
+        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertFalse(EditorCanvasMode.textEdit.allowsMeasureSelection)
+        XCTAssertTrue(EditorCanvasMode.textEdit.allowsCueTextEditing)
+        XCTAssertFalse(EditorCanvasMode.textEdit.allowsChordObjectEditing)
+        XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
+    }
+
+    func testBrowseModeKeepsCueTextEditable() {
+        XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
+    }
+
     func testChordTargetingAcceptsInkAcrossFullRhythmSectionChordLane() throws {
         let chart = Chart.blank(title: "Top Lane Chord", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -143,6 +160,31 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(expandedLanePoint, in: layout))
     }
 
+    func testCueTextMoveTargetSnapsToPlacementSubdivision() throws {
+        var chart = Chart.blank(title: "Cue Move", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        chart.defaultMeter = Meter(numerator: 6, denominator: 8)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let targetPoint = CGPoint(
+            x: measure.staffFrame.minX + measure.staffFrame.width * 0.10,
+            y: measure.staffFrame.midY
+        )
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
+                at: targetPoint,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(target.measureID, chart.measures.first?.id)
+        XCTAssertEqual(target.fraction, 1.0 / 12.0, accuracy: 0.0001)
+    }
+
     func testOnlyOutsideChordLaneTapConfirmsWaitingChordInk() {
         let chart = Chart.blank(title: "Confirm Drag", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -178,7 +220,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvas() {
+    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
         XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
@@ -187,7 +229,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(policy.chordEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
-        XCTAssertTrue(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
+        XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
@@ -217,9 +259,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeCanPromoteFreehandInstancesIntoFreehandTool() {
-        XCTAssertTrue(EditorCanvasMode.browse.allowsFreehandObjectSelection)
-        XCTAssertTrue(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
+    func testFreehandObjectSelectionIsDisabledForRawPageInk() {
+        XCTAssertFalse(EditorCanvasMode.browse.allowsFreehandObjectSelection)
+        XCTAssertFalse(EditorCanvasMode.freeHand.allowsFreehandObjectSelection)
         XCTAssertFalse(EditorCanvasMode.measureEdit.allowsFreehandObjectSelection)
         XCTAssertFalse(EditorCanvasMode.chordEntry.allowsFreehandObjectSelection)
     }
@@ -274,6 +316,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.chordEntry.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.noteEdit.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.freeHand.showsActiveToolControls)
+        XCTAssertTrue(EditorCanvasMode.textEdit.showsActiveToolControls)
     }
 
     func testActiveToolMetadataMatchesPrimaryEditorModes() {
@@ -284,6 +327,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
         XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chord")
         XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
     func testScrollMarginPolicyBlocksPaperGesturesOnlyWhenRestricted() {
@@ -402,11 +446,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testInkCanvasSyncPolicyPreservesDirtyFreehandInkFromStaleModelReload() {
         XCTAssertTrue(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
-                activeInkScope: .freehandSymbols(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
                 interactionMode: .freeHand,
                 sessionState: dirtyInkSessionState(.passive),
                 currentDrawingData: Data([0x01]),
-                desiredDrawingData: nil
+                desiredDrawingData: Data([0x02])
             )
         )
     }
@@ -458,7 +502,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testFreehandActiveInkScopeRequiresProfileSymbolLanes() {
+    func testFreehandActiveInkScopeUsesRawPageInkForAllV1Styles() {
         let simplePage = LeadSheetPageLayoutEngine.pageLayout(
             for: Chart.blank(title: "Simple", measureCount: 1, layoutStyle: .simpleChordSheet),
             pageSize: CGSize(width: 900, height: 1400)
@@ -494,20 +538,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             pageLayout: leadPage
         )
 
-        guard case .freehandSymbols(let simpleFrame) = simpleScope,
-              case .freehandSymbols(let rhythmFrame) = rhythmScope else {
-            XCTFail("Simple and Rhythm Section should resolve freehand symbol ink scopes")
+        guard case .page(let simpleFrame) = simpleScope,
+              case .page(let rhythmFrame) = rhythmScope,
+              case .page(let leadFrame) = leadScope else {
+            XCTFail("Free-Hand should resolve to raw page ink scopes")
             return
         }
         XCTAssertEqual(simpleFrame, LeadSheetActiveInkScope.pageWritingFrame(for: simplePage))
-        XCTAssertNotEqual(rhythmFrame, LeadSheetActiveInkScope.pageWritingFrame(for: rhythmPage))
-        XCTAssertTrue(
-            rhythmPage.systems
-                .flatMap(\.measures)
-                .compactMap(\.freehandBelowFrame)
-                .allSatisfy { rhythmFrame.contains($0) }
-        )
-        XCTAssertNil(leadScope)
+        XCTAssertEqual(rhythmFrame, LeadSheetActiveInkScope.pageWritingFrame(for: rhythmPage))
+        XCTAssertEqual(leadFrame, LeadSheetActiveInkScope.pageWritingFrame(for: leadPage))
     }
 
     func testHeaderActiveInkScopeUsesHeaderFrameForAllV1Styles() {

@@ -49,28 +49,29 @@ extension Chart {
     }
 
     mutating func setNotationFont(_ preset: NotationFontPreset) {
-        notationFont = preset
+        notationFont = preset.releaseSafePreset
         updatedAt = .now
     }
 
     mutating func setMatchedFontFamily(_ preset: ChartFontFamilyPreset) {
-        typography.matchedSet = preset
-        notationFont = preset.notationFont
+        let safePreset = preset.releaseSafeTextFamily
+        typography.matchedSet = safePreset
+        notationFont = safePreset.notationFont
         updatedAt = .now
     }
 
     mutating func setChordFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.chordOverride = preset
+        typography.chordOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 
     mutating func setHeaderFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.headerOverride = preset
+        typography.headerOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 
     mutating func setTextFontOverride(_ preset: ChartFontFamilyPreset?) {
-        typography.textOverride = preset
+        typography.textOverride = preset?.releaseSafeTextFamily
         updatedAt = .now
     }
 
@@ -796,8 +797,7 @@ extension Chart {
         let beatCount = max(1, meter.numerator)
         let occupiedBeats = Set<Int>(
             measure.chordEvents.compactMap { event in
-                guard event.id != chordEventID,
-                      event.startPosition.subdivision == 0 else {
+                guard event.id != chordEventID else {
                     return nil
                 }
 
@@ -1152,7 +1152,8 @@ extension Chart {
         text: String? = nil,
         scale: Double? = nil,
         emphasis: CueEmphasis? = nil,
-        position: CuePosition? = nil
+        position: CuePosition? = nil,
+        verticalOffset: Double? = nil
     ) -> Bool {
         guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }) else {
             return false
@@ -1180,6 +1181,10 @@ extension Chart {
             cueTexts[cueTextIndex].position = position
         }
 
+        if let verticalOffset {
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+        }
+
         updatedAt = .now
         return true
     }
@@ -1197,7 +1202,8 @@ extension Chart {
     mutating func moveCueText(
         _ cueTextID: UUID,
         to targetMeasureID: UUID,
-        atFraction fraction: Double?
+        atFraction fraction: Double?,
+        verticalOffset: Double? = nil
     ) -> Bool {
         guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
               let targetLocation = measureLocation(id: targetMeasureID) else {
@@ -1213,6 +1219,9 @@ extension Chart {
 
         cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
         cueTexts[cueTextIndex].beatFraction = snappedFraction
+        if let verticalOffset {
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+        }
 
         if previousMeasureID != targetMeasureID {
             removeCueTextIDFromMeasures(cueTextID)
@@ -1251,10 +1260,7 @@ extension Chart {
         }
 
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
-        let beatCount = max(1, meter.numerator)
-        let beatIndex = Int((fraction * Double(beatCount)).rounded())
-        let clampedBeatIndex = min(max(0, beatIndex), beatCount - 1)
-        return Double(clampedBeatIndex) / Double(beatCount)
+        return MeasurePlacementGrid.snappedFraction(fraction, in: meter)
     }
 
     @discardableResult

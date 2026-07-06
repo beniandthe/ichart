@@ -32,6 +32,7 @@ struct LeadSheetInteractionModeStatePolicy {
         inkToolMode: EditorInkToolMode = .write
     ) -> LeadSheetInteractionModeStatePolicy {
         let allowsTransparentEditOverlay = interactionMode.allowsChordObjectEditing
+            || interactionMode.allowsCueTextEditing
             || interactionMode.allowsPageInkEditing
         return LeadSheetInteractionModeStatePolicy(
             selectionTapEnabled: interactionMode.allowsMeasureSelection || interactionMode.allowsNoteSelection,
@@ -46,7 +47,8 @@ struct LeadSheetInteractionModeStatePolicy {
             chordEditOverlayInteractionEnabled: allowsTransparentEditOverlay,
             pageInkCanvasInteractionEnabled: interactionMode.allowsAnyInkEditing,
             clearsMeasureResizeDrag: !interactionMode.showsMeasureResizeHandles,
-            clearsChordInteractionState: !interactionMode.allowsChordObjectEditing,
+            clearsChordInteractionState: !interactionMode.allowsChordObjectEditing
+                && !interactionMode.allowsCueTextEditing,
             hidesPageInkCanvas: !interactionMode.allowsAnyInkEditing,
             inkTool: inkTool(for: interactionMode),
             inkToolMode: interactionMode.allowsAnyInkEditing ? inkToolMode : .write,

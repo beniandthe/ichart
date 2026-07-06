@@ -99,16 +99,16 @@ The local QA path resets the local database, runs schema lint plus security/perf
 Use the iPad simulator because the runtime app target owns the Settings/account/sync UI.
 
 1. Launch without Supabase env.
-2. Confirm Settings shows account services unavailable and cloud backup unavailable.
+2. Confirm the account gate shows account services unavailable and Settings shows cloud backup unavailable.
 3. Confirm charts can still be created, edited, deleted, relaunched, and kept on the device.
 4. Relaunch the same installed build with runtime `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, not only xcodebuild build-setting values. With XcodeBuildMCP, use `launch_app_sim` env after `build_run_sim`.
-5. Create a new account with email/password.
+5. Create a new account with first name, last name, email, and password.
 6. Open the verification email. If the browser ends on a blank deep-link page, return to the app and sign in with the same email/password.
-7. Confirm Settings shows `Verified`.
-8. Request a password reset from the signed-out Account panel.
+7. Confirm the account gate shows `Verified`.
+8. Request a password reset from the signed-out account gate.
 9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.
-10. Confirm Settings shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
-11. Save email and phone profile fields. Confirm Settings does not expose user-editable payment fields.
+10. Confirm the account gate shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
+11. Confirm Settings does not expose user-editable account identity, phone setup, or payment fields.
 12. With Basic entitlement, confirm PDF/export remains available, Cloud Backup explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
 13. With active Pro entitlement, tap `Back Up Now` and confirm Cloud Backup returns to `Cloud backup active`.
 14. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for Cloud Backup to return to `Cloud backup active`.
@@ -155,7 +155,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - App Store notification replay metadata is server-only and not readable or writable by app roles.
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
-- `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
+- `profiles.payment_summary`, `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
 - App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
 - StoreKit transaction-claim events cannot update `subscriptions` unless the server first verifies the Apple signed transaction and resolves the authenticated account owner.
 - Forum chart post attribution is server-owned from locked profile names; client-supplied creator names are overwritten.
