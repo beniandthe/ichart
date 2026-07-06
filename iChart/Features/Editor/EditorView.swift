@@ -1139,7 +1139,6 @@ struct EditorView: View {
                 .disabled(
                     (canvasMode.locksDocumentActions && canvasMode != .freeHand)
                         || (!chart.hasCompletedInitialSetup && canvasMode != .freeHand)
-                        || !chart.layoutStyle.profile.allowsFreehandSymbolInk
                 )
                 .buttonStyle(.plain)
             }
@@ -1489,7 +1488,6 @@ struct EditorView: View {
             onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
-            onFreehandSymbolSelected: handleFreehandSymbolSelectedFromCanvas,
             rhythmicNotationPreviewConfirmationRequestID: rhythmPreviewConfirmationRequestID,
             onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged
         )
@@ -2521,15 +2519,6 @@ struct EditorView: View {
             }
             return
         }
-        guard chart.layoutStyle.profile.allowsFreehandSymbolInk else {
-            selectedNoteSelection = nil
-            pendingDeleteStartMeasureID = nil
-            pendingMeasureStackInsertion = nil
-            clearPendingRepeatState()
-            canvasMode = .browse
-            return
-        }
-
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
@@ -2565,27 +2554,6 @@ struct EditorView: View {
 
     private func handleHeaderAuthoringRequestedFromCanvas() {
         activateHeaderWritingTool()
-    }
-
-    private func handleFreehandSymbolSelectedFromCanvas(_: UUID) {
-        guard chart.hasCompletedInitialSetup else {
-            showingSetupSheet = true
-            return
-        }
-        guard chart.layoutStyle.profile.allowsFreehandSymbolInk else {
-            activateSelectTool(clearsMeasureSelection: true)
-            return
-        }
-
-        selectedMeasureID = nil
-        selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
-        pendingTimeSignaturePlacement = nil
-        pendingDeleteStartMeasureID = nil
-        pendingMeasureStackInsertion = nil
-        clearPendingRepeatState()
-        inkToolMode = .write
-        canvasMode = .freeHand
     }
 
     private func handleChordTabTapped() {

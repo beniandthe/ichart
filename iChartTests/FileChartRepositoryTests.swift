@@ -83,10 +83,12 @@ final class FileChartRepositoryTests: XCTestCase {
         chart.setChordFontOverride(.finaleJazz)
         chart.setHeaderFontOverride(.leland)
         chart.setTextFontOverride(.petaluma)
+        let freeHandInk = Data([9, 7, 5, 3])
         let measureIDs = chart.measures.map(\.id)
         chart.addSectionLabel(text: "A")
         XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[2]))
         XCTAssertEqual(chart.setMeasureManualLayoutWidth(180, for: measureIDs[0]), 180)
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(freeHandInk))
         _ = try XCTUnwrap(
             chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3])
         )
@@ -98,15 +100,6 @@ final class FileChartRepositoryTests: XCTestCase {
         )
         _ = try XCTUnwrap(
             chart.addCueText("freely", anchorMeasureID: measureIDs[1], position: .above, emphasis: .subtle)
-        )
-        _ = try XCTUnwrap(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureIDs[1],
-                lane: .chartArea,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.12, y: 0.18, width: 0.2, height: 0.1),
-                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 12, offsetY: -18, width: 34, height: 16),
-                drawingData: Data([9, 7, 5, 3])
-            )
         )
         XCTAssertTrue(
             chart.appendRecognizedChord(
@@ -153,8 +146,8 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedChart.cueTexts.first?.text, "freely")
         XCTAssertEqual(loadedChart.cueTexts.first?.position, .above)
         XCTAssertEqual(Set(loadedChart.roadmapObjects.map(\.type)), [.repeatSpan, .ending1, .fine])
-        XCTAssertEqual(loadedChart.freehandSymbols.first?.lane, .chartArea)
-        XCTAssertEqual(loadedChart.freehandSymbols.first?.anchorMeasureID, measureIDs[1])
+        XCTAssertEqual(loadedChart.pageHandwrittenNotationData, freeHandInk)
+        XCTAssertTrue(loadedChart.freehandSymbols.isEmpty)
         XCTAssertEqual(loadedChart.measure(id: measureIDs[0])?.chordEvents.map(\.rawInput), ["Bb△7", "D-7"])
     }
 
@@ -172,8 +165,10 @@ final class FileChartRepositoryTests: XCTestCase {
         )
         chart.defaultMeter = Meter(numerator: 4, denominator: 4)
         chart.setMatchedFontFamily(.petaluma)
+        let freeHandInk = Data([1, 3, 5, 7])
         let measureIDs = chart.measures.map(\.id)
         chart.addSectionLabel(text: "B")
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(freeHandInk))
         _ = try XCTUnwrap(
             chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3])
         )
@@ -185,15 +180,6 @@ final class FileChartRepositoryTests: XCTestCase {
         )
         _ = try XCTUnwrap(
             chart.addCueText("hits", anchorMeasureID: measureIDs[1], position: .below, emphasis: .normal)
-        )
-        _ = try XCTUnwrap(
-            chart.addFreehandSymbol(
-                anchorMeasureID: measureIDs[1],
-                lane: .belowMeasure,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.18, y: 0.62, width: 0.28, height: 0.2),
-                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 18, offsetY: 82, width: 44, height: 28),
-                drawingData: Data([1, 3, 5, 7])
-            )
         )
         XCTAssertTrue(
             chart.setMeasureRhythmMap(
@@ -234,8 +220,8 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedChart.cueTexts.first?.text, "hits")
         XCTAssertEqual(loadedChart.cueTexts.first?.position, .below)
         XCTAssertEqual(Set(loadedChart.roadmapObjects.map(\.type)), [.repeatSpan, .ending2, .codaMarker])
-        XCTAssertEqual(loadedChart.freehandSymbols.first?.lane, .belowMeasure)
-        XCTAssertEqual(loadedChart.freehandSymbols.first?.anchorMeasureID, measureIDs[1])
+        XCTAssertEqual(loadedChart.pageHandwrittenNotationData, freeHandInk)
+        XCTAssertTrue(loadedChart.freehandSymbols.isEmpty)
         XCTAssertEqual(
             loadedChart.measure(id: measureIDs[0])?.rhythmMap?.values,
             [.quarter, .quarter, .quarter, .quarter]
@@ -260,6 +246,7 @@ final class FileChartRepositoryTests: XCTestCase {
         let simpleMeasureIDs = simpleChart.measures.map(\.id)
         let simplePendingChordInk = Data("simple-pending-chord-ink".utf8)
         let simpleHeaderInk = Data("simple-handwritten-header".utf8)
+        let simpleFreeHandInk = Data("simple-freehand".utf8)
         let simpleCommittedChordInk = Data("simple-committed-Bbmaj7".utf8)
         simpleChart.styleNote = "Medium Swing"
         simpleChart.composerCredit = "Composer"
@@ -267,6 +254,7 @@ final class FileChartRepositoryTests: XCTestCase {
         simpleChart.setMatchedFontFamily(.museJazz)
         simpleChart.setChordFontOverride(.finaleJazz)
         XCTAssertTrue(simpleChart.setPageHandwrittenHeaderDrawing(simpleHeaderInk))
+        XCTAssertTrue(simpleChart.setPageHandwrittenNotationDrawing(simpleFreeHandInk))
         XCTAssertTrue(simpleChart.setPageHandwrittenChordDrawing(simplePendingChordInk))
         XCTAssertTrue(simpleChart.insertSimpleSystemBreak(before: simpleMeasureIDs[2]))
         XCTAssertEqual(simpleChart.setMeasureManualLayoutWidth(192, for: simpleMeasureIDs[0]), 192)
@@ -288,15 +276,6 @@ final class FileChartRepositoryTests: XCTestCase {
         _ = try XCTUnwrap(
             simpleChart.addPointRoadmapMarker(.fine, anchorMeasureID: simpleMeasureIDs[3])
         )
-        _ = try XCTUnwrap(
-            simpleChart.addFreehandSymbol(
-                anchorMeasureID: simpleMeasureIDs[1],
-                lane: .chartArea,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.18, y: 0.24, width: 0.16, height: 0.12),
-                measureRelativeFrame: FreehandSymbolMeasureFrame(offsetX: 14, offsetY: -22, width: 36, height: 18),
-                drawingData: Data("simple-freehand".utf8)
-            )
-        )
         XCTAssertTrue(
             simpleChart.appendRecognizedChord(
                 try ChordSymbolParser.parse("Bb△7"),
@@ -316,11 +295,13 @@ final class FileChartRepositoryTests: XCTestCase {
         let rhythmMeasureIDs = rhythmChart.measures.map(\.id)
         let rhythmPendingChordInk = Data("rhythm-pending-chord-ink".utf8)
         let rhythmHeaderInk = Data("rhythm-handwritten-header".utf8)
+        let rhythmFreeHandInk = Data("rhythm-freehand".utf8)
         let committedRhythmInk = Data("rhythm-committed-slashes".utf8)
         let unresolvedRhythmInk = Data("rhythm-unresolved-quarter-pass".utf8)
         let rhythmCommittedChordInk = Data("rhythm-committed-G-slash-B".utf8)
         rhythmChart.setHeaderInputMode(.typed)
         XCTAssertTrue(rhythmChart.setPageHandwrittenHeaderDrawing(rhythmHeaderInk))
+        XCTAssertTrue(rhythmChart.setPageHandwrittenNotationDrawing(rhythmFreeHandInk))
         rhythmChart.setMatchedFontFamily(.petaluma)
         XCTAssertTrue(rhythmChart.setPageHandwrittenChordDrawing(rhythmPendingChordInk))
         rhythmChart.addSectionLabel(text: "B")
@@ -337,14 +318,6 @@ final class FileChartRepositoryTests: XCTestCase {
         )
         _ = try XCTUnwrap(
             rhythmChart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: rhythmMeasureIDs[2])
-        )
-        _ = try XCTUnwrap(
-            rhythmChart.addFreehandSymbol(
-                anchorMeasureID: rhythmMeasureIDs[1],
-                lane: .belowMeasure,
-                normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.2, y: 0.56, width: 0.26, height: 0.18),
-                drawingData: Data("rhythm-below-freehand".utf8)
-            )
         )
         XCTAssertTrue(
             rhythmChart.setMeasureRhythmMap(
@@ -400,6 +373,7 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedSimpleChart.layoutStyle, .simpleChordSheet)
         XCTAssertEqual(loadedSimpleChart.headerInputMode, .handwritten)
         XCTAssertEqual(loadedSimpleChart.pageHandwrittenHeaderData, simpleHeaderInk)
+        XCTAssertEqual(loadedSimpleChart.pageHandwrittenNotationData, simpleFreeHandInk)
         XCTAssertEqual(loadedSimpleChart.pageHandwrittenChordData, simplePendingChordInk)
         XCTAssertEqual(loadedSimpleChart.typography.matchedSet, .museJazz)
         XCTAssertEqual(loadedSimpleChart.typography.chordOverride, .finaleJazz)
@@ -408,8 +382,7 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedSimpleChart.sectionLabels.first?.text, "A")
         XCTAssertEqual(loadedSimpleChart.cueTexts.first?.text, "pocket")
         XCTAssertEqual(Set(loadedSimpleChart.roadmapObjects.map(\.type)), [.repeatSpan, .ending1, .fine])
-        XCTAssertEqual(loadedSimpleChart.freehandSymbols.first?.lane, .chartArea)
-        XCTAssertEqual(loadedSimpleChart.freehandSymbols.first?.measureRelativeFrame?.width, 36)
+        XCTAssertTrue(loadedSimpleChart.freehandSymbols.isEmpty)
         XCTAssertEqual(loadedSimpleChord.symbol.displayText, "Bb△7")
         XCTAssertEqual(loadedSimpleChord.rawInput, "Bbmaj7")
         XCTAssertEqual(loadedSimpleChord.sourceInkData, simpleCommittedChordInk)
@@ -418,12 +391,13 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedRhythmChart.layoutStyle, .rhythmSectionSheet)
         XCTAssertEqual(loadedRhythmChart.headerInputMode, .typed)
         XCTAssertEqual(loadedRhythmChart.pageHandwrittenHeaderData, rhythmHeaderInk)
+        XCTAssertEqual(loadedRhythmChart.pageHandwrittenNotationData, rhythmFreeHandInk)
         XCTAssertEqual(loadedRhythmChart.pageHandwrittenChordData, rhythmPendingChordInk)
         XCTAssertEqual(loadedRhythmChart.typography.matchedSet, .petaluma)
         XCTAssertEqual(loadedRhythmChart.sectionLabels.first?.text, "B")
         XCTAssertEqual(loadedRhythmChart.cueTexts.first?.text, "hits")
         XCTAssertEqual(Set(loadedRhythmChart.roadmapObjects.map(\.type)), [.repeatSpan, .codaMarker])
-        XCTAssertEqual(loadedRhythmChart.freehandSymbols.first?.lane, .belowMeasure)
+        XCTAssertTrue(loadedRhythmChart.freehandSymbols.isEmpty)
         XCTAssertEqual(
             loadedRhythmChart.measure(id: rhythmMeasureIDs[0])?.rhythmMap?.values,
             [.slash, .slash, .slash, .slash]

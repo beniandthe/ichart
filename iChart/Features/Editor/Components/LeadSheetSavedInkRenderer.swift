@@ -32,12 +32,6 @@ enum LeadSheetSavedInkRenderer {
         )
     }
 
-    static func drawFreehandSymbols(_ symbolLayouts: [LeadSheetFreehandSymbolLayout]) {
-        for symbolLayout in symbolLayouts {
-            drawInk(symbolLayout.symbol.drawingData, in: symbolLayout.frame)
-        }
-    }
-
     private static func drawInk(_ drawingData: Data?, in frame: CGRect) {
         guard let drawingData,
               let drawing = try? PKDrawing(data: drawingData),

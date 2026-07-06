@@ -94,7 +94,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.sectionLabels = sectionLabels
         self.cueTexts = cueTexts
         self.roadmapObjects = roadmapObjects
-        self.freehandSymbols = freehandSymbols
+        self.freehandSymbols = []
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
         self.pageHandwrittenNotationData = pageHandwrittenNotationData
@@ -165,7 +165,8 @@ struct Chart: Identifiable, Codable, Hashable {
         sectionLabels = try container.decode([SectionLabel].self, forKey: .sectionLabels)
         cueTexts = try container.decode([CueText].self, forKey: .cueTexts)
         roadmapObjects = try container.decode([RoadmapObject].self, forKey: .roadmapObjects)
-        freehandSymbols = try container.decodeIfPresent([FreehandSymbol].self, forKey: .freehandSymbols) ?? []
+        _ = try container.decodeIfPresent([FreehandSymbol].self, forKey: .freehandSymbols)
+        freehandSymbols = []
         stylePreset = try container.decode(StylePreset.self, forKey: .stylePreset)
         engravingPreset = try container.decodeIfPresent(EngravingPreset.self, forKey: .engravingPreset) ?? .balanced
         pageHandwrittenNotationData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)

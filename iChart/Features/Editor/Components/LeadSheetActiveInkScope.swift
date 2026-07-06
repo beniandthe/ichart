@@ -52,15 +52,13 @@ enum LeadSheetActiveInkScope {
     case chords(frame: CGRect, inputFrames: [CGRect])
     case rhythmicMeasure(measureID: UUID, frame: CGRect)
     case noteSelection(frame: CGRect)
-    case freehandSymbols(frame: CGRect)
 
     var frame: CGRect {
         switch self {
         case .page(let frame),
              .header(let frame),
              .rhythmicMeasure(_, let frame),
-             .noteSelection(let frame),
-             .freehandSymbols(let frame):
+             .noteSelection(let frame):
             return frame
         case .chords(let frame, _):
             return frame
@@ -74,8 +72,7 @@ enum LeadSheetActiveInkScope {
         case .page,
              .header,
              .rhythmicMeasure,
-             .noteSelection,
-             .freehandSymbols:
+             .noteSelection:
             return [frame]
         }
     }
@@ -171,32 +168,6 @@ enum LeadSheetActiveInkScope {
         return LeadSheetActiveInkRegion(frame: resolvedFrame, inputFrames: laneFrames)
     }
 
-    static func freehandSymbolWritingFrame(
-        for pageLayout: LeadSheetPageLayout,
-        layoutStyle: ChartLayoutStyle
-    ) -> CGRect {
-        if layoutStyle.profile.freehandSymbolLanes.contains(.chartArea) {
-            return pageWritingFrame(for: pageLayout)
-        }
-
-        let laneFrames = pageLayout.systems
-            .flatMap(\.measures)
-            .flatMap { measure -> [CGRect] in
-                [measure.freehandAboveFrame, measure.freehandBelowFrame].compactMap { $0 }
-            }
-
-        guard let firstFrame = laneFrames.first else {
-            return pageWritingFrame(for: pageLayout)
-        }
-
-        return laneFrames
-            .dropFirst()
-            .reduce(firstFrame) { partialFrame, laneFrame in
-                partialFrame.union(laneFrame)
-            }
-            .insetBy(dx: -14, dy: -14)
-    }
-
     func drawingData(in chart: Chart) -> Data? {
         switch self {
         case .page:
@@ -207,7 +178,7 @@ enum LeadSheetActiveInkScope {
             return chart.pageHandwrittenChordData
         case .rhythmicMeasure(let measureID, _):
             return chart.measure(id: measureID)?.handwrittenRhythmicNotationData
-        case .noteSelection, .freehandSymbols:
+        case .noteSelection:
             return nil
         }
     }
@@ -236,7 +207,7 @@ enum LeadSheetActiveInkScope {
                   updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
                 return nil
             }
-        case .noteSelection, .freehandSymbols:
+        case .noteSelection:
             return nil
         }
 
