@@ -46,7 +46,7 @@ enum LeadSheetChordInkRecognitionTimingLogger {
         _ timing: ChordInkRecognitionTiming,
         result: ChordInkRecognitionResult
     ) {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let bestRead = result.match?.displayText ?? "none"
         let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
         let trustDecision = ChordRecognitionTrustArbiter.decision(for: result)

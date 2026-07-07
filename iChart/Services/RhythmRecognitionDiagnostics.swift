@@ -167,6 +167,7 @@ struct RhythmRecognitionDiagnosticsRecorder {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
 extension RhythmRecognitionDiagnosticsRecorder {
     static func live(fileManager: FileManager = .default) -> RhythmRecognitionDiagnosticsRecorder {
         let applicationSupportURL = (try? fileManager.url(
@@ -183,6 +184,7 @@ extension RhythmRecognitionDiagnosticsRecorder {
         )
     }
 }
+#endif
 
 private extension RhythmRecognitionDiagnosticsRecorder {
     static let encoder: JSONEncoder = {

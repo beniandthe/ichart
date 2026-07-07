@@ -14,6 +14,27 @@ const now = new Date("2026-06-12T21:30:00.000Z");
 const futureExpiration = Date.parse("2026-07-12T21:30:00.000Z");
 const futureGrace = Date.parse("2026-06-19T21:30:00.000Z");
 
+function oversizedStream(firstChunkBytes, secondChunkBytes) {
+  let pulls = 0;
+  return {
+    body: new ReadableStream({
+      pull(controller) {
+        pulls += 1;
+        if (pulls === 1) {
+          controller.enqueue(new Uint8Array(firstChunkBytes));
+          return;
+        }
+        if (pulls === 2) {
+          controller.enqueue(new Uint8Array(secondChunkBytes));
+          return;
+        }
+        throw new Error("bounded body reader should stop after the size cap is crossed");
+      },
+    }),
+    pulls: () => pulls,
+  };
+}
+
 test("maps active pro renewal into server-owned subscription authority fields", () => {
   const update = subscriptionAuthorityUpdateFromVerifiedNotification(
     {
@@ -215,6 +236,32 @@ test("webhook rejects oversized request bodies before verification", async () =>
   assert.equal(verifiedPayload, false);
 });
 
+test("webhook rejects streamed oversized request bodies before reading the full stream", async () => {
+  let verifiedPayload = false;
+  const oversized = oversizedStream(127_999, 2);
+  const response = await handleAppStoreServerNotificationRequest(
+    new Request(
+      "https://example.test/functions/v1/app-store-server-notifications",
+      {
+        method: "POST",
+        body: oversized.body,
+        duplex: "half",
+      }
+    ),
+    {
+      verifyAndDecodeNotification: () => {
+        verifiedPayload = true;
+      },
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 413);
+  assert.equal(body.error, "App Store notification payload is too large.");
+  assert.equal(verifiedPayload, false);
+  assert.equal(oversized.pulls(), 2);
+});
+
 test("webhook refuses to process signedPayload without verifier", async () => {
   let wroteSubscription = false;
   const response = await handleAppStoreServerNotificationRequest(
@@ -390,6 +437,49 @@ test("webhook accepts verified unmapped transactions without inventing ownership
   assert.equal(body.subscription, null);
 });
 
+test("webhook does not echo subscription rows for duplicate writer rejections", async () => {
+  const response = await handleAppStoreServerNotificationRequest(
+    new Request(
+      "https://example.test/functions/v1/app-store-server-notifications",
+      {
+        method: "POST",
+        body: JSON.stringify({ signedPayload: "opaque-apple-signed-payload" }),
+      }
+    ),
+    {
+      now,
+      verifyAndDecodeNotification: async () => ({
+        notificationType: "DID_RENEW",
+        environment: "Sandbox",
+        transactionInfo: {
+          productId: iChartProProductIDs[0],
+          originalTransactionId: "1000000000000999",
+          transactionId: "1000000000001000",
+          appAccountToken: "00000000-0000-4000-8000-000000000001",
+          signedDate: Date.parse("2026-06-12T21:29:00.000Z"),
+          expiresDate: futureExpiration,
+        },
+        notificationUUID: "notification-0999",
+        signedDate: Date.parse("2026-06-12T21:29:30.000Z"),
+      }),
+      writeSubscriptionAuthority: async () => ({
+        stored: false,
+        mapping_status: "duplicate_notification",
+        subscription: {
+          owner_id: "00000000-0000-4000-8000-000000000002",
+          provider: "storekit",
+        },
+      }),
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 202);
+  assert.equal(body.stored, false);
+  assert.equal(body.mapping_status, "duplicate_notification");
+  assert.equal(body.subscription, null);
+});
+
 test("transaction claim requires signed-in account bearer header", async () => {
   const response = await handleStoreKitSubscriptionClaimRequest(
     new Request(
@@ -421,6 +511,38 @@ test("transaction claim requires signedTransactionInfo", async () => {
 
   assert.equal(response.status, 400);
   assert.equal(body.error, "Missing StoreKit signedTransactionInfo.");
+});
+
+test("transaction claim rejects streamed oversized request bodies before verification", async () => {
+  let resolvedUser = false;
+  let verifiedTransaction = false;
+  const oversized = oversizedStream(31_999, 2);
+  const response = await handleStoreKitSubscriptionClaimRequest(
+    new Request(
+      "https://example.test/functions/v1/storekit-subscription-claims",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer user-session-token" },
+        body: oversized.body,
+        duplex: "half",
+      }
+    ),
+    {
+      authenticatedUserID: async () => {
+        resolvedUser = true;
+      },
+      verifyAndDecodeTransaction: async () => {
+        verifiedTransaction = true;
+      },
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 413);
+  assert.equal(body.error, "StoreKit transaction claim payload is too large.");
+  assert.equal(resolvedUser, false);
+  assert.equal(verifiedTransaction, false);
+  assert.equal(oversized.pulls(), 2);
 });
 
 test("transaction claim refuses to process without verifier", async () => {
@@ -678,6 +800,10 @@ test("transaction claim returns conflict for stale writer rejections", async () 
       writeSubscriptionAuthorityClaim: async () => ({
         stored: false,
         mapping_status: "stale_transaction_claim",
+        subscription: {
+          owner_id: "00000000-0000-4000-8000-000000000001",
+          provider: "storekit",
+        },
       }),
     }
   );
@@ -686,4 +812,5 @@ test("transaction claim returns conflict for stale writer rejections", async () 
   assert.equal(response.status, 409);
   assert.equal(body.stored, false);
   assert.equal(body.mapping_status, "stale_transaction_claim");
+  assert.equal(body.subscription, null);
 });

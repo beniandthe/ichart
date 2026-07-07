@@ -162,6 +162,81 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
     }
 
+    func testDeveloperOnlySurfacesStayOutOfReleaseBuilds() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let sourceFileURLs = try XCTUnwrap(
+            FileManager.default.enumerator(
+                at: appSourceRoot,
+                includingPropertiesForKeys: nil
+            )?.compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" }
+        )
+        let appSourceText = try sourceFileURLs
+            .map { try String(contentsOf: $0) }
+            .joined(separator: "\n")
+        let projectText = try String(contentsOf: projectRoot.appendingPathComponent("project.yml"))
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let upgradeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let chordSheetText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Forum/IChartForumStore.swift")
+        )
+        let authStorageText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Supabase/IChartSupabaseAuthLocalStorage.swift")
+        )
+        let chordDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/ChordEntryDiagnostics.swift")
+        )
+        let rhythmDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let timingText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetChordInkRecognitionTiming.swift")
+        )
+        let canvasHostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertFalse(appSourceText.contains("#if DEBUG || targetEnvironment(simulator)"))
+        XCTAssertTrue(libraryText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(libraryText.contains("title: \"Diagnostics\""))
+        XCTAssertTrue(libraryText.contains("Sample Forum Charts"))
+        XCTAssertTrue(upgradeText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(upgradeText.contains("Use Pro Preview"))
+        XCTAssertTrue(chordSheetText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordSheetText.contains("Ink sample capture"))
+        XCTAssertTrue(chordSheetText.contains("Copy Ink Sample"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(forumStoreText.contains("iChartForumQASamplePDFs"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG && targetEnvironment(simulator)\nprivate actor IChartForumQASampleService"))
+        XCTAssertTrue(authStorageText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension ChordEntryDiagnosticsRecorder"))
+        XCTAssertTrue(rhythmDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension RhythmRecognitionDiagnosticsRecorder"))
+        XCTAssertTrue(timingText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(canvasHostText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(projectText.contains("SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("Release:\n      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("- path: StoreKit\n        buildPhase: resources"))
+    }
+
     func testRhythmRecognitionOverhaulParksLegacyAutoRenderButKeepsToolSet() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -431,6 +506,31 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+    }
+
+    func testHostedSupportSiteRoutesToRealContactPath() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let siteRoot = projectRoot.appendingPathComponent("public-site/useichart")
+        let supportText = try String(contentsOf: siteRoot.appendingPathComponent("support.html"))
+        let privacyText = try String(contentsOf: siteRoot.appendingPathComponent("privacy.html"))
+        let indexText = try String(contentsOf: siteRoot.appendingPathComponent("index.html"))
+        let htaccessText = try String(contentsOf: siteRoot.appendingPathComponent(".htaccess"))
+
+        XCTAssertTrue(supportText.contains("<title>Support - iChart</title>"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com?subject=iChart%20Support"))
+        XCTAssertTrue(supportText.contains("What To Include"))
+        XCTAssertTrue(supportText.contains("What Not To Send"))
+        XCTAssertTrue(supportText.contains("<a href=\"/privacy\">Privacy Policy</a>"))
+        XCTAssertTrue(supportText.contains("<a href=\"/\">iChart Home</a>"))
+
+        XCTAssertTrue(indexText.contains("<a href=\"/support\">Support</a>"))
+        XCTAssertTrue(privacyText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support/?$ support.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy/?$ privacy.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]"))
     }
 
     func testHelpSurfaceIncludesTutorialWalkthrough() throws {
@@ -1241,6 +1341,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authorityText.contains("writeSubscriptionAuthority"))
         XCTAssertTrue(authorityText.contains("Missing App Store signedPayload."))
         XCTAssertTrue(authorityText.contains("readJSON(request, { maxBytes: 128_000"))
+        XCTAssertTrue(authorityText.contains("readBoundedText(request, maxBytes)"))
+        XCTAssertTrue(authorityText.contains("responseSubscription(writeResult, staleOrDuplicateMappingStatuses)"))
+        XCTAssertTrue(authorityText.contains("responseSubscription(claimResult, rejectedClaimMappingStatuses)"))
         XCTAssertTrue(authorityText.contains("Nested App Store signed payload verification is not configured."))
         XCTAssertTrue(authorityText.contains("Verified App Store payload is missing subscription identity fields."))
         XCTAssertTrue(authorityText.contains("StoreKit signed transaction verification is not configured."))
@@ -1266,6 +1369,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authorityTestText.contains("webhook refuses nested signed payloads until nested verifiers are configured"))
         XCTAssertTrue(authorityTestText.contains("webhook refuses verified payloads without subscription identity fields"))
         XCTAssertTrue(authorityTestText.contains("webhook rejects oversized request bodies before verification"))
+        XCTAssertTrue(authorityTestText.contains("webhook rejects streamed oversized request bodies before reading the full stream"))
+        XCTAssertTrue(authorityTestText.contains("webhook does not echo subscription rows for duplicate writer rejections"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim rejects streamed oversized request bodies before verification"))
         XCTAssertTrue(authorityTestText.contains("transaction claim refuses to process without verifier"))
         XCTAssertTrue(authorityTestText.contains("transaction claim writes only after user and transaction are verified"))
         XCTAssertTrue(authorityTestText.contains("transaction claim rejects verified transactions without app account token"))
@@ -1302,15 +1408,19 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
         XCTAssertTrue(storeKitRunbookText.contains("Apple's official `@apple/app-store-server-library` `SignedDataVerifier`"))
         XCTAssertTrue(storeKitRunbookText.contains("invalid Apple signatures are rejected before mapping or writing"))
+        XCTAssertTrue(storeKitRunbookText.contains("bounded streaming size limits"))
         XCTAssertTrue(storeKitRunbookText.contains("server rejects missing or mismatched app-account tokens"))
         XCTAssertTrue(storeKitRunbookText.contains("duplicate notification UUIDs are idempotent no-ops"))
+        XCTAssertTrue(storeKitRunbookText.contains("duplicate/stale writer rejections do not echo subscription rows"))
         XCTAssertTrue(storeKitRunbookText.contains("stale signed-date replay"))
         XCTAssertTrue(storeKitRunbookText.contains("The authenticated claim endpoint creates the trusted account-to-original-transaction mapping"))
         XCTAssertTrue(storeKitRunbookText.contains("unmapped notifications are accepted without assigning ownership"))
         XCTAssertTrue(productionReadinessText.contains("App Store Server Notifications are received by `app-store-server-notifications`."))
         XCTAssertTrue(productionReadinessText.contains("StoreKit transaction claims are received by `storekit-subscription-claims`."))
         XCTAssertTrue(productionReadinessText.contains("missing/mismatched StoreKit `appAccountToken`"))
+        XCTAssertTrue(productionReadinessText.contains("bounded streaming body cap"))
         XCTAssertTrue(productionReadinessText.contains("Notification UUIDs are recorded for idempotency"))
+        XCTAssertTrue(productionReadinessText.contains("rejected replay/idempotency paths do not echo subscription rows"))
         XCTAssertTrue(productionReadinessText.contains("The server-only subscription writer reads Edge Function secrets and never runs in the iOS app."))
         XCTAssertTrue(productionReadinessText.contains("Nested App Store transaction/renewal payloads must also be verified"))
         XCTAssertTrue(productionReadinessText.contains("Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping."))
@@ -1477,6 +1587,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessText.contains("`chart_documents` and `chart_snapshots` policies require active Pro in addition to owner match."))
         XCTAssertTrue(productionReadinessText.contains("Forum chart post attribution is server-owned from locked profile names"))
         XCTAssertTrue(productionReadinessText.contains("Published forum PDF downloads require the post-owned storage path and validated server-side PDF provenance."))
+        XCTAssertTrue(productionReadinessText.contains("Forum PDF publication records service-owned storage object ID, byte size, and SHA-256 provenance"))
+        XCTAssertTrue(productionReadinessText.contains("patching visible post status/provenance columns alone must not make a PDF downloadable"))
         XCTAssertTrue(supabaseConfigText.contains("project_id = \"ichart\""))
         XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
         XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
@@ -1507,6 +1619,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(integrationTestText.contains("testLiveSupabaseForumPublishVoteCommentReportAndStorageFlow"))
         XCTAssertTrue(integrationTestText.contains("creator_display_name"))
         XCTAssertTrue(integrationTestText.contains("pdf_provenance_status"))
+        XCTAssertTrue(integrationTestText.contains("rpc/finalize_forum_chart_post_pdf"))
+        XCTAssertTrue(integrationTestText.contains("iChartSHA256Hex"))
         XCTAssertTrue(qaScriptText.contains("SUPABASE_CMD"))
         XCTAssertTrue(qaScriptText.contains("npx --yes supabase"))
         XCTAssertTrue(qaScriptText.contains("supabase_cli db reset"))
@@ -1617,6 +1731,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(forumMigrationText.contains("private.apply_forum_chart_post_server_fields"))
         XCTAssertTrue(forumMigrationText.contains("new.creator_display_name := profile_display_name"))
         XCTAssertTrue(forumMigrationText.contains("private.finalize_forum_chart_post_pdf"))
+        XCTAssertTrue(forumMigrationText.contains("private.forum_pdf_has_valid_provenance"))
+        XCTAssertTrue(forumMigrationText.contains("public.finalize_forum_chart_post_pdf"))
         XCTAssertFalse(forumMigrationText.contains("chart_json"))
         XCTAssertTrue(rlsTestText.contains("inactive Basic user cannot insert forum songs"))
         XCTAssertTrue(rlsTestText.contains("active Pro can submit forum chart post metadata for review"))
@@ -1626,8 +1742,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(rlsTestText.contains("spoofed forum attribution is overwritten by locked profile name"))
         XCTAssertTrue(rlsTestText.contains("unvalidated forum PDF metadata is not downloadable even when the post is published"))
         XCTAssertTrue(rlsTestText.contains("validated forum PDF metadata is downloadable for a published post"))
+        XCTAssertTrue(rlsTestText.contains("active Pro cannot exceed the unattached forum PDF upload cap"))
+        XCTAssertTrue(rlsTestText.contains("forum PDF finalization records service-owned provenance metadata"))
         XCTAssertTrue(rlsTestText.contains("client cannot update forum moderation status"))
         XCTAssertTrue(rlsTestText.contains("client cannot self-award forum badges"))
+        XCTAssertTrue(forumMigrationText.contains("private.forum_chart_pdf_provenance"))
+        XCTAssertTrue(forumMigrationText.contains("private.current_user_unattached_forum_pdf_upload_count"))
         XCTAssertTrue(forumStoreText.contains("static func live(clients:"))
         XCTAssertTrue(forumStoreText.contains("IChartSupabaseSessionRefresher"))
         XCTAssertTrue(forumStoreText.contains("Forum chart submitted for review."))

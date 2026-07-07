@@ -1067,7 +1067,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
     private let chordInkRecognizer = ChordInkRecognizer()
     private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         let processInfo = ProcessInfo.processInfo
         if processInfo.arguments.contains("-iChartSymbolLedgerDiagnostics")
             || processInfo.environment["ICHART_SYMBOL_LEDGER_DIAGNOSTICS"] == "1" {
@@ -3733,6 +3733,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func publishRhythmicNotationDiagnostic(_ event: RhythmRecognitionDiagnosticEvent) {
+        #if DEBUG && targetEnvironment(simulator)
         guard IChartRuntimeDiagnostics.isRhythmRecognitionDiagnosticsEnabled else {
             return
         }
@@ -3743,6 +3744,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         } catch {
             print("iChart rhythm diagnostic error: \(error)")
         }
+        #endif
     }
 
     private func drawingStrokeCount(from drawingData: Data) -> Int {

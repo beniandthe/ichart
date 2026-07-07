@@ -4,7 +4,7 @@ Status: Sprint 5 checklist for iChart account verification, profile sync, and Pr
 
 ## Non-Secret Project Facts
 
-- Product: iChart / iChart.
+- Product: iChart.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`.
 - Remote URL shape: `https://pausvvwoazbvmzyrebwl.supabase.co`.
 - The iOS app embeds only the project URL and publishable client key.
@@ -25,6 +25,8 @@ Required production settings:
 - New user signup is enabled for QA builds.
 - Confirm Email is enabled.
 - Secure password changes are enabled.
+- Leaked-password protection is enabled when available on the active Supabase plan.
+- MFA advisor warnings are tracked as a post-V1 account UX follow-up unless a complete MFA/passkey flow is added.
 - URL Configuration allows `ichart://auth-callback`.
 - `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.
@@ -41,7 +43,7 @@ Required production settings:
 
 - App Store Server Notifications are received by `app-store-server-notifications`.
 - `supabase/config.toml` sets `verify_jwt = false` for that function because Apple does not send a Supabase user JWT.
-- Public webhook access does not imply trust: the function must reject oversized bodies, missing payloads, and unverified `signedPayload` input.
+- Public webhook access does not imply trust: the function must reject oversized bodies with a bounded streaming body cap, missing payloads, and unverified `signedPayload` input.
 - StoreKit transaction claims are received by `storekit-subscription-claims`.
 - `supabase/config.toml` sets `verify_jwt = true` for the claim function because it is invoked by signed-in app users.
 - The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, missing original transaction identity, and missing/mismatched StoreKit `appAccountToken`.
@@ -49,7 +51,7 @@ Required production settings:
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
 - Verified webhook events update only existing original-transaction mappings; unmapped notifications are accepted without assigning account ownership.
-- Notification UUIDs are recorded for idempotency, stale signed-date events are rejected, and stale transaction claims cannot rewind subscription authority.
+- Notification UUIDs are recorded for idempotency, stale signed-date events are rejected, stale transaction claims cannot rewind subscription authority, and rejected replay/idempotency paths do not echo subscription rows to callers.
 - The same App Store original transaction cannot be claimed by a different iChart account after it has a trusted owner mapping.
 - Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping.
 - Apple JWS verification is wired through Apple's `SignedDataVerifier`; missing or malformed verifier secrets must keep the functions in a fail-closed not-configured state.
@@ -161,6 +163,8 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - Forum chart post attribution is server-owned from locked profile names; client-supplied creator names are overwritten.
 - Pending forum songs/posts remain owner-scoped and do not leak to other Pro users before publication.
 - Published forum PDF downloads require the post-owned storage path and validated server-side PDF provenance.
+- Forum PDF publication records service-owned storage object ID, byte size, and SHA-256 provenance; unattached owner uploads are capped to a small rollback buffer.
+- Forum moderation/approval must call the server-only `finalize_forum_chart_post_pdf` path; patching visible post status/provenance columns alone must not make a PDF downloadable.
 
 ## Evidence To Keep With The Release Candidate
 
@@ -169,7 +173,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - `scripts/run_supabase_production_readiness.sh` result.
 - Local Supabase QA result, when run.
 - App Store Server Notification function test result.
-- StoreKit app-account token, stale replay, notification UUID replay, and oversized webhook request test result.
+- StoreKit app-account token, stale replay, notification UUID replay, oversized webhook request, and forum PDF provenance/upload-cap test result.
 - iPad simulator build/run result.
 - Screenshot or UI snapshot of unconfigured Settings.
 - Screenshot or UI snapshot of configured `Verified` and `Cloud backup active` Settings.

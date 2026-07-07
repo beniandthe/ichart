@@ -81,7 +81,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     }
 
     private static var defaultAllowsInsecureFallback: Bool {
-        #if DEBUG || targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         true
         #else
         false

@@ -45,7 +45,9 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var isQASampleDataEnabled: Bool
 
     private let service: IChartForumServicing
+    #if DEBUG && targetEnvironment(simulator)
     private let qaSampleService = IChartForumQASampleService()
+    #endif
     private var lastQuery = ""
 
     private init(service: IChartForumServicing) {
@@ -111,9 +113,11 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
+        #if DEBUG && targetEnvironment(simulator)
         if isQASampleDataEnabled {
             await qaSampleService.setCurrentUserID(signedInSession.id)
         }
+        #endif
 
         let requestService = activeService
         guard requestService.isConfigured else {
@@ -246,7 +250,11 @@ final class IChartForumStore: ObservableObject {
     }
 
     private var activeService: IChartForumServicing {
+        #if DEBUG && targetEnvironment(simulator)
         isQASampleDataEnabled ? qaSampleService : service
+        #else
+        service
+        #endif
     }
 
     private static func displayText(for error: Error) -> String {
@@ -307,6 +315,7 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
 private actor IChartForumQASampleService: IChartForumServicing {
     let isConfigured = true
 
@@ -808,6 +817,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private static let nateOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000004")!
     private static let eliOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000005")!
 }
+#endif
 
 private enum IChartForumServiceError: LocalizedError {
     case unconfigured

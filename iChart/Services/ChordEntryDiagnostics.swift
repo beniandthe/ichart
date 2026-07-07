@@ -230,6 +230,7 @@ private extension URL {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
 extension ChordEntryDiagnosticsRecorder {
     static func live(fileManager: FileManager = .default) -> ChordEntryDiagnosticsRecorder {
         let applicationSupportURL = (try? fileManager.url(
@@ -246,6 +247,7 @@ extension ChordEntryDiagnosticsRecorder {
         )
     }
 }
+#endif
 
 private extension ChordEntryDiagnosticsRecorder {
     static let encoder: JSONEncoder = {

@@ -388,6 +388,14 @@ final class ChartLibraryStore: ObservableObject {
         }
 
         let snapshot = loadedSnapshot ?? (loadError == nil ? .empty : .preview)
+        #if DEBUG && targetEnvironment(simulator)
+        let chordDiagnosticsResetter: (() -> Void)? = {
+            try? ChordEntryDiagnosticsRecorder.live().reset()
+        }
+        #else
+        let chordDiagnosticsResetter: (() -> Void)? = nil
+        #endif
+
         let store = ChartLibraryStore(
             charts: snapshot.charts,
             entitlements: snapshot.entitlements,
@@ -396,9 +404,7 @@ final class ChartLibraryStore: ObservableObject {
             cloudMetadata: snapshot.cloudMetadata,
             projects: snapshot.projects,
             repository: repository,
-            chordDiagnosticsResetter: {
-                try? ChordEntryDiagnosticsRecorder.live().reset()
-            }
+            chordDiagnosticsResetter: chordDiagnosticsResetter
         )
         if let loadError {
             store.persistenceStatus = .failed(message: loadError.localizedDescription)
