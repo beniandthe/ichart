@@ -71,7 +71,7 @@ Explicitly out of scope for v1:
 - collaboration
 - desktop app
 - iPhone-first authoring
-- required cloud backend
+- cloud-dependent local chart authoring
 
 ## Technical direction
 
@@ -82,7 +82,7 @@ Recommended v1 stack:
 - **Ink capture:** PencilKit
 - **Persistence:** SwiftData first, with a clean boundary so Core Data can replace it later if needed
 - **Export:** native PDF generation and preview
-- **Backend:** none required for v1; keep the app local-first
+- **Backend:** Supabase for account identity, Pro entitlement authority, cloud backup/restore, and Forums; local chart authoring remains local-first
 
 ## Build philosophy
 
@@ -98,15 +98,15 @@ iChart should optimize for:
 ## Business model
 
 Recommended product structure:
-- free download with a limited local chart library
-- one-time Pro unlock for ownership features: unlimited local charts, PDF export, transposition, font tools, special notation tools, and advanced rhythm-aware editing
-- optional later subscription only for ongoing-service value such as cloud sync, cross-device organization, shared band libraries, setlists, version history, and AI-assisted cleanup
+- mandatory Basic account with a 3-chart local library cap
+- complete local chart writing, local save, local PDF library, PDF export, and sharing included in Basic
+- monthly and annual iChart Pro subscriptions for unlimited local charts, Projects, cloud backup/restore, Forums, and other ongoing-service surfaces
 
 Business-model rules:
 - users should be able to feel the product before paying
-- local chart ownership should not feel rented
-- recurring billing should fund real ongoing services, not basic save access
-- v1 can launch with free + Pro even if no subscription ships yet
+- local chart writing, editing, saving, and export should not feel rented
+- recurring billing funds real ongoing services, storage, moderation, restore, and support surfaces
+- no one-time Pro purchase is planned for launch
 
 ## Source-of-truth docs
 
@@ -143,6 +143,7 @@ Supporting product and launch context:
 
 - [`docs/monetization-strategy.md`](docs/monetization-strategy.md) — launch tiering, feature gating, and entitlement rules
 - [`docs/v1-production-deployment.md`](docs/v1-production-deployment.md) — release and launch plan
+- [`docs/final-qa-outside-demo-staging.md`](docs/final-qa-outside-demo-staging.md) — current outside-demo QA staging order and release gate evidence
 - [`docs/basic-chart-creation-flow.md`](docs/basic-chart-creation-flow.md) — explicit step-by-step behavior for the most basic chart authoring flow
 
 Historical or setup context:

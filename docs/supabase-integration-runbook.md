@@ -12,7 +12,7 @@ Plan policy authority: `docs/ichart-plan-policy-source-of-truth.md`
 - Basic includes the complete local chart-writing tool, PDF/export, and a 3-chart local library cap.
 - Cloud chart backup/sync/restore is a Pro subscription feature because it carries storage, security, support, and operational cost.
 - Forums access is Pro-only.
-- Until StoreKit/subscription entitlement wiring is implemented, the current signed-in chart sync path is an interim QA path. Before production rollout, gate `ChartCloudSyncService` and Forums behind active Pro entitlement.
+- `ChartCloudSyncService` and Forums are gated behind active Pro entitlement in the app and by Supabase RLS/policies on the server side.
 - If Pro expires, cloud backup/sync and Forums should pause clearly.
 - If a downgraded Basic account has more than 3 local charts, the app should prompt the user to choose which local charts to remove until only 3 remain.
 - Downgrade pruning is local-only and must not enqueue cloud deletion tombstones.
@@ -92,9 +92,14 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 1. Link the local repo to the Supabase project: `supabase link --project-ref <project-ref>`
 2. Preview pending migrations: `supabase db diff --linked`
 3. Push migrations: `supabase db push`
-4. Confirm RLS is enabled on `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices`.
-5. Confirm the app redirect URL is present: `ichart://auth-callback`
-6. Confirm no raw card data exists in database tables.
+4. Deploy `app-store-server-notifications` and `storekit-subscription-claims` after verifier/app secrets are configured for the target environment.
+5. Smoke-test the notification endpoint for missing payload `400`, invalid signed payload `401`, wrong method `405`, and oversized body `413`.
+6. Smoke-test the claim endpoint so unauthenticated requests return `401`.
+7. Confirm RLS is enabled on `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices`.
+8. Confirm Cloud Backup policies require active Pro for `chart_documents` and `chart_snapshots`.
+9. Confirm forum attribution and PDF finalization/provenance remain server-owned.
+10. Confirm the app redirect URL is present: `ichart://auth-callback`.
+11. Confirm no raw card data exists in database tables.
 
 ## QA Checklist
 

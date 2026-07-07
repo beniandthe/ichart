@@ -1,10 +1,10 @@
 # iChart StoreKit Subscription Runbook
 
-Status: StoreKit/Supabase authority loop wired; App Store Connect sandbox gate pending
+Status: StoreKit/Supabase authority loop wired; App Store Connect products configured; TestFlight sandbox QA active
 Created: 2026-06-12
-Last updated: 2026-06-20
+Last updated: 2026-07-07
 
-Resume trigger: when the user says "Apple developer account is setup", run `scripts/resume_apple_developer_gate.sh` before continuing sandbox purchase QA.
+Resume trigger: after Apple product, Supabase secret, or Edge Function changes, run `scripts/resume_apple_developer_gate.sh` and repeat the smoke checks before continuing sandbox purchase QA.
 
 ## Product IDs
 
@@ -38,7 +38,7 @@ Do not initialize `StoreKitTest.SKTestSession` inside the app process. It expect
 
 ## App Store Connect Production Gate
 
-Before App Store/TestFlight subscription QA, configure the Apple-side products:
+Apple-side products must remain configured as follows before App Store/TestFlight subscription QA:
 
 - Create one subscription group for iChart Pro.
 - Create the monthly auto-renewable subscription with product ID `com.ichart.app.pro.monthly`.
@@ -47,7 +47,7 @@ Before App Store/TestFlight subscription QA, configure the Apple-side products:
 - Set App Store Server Notifications Version 2 sandbox URL to `https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/app-store-server-notifications`.
 - Add product display names, descriptions, durations, review metadata, screenshots if required by App Review, and localization records.
 - Set the monthly starting price to $7.99 and the annual starting price to $64.99 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
-- Leave both products in a state where StoreKit can fetch them in sandbox/TestFlight before removing the local StoreKit configuration from the run scheme.
+- Leave both products in a state where StoreKit can fetch them in sandbox/TestFlight. Keep the local StoreKit configuration only for local Debug simulator QA; Release/TestFlight entitlement authority must come from Apple StoreKit plus the server-side claim path.
 - Allow for App Store Connect metadata propagation; Apple notes product metadata changes can take up to 1 hour to appear in the sandbox environment.
 
 Production entitlement authority should not stop at the iOS client:
@@ -149,7 +149,18 @@ node --test \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
 ```
 
-Before this endpoint becomes production authority:
+Current release-candidate smoke gate:
+
+- remote migration `20260707164637_harden_forum_pdf_provenance.sql` is applied to project `pausvvwoazbvmzyrebwl`
+- `app-store-server-notifications` is deployed with `verify_jwt = false`
+- `storekit-subscription-claims` is deployed with `verify_jwt = true`
+- missing notification payload returns `400`
+- invalid opaque notification payload returns verifier rejection `401`
+- non-POST notification requests return `405`
+- oversized notification bodies return `413`
+- unauthenticated transaction claims return `401`
+
+Before this endpoint is treated as public-production authority:
 
 - configure Apple verifier Edge Function secrets for the target environment
 - deploy both functions after secrets are configured and smoke-test missing/invalid signed payload behavior

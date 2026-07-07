@@ -4,7 +4,7 @@ Status: Sprint 5 checklist for iChart account verification, profile sync, and Pr
 
 ## Non-Secret Project Facts
 
-- Product: iChart / iChart.
+- Product: iChart.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`.
 - Remote URL shape: `https://pausvvwoazbvmzyrebwl.supabase.co`.
 - The iOS app embeds only the project URL and publishable client key.
@@ -25,6 +25,8 @@ Required production settings:
 - New user signup is enabled for QA builds.
 - Confirm Email is enabled.
 - Secure password changes are enabled.
+- Leaked-password protection is enabled when available on the active Supabase plan.
+- MFA advisor warnings are tracked as a post-V1 account UX follow-up unless a complete MFA/passkey flow is added.
 - URL Configuration allows `ichart://auth-callback`.
 - `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.

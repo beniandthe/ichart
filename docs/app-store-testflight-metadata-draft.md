@@ -1,7 +1,7 @@
 # iChart App Store and TestFlight Metadata Draft
 
 Status: Draft for internal/external TestFlight setup
-Last updated: 2026-06-21
+Last updated: 2026-07-07
 
 ## App Identity
 
@@ -135,3 +135,4 @@ These must be real, monitored, public-facing destinations before external TestFl
 - Supabase Pro upgrade is deferred until a supported payment method is available.
 - After upgrade, enable leaked-password protection and revisit MFA advisor settings.
 - Universal links remain a production follow-up once a stable associated domain is selected.
+- App Store Server API current-status checks are a follow-up after the basic TestFlight purchase/restore path is green; the current release-candidate server gate relies on signed StoreKit transaction claims, App Store Server Notifications V2, app-account token binding, and replay/idempotency guards.
