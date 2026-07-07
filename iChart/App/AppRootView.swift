@@ -361,6 +361,7 @@ private struct IChartLaunchWordmarkStageView: View {
 struct IChartLaunchHandwritingSample: Codable, Equatable {
     private static let canonicalResourceName = "IChartCanonicalLaunchHandwriting"
     private static let canonicalResourceSubdirectory = "Launch"
+    private static let cachedCanonicalLaunchSample = loadBundledCanonicalLaunchSample(bundle: .main)
 
     var strokes: [Stroke]
 
@@ -369,6 +370,14 @@ struct IChartLaunchHandwritingSample: Codable, Equatable {
     }
 
     static func bundledCanonicalLaunchSample(bundle: Bundle = .main) -> IChartLaunchHandwritingSample? {
+        if bundle === Bundle.main {
+            return cachedCanonicalLaunchSample
+        }
+
+        return loadBundledCanonicalLaunchSample(bundle: bundle)
+    }
+
+    private static func loadBundledCanonicalLaunchSample(bundle: Bundle) -> IChartLaunchHandwritingSample? {
         let url = bundle.url(
             forResource: canonicalResourceName,
             withExtension: "json",
