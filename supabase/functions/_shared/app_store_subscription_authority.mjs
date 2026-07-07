@@ -373,7 +373,7 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     app_store_status: authorityUpdate.app_store_status,
     stored: writeResult?.stored ?? true,
     mapping_status: writeResult?.mapping_status ?? "updated",
-    subscription: writeResult?.subscription ?? null,
+    subscription: responseSubscription(writeResult, staleOrDuplicateMappingStatuses),
   });
 }
 
@@ -504,7 +504,7 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
     app_store_status: authorityUpdate.app_store_status,
     stored: claimResult?.stored ?? true,
     mapping_status: claimResult?.mapping_status ?? "claimed",
-    subscription: claimResult?.subscription ?? null,
+    subscription: responseSubscription(claimResult, rejectedClaimMappingStatuses),
   });
 }
 
@@ -618,8 +618,8 @@ async function readJSON(request, options = {}) {
   }
 
   try {
-    const text = await request.text();
-    if (new TextEncoder().encode(text).length > maxBytes) {
+    const readResult = await readBoundedText(request, maxBytes);
+    if (!readResult.ok) {
       return {
         ok: false,
         value: null,
@@ -629,7 +629,7 @@ async function readJSON(request, options = {}) {
 
     return {
       ok: true,
-      value: JSON.parse(text),
+      value: JSON.parse(readResult.text),
     };
   } catch {
     return {
@@ -638,6 +638,68 @@ async function readJSON(request, options = {}) {
       tooLarge: false,
     };
   }
+}
+
+async function readBoundedText(request, maxBytes) {
+  if (request.body === null) {
+    return {
+      ok: true,
+      text: "",
+    };
+  }
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (value === undefined) {
+      continue;
+    }
+
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+    totalBytes += chunk.byteLength;
+    if (totalBytes > maxBytes) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The response is already decided; stream cancellation is best effort.
+      }
+      return {
+        ok: false,
+        text: "",
+      };
+    }
+
+    chunks.push(chunk);
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return {
+    ok: true,
+    text: new TextDecoder().decode(body),
+  };
+}
+
+function responseSubscription(result, rejectionStatuses) {
+  if (
+    result?.stored === false
+    && rejectionStatuses.has(result?.mapping_status)
+  ) {
+    return null;
+  }
+
+  return result?.subscription ?? null;
 }
 
 function jsonResponse(status, body) {

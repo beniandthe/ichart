@@ -120,7 +120,7 @@ Supabase hosted Edge Functions expose `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` 
 Current behavior is intentionally locked:
 
 - non-POST requests are rejected
-- webhook and claim request bodies are parsed with bounded size limits before JSON/JWS verification
+- webhook and claim request bodies are parsed with bounded streaming size limits before JSON/JWS verification
 - missing `signedPayload` is rejected
 - unconfigured verifier secrets return a not-configured response
 - invalid Apple signatures are rejected before mapping or writing
@@ -137,6 +137,7 @@ Current behavior is intentionally locked:
 - transaction claims reject stale signed transactions for an existing owner mapping
 - verified notifications update only previously claimed `storekit_original_transaction_id` rows
 - unmapped notifications are accepted without assigning ownership
+- duplicate/stale writer rejections do not echo subscription rows back to public webhook or claim callers
 - no subscription row is mutated from unverified input
 
 The shared authority reducer and Supabase writer are testable with Node so the mapping rules can be verified before Deno is installed locally:

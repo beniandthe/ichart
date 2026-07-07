@@ -1,3 +1,5 @@
+import CryptoKit
+import Foundation
 import XCTest
 
 final class SupabaseIntegrationTests: XCTestCase {
@@ -155,12 +157,13 @@ final class SupabaseIntegrationTests: XCTestCase {
             let commentID = UUID().uuidString.lowercased()
             let reportID = UUID().uuidString.lowercased()
             let path = "\(proSession.userID)/\(postID).pdf"
+            let forumPDFData = Data("%PDF-1.4\n% iChart forum integration\n%%EOF\n".utf8)
             storagePath = path
 
             try await client.uploadForumPDF(
                 path: path,
                 accessToken: proSession.accessToken,
-                data: Data("%PDF-1.4\n% iChart forum integration\n%%EOF\n".utf8)
+                data: forumPDFData
             )
             try await client.insertForumSong(
                 songID: songID,
@@ -188,7 +191,11 @@ final class SupabaseIntegrationTests: XCTestCase {
             )
             XCTAssertEqual(pendingPostRows.first?["status"] as? String, "pending")
 
-            try await client.approveForumPost(postID: postID, adminKey: adminKey)
+            try await client.approveForumPost(
+                postID: postID,
+                adminKey: adminKey,
+                pdfData: forumPDFData
+            )
 
             let downloadedPDF = try await client.downloadForumPDF(
                 path: path,
@@ -608,8 +615,7 @@ private struct SupabaseRESTClient {
         )
     }
 
-    func approveForumPost(postID: String, adminKey: String) async throws {
-        let now = ISO8601DateFormatter.smartChartIntegration.string(from: Date())
+    func approveForumPost(postID: String, adminKey: String, pdfData: Data) async throws {
         _ = try await requestArray(
             path: "rest/v1/forum_chart_posts",
             method: "PATCH",
@@ -617,9 +623,18 @@ private struct SupabaseRESTClient {
             accessToken: adminKey,
             prefer: "return=representation",
             body: [
-                "status": "published",
-                "pdf_provenance_status": "validated",
-                "pdf_validated_at": now
+                "status": "published"
+            ]
+        )
+
+        _ = try await requestArray(
+            path: "rest/v1/rpc/finalize_forum_chart_post_pdf",
+            method: "POST",
+            accessToken: adminKey,
+            body: [
+                "target_post_id": postID,
+                "target_byte_size": pdfData.count,
+                "target_sha256": pdfData.iChartSHA256Hex
             ]
         )
     }
@@ -1000,6 +1015,14 @@ private extension ISO8601DateFormatter {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+}
+
+private extension Data {
+    var iChartSHA256Hex: String {
+        SHA256.hash(data: self)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }
 
 private final class SupabaseNoRedirectDelegate: NSObject, URLSessionTaskDelegate {

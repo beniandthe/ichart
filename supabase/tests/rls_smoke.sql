@@ -527,10 +527,6 @@ select is(
 
 reset role;
 
-update public.forum_chart_posts
-set status = 'published'
-where id = '40000000-0000-0000-0000-000000000001';
-
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
@@ -584,6 +580,87 @@ select lives_ok(
         owner,
         metadata
     ) values (
+        '80000000-0000-0000-0000-000000000101',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/orphan-cap-1.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    );
+
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
+        '80000000-0000-0000-0000-000000000102',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/orphan-cap-2.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    );
+
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
+        '80000000-0000-0000-0000-000000000103',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/orphan-cap-3.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    )
+    $$,
+    'active Pro can keep a small unattached forum PDF rollback buffer'
+);
+
+select throws_ok(
+    $$
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
+        '80000000-0000-0000-0000-000000000104',
+        'forum_chart_pdfs',
+        '00000000-0000-0000-0000-000000000001/orphan-cap-4.pdf',
+        '00000000-0000-0000-0000-000000000001',
+        '{"mimetype":"application/pdf"}'::jsonb
+    )
+    $$,
+    '42501',
+    null,
+    'active Pro cannot exceed the unattached forum PDF upload cap'
+);
+
+select lives_ok(
+    $$
+    delete from storage.objects
+    where bucket_id = 'forum_chart_pdfs'
+        and name in (
+            '00000000-0000-0000-0000-000000000001/orphan-cap-1.pdf',
+            '00000000-0000-0000-0000-000000000001/orphan-cap-2.pdf',
+            '00000000-0000-0000-0000-000000000001/orphan-cap-3.pdf'
+        )
+    $$,
+    'active Pro can clear unattached forum PDF rollback buffer'
+);
+
+select lives_ok(
+    $$
+    insert into storage.objects (
+        id,
+        bucket_id,
+        name,
+        owner,
+        metadata
+    ) values (
         '80000000-0000-0000-0000-000000000002',
         'forum_chart_pdfs',
         '00000000-0000-0000-0000-000000000001/40000000-0000-0000-0000-000000000001.pdf',
@@ -591,8 +668,19 @@ select lives_ok(
         '{"mimetype":"application/pdf"}'::jsonb
     )
     $$,
-    'active Pro can upload forum PDF metadata for published post'
+    'active Pro can upload forum PDF metadata for pending post path'
 );
+
+reset role;
+
+update public.forum_chart_posts
+set status = 'published',
+    pdf_provenance_status = 'validated',
+    pdf_validated_at = now()
+where id = '40000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
 select is(
     (
@@ -607,7 +695,36 @@ select is(
 
 reset role;
 
-select private.finalize_forum_chart_post_pdf('40000000-0000-0000-0000-000000000001');
+select throws_ok(
+    $$
+    select private.finalize_forum_chart_post_pdf(
+        '40000000-0000-0000-0000-000000000001',
+        39000,
+        'not-a-sha'
+    )
+    $$,
+    'P0001',
+    null,
+    'forum PDF finalization rejects invalid server provenance'
+);
+
+select private.finalize_forum_chart_post_pdf(
+    '40000000-0000-0000-0000-000000000001',
+    39000,
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from private.forum_chart_pdf_provenance
+        where post_id = '40000000-0000-0000-0000-000000000001'
+            and storage_object_id = '80000000-0000-0000-0000-000000000002'
+            and sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    ),
+    1,
+    'forum PDF finalization records service-owned provenance metadata'
+);
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
