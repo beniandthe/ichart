@@ -132,6 +132,7 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
     var linkedTargetID: UUID?
     var rawInput: String?
     var horizontalOffsetWithinMeasure: Double? = nil
+    var scale: Double? = nil
 
     var resolvedDisplayText: String {
         displayText ?? type.defaultDisplayText
@@ -141,12 +142,29 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
         Self.clampedHorizontalOffset(horizontalOffsetWithinMeasure ?? 0)
     }
 
+    var resolvedScale: Double {
+        Self.clampedScale(scale ?? Self.defaultScale)
+    }
+
     static func clampedHorizontalOffset(_ offset: Double) -> Double {
         guard offset.isFinite else {
             return 0
         }
 
         return min(max(offset, 0), 1)
+    }
+
+    static let defaultScale: Double = 1
+    static let minimumScale: Double = 0.75
+    static let maximumScale: Double = 1.8
+    static let scaleStep: Double = 0.125
+
+    static func clampedScale(_ scale: Double) -> Double {
+        guard scale.isFinite else {
+            return defaultScale
+        }
+
+        return min(max(scale, minimumScale), maximumScale)
     }
 }
 

@@ -3,14 +3,23 @@ import SwiftUI
 struct ChartSetupSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
+    let onOperationStarted: (String) -> Void
+    let onOperationFinished: () -> Void
 
     @State private var numerator: Int
     @State private var denominator: Int
     @State private var startingMeasureCount: Int
     @State private var selectedStylePreset: StylePreset
+    @State private var isApplyingSetup = false
 
-    init(chart: Binding<Chart>) {
+    init(
+        chart: Binding<Chart>,
+        onOperationStarted: @escaping (String) -> Void = { _ in },
+        onOperationFinished: @escaping () -> Void = {}
+    ) {
         self._chart = chart
+        self.onOperationStarted = onOperationStarted
+        self.onOperationFinished = onOperationFinished
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
         _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
         _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
@@ -39,7 +48,13 @@ struct ChartSetupSheetView: View {
             }
             .navigationTitle(chart.hasCompletedInitialSetup ? "Chart" : "New Chart")
             .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled(!chart.hasCompletedInitialSetup)
+            .interactiveDismissDisabled(!chart.hasCompletedInitialSetup || isApplyingSetup)
+            .disabled(isApplyingSetup)
+            .overlay {
+                if isApplyingSetup {
+                    ChartSetupOperationOverlay(message: operationMessage)
+                }
+            }
             .toolbar {
                 if chart.hasCompletedInitialSetup {
                     ToolbarItem(placement: .cancellationAction) {
@@ -50,10 +65,16 @@ struct ChartSetupSheetView: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(chart.hasCompletedInitialSetup ? "Apply" : "Create Blank Page") {
-                        applySetup()
-                        dismiss()
+                    Button {
+                        applySetupWithFeedback()
+                    } label: {
+                        if isApplyingSetup {
+                            ProgressView()
+                        } else {
+                            Text(chart.hasCompletedInitialSetup ? "Apply" : "Create Blank Page")
+                        }
                     }
+                    .disabled(isApplyingSetup)
                 }
             }
         }
@@ -61,6 +82,10 @@ struct ChartSetupSheetView: View {
 
     private var setupPolicy: ChartLayoutSetupPolicy {
         chart.layoutStyle.profile.setupPolicy
+    }
+
+    private var operationMessage: String {
+        chart.hasCompletedInitialSetup ? "Updating page setup..." : "Creating blank page..."
     }
 
     private var layoutSection: some View {
@@ -194,6 +219,43 @@ struct ChartSetupSheetView: View {
         }
     }
 
+    private func applySetupWithFeedback() {
+        guard !isApplyingSetup else {
+            return
+        }
+
+        isApplyingSetup = true
+        onOperationStarted(operationMessage)
+        let setupSpan = IChartPerformanceTrace.start(
+            "chartSetup.applySetup",
+            metadata: setupTraceMetadata
+        )
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            let completionSpan = IChartPerformanceTrace.start(
+                "chartSetup.completeInitialSetup",
+                metadata: setupTraceMetadata
+            )
+            applySetup()
+            IChartPerformanceTrace.end(completionSpan)
+            dismiss()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            onOperationFinished()
+            IChartPerformanceTrace.end(setupSpan)
+        }
+    }
+
+    private var setupTraceMetadata: [String: String] {
+        [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedBefore": chart.hasCompletedInitialSetup ? "true" : "false",
+            "meter": "\(numerator)/\(denominator)",
+            "startingMeasureCount": "\(startingMeasureCount)",
+            "stylePreset": selectedStylePreset.rawValue
+        ]
+    }
+
     private func applySetup() {
         let resolvedMeter: Meter
         if setupPolicy.includesTimeSignatureSelection {
@@ -213,4 +275,26 @@ struct ChartSetupSheetView: View {
         )
     }
 
+}
+
+private struct ChartSetupOperationOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+    }
 }

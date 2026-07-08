@@ -350,6 +350,24 @@ enum LeadSheetInkCanvasSyncPolicy {
             desiredDrawingData: desiredDrawingData
         )
     }
+
+    static func shouldTreatCanvasAsSynced(
+        currentInkSnapshot: LeadSheetInkDrawingSnapshot?,
+        desiredDrawingData: Data?
+    ) -> Bool {
+        guard let desiredDrawingData else {
+            return currentInkSnapshot == nil
+        }
+
+        guard let desiredDrawing = try? PKDrawing(data: desiredDrawingData) else {
+            return false
+        }
+
+        return LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+            currentInkSnapshot: currentInkSnapshot,
+            scheduledInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: desiredDrawing)
+        )
+    }
 }
 
 enum LeadSheetRhythmicNotationAutoApplyPolicy {
@@ -1137,9 +1155,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
-    private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
+    private var performanceLayoutTraceCount = 0
+    private var performanceDrawTraceCount = 0
+    private var activePerformanceTraceDrawIndex: Int?
     private var notationRenderer: LeadSheetNotationRenderer {
         LeadSheetNotationRenderer(chart: chart)
     }
@@ -1171,6 +1191,41 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let context = UIGraphicsGetCurrentContext(),
               let pageLayout else {
             return
+        }
+
+        let drawIndex = nextPerformanceDrawTraceIndex()
+        let drawSpan = drawIndex.map { index in
+            IChartPerformanceTrace.start(
+                "editor.canvas.draw",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(index)",
+                        "rect": "\(Int(rect.width))x\(Int(rect.height))",
+                        "systems": "\(pageLayout.systems.count)"
+                    ]
+                )
+            )
+        }
+        let firstDrawSpan = drawIndex == 1
+            ? IChartPerformanceTrace.start(
+                "editor.canvas.firstDraw",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "rect": "\(Int(rect.width))x\(Int(rect.height))",
+                        "systems": "\(pageLayout.systems.count)"
+                    ]
+                )
+            )
+            : nil
+        activePerformanceTraceDrawIndex = drawIndex
+        defer {
+            if let firstDrawSpan {
+                IChartPerformanceTrace.end(firstDrawSpan)
+            }
+            if let drawSpan {
+                IChartPerformanceTrace.end(drawSpan)
+            }
+            activePerformanceTraceDrawIndex = nil
         }
 
         let renderer = notationRenderer
@@ -1251,9 +1306,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordEditHitOverlayView.isOpaque = false
         chordEditHitOverlayView.isHidden = true
         chordEditHitOverlayView.containsEditableControl = { [weak self] location in
-            let hitTarget = self?.editableOverlayHitTarget(at: location)
-            self?.lastEditableOverlayHitTarget = hitTarget
-            return hitTarget != nil
+            self?.editableOverlayHitTarget(at: location) != nil
         }
         chordEditTapRecognizer.delegate = self
         chordEditDoubleTapRecognizer.delegate = self
@@ -1348,9 +1401,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let layoutIndex = nextPerformanceLayoutTraceIndex()
+        let layoutSpan = layoutIndex.map { index in
+            IChartPerformanceTrace.start(
+                "editor.canvas.layout",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "layoutIndex": "\(index)",
+                        "pageSize": "\(Int(bounds.width))x\(Int(bounds.height))"
+                    ]
+                )
+            )
+        }
         pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: bounds.size)
+        if let layoutSpan {
+            IChartPerformanceTrace.end(layoutSpan)
+        }
         syncPageInkCanvas()
         setNeedsDisplay()
+    }
+
+    private func nextPerformanceLayoutTraceIndex() -> Int? {
+        guard performanceLayoutTraceCount < 8 else {
+            return nil
+        }
+
+        performanceLayoutTraceCount += 1
+        return performanceLayoutTraceCount
+    }
+
+    private func nextPerformanceDrawTraceIndex() -> Int? {
+        guard performanceDrawTraceCount < 8 else {
+            return nil
+        }
+
+        performanceDrawTraceCount += 1
+        return performanceDrawTraceCount
+    }
+
+    private func canvasPerformanceTraceMetadata(extra: [String: String] = [:]) -> [String: String] {
+        var metadata = [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedSetup": chart.hasCompletedInitialSetup ? "true" : "false",
+            "measureCount": "\(chart.measures.count)",
+            "interactionMode": interactionMode.activeToolTitle,
+            "inkToolMode": inkToolMode.rawValue
+        ]
+        for (key, value) in extra {
+            metadata[key] = value
+        }
+        return metadata
     }
 
     private func drawSystem(_ system: LeadSheetSystemLayout, using renderer: LeadSheetNotationRenderer) {
@@ -1375,16 +1475,74 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawEnding(endingLayout)
         }
 
-        renderer.drawStaffLines(for: system)
-
-        if let clefFrame = system.clefFrame {
-            renderer.drawClef(in: clefFrame)
+        if let activePerformanceTraceDrawIndex {
+            let staffSpan = IChartPerformanceTrace.start(
+                "editor.renderer.drawStaffLines",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                        "systemIndex": "\(system.index)"
+                    ]
+                )
+            )
+            renderer.drawStaffLines(for: system)
+            IChartPerformanceTrace.end(staffSpan)
+        } else {
+            renderer.drawStaffLines(for: system)
         }
 
-        renderer.drawKeySignature(system.keySignatureLayouts)
+        if let clefFrame = system.clefFrame {
+            if let activePerformanceTraceDrawIndex {
+                let clefSpan = IChartPerformanceTrace.start(
+                    "editor.renderer.drawClef",
+                    metadata: canvasPerformanceTraceMetadata(
+                        extra: [
+                            "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                            "systemIndex": "\(system.index)"
+                        ]
+                    )
+                )
+                renderer.drawClef(in: clefFrame)
+                IChartPerformanceTrace.end(clefSpan)
+            } else {
+                renderer.drawClef(in: clefFrame)
+            }
+        }
 
-        if let timeSignatureFrame = system.timeSignatureFrame {
-            renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+        if let activePerformanceTraceDrawIndex {
+            let keySignatureSpan = IChartPerformanceTrace.start(
+                "editor.renderer.drawKeySignature",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                        "systemIndex": "\(system.index)",
+                        "symbolCount": "\(system.keySignatureLayouts.count)"
+                    ]
+                )
+            )
+            renderer.drawKeySignature(system.keySignatureLayouts)
+            IChartPerformanceTrace.end(keySignatureSpan)
+        } else {
+            renderer.drawKeySignature(system.keySignatureLayouts)
+        }
+
+        if chart.hasCompletedInitialSetup,
+           let timeSignatureFrame = system.timeSignatureFrame {
+            if let activePerformanceTraceDrawIndex {
+                let timeSignatureSpan = IChartPerformanceTrace.start(
+                    "editor.renderer.drawTimeSignature",
+                    metadata: canvasPerformanceTraceMetadata(
+                        extra: [
+                            "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                            "systemIndex": "\(system.index)"
+                        ]
+                    )
+                )
+                renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+                IChartPerformanceTrace.end(timeSignatureSpan)
+            } else {
+                renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+            }
         }
 
         var drawnRepeatMarkerIDs = Set<String>()
@@ -2110,22 +2268,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nil
     }
 
-    private func lastRoadmapMarkerDragHitTarget() -> RoadmapMarkerEditHitTarget? {
-        guard case let .roadmap(hitTarget)? = lastEditableOverlayHitTarget,
-              hitTarget.action != .delete else {
-            return nil
-        }
-
-        return hitTarget
-    }
-
-    private func lastCueTextDragHitTarget() -> CueTextEditHitTarget? {
-        guard case let .cueText(hitTarget)? = lastEditableOverlayHitTarget,
-              hitTarget.action == .select else {
-            return nil
-        }
-
-        return hitTarget
+    private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
+        cueTextMoveHitTarget(at: location) != nil
+            || roadmapMarkerMoveHitTarget(at: location) != nil
+            || chordMoveHitTarget(at: location) != nil
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -2144,13 +2290,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         updateChordInkConfirmOverlayVisibility()
 
-        if let role = activeInkAuthoringSessionRole() {
+        let activeRole = activeInkAuthoringSessionRole()
+        if let role = activeRole {
             inkAuthoringSessionState.markDirty(role)
         }
 
         if interactionMode.allowsDirectRhythmicNotationInk {
             clearRhythmicNotationUnreadInkFeedback()
             recordRhythmicNotationDrawingChange()
+        }
+
+        if activeRole == .chord {
+            cancelPendingInkSessionScheduledWork()
+            return
         }
 
         scheduleInkSessionWorkAfterDrawingChange()
@@ -2540,16 +2692,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let location = recognizer.location(in: self)
         if activeCueTextMoveDrag != nil
             || (recognizer.state == .began
-                && (cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
-                    || lastCueTextDragHitTarget() != nil)) {
+                && cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
             handleCueTextMovePan(recognizer)
             return
         }
 
         if activeRoadmapMarkerEditDrag != nil
             || (recognizer.state == .began
-                && (roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
-                    || lastRoadmapMarkerDragHitTarget() != nil)) {
+                && roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
             handleRoadmapMarkerEditPan(recognizer)
             return
         }
@@ -2610,11 +2760,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         switch recognizer.state {
         case .began:
             let startLocation = panStartLocation(for: recognizer)
-            let resolvedCueTextLayout = cueTextMoveHitTarget(at: startLocation)
-                ?? lastCueTextDragHitTarget().flatMap { hitTarget in
-                    cueTextLayouts().first { $0.id == hitTarget.cueTextID }
-                }
-            guard let cueTextLayout = resolvedCueTextLayout,
+            guard let cueTextLayout = cueTextMoveHitTarget(at: startLocation),
                   let cueText = chart.cueText(id: cueTextLayout.id) else {
                 activeCueTextMoveDrag = nil
                 setNeedsDisplay()
@@ -2645,7 +2791,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ) else {
                 if recognizer.state == .ended {
                     self.activeCueTextMoveDrag = nil
-                    lastEditableOverlayHitTarget = nil
                     unlockParentScrollForChordMove()
                     setNeedsDisplay()
                 }
@@ -2669,14 +2814,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if recognizer.state == .ended {
                 self.activeCueTextMoveDrag = nil
-                lastEditableOverlayHitTarget = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
 
         case .cancelled, .failed:
             activeCueTextMoveDrag = nil
-            lastEditableOverlayHitTarget = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -2689,11 +2832,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         switch recognizer.state {
         case .began:
             let startLocation = panStartLocation(for: recognizer)
-            let resolvedMarkerLayout = roadmapMarkerMoveHitTarget(at: startLocation)
-                ?? lastRoadmapMarkerDragHitTarget().flatMap { hitTarget in
-                    roadmapMarkerLayouts().first { $0.id == hitTarget.markerID }
-                }
-            guard let markerLayout = resolvedMarkerLayout else {
+            guard let markerLayout = roadmapMarkerMoveHitTarget(at: startLocation) else {
                 activeRoadmapMarkerEditDrag = nil
                 setNeedsDisplay()
                 return
@@ -2742,14 +2881,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if recognizer.state == .ended {
                 self.activeRoadmapMarkerEditDrag = nil
-                lastEditableOverlayHitTarget = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
 
         case .cancelled, .failed:
             activeRoadmapMarkerEditDrag = nil
-            lastEditableOverlayHitTarget = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -2799,6 +2936,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+            currentInkSnapshot: currentCanvasInkSnapshot(),
+            desiredDrawingData: desiredData
+        ) {
+            pageInkCanvasView.becomeFirstResponder()
+            return
+        }
+
         isSyncingInkCanvasFromModel = true
         if let desiredData,
            let drawing = try? PKDrawing(data: desiredData) {
@@ -2822,7 +2967,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            schedulePassiveChordInkPersistence()
+            cancelPendingInkSessionScheduledWork()
             return
 
         case .rhythm:
@@ -2891,22 +3036,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
     }
 
-    private func schedulePassiveChordInkPersistence() {
-        chordInkRecognitionRequestState.cancelPendingRequest()
-        pendingInkPersistWorkItem?.cancel()
-        pendingRhythmicNotationCommitWorkItem?.cancel()
-        pendingRhythmicNotationCommitWorkItem = nil
-        let scheduledInkSnapshot = currentCanvasInkSnapshot()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.persistPassiveInkIfStable(scheduledInkSnapshot: scheduledInkSnapshot)
-        }
-        pendingInkPersistWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + LeadSheetPassiveInkPersistencePolicy.defaultIdleDelay,
-            execute: workItem
-        )
-    }
-
     private func scheduleInkSessionWorkAfterDrawingChange() {
         pendingInkInputCoalescingWorkItem?.cancel()
         cancelPendingInkSessionScheduledWork()
@@ -2922,6 +3051,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cancelPendingInkSessionScheduledWork() {
+        pendingInkInputCoalescingWorkItem?.cancel()
+        pendingInkInputCoalescingWorkItem = nil
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
         pendingRhythmicNotationCommitWorkItem?.cancel()
@@ -4068,17 +4199,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 x: location.x - translation.x,
                 y: location.y - translation.y
             )
-            if cueTextMoveHitTarget(at: startLocation) != nil
-                || lastCueTextDragHitTarget() != nil {
-                return true
-            }
-
-            if roadmapMarkerMoveHitTarget(at: startLocation) != nil
-                || lastRoadmapMarkerDragHitTarget() != nil {
-                return true
-            }
-
-            return chordMoveHitTarget(at: location) != nil
+            return objectMovePanStartHitTarget(at: startLocation)
         }
 
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -4108,9 +4229,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
-        if gestureRecognizer === chordMovePanRecognizer,
-           touch.type == .pencil {
-            return false
+        if gestureRecognizer === chordMovePanRecognizer {
+            return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: touch.type,
+                startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
+            )
         }
 
         return true

@@ -10,6 +10,7 @@ struct IChartApp: App {
     @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
 
     init() {
+        let appInitSpan = IChartPerformanceTrace.start("app.init")
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
@@ -23,7 +24,10 @@ struct IChartApp: App {
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
+        NotationGlyphPathCache.scheduleDefaultLeadSheetWarmup()
         #endif
+
+        IChartPerformanceTrace.end(appInitSpan)
     }
 
     var body: some Scene {
@@ -36,24 +40,22 @@ struct IChartApp: App {
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
                 .task {
+                    let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
                     await subscriptionStore.bootstrap()
+                    IChartPerformanceTrace.record("app.bootstrap.subscriptionStore.complete")
                     applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
-                    await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+                    IChartPerformanceTrace.end(bootstrapSpan)
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
-                    Task {
-                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
-                    }
                 }
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)
                     Task {
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
-                        await forumStore.refresh(authState: state, entitlements: store.entitlements)
                     }
                 }
                 .onOpenURL { url in
@@ -62,7 +64,6 @@ struct IChartApp: App {
                         cloudSyncStore.authStateChanged(authStore.state)
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
-                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                     }
                 }
         }

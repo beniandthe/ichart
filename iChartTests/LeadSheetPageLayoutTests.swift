@@ -621,7 +621,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let referenceMeasure = try XCTUnwrap(referenceLayout.systems.first?.measures.first)
         let referenceFrames = referenceMeasure.chordLayouts.map(\.frame)
 
-        for chordFont in [ChartFontFamilyPreset.finaleJazz, .museJazz, .finaleBroadway, .bravura] {
+        for chordFont in [ChartFontFamilyPreset.finaleJazz, .museJazz, .finaleBroadway, .leland] {
             var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 4, layoutStyle: .simpleChordSheet)
             chart.setChordFontOverride(chordFont)
             let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -1311,6 +1311,26 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(markerLayout.frame.height, 40, accuracy: 0.001)
         XCTAssertEqual(markerLayout.movementFrame.height, 40, accuracy: 0.001)
         XCTAssertLessThan(markerLayout.frame.width, markerLayout.movementFrame.width)
+    }
+
+    func testSimpleChordSheetPointRoadmapMarkerScaleChangesMarkerFrame() throws {
+        var chart = Chart.blank(title: "Simple Roadmap", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.codaMarker, anchorMeasureID: measureID))
+
+        XCTAssertTrue(chart.resizePointRoadmapMarker(markerID, byScaleDelta: RoadmapObject.scaleStep))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let markerLayout = try XCTUnwrap(layout.systems.first?.roadmapMarkerLayouts.first)
+
+        XCTAssertEqual(markerLayout.roadmapObjectID, markerID)
+        XCTAssertEqual(markerLayout.scale, CGFloat(RoadmapObject.defaultScale + RoadmapObject.scaleStep), accuracy: 0.001)
+        XCTAssertEqual(markerLayout.frame.width, 42 * markerLayout.scale, accuracy: 0.001)
+        XCTAssertEqual(markerLayout.frame.height, 40 * markerLayout.scale, accuracy: 0.001)
     }
 
     func testSimpleChordSheetInlineCodaRoadmapMarkerHasGlyphSafeHeight() throws {

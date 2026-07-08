@@ -135,9 +135,7 @@ struct ChartTypographySheetView: View {
     }
 
     private func notationPreview(for preset: NotationFontPreset) -> String {
-        let four = NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"
-        let three = NotationGlyphCatalog.timeSignatureDigit(3) ?? "3"
-        return "\(four)\(four)   \(three)\(four)"
+        preset.notationPreviewSampleText
     }
 
     private func applyTypographyChange(_ work: @escaping () -> Void) {

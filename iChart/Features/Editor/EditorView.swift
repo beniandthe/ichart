@@ -92,7 +92,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordWrite:
             "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Ink Only when the chord should stay handwritten."
         case .chordConfirm:
-            "Tap the chord you meant. Keyboard opens manual entry, Keep Ink leaves handwriting in place, and Rewrite clears the attempt."
+            "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
         case .chordDone:
             "Tap Done to leave Chord mode and return to Select before using the other editor tools."
         case .page:
@@ -275,6 +275,7 @@ struct EditorView: View {
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
+    @State private var didRecordFirstCanvasAppear = false
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
     @State private var selectedCueTextID: UUID?
@@ -396,7 +397,11 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingSetupSheet) {
             ZStack(alignment: .bottomTrailing) {
-                ChartSetupSheetView(chart: $chart)
+                ChartSetupSheetView(
+                    chart: $chart,
+                    onOperationStarted: showEditorOperation,
+                    onOperationFinished: clearEditorOperation
+                )
 
                 if editorGuidedTourStep == .setup {
                     IChartEditorGuidedTourPrompt(
@@ -671,6 +676,15 @@ struct EditorView: View {
 
             activeEditorOperationMessage = nil
         }
+    }
+
+    private func showEditorOperation(_ message: String) {
+        activeEditorOperationID = UUID()
+        activeEditorOperationMessage = message
+    }
+
+    private func clearEditorOperation() {
+        activeEditorOperationMessage = nil
     }
 
     private var editorNavigationChrome: some View {
@@ -969,6 +983,30 @@ struct EditorView: View {
 
     @ViewBuilder
     private var codaToolMenuContent: some View {
+        if selectedRoadmapMarker != nil {
+            Button {
+                resizeSelectedRoadmapMarker(by: RoadmapObject.scaleStep)
+            } label: {
+                Label("Make Marker Larger", systemImage: "plus.magnifyingglass")
+            }
+            .disabled(!canGrowSelectedRoadmapMarker)
+
+            Button {
+                resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
+            } label: {
+                Label("Make Marker Smaller", systemImage: "minus.magnifyingglass")
+            }
+            .disabled(!canShrinkSelectedRoadmapMarker)
+
+            Button(role: .destructive) {
+                deleteSelectedRoadmapMarker()
+            } label: {
+                Label("Delete Selected Marker", systemImage: "trash")
+            }
+
+            Divider()
+        }
+
         ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
             Button {
                 handleAddPointRoadmapMarker(roadmapType)
@@ -1491,6 +1529,28 @@ struct EditorView: View {
             rhythmicNotationPreviewConfirmationRequestID: rhythmPreviewConfirmationRequestID,
             onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged
         )
+        .onAppear {
+            guard !didRecordFirstCanvasAppear else {
+                return
+            }
+
+            didRecordFirstCanvasAppear = true
+            IChartPerformanceTrace.record(
+                "editor.canvas.firstAppear",
+                metadata: editorPerformanceTraceMetadata
+            )
+        }
+    }
+
+    private var editorPerformanceTraceMetadata: [String: String] {
+        [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedSetup": chart.hasCompletedInitialSetup ? "true" : "false",
+            "measureCount": "\(chart.measures.count)",
+            "canvasMode": canvasMode.activeToolTitle,
+            "inkToolMode": inkToolMode.rawValue,
+            "chordToolInputMode": chordToolInputMode.rawValue
+        ]
     }
 
     private var rhythmDiagnosticStatusChip: some View {
@@ -1667,6 +1727,10 @@ struct EditorView: View {
         selectedCueTextID.flatMap { chart.cueText(id: $0) }
     }
 
+    private var selectedRoadmapMarker: RoadmapObject? {
+        selectedRoadmapMarkerID.flatMap { chart.roadmapObject(id: $0) }
+    }
+
     private var canShrinkSelectedCueText: Bool {
         guard let selectedCueText else {
             return false
@@ -1681,6 +1745,22 @@ struct EditorView: View {
         }
 
         return selectedCueText.scale < CueText.maximumScale
+    }
+
+    private var canShrinkSelectedRoadmapMarker: Bool {
+        guard let selectedRoadmapMarker else {
+            return false
+        }
+
+        return selectedRoadmapMarker.resolvedScale > RoadmapObject.minimumScale
+    }
+
+    private var canGrowSelectedRoadmapMarker: Bool {
+        guard let selectedRoadmapMarker else {
+            return false
+        }
+
+        return selectedRoadmapMarker.resolvedScale < RoadmapObject.maximumScale
     }
 
     private var canDeleteSelectedMeasure: Bool {
@@ -2220,6 +2300,18 @@ struct EditorView: View {
         canvasMode = .textEdit
     }
 
+    private func resizeSelectedRoadmapMarker(by scaleDelta: Double) {
+        guard let selectedRoadmapMarkerID,
+              chart.resizePointRoadmapMarker(selectedRoadmapMarkerID, byScaleDelta: scaleDelta),
+              let marker = chart.roadmapObject(id: selectedRoadmapMarkerID) else {
+            return
+        }
+
+        selectedMeasureID = marker.startMeasureID
+        selectedCueTextID = nil
+        canvasMode = .browse
+    }
+
     private func deleteSelectedCueText() {
         guard let selectedCueTextID,
               let cueText = chart.cueText(id: selectedCueTextID),
@@ -2230,6 +2322,19 @@ struct EditorView: View {
         selectedMeasureID = cueText.anchorMeasureID
         self.selectedCueTextID = nil
         selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
+    private func deleteSelectedRoadmapMarker() {
+        guard let selectedRoadmapMarkerID,
+              let marker = chart.roadmapObject(id: selectedRoadmapMarkerID),
+              chart.deleteRoadmapObject(selectedRoadmapMarkerID) else {
+            return
+        }
+
+        selectedMeasureID = marker.startMeasureID
+        self.selectedRoadmapMarkerID = nil
+        selectedCueTextID = nil
         canvasMode = .browse
     }
 
@@ -4248,7 +4353,7 @@ private struct CueTextInputView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.autocapitalizationType = .sentences
         textView.autocorrectionType = .yes
-        textView.isScrollEnabled = true
+        textView.isScrollEnabled = false
         textView.isEditable = true
         textView.isSelectable = true
         textView.keyboardDismissMode = .interactive

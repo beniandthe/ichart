@@ -154,4 +154,13 @@ enum LeadSheetChordMoveScrollLockPolicy {
         !(involvesChordMove && involvesParentScroll)
     }
 }
+
+enum LeadSheetObjectMoveTouchPolicy {
+    static func allowsMovePan(
+        touchType: UITouch.TouchType,
+        startsOnMoveTarget: Bool
+    ) -> Bool {
+        touchType != .pencil || startsOnMoveTarget
+    }
+}
 #endif

@@ -222,6 +222,7 @@ struct LeadSheetRoadmapMarkerLayout: Identifiable, Hashable {
     var frame: CGRect
     var movementFrame: CGRect
     var anchorMeasureID: UUID
+    var scale: CGFloat
 
     var id: UUID {
         roadmapObjectID
@@ -843,15 +844,18 @@ enum LeadSheetPageLayoutEngine {
                 let text = roadmapObject.resolvedDisplayText
                 let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
                 let containsNotationGlyph = roadmapObject.type.containsNotationMarkerGlyph
-                let markerHeight: CGFloat
-                let markerTopOffset: CGFloat
+                let baseMarkerHeight: CGFloat
+                let baseMarkerTopOffset: CGFloat
                 if isSimpleChordSheet {
-                    markerHeight = containsNotationGlyph ? 40 : 34
-                    markerTopOffset = containsNotationGlyph ? -17 : -14
+                    baseMarkerHeight = containsNotationGlyph ? 40 : 34
+                    baseMarkerTopOffset = containsNotationGlyph ? -17 : -14
                 } else {
-                    markerHeight = containsNotationGlyph ? 28 : 24
-                    markerTopOffset = containsNotationGlyph ? -8 : -5
+                    baseMarkerHeight = containsNotationGlyph ? 28 : 24
+                    baseMarkerTopOffset = containsNotationGlyph ? -8 : -5
                 }
+                let markerScale = CGFloat(roadmapObject.resolvedScale)
+                let markerHeight = baseMarkerHeight * markerScale
+                let markerTopOffset = baseMarkerTopOffset - (markerHeight - baseMarkerHeight) / 2
                 let movementFrame = CGRect(
                     x: measureLayout.staffFrame.minX + 6,
                     y: systemFrame.minY + markerTopOffset,
@@ -862,7 +866,8 @@ enum LeadSheetPageLayoutEngine {
                     for: text,
                     type: roadmapObject.type,
                     maxWidth: movementFrame.width,
-                    isSimpleChordSheet: isSimpleChordSheet
+                    isSimpleChordSheet: isSimpleChordSheet,
+                    scale: markerScale
                 )
                 let horizontalOffset = roadmapObject.resolvedHorizontalOffsetWithinMeasure
                 let availableWidth = max(0, movementFrame.width - markerWidth)
@@ -877,7 +882,8 @@ enum LeadSheetPageLayoutEngine {
                         height: markerHeight
                     ),
                     movementFrame: movementFrame,
-                    anchorMeasureID: roadmapObject.startMeasureID
+                    anchorMeasureID: roadmapObject.startMeasureID,
+                    scale: markerScale
                 )
             }
     }
@@ -886,7 +892,8 @@ enum LeadSheetPageLayoutEngine {
         for text: String,
         type: RoadmapType,
         maxWidth: CGFloat,
-        isSimpleChordSheet: Bool
+        isSimpleChordSheet: Bool,
+        scale: CGFloat
     ) -> CGFloat {
         let minimumWidth: CGFloat
         if type.isStandaloneNotationMarker {
@@ -903,7 +910,7 @@ enum LeadSheetPageLayoutEngine {
             textWidth = CGFloat(text.count) * characterWidth + (isSimpleChordSheet ? 18 : 12)
         }
 
-        return min(max(minimumWidth, textWidth), max(1, maxWidth))
+        return min(max(minimumWidth, textWidth) * scale, max(1, maxWidth))
     }
 
     private static func packedSystemPlans(

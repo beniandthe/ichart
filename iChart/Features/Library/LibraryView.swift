@@ -544,7 +544,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "confirm",
                     title: "Confirm",
-                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it. Confirmed chords become rendered objects."
+                    detail: "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
                 ),
                 IChartTutorialStep(
                     id: "ink-only",
@@ -1069,22 +1069,18 @@ struct LibraryView: View {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
             cloudSyncStore.authStateChanged(authStore.state)
-            await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+            refreshForumHomeIfVisible()
             updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
-            Task {
-                await forumStore.refresh(authState: state, entitlements: store.entitlements)
-            }
+            refreshForumHomeIfVisible(authState: state)
             updateAccountLandingPresentation()
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
             applyForumDownloadAccess(store.subscriptionState)
-            Task {
-                await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
-            }
+            refreshForumHomeIfVisible()
         }
         .sheet(isPresented: $showingLayoutPicker) {
             NewChartLayoutPickerView(
@@ -1660,13 +1656,7 @@ struct LibraryView: View {
         }
 
         if tab == .forums {
-            Task {
-                await forumStore.refresh(
-                    authState: authStore.state,
-                    entitlements: store.entitlements,
-                    query: forumSearchText
-                )
-            }
+            refreshForumHomeIfVisible()
         }
 
         guard guidedTourStep == .charts, tab == .charts else {
@@ -1702,14 +1692,39 @@ struct LibraryView: View {
         onOpenChart(chartID, initialCanvasMode)
     }
 
+    private func refreshForumHomeIfVisible(
+        authState: IChartAuthState? = nil,
+        entitlements: AppEntitlements? = nil
+    ) {
+        guard selectedHomeTab == .forums else {
+            return
+        }
+
+        Task {
+            await forumStore.refresh(
+                authState: authState ?? authStore.state,
+                entitlements: entitlements ?? store.entitlements,
+                query: forumSearchText
+            )
+        }
+    }
+
     private func createNewChart(layoutStyle: ChartLayoutStyle) {
         let targetProjectID = pendingProjectForNewChart
         let startsGuidedSimpleChartTour = guidedTourStep == .simpleChart && layoutStyle == .simpleChordSheet
         pendingProjectForNewChart = nil
 
+        let traceSpan = IChartPerformanceTrace.start(
+            "library.createNewChart",
+            metadata: [
+                "layoutStyle": layoutStyle.rawValue,
+                "targetProject": targetProjectID == nil ? "none" : "present"
+            ]
+        )
         runLibraryOperation(.creatingChart(layoutStyle.displayText)) {
             guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
                   let chartID = store.selectedChartID else {
+                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "blocked"])
                 return
             }
 
@@ -1722,6 +1737,7 @@ struct LibraryView: View {
             }
 
             onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+            IChartPerformanceTrace.end(traceSpan, metadata: ["result": "opened"])
         }
     }
 
@@ -4356,6 +4372,8 @@ private struct IChartHelpArticlePage: View {
                     .controlSize(.regular)
                     .tint(IChartHomeBrand.blue)
                     .accessibilityHint("Opens useichart.com/support")
+
+                    IChartPerformanceReportShareRow(theme: theme)
                 }
             }
 
@@ -4389,6 +4407,43 @@ private struct IChartHelpArticlePage: View {
                 expandedSectionIDs.insert(id)
             }
         }
+    }
+}
+
+private struct IChartPerformanceReportShareRow: View {
+    let theme: IChartHomeTheme
+    @State private var reportURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let reportURL {
+                ShareLink(
+                    item: reportURL,
+                    preview: SharePreview("iChart Performance Report")
+                ) {
+                    Label("Share Performance Report", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .tint(IChartHomeBrand.blue)
+            } else {
+                Label("No performance report yet", systemImage: "doc.badge.clock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.panelSecondary)
+            }
+
+            Text("Timing only. Stays on this iPad until shared.")
+                .font(.caption2)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear(perform: refreshReportURL)
+    }
+
+    private func refreshReportURL() {
+        reportURL = IChartPerformanceTrace.hasReport ? IChartPerformanceTrace.reportURL : nil
     }
 }
 

@@ -39,7 +39,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(bundledLaunchSampleText.contains("\"strokes\""))
     }
 
-    func testChordConfirmationOffersKeyboardManualEntry() throws {
+    func testChordConfirmationUsesStreamlinedManualEntry() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -47,12 +47,24 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
         )
+        let confirmationSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordInkConfirmationSheetView: View")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "struct ChordCorrectionSheetView: View")
+                .first
+        )
 
-        XCTAssertTrue(sheetText.contains("No confident suggestions"))
-        XCTAssertTrue(sheetText.contains("Open keyboard for manual chord entry"))
-        XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
-        XCTAssertTrue(sheetText.contains("Chord Repeat"))
-        XCTAssertTrue(sheetText.contains("Use chord repeat symbol"))
+        XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
+        XCTAssertTrue(confirmationSheetText.contains("TextField(\"Type chord\""))
+        XCTAssertTrue(confirmationSheetText.contains(".presentationDetents([.medium])"))
+        XCTAssertFalse(confirmationSheetText.contains("ScrollView"))
+        XCTAssertFalse(confirmationSheetText.contains("Open keyboard for manual chord entry"))
+        XCTAssertFalse(confirmationSheetText.contains("No confident suggestions"))
+        XCTAssertFalse(confirmationSheetText.contains("Learn Chord"))
+        XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
+        XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
     }
 
     func testChordInkRenderIsTapConfirmedOnly() throws {
@@ -79,6 +91,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
         XCTAssertTrue(flowText.contains("case tapToConfirm"))
         XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
+        XCTAssertFalse(hostText.contains("schedulePassiveChordInkPersistence"))
         XCTAssertFalse(hostText.contains(".automaticPreview"))
         XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
         XCTAssertFalse(hostText.contains("continuationGrace"))
@@ -160,6 +173,65 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(diagnosticsText.contains("upload"))
         XCTAssertFalse(pipelinePreviewText.contains("Supabase"))
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
+    }
+
+    func testPerformanceTraceIsLocalSupportOnlyForTestFlightQA() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let appText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/IChartApp.swift")
+        )
+        let traceText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/IChartPerformanceTrace.swift")
+        )
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let storeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/ChartLibraryStore.swift")
+        )
+        let setupText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChartSetupSheetView.swift")
+        )
+        let editorText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/EditorView.swift")
+        )
+        let hostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
+        XCTAssertTrue(traceText.contains("applicationSupportDirectory"))
+        XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
+        XCTAssertTrue(traceText.contains("Bundle.main.bundleIdentifier == \"com.ichart.app\""))
+        XCTAssertTrue(traceText.contains("IChartPerformanceTraceEvent"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.init\")"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.bootstrap\")"))
+        XCTAssertTrue(libraryText.contains("IChartPerformanceTrace.start("))
+        XCTAssertTrue(libraryText.contains("\"library.createNewChart\""))
+        XCTAssertTrue(libraryText.contains("Share Performance Report"))
+        XCTAssertTrue(libraryText.contains("Timing only. Stays on this iPad until shared."))
+        XCTAssertTrue(storeText.contains("\"chartLibrary.createBlankChart\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.applySetup\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.completeInitialSetup\""))
+        XCTAssertTrue(editorText.contains("\"editor.canvas.firstAppear\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.layout\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.firstDraw\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawStaffLines\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawClef\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawTimeSignature\""))
+        XCTAssertFalse(traceText.contains("Supabase"))
+        XCTAssertFalse(traceText.contains("URLSession"))
+        XCTAssertFalse(traceText.contains(".upload("))
     }
 
     func testDeveloperOnlySurfacesStayOutOfReleaseBuilds() throws {
@@ -392,6 +464,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("keyboardFocusRequestID"))
         XCTAssertTrue(editorText.contains("UIViewRepresentable"))
         XCTAssertTrue(editorText.contains("becomeFirstResponder()"))
+        XCTAssertTrue(editorText.contains("textView.isScrollEnabled = false"))
         XCTAssertFalse(editorText.contains("Open keyboard for text entry"))
         XCTAssertTrue(editorText.contains(".allowsHitTesting(!showingCueTextEntry)"))
         XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
@@ -400,7 +473,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
-    func testApplePencilDoesNotStartObjectMovePan() throws {
+    func testApplePencilObjectMovePanRequiresMovableTarget() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -411,7 +484,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
         XCTAssertTrue(canvasHostText.contains("gestureRecognizer === chordMovePanRecognizer"))
-        XCTAssertTrue(canvasHostText.contains("touch.type == .pencil"))
+        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at: touch.location(in: self))"))
+        XCTAssertFalse(canvasHostText.contains("touch.type == .pencil {"))
     }
 
     func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
@@ -714,6 +788,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("pendingRoadmapMarkerMoveID"))
         XCTAssertFalse(editorText.contains("Remove Roadmap Marker at Selected Measure"))
         XCTAssertFalse(editorText.contains("systemImage: roadmapType.editorMenuSystemImageName"))
+        XCTAssertTrue(editorText.contains("Make Marker Larger"))
+        XCTAssertTrue(editorText.contains("resizePointRoadmapMarker"))
         XCTAssertTrue(notationRendererText.contains("drawRoadmapLabel"))
         XCTAssertTrue(notationRendererText.contains("LeadSheetRoadmapLabelFitting"))
         XCTAssertTrue(notationRendererText.contains("fittedBaseFontSize"))
@@ -757,7 +833,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(canvasHostText.contains("deleteRoadmapMarker"))
         XCTAssertTrue(canvasHostText.contains("movePointRoadmapMarkerHorizontally"))
         XCTAssertTrue(canvasHostText.contains("panStartLocation(for: recognizer)"))
-        XCTAssertTrue(canvasHostText.contains("lastRoadmapMarkerDragHitTarget"))
+        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at:"))
         XCTAssertFalse(canvasHostText.contains("drawRoadmapMarkerSelection"))
         XCTAssertTrue(canvasHostText.contains("drawCueTextSelection"))
         XCTAssertTrue(editorText.contains("Tap Measures"))
@@ -883,6 +959,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
         let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
         let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        let setupSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartSetupSheetView.swift")
+        )
         let typographySheetText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
@@ -900,9 +980,33 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
         XCTAssertTrue(editorText.contains("Updating page style..."))
         XCTAssertTrue(editorText.contains("Updating engraving..."))
+        XCTAssertTrue(editorText.contains("onOperationStarted: showEditorOperation"))
+        XCTAssertTrue(setupSheetText.contains("ChartSetupOperationOverlay"))
+        XCTAssertTrue(setupSheetText.contains("Creating blank page..."))
+        XCTAssertTrue(setupSheetText.contains("onOperationStarted(operationMessage)"))
+        XCTAssertFalse(setupSheetText.contains("420_000_000"))
         XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
         XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
         XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))
+    }
+
+    func testForumRefreshIsDeferredUntilForumTabIsVisible() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertFalse(appText.contains("await forumStore.refresh"))
+        XCTAssertTrue(libraryText.contains("refreshForumHomeIfVisible()"))
+        XCTAssertTrue(libraryText.contains("guard selectedHomeTab == .forums"))
+        XCTAssertTrue(libraryText.contains("if tab == .forums"))
     }
 
     func testSupabasePackageAndConfigurationAreWired() throws {
@@ -955,7 +1059,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.0\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"18\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"21\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))

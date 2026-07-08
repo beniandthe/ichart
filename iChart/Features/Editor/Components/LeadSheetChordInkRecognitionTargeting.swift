@@ -40,7 +40,15 @@ enum LeadSheetChordInkRecognitionTargeting {
         }
 
         let inkStrokes = PencilKitInkAdapter.inkStrokes(from: drawing)
-        let clusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
+        let measureLaneClusters = measureLaneClusters(
+            for: inkStrokes,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )
+        let clusters = measureLaneClusters.count > 1
+            && measureLaneClusters.count <= ChordInkBatchClusterer.maximumClusterCount
+            ? measureLaneClusters
+            : ChordInkBatchClusterer.clusters(for: inkStrokes)
         guard clusters.count > 1,
               clusters.count <= ChordInkBatchClusterer.maximumClusterCount else {
             return []
@@ -120,6 +128,73 @@ enum LeadSheetChordInkRecognitionTargeting {
         let centerBonus: CGFloat = generousBandFrame.contains(center) ? 10_000 : 0
 
         return intersectionArea + centerBonus
+    }
+
+    private static func measureLaneClusters(
+        for strokes: [InkStroke],
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> [ChordInkBatchCluster] {
+        let indexedStrokes = strokes.enumerated()
+            .filter { _, stroke in
+                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.bounds.minX == rhs.element.bounds.minX {
+                    return lhs.offset < rhs.offset
+                }
+
+                return lhs.element.bounds.minX < rhs.element.bounds.minX
+            }
+
+        guard indexedStrokes.count > 1 else {
+            return []
+        }
+
+        var clusters = [ChordInkBatchCluster]()
+        var currentMeasureID: UUID?
+        var currentIndices = [Int]()
+        var currentBounds: InkBounds?
+
+        for indexedStroke in indexedStrokes {
+            let stroke = indexedStroke.element
+            guard let target = target(
+                forInkBounds: stroke.bounds.cgRect,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            ) else {
+                return []
+            }
+
+            if let measureID = currentMeasureID,
+               measureID != target.measureID,
+               let bounds = currentBounds {
+                clusters.append(
+                    ChordInkBatchCluster(
+                        strokeIndices: currentIndices,
+                        bounds: bounds
+                    )
+                )
+                currentMeasureID = target.measureID
+                currentIndices = [indexedStroke.offset]
+                currentBounds = stroke.bounds
+            } else {
+                currentMeasureID = target.measureID
+                currentIndices.append(indexedStroke.offset)
+                currentBounds = currentBounds?.union(stroke.bounds) ?? stroke.bounds
+            }
+        }
+
+        if let currentBounds {
+            clusters.append(
+                ChordInkBatchCluster(
+                    strokeIndices: currentIndices,
+                    bounds: currentBounds
+                )
+            )
+        }
+
+        return clusters.filter(\.isUsable)
     }
 }
 

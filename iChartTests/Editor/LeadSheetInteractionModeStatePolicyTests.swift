@@ -67,6 +67,27 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
+    func testPencilObjectMoveStartsOnlyOnMovableTargets() {
+        XCTAssertFalse(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .pencil,
+                startsOnMoveTarget: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .pencil,
+                startsOnMoveTarget: true
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                startsOnMoveTarget: false
+            )
+        )
+    }
+
     func testBrowseModeKeepsCueTextEditable() {
         XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
     }
@@ -114,6 +135,34 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(target.measureID, measureID)
         XCTAssertGreaterThanOrEqual(target.fraction, 0)
         XCTAssertLessThan(target.fraction, 1)
+    }
+
+    func testChordBatchTargetingSplitsAdjacentMeasureChordGroups() throws {
+        let chart = Chart.blank(title: "Batch Chords", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measures = Array(layout.systems.flatMap(\.measures).prefix(3))
+        XCTAssertEqual(measures.count, 3)
+        let measureIDs = try measures.map { measure in
+            try XCTUnwrap(measure.sourceMeasureID)
+        }
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let drawing = PKDrawing(strokes: [
+            chordStroke(in: measures[0], fromX: measures[0].chordWritingFrame.maxX - 24, toX: measures[0].chordWritingFrame.maxX - 10, chordFrame: chordFrame),
+            chordStroke(in: measures[1], fromX: measures[1].chordWritingFrame.minX + 10, toX: measures[1].chordWritingFrame.minX + 24, chordFrame: chordFrame),
+            chordStroke(in: measures[2], fromX: measures[2].chordWritingFrame.minX + 10, toX: measures[2].chordWritingFrame.minX + 24, chordFrame: chordFrame)
+        ])
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(targets.count, 3)
+        XCTAssertEqual(targets.map(\.measureID), measureIDs)
     }
 
     func testChordActiveInkScopeUsesExpandedChordLanesInsteadOfWholePage() throws {
@@ -491,6 +540,30 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 sessionState: dirtyInkSessionState(.rhythm),
                 currentDrawingData: Data([0x01]),
                 desiredDrawingData: Data([0x01])
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyTreatsEquivalentSerializedDrawingAsSynced() {
+        let currentDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
+        let desiredDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 20))])
+
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
+                desiredDrawingData: desiredDrawing.dataRepresentation()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [99]),
+                desiredDrawingData: desiredDrawing.dataRepresentation()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
+                desiredDrawingData: nil
             )
         )
     }
@@ -1371,6 +1444,26 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 CGPoint(x: 20, y: 28)
             ],
             creationDate: creationDate
+        )
+    }
+
+    private func chordStroke(
+        in measure: LeadSheetMeasureLayout,
+        fromX: CGFloat,
+        toX: CGFloat,
+        chordFrame: CGRect
+    ) -> PKStroke {
+        let start = CGPoint(
+            x: fromX - chordFrame.minX,
+            y: measure.chordWritingFrame.midY - chordFrame.minY
+        )
+        let end = CGPoint(
+            x: toX - chordFrame.minX,
+            y: measure.chordWritingFrame.midY + 8 - chordFrame.minY
+        )
+        return stroke(
+            points: [start, end],
+            creationDate: Date(timeIntervalSince1970: 30)
         )
     }
 
