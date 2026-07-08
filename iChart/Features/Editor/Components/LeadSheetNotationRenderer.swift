@@ -12,20 +12,29 @@ enum NotationGlyphPathCache {
 
     private static let lock = NSLock()
     private static var cachedPaths: [CacheKey: CGPath] = [:]
-    private static var hasScheduledDefaultWarmup = false
+    private static var defaultLeadSheetWarmupTask: Task<Void, Never>?
 
     static func scheduleDefaultLeadSheetWarmup() {
-        lock.lock()
-        guard !hasScheduledDefaultWarmup else {
-            lock.unlock()
-            return
-        }
-        hasScheduledDefaultWarmup = true
-        lock.unlock()
+        _ = defaultWarmupTask()
+    }
 
-        DispatchQueue.global(qos: .utility).async {
+    static func prepareDefaultLeadSheetWarmup() async {
+        await defaultWarmupTask().value
+    }
+
+    private static func defaultWarmupTask() -> Task<Void, Never> {
+        lock.lock()
+        if let defaultLeadSheetWarmupTask {
+            lock.unlock()
+            return defaultLeadSheetWarmupTask
+        }
+
+        let task = Task.detached(priority: .utility) {
             warmDefaultLeadSheetGlyphs()
         }
+        defaultLeadSheetWarmupTask = task
+        lock.unlock()
+        return task
     }
 
     static func path(for glyph: String, font: UIFont) -> CGPath? {

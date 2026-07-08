@@ -974,6 +974,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(appRootText.contains("IChartAppOperationOverlay"))
         XCTAssertTrue(appRootText.contains("Opening \\(chartTitle)..."))
+        XCTAssertTrue(appRootText.contains("app.openChart.notationWarmup"))
+        XCTAssertTrue(appRootText.contains("NotationGlyphPathCache.prepareDefaultLeadSheetWarmup()"))
+        XCTAssertTrue(appRootText.contains("Task.sleep(nanoseconds: 80_000_000)"))
         XCTAssertTrue(libraryText.contains("IChartLibraryOperationOverlay"))
         XCTAssertTrue(libraryText.contains("Creating \\(layoutName)..."))
         XCTAssertTrue(libraryText.contains("Deleting \\(title)..."))

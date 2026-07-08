@@ -20,16 +20,7 @@ struct AppRootView: View {
         ZStack {
             NavigationStack(path: $projectPath) {
                 LibraryView { chartID, initialCanvasMode in
-                    guard store.canOpenChartsForEditing else {
-                        store.selectedChartID = nil
-                        projectPath.removeAll()
-                        return
-                    }
-
-                    let chartTitle = store.charts.first(where: { $0.id == chartID })?.title ?? "Chart"
-                    showAppOperation("Opening \(chartTitle)...")
-                    store.selectedChartID = chartID
-                    projectPath = [.chart(chartID, initialCanvasMode)]
+                    openChartWithFeedback(chartID, initialCanvasMode: initialCanvasMode)
                 }
                 .navigationTitle("iChart")
                 .navigationDestination(for: ProjectRoute.self) { route in
@@ -88,18 +79,67 @@ struct AppRootView: View {
         IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()
     }
 
-    private func showAppOperation(_ message: String) {
+    private func openChartWithFeedback(_ chartID: Chart.ID, initialCanvasMode: EditorCanvasMode) {
+        guard store.canOpenChartsForEditing else {
+            store.selectedChartID = nil
+            projectPath.removeAll()
+            return
+        }
+
+        let chart = store.charts.first(where: { $0.id == chartID })
+        let chartTitle = chart?.title ?? "Chart"
         let operationID = UUID()
         activeOperationID = operationID
-        activeOperationMessage = message
+        activeOperationMessage = "Opening \(chartTitle)..."
 
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            let traceSpan = IChartPerformanceTrace.start(
+                "app.openChart",
+                metadata: [
+                    "chartID": chartID.uuidString,
+                    "layoutStyle": chart?.layoutStyle.rawValue ?? "unknown",
+                    "measureCount": "\(chart?.measures.count ?? 0)"
+                ]
+            )
+
+            try? await Task.sleep(nanoseconds: 80_000_000)
+
+            #if canImport(UIKit)
+            let warmupSpan = IChartPerformanceTrace.start("app.openChart.notationWarmup")
+            await NotationGlyphPathCache.prepareDefaultLeadSheetWarmup()
+            IChartPerformanceTrace.end(warmupSpan)
+            #endif
+
             guard activeOperationID == operationID else {
+                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "cancelled"])
+                return
+            }
+
+            guard store.canOpenChartsForEditing else {
+                store.selectedChartID = nil
+                projectPath.removeAll()
+                activeOperationMessage = nil
+                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "locked"])
+                return
+            }
+
+            guard store.charts.contains(where: { $0.id == chartID }) else {
+                activeOperationMessage = nil
+                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "missing"])
+                return
+            }
+
+            store.selectedChartID = chartID
+            projectPath = [.chart(chartID, initialCanvasMode)]
+
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard activeOperationID == operationID else {
+                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "superseded"])
                 return
             }
 
             activeOperationMessage = nil
+            IChartPerformanceTrace.end(traceSpan, metadata: ["result": "opened"])
         }
     }
 
