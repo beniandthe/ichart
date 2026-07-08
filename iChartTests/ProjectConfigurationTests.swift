@@ -883,6 +883,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
         let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
         let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        let setupSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartSetupSheetView.swift")
+        )
         let typographySheetText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
@@ -900,9 +904,32 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
         XCTAssertTrue(editorText.contains("Updating page style..."))
         XCTAssertTrue(editorText.contains("Updating engraving..."))
+        XCTAssertTrue(editorText.contains("onOperationStarted: showEditorOperation"))
+        XCTAssertTrue(setupSheetText.contains("ChartSetupOperationOverlay"))
+        XCTAssertTrue(setupSheetText.contains("Creating blank page..."))
+        XCTAssertTrue(setupSheetText.contains("onOperationStarted(operationMessage)"))
         XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
         XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
         XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))
+    }
+
+    func testForumRefreshIsDeferredUntilForumTabIsVisible() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertFalse(appText.contains("await forumStore.refresh"))
+        XCTAssertTrue(libraryText.contains("refreshForumHomeIfVisible()"))
+        XCTAssertTrue(libraryText.contains("guard selectedHomeTab == .forums"))
+        XCTAssertTrue(libraryText.contains("if tab == .forums"))
     }
 
     func testSupabasePackageAndConfigurationAreWired() throws {

@@ -396,7 +396,11 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingSetupSheet) {
             ZStack(alignment: .bottomTrailing) {
-                ChartSetupSheetView(chart: $chart)
+                ChartSetupSheetView(
+                    chart: $chart,
+                    onOperationStarted: showEditorOperation,
+                    onOperationFinished: clearEditorOperation
+                )
 
                 if editorGuidedTourStep == .setup {
                     IChartEditorGuidedTourPrompt(
@@ -671,6 +675,15 @@ struct EditorView: View {
 
             activeEditorOperationMessage = nil
         }
+    }
+
+    private func showEditorOperation(_ message: String) {
+        activeEditorOperationID = UUID()
+        activeEditorOperationMessage = message
+    }
+
+    private func clearEditorOperation() {
+        activeEditorOperationMessage = nil
     }
 
     private var editorNavigationChrome: some View {

@@ -1069,22 +1069,18 @@ struct LibraryView: View {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
             cloudSyncStore.authStateChanged(authStore.state)
-            await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
+            refreshForumHomeIfVisible()
             updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
-            Task {
-                await forumStore.refresh(authState: state, entitlements: store.entitlements)
-            }
+            refreshForumHomeIfVisible(authState: state)
             updateAccountLandingPresentation()
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
             applyForumDownloadAccess(store.subscriptionState)
-            Task {
-                await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
-            }
+            refreshForumHomeIfVisible()
         }
         .sheet(isPresented: $showingLayoutPicker) {
             NewChartLayoutPickerView(
@@ -1660,13 +1656,7 @@ struct LibraryView: View {
         }
 
         if tab == .forums {
-            Task {
-                await forumStore.refresh(
-                    authState: authStore.state,
-                    entitlements: store.entitlements,
-                    query: forumSearchText
-                )
-            }
+            refreshForumHomeIfVisible()
         }
 
         guard guidedTourStep == .charts, tab == .charts else {
@@ -1700,6 +1690,23 @@ struct LibraryView: View {
         }
 
         onOpenChart(chartID, initialCanvasMode)
+    }
+
+    private func refreshForumHomeIfVisible(
+        authState: IChartAuthState? = nil,
+        entitlements: AppEntitlements? = nil
+    ) {
+        guard selectedHomeTab == .forums else {
+            return
+        }
+
+        Task {
+            await forumStore.refresh(
+                authState: authState ?? authStore.state,
+                entitlements: entitlements ?? store.entitlements,
+                query: forumSearchText
+            )
+        }
     }
 
     private func createNewChart(layoutStyle: ChartLayoutStyle) {

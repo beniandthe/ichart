@@ -39,21 +39,16 @@ struct IChartApp: App {
                     await subscriptionStore.bootstrap()
                     applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
-                    await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
-                    Task {
-                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
-                    }
                 }
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)
                     Task {
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
-                        await forumStore.refresh(authState: state, entitlements: store.entitlements)
                     }
                 }
                 .onOpenURL { url in
@@ -62,7 +57,6 @@ struct IChartApp: App {
                         cloudSyncStore.authStateChanged(authStore.state)
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
-                        await forumStore.refresh(authState: authStore.state, entitlements: store.entitlements)
                     }
                 }
         }

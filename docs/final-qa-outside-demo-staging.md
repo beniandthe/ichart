@@ -1,17 +1,17 @@
 # iChart Final QA Outside-Demo Staging
 
 Status: Active outside-demo staging record
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 This document keeps the final QA lane aligned while iChart moves from internal polish into outside demo/TestFlight readiness. It records the order of gates, the current branch/PR, and the evidence that should be kept with the release candidate.
 
 ## Current Release Lane
 
-- Branch: `codex/final-qa-stage`
+- Branch: `codex/final-performance-pass`
 - Base: `main`
-- Draft PR: `#15` — `[codex] Final QA stage hardening`
-- Current head: `b3dc35b Harden server subscription and forum gates`
-- Target distribution: outside-demo/TestFlight candidate after docs alignment and final performance/optimization pass
+- Merged PRs: `#15` — `[codex] Final QA stage hardening`; `#16` — `Clarify forum PDF rollback cap policy`
+- Current base head: `abe273c Clarify forum PDF rollback cap policy (#16)`
+- Target distribution: outside-demo/TestFlight candidate after final performance/optimization pass
 
 ## Completed Gates
 
@@ -34,29 +34,27 @@ This document keeps the final QA lane aligned while iChart moves from internal p
    - Remote smoke expectations: missing notification payload returns `400`; fake opaque payload returns verifier rejection `401`; unauthenticated transaction claim returns `401`; oversized webhook body returns `413`.
    - PR checks passed: SwiftPM, iOS simulator tests, Dependency Review, and CodeQL. Supabase Preview is skipped by project integration settings and is not a release failure by itself.
 
-## Active Gate
-
 5. Audit docs for iChart/App Store/Supabase alignment.
+   - Done: `33daa98 [codex] Final QA stage hardening (#15)`.
+   - Follow-up clarification merged: `abe273c Clarify forum PDF rollback cap policy (#16)`.
 
-Scope:
-- Active release docs only, not historical sprint logs unless a current release doc points to them as authority.
-- App identity: `iChart: Quick-Notation Charts`, bundle `com.ichart.app`, SKU `ichart-ios`.
-- Product IDs: `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual`.
-- Supabase project: `pausvvwoazbvmzyrebwl`.
-- Public URLs: `https://useichart.com`, `https://useichart.com/support`, `https://useichart.com/privacy`.
-- TestFlight callback: `ichart://auth-callback`; universal links remain a production follow-up after associated-domain setup.
-- Secrets must remain out of git, chat, Xcode settings, app bundles, docs, and screenshots.
+   Completion evidence:
+   - Active release docs align on App identity: `iChart: Quick-Notation Charts`, bundle `com.ichart.app`, SKU `ichart-ios`.
+   - Product IDs are `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual`.
+   - Supabase project is `pausvvwoazbvmzyrebwl`.
+   - Public URLs are `https://useichart.com`, `https://useichart.com/support`, and `https://useichart.com/privacy`.
+   - TestFlight callback remains `ichart://auth-callback`; universal links remain a production follow-up after associated-domain setup.
+   - StoreKit and Supabase runbooks describe server-owned subscription authority, app-account token binding, replay/idempotency guards, Cloud Backup RLS, forum attribution/provenance, and remaining dashboard follow-ups.
 
-Completion evidence:
-- No active release doc still describes legacy branding, legacy bundle identifiers, optional launch subscriptions, or no-backend V1 architecture as current truth.
-- StoreKit and Supabase runbooks describe server-owned subscription authority, app-account token binding, replay/idempotency guards, Cloud Backup RLS, forum attribution/provenance, and remaining dashboard follow-ups.
-- App Store/TestFlight metadata points to the live support/privacy URLs and monitored support email.
-
-## Remaining Gates
+## Active Gate
 
 6. Final performance/optimization pass.
    - Keep this evidence-driven. Do not revive the rejected renderer/font simplification experiment.
    - Focus on first-open/new-chart/editor responsiveness, cloud/offline behavior, and obvious repeated work found by profiling or source review.
+   - Add visible loading/progress feedback to any user-facing path that can still take noticeable time after safe optimization.
+   - Optimize only where the change preserves notation fidelity, editor behavior, server authority, and current UX contracts.
+
+## Remaining Gates
 
 7. Package the next outside-demo/TestFlight build.
    - Package only after docs alignment and performance/optimization gates are clean.
