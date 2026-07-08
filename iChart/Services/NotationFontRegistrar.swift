@@ -4,6 +4,7 @@ import Foundation
 import UIKit
 
 enum NotationFontRegistrar {
+    private static let registrationLock = NSLock()
     private static var hasRegisteredFonts = false
 
     static let bundledFontFileNames = [
@@ -34,6 +35,11 @@ enum NotationFontRegistrar {
     ]
 
     static func registerBundledFontsIfNeeded() {
+        registrationLock.lock()
+        defer {
+            registrationLock.unlock()
+        }
+
         guard !hasRegisteredFonts else {
             return
         }

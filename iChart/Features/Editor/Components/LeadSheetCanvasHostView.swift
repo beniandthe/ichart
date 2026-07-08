@@ -1511,7 +1511,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawKeySignature(system.keySignatureLayouts)
         }
 
-        if let timeSignatureFrame = system.timeSignatureFrame {
+        if chart.hasCompletedInitialSetup,
+           let timeSignatureFrame = system.timeSignatureFrame {
             if let activePerformanceTraceDrawIndex {
                 let timeSignatureSpan = IChartPerformanceTrace.start(
                     "editor.renderer.drawTimeSignature",

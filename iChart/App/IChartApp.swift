@@ -24,6 +24,7 @@ struct IChartApp: App {
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
+        NotationGlyphPathCache.scheduleDefaultLeadSheetWarmup()
         #endif
 
         IChartPerformanceTrace.end(appInitSpan)

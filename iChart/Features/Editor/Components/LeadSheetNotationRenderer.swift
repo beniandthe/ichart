@@ -1,6 +1,98 @@
 #if canImport(UIKit)
 import CoreText
+import Foundation
 import UIKit
+
+enum NotationGlyphPathCache {
+    private struct CacheKey: Hashable {
+        var fontName: String
+        var pointSizeKey: Int
+        var glyph: String
+    }
+
+    private static let lock = NSLock()
+    private static var cachedPaths: [CacheKey: CGPath] = [:]
+    private static var hasScheduledDefaultWarmup = false
+
+    static func scheduleDefaultLeadSheetWarmup() {
+        lock.lock()
+        guard !hasScheduledDefaultWarmup else {
+            lock.unlock()
+            return
+        }
+        hasScheduledDefaultWarmup = true
+        lock.unlock()
+
+        DispatchQueue.global(qos: .utility).async {
+            warmDefaultLeadSheetGlyphs()
+        }
+    }
+
+    static func path(for glyph: String, font: UIFont) -> CGPath? {
+        let key = CacheKey(
+            fontName: font.fontName,
+            pointSizeKey: Int((font.pointSize * 1000).rounded()),
+            glyph: glyph
+        )
+
+        lock.lock()
+        if let cachedPath = cachedPaths[key] {
+            lock.unlock()
+            return cachedPath
+        }
+        lock.unlock()
+
+        let characters = Array(glyph.utf16)
+        guard characters.count == 1 else {
+            return nil
+        }
+
+        let ctFont = font as CTFont
+        var character = characters[0]
+        var cgGlyph = CGGlyph()
+        guard CTFontGetGlyphsForCharacters(ctFont, &character, &cgGlyph, 1),
+              let glyphPath = CTFontCreatePathForGlyph(ctFont, cgGlyph, nil) else {
+            return nil
+        }
+
+        lock.lock()
+        cachedPaths[key] = glyphPath
+        lock.unlock()
+        return glyphPath
+    }
+
+    private static func warmDefaultLeadSheetGlyphs() {
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+
+        let symbols = commonLeadSheetSymbols()
+        for preset in [NotationFontPreset.petaluma, .bravura] {
+            _ = SmuflFontMetadataStore.metadata(for: preset)
+            for symbol in symbols {
+                _ = SmuflFontMetadataStore.metrics(for: symbol, in: preset)
+            }
+        }
+
+        let glyphs = symbols.compactMap(NotationGlyphCatalog.glyph(for:))
+        let pointSizes = EngravingPreset.allCases.map {
+            CGFloat(10.5 * 0.84 * 4 * $0.glyphScale)
+        }
+        for preset in [NotationFontPreset.petaluma, .bravura] {
+            for pointSize in pointSizes {
+                guard let font = UIFont(name: preset.postScriptName, size: pointSize) else {
+                    continue
+                }
+
+                for glyph in glyphs {
+                    _ = path(for: glyph, font: font)
+                }
+            }
+        }
+    }
+
+    private static func commonLeadSheetSymbols() -> [NotationGlyphCatalog.Symbol] {
+        [.trebleClef, .bassClef] + (0...9).map(NotationGlyphCatalog.Symbol.timeSignatureDigit)
+    }
+}
 
 enum LeadSheetRoadmapLabelFitting {
     static func fittedBaseFontSize(
@@ -1294,16 +1386,8 @@ struct LeadSheetNotationRenderer {
         smuflAnchor: SmuflPoint,
         fontSize: CGFloat
     ) -> Bool {
-        let font = style.notationGlyphFont(size: fontSize, requiring: glyph) as CTFont
-        let characters = Array(glyph.utf16)
-        guard characters.count == 1 else {
-            return false
-        }
-
-        var character = characters[0]
-        var cgGlyph = CGGlyph()
-        guard CTFontGetGlyphsForCharacters(font, &character, &cgGlyph, 1),
-              let glyphPath = CTFontCreatePathForGlyph(font, cgGlyph, nil),
+        let font = style.notationGlyphFont(size: fontSize, requiring: glyph)
+        guard let glyphPath = NotationGlyphPathCache.path(for: glyph, font: font),
               let context = UIGraphicsGetCurrentContext() else {
             return false
         }
