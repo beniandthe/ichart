@@ -92,6 +92,21 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
         }
     }
 
+    var notationPreviewSampleText: String {
+        let four = NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"
+        let timeSignature = "\(four)\(four)"
+        let flatNote = "\(NotationGlyphCatalog.accidentalFlat)\(NotationGlyphCatalog.noteheadBlack)"
+        return [
+            NotationGlyphCatalog.trebleClef,
+            timeSignature,
+            NotationGlyphCatalog.noteQuarterUp,
+            NotationGlyphCatalog.eighthRest,
+            flatNote,
+            NotationGlyphCatalog.coda,
+            NotationGlyphCatalog.segno
+        ].joined(separator: "  ")
+    }
+
     var postScriptName: String {
         switch self {
         case .bravura:

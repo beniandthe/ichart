@@ -79,6 +79,20 @@ final class ChartTypographyResolverTests: XCTestCase {
         XCTAssertFalse(ChartFontFamilyPreset.selectableCases.contains(.finaleAsh))
     }
 
+    func testNotationFontPreviewSamplesUseVisibleGlyphFamilies() {
+        let preview = NotationFontPreset.petaluma.notationPreviewSampleText
+
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.trebleClef))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.noteQuarterUp))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.eighthRest))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.accidentalFlat))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.noteheadBlack))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.coda))
+        XCTAssertTrue(preview.contains(NotationGlyphCatalog.segno))
+        XCTAssertGreaterThan(preview.count, 8)
+    }
+
     func testFinaleAshTypographyNormalizesToLowercaseSafeFinaleJazz() throws {
         let settings = ChartTypographySettings(
             matchedSet: .finaleAsh,
