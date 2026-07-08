@@ -1748,6 +1748,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(rlsTestText.contains("client cannot self-award forum badges"))
         XCTAssertTrue(forumMigrationText.contains("private.forum_chart_pdf_provenance"))
         XCTAssertTrue(forumMigrationText.contains("private.current_user_unattached_forum_pdf_upload_count"))
+        XCTAssertTrue(forumMigrationText.contains("private.current_user_unattached_forum_pdf_upload_count() <= 3"))
         XCTAssertTrue(forumStoreText.contains("static func live(clients:"))
         XCTAssertTrue(forumStoreText.contains("IChartSupabaseSessionRefresher"))
         XCTAssertTrue(forumStoreText.contains("Forum chart submitted for review."))
