@@ -306,24 +306,27 @@ struct ChordInkConfirmationSheetView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 14) {
-                selectedChordSummary
-                candidateChoices
-                manualEntry
-                manualActions
-                #if DEBUG && targetEnvironment(simulator)
-                if showsFixtureCaptureTools {
-                    captureActions
+            ScrollView {
+                VStack(spacing: 16) {
+                    selectedChordSummary
+                    candidateChoices
+                    manualEntry
+                    manualActions
+                    #if DEBUG && targetEnvironment(simulator)
+                    if showsFixtureCaptureTools {
+                        captureActions
+                    }
+                    #endif
                 }
-                #endif
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: 460)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(confirmation.requiresDirectEntry ? "Enter Chord" : "Choose Chord")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(true)
@@ -360,26 +363,44 @@ struct ChordInkConfirmationSheetView: View {
         return "Choose one or type the chord."
     }
 
-    private var selectedChordSummary: some View {
-        VStack(spacing: 5) {
-            Text("Measure \(confirmation.displayMeasureNumber)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var confirmationTitle: String {
+        confirmation.requiresDirectEntry ? "Enter Chord" : "Choose Chord"
+    }
 
-            Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
-                .font(.system(.title, design: .rounded).weight(.bold))
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
-                .frame(maxWidth: .infinity)
+    private var selectedChordSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(confirmationTitle)
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                Spacer(minLength: 8)
+
+                Text("Measure \(confirmation.displayMeasureNumber)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
 
             Text(promptText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+                .frame(maxWidth: .infinity, minHeight: 46)
         }
-        .frame(maxWidth: .infinity)
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+        }
     }
 
     private var candidateChoices: some View {
@@ -387,23 +408,11 @@ struct ChordInkConfirmationSheetView: View {
 
         return VStack(spacing: 8) {
             if candidates.isEmpty {
-                VStack(spacing: 8) {
-                    Text("No confident suggestions")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-
-                    Button {
-                        focusManualEntry()
-                    } label: {
-                        Label("Keyboard", systemImage: "keyboard")
-                            .font(.headline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Open keyboard for manual chord entry")
-                }
-                .padding(.vertical, 4)
+                Text("No confident suggestions")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
             } else {
                 Text("Top 3")
                     .font(.caption.weight(.semibold))
