@@ -79,8 +79,8 @@ alter policy "forum_chart_pdfs_insert_active_pro_owner_folder"
                     and forum_chart_posts.owner_id = (select auth.uid())
                     and forum_chart_posts.status = 'pending'
             )
-            -- INSERT policy checks can see the candidate row, so <= 3 permits
-            -- at most three unattached rollback-buffer PDFs for the owner.
+            -- INSERT policy subqueries see the candidate row, so <= 3 permits
+            -- the third total unattached rollback-buffer PDF and rejects the fourth.
             or private.current_user_unattached_forum_pdf_upload_count() <= 3
         )
     );
