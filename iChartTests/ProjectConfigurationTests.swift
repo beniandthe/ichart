@@ -970,6 +970,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(setupSheetText.contains("ChartSetupOperationOverlay"))
         XCTAssertTrue(setupSheetText.contains("Creating blank page..."))
         XCTAssertTrue(setupSheetText.contains("onOperationStarted(operationMessage)"))
+        XCTAssertFalse(setupSheetText.contains("420_000_000"))
         XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
         XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
         XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))

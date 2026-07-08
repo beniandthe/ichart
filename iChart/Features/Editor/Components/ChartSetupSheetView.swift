@@ -240,7 +240,7 @@ struct ChartSetupSheetView: View {
             applySetup()
             IChartPerformanceTrace.end(completionSpan)
             dismiss()
-            try? await Task.sleep(nanoseconds: 420_000_000)
+            try? await Task.sleep(nanoseconds: 180_000_000)
             onOperationFinished()
             IChartPerformanceTrace.end(setupSpan)
         }
