@@ -226,14 +226,34 @@ struct ChartSetupSheetView: View {
 
         isApplyingSetup = true
         onOperationStarted(operationMessage)
+        let setupSpan = IChartPerformanceTrace.start(
+            "chartSetup.applySetup",
+            metadata: setupTraceMetadata
+        )
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 60_000_000)
+            let completionSpan = IChartPerformanceTrace.start(
+                "chartSetup.completeInitialSetup",
+                metadata: setupTraceMetadata
+            )
             applySetup()
+            IChartPerformanceTrace.end(completionSpan)
             dismiss()
             try? await Task.sleep(nanoseconds: 420_000_000)
             onOperationFinished()
+            IChartPerformanceTrace.end(setupSpan)
         }
+    }
+
+    private var setupTraceMetadata: [String: String] {
+        [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedBefore": chart.hasCompletedInitialSetup ? "true" : "false",
+            "meter": "\(numerator)/\(denominator)",
+            "startingMeasureCount": "\(startingMeasureCount)",
+            "stylePreset": selectedStylePreset.rawValue
+        ]
     }
 
     private func applySetup() {

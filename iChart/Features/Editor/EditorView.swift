@@ -275,6 +275,7 @@ struct EditorView: View {
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
+    @State private var didRecordFirstCanvasAppear = false
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
     @State private var selectedCueTextID: UUID?
@@ -1504,6 +1505,28 @@ struct EditorView: View {
             rhythmicNotationPreviewConfirmationRequestID: rhythmPreviewConfirmationRequestID,
             onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged
         )
+        .onAppear {
+            guard !didRecordFirstCanvasAppear else {
+                return
+            }
+
+            didRecordFirstCanvasAppear = true
+            IChartPerformanceTrace.record(
+                "editor.canvas.firstAppear",
+                metadata: editorPerformanceTraceMetadata
+            )
+        }
+    }
+
+    private var editorPerformanceTraceMetadata: [String: String] {
+        [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedSetup": chart.hasCompletedInitialSetup ? "true" : "false",
+            "measureCount": "\(chart.measures.count)",
+            "canvasMode": canvasMode.activeToolTitle,
+            "inkToolMode": inkToolMode.rawValue,
+            "chordToolInputMode": chordToolInputMode.rawValue
+        ]
     }
 
     private var rhythmDiagnosticStatusChip: some View {

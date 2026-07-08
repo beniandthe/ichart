@@ -52,6 +52,8 @@ This document keeps the final QA lane aligned while iChart moves from internal p
    - Keep this evidence-driven. Do not revive the rejected renderer/font simplification experiment.
    - Focus on first-open/new-chart/editor responsiveness, cloud/offline behavior, and obvious repeated work found by profiling or source review.
    - Add visible loading/progress feedback to any user-facing path that can still take noticeable time after safe optimization.
+   - TestFlight/device trace path: `performance-trace.jsonl` is written locally under Application Support and shared only through Help > Contact Us > Share Performance Report.
+   - Trace markers cover app bootstrap, new-chart creation, setup completion, canvas layout, first canvas draw, and first-render notation substeps.
    - Optimize only where the change preserves notation fidelity, editor behavior, server authority, and current UX contracts.
 
 ## Remaining Gates

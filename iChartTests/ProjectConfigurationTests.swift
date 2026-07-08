@@ -162,6 +162,65 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
     }
 
+    func testPerformanceTraceIsLocalSupportOnlyForTestFlightQA() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let appText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/IChartApp.swift")
+        )
+        let traceText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/IChartPerformanceTrace.swift")
+        )
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let storeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/ChartLibraryStore.swift")
+        )
+        let setupText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChartSetupSheetView.swift")
+        )
+        let editorText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/EditorView.swift")
+        )
+        let hostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
+        XCTAssertTrue(traceText.contains("applicationSupportDirectory"))
+        XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
+        XCTAssertTrue(traceText.contains("Bundle.main.bundleIdentifier == \"com.ichart.app\""))
+        XCTAssertTrue(traceText.contains("IChartPerformanceTraceEvent"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.init\")"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.bootstrap\")"))
+        XCTAssertTrue(libraryText.contains("IChartPerformanceTrace.start("))
+        XCTAssertTrue(libraryText.contains("\"library.createNewChart\""))
+        XCTAssertTrue(libraryText.contains("Share Performance Report"))
+        XCTAssertTrue(libraryText.contains("Timing only. Stays on this iPad until shared."))
+        XCTAssertTrue(storeText.contains("\"chartLibrary.createBlankChart\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.applySetup\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.completeInitialSetup\""))
+        XCTAssertTrue(editorText.contains("\"editor.canvas.firstAppear\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.layout\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.firstDraw\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawStaffLines\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawClef\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawTimeSignature\""))
+        XCTAssertFalse(traceText.contains("Supabase"))
+        XCTAssertFalse(traceText.contains("URLSession"))
+        XCTAssertFalse(traceText.contains(".upload("))
+    }
+
     func testDeveloperOnlySurfacesStayOutOfReleaseBuilds() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -144,6 +144,25 @@ final class ChartLibraryStore: ObservableObject {
         layoutStyle: ChartLayoutStyle = .leadSheet,
         projectID: ChartProject.ID? = nil
     ) -> Bool {
+        let traceSpan = IChartPerformanceTrace.start(
+            "chartLibrary.createBlankChart",
+            metadata: [
+                "layoutStyle": layoutStyle.rawValue,
+                "chartCountBefore": "\(charts.count)",
+                "targetProject": projectID == nil ? "none" : "present"
+            ]
+        )
+        var didCreateChart = false
+        defer {
+            IChartPerformanceTrace.end(
+                traceSpan,
+                metadata: [
+                    "result": didCreateChart ? "created" : "blocked",
+                    "chartCountAfter": "\(charts.count)"
+                ]
+            )
+        }
+
         guard canCreateChart else {
             return false
         }
@@ -156,6 +175,7 @@ final class ChartLibraryStore: ObservableObject {
             }
             selectedChartID = newChart.id
         }
+        didCreateChart = true
         return true
     }
 

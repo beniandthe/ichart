@@ -10,6 +10,7 @@ struct IChartApp: App {
     @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
 
     init() {
+        let appInitSpan = IChartPerformanceTrace.start("app.init")
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
@@ -24,6 +25,8 @@ struct IChartApp: App {
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
         #endif
+
+        IChartPerformanceTrace.end(appInitSpan)
     }
 
     var body: some Scene {
@@ -36,9 +39,12 @@ struct IChartApp: App {
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
                 .task {
+                    let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
                     await subscriptionStore.bootstrap()
+                    IChartPerformanceTrace.record("app.bootstrap.subscriptionStore.complete")
                     applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
+                    IChartPerformanceTrace.end(bootstrapSpan)
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)

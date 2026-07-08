@@ -1140,6 +1140,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
+    private var performanceLayoutTraceCount = 0
+    private var performanceDrawTraceCount = 0
+    private var activePerformanceTraceDrawIndex: Int?
     private var notationRenderer: LeadSheetNotationRenderer {
         LeadSheetNotationRenderer(chart: chart)
     }
@@ -1171,6 +1174,41 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let context = UIGraphicsGetCurrentContext(),
               let pageLayout else {
             return
+        }
+
+        let drawIndex = nextPerformanceDrawTraceIndex()
+        let drawSpan = drawIndex.map { index in
+            IChartPerformanceTrace.start(
+                "editor.canvas.draw",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(index)",
+                        "rect": "\(Int(rect.width))x\(Int(rect.height))",
+                        "systems": "\(pageLayout.systems.count)"
+                    ]
+                )
+            )
+        }
+        let firstDrawSpan = drawIndex == 1
+            ? IChartPerformanceTrace.start(
+                "editor.canvas.firstDraw",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "rect": "\(Int(rect.width))x\(Int(rect.height))",
+                        "systems": "\(pageLayout.systems.count)"
+                    ]
+                )
+            )
+            : nil
+        activePerformanceTraceDrawIndex = drawIndex
+        defer {
+            if let firstDrawSpan {
+                IChartPerformanceTrace.end(firstDrawSpan)
+            }
+            if let drawSpan {
+                IChartPerformanceTrace.end(drawSpan)
+            }
+            activePerformanceTraceDrawIndex = nil
         }
 
         let renderer = notationRenderer
@@ -1348,9 +1386,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let layoutIndex = nextPerformanceLayoutTraceIndex()
+        let layoutSpan = layoutIndex.map { index in
+            IChartPerformanceTrace.start(
+                "editor.canvas.layout",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "layoutIndex": "\(index)",
+                        "pageSize": "\(Int(bounds.width))x\(Int(bounds.height))"
+                    ]
+                )
+            )
+        }
         pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: bounds.size)
+        if let layoutSpan {
+            IChartPerformanceTrace.end(layoutSpan)
+        }
         syncPageInkCanvas()
         setNeedsDisplay()
+    }
+
+    private func nextPerformanceLayoutTraceIndex() -> Int? {
+        guard performanceLayoutTraceCount < 8 else {
+            return nil
+        }
+
+        performanceLayoutTraceCount += 1
+        return performanceLayoutTraceCount
+    }
+
+    private func nextPerformanceDrawTraceIndex() -> Int? {
+        guard performanceDrawTraceCount < 8 else {
+            return nil
+        }
+
+        performanceDrawTraceCount += 1
+        return performanceDrawTraceCount
+    }
+
+    private func canvasPerformanceTraceMetadata(extra: [String: String] = [:]) -> [String: String] {
+        var metadata = [
+            "layoutStyle": chart.layoutStyle.rawValue,
+            "completedSetup": chart.hasCompletedInitialSetup ? "true" : "false",
+            "measureCount": "\(chart.measures.count)",
+            "interactionMode": interactionMode.activeToolTitle,
+            "inkToolMode": inkToolMode.rawValue
+        ]
+        for (key, value) in extra {
+            metadata[key] = value
+        }
+        return metadata
     }
 
     private func drawSystem(_ system: LeadSheetSystemLayout, using renderer: LeadSheetNotationRenderer) {
@@ -1375,16 +1460,73 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawEnding(endingLayout)
         }
 
-        renderer.drawStaffLines(for: system)
-
-        if let clefFrame = system.clefFrame {
-            renderer.drawClef(in: clefFrame)
+        if let activePerformanceTraceDrawIndex {
+            let staffSpan = IChartPerformanceTrace.start(
+                "editor.renderer.drawStaffLines",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                        "systemIndex": "\(system.index)"
+                    ]
+                )
+            )
+            renderer.drawStaffLines(for: system)
+            IChartPerformanceTrace.end(staffSpan)
+        } else {
+            renderer.drawStaffLines(for: system)
         }
 
-        renderer.drawKeySignature(system.keySignatureLayouts)
+        if let clefFrame = system.clefFrame {
+            if let activePerformanceTraceDrawIndex {
+                let clefSpan = IChartPerformanceTrace.start(
+                    "editor.renderer.drawClef",
+                    metadata: canvasPerformanceTraceMetadata(
+                        extra: [
+                            "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                            "systemIndex": "\(system.index)"
+                        ]
+                    )
+                )
+                renderer.drawClef(in: clefFrame)
+                IChartPerformanceTrace.end(clefSpan)
+            } else {
+                renderer.drawClef(in: clefFrame)
+            }
+        }
+
+        if let activePerformanceTraceDrawIndex {
+            let keySignatureSpan = IChartPerformanceTrace.start(
+                "editor.renderer.drawKeySignature",
+                metadata: canvasPerformanceTraceMetadata(
+                    extra: [
+                        "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                        "systemIndex": "\(system.index)",
+                        "symbolCount": "\(system.keySignatureLayouts.count)"
+                    ]
+                )
+            )
+            renderer.drawKeySignature(system.keySignatureLayouts)
+            IChartPerformanceTrace.end(keySignatureSpan)
+        } else {
+            renderer.drawKeySignature(system.keySignatureLayouts)
+        }
 
         if let timeSignatureFrame = system.timeSignatureFrame {
-            renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+            if let activePerformanceTraceDrawIndex {
+                let timeSignatureSpan = IChartPerformanceTrace.start(
+                    "editor.renderer.drawTimeSignature",
+                    metadata: canvasPerformanceTraceMetadata(
+                        extra: [
+                            "drawIndex": "\(activePerformanceTraceDrawIndex)",
+                            "systemIndex": "\(system.index)"
+                        ]
+                    )
+                )
+                renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+                IChartPerformanceTrace.end(timeSignatureSpan)
+            } else {
+                renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+            }
         }
 
         var drawnRepeatMarkerIDs = Set<String>()
