@@ -4353,7 +4353,7 @@ private struct CueTextInputView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.autocapitalizationType = .sentences
         textView.autocorrectionType = .yes
-        textView.isScrollEnabled = true
+        textView.isScrollEnabled = false
         textView.isEditable = true
         textView.isSelectable = true
         textView.keyboardDismissMode = .interactive

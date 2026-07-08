@@ -451,6 +451,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("keyboardFocusRequestID"))
         XCTAssertTrue(editorText.contains("UIViewRepresentable"))
         XCTAssertTrue(editorText.contains("becomeFirstResponder()"))
+        XCTAssertTrue(editorText.contains("textView.isScrollEnabled = false"))
         XCTAssertFalse(editorText.contains("Open keyboard for text entry"))
         XCTAssertTrue(editorText.contains(".allowsHitTesting(!showingCueTextEntry)"))
         XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
