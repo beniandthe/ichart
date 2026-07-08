@@ -459,7 +459,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
-    func testApplePencilDoesNotStartObjectMovePan() throws {
+    func testApplePencilObjectMovePanRequiresMovableTarget() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -470,7 +470,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
         XCTAssertTrue(canvasHostText.contains("gestureRecognizer === chordMovePanRecognizer"))
-        XCTAssertTrue(canvasHostText.contains("touch.type == .pencil"))
+        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at: touch.location(in: self))"))
+        XCTAssertFalse(canvasHostText.contains("touch.type == .pencil {"))
     }
 
     func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
@@ -816,7 +817,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(canvasHostText.contains("deleteRoadmapMarker"))
         XCTAssertTrue(canvasHostText.contains("movePointRoadmapMarkerHorizontally"))
         XCTAssertTrue(canvasHostText.contains("panStartLocation(for: recognizer)"))
-        XCTAssertTrue(canvasHostText.contains("lastRoadmapMarkerDragHitTarget"))
+        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at:"))
         XCTAssertFalse(canvasHostText.contains("drawRoadmapMarkerSelection"))
         XCTAssertTrue(canvasHostText.contains("drawCueTextSelection"))
         XCTAssertTrue(editorText.contains("Tap Measures"))

@@ -1137,7 +1137,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
     private var selectedChordID: UUID?
-    private var lastEditableOverlayHitTarget: EditableOverlayHitTarget?
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
     private var performanceLayoutTraceCount = 0
@@ -1289,9 +1288,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordEditHitOverlayView.isOpaque = false
         chordEditHitOverlayView.isHidden = true
         chordEditHitOverlayView.containsEditableControl = { [weak self] location in
-            let hitTarget = self?.editableOverlayHitTarget(at: location)
-            self?.lastEditableOverlayHitTarget = hitTarget
-            return hitTarget != nil
+            self?.editableOverlayHitTarget(at: location) != nil
         }
         chordEditTapRecognizer.delegate = self
         chordEditDoubleTapRecognizer.delegate = self
@@ -2253,22 +2250,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nil
     }
 
-    private func lastRoadmapMarkerDragHitTarget() -> RoadmapMarkerEditHitTarget? {
-        guard case let .roadmap(hitTarget)? = lastEditableOverlayHitTarget,
-              hitTarget.action != .delete else {
-            return nil
-        }
-
-        return hitTarget
-    }
-
-    private func lastCueTextDragHitTarget() -> CueTextEditHitTarget? {
-        guard case let .cueText(hitTarget)? = lastEditableOverlayHitTarget,
-              hitTarget.action == .select else {
-            return nil
-        }
-
-        return hitTarget
+    private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
+        cueTextMoveHitTarget(at: location) != nil
+            || roadmapMarkerMoveHitTarget(at: location) != nil
+            || chordMoveHitTarget(at: location) != nil
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -2683,16 +2668,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let location = recognizer.location(in: self)
         if activeCueTextMoveDrag != nil
             || (recognizer.state == .began
-                && (cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
-                    || lastCueTextDragHitTarget() != nil)) {
+                && cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
             handleCueTextMovePan(recognizer)
             return
         }
 
         if activeRoadmapMarkerEditDrag != nil
             || (recognizer.state == .began
-                && (roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil
-                    || lastRoadmapMarkerDragHitTarget() != nil)) {
+                && roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
             handleRoadmapMarkerEditPan(recognizer)
             return
         }
@@ -2753,11 +2736,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         switch recognizer.state {
         case .began:
             let startLocation = panStartLocation(for: recognizer)
-            let resolvedCueTextLayout = cueTextMoveHitTarget(at: startLocation)
-                ?? lastCueTextDragHitTarget().flatMap { hitTarget in
-                    cueTextLayouts().first { $0.id == hitTarget.cueTextID }
-                }
-            guard let cueTextLayout = resolvedCueTextLayout,
+            guard let cueTextLayout = cueTextMoveHitTarget(at: startLocation),
                   let cueText = chart.cueText(id: cueTextLayout.id) else {
                 activeCueTextMoveDrag = nil
                 setNeedsDisplay()
@@ -2788,7 +2767,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ) else {
                 if recognizer.state == .ended {
                     self.activeCueTextMoveDrag = nil
-                    lastEditableOverlayHitTarget = nil
                     unlockParentScrollForChordMove()
                     setNeedsDisplay()
                 }
@@ -2812,14 +2790,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if recognizer.state == .ended {
                 self.activeCueTextMoveDrag = nil
-                lastEditableOverlayHitTarget = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
 
         case .cancelled, .failed:
             activeCueTextMoveDrag = nil
-            lastEditableOverlayHitTarget = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -2832,11 +2808,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         switch recognizer.state {
         case .began:
             let startLocation = panStartLocation(for: recognizer)
-            let resolvedMarkerLayout = roadmapMarkerMoveHitTarget(at: startLocation)
-                ?? lastRoadmapMarkerDragHitTarget().flatMap { hitTarget in
-                    roadmapMarkerLayouts().first { $0.id == hitTarget.markerID }
-                }
-            guard let markerLayout = resolvedMarkerLayout else {
+            guard let markerLayout = roadmapMarkerMoveHitTarget(at: startLocation) else {
                 activeRoadmapMarkerEditDrag = nil
                 setNeedsDisplay()
                 return
@@ -2885,14 +2857,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if recognizer.state == .ended {
                 self.activeRoadmapMarkerEditDrag = nil
-                lastEditableOverlayHitTarget = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
 
         case .cancelled, .failed:
             activeRoadmapMarkerEditDrag = nil
-            lastEditableOverlayHitTarget = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -4211,17 +4181,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 x: location.x - translation.x,
                 y: location.y - translation.y
             )
-            if cueTextMoveHitTarget(at: startLocation) != nil
-                || lastCueTextDragHitTarget() != nil {
-                return true
-            }
-
-            if roadmapMarkerMoveHitTarget(at: startLocation) != nil
-                || lastRoadmapMarkerDragHitTarget() != nil {
-                return true
-            }
-
-            return chordMoveHitTarget(at: location) != nil
+            return objectMovePanStartHitTarget(at: startLocation)
         }
 
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -4251,9 +4211,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
-        if gestureRecognizer === chordMovePanRecognizer,
-           touch.type == .pencil {
-            return false
+        if gestureRecognizer === chordMovePanRecognizer {
+            return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: touch.type,
+                startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
+            )
         }
 
         return true

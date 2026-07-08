@@ -67,6 +67,27 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
+    func testPencilObjectMoveStartsOnlyOnMovableTargets() {
+        XCTAssertFalse(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .pencil,
+                startsOnMoveTarget: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .pencil,
+                startsOnMoveTarget: true
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                startsOnMoveTarget: false
+            )
+        )
+    }
+
     func testBrowseModeKeepsCueTextEditable() {
         XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
     }
