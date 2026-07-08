@@ -621,7 +621,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let referenceMeasure = try XCTUnwrap(referenceLayout.systems.first?.measures.first)
         let referenceFrames = referenceMeasure.chordLayouts.map(\.frame)
 
-        for chordFont in [ChartFontFamilyPreset.finaleJazz, .museJazz, .finaleBroadway, .bravura] {
+        for chordFont in [ChartFontFamilyPreset.finaleJazz, .museJazz, .finaleBroadway, .leland] {
             var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 4, layoutStyle: .simpleChordSheet)
             chart.setChordFontOverride(chordFont)
             let measureID = try XCTUnwrap(chart.measures.first?.id)

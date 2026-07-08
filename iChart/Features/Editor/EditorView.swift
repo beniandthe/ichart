@@ -92,7 +92,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordWrite:
             "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Ink Only when the chord should stay handwritten."
         case .chordConfirm:
-            "Tap the chord you meant. Keyboard opens manual entry, Keep Ink leaves handwriting in place, and Rewrite clears the attempt."
+            "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
         case .chordDone:
             "Tap Done to leave Chord mode and return to Select before using the other editor tools."
         case .page:

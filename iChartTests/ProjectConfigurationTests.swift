@@ -39,7 +39,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(bundledLaunchSampleText.contains("\"strokes\""))
     }
 
-    func testChordConfirmationOffersKeyboardManualEntry() throws {
+    func testChordConfirmationUsesStreamlinedManualEntry() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -47,12 +47,24 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
         )
+        let confirmationSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordInkConfirmationSheetView: View")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "struct ChordCorrectionSheetView: View")
+                .first
+        )
 
-        XCTAssertTrue(sheetText.contains("No confident suggestions"))
-        XCTAssertTrue(sheetText.contains("Open keyboard for manual chord entry"))
-        XCTAssertTrue(sheetText.contains("systemImage: \"keyboard\""))
-        XCTAssertTrue(sheetText.contains("Chord Repeat"))
-        XCTAssertTrue(sheetText.contains("Use chord repeat symbol"))
+        XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
+        XCTAssertTrue(confirmationSheetText.contains("TextField(\"Type chord\""))
+        XCTAssertTrue(confirmationSheetText.contains(".presentationDetents([.medium])"))
+        XCTAssertFalse(confirmationSheetText.contains("ScrollView"))
+        XCTAssertFalse(confirmationSheetText.contains("Open keyboard for manual chord entry"))
+        XCTAssertFalse(confirmationSheetText.contains("No confident suggestions"))
+        XCTAssertFalse(confirmationSheetText.contains("Learn Chord"))
+        XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
+        XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
     }
 
     func testChordInkRenderIsTapConfirmedOnly() throws {
@@ -79,6 +91,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
         XCTAssertTrue(flowText.contains("case tapToConfirm"))
         XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
+        XCTAssertFalse(hostText.contains("schedulePassiveChordInkPersistence"))
         XCTAssertFalse(hostText.contains(".automaticPreview"))
         XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
         XCTAssertFalse(hostText.contains("continuationGrace"))

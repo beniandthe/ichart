@@ -306,29 +306,59 @@ struct ChordInkConfirmationSheetView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    selectedChordSummary
-                    candidateChoices
-                    manualEntry
-                    manualActions
+            VStack(spacing: 18) {
+                Text("Enter Chord")
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                TextField("Type chord", text: $manualCandidateText)
+                    .font(.system(.title2, design: .rounded).weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($isManualEntryFocused)
+                    .submitLabel(.done)
+                    .animation(nil, value: manualCandidateText)
+                    .onSubmit {
+                        acceptTrimmedCandidate()
+                    }
                     #if DEBUG && targetEnvironment(simulator)
-                    if showsFixtureCaptureTools {
-                        captureActions
+                    .onChange(of: manualCandidateText) { _, _ in
+                        if fixtureCopyStatus != nil {
+                            fixtureCopyStatus = nil
+                        }
                     }
                     #endif
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                    }
+                    .accessibilityLabel("Manual chord entry")
+
+                shortcutButtons
+                actionButtons
+
+                #if DEBUG && targetEnvironment(simulator)
+                if showsFixtureCaptureTools {
+                    Divider()
+                    captureActions
                 }
-                .frame(maxWidth: 520)
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .top)
+                #endif
             }
-            .scrollDismissesKeyboard(.interactively)
+            .frame(maxWidth: 520)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .background(Color(uiColor: .systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium])
         .interactiveDismissDisabled(true)
         .task(id: confirmation.id) {
             guard shouldFocusManualEntry else {
@@ -347,178 +377,36 @@ struct ChordInkConfirmationSheetView: View {
         confirmation.requiresDirectEntry || confirmation.visibleCandidateTexts.isEmpty
     }
 
-    private var promptText: String {
-        if confirmation.requiresDirectEntry {
-            return "Type the chord you meant."
-        }
-
-        if confirmation.decision.reason.localizedCaseInsensitiveContains("previously rendered") {
-            return "Pick the chord you meant, or type it."
-        }
-
-        if confirmation.decision.isCloseRace {
-            return "Close match. Pick the chord you meant."
-        }
-
-        return "Choose one or type the chord."
-    }
-
-    private var confirmationTitle: String {
-        confirmation.requiresDirectEntry ? "Enter Chord" : "Choose Chord"
-    }
-
-    private var selectedChordSummary: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(confirmationTitle)
-                    .font(.title2.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-
-                Spacer(minLength: 8)
-
-                Text("Measure \(confirmation.displayMeasureNumber)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(promptText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.45)
-                .frame(maxWidth: .infinity, minHeight: 46)
-        }
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
-        }
-    }
-
-    private var candidateChoices: some View {
+    private var shortcutButtons: some View {
         let candidates = Array(confirmation.visibleCandidateTexts.prefix(3))
 
-        return VStack(spacing: 8) {
-            if candidates.isEmpty {
-                Text("No confident suggestions")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-            } else {
-                Text("Top 3")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: candidates.count),
-                    spacing: 8
-                ) {
+        return VStack(spacing: 10) {
+            if !candidates.isEmpty {
+                HStack(spacing: 8) {
                     ForEach(Array(candidates.enumerated()), id: \.element) { index, candidate in
-                        Button {
-                            onAcceptCandidate(candidate)
-                        } label: {
-                            Text(candidate)
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(Color.primary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.55)
-                                .frame(maxWidth: .infinity, minHeight: 46)
-                                .padding(.horizontal, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
-                                }
+                        compactButton(title: candidate) {
+                            manualCandidateText = candidate
+                            isManualEntryFocused = false
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Accept suggestion \(index + 1), \(candidate)")
+                        .accessibilityLabel("Use suggestion \(index + 1), \(candidate)")
                     }
                 }
             }
-        }
-    }
 
-    private var manualEntry: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Text("Manual entry")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    focusManualEntry()
-                } label: {
-                    Label("Keyboard", systemImage: "keyboard")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 32, height: 28)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel("Open keyboard for manual chord entry")
-            }
-
-            TextField("Type chord", text: $manualCandidateText)
-                .font(.title3.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($isManualEntryFocused)
-                .submitLabel(.done)
-                .animation(nil, value: manualCandidateText)
-                .onSubmit {
-                    acceptTrimmedCandidate()
-                }
-                #if DEBUG && targetEnvironment(simulator)
-                .onChange(of: manualCandidateText) { _, _ in
-                    if fixtureCopyStatus != nil {
-                        fixtureCopyStatus = nil
-                    }
-                }
-                #endif
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.06), lineWidth: 1)
-                }
-                .accessibilityLabel("Manual chord entry")
-
-            Button {
+            compactButton(title: "Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)") {
                 manualCandidateText = ChordInkManualEntryShortcut.chordRepeatText
                 isManualEntryFocused = false
-            } label: {
-                Label("Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)", systemImage: "repeat")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 40)
             }
-            .buttonStyle(.bordered)
             .accessibilityLabel("Use chord repeat symbol")
         }
     }
 
-    private var manualActions: some View {
+    private var actionButtons: some View {
         HStack(spacing: 10) {
             Button {
                 acceptTrimmedCandidate()
             } label: {
-                Text("Learn Chord")
+                Text("Confirm")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -532,6 +420,18 @@ struct ChordInkConfirmationSheetView: View {
             }
             .buttonStyle(.bordered)
         }
+    }
+
+    private func compactButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .frame(maxWidth: .infinity, minHeight: 42)
+                .padding(.horizontal, 10)
+        }
+        .buttonStyle(.bordered)
     }
 
     #if DEBUG && targetEnvironment(simulator)
@@ -574,10 +474,6 @@ struct ChordInkConfirmationSheetView: View {
         }
 
         onAcceptCandidate(trimmedCandidateText)
-    }
-
-    private func focusManualEntry() {
-        isManualEntryFocused = true
     }
 }
 

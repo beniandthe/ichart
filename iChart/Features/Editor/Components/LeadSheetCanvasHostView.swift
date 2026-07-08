@@ -2290,13 +2290,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         updateChordInkConfirmOverlayVisibility()
 
-        if let role = activeInkAuthoringSessionRole() {
+        let activeRole = activeInkAuthoringSessionRole()
+        if let role = activeRole {
             inkAuthoringSessionState.markDirty(role)
         }
 
         if interactionMode.allowsDirectRhythmicNotationInk {
             clearRhythmicNotationUnreadInkFeedback()
             recordRhythmicNotationDrawingChange()
+        }
+
+        if activeRole == .chord {
+            cancelPendingInkSessionScheduledWork()
+            return
         }
 
         scheduleInkSessionWorkAfterDrawingChange()
@@ -2961,7 +2967,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            schedulePassiveChordInkPersistence()
+            cancelPendingInkSessionScheduledWork()
             return
 
         case .rhythm:
@@ -3030,22 +3036,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
     }
 
-    private func schedulePassiveChordInkPersistence() {
-        chordInkRecognitionRequestState.cancelPendingRequest()
-        pendingInkPersistWorkItem?.cancel()
-        pendingRhythmicNotationCommitWorkItem?.cancel()
-        pendingRhythmicNotationCommitWorkItem = nil
-        let scheduledInkSnapshot = currentCanvasInkSnapshot()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.persistPassiveInkIfStable(scheduledInkSnapshot: scheduledInkSnapshot)
-        }
-        pendingInkPersistWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + LeadSheetPassiveInkPersistencePolicy.defaultIdleDelay,
-            execute: workItem
-        )
-    }
-
     private func scheduleInkSessionWorkAfterDrawingChange() {
         pendingInkInputCoalescingWorkItem?.cancel()
         cancelPendingInkSessionScheduledWork()
@@ -3061,6 +3051,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cancelPendingInkSessionScheduledWork() {
+        pendingInkInputCoalescingWorkItem?.cancel()
+        pendingInkInputCoalescingWorkItem = nil
         pendingInkPersistWorkItem?.cancel()
         pendingInkPersistWorkItem = nil
         pendingRhythmicNotationCommitWorkItem?.cancel()

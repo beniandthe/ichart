@@ -19,6 +19,21 @@ final class ChartTypographyResolverTests: XCTestCase {
         XCTAssertNil(decodedChart.typography.textOverride)
     }
 
+    func testLegacyBravuraChartDecodesToLeland() throws {
+        let chart = Chart.blank(title: "Legacy Bravura")
+        let encodedData = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        object["notationFont"] = "bravura"
+        object.removeValue(forKey: "typography")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.notationFont, .leland)
+        XCTAssertEqual(decodedChart.typography.matchedSet, .leland)
+        XCTAssertEqual(decodedChart.typography.resolvedChordFont, .leland)
+    }
+
     func testLegacyFinaleAshChartDecodesToLowercaseSafeFinaleJazz() throws {
         let chart = Chart.blank(title: "Legacy Ash")
         let encodedData = try JSONEncoder().encode(chart)
@@ -72,10 +87,14 @@ final class ChartTypographyResolverTests: XCTestCase {
         XCTAssertEqual(resolver.chordFamily.chordTextPostScriptName, "FinaleJazzTextLowercase")
     }
 
-    func testFinaleAshIsLegacyOnlyAndHiddenFromSelectableFontLists() {
+    func testLegacyFontsAreHiddenFromSelectableFontLists() {
+        XCTAssertTrue(NotationFontPreset.allCases.contains(.bravura))
         XCTAssertTrue(NotationFontPreset.allCases.contains(.finaleAsh))
+        XCTAssertTrue(ChartFontFamilyPreset.allCases.contains(.bravura))
         XCTAssertTrue(ChartFontFamilyPreset.allCases.contains(.finaleAsh))
+        XCTAssertFalse(NotationFontPreset.selectableCases.contains(.bravura))
         XCTAssertFalse(NotationFontPreset.selectableCases.contains(.finaleAsh))
+        XCTAssertFalse(ChartFontFamilyPreset.selectableCases.contains(.bravura))
         XCTAssertFalse(ChartFontFamilyPreset.selectableCases.contains(.finaleAsh))
     }
 
@@ -124,6 +143,38 @@ final class ChartTypographyResolverTests: XCTestCase {
         XCTAssertEqual(decodedSettings.chordOverride, .finaleJazz)
         XCTAssertEqual(decodedSettings.headerOverride, .finaleJazz)
         XCTAssertEqual(decodedSettings.textOverride, .finaleJazz)
+    }
+
+    func testBravuraTypographyNormalizesToLeland() throws {
+        let settings = ChartTypographySettings(
+            matchedSet: .bravura,
+            chordOverride: .bravura,
+            headerOverride: .bravura,
+            textOverride: .bravura
+        )
+
+        XCTAssertEqual(NotationFontPreset.bravura.releaseSafePreset, .leland)
+        XCTAssertEqual(ChartFontFamilyPreset.bravura.notationFont, .leland)
+        XCTAssertEqual(settings.matchedSet, .leland)
+        XCTAssertEqual(settings.resolvedChordFont, .leland)
+        XCTAssertEqual(settings.resolvedHeaderFont, .leland)
+        XCTAssertEqual(settings.resolvedTextFont, .leland)
+
+        let legacyJSON = """
+        {
+          "matchedSet": "bravura",
+          "chordOverride": "bravura",
+          "headerOverride": "bravura",
+          "textOverride": "bravura"
+        }
+        """.data(using: .utf8)!
+
+        let decodedSettings = try JSONDecoder().decode(ChartTypographySettings.self, from: legacyJSON)
+
+        XCTAssertEqual(decodedSettings.matchedSet, .leland)
+        XCTAssertEqual(decodedSettings.chordOverride, .leland)
+        XCTAssertEqual(decodedSettings.headerOverride, .leland)
+        XCTAssertEqual(decodedSettings.textOverride, .leland)
     }
 
     func testSimpleChordTypographyUsesSharedTextSizeContract() {

@@ -1394,6 +1394,22 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.typography.textOverride, .finaleJazz)
     }
 
+    func testBravuraSettersNormalizeToLeland() {
+        var chart = Chart.blank(title: "Bravura Fonts")
+
+        chart.setNotationFont(.bravura)
+        chart.setMatchedFontFamily(.bravura)
+        chart.setChordFontOverride(.bravura)
+        chart.setHeaderFontOverride(.bravura)
+        chart.setTextFontOverride(.bravura)
+
+        XCTAssertEqual(chart.notationFont, .leland)
+        XCTAssertEqual(chart.typography.matchedSet, .leland)
+        XCTAssertEqual(chart.typography.chordOverride, .leland)
+        XCTAssertEqual(chart.typography.headerOverride, .leland)
+        XCTAssertEqual(chart.typography.textOverride, .leland)
+    }
+
     func testChartDecodingDefaultsMissingAppearanceFieldsForOlderSnapshots() throws {
         let chart = Chart.blank(title: "Older Snapshot")
         let encodedData = try JSONEncoder().encode(chart)

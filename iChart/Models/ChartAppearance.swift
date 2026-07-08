@@ -25,7 +25,6 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
     case finaleLegacy
 
     static let selectableCases: [NotationFontPreset] = [
-        .bravura,
         .petaluma,
         .leland,
         .museJazz,
@@ -39,7 +38,14 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
     var id: String { rawValue }
 
     var releaseSafePreset: NotationFontPreset {
-        self == .finaleAsh ? .finaleJazz : self
+        switch self {
+        case .bravura:
+            return .leland
+        case .finaleAsh:
+            return .finaleJazz
+        default:
+            return self
+        }
     }
 
     var displayText: String {
@@ -271,7 +277,6 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     case finaleAsh
 
     static let selectableCases: [ChartFontFamilyPreset] = [
-        .bravura,
         .petaluma,
         .leland,
         .museJazz,
@@ -283,7 +288,14 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     var id: String { rawValue }
 
     var releaseSafeTextFamily: ChartFontFamilyPreset {
-        self == .finaleAsh ? .finaleJazz : self
+        switch self {
+        case .bravura:
+            return .leland
+        case .finaleAsh:
+            return .finaleJazz
+        default:
+            return self
+        }
     }
 
     var displayText: String {
@@ -331,7 +343,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     var notationFont: NotationFontPreset {
         switch self {
         case .bravura:
-            return .bravura
+            return .leland
         case .petaluma:
             return .petaluma
         case .leland:
@@ -352,7 +364,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
     init(notationFont: NotationFontPreset) {
         switch notationFont {
         case .bravura:
-            self = .bravura
+            self = .leland
         case .petaluma:
             self = .petaluma
         case .leland:
@@ -368,7 +380,7 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
         case .finaleAsh:
             self = .finaleJazz
         case .finaleEngraver, .finaleLegacy:
-            self = .bravura
+            self = .leland
         }
     }
 

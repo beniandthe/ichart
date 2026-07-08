@@ -544,7 +544,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "confirm",
                     title: "Confirm",
-                    detail: "Tap the chord you meant, open Keyboard for manual entry, keep the ink, or rewrite it. Confirmed chords become rendered objects."
+                    detail: "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
                 ),
                 IChartTutorialStep(
                     id: "ink-only",
