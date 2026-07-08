@@ -1122,11 +1122,12 @@ struct LeadSheetNotationRenderer {
     }
 
     private func roadmapMarkerBaseFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
+        let scale = markerLayout.scale
         if chart.layoutStyle == .simpleChordSheet {
-            return markerLayout.type.isStandaloneNotationMarker ? 22 : 20
+            return (markerLayout.type.isStandaloneNotationMarker ? 22 : 20) * scale
         }
 
-        return chart.layoutStyle == .rhythmSectionSheet ? 15.2 : 14.8
+        return (chart.layoutStyle == .rhythmSectionSheet ? 15.2 : 14.8) * scale
     }
 
     private func roadmapMarkerLabelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
@@ -1141,11 +1142,12 @@ struct LeadSheetNotationRenderer {
     }
 
     private func roadmapMarkerMinimumFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
+        let scale = markerLayout.scale
         if chart.layoutStyle == .simpleChordSheet {
-            return markerLayout.type.isStandaloneNotationMarker ? 21 : 17.5
+            return (markerLayout.type.isStandaloneNotationMarker ? 21 : 17.5) * scale
         }
 
-        return chart.layoutStyle == .rhythmSectionSheet ? 8.5 : 8
+        return (chart.layoutStyle == .rhythmSectionSheet ? 8.5 : 8) * scale
     }
 
     private func roadmapSymbolFont(for symbolGlyph: String, baseFont: UIFont) -> UIFont {

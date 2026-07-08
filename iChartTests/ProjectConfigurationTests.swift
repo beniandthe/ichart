@@ -774,6 +774,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("pendingRoadmapMarkerMoveID"))
         XCTAssertFalse(editorText.contains("Remove Roadmap Marker at Selected Measure"))
         XCTAssertFalse(editorText.contains("systemImage: roadmapType.editorMenuSystemImageName"))
+        XCTAssertTrue(editorText.contains("Make Marker Larger"))
+        XCTAssertTrue(editorText.contains("resizePointRoadmapMarker"))
         XCTAssertTrue(notationRendererText.contains("drawRoadmapLabel"))
         XCTAssertTrue(notationRendererText.contains("LeadSheetRoadmapLabelFitting"))
         XCTAssertTrue(notationRendererText.contains("fittedBaseFontSize"))

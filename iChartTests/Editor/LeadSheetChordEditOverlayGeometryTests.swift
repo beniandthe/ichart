@@ -494,7 +494,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             text: NotationGlyphCatalog.coda,
             frame: frame,
             movementFrame: movementFrame,
-            anchorMeasureID: UUID()
+            anchorMeasureID: UUID(),
+            scale: 1
         )
     }
 

@@ -983,6 +983,30 @@ struct EditorView: View {
 
     @ViewBuilder
     private var codaToolMenuContent: some View {
+        if selectedRoadmapMarker != nil {
+            Button {
+                resizeSelectedRoadmapMarker(by: RoadmapObject.scaleStep)
+            } label: {
+                Label("Make Marker Larger", systemImage: "plus.magnifyingglass")
+            }
+            .disabled(!canGrowSelectedRoadmapMarker)
+
+            Button {
+                resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
+            } label: {
+                Label("Make Marker Smaller", systemImage: "minus.magnifyingglass")
+            }
+            .disabled(!canShrinkSelectedRoadmapMarker)
+
+            Button(role: .destructive) {
+                deleteSelectedRoadmapMarker()
+            } label: {
+                Label("Delete Selected Marker", systemImage: "trash")
+            }
+
+            Divider()
+        }
+
         ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
             Button {
                 handleAddPointRoadmapMarker(roadmapType)
@@ -1703,6 +1727,10 @@ struct EditorView: View {
         selectedCueTextID.flatMap { chart.cueText(id: $0) }
     }
 
+    private var selectedRoadmapMarker: RoadmapObject? {
+        selectedRoadmapMarkerID.flatMap { chart.roadmapObject(id: $0) }
+    }
+
     private var canShrinkSelectedCueText: Bool {
         guard let selectedCueText else {
             return false
@@ -1717,6 +1745,22 @@ struct EditorView: View {
         }
 
         return selectedCueText.scale < CueText.maximumScale
+    }
+
+    private var canShrinkSelectedRoadmapMarker: Bool {
+        guard let selectedRoadmapMarker else {
+            return false
+        }
+
+        return selectedRoadmapMarker.resolvedScale > RoadmapObject.minimumScale
+    }
+
+    private var canGrowSelectedRoadmapMarker: Bool {
+        guard let selectedRoadmapMarker else {
+            return false
+        }
+
+        return selectedRoadmapMarker.resolvedScale < RoadmapObject.maximumScale
     }
 
     private var canDeleteSelectedMeasure: Bool {
@@ -2256,6 +2300,18 @@ struct EditorView: View {
         canvasMode = .textEdit
     }
 
+    private func resizeSelectedRoadmapMarker(by scaleDelta: Double) {
+        guard let selectedRoadmapMarkerID,
+              chart.resizePointRoadmapMarker(selectedRoadmapMarkerID, byScaleDelta: scaleDelta),
+              let marker = chart.roadmapObject(id: selectedRoadmapMarkerID) else {
+            return
+        }
+
+        selectedMeasureID = marker.startMeasureID
+        selectedCueTextID = nil
+        canvasMode = .browse
+    }
+
     private func deleteSelectedCueText() {
         guard let selectedCueTextID,
               let cueText = chart.cueText(id: selectedCueTextID),
@@ -2266,6 +2322,19 @@ struct EditorView: View {
         selectedMeasureID = cueText.anchorMeasureID
         self.selectedCueTextID = nil
         selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
+    private func deleteSelectedRoadmapMarker() {
+        guard let selectedRoadmapMarkerID,
+              let marker = chart.roadmapObject(id: selectedRoadmapMarkerID),
+              chart.deleteRoadmapObject(selectedRoadmapMarkerID) else {
+            return
+        }
+
+        selectedMeasureID = marker.startMeasureID
+        self.selectedRoadmapMarkerID = nil
+        selectedCueTextID = nil
         canvasMode = .browse
     }
 

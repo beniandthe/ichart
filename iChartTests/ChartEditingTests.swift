@@ -237,6 +237,25 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: .nan))
     }
 
+    func testResizePointRoadmapMarkerClampsScale() throws {
+        var chart = Chart.blank(title: "Roadmap Markers", measureCount: 2)
+        let measureIDs = chart.measures.map(\.id)
+        let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: measureIDs[0]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[1])
+        )
+
+        XCTAssertEqual(chart.roadmapObject(id: markerID)?.resolvedScale, RoadmapObject.defaultScale)
+        XCTAssertTrue(chart.resizePointRoadmapMarker(markerID, byScaleDelta: 10))
+        XCTAssertEqual(chart.roadmapObject(id: markerID)?.scale, RoadmapObject.maximumScale)
+        XCTAssertFalse(chart.resizePointRoadmapMarker(markerID, byScaleDelta: 1))
+        XCTAssertTrue(chart.resizePointRoadmapMarker(markerID, byScaleDelta: -10))
+        XCTAssertEqual(chart.roadmapObject(id: markerID)?.scale, RoadmapObject.minimumScale)
+        XCTAssertFalse(chart.resizePointRoadmapMarker(repeatID, byScaleDelta: 1))
+        XCTAssertFalse(chart.resizePointRoadmapMarker(UUID(), byScaleDelta: 1))
+        XCTAssertFalse(chart.resizePointRoadmapMarker(markerID, byScaleDelta: .nan))
+    }
+
     func testPointRoadmapMarkersAutoLinkToDirectionalTargets() throws {
         var chart = Chart.blank(title: "Roadmap Links", measureCount: 5)
         let measureIDs = chart.measures.map(\.id)

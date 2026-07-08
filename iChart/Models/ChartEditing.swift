@@ -1534,6 +1534,30 @@ extension Chart {
         return true
     }
 
+    @discardableResult
+    mutating func resizePointRoadmapMarker(_ roadmapObjectID: UUID, byScaleDelta delta: Double) -> Bool {
+        guard delta.isFinite else {
+            return false
+        }
+
+        guard let roadmapObjectIndex = roadmapObjects.firstIndex(where: { $0.id == roadmapObjectID }),
+              roadmapObjects[roadmapObjectIndex].type.isPointMarker,
+              roadmapObjects[roadmapObjectIndex].endMeasureID == nil,
+              measureLocation(id: roadmapObjects[roadmapObjectIndex].startMeasureID) != nil else {
+            return false
+        }
+
+        let currentScale = roadmapObjects[roadmapObjectIndex].resolvedScale
+        let clampedScale = RoadmapObject.clampedScale(currentScale + delta)
+        guard currentScale != clampedScale else {
+            return false
+        }
+
+        roadmapObjects[roadmapObjectIndex].scale = clampedScale
+        updatedAt = .now
+        return true
+    }
+
     func repeatSpanIDs(attachedTo measureID: UUID) -> [UUID] {
         roadmapObjects
             .filter {
