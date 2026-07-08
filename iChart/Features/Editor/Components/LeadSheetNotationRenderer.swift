@@ -12,27 +12,55 @@ enum NotationGlyphPathCache {
 
     private static let lock = NSLock()
     private static var cachedPaths: [CacheKey: CGPath] = [:]
-    private static var defaultLeadSheetWarmupTask: Task<Void, Never>?
+    private static var defaultCriticalLeadSheetWarmupTask: Task<Void, Never>?
+    private static let defaultCriticalNotationFonts: [NotationFontPreset] = [.petaluma]
+    private static let defaultCriticalEngravingPresets: [EngravingPreset] = [.compact, .balanced, .wide]
 
     static func scheduleDefaultLeadSheetWarmup() {
-        _ = defaultWarmupTask()
+        _ = defaultCriticalWarmupTask()
     }
 
     static func prepareDefaultLeadSheetWarmup() async {
-        await defaultWarmupTask().value
+        await defaultCriticalWarmupTask().value
     }
 
-    private static func defaultWarmupTask() -> Task<Void, Never> {
-        lock.lock()
-        if let defaultLeadSheetWarmupTask {
-            lock.unlock()
-            return defaultLeadSheetWarmupTask
+    static func prepareCriticalLeadSheetWarmup(for chart: Chart?) async {
+        guard let chart else {
+            await prepareDefaultLeadSheetWarmup()
+            return
         }
 
-        let task = Task.detached(priority: .utility) {
-            warmDefaultLeadSheetGlyphs()
+        guard !isCoveredByDefaultCriticalWarmup(chart) else {
+            await prepareDefaultLeadSheetWarmup()
+            return
         }
-        defaultLeadSheetWarmupTask = task
+
+        await Task.detached(priority: .userInitiated) {
+            warmLeadSheetGlyphs(
+                traceName: "notationWarmup.chartCritical",
+                notationFonts: [chart.notationFont],
+                symbols: criticalSymbols(for: chart),
+                engravingPresets: [chart.engravingPreset]
+            )
+        }.value
+    }
+
+    private static func defaultCriticalWarmupTask() -> Task<Void, Never> {
+        lock.lock()
+        if let defaultCriticalLeadSheetWarmupTask {
+            lock.unlock()
+            return defaultCriticalLeadSheetWarmupTask
+        }
+
+        let task = Task.detached(priority: .userInitiated) {
+            warmLeadSheetGlyphs(
+                traceName: "notationWarmup.launchCritical",
+                notationFonts: defaultCriticalNotationFonts,
+                symbols: commonLeadSheetSymbols(),
+                engravingPresets: defaultCriticalEngravingPresets
+            )
+        }
+        defaultCriticalLeadSheetWarmupTask = task
         lock.unlock()
         return task
     }
@@ -70,22 +98,35 @@ enum NotationGlyphPathCache {
         return glyphPath
     }
 
-    private static func warmDefaultLeadSheetGlyphs() {
+    private static func warmLeadSheetGlyphs(
+        traceName: String,
+        notationFonts: [NotationFontPreset],
+        symbols: [NotationGlyphCatalog.Symbol],
+        engravingPresets: [EngravingPreset]
+    ) {
+        let uniqueNotationFonts = unique(notationFonts.map(\.releaseSafePreset))
+        let uniqueSymbols = unique(symbols)
+        let glyphs = uniqueSymbols.compactMap(NotationGlyphCatalog.glyph(for:))
+        let pointSizes = notationGlyphPointSizes(for: engravingPresets)
+        let span = IChartPerformanceTrace.start(
+            traceName,
+            metadata: [
+                "fonts": uniqueNotationFonts.map(\.rawValue).joined(separator: ","),
+                "glyphs": "\(glyphs.count)",
+                "sizes": "\(pointSizes.count)"
+            ]
+        )
+
         NotationFontRegistrar.registerBundledFontsIfNeeded()
 
-        let symbols = commonLeadSheetSymbols()
-        for preset in [NotationFontPreset.petaluma, .bravura] {
+        for preset in uniqueNotationFonts {
             _ = SmuflFontMetadataStore.metadata(for: preset)
-            for symbol in symbols {
+            for symbol in uniqueSymbols {
                 _ = SmuflFontMetadataStore.metrics(for: symbol, in: preset)
             }
         }
 
-        let glyphs = symbols.compactMap(NotationGlyphCatalog.glyph(for:))
-        let pointSizes = EngravingPreset.allCases.map {
-            CGFloat(10.5 * 0.84 * 4 * $0.glyphScale)
-        }
-        for preset in [NotationFontPreset.petaluma, .bravura] {
+        for preset in uniqueNotationFonts {
             for pointSize in pointSizes {
                 guard let font = UIFont(name: preset.postScriptName, size: pointSize) else {
                     continue
@@ -96,10 +137,69 @@ enum NotationGlyphPathCache {
                 }
             }
         }
+
+        IChartPerformanceTrace.end(span)
     }
 
     private static func commonLeadSheetSymbols() -> [NotationGlyphCatalog.Symbol] {
-        [.trebleClef, .bassClef] + (0...9).map(NotationGlyphCatalog.Symbol.timeSignatureDigit)
+        [
+            .trebleClef,
+            .bassClef,
+            .noteheadWhole,
+            .noteheadHalf,
+            .noteheadBlack,
+            .noteWhole,
+            .noteHalfUp,
+            .noteQuarterUp,
+            .note8thUp,
+            .note16thUp,
+            .slashNotehead,
+            .slashWholeNotehead,
+            .slashHalfNotehead,
+            .augmentationDot,
+            .flag8thUp,
+            .flag8thDown,
+            .flag16thUp,
+            .flag16thDown,
+            .wholeRest,
+            .halfRest,
+            .quarterRest,
+            .eighthRest,
+            .sixteenthRest,
+            .accidentalFlat,
+            .accidentalSharp,
+            .coda,
+            .segno
+        ] + (0...9).map(NotationGlyphCatalog.Symbol.timeSignatureDigit)
+    }
+
+    private static func criticalSymbols(for chart: Chart) -> [NotationGlyphCatalog.Symbol] {
+        commonLeadSheetSymbols()
+            + [
+                chart.renderedClef == .bass ? .bassClef : .trebleClef,
+                .timeSignatureDigit(chart.defaultMeter.numerator),
+                .timeSignatureDigit(chart.defaultMeter.denominator)
+            ]
+    }
+
+    private static func isCoveredByDefaultCriticalWarmup(_ chart: Chart) -> Bool {
+        defaultCriticalNotationFonts.contains(chart.notationFont.releaseSafePreset)
+            && defaultCriticalEngravingPresets.contains(chart.engravingPreset)
+    }
+
+    private static func notationGlyphPointSizes(for engravingPresets: [EngravingPreset]) -> [CGFloat] {
+        unique(engravingPresets).flatMap { preset in
+            let glyphScale = CGFloat(preset.glyphScale)
+            return [
+                CGFloat(10.5 * 4) * glyphScale,
+                CGFloat(10.5 * 0.84 * 4) * glyphScale
+            ]
+        }
+    }
+
+    private static func unique<Value: Hashable>(_ values: [Value]) -> [Value] {
+        var seen = Set<Value>()
+        return values.filter { seen.insert($0).inserted }
     }
 }
 

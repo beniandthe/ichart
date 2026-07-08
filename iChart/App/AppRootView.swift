@@ -106,7 +106,7 @@ struct AppRootView: View {
 
             #if canImport(UIKit)
             let warmupSpan = IChartPerformanceTrace.start("app.openChart.notationWarmup")
-            await NotationGlyphPathCache.prepareDefaultLeadSheetWarmup()
+            await NotationGlyphPathCache.prepareCriticalLeadSheetWarmup(for: chart)
             IChartPerformanceTrace.end(warmupSpan)
             #endif
 
