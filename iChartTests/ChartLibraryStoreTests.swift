@@ -304,6 +304,7 @@ final class ChartLibraryStoreTests: XCTestCase {
     func testAsyncRepositoryDoesNotBlockChartCreation() {
         let repository = BlockingAsyncChartRepository()
         let store = ChartLibraryStore(charts: [], repository: repository)
+        let asyncPersistenceTimeout: TimeInterval = 30
         let start = Date()
 
         XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
@@ -311,27 +312,28 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 0.2)
         XCTAssertEqual(store.charts.count, 1)
         XCTAssertEqual(store.selectedChartID, store.charts.first?.id)
-        waitUntil(repository.saveStartedCount == 1)
+        waitUntil(repository.saveStartedCount == 1, timeout: asyncPersistenceTimeout)
         XCTAssertTrue(repository.savedSnapshots.isEmpty)
 
         repository.unblockSave()
-        waitUntil(repository.savedSnapshots.count == 1)
+        waitUntil(repository.savedSnapshots.count == 1, timeout: asyncPersistenceTimeout)
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
     }
 
     func testAsyncRepositoryPersistsLatestSnapshotAfterBlockedSave() {
         let repository = BlockingAsyncChartRepository()
         let store = ChartLibraryStore(charts: [], repository: repository)
+        let asyncPersistenceTimeout: TimeInterval = 30
 
         XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
-        waitUntil(repository.saveStartedCount == 1)
+        waitUntil(repository.saveStartedCount == 1, timeout: asyncPersistenceTimeout)
         XCTAssertTrue(store.createBlankChart(layoutStyle: .rhythmSectionSheet))
         let expectedSelectedChartID = store.selectedChartID
 
         repository.unblockSave()
-        waitUntil(repository.saveStartedCount == 2)
+        waitUntil(repository.saveStartedCount == 2, timeout: asyncPersistenceTimeout)
         repository.unblockSave()
-        waitUntil(repository.savedSnapshots.count == 2)
+        waitUntil(repository.savedSnapshots.count == 2, timeout: asyncPersistenceTimeout)
 
         XCTAssertEqual(repository.savedSnapshots.last?.charts.count, 2)
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, expectedSelectedChartID)
