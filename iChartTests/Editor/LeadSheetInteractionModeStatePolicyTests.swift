@@ -516,6 +516,30 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testInkCanvasSyncPolicyTreatsEquivalentSerializedDrawingAsSynced() {
+        let currentDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
+        let desiredDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 20))])
+
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
+                desiredDrawingData: desiredDrawing.dataRepresentation()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [99]),
+                desiredDrawingData: desiredDrawing.dataRepresentation()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
+                desiredDrawingData: nil
+            )
+        )
+    }
+
     func testFreehandActiveInkScopeUsesRawPageInkForAllV1Styles() {
         let simplePage = LeadSheetPageLayoutEngine.pageLayout(
             for: Chart.blank(title: "Simple", measureCount: 1, layoutStyle: .simpleChordSheet),

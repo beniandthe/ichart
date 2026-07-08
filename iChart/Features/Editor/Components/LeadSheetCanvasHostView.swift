@@ -350,6 +350,24 @@ enum LeadSheetInkCanvasSyncPolicy {
             desiredDrawingData: desiredDrawingData
         )
     }
+
+    static func shouldTreatCanvasAsSynced(
+        currentInkSnapshot: LeadSheetInkDrawingSnapshot?,
+        desiredDrawingData: Data?
+    ) -> Bool {
+        guard let desiredDrawingData else {
+            return currentInkSnapshot == nil
+        }
+
+        guard let desiredDrawing = try? PKDrawing(data: desiredDrawingData) else {
+            return false
+        }
+
+        return LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+            currentInkSnapshot: currentInkSnapshot,
+            scheduledInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: desiredDrawing)
+        )
+    }
 }
 
 enum LeadSheetRhythmicNotationAutoApplyPolicy {
@@ -2909,6 +2927,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         guard currentData != desiredData else {
+            return
+        }
+
+        if LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+            currentInkSnapshot: currentCanvasInkSnapshot(),
+            desiredDrawingData: desiredData
+        ) {
+            pageInkCanvasView.becomeFirstResponder()
             return
         }
 
