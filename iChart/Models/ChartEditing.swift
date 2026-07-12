@@ -96,16 +96,28 @@ extension Chart {
 
     mutating func setChordTranspositionSemitones(_ semitones: Int) {
         let normalizedSemitones = Self.normalizedChordTranspositionSemitones(semitones)
-        guard chordTranspositionSemitones != normalizedSemitones else {
+        guard normalizedSemitones != 0 else {
+            if chordTranspositionSemitones != 0 {
+                chordTranspositionSemitones = 0
+                updatedAt = .now
+            }
             return
         }
 
-        chordTranspositionSemitones = normalizedSemitones
+        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedSemitones)
+        chordTranspositionSemitones = 0
         updatedAt = .now
     }
 
     mutating func transposeChordsByHalfSteps(_ delta: Int) {
-        setChordTranspositionSemitones(chordTranspositionSemitones + delta)
+        let normalizedDelta = Self.normalizedChordTranspositionSemitones(delta)
+        guard normalizedDelta != 0 else {
+            return
+        }
+
+        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedDelta)
+        chordTranspositionSemitones = 0
+        updatedAt = .now
     }
 
     @discardableResult

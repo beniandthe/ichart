@@ -1013,6 +1013,8 @@ struct LeadSheetNotationRenderer {
             drawRest(.sixteenthRest, for: noteLayout)
         case .eighthRest:
             drawRest(.eighthRest, for: noteLayout)
+        case .measureRepeat:
+            drawMeasureRepeat(for: noteLayout)
         }
     }
 
@@ -1302,7 +1304,10 @@ struct LeadSheetNotationRenderer {
         if let beamEndPoint = noteLayout.beamEndPoint {
             drawBeam(from: stemEnd, to: beamEndPoint, staffSpace: noteLayout.staffSpace)
             if noteLayout.flagStyle == .double {
-                let secondaryOffset = style.beamThickness(staffSpace: noteLayout.staffSpace) * 1.75
+                let secondaryOffset = Self.secondaryBeamOffset(
+                    stemGoesUp: noteLayout.stemGoesUp,
+                    beamThickness: style.beamThickness(staffSpace: noteLayout.staffSpace)
+                )
                 drawBeam(
                     from: CGPoint(x: stemEnd.x, y: stemEnd.y + secondaryOffset),
                     to: CGPoint(x: beamEndPoint.x, y: beamEndPoint.y + secondaryOffset),
@@ -1339,7 +1344,7 @@ struct LeadSheetNotationRenderer {
 
     private func drawSecondaryBeamBackward(from stemEnd: CGPoint, stemGoesUp: Bool, staffSpace: CGFloat) {
         let beamThickness = style.beamThickness(staffSpace: staffSpace)
-        let secondaryOffset = beamThickness * (stemGoesUp ? -1.75 : 1.75)
+        let secondaryOffset = Self.secondaryBeamOffset(stemGoesUp: stemGoesUp, beamThickness: beamThickness)
         let beamLength = staffSpace * 1.25
         let secondaryBeamY = stemEnd.y + secondaryOffset
         drawBeam(
@@ -1347,6 +1352,10 @@ struct LeadSheetNotationRenderer {
             to: CGPoint(x: stemEnd.x, y: secondaryBeamY),
             staffSpace: staffSpace
         )
+    }
+
+    static func secondaryBeamOffset(stemGoesUp: Bool, beamThickness: CGFloat) -> CGFloat {
+        beamThickness * (stemGoesUp ? 1.75 : -1.75)
     }
 
     private func drawFlag(
@@ -1398,6 +1407,17 @@ struct LeadSheetNotationRenderer {
             rest.symbol,
             centeredAt: rest.center(from: noteLayout.noteheadFrame),
             staffSpace: noteLayout.staffSpace
+        )
+    }
+
+    private func drawMeasureRepeat(for noteLayout: LeadSheetNoteLayout) {
+        let fontSize = max(CGFloat(16), noteLayout.staffSpace * 1.55)
+        drawText(
+            ChordSymbol.chordRepeatDisplayText,
+            in: noteLayout.noteheadFrame,
+            font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            color: style.inkColor,
+            alignment: .center
         )
     }
 

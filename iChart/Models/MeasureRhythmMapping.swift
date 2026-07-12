@@ -93,7 +93,8 @@ enum RhythmicNotationCompendium {
         .eighthRest,
         .quarterRest,
         .halfRest,
-        .wholeRest
+        .wholeRest,
+        .measureRepeat
     ]
 
     static func accepts(_ values: [RhythmValue], in meter: Meter) -> Bool {
@@ -117,7 +118,9 @@ struct MeasureRhythmSlot: Identifiable, Hashable {
     let duration: RhythmValue
 
     var id: Int { index }
-    var isPlayable: Bool { !duration.isRest && duration != .tiedContinuation }
+    var isPlayable: Bool {
+        !duration.isRest && duration != .tiedContinuation && duration != .measureRepeat
+    }
 }
 
 struct MeasureChordPlacement: Identifiable, Hashable {
@@ -512,7 +515,7 @@ extension RhythmValue {
         switch self {
         case .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole:
             return true
-        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }
@@ -533,6 +536,7 @@ extension RhythmValue {
             .eighth,
             .sixteenth,
             .wholeRest,
+            .measureRepeat,
             .halfRest,
             .quarterRest,
             .sixteenthRest,

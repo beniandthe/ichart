@@ -165,6 +165,18 @@ final class MeasureRhythmMappingTests: XCTestCase {
         XCTAssertEqual(overflow.status(for: meter), .overflow(1))
     }
 
+    func testMeasureRepeatFillsCurrentMeterAsSingleSlot() throws {
+        let meter = Meter(numerator: 3, denominator: 4)
+        let rhythmMap = MeasureRhythmMap(values: [.measureRepeat])
+
+        XCTAssertEqual(rhythmMap.status(for: meter), .exact)
+        XCTAssertEqual(rhythmMap.totalWholeNoteLength(in: meter), meter.measureLengthInWholeNotes)
+
+        let slot = try XCTUnwrap(rhythmMap.resolvedSlots(for: meter)?.first)
+        XCTAssertEqual(slot.duration, .measureRepeat)
+        XCTAssertFalse(slot.isPlayable)
+    }
+
     func testRhythmicNotationCompendiumAcceptsSupportedExactMeasureValues() {
         let meter = Meter(numerator: 4, denominator: 4)
 
@@ -180,6 +192,12 @@ final class MeasureRhythmMappingTests: XCTestCase {
                 in: meter
             )
         )
+        XCTAssertTrue(
+            RhythmicNotationCompendium.accepts(
+                [.measureRepeat],
+                in: meter
+            )
+        )
     }
 
     func testRhythmicNotationCompendiumRejectsUnsupportedOrIncompleteValues() {
@@ -187,6 +205,7 @@ final class MeasureRhythmMappingTests: XCTestCase {
 
         XCTAssertFalse(RhythmicNotationCompendium.accepts([.half, .quarter], in: meter))
         XCTAssertFalse(RhythmicNotationCompendium.accepts([.whole, .quarter], in: meter))
+        XCTAssertFalse(RhythmicNotationCompendium.accepts([.measureRepeat, .quarter], in: meter))
         XCTAssertFalse(RhythmicNotationCompendium.accepts([.quarter, .tiedContinuation, .half], in: meter))
     }
 

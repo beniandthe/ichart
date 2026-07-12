@@ -196,7 +196,7 @@ private extension RhythmValue {
     var isCurrentlyCommitSupportedByGoldenMatrix: Bool {
         switch self {
         case .slash, .eighth, .dottedEighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter,
-                .half, .halfRest, .dottedHalf, .whole, .wholeRest:
+                .half, .halfRest, .dottedHalf, .whole, .wholeRest, .measureRepeat:
             return true
         case .sixteenth, .sixteenthRest, .tiedContinuation:
             return false

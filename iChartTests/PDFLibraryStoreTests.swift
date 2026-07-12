@@ -111,7 +111,7 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.items.first?.source, .chartExport)
     }
 
-    func testGraceKeepsForumDownloadsVisibleAndUnavailableHidesWithoutDeleting() throws {
+    func testGraceHidesForumDownloadsWithoutDeleting() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sourceURL = root.appendingPathComponent("Grace.pdf", isDirectory: false)
@@ -140,7 +140,7 @@ final class PDFLibraryStoreTests: XCTestCase {
             ),
             0
         )
-        XCTAssertEqual(store.visibleItems(for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200))).count, 1)
+        XCTAssertTrue(store.visibleItems(for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200))).isEmpty)
         XCTAssertEqual(store.removeForumDownloadsIfInactive(for: .unavailable), 0)
         XCTAssertTrue(store.visibleItems(for: .unavailable).isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: forumDownload.url.path(percentEncoded: false)))

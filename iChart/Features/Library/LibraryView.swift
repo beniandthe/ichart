@@ -330,12 +330,12 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "top-row",
                     title: "Top Row",
-                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Hand. Tap Done in an active tool before switching tools."
+                    detail: "The top row contains Page, Select, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Write. Tap Done in an active tool before switching tools."
                 ),
                 IChartTutorialStep(
                     id: "active-row",
                     title: "Active Row",
-                    detail: "The active row appears after choosing a tool. It shows only that tool's controls, such as Measures actions, Repeats actions, Write, Erase, Read, Ink Only, and Done."
+                    detail: "The active row appears after choosing a tool. Chord and Rhythm read your writing; Free-Write keeps persistent ink exactly handwritten."
                 ),
                 IChartTutorialStep(
                     id: "write-erase",
@@ -533,7 +533,7 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "chord-tool",
             title: "Chord",
-            summary: "Use Chord only for handwritten chord entry and rendered chord correction.",
+            summary: "Use Chord only when iChart should read handwritten chord entry or correct rendered chords.",
             systemImageName: "pencil",
             steps: [
                 IChartTutorialStep(
@@ -545,11 +545,6 @@ private struct IChartTutorialSection: Identifiable {
                     id: "confirm",
                     title: "Confirm",
                     detail: "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
-                ),
-                IChartTutorialStep(
-                    id: "ink-only",
-                    title: "Ink Only",
-                    detail: "Choose Ink Only when you want chords to stay handwritten. Handwritten-only chords do not transpose or work with chord systems."
                 ),
                 IChartTutorialStep(
                     id: "move",
@@ -565,24 +560,24 @@ private struct IChartTutorialSection: Identifiable {
         ),
         IChartTutorialSection(
             id: "free-hand-tool",
-            title: "Free-Hand",
-            summary: "Use Free-Hand as literal page ink for quick marks, notes, and cues.",
+            title: "Free-Write",
+            summary: "Use Free-Write as persistent page ink for free writing chords, rhythms, articulations, notes, and cues.",
             systemImageName: "pencil.and.scribble",
             steps: [
                 IChartTutorialStep(
                     id: "write-freehand",
                     title: "Write",
-                    detail: "Choose Write and draw rehearsal notes, layout marks, kicks, or reminders as raw page ink. Free-Hand does not create movable boxes."
+                    detail: "Choose Write and draw handwritten chords, rhythms, articulations, rehearsal notes, layout marks, kicks, or reminders as raw page ink. Free-Write does not create movable boxes."
                 ),
                 IChartTutorialStep(
                     id: "erase-freehand",
                     title: "Erase",
-                    detail: "Choose Erase to remove Free-Hand ink. Rewrite the mark manually if it needs to move."
+                    detail: "Choose Erase to remove Free-Write ink. Rewrite the mark manually if it needs to move."
                 ),
                 IChartTutorialStep(
                     id: "done-freehand",
                     title: "Done",
-                    detail: "Tap Done to leave Free-Hand and return to Select."
+                    detail: "Tap Done to leave Free-Write and return to Select."
                 )
             ]
         ),
@@ -741,7 +736,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Basic keeps three local charts, all local authoring tools, and PDF export.",
                 "Pro adds unlimited charts, Projects, cloud backup and restore, and Forums.",
-                "If Pro ends while the local library is above the Basic cap, choose local charts to remove until three remain; cloud backups stay recoverable during the grace period."
+                "If Pro ends while the local library is above the Basic cap, chart access locks until you choose three Basic charts; cloud backup is removed after the paid period or Apple billing grace ends."
             ]
         )
     ]
@@ -2421,7 +2416,7 @@ private struct IChartChartConsolidationNotice: View {
             systemImageName: "trash",
             theme: theme
         ) {
-            Text("Delete \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") from the list below to continue in Basic. Editing unlocks when 3 charts remain. Cloud backups stay available through the Pro grace period.")
+            Text("Choose \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") to remove from this device to continue in Basic. Editing unlocks when 3 charts remain. Cloud backup is removed after Pro access ends.")
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -340,11 +340,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testFreehandTabTitleStaysStableWhenActive() {
-        XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Hand")
-        XCTAssertEqual(EditorCanvasMode.repeatEdit.freeHandTabTitle, "Free-Hand")
-        XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.freeHandTabTitle, "Free-Hand")
-        XCTAssertEqual(EditorCanvasMode.headerEntry.freeHandTabTitle, "Free-Hand")
-        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Write")
+        XCTAssertEqual(EditorCanvasMode.repeatEdit.freeHandTabTitle, "Free-Write")
+        XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.freeHandTabTitle, "Free-Write")
+        XCTAssertEqual(EditorCanvasMode.headerEntry.freeHandTabTitle, "Free-Write")
+        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Free-Write")
         XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabSymbol, "pencil.and.scribble")
     }
 
@@ -368,7 +368,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")
         XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
         XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chord")
-        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Hand")
+        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Write")
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
@@ -607,7 +607,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         guard case .page(let simpleFrame) = simpleScope,
               case .page(let rhythmFrame) = rhythmScope,
               case .page(let leadFrame) = leadScope else {
-            XCTFail("Free-Hand should resolve to raw page ink scopes")
+            XCTFail("Free-Write should resolve to raw page ink scopes")
             return
         }
         XCTAssertEqual(simpleFrame, LeadSheetActiveInkScope.pageWritingFrame(for: simplePage))

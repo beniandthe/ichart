@@ -549,10 +549,10 @@ Only expand recurring service scope after the core cloud chart service is stable
 - account/auth/profile is mandatory base infrastructure, not a paid feature
 - Pro gates cloud chart services because they create ongoing operational cost
 - expired Pro should remove or pause only paid cloud/service-backed features such as cloud backup/sync and Forums
-- downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
+- canceled but still paid-through Pro remains full Pro until the paid-through date
+- expired Basic accounts over the 3-chart cap lock chart opening/editing until users choose which local charts to remove so only 3 remain
 - downgrade pruning deletes user-selected charts locally but does not create remote deletion tombstones
-- remote chart backups should receive a clear grace period, recommended default 30 days, before cloud retention cleanup
-- charts removed locally during downgrade pruning remain in cloud backup until the grace period ends
+- remote chart backups remain through the paid-through date or Apple billing grace deadline, then are deleted by server-side retention cleanup unless Pro renews first
 - restore purchases must be supported when monetization ships
 
 ## 16. Validation plan

@@ -14,32 +14,29 @@ private struct PendingMeasureStackInsertion: Identifiable {
     let anchorMeasureID: UUID
 }
 
-private enum ChordToolInputMode: String, CaseIterable, Identifiable {
-    case read
-    case inkOnly
+private enum EditorToolAccent {
+    static let semanticRead = Color(red: 0.16, green: 0.38, blue: 0.82)
+    static let persistentInk = Color.orange
+}
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .read:
-            return "Read"
-        case .inkOnly:
-            return "Ink Only"
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .read:
-            return "text.viewfinder"
-        case .inkOnly:
-            return "pencil.and.scribble"
-        }
-    }
-
-    var recognizesChordInk: Bool {
-        self == .read
+private struct ActiveToolDoneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .foregroundStyle(configuration.isPressed ? Color.white : Color.primary.opacity(0.72))
+            .background(
+                configuration.isPressed
+                    ? EditorToolAccent.semanticRead
+                    : Color(uiColor: .tertiarySystemBackground)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.black.opacity(configuration.isPressed ? 0 : 0.08), lineWidth: 1)
+            )
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 
@@ -79,7 +76,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .coda:
             "Coda"
         case .freeHandActive:
-            "Free-Hand"
+            "Free-Write"
         case .select:
             "Select And Finish"
         }
@@ -90,7 +87,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Confirm the page setup, time signature, starting measure count, and sheet style. Create Blank Page opens the chart for the hands-on tour."
         case .chordWrite:
-            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Ink Only when the chord should stay handwritten."
+            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Free-Write when notation should stay exactly handwritten."
         case .chordConfirm:
             "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
         case .chordDone:
@@ -106,7 +103,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .coda:
             "Coda is for point roadmap markers: Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, and N.C. In Select, drag a marker or tap its x to delete it."
         case .freeHandActive:
-            "Free-Hand is raw page ink for quick marks, notes, and cues. It does not attach to measures or create movable symbols; erase and rewrite it manually."
+            "Free-Write is persistent page ink for free writing chords, rhythms, articulations, notes, and cues. It does not attach to measures or create movable symbols; erase and rewrite it manually."
         case .select:
             "Select is the resting mode for scrolling, choosing rendered objects, editing text or markers, and returning to Page for setup or export."
         }
@@ -131,7 +128,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .repeatsActive:
             "Tap Coda"
         case .coda:
-            "Tap Free-Hand"
+            "Tap Free-Write"
         case .freeHandActive:
             "Tap Done"
         case .select:
@@ -306,7 +303,6 @@ struct EditorView: View {
     @State private var editingCueTextID: UUID?
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
-    @State private var chordToolInputMode: ChordToolInputMode = .read
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
@@ -759,6 +755,17 @@ struct EditorView: View {
 
             Group {
                 if showsActiveToolControls {
+                    if let activeToolExplainer {
+                        Text(activeToolExplainer.text)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(activeToolExplainer.color)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.86)
+                            .padding(.horizontal, 12)
+                            .frame(maxWidth: minWidth, alignment: .center)
+                            .accessibilityLabel(activeToolExplainer.text)
+                    }
+
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -771,6 +778,28 @@ struct EditorView: View {
 
     private var showsActiveToolControls: Bool {
         canvasMode.showsActiveToolControls
+    }
+
+    private var activeToolExplainer: (text: String, color: Color)? {
+        switch canvasMode {
+        case .chordEntry:
+            return (
+                "Read and render chords. Want handwritten notation? Use Free-Write.",
+                EditorToolAccent.semanticRead
+            )
+        case .rhythmicNotationEdit:
+            return (
+                "Read and render rhythms. Want handwritten notation? Use Free-Write.",
+                EditorToolAccent.semanticRead
+            )
+        case .freeHand:
+            return (
+                "Persistent-ink mode. This ink is never read or interpreted by iChart.",
+                EditorToolAccent.persistentInk
+            )
+        default:
+            return nil
+        }
     }
 
     @ViewBuilder
@@ -899,13 +928,13 @@ struct EditorView: View {
                 } label: {
                     notationMenuLabel(
                         chordTranspositionOptionTitle(semitones),
-                        isSelected: chart.chordTranspositionSemitones == semitones
+                        isSelected: semitones == 0
                     )
                 }
             }
         } label: {
             Label(
-                "Transpose (\(chart.chordTranspositionDisplayText))",
+                "Transpose",
                 systemImage: "arrow.up.arrow.down"
             )
         }
@@ -1155,7 +1184,8 @@ struct EditorView: View {
                     EditorMenuTabLabel(
                         title: "Chord",
                         systemImage: "pencil",
-                        isSelected: canvasMode == .chordEntry
+                        isSelected: canvasMode == .chordEntry,
+                        selectedColor: EditorToolAccent.semanticRead
                     )
                 }
                 .disabled(canvasMode.locksDocumentActions && canvasMode != .chordEntry)
@@ -1171,7 +1201,8 @@ struct EditorView: View {
                     EditorMenuTabLabel(
                         title: canvasMode.freeHandTabTitle,
                         systemImage: canvasMode.freeHandTabSymbol,
-                        isSelected: canvasMode == .freeHand
+                        isSelected: canvasMode == .freeHand,
+                        selectedColor: EditorToolAccent.persistentInk
                     )
                 }
                 .disabled(
@@ -1216,20 +1247,6 @@ struct EditorView: View {
                     headerActiveToolActions
                 }
 
-                if canvasMode == .chordEntry {
-                    chordActiveToolActions
-                }
-
-                if canvasMode == .chordEntry && chordToolInputMode == .inkOnly {
-                    Label(
-                        "Ink Only: handwritten chords stay as ink; transposition and chord systems will not apply.",
-                        systemImage: "exclamationmark.triangle"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.orange)
-                    .lineLimit(1)
-                }
-
                 if canvasMode == .rhythmicNotationEdit {
                     rhythmActiveToolActions
                     rhythmDiagnosticStatusChip
@@ -1239,14 +1256,8 @@ struct EditorView: View {
                     activateSelectTool()
                 } label: {
                     Label("Done", systemImage: "checkmark")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .frame(height: 38)
-                        .foregroundStyle(Color.white)
-                        .background(Color(red: 0.16, green: 0.38, blue: 0.82))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ActiveToolDoneButtonStyle())
                 .accessibilityLabel("Done")
             }
             .padding(.horizontal, 9)
@@ -1412,20 +1423,6 @@ struct EditorView: View {
         }
     }
 
-    private var chordActiveToolActions: some View {
-        HStack(spacing: 5) {
-            ForEach(ChordToolInputMode.allCases) { mode in
-                activeToolButton(
-                    title: mode.title,
-                    systemImage: mode.systemImageName,
-                    isSelected: chordToolInputMode == mode
-                ) {
-                    chordToolInputMode = mode
-                }
-            }
-        }
-    }
-
     private var rhythmActiveToolActions: some View {
         HStack(spacing: 5) {
             activeToolButton(
@@ -1512,7 +1509,7 @@ struct EditorView: View {
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
-            recognizesChordInk: chordToolInputMode.recognizesChordInk,
+            recognizesChordInk: true,
             inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
@@ -1549,7 +1546,7 @@ struct EditorView: View {
             "measureCount": "\(chart.measures.count)",
             "canvasMode": canvasMode.activeToolTitle,
             "inkToolMode": inkToolMode.rawValue,
-            "chordToolInputMode": chordToolInputMode.rawValue
+            "chordToolInputMode": "readOnly"
         ]
     }
 
@@ -3809,6 +3806,10 @@ private struct RhythmDiagnosticPreviewGlyph: View {
             case .whole:
                 symbol(.noteWhole, size: RhythmDiagnosticPreviewMetrics.wholeNotePointSize)
                     .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 3)
+            case .measureRepeat:
+                Text(ChordSymbol.chordRepeatDisplayText)
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .offset(y: RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 2)
             case .half:
                 noteSymbol(.noteHalfUp)
             case .dottedHalf:
@@ -3876,7 +3877,7 @@ private struct RhythmDiagnosticPreviewGlyph: View {
         case .dottedEighth, .dottedHalf:
             return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
         case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest,
-             .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+             .half, .halfRest, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return RhythmDiagnosticPreviewMetrics.glyphVerticalOffset + 8
         }
     }

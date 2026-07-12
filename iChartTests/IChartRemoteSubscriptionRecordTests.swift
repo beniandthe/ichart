@@ -5,6 +5,7 @@ final class IChartRemoteSubscriptionRecordTests: XCTestCase {
     func testActiveStoreKitRowResolvesToActiveProForKnownProduct() throws {
         let record = try decodeRecord(
             appStoreStatus: "active",
+            appStoreAutoRenewStatus: true,
             entitlementExpiresAt: "2026-07-12T21:00:00.000Z",
             lastVerifiedAt: "2026-06-12T21:00:00.000Z"
         )
@@ -12,7 +13,25 @@ final class IChartRemoteSubscriptionRecordTests: XCTestCase {
         let entitlement = record.entitlement(now: isoDate("2026-06-12T21:00:00.000Z"))
 
         XCTAssertEqual(entitlement.status, .proActive)
+        XCTAssertEqual(entitlement.accessEndsAt, isoDate("2026-07-12T21:00:00.000Z"))
+        XCTAssertEqual(entitlement.willAutoRenew, true)
         XCTAssertEqual(entitlement.lastVerifiedAt, isoDate("2026-06-12T21:00:00.000Z"))
+    }
+
+    func testCanceledRenewalResolvesToActiveProUntilExpiration() throws {
+        let record = try decodeRecord(
+            appStoreStatus: "active",
+            appStoreAutoRenewStatus: false,
+            entitlementExpiresAt: "2026-07-12T21:00:00.000Z",
+            lastVerifiedAt: "2026-06-12T21:00:00.000Z"
+        )
+
+        let entitlement = record.entitlement(now: isoDate("2026-06-12T21:00:00.000Z"))
+
+        XCTAssertEqual(entitlement.status, .proActive)
+        XCTAssertEqual(entitlement.accessEndsAt, isoDate("2026-07-12T21:00:00.000Z"))
+        XCTAssertEqual(entitlement.willAutoRenew, false)
+        XCTAssertTrue(entitlement.detailText.contains("Pro remains active until"))
     }
 
     func testExpiredStoreKitRowResolvesToExpiredPro() throws {
@@ -71,8 +90,11 @@ final class IChartRemoteSubscriptionRecordTests: XCTestCase {
         provider: String = "storekit",
         productID: String? = "com.ichart.app.pro.annual",
         appStoreStatus: String?,
+        appStoreAutoRenewStatus: Bool? = nil,
         entitlementExpiresAt: String? = nil,
         gracePeriodExpiresAt: String? = nil,
+        cloudRetentionDeadline: String? = nil,
+        cloudRetentionDeletedAt: String? = nil,
         lastVerifiedAt: String? = nil
     ) throws -> IChartRemoteSubscriptionRecord {
         let payload: [String: Any?] = [
@@ -84,8 +106,11 @@ final class IChartRemoteSubscriptionRecordTests: XCTestCase {
             "storekit_original_transaction_id": "1000000000000001",
             "storekit_environment": "sandbox",
             "app_store_status": appStoreStatus,
+            "app_store_auto_renew_status": appStoreAutoRenewStatus,
             "entitlement_expires_at": entitlementExpiresAt,
             "grace_period_expires_at": gracePeriodExpiresAt,
+            "cloud_retention_deadline": cloudRetentionDeadline,
+            "cloud_retention_deleted_at": cloudRetentionDeletedAt,
             "revoked_at": nil,
             "last_verified_at": lastVerifiedAt
         ]

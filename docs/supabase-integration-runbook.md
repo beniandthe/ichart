@@ -14,9 +14,9 @@ Plan policy authority: `docs/ichart-plan-policy-source-of-truth.md`
 - Forums access is Pro-only.
 - `ChartCloudSyncService` and Forums are gated behind active Pro entitlement in the app and by Supabase RLS/policies on the server side.
 - If Pro expires, cloud backup/sync and Forums should pause clearly.
-- If a downgraded Basic account has more than 3 local charts, the app should prompt the user to choose which local charts to remove until only 3 remain.
+- If an expired Basic account has more than 3 local charts, the app should lock chart opening/editing until the user chooses which local charts to remove so only 3 remain.
 - Downgrade pruning is local-only and must not enqueue cloud deletion tombstones.
-- Remote chart backups should receive a clear grace period, recommended default 30 days, before cloud retention cleanup. Charts removed locally during downgrade pruning remain in cloud backup until the grace period ends.
+- Remote chart backups remain through the paid-through subscription date or Apple billing grace deadline, then are deleted by server-side retention cleanup unless Pro renews first. Local device charts are never silently deleted by cloud retention cleanup.
 
 ## Local Setup
 
@@ -92,7 +92,7 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 1. Link the local repo to the Supabase project: `supabase link --project-ref <project-ref>`
 2. Preview pending migrations: `supabase db diff --linked`
 3. Push migrations: `supabase db push`
-4. Deploy `app-store-server-notifications` and `storekit-subscription-claims` after verifier/app secrets are configured for the target environment.
+4. Deploy `app-store-server-notifications`, `storekit-subscription-claims`, and `subscription-retention-jobs` after verifier/app/job secrets are configured for the target environment.
 5. Smoke-test the notification endpoint for missing payload `400`, invalid signed payload `401`, wrong method `405`, and oversized body `413`.
 6. Smoke-test the claim endpoint so unauthenticated requests return `401`.
 7. Confirm RLS is enabled on `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices`.
@@ -100,6 +100,17 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 9. Confirm forum attribution and PDF finalization/provenance remain server-owned.
 10. Confirm the app redirect URL is present: `ichart://auth-callback`.
 11. Confirm no raw card data exists in database tables.
+
+### Subscription Retention Job
+
+The retention scheduler is split so the database owns subscription/deletion decisions and the Edge Function owns authenticated dispatch:
+
+- `private.run_subscription_retention_jobs` creates day-before expiration warnings and cloud-deletion events, then deletes only remote `chart_documents`/`chart_snapshots` after the paid-through date or Apple billing grace deadline.
+- `subscription-retention-jobs` invokes the service-role-only RPC wrappers and sends queued events through Resend when email secrets are configured.
+- Required Edge Function secrets: `ICHART_RETENTION_JOB_SECRET`, `RESEND_API_KEY`, and `ICHART_RETENTION_EMAIL_FROM`.
+- Without `RESEND_API_KEY`/`ICHART_RETENTION_EMAIL_FROM`, the function still runs retention decisions and leaves email events queued with `email_status: not_configured`.
+- Schedule the function with Supabase Cron/pg_net or an equivalent trusted scheduler. The request must be `POST` and must include either `Authorization: Bearer <ICHART_RETENTION_JOB_SECRET>` or `x-ichart-retention-job-secret: <ICHART_RETENTION_JOB_SECRET>`.
+- Keep the job secret, service-role key, and email provider key out of git, docs, app bundles, and chat.
 
 ## QA Checklist
 
@@ -112,7 +123,9 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 - With active Pro entitlement, create, edit, delete, relaunch, sync, and restore charts after reinstall/sign-in.
 - Without active Pro entitlement, confirm charts save locally, PDF/export remains available, Cloud Backup clearly reports that cloud backup requires Pro, and Forums are locked.
 - When a Basic account already has more than 3 local charts from a prior Pro period, confirm the app requires user-selected local pruning down to 3 charts.
-- Confirm downgrade-pruned local charts do not create remote deletion tombstones and remain restorable from cloud snapshots until the grace period ends.
+- Confirm downgrade-pruned local charts do not create remote deletion tombstones.
+- Confirm the private subscription retention job deletes remote cloud snapshots only after the paid-through date or Apple billing grace deadline.
+- Confirm the scheduled `subscription-retention-jobs` endpoint dispatches queued retention emails or leaves them queued if the provider is intentionally not configured.
 - Make offline edits, regain network, tap Back Up Now, and confirm state recovers.
 
 ## Opt-In Integration Tests

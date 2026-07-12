@@ -147,6 +147,7 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
     case dottedHalf
     case whole
     case wholeRest
+    case measureRepeat
     case tiedContinuation
 
     var displayText: String {
@@ -179,6 +180,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return "whole"
         case .wholeRest:
             return "whole rest"
+        case .measureRepeat:
+            return "measure repeat"
         case .tiedContinuation:
             return "tie"
         }
@@ -214,6 +217,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return 1.0
         case .wholeRest:
             return 1.0
+        case .measureRepeat:
+            return 1.0
         case .tiedContinuation:
             return 0.0
         }
@@ -223,6 +228,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .slash:
             return meter.beatUnitWholeNoteLength
+        case .measureRepeat:
+            return meter.measureLengthInWholeNotes
         case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .dottedEighth, .quarter, .quarterRest, .dottedQuarter,
              .half, .halfRest, .dottedHalf, .whole, .wholeRest, .tiedContinuation:
             return wholeNoteLength
@@ -233,7 +240,7 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
         switch self {
         case .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest:
             return true
-        case .slash, .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .measureRepeat, .tiedContinuation:
             return false
         }
     }

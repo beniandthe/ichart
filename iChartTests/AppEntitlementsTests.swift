@@ -85,10 +85,8 @@ final class AppEntitlementsTests: XCTestCase {
     }
 
     func testInactiveSubscriptionStatesUseBasicLocalLimits() {
-        let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
         let inactiveStates: [IChartSubscriptionEntitlement] = [
             .basic,
-            .proGrace(graceEndsAt: graceEndsAt),
             .proExpired(),
             .unavailable
         ]
@@ -106,29 +104,37 @@ final class AppEntitlementsTests: XCTestCase {
         }
     }
 
-    func testForumDownloadRetentionAllowsActiveProAndGraceOnly() {
+    func testBillingGraceKeepsLocalChartAccessButPausesCloudServices() {
         let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
-        let retainedStates: [IChartSubscriptionEntitlement] = [
-            .activePro(),
-            .proGrace(graceEndsAt: graceEndsAt)
-        ]
+        let entitlements = AppEntitlements(subscription: .proGrace(graceEndsAt: graceEndsAt))
+
+        XCTAssertNil(entitlements.localChartLimit)
+        XCTAssertTrue(entitlements.includes(.unlimitedLocalCharts))
+        XCTAssertTrue(entitlements.includes(.projects))
+        XCTAssertTrue(entitlements.includes(.pdfExport))
+        XCTAssertFalse(entitlements.includes(.cloudBackup))
+        XCTAssertFalse(entitlements.includes(.forums))
+    }
+
+    func testForumDownloadRetentionAllowsActiveProOnlyAndPreservesGraceFiles() {
+        let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
         let inaccessibleStates: [IChartSubscriptionEntitlement] = [
             .basic,
+            .proGrace(graceEndsAt: graceEndsAt),
             .proExpired(),
             .unavailable,
             .legacyLocalPro
         ]
 
-        retainedStates.forEach { subscription in
-            XCTAssertTrue(subscription.allowsForumDownloadAccess, "Expected forum downloads to remain visible for \(subscription.status)")
-            XCTAssertFalse(subscription.shouldRemoveForumDownloads, "Expected forum downloads to be kept for \(subscription.status)")
-        }
+        XCTAssertTrue(IChartSubscriptionEntitlement.activePro().allowsForumDownloadAccess)
+        XCTAssertFalse(IChartSubscriptionEntitlement.activePro().shouldRemoveForumDownloads)
         inaccessibleStates.forEach { subscription in
             XCTAssertFalse(subscription.allowsForumDownloadAccess, "Expected forum downloads to be hidden for \(subscription.status)")
         }
         XCTAssertTrue(IChartSubscriptionEntitlement.basic.shouldRemoveForumDownloads)
         XCTAssertTrue(IChartSubscriptionEntitlement.proExpired().shouldRemoveForumDownloads)
         XCTAssertTrue(IChartSubscriptionEntitlement.legacyLocalPro.shouldRemoveForumDownloads)
+        XCTAssertFalse(IChartSubscriptionEntitlement.proGrace(graceEndsAt: graceEndsAt).shouldRemoveForumDownloads)
         XCTAssertFalse(IChartSubscriptionEntitlement.unavailable.shouldRemoveForumDownloads)
     }
 
@@ -174,6 +180,7 @@ final class AppEntitlementsTests: XCTestCase {
         let active = IChartStoreKitEntitlementResolver.entitlement(
             hasActiveProSubscription: true,
             sawExpiredProTransaction: false,
+            accessEndsAt: Date(timeIntervalSinceReferenceDate: 300),
             verifiedAt: verifiedAt
         )
         let expired = IChartStoreKitEntitlementResolver.entitlement(
@@ -188,6 +195,7 @@ final class AppEntitlementsTests: XCTestCase {
         )
 
         XCTAssertEqual(active.status, .proActive)
+        XCTAssertEqual(active.accessEndsAt, Date(timeIntervalSinceReferenceDate: 300))
         XCTAssertEqual(active.lastVerifiedAt, verifiedAt)
         XCTAssertEqual(expired.status, .proExpired)
         XCTAssertEqual(expired.lastVerifiedAt, verifiedAt)

@@ -127,6 +127,13 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     var localChartLimit: Int? {
+        switch subscription.status {
+        case .proActive, .proGrace, .legacyLocalPro:
+            return nil
+        case .basic, .proExpired, .unavailable:
+            break
+        }
+
         switch activePlan {
         case .free:
             return Self.recommendedFreeChartLimit
@@ -136,6 +143,26 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     func includes(_ feature: EntitledFeature) -> Bool {
+        if subscription.status == .proGrace {
+            switch feature {
+            case .unlimitedLocalCharts,
+                 .pdfExport,
+                 .documentTransposition,
+                 .fontPresets,
+                 .roadmapNotationTools,
+                 .advancedRhythmEditing,
+                 .projects:
+                return true
+            case .syncedChartOrganization,
+                 .cloudBackup,
+                 .forums,
+                 .sharedBandLibraries,
+                 .setlistsAndVersionHistory,
+                 .aiRecognitionCleanup:
+                return false
+            }
+        }
+
         switch activePlan {
         case .free:
             switch feature {

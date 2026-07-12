@@ -220,9 +220,14 @@ async function subscriptionAuthorityRowsForOriginalTransaction(
       "storekit_original_transaction_id",
       "storekit_app_account_token",
       "app_store_status",
+      "app_store_auto_renew_status",
       "app_store_last_transaction_id",
       "app_store_signed_at",
       "app_store_notification_uuid",
+      "entitlement_expires_at",
+      "grace_period_expires_at",
+      "cloud_retention_deadline",
+      "cloud_retention_deleted_at",
       "last_verified_at",
     ].join(",")
   );

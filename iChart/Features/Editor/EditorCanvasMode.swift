@@ -16,7 +16,7 @@ enum EditorCanvasMode: Hashable {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
                 .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
-            return "Free-Hand"
+            return "Free-Write"
         }
     }
 
@@ -51,7 +51,7 @@ enum EditorCanvasMode: Hashable {
         case .noteEdit:
             return "Rhythm Edit"
         case .freeHand:
-            return "Free-Hand"
+            return "Free-Write"
         case .textEdit:
             return "Text"
         }

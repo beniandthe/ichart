@@ -504,7 +504,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         }
     }
 
-    func testSimpleChordSheetRendersChartWideChordTransposition() throws {
+    func testSimpleChordSheetRendersOneTimeAppliedChordTransposition() throws {
         var chart = Chart.blank(title: "Simple Chord Transpose", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         try appendChord("Bb△7", to: measureID, in: &chart, atFraction: 0.05)
@@ -520,7 +520,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
 
         XCTAssertEqual(firstMeasure.chordLayouts.map(\.text), ["C△7", "D-7", "A/C#"])
-        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["Bb△7", "C-7", "G/B"])
+        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C△7", "D-7", "A/C#"])
+        XCTAssertEqual(chart.chordTranspositionSemitones, 0)
         XCTAssertEqual(firstMeasure.chordLayouts.count, 3)
         XCTAssertTrue(firstMeasure.chordLayouts.allSatisfy { $0.horizontalCompressionScale == firstMeasure.chordLayouts[0].horizontalCompressionScale })
     }
@@ -1203,6 +1204,27 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(measure.repeatMarkerLayouts.count, 2)
     }
 
+    func testRhythmMeasureRepeatRendersCenteredMeasureLevelSymbol() throws {
+        var chart = Chart.blank(title: "Measure Repeat", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureRhythmMap([.measureRepeat], for: measureID)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let noteLayout = try XCTUnwrap(measure.noteLayouts.first)
+
+        XCTAssertEqual(measure.noteLayouts.count, 1)
+        XCTAssertEqual(noteLayout.symbolStyle, .measureRepeat)
+        XCTAssertNil(noteLayout.noteheadSymbol)
+        XCTAssertNil(noteLayout.stemStart)
+        XCTAssertNil(noteLayout.stemEnd)
+        XCTAssertEqual(noteLayout.noteheadFrame.midX, measure.staffFrame.midX, accuracy: 0.001)
+    }
+
     func testSimpleChordSheetEndingSpanAddsCompactBracketAboveBlankMeasureSpace() throws {
         var chart = Chart.blank(title: "Simple Endings", measureCount: 2, layoutStyle: .simpleChordSheet)
         let startMeasureID = chart.measures[0].id
@@ -1423,7 +1445,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordLayouts[1].snapGuideTarget.x, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
     }
 
-    func testRhythmSectionSheetRendersChartWideChordTranspositionWithoutMovingSnaps() throws {
+    func testRhythmSectionSheetRendersOneTimeAppliedChordTranspositionWithoutMovingSnaps() throws {
         var chart = Chart.blank(title: "Pocket Transpose", measureCount: 1, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measureID))
@@ -1446,7 +1468,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let transposedMeasure = try XCTUnwrap(transposedLayout.systems.first?.measures.first)
 
         XCTAssertEqual(transposedMeasure.chordLayouts.map(\.text), ["C#", "G#/C"])
-        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C", "G/B"])
+        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C#", "G#/C"])
+        XCTAssertEqual(chart.chordTranspositionSemitones, 0)
         for (transposedTarget, writtenTarget) in zip(
             transposedMeasure.chordLayouts.map(\.snapGuideTarget.x),
             writtenSnapTargets
@@ -1819,6 +1842,36 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(noteLayouts[1].flagStyle, .double)
         XCTAssertNil(noteLayouts[2].beamEndPoint)
         XCTAssertEqual(noteLayouts[2].flagStyle, .secondaryBackward)
+    }
+
+    func testRhythmSectionDottedEighthSixteenthGroupKeepsTrailingSecondaryBeamCue() throws {
+        var chart = Chart.blank(title: "Pocket", measureCount: 6, layoutStyle: .rhythmSectionSheet)
+        let targetMeasureID = chart.measures[5].id
+        XCTAssertTrue(chart.setMeasureRhythmMap(
+            [.dottedQuarter, .eighth, .dottedEighth, .sixteenth, .quarter],
+            for: targetMeasureID
+        ))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let targetMeasure = try XCTUnwrap(
+            layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == targetMeasureID }
+        )
+        let noteLayouts = targetMeasure.noteLayouts
+
+        XCTAssertEqual(noteLayouts.map(\.symbolStyle), [.slash, .slash, .slash, .slash, .slash])
+        XCTAssertNotNil(noteLayouts[2].dotFrame)
+        XCTAssertNotNil(noteLayouts[2].beamEndPoint)
+        XCTAssertEqual(noteLayouts[2].flagStyle, .none)
+        XCTAssertNil(noteLayouts[3].beamEndPoint)
+        XCTAssertEqual(noteLayouts[3].flagStyle, .secondaryBackward)
+        XCTAssertFalse(noteLayouts[3].stemGoesUp)
+        let trailingStemStart = try XCTUnwrap(noteLayouts[3].stemStart)
+        let trailingStemEnd = try XCTUnwrap(noteLayouts[3].stemEnd)
+        XCTAssertGreaterThan(trailingStemEnd.y, trailingStemStart.y)
     }
 
     func testLeadSheetLayoutRendersSlashPlaceholdersAsStemlessBeatSlots() throws {

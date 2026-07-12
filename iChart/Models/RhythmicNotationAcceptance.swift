@@ -10,6 +10,7 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
     case dottedEighthNote
     case sixteenthNote
     case eighthNote
+    case measureRepeat
     case tie
     case wholeRest
     case halfRest
@@ -39,6 +40,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "Sixteenth Note"
         case .eighthNote:
             return "Eighth Note"
+        case .measureRepeat:
+            return "Measure Repeat"
         case .tie:
             return "Tie"
         case .wholeRest:
@@ -74,6 +77,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "16"
         case .eighthNote:
             return "8"
+        case .measureRepeat:
+            return "•/•"
         case .tie:
             return "Tie"
         case .wholeRest:
@@ -371,6 +376,26 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                     "The shape becomes a zig-zag quarter rest"
                 ]
             )
+        case .measureRepeat:
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept a full-measure repeat as a centered slash between two dots. It repeats the previous measure instead of adding a note, rest, or chord event.",
+                mustContain: [
+                    "One clear diagonal slash",
+                    "One compact dot on each side of the slash",
+                    "The three marks read as one measure-level symbol"
+                ],
+                allowedVariations: [
+                    "Dots can sit slightly high or low as long as they flank the slash",
+                    "Slash may lean naturally from handwriting",
+                    "The symbol can be compact or slightly spread across the measure center"
+                ],
+                rejectWhen: [
+                    "Only the slash is present",
+                    "Only one dot is present",
+                    "The marks look like separate beat slashes or dotted notes"
+                ]
+            )
         case .tie:
             return nil
         }
@@ -439,6 +464,13 @@ enum RhythmicNotationReferenceCompendium {
             kind: .rhythm,
             durationText: "One beat placeholder",
             roleText: "Use for slash notation and rhythm-section beat slots."
+        ),
+        entry(
+            value: .measureRepeat,
+            primitive: .measureRepeat,
+            kind: .rhythm,
+            durationText: "Full measure",
+            roleText: "Use to repeat the previous measure."
         )
     ]
 
@@ -527,6 +559,8 @@ extension RhythmValue {
             return "Whole Note"
         case .wholeRest:
             return "Whole Rest"
+        case .measureRepeat:
+            return "Measure Repeat"
         case .tiedContinuation:
             return "Tie"
         }
@@ -536,7 +570,7 @@ extension RhythmValue {
         switch self {
         case .dottedEighth, .dottedQuarter, .dottedHalf:
             return true
-        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }

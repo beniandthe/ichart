@@ -60,10 +60,41 @@ test("maps active pro renewal into server-owned subscription authority fields", 
   assert.equal(update.storekit_environment, "sandbox");
   assert.equal(update.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
   assert.equal(update.app_store_status, "active");
+  assert.equal(update.app_store_auto_renew_status, null);
   assert.equal(update.app_store_notification_uuid, "notification-0001");
   assert.equal(update.app_store_signed_at, "2026-06-12T21:29:30.000Z");
   assert.equal(update.entitlement_expires_at, "2026-07-12T21:30:00.000Z");
+  assert.equal(update.cloud_retention_deadline, null);
   assert.equal(update.last_verified_at, now.toISOString());
+});
+
+test("maps canceled renewal as active pro until the paid period ends", () => {
+  const update = subscriptionAuthorityUpdateFromVerifiedNotification(
+    {
+      notificationType: "DID_CHANGE_RENEWAL_STATUS",
+      subtype: "AUTO_RENEW_DISABLED",
+      environment: "Sandbox",
+      transactionInfo: {
+        productId: iChartProProductIDs[0],
+        originalTransactionId: "1000000000000001",
+        transactionId: "1000000000000006",
+        expiresDate: futureExpiration,
+      },
+      renewalInfo: {
+        autoRenewStatus: 0,
+      },
+      notificationUUID: "notification-0006",
+      signedDate: Date.parse("2026-06-12T21:29:30.000Z"),
+    },
+    { now }
+  );
+
+  assert.equal(update.plan, "studioSubscription");
+  assert.equal(update.status, "active");
+  assert.equal(update.app_store_status, "active");
+  assert.equal(update.app_store_auto_renew_status, false);
+  assert.equal(update.entitlement_expires_at, "2026-07-12T21:30:00.000Z");
+  assert.equal(update.cloud_retention_deadline, null);
 });
 
 test("maps failed renewal with grace as non-active pro grace state", () => {
@@ -90,6 +121,7 @@ test("maps failed renewal with grace as non-active pro grace state", () => {
   assert.equal(update.storekit_environment, "production");
   assert.equal(update.app_store_status, "grace");
   assert.equal(update.grace_period_expires_at, "2026-06-19T21:30:00.000Z");
+  assert.equal(update.cloud_retention_deadline, "2026-06-19T21:30:00.000Z");
 });
 
 test("maps expired notification to inactive basic authority", () => {
@@ -110,6 +142,29 @@ test("maps expired notification to inactive basic authority", () => {
   assert.equal(update.plan, "free");
   assert.equal(update.status, "inactive");
   assert.equal(update.app_store_status, "expired");
+  assert.equal(update.cloud_retention_deadline, "2026-06-01T21:30:00.000Z");
+});
+
+test("maps revoked notifications to a short server-side deletion buffer", () => {
+  const update = subscriptionAuthorityUpdateFromVerifiedNotification(
+    {
+      notificationType: "REVOKE",
+      environment: "Production",
+      transactionInfo: {
+        productId: iChartProProductIDs[0],
+        originalTransactionId: "1000000000000001",
+        transactionId: "1000000000000007",
+        revocationDate: Date.parse("2026-06-12T20:30:00.000Z"),
+        expiresDate: futureExpiration,
+      },
+    },
+    { now }
+  );
+
+  assert.equal(update.plan, "free");
+  assert.equal(update.status, "inactive");
+  assert.equal(update.app_store_status, "revoked");
+  assert.equal(update.cloud_retention_deadline, "2026-06-13T20:30:00.000Z");
 });
 
 test("unknown products never unlock pro even if Apple lifecycle is active", () => {
@@ -165,6 +220,8 @@ test("maps verified transaction claim into active pro authority fields", () => {
   assert.equal(update.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
   assert.equal(update.app_store_notification_type, "TRANSACTION_CLAIM");
   assert.equal(update.app_store_status, "active");
+  assert.equal(update.app_store_auto_renew_status, null);
+  assert.equal(update.cloud_retention_deadline, null);
   assert.equal(update.app_store_signed_at, "2026-06-12T21:29:00.000Z");
 });
 

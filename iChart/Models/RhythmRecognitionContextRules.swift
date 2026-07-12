@@ -143,7 +143,7 @@ private extension RhythmValue {
         case .sixteenth, .eighth, .dottedEighth:
             return true
         case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+             .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }

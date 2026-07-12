@@ -145,13 +145,17 @@ Only add these after the core cloud backup/sync promise is stable:
 - StoreKit purchases must bind to the signed-in iChart account with `appAccountToken`, and server-side claims must reject missing/mismatched tokens, cross-owner original transactions, and stale transaction replay
 - App Store Server Notifications must be verified, idempotent by notification UUID, and unable to rewind subscription authority with stale signed dates
 - local charts must remain accessible after purchase restore or app reinstall
-- expired Pro should require user-selected local pruning down to the 3-chart Basic cap when needed
+- canceled but still paid-through Pro should remain full Pro until `entitlement_expires_at`
+- Apple billing grace should keep local chart access available while cloud backup and Forums pause until payment recovers
+- expired Pro should lock over-cap local chart access until the user prunes down to the 3-chart Basic cap
 - chart cloud backup/sync and Forums should pause clearly when Pro is inactive
 - chart cloud backup must be enforced by Supabase RLS, not only by client UI gates
 - downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
 - downgrade pruning is local-only and must not create cloud deletion tombstones
 - users should be reminded before cancellation/expiration that cloud backups will no longer be maintained and critical charts should be exported
-- remote chart backups should use a clear grace period, recommended default 30 days, before cloud retention cleanup; downgrade-pruned local charts remain in cloud backup until that grace period ends
+- remote chart backups should remain through the paid-through date or Apple billing grace deadline, then be deleted by server-side retention cleanup unless Pro renews first
+- cloud retention cleanup must never silently delete local device charts
+- scheduled retention email/deletion jobs must run with a server-only job secret and email-provider secrets, never from the app bundle
 
 ## 8. App Store positioning
 

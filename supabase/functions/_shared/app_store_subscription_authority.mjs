@@ -159,6 +159,11 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
       ?? transactionInfo.gracePeriodExpiresDate
       ?? notification.gracePeriodExpiresAt
   );
+  const autoRenewStatus = normalizedAutoRenewStatus(
+    renewalInfo.autoRenewStatus
+      ?? renewalInfo.autoRenewStatusRaw
+      ?? renewalInfo.auto_renew_status
+  );
   const revokedAt = appleDateToISOString(
     transactionInfo.revocationDate
       ?? notification.revokedAt
@@ -176,6 +181,13 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
   const grantsActivePro = isIChartProProductID(productID)
     && appStoreStatus === "active"
     && isFuture(expiresAt, now.getTime());
+  const cloudRetentionDeadline = cloudRetentionDeadlineForAuthority({
+    appStoreStatus,
+    expiresAt,
+    gracePeriodExpiresAt,
+    revokedAt,
+    now,
+  });
 
   return {
     provider: storeKitProvider,
@@ -186,6 +198,7 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
     storekit_app_account_token: appAccountToken,
     storekit_environment: environment,
     app_store_status: appStoreStatus,
+    app_store_auto_renew_status: autoRenewStatus,
     app_store_notification_type: normalizedString(notification.notificationType) || null,
     app_store_notification_uuid: notificationUUID.length > 0 ? notificationUUID : null,
     app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
@@ -193,6 +206,7 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
     current_period_end: expiresAt ?? gracePeriodExpiresAt,
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: gracePeriodExpiresAt,
+    cloud_retention_deadline: cloudRetentionDeadline,
     revoked_at: revokedAt,
     last_verified_at: nowISOString,
   };
@@ -243,6 +257,13 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
   const grantsActivePro = isIChartProProductID(productID)
     && appStoreStatus === "active"
     && isFuture(expiresAt, now.getTime());
+  const cloudRetentionDeadline = cloudRetentionDeadlineForAuthority({
+    appStoreStatus,
+    expiresAt,
+    gracePeriodExpiresAt: null,
+    revokedAt,
+    now,
+  });
 
   return {
     provider: storeKitProvider,
@@ -253,6 +274,7 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
     storekit_app_account_token: appAccountToken,
     storekit_environment: environment,
     app_store_status: appStoreStatus,
+    app_store_auto_renew_status: null,
     app_store_notification_type: normalizedString(options.source) || "TRANSACTION_CLAIM",
     app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
     app_store_signed_at: signedAt,
@@ -260,6 +282,7 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
     current_period_end: expiresAt,
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: null,
+    cloud_retention_deadline: cloudRetentionDeadline,
     revoked_at: revokedAt,
     last_verified_at: nowISOString,
   };
@@ -731,6 +754,31 @@ function normalizedUUIDString(value) {
     : null;
 }
 
+function normalizedAutoRenewStatus(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value === 1 ? true : value === 0 ? false : null;
+  }
+
+  const candidate = normalizedString(value).toLowerCase();
+  if (["1", "true", "on", "enabled", "auto_renew_on"].includes(candidate)) {
+    return true;
+  }
+
+  if (["0", "false", "off", "disabled", "auto_renew_off"].includes(candidate)) {
+    return false;
+  }
+
+  return null;
+}
+
 function normalizedUpper(value) {
   return normalizedString(value).toUpperCase();
 }
@@ -767,4 +815,28 @@ function isFuture(isoString, nowTime) {
   }
 
   return new Date(isoString).getTime() > nowTime;
+}
+
+function cloudRetentionDeadlineForAuthority({
+  appStoreStatus,
+  expiresAt,
+  gracePeriodExpiresAt,
+  revokedAt,
+  now,
+}) {
+  if (appStoreStatus === "active") {
+    return null;
+  }
+
+  if (appStoreStatus === "grace" || appStoreStatus === "billing_retry") {
+    return gracePeriodExpiresAt ?? expiresAt ?? now.toISOString();
+  }
+
+  if (appStoreStatus === "revoked" || appStoreStatus === "refunded") {
+    const basis = revokedAt === null ? now : new Date(revokedAt);
+    const deletionAfter = Number.isNaN(basis.getTime()) ? now : basis;
+    return new Date(deletionAfter.getTime() + 24 * 60 * 60 * 1_000).toISOString();
+  }
+
+  return expiresAt ?? now.toISOString();
 }

@@ -25,8 +25,11 @@ struct IChartRemoteSubscriptionRecord: Decodable, Equatable {
     let storeKitOriginalTransactionID: String?
     let storeKitEnvironment: String?
     let appStoreStatus: AppStoreStatus?
+    let appStoreAutoRenewStatus: Bool?
     let entitlementExpiresAt: String?
     let gracePeriodExpiresAt: String?
+    let cloudRetentionDeadline: String?
+    let cloudRetentionDeletedAt: String?
     let revokedAt: String?
     let lastVerifiedAt: String?
 
@@ -50,7 +53,11 @@ struct IChartRemoteSubscriptionRecord: Decodable, Equatable {
                     return .proExpired(verifiedAt: verifiedAt)
                 }
 
-                return .activePro(verifiedAt: verifiedAt)
+                return .activePro(
+                    accessEndsAt: Self.date(from: entitlementExpiresAt),
+                    willAutoRenew: appStoreAutoRenewStatus,
+                    verifiedAt: verifiedAt
+                )
             case .grace, .billingRetry:
                 if let graceEndsAt = Self.date(from: gracePeriodExpiresAt),
                    graceEndsAt > now {
@@ -85,8 +92,11 @@ struct IChartRemoteSubscriptionRecord: Decodable, Equatable {
         case storeKitOriginalTransactionID = "storekit_original_transaction_id"
         case storeKitEnvironment = "storekit_environment"
         case appStoreStatus = "app_store_status"
+        case appStoreAutoRenewStatus = "app_store_auto_renew_status"
         case entitlementExpiresAt = "entitlement_expires_at"
         case gracePeriodExpiresAt = "grace_period_expires_at"
+        case cloudRetentionDeadline = "cloud_retention_deadline"
+        case cloudRetentionDeletedAt = "cloud_retention_deleted_at"
         case revokedAt = "revoked_at"
         case lastVerifiedAt = "last_verified_at"
     }

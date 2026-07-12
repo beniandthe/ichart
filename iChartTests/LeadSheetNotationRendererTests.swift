@@ -3,6 +3,21 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetNotationRendererTests: XCTestCase {
+#if canImport(UIKit)
+    func testSecondaryBeamOffsetMovesTowardNoteheads() {
+        let beamThickness: CGFloat = 4
+
+        XCTAssertGreaterThan(
+            LeadSheetNotationRenderer.secondaryBeamOffset(stemGoesUp: true, beamThickness: beamThickness),
+            0
+        )
+        XCTAssertLessThan(
+            LeadSheetNotationRenderer.secondaryBeamOffset(stemGoesUp: false, beamThickness: beamThickness),
+            0
+        )
+    }
+#endif
+
     func testBarlineMetricsStayIndependentFromJazzFontEngravingDefaults() {
         let staffSpace: CGFloat = 24
         let structuralThinWidth = LeadSheetBarlineMetrics.thinWidth(

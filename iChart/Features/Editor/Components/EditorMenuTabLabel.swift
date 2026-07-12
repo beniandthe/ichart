@@ -4,6 +4,7 @@ struct EditorMenuTabLabel: View {
     let title: String
     let systemImage: String
     var isSelected: Bool = false
+    var selectedColor = Color(red: 0.16, green: 0.38, blue: 0.82)
 
     var body: some View {
         Label(title, systemImage: systemImage)
@@ -13,7 +14,7 @@ struct EditorMenuTabLabel: View {
             .foregroundStyle(isSelected ? Color.white : Color.primary)
             .background(
                 isSelected
-                ? Color(red: 0.16, green: 0.38, blue: 0.82)
+                ? selectedColor
                 : Color(uiColor: .secondarySystemBackground)
             )
             .clipShape(Capsule())
