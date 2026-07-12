@@ -23,8 +23,13 @@ extension RhythmicNotationQuantizer {
         drawing: PKDrawing,
         drawingFrame: CGRect
     ) -> [[RhythmValue]] {
+        let strokeObservations = strokeObservations(from: drawing)
+        if rasterTemplateStrokesLookLikeMeasureRepeat(strokeObservations, drawingFrame: drawingFrame) {
+            return [[.measureRepeat]]
+        }
+
         let input = rasterTemplateInput(
-            strokeObservations: strokeObservations(from: drawing),
+            strokeObservations: strokeObservations,
             drawingFrame: drawingFrame
         )
         return rasterTemplateSymbolCrops(from: input).map { crop in
@@ -195,6 +200,14 @@ extension RhythmicNotationQuantizer {
         drawingFrame: CGRect,
         includeExtendedStability: Bool
     ) -> RhythmRecognitionDecision? {
+        if let measureRepeatDecision = rasterTemplateMeasureRepeatRecognitionDecision(
+            strokeObservations: strokeObservations,
+            meter: meter,
+            drawingFrame: drawingFrame
+        ) {
+            return measureRepeatDecision
+        }
+
         let input = rasterTemplateInput(
             strokeObservations: strokeObservations,
             drawingFrame: drawingFrame
@@ -689,6 +702,10 @@ extension RhythmicNotationQuantizer {
                 }
                 return lhs.values.map(\.rawValue).lexicographicallyPrecedes(rhs.values.map(\.rawValue))
             }
+        }
+
+        if rasterTemplateLooksLikeMeasureRepeat(crop, drawingFrame: input.drawingFrame) {
+            add([.measureRepeat], score: 0.0, template: "measure-repeat")
         }
 
         if rasterCellsMatchForwardSlash(crop.rasterCells) {
@@ -2546,7 +2563,7 @@ extension RhythmicNotationQuantizer {
             switch value {
             case .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .half, .dottedHalf, .whole:
                 return true
-            case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .tiedContinuation:
+            case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .measureRepeat, .tiedContinuation:
                 break
             }
         }
@@ -2595,6 +2612,9 @@ extension RhythmicNotationQuantizer {
             )
 
         switch value {
+        case .measureRepeat:
+            return templateName == "measure-repeat"
+                && rasterTemplateLooksLikeMeasureRepeat(crop, drawingFrame: features.drawingFrame)
         case .slash:
             return templateName == "placeholder-slash"
                 || (
@@ -2702,6 +2722,112 @@ extension RhythmicNotationQuantizer {
         case .tiedContinuation:
             return false
         }
+    }
+
+    private static func rasterTemplateLooksLikeMeasureRepeat(
+        _ crop: RhythmSymbolCrop,
+        drawingFrame: CGRect
+    ) -> Bool {
+        rasterTemplateStrokesLookLikeMeasureRepeat(crop.strokes, drawingFrame: drawingFrame)
+    }
+
+    private static func rasterTemplateMeasureRepeatRecognitionDecision(
+        strokeObservations: [StrokeObservation],
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> RhythmRecognitionDecision? {
+        guard rasterTemplateStrokesLookLikeMeasureRepeat(strokeObservations, drawingFrame: drawingFrame) else {
+            return nil
+        }
+
+        let bounds = strokeObservations.nonEmptyBounds ?? drawingFrame
+        let values: [RhythmValue] = [.measureRepeat]
+        let proposal = RhythmicNotationMeasureProposal(
+            values: values,
+            safety: .manualReview,
+            isNaturalExactFit: true
+        )
+        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
+        let phrase = RhythmPhraseHypothesis(
+            source: .rasterTemplate,
+            primitives: rhythmInkPrimitives(from: strokeObservations, drawingFrame: drawingFrame),
+            symbols: [
+                RhythmSymbolHypothesis(
+                    coveredStrokeIndices: Set(strokeObservations.indices),
+                    bounds: bounds,
+                    candidateValues: values,
+                    selectedValue: .measureRepeat
+                )
+            ],
+            uncoveredStrokeIndices: [],
+            naturalValues: values,
+            naturalUnits: targetUnits,
+            targetUnits: targetUnits,
+            passesCompendium: RhythmicNotationCompendium.accepts(values, in: meter)
+        )
+
+        return .needsReview(.manualReview, phrase, proposal)
+    }
+
+    private static func rasterTemplateStrokesLookLikeMeasureRepeat(
+        _ strokes: [StrokeObservation],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard strokes.count >= 3,
+              let bounds = strokes.nonEmptyBounds else {
+            return false
+        }
+
+        let dotCandidates = strokes.filter { stroke in
+            stroke.looksLikeLooseDot(in: bounds)
+                || stroke.isDotLike(in: bounds)
+        }
+        guard dotCandidates.count >= 2 else {
+            return false
+        }
+
+        let slashCandidates = strokes.filter { stroke in
+            !dotCandidates.contains(stroke)
+                && stroke.looksLikeRhythmicPlaceholderSlash(in: bounds)
+        }
+        guard let slash = slashCandidates.max(by: { lhs, rhs in
+            lhs.pathLength < rhs.pathLength
+        }) else {
+            return false
+        }
+
+        let horizontalSeparation = max(CGFloat(3), bounds.width * 0.08)
+        let leftDots = dotCandidates.filter {
+            $0.center.x <= slash.bounds.midX - horizontalSeparation
+        }
+        let rightDots = dotCandidates.filter {
+            $0.center.x >= slash.bounds.midX + horizontalSeparation
+        }
+        guard let leftDot = leftDots.min(by: { lhs, rhs in
+            abs(lhs.center.x - slash.bounds.midX) < abs(rhs.center.x - slash.bounds.midX)
+        }),
+              let rightDot = rightDots.min(by: { lhs, rhs in
+                  abs(lhs.center.x - slash.bounds.midX) < abs(rhs.center.x - slash.bounds.midX)
+              }) else {
+            return false
+        }
+
+        let sceneHeight = max(CGFloat(1), drawingFrame.height)
+        let maxDotSize = max(CGFloat(12), sceneHeight * 0.18)
+        guard [leftDot, rightDot].allSatisfy({ dot in
+            dot.bounds.width <= maxDotSize
+                && dot.bounds.height <= maxDotSize
+                && dot.pathLength <= max(CGFloat(42), sceneHeight * 1.4)
+        }) else {
+            return false
+        }
+
+        let verticalAllowance = max(CGFloat(16), bounds.height * 0.55)
+        let dotsNearSlash = abs(leftDot.center.y - slash.center.y) <= verticalAllowance
+            && abs(rightDot.center.y - slash.center.y) <= verticalAllowance
+        let slashDominates = slash.pathLength >= max(CGFloat(8), max(leftDot.pathLength, rightDot.pathLength) * 1.25)
+
+        return dotsNearSlash && slashDominates
     }
 
     private static func cropHasStemmedNoteEvidence(
@@ -3196,7 +3322,8 @@ enum RhythmVisualCompendium {
         .eighthRest,
         .quarterRest,
         .halfRest,
-        .wholeRest
+        .wholeRest,
+        .measureRepeat
     ]
 
     static let templates: [RhythmVisualTemplate] = [

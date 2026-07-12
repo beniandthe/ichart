@@ -168,6 +168,31 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertFalse(store.canUse(.forums))
     }
 
+    func testBillingGraceKeepsOverCapLocalLibraryEditableWithoutCloudAccess() {
+        let charts = (1...4).map {
+            Chart.blank(title: "Chart \($0)")
+        }
+        let store = ChartLibraryStore(
+            charts: charts,
+            entitlements: AppEntitlements(subscription: .activePro())
+        )
+
+        store.applySubscriptionState(
+            .proGrace(
+                graceEndsAt: Date(timeIntervalSinceReferenceDate: 1_000),
+                verifiedAt: Date(timeIntervalSinceReferenceDate: 42)
+            )
+        )
+
+        XCTAssertNil(store.localChartLimit)
+        XCTAssertEqual(store.localChartOverflowCount, 0)
+        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
+        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertFalse(store.canUse(.cloudBackup))
+        XCTAssertFalse(store.canUse(.forums))
+    }
+
     func testChartEditingUnlocksAfterExpiredOverCapLibraryIsPrunedToBasicLimit() {
         let charts = (1...4).map {
             Chart.blank(title: "Chart \($0)")
@@ -885,6 +910,7 @@ final class ChartLibraryStoreTests: XCTestCase {
                 .dottedEighthNote,
                 .sixteenthNote,
                 .eighthNote,
+                .measureRepeat,
                 .wholeRest,
                 .quarterRest,
                 .halfRest,
@@ -901,7 +927,7 @@ final class ChartLibraryStoreTests: XCTestCase {
     func testRhythmReferenceCompendiumCoversSupportedVisualValues() {
         XCTAssertEqual(
             RhythmicNotationReferenceCompendium.rhythm.map(\.value),
-            [.slash]
+            [.slash, .measureRepeat]
         )
         XCTAssertEqual(
             RhythmicNotationReferenceCompendium.notes.map(\.value),

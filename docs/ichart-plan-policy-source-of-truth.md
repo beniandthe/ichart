@@ -1,7 +1,7 @@
 # iChart Plan Policy Source Of Truth
 
 Status: Active product policy for v1 implementation
-Last updated: 2026-06-12
+Last updated: 2026-07-11
 
 This document is the hard source of truth for iChart account, Basic, Pro, cloud sync, Forums, downgrade, and subscription policy. If another planning document conflicts with this file, this file wins for plan and entitlement behavior.
 
@@ -107,39 +107,40 @@ Pro gates ongoing-service and community surfaces:
 
 ## 6. Downgrade And Expiration Policy
 
-When Pro expires, is canceled, or cannot be verified:
+When Pro expires or cannot be verified:
 
 - users must resolve the local Basic cap if the library has more than 3 charts
 - Forums lock
 - cloud backup/sync/restore pauses
 - Settings should clearly explain that cloud backup and Forums require Pro, and that the local library must be reduced to 3 charts for Basic
 
+Canceled-but-paid-through Pro is not a downgrade state. It remains full Pro until Apple reports the paid-through entitlement has ended.
+
 If a downgraded Basic account has more than 3 local charts:
 
 - the app must prompt the user to choose which local charts to keep or remove until only 3 local charts remain
 - charts removed during this downgrade flow are deleted from the local library
 - downgrade pruning is local-only and must not create cloud deletion tombstones
-- downgrade pruning must not delete remote chart documents or snapshots while the cloud grace period is active
+- downgrade pruning must not delete remote chart documents or snapshots before the paid-through subscription date or Apple billing grace deadline
 - chart opening/editing is locked while the downgraded local library is above the Basic cap
 - local chart editing/export continues for the remaining 3 Basic charts
 - new chart creation and duplication stay blocked until the local library is reduced to 3 charts or Pro is restored
 
-This policy gives Pro clear value while preserving recoverability through the cloud grace window.
+This policy gives Pro clear value while avoiding silent local data loss.
 
 ## 7. Cloud Backup Retention Policy
 
-Pro expiration should hard-stop cloud service access, not local user work.
+Pro cancellation should keep paid access through the current paid-through date. Pro expiration should hard-stop cloud service access, not silently delete local user work.
 
 Recommended v1 retention behavior:
 
-- Cloud backup/sync pauses immediately when Pro is inactive.
-- The app reminds users before cancellation/expiration, where possible, to export critical charts.
-- Remote chart backups receive a clear grace period after Pro expiration.
-- Recommended default grace period: 30 days.
-- After the grace period, remote backups may be deleted or archived according to the published retention policy.
-- Charts removed locally during downgrade pruning remain in cloud backup until the grace period ends.
-- If Pro is restored before the grace period ends, cloud-backed charts can be restored from the remote snapshots.
-- Local device charts are not affected by remote backup retention cleanup beyond the user's explicit downgrade-pruning choices.
+- If renewal is canceled but the paid-through period is still active, Pro features remain available.
+- The app warns that Pro access ends on the paid-through date when Apple reports renewal is off.
+- Cloud backup/sync pauses when Pro is inactive.
+- Apple billing grace keeps local chart access available and prevents cloud deletion while payment recovery is still possible.
+- Remote chart backups are deleted after the paid-through date or Apple billing grace deadline, whichever applies, unless Pro renews first.
+- If Pro renews before that deadline, pending cloud cleanup is cleared.
+- Local device charts are not silently deleted by retention cleanup. If the library is over the Basic cap, opening/editing stays locked until the user chooses 3 Basic charts.
 
 The app must explain this plainly in Settings or the subscription management surface before production launch.
 
@@ -220,7 +221,7 @@ Before production cloud rollout:
 - Keep legacy enum names only where needed for backward compatibility.
 - Set Basic local chart cap to 3.
 - Treat subscription authority as a first-class state separate from legacy plan names: Basic, active Pro, grace, expired, and unavailable.
-- Map only active Pro to cloud-service entitlement. Grace, expired, and unavailable states use Basic local limits while preserving cloud-retention messaging.
+- Map active Pro to full cloud-service entitlement. Apple billing grace keeps local chart capacity available but pauses cloud backup and Forums. Expired and unavailable states use Basic local limits while preserving retention messaging.
 - Wire StoreKit as an entitlement source, not a feature gate scattered through UI surfaces.
 - Keep PDF/export available in Basic.
 - Keep local authoring tools available in Basic.
@@ -247,7 +248,8 @@ Minimum acceptance before calling the plan implementation ready:
 - Pro account can access Forums.
 - Expired/downgraded Pro with more than 3 local charts is prompted to choose local charts to remove until 3 remain.
 - Expired/downgraded Pro with more than 3 local charts cannot open charts for editing until local pruning is complete or Pro is restored.
-- Downgrade-pruned charts are removed locally but remain in cloud backup until the grace period ends.
+- Downgrade-pruned charts are removed locally and do not create remote tombstones.
+- Remote cloud backups are deleted after the paid-through date or Apple billing grace deadline unless Pro renews first.
 - Downgrade pruning does not create remote tombstones.
 - The remaining 3 local Basic charts can open/edit/export.
 - Remote backup grace-period messaging is visible before cloud retention cleanup ships.
@@ -272,4 +274,4 @@ Basic is the real local app with 3 charts.
 
 Pro is unlimited capacity plus cloud, restore, sync, Forums, and future services.
 
-Downgrade removes user-selected local overflow charts, but cloud backups remain recoverable until the grace period ends.
+Downgrade locks over-cap local chart access until the user chooses 3 Basic charts. Cloud backup remains through the paid-through date or Apple billing grace deadline, then server retention removes it unless Pro renews first.

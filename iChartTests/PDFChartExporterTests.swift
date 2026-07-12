@@ -136,7 +136,6 @@ final class PDFChartExporterTests: XCTestCase {
             measureCount: 4,
             layoutStyle: .simpleChordSheet
         )
-        chart.setChordTranspositionSemitones(2)
 
         defer {
             try? FileManager.default.removeItem(at: exportDirectory)
@@ -146,10 +145,10 @@ final class PDFChartExporterTests: XCTestCase {
 
         XCTAssertEqual(
             exportedPDF.fileName,
-            "Almost Like Being In Love - Simple Chord Sheet - Concert - +M2.pdf"
+            "Almost Like Being In Love - Simple Chord Sheet - Concert.pdf"
         )
         XCTAssertEqual(exportedPDF.url.lastPathComponent, exportedPDF.fileName)
-        XCTAssertEqual(exportedPDF.transpositionText, "Concert · +M2")
+        XCTAssertEqual(exportedPDF.transpositionText, "Concert")
         XCTAssertEqual(exportedPDF.pageCountText, "1 page")
         XCTAssertFalse(exportedPDF.fileSizeText.isEmpty)
     }

@@ -2,7 +2,7 @@
 
 Status: StoreKit/Supabase authority loop wired; App Store Connect products configured; TestFlight sandbox QA active
 Created: 2026-06-12
-Last updated: 2026-07-07
+Last updated: 2026-07-11
 
 Resume trigger: after Apple product, Supabase secret, or Edge Function changes, run `scripts/resume_apple_developer_gate.sh` and repeat the smoke checks before continuing sandbox purchase QA.
 
@@ -83,10 +83,15 @@ The server-side subscription authority path is wired at:
 - `supabase/functions/_shared/supabase_subscription_authority_store.test.mjs`
 - `supabase/functions/_shared/app_store_verifier_config.mjs`
 - `supabase/functions/_shared/app_store_verifier_config.test.mjs`
+- `supabase/functions/subscription-retention-jobs/index.mjs`
+- `supabase/functions/_shared/subscription_retention_jobs.mjs`
+- `supabase/functions/_shared/subscription_retention_jobs.test.mjs`
 
 `supabase/config.toml` sets `[functions.app-store-server-notifications]` with `verify_jwt = false` because Apple webhook delivery will not include a Supabase user JWT. That makes Apple signed-payload verification mandatory before any database write.
 
 `supabase/config.toml` also sets `[functions.storekit-subscription-claims]` with `verify_jwt = true` because this endpoint is for signed-in iChart users after purchase/restore. The authenticated claim endpoint creates the trusted account-to-original-transaction mapping before later App Store Server Notifications arrive.
+
+`supabase/config.toml` sets `[functions.subscription-retention-jobs]` with `verify_jwt = false` because it is invoked by a trusted scheduler, not a user JWT. It must be protected by `ICHART_RETENTION_JOB_SECRET`, and email dispatch additionally requires `RESEND_API_KEY` plus `ICHART_RETENTION_EMAIL_FROM`.
 
 Both Edge Function entrypoints create verifier dependencies through Apple's official `@apple/app-store-server-library` `SignedDataVerifier`. The dependency factory reads only Edge Function environment secrets and returns no verifier functions when required Apple configuration is missing or malformed, so both endpoints fail closed with the existing not-configured responses.
 
@@ -98,6 +103,9 @@ Required Edge Function verifier secrets:
 - `APP_STORE_ENVIRONMENT`: `Sandbox` for sandbox/TestFlight verification, `Production` for production App Store traffic.
 - `APP_STORE_ROOT_CERTIFICATES_PEM`: Apple Root Certificate PEM blocks from the Apple PKI site, stored as an Edge Function secret.
 - `APP_STORE_APP_APPLE_ID`: App Store app identifier. Required for `Production`; omitted for `Sandbox`.
+- `ICHART_RETENTION_JOB_SECRET`: random secret for scheduled retention job calls.
+- `RESEND_API_KEY`: email provider secret for subscription-retention warning/deletion messages.
+- `ICHART_RETENTION_EMAIL_FROM`: verified sender, for example `iChart <support@useichart.com>`.
 
 Prepare the public Apple root certificate bundle locally:
 
@@ -111,6 +119,9 @@ Set secrets from the operator machine or Supabase Dashboard, never in git:
 supabase secrets set APP_STORE_BUNDLE_ID=com.ichart.app
 supabase secrets set APP_STORE_ENVIRONMENT=Sandbox
 supabase secrets set APP_STORE_ROOT_CERTIFICATES_PEM="$(cat /tmp/ichart-apple-root-certificates.pem)"
+supabase secrets set ICHART_RETENTION_JOB_SECRET=<random-job-secret>
+supabase secrets set RESEND_API_KEY=<resend-api-key>
+supabase secrets set ICHART_RETENTION_EMAIL_FROM='iChart <support@useichart.com>'
 # Production only:
 # supabase secrets set APP_STORE_APP_APPLE_ID=<numeric-app-apple-id>
 ```
@@ -191,7 +202,7 @@ StoreKit transaction/current entitlement
 -> Library, Projects, cloud sync, Forums, chart-cap behavior
 ```
 
-Only `proActive` unlocks cloud backup, Projects, Forums, and unlimited local charts. Basic, grace, expired, and unavailable states keep Basic local limits.
+`proActive` unlocks cloud backup, Projects, Forums, and unlimited local charts. Apple billing grace keeps local chart access and Projects available while cloud backup and Forums pause. Basic, expired, and unavailable states use Basic local limits.
 
 ## Production Follow-Up
 

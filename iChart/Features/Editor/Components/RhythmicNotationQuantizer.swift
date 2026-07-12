@@ -375,7 +375,7 @@ enum RhythmicNotationQuantizer {
         case .whole:
             return .wholeRest
         case .slash, .dottedEighth, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
-             .wholeRest, .tiedContinuation:
+             .wholeRest, .measureRepeat, .tiedContinuation:
             return nil
         }
     }
@@ -1366,7 +1366,7 @@ enum RhythmicNotationQuantizer {
     ) -> RhythmRecognitionReason? {
         if exactPath.values.count == 1 {
             switch exactPath.values[0] {
-            case .whole, .wholeRest:
+            case .whole, .wholeRest, .measureRepeat:
                 return .manualReview
             default:
                 break

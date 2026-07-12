@@ -119,6 +119,7 @@ struct LeadSheetNoteLayout: Identifiable, Hashable {
         case quarterRest
         case sixteenthRest
         case eighthRest
+        case measureRepeat
     }
 
     enum HeadStyle: Hashable {
@@ -2382,6 +2383,11 @@ enum LeadSheetPageLayoutEngine {
             )
 
             switch slot.duration {
+            case .measureRepeat:
+                return measureRepeatLayout(
+                    staffFrame: staffFrame,
+                    staffLineYPositions: staffLineYPositions
+                )
             case .wholeRest:
                 return wholeRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .halfRest:
@@ -2850,13 +2856,44 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
+    private static func measureRepeatLayout(
+        staffFrame: CGRect,
+        staffLineYPositions: [CGFloat]
+    ) -> LeadSheetNoteLayout {
+        let staffSpace = staffLineYPositions[1] - staffLineYPositions[0]
+        let symbolWidth = max(staffSpace * 2.35, CGFloat(28))
+        let symbolHeight = max(staffSpace * 1.65, CGFloat(18))
+        let symbolFrame = CGRect(
+            x: staffFrame.midX - symbolWidth / 2,
+            y: staffLineYPositions[2] - symbolHeight / 2,
+            width: symbolWidth,
+            height: symbolHeight
+        )
+
+        return LeadSheetNoteLayout(
+            id: UUID(),
+            symbolStyle: .measureRepeat,
+            noteheadSymbol: nil,
+            noteheadFrame: symbolFrame,
+            staffSpace: staffSpace,
+            headStyle: .filled,
+            stemStart: nil,
+            stemEnd: nil,
+            stemGoesUp: true,
+            flagStyle: .none,
+            dotFrame: nil,
+            tieFrame: nil,
+            beamEndPoint: nil
+        )
+    }
+
     private static func headStyle(for duration: RhythmValue) -> LeadSheetNoteLayout.HeadStyle {
         switch duration {
         case .whole, .wholeRest:
             return .whole
         case .half, .dottedHalf, .halfRest:
             return .half
-        case .slash, .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .tiedContinuation:
+        case .slash, .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .measureRepeat, .tiedContinuation:
             return .filled
         }
     }
@@ -2865,7 +2902,7 @@ enum LeadSheetPageLayoutEngine {
         switch duration {
         case .dottedEighth, .dottedQuarter, .dottedHalf:
             return true
-        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }
@@ -2877,7 +2914,7 @@ enum LeadSheetPageLayoutEngine {
         case .dottedEighth, .eighth:
             return .single
         case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-             .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+             .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return .none
         }
     }

@@ -22,13 +22,14 @@ User direction:
 
 Implementation contract:
 
-- Store a chart-level `chordTranspositionSemitones` setting normalized to `0...11`.
-- Keep transposition non-destructive: stored `ChordEvent.symbol`, raw input, source ink data, candidate signatures, beat placement, rhythm-slot mapping, and correction memory remain unchanged.
-- Resolve displayed chord symbols through `Chart.displayedChordSymbol(for:)`.
-- Apply the displayed symbol in shared page layout so live canvas rendering and PDF/export use the same transposed text.
+- Treat chart-level chord transposition as a one-time action, not a persistent authoring mode.
+- Apply nonzero transpose actions to existing `ChordEvent.symbol` values and raw input, then reset `chordTranspositionSemitones` to `0` so future handwritten/manual chords stay as entered.
+- Normalize legacy charts that decode with a stored nonzero `chordTranspositionSemitones` value by applying that offset once on load and clearing it.
+- Resolve displayed chord symbols through `Chart.displayedChordSymbol(for:)` for instrument transposition and any legacy in-memory offset.
+- Apply the displayed symbol in shared page layout so live canvas rendering and PDF/export use the same text authority.
 - Transpose root and slash-bass pitches together.
 - Preserve accidental family when the source pitch is explicitly flat or sharp; natural roots use sharp spelling for chromatic chart-display offsets.
-- Add Page menu controls for reset, up/down half step, and direct `0...11` half-step offsets.
+- Add Page menu controls for reset, up/down half step, and direct `0...11` half-step actions.
 
 ## Slice 2: Typed Or Handwritten Headers
 

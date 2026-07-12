@@ -190,6 +190,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         let entitlement = IChartStoreKitEntitlementResolver.entitlement(
             hasActiveProSubscription: activeProExpiration != nil,
             sawExpiredProTransaction: sawExpiredProTransaction,
+            accessEndsAt: activeProExpiration == .distantFuture ? nil : activeProExpiration,
             verifiedAt: now
         )
 

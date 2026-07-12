@@ -61,10 +61,11 @@ enum IChartStoreKitEntitlementResolver {
     static func entitlement(
         hasActiveProSubscription: Bool,
         sawExpiredProTransaction: Bool,
+        accessEndsAt: Date? = nil,
         verifiedAt: Date
     ) -> IChartSubscriptionEntitlement {
         if hasActiveProSubscription {
-            return .activePro(verifiedAt: verifiedAt)
+            return .activePro(accessEndsAt: accessEndsAt, verifiedAt: verifiedAt)
         }
 
         if sawExpiredProTransaction {

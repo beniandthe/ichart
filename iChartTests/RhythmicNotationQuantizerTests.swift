@@ -430,6 +430,18 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
         )
     }
 
+    func testV4TemplateRecognizesMeasureRepeatSymbolForPreview() {
+        let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
+        let drawing = PKDrawing(strokes: measureRepeatSymbol(x: 44))
+
+        let templateValues = RhythmicNotationQuantizer.v4TemplateValuesForTesting(
+            drawing: drawing,
+            drawingFrame: drawingFrame
+        )
+
+        XCTAssertTrue(templateValues.contains([.measureRepeat]))
+    }
+
     func testV4TemplateRejectsBackslashAsSlashPlaceholder() {
         let drawingFrame = CGRect(x: 0, y: 0, width: 280, height: 88)
         let drawing = PKDrawing(strokes: rhythmSlash(x: 24, direction: .backslash))
@@ -2779,6 +2791,12 @@ final class RhythmicNotationQuantizerTests: XCTestCase {
                 ])
             ]
         }
+    }
+
+    private func measureRepeatSymbol(x: CGFloat) -> [PKStroke] {
+        tinyNoiseTap(x: x + 4, y: 46)
+            + rhythmSlash(x: x + 12)
+            + tinyNoiseTap(x: x + 52, y: 46)
     }
 
     private func compactRhythmSlash(x: CGFloat, width: CGFloat, height: CGFloat) -> [PKStroke] {

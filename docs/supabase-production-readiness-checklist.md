@@ -73,10 +73,12 @@ Required production settings:
 - Forums are available only with active Pro entitlement.
 - Cloud Backup is enforced in the app and in Supabase RLS; Basic users cannot read or write `chart_documents` or `chart_snapshots`.
 - `ChartCloudSyncService` and Forums must be blocked when Pro is inactive and Settings must explain that cloud backup requires Pro.
-- Expired Pro pauses paid cloud/service features and requires the user to reduce the local library to the 3-chart Basic cap when needed.
-- Downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain.
+- Canceled but still paid-through Pro remains full Pro until `entitlement_expires_at`.
+- Expired Pro pauses paid cloud/service features and locks over-cap local chart access until the user reduces the local library to the 3-chart Basic cap.
+- Apple billing grace keeps local chart access available but pauses cloud backup and Forums until payment recovers.
 - Downgrade pruning is local-only and must not create cloud deletion tombstones.
-- Remote chart backups use a published grace period, recommended default 30 days, before cloud retention cleanup. Charts removed locally during downgrade pruning remain in cloud backup until the grace period ends.
+- Remote chart backups are deleted after the paid-through date or Apple billing grace deadline unless Pro renews first. Local device charts are never silently deleted by cloud retention cleanup.
+- Subscription retention jobs must create warning/deletion email events before expiration/deletion, dispatch them through the configured provider, and only delete cloud rows after re-checking the stored subscription authority is still inactive.
 
 ## Automated Local Gate
 
@@ -117,8 +119,12 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 15. With active Pro entitlement, create a Rhythm Section chart, add visible chart content, and wait for Cloud Backup to return to `Cloud backup active`.
 16. Delete one disposable QA chart and confirm it does not return after relaunch.
 17. Sign out, relaunch, sign back in, and confirm the expected charts restore.
-18. Simulate downgrade/expired Pro with more than 3 local charts and confirm the app requires user-selected local pruning down to 3 charts.
-19. Confirm downgrade-pruned local charts do not create remote deletion tombstones and remain restorable from cloud snapshots until the grace period ends.
+18. Simulate canceled renewal before expiration and confirm the app still shows active Pro with a visible end date.
+19. Simulate Apple billing grace and confirm local chart access remains available while cloud backup and Forums are paused.
+20. Simulate expired Pro with more than 3 local charts and confirm the app locks chart opening/editing until user-selected local pruning reaches 3 charts.
+21. Confirm downgrade-pruned local charts do not create remote deletion tombstones.
+22. Run the private subscription retention job against disposable cloud rows and confirm it deletes remote `chart_documents` / `chart_snapshots` only after the retention deadline.
+23. Run `subscription-retention-jobs` with the job secret and disposable outbox rows; confirm configured email events are marked sent, failures are retained with `send_error`, and missing email-provider secrets leave events queued.
 
 ## Restore/Reinstall Gate
 
@@ -153,7 +159,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - A signed-in user can read and write only their own `profiles`, `chart_documents`, `chart_snapshots`, and `devices` rows.
 - `chart_documents` and `chart_snapshots` policies require active Pro in addition to owner match.
 - The app can read but not write subscription rows.
-- Subscription rows include server-owned provider, StoreKit product, original transaction, app-account token, App Store status, expiration, grace, revocation, signed-date, notification UUID, and last-verification metadata.
+- Subscription rows include server-owned provider, StoreKit product, original transaction, app-account token, App Store status, auto-renew status, expiration, grace, revocation, signed-date, notification UUID, retention deadline, warning/deletion timestamps, and last-verification metadata.
 - App Store notification replay metadata is server-only and not readable or writable by app roles.
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.

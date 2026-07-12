@@ -163,9 +163,9 @@ Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Features/Editor/Edi
   - "Tap New Chart to choose what kind of chart you want to make."
   - "Choose Simple Chord Sheet for a chord-first page. Rhythm Section Sheet gives you more room for slashes, hits, and groove cues."
 - [ ] First-run tour targets/actions: "Start Tour", "Tap Charts", "Tap New Chart", "Tap Simple Chord Sheet", "Skip Tour"
-- [ ] Help sections: "Getting Started", "Charts, Projects, And PDFs", "Editor Navigation", "Page", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Hand", "Account, Pro, And Forums", "Settings"
-- [ ] Editor tour titles: "Create The Page", "Write A Chord", "Confirm The Chord", "Leave Chord Mode", "Page", "Measures", "Measures Row", "Repeats Row", "Coda", "Free-Hand", "Select And Finish"
-- [ ] Editor tour targets: "Tap Create Blank Page", "Write a chord, then tap outside the lane", "Tap a chord choice", "Tap Done", "Tap Page", "Tap Measures", "Tap Repeats", "Tap Coda", "Tap Free-Hand"
+- [ ] Help sections: "Getting Started", "Charts, Projects, And PDFs", "Editor Navigation", "Page", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Write", "Account, Pro, And Forums", "Settings"
+- [ ] Editor tour titles: "Create The Page", "Write A Chord", "Confirm The Chord", "Leave Chord Mode", "Page", "Measures", "Measures Row", "Repeats Row", "Coda", "Free-Write", "Select And Finish"
+- [ ] Editor tour targets: "Tap Create Blank Page", "Write a chord, then tap outside the lane", "Tap a chord choice", "Tap Done", "Tap Page", "Tap Measures", "Tap Repeats", "Tap Coda", "Tap Free-Write"
 - [ ] Editor tour actions: "Finish Tour", "Skip Tour"
 
 ## Charts Home
@@ -233,10 +233,12 @@ Source: `iChart/Features/Editor/Components/ChartSetupSheetView.swift`, `iChart/M
 Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/EditorCanvasMode.swift`, `iChart/Features/Editor/EditorInkToolMode.swift`, `iChart/Models/ChartAnnotations.swift`
 
 - [ ] Exit accessibility: "Exit Chart"
-- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose ({interval})", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
-- [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Hand"
+- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
+- [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Write"
 - [ ] Ink tool labels: "Write", "Erase"
-- [ ] Chord row modes: "Read", "Ink Only", "Ink Only: handwritten chords stay as ink; transposition and chord systems will not apply."
+- [ ] Chord row explainer: "Read and render chords. Want handwritten notation? Use Free-Write."
+- [ ] Rhythm row explainer: "Read and render rhythms. Want handwritten notation? Use Free-Write."
+- [ ] Free-Write row explainer: "Persistent-ink mode. This ink is never read or interpreted by iChart."
 - [ ] Measures row: "Add", "Stack", "First", "Double", "Join", "New Row", "Delete", "Range", "Delete To", "Clear"
 - [ ] Repeats row: "One Bar", "Start", "End Rep", "1st", "2nd", "End 1st", "End 2nd", "Remove Repeat", "Remove Ending", "Clear"
 - [ ] Coda tool menu labels: "Coda", "To Coda", "Segno", "D.S.", "D.S. al Coda", "D.C.", "D.C. al Fine", "Fine", "N.C."

@@ -39,3 +39,8 @@ entrypoint = "./functions/app-store-server-notifications/index.mjs"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/storekit-subscription-claims/index.mjs"
+
+[functions.subscription-retention-jobs]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/subscription-retention-jobs/index.mjs"

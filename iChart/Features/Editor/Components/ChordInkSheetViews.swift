@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum ChordInkManualEntryShortcut {
     static let chordRepeatText = ChordSymbol.chordRepeatDisplayText
@@ -202,18 +203,19 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
             }
 
-            TextField(
-                "Chord",
+            ChordInkScopedScribbleTextField(
+                placeholder: "Chord",
                 text: Binding(
                     get: { candidateTextByID[confirmation.id] ?? "" },
                     set: { candidateTextByID[confirmation.id] = $0 }
-                )
+                ),
+                isFocused: focusedConfirmationID == confirmation.id,
+                onFocusChanged: { isFocused in
+                    focusedConfirmationID = isFocused ? confirmation.id : nil
+                }
             )
-            .textInputAutocapitalization(.characters)
-            .disableAutocorrection(true)
-            .font(.system(.title3, design: .rounded).weight(.semibold))
-            .textFieldStyle(.roundedBorder)
-            .focused($focusedConfirmationID, equals: confirmation.id)
+            .frame(minHeight: 46)
+            .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
 
             if !confirmation.visibleCandidateTexts.isEmpty {
                 HStack(spacing: 8) {
@@ -239,6 +241,105 @@ struct ChordInkBatchConfirmationSheetView: View {
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    var isFocused: Bool
+    var onFocusChanged: (Bool) -> Void
+
+    func makeUIView(context: Context) -> ChordInkScopedScribbleUITextField {
+        let textField = ChordInkScopedScribbleUITextField()
+        textField.placeholder = placeholder
+        textField.borderStyle = .roundedRect
+        textField.autocapitalizationType = .none
+        textField.autocorrectionType = .no
+        textField.spellCheckingType = .no
+        textField.smartDashesType = .no
+        textField.smartQuotesType = .no
+        textField.returnKeyType = .done
+        textField.clearButtonMode = .whileEditing
+        textField.font = .systemFont(ofSize: 20, weight: .semibold)
+        textField.adjustsFontForContentSizeCategory = true
+        textField.delegate = context.coordinator
+        textField.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.textDidChange(_:)),
+            for: .editingChanged
+        )
+        return textField
+    }
+
+    func updateUIView(_ textField: ChordInkScopedScribbleUITextField, context: Context) {
+        context.coordinator.parent = self
+
+        if textField.text != text {
+            textField.text = text
+        }
+
+        if isFocused, !textField.isFirstResponder {
+            textField.becomeFirstResponder()
+        } else if !isFocused, textField.isFirstResponder {
+            textField.resignFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: ChordInkScopedScribbleTextField
+
+        init(parent: ChordInkScopedScribbleTextField) {
+            self.parent = parent
+        }
+
+        @objc func textDidChange(_ textField: UITextField) {
+            parent.text = textField.text ?? ""
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            parent.onFocusChanged(true)
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            parent.onFocusChanged(false)
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            return true
+        }
+    }
+}
+
+private final class ChordInkScopedScribbleUITextField: UITextField, UIScribbleInteractionDelegate {
+    private var scopedScribbleInteraction: UIScribbleInteraction?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        installScopedScribbleInteraction()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installScopedScribbleInteraction()
+    }
+
+    private func installScopedScribbleInteraction() {
+        let interaction = UIScribbleInteraction(delegate: self)
+        addInteraction(interaction)
+        scopedScribbleInteraction = interaction
+    }
+
+    func scribbleInteraction(
+        _ interaction: UIScribbleInteraction,
+        shouldBeginAt location: CGPoint
+    ) -> Bool {
+        bounds.contains(location)
     }
 }
 

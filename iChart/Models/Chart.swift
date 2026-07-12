@@ -84,12 +84,15 @@ struct Chart: Identifiable, Codable, Hashable {
         self.notationFont = notationFont.releaseSafePreset
         self.typography = typography ?? ChartTypographySettings.default(for: self.notationFont)
         self.defaultTranspositionView = defaultTranspositionView
-        self.chordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(chordTranspositionSemitones)
+        self.chordTranspositionSemitones = 0
         self.defaultMeter = defaultMeter
         self.staffStyle = staffStyle
         self.defaultClef = defaultClef
         self.hasCompletedInitialSetup = hasCompletedInitialSetup
-        self.systems = systems
+        self.systems = Self.systemsApplyingChordTransposition(
+            to: systems,
+            by: chordTranspositionSemitones
+        )
         self.timeSignatureChanges = timeSignatureChanges
         self.sectionLabels = sectionLabels
         self.cueTexts = cueTexts
@@ -153,14 +156,19 @@ struct Chart: Identifiable, Codable, Hashable {
         typography = try container.decodeIfPresent(ChartTypographySettings.self, forKey: .typography)
             ?? ChartTypographySettings.default(for: notationFont)
         defaultTranspositionView = try container.decode(TranspositionView.self, forKey: .defaultTranspositionView)
-        chordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(
+        let decodedChordTranspositionSemitones = Self.normalizedChordTranspositionSemitones(
             try container.decodeIfPresent(Int.self, forKey: .chordTranspositionSemitones) ?? 0
         )
+        chordTranspositionSemitones = 0
         defaultMeter = try container.decode(Meter.self, forKey: .defaultMeter)
         staffStyle = try container.decodeIfPresent(StaffStyle.self, forKey: .staffStyle) ?? .fiveLine
         defaultClef = try container.decodeIfPresent(ChartClef.self, forKey: .defaultClef) ?? .treble
         hasCompletedInitialSetup = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInitialSetup) ?? true
-        systems = try container.decode([ChartSystem].self, forKey: .systems)
+        let decodedSystems = try container.decode([ChartSystem].self, forKey: .systems)
+        systems = Self.systemsApplyingChordTransposition(
+            to: decodedSystems,
+            by: decodedChordTranspositionSemitones
+        )
         timeSignatureChanges = try container.decodeIfPresent([TimeSignatureChange].self, forKey: .timeSignatureChanges) ?? []
         sectionLabels = try container.decode([SectionLabel].self, forKey: .sectionLabels)
         cueTexts = try container.decode([CueText].self, forKey: .cueTexts)
@@ -361,6 +369,39 @@ extension Chart {
     static func normalizedChordTranspositionSemitones(_ semitones: Int) -> Int {
         let modulo = semitones % 12
         return modulo >= 0 ? modulo : modulo + 12
+    }
+
+    static func systemsApplyingChordTransposition(
+        to systems: [ChartSystem],
+        by semitones: Int
+    ) -> [ChartSystem] {
+        let normalizedSemitones = normalizedChordTranspositionSemitones(semitones)
+        guard normalizedSemitones != 0 else {
+            return systems
+        }
+
+        var transposedSystems = systems
+        for systemIndex in transposedSystems.indices {
+            for measureIndex in transposedSystems[systemIndex].measures.indices {
+                for chordIndex in transposedSystems[systemIndex].measures[measureIndex].chordEvents.indices {
+                    let transposedSymbol = transposedSystems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .symbol
+                        .transposedForChartDisplay(by: normalizedSemitones)
+                    transposedSystems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .symbol = transposedSymbol
+                    transposedSystems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .rawInput = transposedSymbol.displayText
+                }
+            }
+        }
+
+        return transposedSystems
     }
 
     var chordTranspositionDisplayText: String {

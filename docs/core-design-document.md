@@ -173,7 +173,7 @@ The product should treat these as launch truths unless later user testing proves
 - subscriptions should fund unlimited chart capacity, cloud chart services, Forums, cross-device organization, shared libraries, setlists, version history, and AI-assisted cleanup if those features are built
 - Pro expiration should pause cloud backup/sync and Forums clearly
 - downgraded accounts with more than 3 local charts should choose which local charts to remove until only 3 remain
-- downgrade pruning should delete user-selected overflow charts locally without creating cloud deletion tombstones; cloud backups remain recoverable until the grace period ends
+- downgrade pruning should delete user-selected overflow charts locally without creating cloud deletion tombstones; cloud backups remain through the paid-through date or Apple billing grace deadline, then are deleted unless Pro renews first
 - the app should remain useful offline after account/session state has been established
 
 ## Release-critical success criteria
