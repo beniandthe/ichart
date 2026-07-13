@@ -65,6 +65,8 @@ test("maps active pro renewal into server-owned subscription authority fields", 
   assert.equal(update.app_store_signed_at, "2026-06-12T21:29:30.000Z");
   assert.equal(update.entitlement_expires_at, "2026-07-12T21:30:00.000Z");
   assert.equal(update.cloud_retention_deadline, null);
+  assert.equal(update.cloud_retention_deleted_at, null);
+  assert.equal(update.expiration_warning_sent_at, null);
   assert.equal(update.last_verified_at, now.toISOString());
 });
 
@@ -95,6 +97,8 @@ test("maps canceled renewal as active pro until the paid period ends", () => {
   assert.equal(update.app_store_auto_renew_status, false);
   assert.equal(update.entitlement_expires_at, "2026-07-12T21:30:00.000Z");
   assert.equal(update.cloud_retention_deadline, null);
+  assert.equal(update.cloud_retention_deleted_at, null);
+  assert.equal(update.expiration_warning_sent_at, null);
 });
 
 test("maps failed renewal with grace as non-active pro grace state", () => {
@@ -220,8 +224,10 @@ test("maps verified transaction claim into active pro authority fields", () => {
   assert.equal(update.storekit_app_account_token, "00000000-0000-4000-8000-000000000001");
   assert.equal(update.app_store_notification_type, "TRANSACTION_CLAIM");
   assert.equal(update.app_store_status, "active");
-  assert.equal(update.app_store_auto_renew_status, null);
+  assert.equal(Object.hasOwn(update, "app_store_auto_renew_status"), false);
   assert.equal(update.cloud_retention_deadline, null);
+  assert.equal(update.cloud_retention_deleted_at, null);
+  assert.equal(update.expiration_warning_sent_at, null);
   assert.equal(update.app_store_signed_at, "2026-06-12T21:29:00.000Z");
 });
 

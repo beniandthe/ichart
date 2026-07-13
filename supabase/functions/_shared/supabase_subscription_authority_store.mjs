@@ -122,9 +122,20 @@ export async function upsertSubscriptionAuthorityClaim(
     };
   }
 
+  const currentOwnerRow = existingOwnerRow ?? await subscriptionAuthorityRowForOwner(
+    configuration,
+    normalizedOwnerID,
+    fetcher
+  );
+  const claimingNewOriginalTransaction = currentOwnerRow !== undefined
+    && normalizedString(currentOwnerRow?.storekit_original_transaction_id) !== originalTransactionID;
+  const shouldClearStaleRenewalStatus = claimingNewOriginalTransaction
+    && normalizedString(authorityUpdate?.provider) === "storekit"
+    && normalizedString(authorityUpdate?.status) === "active";
   const row = {
     owner_id: normalizedOwnerID,
     ...authorityUpdate,
+    ...(shouldClearStaleRenewalStatus ? { app_store_auto_renew_status: null } : {}),
   };
   const url = supabaseURL(configuration, "/rest/v1/subscriptions");
   url.searchParams.set("on_conflict", "owner_id");
@@ -238,6 +249,30 @@ async function subscriptionAuthorityRowsForOriginalTransaction(
   });
 
   return responseRows(await parseSupabaseJSONResponse(response));
+}
+
+async function subscriptionAuthorityRowForOwner(configuration, ownerID, fetcher) {
+  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
+  url.searchParams.set("owner_id", `eq.${ownerID}`);
+  url.searchParams.set(
+    "select",
+    [
+      "owner_id",
+      "provider",
+      "plan",
+      "status",
+      "storekit_original_transaction_id",
+      "app_store_auto_renew_status",
+    ].join(",")
+  );
+  url.searchParams.set("limit", "1");
+
+  const response = await fetcher(url, {
+    method: "GET",
+    headers: supabaseRESTHeaders(configuration),
+  });
+
+  return responseRows(await parseSupabaseJSONResponse(response))[0];
 }
 
 async function recordAppStoreNotificationEvent(configuration, authorityUpdate, fetcher) {

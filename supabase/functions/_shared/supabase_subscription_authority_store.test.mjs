@@ -126,12 +126,67 @@ test("claim writer upserts subscription authority by owner", async () => {
     requestedURL,
     "https://project.supabase.co/rest/v1/subscriptions?on_conflict=owner_id"
   );
-  assert.deepEqual(requestedMethods, ["GET", "POST"]);
+  assert.deepEqual(requestedMethods, ["GET", "GET", "POST"]);
   assert.equal(requestedInit.method, "POST");
   assert.equal(requestedInit.headers.authorization, "Bearer server-only-key");
   assert.equal(requestedInit.headers.prefer, "resolution=merge-duplicates,return=representation");
-  assert.equal(JSON.parse(requestedInit.body).owner_id, "00000000-0000-4000-8000-000000000001");
-  assert.equal(JSON.parse(requestedInit.body).storekit_original_transaction_id, "1000000000000100");
+  const body = JSON.parse(requestedInit.body);
+  assert.equal(body.owner_id, "00000000-0000-4000-8000-000000000001");
+  assert.equal(body.storekit_original_transaction_id, "1000000000000100");
+  assert.equal(Object.hasOwn(body, "app_store_auto_renew_status"), false);
+  assert.equal(result.stored, true);
+  assert.equal(result.mapping_status, "claimed");
+});
+
+test("claim writer clears stale renewal state when an owner claims a new active original transaction", async () => {
+  let requestedInit = null;
+  const requestedMethods = [];
+  const result = await upsertSubscriptionAuthorityClaim(
+    {
+      supabaseURL: "https://project.supabase.co",
+      secretKey: "server-only-key",
+    },
+    "00000000-0000-4000-8000-000000000001",
+    {
+      provider: "storekit",
+      plan: "studioSubscription",
+      status: "active",
+      storekit_original_transaction_id: "1000000000000200",
+      storekit_app_account_token: "00000000-0000-4000-8000-000000000001",
+      app_store_signed_at: "2026-06-12T21:29:00.000Z",
+    },
+    async (url, init) => {
+      requestedMethods.push(init.method);
+      const requestedURL = String(url);
+      if (init.method === "GET" && requestedURL.includes("storekit_original_transaction_id=eq.1000000000000200")) {
+        return Response.json([]);
+      }
+      if (init.method === "GET" && requestedURL.includes("owner_id=eq.00000000-0000-4000-8000-000000000001")) {
+        return Response.json([
+          {
+            owner_id: "00000000-0000-4000-8000-000000000001",
+            provider: "storekit",
+            status: "active",
+            storekit_original_transaction_id: "1000000000000100",
+            app_store_auto_renew_status: false,
+          },
+        ]);
+      }
+
+      requestedInit = init;
+      return Response.json([
+        {
+          owner_id: "00000000-0000-4000-8000-000000000001",
+          provider: "storekit",
+        },
+      ]);
+    }
+  );
+
+  assert.deepEqual(requestedMethods, ["GET", "GET", "POST"]);
+  const body = JSON.parse(requestedInit.body);
+  assert.equal(body.storekit_original_transaction_id, "1000000000000200");
+  assert.equal(body.app_store_auto_renew_status, null);
   assert.equal(result.stored, true);
   assert.equal(result.mapping_status, "claimed");
 });

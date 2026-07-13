@@ -207,6 +207,10 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: gracePeriodExpiresAt,
     cloud_retention_deadline: cloudRetentionDeadline,
+    ...(grantsActivePro ? {
+      cloud_retention_deleted_at: null,
+      expiration_warning_sent_at: null,
+    } : {}),
     revoked_at: revokedAt,
     last_verified_at: nowISOString,
   };
@@ -274,7 +278,6 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
     storekit_app_account_token: appAccountToken,
     storekit_environment: environment,
     app_store_status: appStoreStatus,
-    app_store_auto_renew_status: null,
     app_store_notification_type: normalizedString(options.source) || "TRANSACTION_CLAIM",
     app_store_last_transaction_id: transactionID.length > 0 ? transactionID : null,
     app_store_signed_at: signedAt,
@@ -283,6 +286,10 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
     entitlement_expires_at: expiresAt,
     grace_period_expires_at: null,
     cloud_retention_deadline: cloudRetentionDeadline,
+    ...(grantsActivePro ? {
+      cloud_retention_deleted_at: null,
+      expiration_warning_sent_at: null,
+    } : {}),
     revoked_at: revokedAt,
     last_verified_at: nowISOString,
   };
