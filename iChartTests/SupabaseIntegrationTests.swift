@@ -237,7 +237,7 @@ final class SupabaseIntegrationTests: XCTestCase {
             XCTAssertEqual(integralValue(post["vote_down_count"]), 0)
             XCTAssertEqual(integralValue(post["report_count"]), 1)
             XCTAssertEqual(post["status"] as? String, "published")
-            XCTAssertEqual(post["creator_display_name"] as? String, "Forum Pro")
+            XCTAssertEqual(post["creator_display_name"] as? String, "Forum P.")
             XCTAssertEqual(post["pdf_storage_path"] as? String, path)
             XCTAssertEqual(post["pdf_provenance_status"] as? String, "validated")
 
@@ -245,12 +245,13 @@ final class SupabaseIntegrationTests: XCTestCase {
                 path: "forum_comments",
                 queryItems: [
                     URLQueryItem(name: "post_id", value: "eq.\(postID)"),
-                    URLQueryItem(name: "select", value: "id,body,report_count")
+                    URLQueryItem(name: "select", value: "id,body,creator_display_name,report_count")
                 ],
                 accessToken: proSession.accessToken
             )
             XCTAssertEqual(comments.count, 1)
             XCTAssertEqual(comments.first?["body"] as? String, "Clean forum integration comment.")
+            XCTAssertEqual(comments.first?["creator_display_name"] as? String, "Forum P.")
         } catch {
             await client.cleanupForumIntegrationUser(
                 userID: proUserID,

@@ -435,7 +435,7 @@ select is(
         from public.forum_chart_posts
         where id = '40000000-0000-0000-0000-000000000001'
     ),
-    'Beni Rossman',
+    'Beni R.',
     'forum chart post attribution is derived from locked profile name'
 );
 
@@ -476,7 +476,7 @@ select is(
         from public.forum_chart_posts
         where id = '40000000-0000-0000-0000-000000000002'
     ),
-    'Beni Rossman',
+    'Beni R.',
     'spoofed forum attribution is overwritten by locked profile name'
 );
 
@@ -839,6 +839,45 @@ select lives_ok(
     )
     $$,
     'active Pro can comment on visible forum post'
+);
+
+select is(
+    (
+        select creator_display_name
+        from public.forum_comments
+        where id = '60000000-0000-0000-0000-000000000001'
+    ),
+    'Beni R.',
+    'forum comment attribution is derived from locked profile name'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_comments (
+        id,
+        post_id,
+        owner_id,
+        creator_display_name,
+        body
+    ) values (
+        '60000000-0000-0000-0000-000000000003',
+        '40000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001',
+        'Fake Name',
+        'Spoofed attribution should be replaced.'
+    )
+    $$,
+    'server accepts own forum comment while overriding spoofed attribution'
+);
+
+select is(
+    (
+        select creator_display_name
+        from public.forum_comments
+        where id = '60000000-0000-0000-0000-000000000003'
+    ),
+    'Beni R.',
+    'spoofed forum comment attribution is overwritten by locked profile name'
 );
 
 select lives_ok(

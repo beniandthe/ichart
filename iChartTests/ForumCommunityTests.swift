@@ -15,7 +15,6 @@ final class ForumCommunityTests: XCTestCase {
         draft.songTitle = "  Blue   Bossa "
         draft.artistName = " Kenny Dorham "
         draft.arrangerCredit = " Beni Rossman "
-        draft.creatorDisplayName = " Beni "
         draft.tagsText = "standard, rhythm section, Standard, live"
 
         XCTAssertTrue(draft.validationErrors(availableChartIDs: [chartID]).isEmpty)
@@ -94,7 +93,6 @@ final class ForumCommunityTests: XCTestCase {
         draft.songTitle = "Blue Bossa"
         draft.artistName = "Kenny Dorham"
         draft.arrangerCredit = "Beni Rossman"
-        draft.creatorDisplayName = "Beni"
 
         XCTAssertEqual(
             draft.validationErrors(availableChartIDs: [localChartID]),
@@ -113,13 +111,13 @@ final class ForumCommunityTests: XCTestCase {
         XCTAssertEqual(draft.resolvedChartTitle, "Rhythm Section Arrangement")
     }
 
-    func testForumAuthorDisplayNameUsesLockedProfileName() {
+    func testForumAuthorDisplayNameUsesPublicProfileName() {
         XCTAssertEqual(
             ForumAuthorDisplayNamePolicy.displayName(
                 firstName: " Beni ",
                 lastName: " Rossman "
             ),
-            "Beni Rossman"
+            "Beni R."
         )
         XCTAssertEqual(
             ForumAuthorDisplayNamePolicy.displayName(
@@ -135,6 +133,13 @@ final class ForumCommunityTests: XCTestCase {
             ),
             ""
         )
+    }
+
+    func testForumPublishDraftCanReceiveServerOwnedCreatorDisplayName() {
+        let draft = ForumPublishDraft()
+            .withCreatorDisplayName("  Beni   R. ")
+
+        XCTAssertEqual(draft.creatorDisplayName, "Beni R.")
     }
 
     func testForumPostModerationStatusControlsCommunityActions() {

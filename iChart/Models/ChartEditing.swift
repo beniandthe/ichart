@@ -354,7 +354,11 @@ extension Chart {
     }
 
     func canDeleteMeasure(id measureID: UUID) -> Bool {
-        measures.count > 1 && measureLocation(id: measureID) != nil
+        guard let location = measureLocation(id: measureID) else {
+            return false
+        }
+
+        return measures.count > 1 || canClearFirstMeasureTrailingBarline(at: location)
     }
 
     func canDeleteMeasures(from startMeasureID: UUID, through endMeasureID: UUID) -> Bool {
@@ -367,9 +371,15 @@ extension Chart {
 
     @discardableResult
     mutating func deleteMeasure(id measureID: UUID) -> Bool {
-        guard canDeleteMeasure(id: measureID),
-              let location = measureLocation(id: measureID) else {
+        guard let location = measureLocation(id: measureID),
+              canDeleteMeasure(id: measureID) else {
             return false
+        }
+
+        if canClearFirstMeasureTrailingBarline(at: location) {
+            systems[location.systemIndex].measures[location.measureIndex].barlineAfter = .single
+            updatedAt = .now
+            return true
         }
 
         removeMeasure(at: location)
@@ -1780,6 +1790,13 @@ extension Chart {
     ) {
         let removalIndex = flattenedMeasureIndex(for: location)
         removeMeasures(in: removalIndex..<(removalIndex + 1))
+    }
+
+    private func canClearFirstMeasureTrailingBarline(
+        at location: (systemIndex: Int, measureIndex: Int)
+    ) -> Bool {
+        flattenedMeasureIndex(for: location) == 0
+            && systems[location.systemIndex].measures[location.measureIndex].barlineAfter != .single
     }
 
     private mutating func removeMeasures(in removalRange: Range<Int>) {

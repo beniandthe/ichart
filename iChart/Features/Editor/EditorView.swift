@@ -87,7 +87,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Confirm the page setup, time signature, starting measure count, and sheet style. Create Blank Page opens the chart for the hands-on tour."
         case .chordWrite:
-            "Use the chord lane above the measure. Write a chord, then tap outside the lane to read it. Use Free-Write when notation should stay exactly handwritten."
+            "Use the active chord writing area. Write a chord, then tap outside that area to read it. Use Free-Write when notation should stay exactly handwritten."
         case .chordConfirm:
             "Tap the chord you meant or type it in the entry box. Chord Repeat adds •/•, Confirm renders it, and Rewrite clears the attempt."
         case .chordDone:
@@ -114,7 +114,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Tap Create Blank Page"
         case .chordWrite:
-            "Write a chord, then tap outside the lane"
+            "Write a chord, then tap outside the writing area"
         case .chordConfirm:
             "Tap a chord choice"
         case .chordDone:

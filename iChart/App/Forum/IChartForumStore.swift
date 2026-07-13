@@ -319,6 +319,8 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
 private actor IChartForumQASampleService: IChartForumServicing {
     let isConfigured = true
 
+    private static let currentUserDisplayName = "Beni R."
+
     private var currentUserID = UUID(uuidString: "90000000-0000-0000-0000-000000000001")!
     private var submittedSongs: [ForumSong] = []
     private var submittedPosts: [UUID: ForumChartPost] = [:]
@@ -382,24 +384,25 @@ private actor IChartForumQASampleService: IChartForumServicing {
     }
 
     func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail {
-        let validationErrors = draft.validationErrors(availableChartIDs: [chart.id])
+        let publishDraft = draft.withCreatorDisplayName(Self.currentUserDisplayName)
+        let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
             throw IChartForumServiceError.invalidPublishDraft(
                 validationErrors.map(\.message).joined(separator: " ")
             )
         }
 
-        let song = resolvedSong(for: draft)
+        let song = resolvedSong(for: publishDraft)
         let postID = UUID()
         let post = ForumChartPost(
             id: postID,
             songID: song.id,
             ownerID: currentUserID,
-            chartTitle: draft.resolvedChartTitle,
-            arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
-            creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
-            tags: draft.sanitizedTags,
-            versionNote: ForumPublishDraft.normalizedDisplayText(draft.versionNote).nilIfEmpty,
+            chartTitle: publishDraft.resolvedChartTitle,
+            arrangerCredit: ForumPublishDraft.normalizedDisplayText(publishDraft.arrangerCredit),
+            creatorDisplayName: ForumPublishDraft.normalizedDisplayText(publishDraft.creatorDisplayName),
+            tags: publishDraft.sanitizedTags,
+            versionNote: ForumPublishDraft.normalizedDisplayText(publishDraft.versionNote).nilIfEmpty,
             layoutStyle: chart.layoutStyle,
             pdfStoragePath: "qa-samples/\(postID.uuidString.lowercased()).pdf",
             status: .pending,
@@ -436,7 +439,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
             id: UUID(),
             postID: postID,
             ownerID: currentUserID,
-            creatorDisplayName: "You",
+            creatorDisplayName: Self.currentUserDisplayName,
             body: sanitizedBody,
             createdAt: Date()
         )
@@ -505,6 +508,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
 
     private var sampleSongs: [ForumSong] {
         [
+            ForumSong(id: Self.multiUserDemoSongID, songTitle: "Funky Jam", artistName: "iChart Community"),
             ForumSong(id: Self.blueBossaSongID, songTitle: "Blue Bossa", artistName: "Kenny Dorham"),
             ForumSong(id: Self.cantaloupeSongID, songTitle: "Cantaloupe Island", artistName: "Herbie Hancock"),
             ForumSong(id: Self.justFriendsSongID, songTitle: "Just Friends", artistName: "John Klenner"),
@@ -521,6 +525,22 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private var samplePosts: [ForumChartPost] {
         let now = Date()
         return [
+            post(
+                id: Self.multiUserDemoPostID,
+                songID: Self.multiUserDemoSongID,
+                ownerID: currentUserID,
+                chartTitle: "Funky Jam - Community Roadmap",
+                arrangerCredit: "Beni Rossman",
+                creatorDisplayName: "Beni R.",
+                tags: ["demo", "rhythm section", "discussion"],
+                versionNote: "A sample interaction thread with votes, comments, reports, and PDF preview behavior.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .published,
+                upVotes: 37,
+                downVotes: 1,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-45 * 60)
+            ),
             post(
                 id: Self.blueBossaRhythmPostID,
                 songID: Self.blueBossaSongID,
@@ -688,6 +708,40 @@ private actor IChartForumQASampleService: IChartForumServicing {
 
     private var sampleCommentsByPostID: [UUID: [ForumComment]] {
         [
+            Self.multiUserDemoPostID: [
+                comment(
+                    id: Self.multiUserDemoCommentOneID,
+                    postID: Self.multiUserDemoPostID,
+                    ownerID: Self.mayaOwnerID,
+                    creator: "Maya T.",
+                    body: "This is the kind of chart I would send before rehearsal. The form is clear and the hits are easy to catch.",
+                    hoursAgo: 6
+                ),
+                comment(
+                    id: Self.multiUserDemoCommentTwoID,
+                    postID: Self.multiUserDemoPostID,
+                    ownerID: Self.jamalOwnerID,
+                    creator: "Jamal R.",
+                    body: "Upvoted. The roadmap works well for rhythm section, especially with the repeat labels up front.",
+                    hoursAgo: 5
+                ),
+                comment(
+                    id: Self.multiUserDemoCommentThreeID,
+                    postID: Self.multiUserDemoPostID,
+                    ownerID: Self.sophieOwnerID,
+                    creator: "Sophie L.",
+                    body: "Downloaded the PDF preview. I would maybe add one cue before the tag, but this is readable as-is.",
+                    hoursAgo: 3
+                ),
+                comment(
+                    id: Self.multiUserDemoCommentFourID,
+                    postID: Self.multiUserDemoPostID,
+                    ownerID: Self.nateOwnerID,
+                    creator: "Nate C.",
+                    body: "The public names are just enough attribution without exposing full account details. This feels right.",
+                    hoursAgo: 1
+                )
+            ],
             Self.blueBossaRhythmPostID: [
                 comment(id: Self.blueBossaCommentOneID, postID: Self.blueBossaRhythmPostID, ownerID: Self.mayaOwnerID, creator: "Maya T.", body: "This one reads clean on a loud stage. The ending is easy to catch."),
                 comment(id: Self.blueBossaCommentTwoID, postID: Self.blueBossaRhythmPostID, ownerID: Self.jamalOwnerID, creator: "Jamal R.", body: "Good roadmap for rhythm section. I would keep the tag exactly like this.")
@@ -701,14 +755,21 @@ private actor IChartForumQASampleService: IChartForumServicing {
         ]
     }
 
-    private func comment(id: UUID, postID: UUID, ownerID: UUID, creator: String, body: String) -> ForumComment {
+    private func comment(
+        id: UUID,
+        postID: UUID,
+        ownerID: UUID,
+        creator: String,
+        body: String,
+        hoursAgo: Double = 24
+    ) -> ForumComment {
         ForumComment(
             id: id,
             postID: postID,
             ownerID: ownerID,
             creatorDisplayName: creator,
             body: body,
-            createdAt: Date().addingTimeInterval(-24 * 60 * 60)
+            createdAt: Date().addingTimeInterval(-hoursAgo * 60 * 60)
         )
     }
 
@@ -798,6 +859,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private static let justFriendsSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000003")!
     private static let anotherYouSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000004")!
     private static let actualProofSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000005")!
+    private static let multiUserDemoSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000006")!
 
     private static let blueBossaRhythmPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000001")!
     private static let blueBossaHornsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000002")!
@@ -805,11 +867,16 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private static let justFriendsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000004")!
     private static let anotherYouPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000005")!
     private static let actualProofPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000006")!
+    private static let multiUserDemoPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000007")!
 
     private static let blueBossaCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000001")!
     private static let blueBossaCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000002")!
     private static let cantaloupeCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000003")!
     private static let actualProofCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000004")!
+    private static let multiUserDemoCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000005")!
+    private static let multiUserDemoCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000006")!
+    private static let multiUserDemoCommentThreeID = UUID(uuidString: "63000000-0000-0000-0000-000000000007")!
+    private static let multiUserDemoCommentFourID = UUID(uuidString: "63000000-0000-0000-0000-000000000008")!
 
     private static let mayaOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000001")!
     private static let jamalOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000002")!
@@ -961,13 +1028,16 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         }
 
         let ownerID = try await currentUserIDForRequest()
+        let publishDraft = draft.withCreatorDisplayName(
+            try await publicAuthorDisplayName(for: ownerID)
+        )
         let postID = UUID()
-        let storagePath = draft.storagePath(ownerID: ownerID, postID: postID)
+        let storagePath = publishDraft.storagePath(ownerID: ownerID, postID: postID)
         let exportedPDF = try await pdfExporter.exportPDF(
             for: chart,
             context: ChartPDFExportContext(
                 forumCredit: ForumPDFCredit(
-                    creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
+                    creatorDisplayName: ForumPublishDraft.normalizedDisplayText(publishDraft.creatorDisplayName),
                     forumPostID: postID,
                     exportedAt: Date()
                 )
@@ -989,17 +1059,17 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let song: ForumSong
         var shouldRollbackUploadedPDF = true
         do {
-            song = try await resolvedSong(for: draft, ownerID: ownerID)
+            song = try await resolvedSong(for: publishDraft, ownerID: ownerID)
             let postInsert = ForumChartPostInsert(
                 id: postID,
                 songID: song.id,
                 ownerID: ownerID,
                 localChartID: chart.id,
-                chartTitle: draft.resolvedChartTitle,
-                arrangerCredit: ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit),
-                creatorDisplayName: ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName),
-                tags: draft.sanitizedTags,
-                versionNote: ForumPublishDraft.normalizedDisplayText(draft.versionNote).nilIfEmpty,
+                chartTitle: publishDraft.resolvedChartTitle,
+                arrangerCredit: ForumPublishDraft.normalizedDisplayText(publishDraft.arrangerCredit),
+                creatorDisplayName: ForumPublishDraft.normalizedDisplayText(publishDraft.creatorDisplayName),
+                tags: publishDraft.sanitizedTags,
+                versionNote: ForumPublishDraft.normalizedDisplayText(publishDraft.versionNote).nilIfEmpty,
                 layoutStyle: chart.layoutStyle.rawValue,
                 pdfStoragePath: storagePath
             )
@@ -1123,6 +1193,24 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     private func currentUserIDForRequest() async throws -> UUID {
         let session = try await refreshedSessionForRequest()
         return session.user.id
+    }
+
+    private func publicAuthorDisplayName(for ownerID: UUID) async throws -> String {
+        let profiles: [ForumProfileDisplayNameRow] = try await client
+            .from("profiles")
+            .select("first_name,last_name")
+            .eq("id", value: ownerID)
+            .limit(1)
+            .execute()
+            .value
+        let displayName = profiles.first?.publicDisplayName ?? ""
+        guard !displayName.isEmpty else {
+            throw IChartForumServiceError.invalidPublishDraft(
+                "Finish account first and last name before posting."
+            )
+        }
+
+        return displayName
     }
 
     private func rollbackUploadedForumPDF(at path: String) async {
@@ -1274,6 +1362,20 @@ private struct ForumSongInsert: Encodable {
     }
 }
 
+private struct ForumProfileDisplayNameRow: Decodable {
+    let firstName: String?
+    let lastName: String?
+
+    var publicDisplayName: String {
+        ForumAuthorDisplayNamePolicy.displayName(firstName: firstName, lastName: lastName)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case firstName = "first_name"
+        case lastName = "last_name"
+    }
+}
+
 private struct ForumChartPostRow: Decodable {
     let id: UUID
     let songID: UUID
@@ -1367,6 +1469,7 @@ private struct ForumCommentRow: Decodable {
     let id: UUID
     let postID: UUID
     let ownerID: UUID
+    let creatorDisplayName: String?
     let body: String
     let createdAt: String?
 
@@ -1375,7 +1478,7 @@ private struct ForumCommentRow: Decodable {
             id: id,
             postID: postID,
             ownerID: ownerID,
-            creatorDisplayName: nil,
+            creatorDisplayName: creatorDisplayName,
             body: body,
             createdAt: IChartForumDateParser.date(from: createdAt)
         )
@@ -1385,6 +1488,7 @@ private struct ForumCommentRow: Decodable {
         case id
         case postID = "post_id"
         case ownerID = "owner_id"
+        case creatorDisplayName = "creator_display_name"
         case body
         case createdAt = "created_at"
     }

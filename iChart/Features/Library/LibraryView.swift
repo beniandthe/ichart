@@ -406,7 +406,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "delete",
                     title: "Delete And Range",
-                    detail: "Delete removes the selected measure. Range starts a delete range, Delete To finishes it, and Clear cancels the pending range."
+                    detail: "Delete removes the selected measure. On the first measure, Delete first clears a double or final right barline while keeping the opening barline intact. Range starts a delete range, Delete To finishes it, and Clear cancels the pending range."
                 )
             ]
         ),
@@ -539,7 +539,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "write",
                     title: "Write",
-                    detail: "Tap Chord, choose Write, write in the chord lane, then tap outside of the chord lane to ask iChart to read it."
+                    detail: "Tap Chord, choose Write, write in the active chord writing area, then tap outside that area to ask iChart to read it."
                 ),
                 IChartTutorialStep(
                     id: "confirm",
@@ -953,13 +953,6 @@ struct LibraryView: View {
         return count == 1 ? "1 chart" : "\(count) charts"
     }
 
-    private var forumCreatorDisplayName: String {
-        ForumAuthorDisplayNamePolicy.displayName(
-            firstName: authStore.profile?.firstName,
-            lastName: authStore.profile?.lastName
-        )
-    }
-
     private var homeAppearanceMode: IChartHomeAppearanceMode {
         IChartHomeAppearanceMode(rawValue: homeAppearanceModeRawValue) ?? .light
     }
@@ -1143,7 +1136,6 @@ struct LibraryView: View {
         .sheet(item: $forumPublishRequest) { request in
             IChartForumPublishSheet(
                 request: request,
-                profileDisplayName: forumCreatorDisplayName,
                 theme: homeTheme
             ) { chart, draft in
                 Task {
@@ -3685,7 +3677,6 @@ private struct IChartForumQualityPill: View {
 private struct IChartForumPublishSheet: View {
     @Environment(\.dismiss) private var dismiss
     let request: IChartForumPublishRequest
-    let profileDisplayName: String
     let theme: IChartHomeTheme
     let onPublish: (Chart, ForumPublishDraft) -> Void
 
@@ -3708,7 +3699,6 @@ private struct IChartForumPublishSheet: View {
                     forumTextField("Song Title", text: $draft.songTitle, field: .song)
                     forumTextField("Artist", text: $draft.artistName, field: .artist)
                     forumTextField("Arranger Credit", text: $draft.arrangerCredit, field: .arranger)
-                    LabeledContent("Posted By", value: postedByText)
                     forumTextField("Tags (Optional)", text: $draft.tagsText, field: .tags, prompt: "live, acoustic, rhythm section")
                     forumMultilineTextField("Notes (Optional)", text: $draft.versionNote, field: .note)
                 }
@@ -3737,15 +3727,10 @@ private struct IChartForumPublishSheet: View {
                     } label: {
                         Label("Submit", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(!canSubmit)
                 }
             }
             .onAppear {
                 configureDraftIfNeeded()
-                applyProfileDisplayNameIfNeeded()
-            }
-            .onChange(of: profileDisplayName) { _, _ in
-                applyProfileDisplayNameIfNeeded()
             }
         }
     }
@@ -3757,28 +3742,6 @@ private struct IChartForumPublishSheet: View {
 
         draft.selectedChartID = request.chart.id
         draft.chartTitle = ""
-    }
-
-    private func applyProfileDisplayNameIfNeeded() {
-        let displayName = ForumPublishDraft.normalizedDisplayText(profileDisplayName)
-        guard !displayName.isEmpty else {
-            return
-        }
-
-        draft.creatorDisplayName = displayName
-
-        if ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit).isEmpty {
-            draft.arrangerCredit = displayName
-        }
-    }
-
-    private var postedByText: String {
-        let displayName = ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName)
-        return displayName.isEmpty ? "Loading account name..." : displayName
-    }
-
-    private var canSubmit: Bool {
-        !ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName).isEmpty
     }
 
     private func forumTextField(
@@ -3826,8 +3789,6 @@ private struct IChartForumPublishSheet: View {
     }
 
     private func publish() {
-        applyProfileDisplayNameIfNeeded()
-
         let errors = draft.validationErrors(availableChartIDs: [request.chart.id])
         guard errors.isEmpty else {
             validationErrors = errors
@@ -3972,7 +3933,7 @@ private struct IChartForumPostDetailView: View {
             Button {
                 onVote(.down)
             } label: {
-                Label("Not For Me", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                Label("Downvote", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
             }
             .buttonStyle(.bordered)
 
