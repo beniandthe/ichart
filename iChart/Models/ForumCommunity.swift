@@ -166,9 +166,12 @@ enum ForumAuthorDisplayNamePolicy {
         let first = ForumPublishDraft.normalizedDisplayText(firstName ?? "")
         let last = ForumPublishDraft.normalizedDisplayText(lastName ?? "")
 
-        guard !first.isEmpty,
-              let lastInitial = last.first else {
-            return ""
+        guard !first.isEmpty else {
+            return last
+        }
+
+        guard let lastInitial = last.first else {
+            return first
         }
 
         return "\(first) \(String(lastInitial).uppercased())."
@@ -227,11 +230,13 @@ struct ForumPublishDraft: Equatable, Hashable {
             errors.append(.missingArrangerCredit)
         }
 
-        if Self.normalizedDisplayText(creatorDisplayName).isEmpty {
-            errors.append(.missingCreatorDisplayName)
-        }
-
         return errors
+    }
+
+    func withCreatorDisplayName(_ displayName: String) -> ForumPublishDraft {
+        var draft = self
+        draft.creatorDisplayName = Self.normalizedDisplayText(displayName)
+        return draft
     }
 
     func storagePath(ownerID: UUID, postID: UUID) -> String {
@@ -264,7 +269,6 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
     case missingSongTitle
     case missingArtistName
     case missingArrangerCredit
-    case missingCreatorDisplayName
 
     var id: String { rawValue }
 
@@ -278,8 +282,6 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
             return "Add the artist."
         case .missingArrangerCredit:
             return "Add arranger credit."
-        case .missingCreatorDisplayName:
-            return "Finish account first and last name before posting."
         }
     }
 }

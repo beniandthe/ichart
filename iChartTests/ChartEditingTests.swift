@@ -736,14 +736,31 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.count, 2)
     }
 
-    func testDeleteMeasurePreservesOneMeasureMinimum() throws {
+    func testDeleteOnlyMeasureClearsFirstTrailingBarlineBeforeBlockingDeletion() throws {
         var chart = Chart.blank(title: "Repeats", measureCount: 1)
         let onlyMeasureID = try XCTUnwrap(chart.measures.first?.id)
 
-        XCTAssertFalse(chart.canDeleteMeasure(id: onlyMeasureID))
-        XCTAssertFalse(chart.deleteMeasure(id: onlyMeasureID))
+        XCTAssertEqual(chart.measures.first?.barlineAfter, .double)
+        XCTAssertTrue(chart.canDeleteMeasure(id: onlyMeasureID))
+        XCTAssertTrue(chart.deleteMeasure(id: onlyMeasureID))
 
         XCTAssertEqual(chart.measures.count, 1)
+        XCTAssertEqual(chart.measures.first?.id, onlyMeasureID)
+        XCTAssertEqual(chart.measures.first?.barlineAfter, .single)
+        XCTAssertFalse(chart.canDeleteMeasure(id: onlyMeasureID))
+        XCTAssertFalse(chart.deleteMeasure(id: onlyMeasureID))
+    }
+
+    func testDeleteFirstMeasureWithDoubleTrailingBarlineClearsBarlineWithoutRemovingMeasure() throws {
+        var chart = Chart.blank(title: "First Double", measureCount: 3, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        chart.systems[0].measures[0].barlineAfter = .double
+
+        XCTAssertTrue(chart.canDeleteMeasure(id: measureIDs[0]))
+        XCTAssertTrue(chart.deleteMeasure(id: measureIDs[0]))
+
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.measure(id: measureIDs[0])?.barlineAfter, .single)
     }
 
     func testCanDeleteMeasureRequiresExistingMeasureAndSpareMeasure() throws {

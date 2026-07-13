@@ -69,9 +69,9 @@ Use this section first. These are the highest-risk phrases for dev-style or obtu
   - Source: `iChart/Services/MeasureTimingValidator.swift:44`, `:61`, `:72`; `iChart/Features/Editor/EditorView.swift:2810`, `:2831`
   - New: "rhythm position", "chord position", "editable rhythm sketch", "off the measure grid"
 
-- [x] Forum has a visible "Downvote" button despite prior concern about griefing tone. Fixed in triage 2.
+- [x] Forum has a visible "Downvote" button with server-side weighting and future anti-bombing moderation policy. Reopened after outside-QA review and restored to direct wording.
   - Source: `iChart/Features/Library/LibraryView.swift:3549`; `iChart/Models/ForumCommunity.swift:348`
-  - New: "Not For Me"
+  - New: "Downvote"
   - New vote summary: "{up} upvote(s)"
 
 - [x] "SMuFL" may be too technical for a musician-facing font picker. Fixed in triage 2.
@@ -165,7 +165,7 @@ Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Features/Editor/Edi
 - [ ] First-run tour targets/actions: "Start Tour", "Tap Charts", "Tap New Chart", "Tap Simple Chord Sheet", "Skip Tour"
 - [ ] Help sections: "Getting Started", "Charts, Projects, And PDFs", "Editor Navigation", "Page", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Write", "Account, Pro, And Forums", "Settings"
 - [ ] Editor tour titles: "Create The Page", "Write A Chord", "Confirm The Chord", "Leave Chord Mode", "Page", "Measures", "Measures Row", "Repeats Row", "Coda", "Free-Write", "Select And Finish"
-- [ ] Editor tour targets: "Tap Create Blank Page", "Write a chord, then tap outside the lane", "Tap a chord choice", "Tap Done", "Tap Page", "Tap Measures", "Tap Repeats", "Tap Coda", "Tap Free-Write"
+- [ ] Editor tour targets: "Tap Create Blank Page", "Write a chord, then tap outside the writing area", "Tap a chord choice", "Tap Done", "Tap Page", "Tap Measures", "Tap Repeats", "Tap Coda", "Tap Free-Write"
 - [ ] Editor tour actions: "Finish Tour", "Skip Tour"
 
 ## Charts Home
@@ -371,11 +371,11 @@ Source: `iChart/Features/Library/LibraryView.swift`
 
 - [ ] Sheet title: "Submit To Forum"
 - [ ] Section title: "Metadata"
-- [ ] Fields: "Song Title", "Artist", "Arranger Credit", "Posted By", "Tags (Optional)", "Notes (Optional)"
+- [ ] Fields: "Song Title", "Artist", "Arranger Credit", "Tags (Optional)", "Notes (Optional)"
 - [ ] Tags prompt: "live, acoustic, rhythm section"
 - [ ] Missing section: "Missing"
 - [ ] Actions: "Cancel", "Submit"
-- [ ] Posted-by fallback: "Account name required"
+- [ ] Posted-by attribution is hidden during submission and appears on approved forum posts
 - [ ] Keyboard accessibility: "Open keyboard for {field title}"
 
 ## Forum Detail And Discussion
@@ -383,7 +383,7 @@ Source: `iChart/Features/Library/LibraryView.swift`
 Source: `iChart/Features/Library/LibraryView.swift`
 
 - [ ] Creator byline: "Created by {creator}", "Created by Unknown"
-- [ ] Actions: "Upvote", "Not For Me", "Preview PDF", "Report"
+- [ ] Actions: "Upvote", "Downvote", "Preview PDF", "Report"
 - [ ] Discussion title: "Discussion"
 - [ ] Comment field: "Add a comment"
 - [ ] Comment action accessibility: "Post comment"
@@ -507,6 +507,6 @@ Highest-value cleanup pass before release:
 2. Hide or reword service setup, subscription preview, simulator, and QA language behind surfaces that cannot appear to regular users. Done in triage 2 for Pro preview and forum samples; cloud-backup fallback copy fixed in triage 3.
 3. Remove or relabel chord regression fixture UI. Done in triage 2.
 4. Fix the Charts empty state title. Done in triage 2.
-5. Decide whether forum downvotes are release-facing, hidden, or reframed. Done in triage 2 by reframing the button and hiding downvote counts from summaries.
+5. Decide whether forum downvotes are release-facing, hidden, or reframed. Reopened after outside-QA review: button now reads "Downvote"; downvote counts remain hidden from summaries and user-level anti-bombing moderation is tracked as server follow-up.
 6. Reword the most technical editor terms listed in the editor and rhythm sections. Done in triage 2.
 7. Remove redundant local-save status wording and enforce forum-download cleanup after confirmed downgrade/expiration. Done in triage 2 follow-up.
