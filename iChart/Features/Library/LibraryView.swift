@@ -3737,10 +3737,15 @@ private struct IChartForumPublishSheet: View {
                     } label: {
                         Label("Submit", systemImage: "square.and.arrow.up")
                     }
+                    .disabled(!canSubmit)
                 }
             }
             .onAppear {
                 configureDraftIfNeeded()
+                applyProfileDisplayNameIfNeeded()
+            }
+            .onChange(of: profileDisplayName) { _, _ in
+                applyProfileDisplayNameIfNeeded()
             }
         }
     }
@@ -3752,12 +3757,28 @@ private struct IChartForumPublishSheet: View {
 
         draft.selectedChartID = request.chart.id
         draft.chartTitle = ""
-        draft.arrangerCredit = profileDisplayName
-        draft.creatorDisplayName = profileDisplayName
+    }
+
+    private func applyProfileDisplayNameIfNeeded() {
+        let displayName = ForumPublishDraft.normalizedDisplayText(profileDisplayName)
+        guard !displayName.isEmpty else {
+            return
+        }
+
+        draft.creatorDisplayName = displayName
+
+        if ForumPublishDraft.normalizedDisplayText(draft.arrangerCredit).isEmpty {
+            draft.arrangerCredit = displayName
+        }
     }
 
     private var postedByText: String {
-        profileDisplayName.isEmpty ? "Account name required" : profileDisplayName
+        let displayName = ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName)
+        return displayName.isEmpty ? "Loading account name..." : displayName
+    }
+
+    private var canSubmit: Bool {
+        !ForumPublishDraft.normalizedDisplayText(draft.creatorDisplayName).isEmpty
     }
 
     private func forumTextField(
@@ -3805,6 +3826,8 @@ private struct IChartForumPublishSheet: View {
     }
 
     private func publish() {
+        applyProfileDisplayNameIfNeeded()
+
         let errors = draft.validationErrors(availableChartIDs: [request.chart.id])
         guard errors.isEmpty else {
             validationErrors = errors

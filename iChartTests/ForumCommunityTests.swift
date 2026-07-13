@@ -113,20 +113,20 @@ final class ForumCommunityTests: XCTestCase {
         XCTAssertEqual(draft.resolvedChartTitle, "Rhythm Section Arrangement")
     }
 
-    func testForumAuthorDisplayNameUsesFirstNameAndLastInitial() {
+    func testForumAuthorDisplayNameUsesLockedProfileName() {
         XCTAssertEqual(
             ForumAuthorDisplayNamePolicy.displayName(
                 firstName: " Beni ",
                 lastName: " Rossman "
             ),
-            "Beni R."
+            "Beni Rossman"
         )
         XCTAssertEqual(
             ForumAuthorDisplayNamePolicy.displayName(
                 firstName: "Beni",
                 lastName: nil
             ),
-            ""
+            "Beni"
         )
         XCTAssertEqual(
             ForumAuthorDisplayNamePolicy.displayName(

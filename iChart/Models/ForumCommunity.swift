@@ -166,12 +166,9 @@ enum ForumAuthorDisplayNamePolicy {
         let first = ForumPublishDraft.normalizedDisplayText(firstName ?? "")
         let last = ForumPublishDraft.normalizedDisplayText(lastName ?? "")
 
-        guard !first.isEmpty,
-              let lastInitial = last.first else {
-            return ""
-        }
-
-        return "\(first) \(String(lastInitial).uppercased())."
+        return [first, last]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 

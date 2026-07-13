@@ -375,7 +375,7 @@ Source: `iChart/Features/Library/LibraryView.swift`
 - [ ] Tags prompt: "live, acoustic, rhythm section"
 - [ ] Missing section: "Missing"
 - [ ] Actions: "Cancel", "Submit"
-- [ ] Posted-by fallback: "Account name required"
+- [ ] Posted-by loading fallback: "Loading account name..."
 - [ ] Keyboard accessibility: "Open keyboard for {field title}"
 
 ## Forum Detail And Discussion
