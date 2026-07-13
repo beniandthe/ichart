@@ -30,7 +30,7 @@ alter table public.forum_comments
     add column if not exists creator_display_name text;
 
 update public.forum_comments
-set creator_display_name = private.profile_display_name(owner_id)
+set creator_display_name = coalesce(private.profile_display_name(owner_id), 'iChart User')
 where creator_display_name is null
     or btrim(creator_display_name) = '';
 

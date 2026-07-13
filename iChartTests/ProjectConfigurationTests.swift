@@ -1883,6 +1883,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(forumMigrationText.contains("private.apply_forum_chart_post_server_fields"))
         XCTAssertTrue(forumMigrationText.contains("private.apply_forum_comment_server_fields"))
         XCTAssertTrue(forumMigrationText.contains("alter table public.forum_comments"))
+        XCTAssertTrue(forumMigrationText.contains("coalesce(private.profile_display_name(owner_id), 'iChart User')"))
         XCTAssertTrue(forumMigrationText.contains("new.creator_display_name := profile_display_name"))
         XCTAssertTrue(forumMigrationText.contains("upper(left(last_name, 1)) || '.'"))
         XCTAssertTrue(forumMigrationText.contains("private.finalize_forum_chart_post_pdf"))
