@@ -164,6 +164,7 @@ This gate verifies local-first resilience for both Basic and Pro. Cloud retry/sy
 - `chart_documents.latest_snapshot_id` cannot point to another user's snapshot or a missing snapshot.
 - Chart deletes create tombstones instead of hard-deleting the sync marker.
 - `profiles.payment_summary`, `profiles.stripe_customer_id`, raw card numbers, CVC values, and payment tokens are not app-writable profile fields.
+- Completed `profiles.first_name` and `profiles.last_name` values are locked; legacy blank name fields can be completed once by the owner and cannot be rewritten afterward.
 - App Store webhook events cannot update `subscriptions` unless the server first verifies Apple signed data and maps the transaction to the trusted owner/subscription record.
 - StoreKit transaction-claim events cannot update `subscriptions` unless the server first verifies the Apple signed transaction and resolves the authenticated account owner.
 - Forum chart post attribution is server-owned from locked profile names; client-supplied creator names are overwritten.

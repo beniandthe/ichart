@@ -361,7 +361,7 @@ Source: `iChart/Features/Library/LibraryView.swift`, `iChart/Models/ForumCommuni
 - [ ] Quality labels: "Pending Review", "New", "Top Rated", "Community Rated", "Needs Review", "Hidden", "Removed"
 - [ ] Report reasons: "Wrong Chords", "Wrong Form", "Bad Formatting", "Spam", "Abuse", "Copyright Concern", "Other"
 - [ ] Badges: "Verified Contributor", "Trusted Arranger", "Community Expert"
-- [ ] Validation errors: "Choose a local iChart chart.", "Add the song title.", "Add the artist.", "Add arranger credit.", "Finish account first and last name before posting."
+- [ ] Validation errors: "Choose a local iChart chart.", "Add the song title.", "Add the artist.", "Add arranger credit.", "Open Settings > Account to finish first and last name before posting."
 - [ ] Store messages: "Forum chart submitted for review.", "Report sent.", "Choose a local iChart chart before publishing.", "This forum chart is no longer available."
 - [x] REVIEW: downvote language and QA seed copy listed in Review Flags. Fixed in triage 2.
 

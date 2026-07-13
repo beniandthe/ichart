@@ -1470,6 +1470,19 @@ struct LibraryView: View {
                 }
 
                 IChartHomePanel(
+                    title: "Account",
+                    systemImageName: "person.crop.circle.badge.checkmark",
+                    theme: homeTheme
+                ) {
+                    IChartAccountSettings(
+                        authStore: authStore,
+                        theme: homeTheme,
+                        requiresNameForSignup: true,
+                        showsSignedInActions: true
+                    )
+                }
+
+                IChartHomePanel(
                     title: "Plan",
                     systemImageName: store.subscriptionState.systemImageName,
                     theme: homeTheme
@@ -4746,7 +4759,7 @@ private struct IChartFirstRunAccountLandingView: View {
                                 )
                             }
 
-                            if authStore.state.isVerifiedSignedIn {
+                            if authStore.state.isVerifiedSignedIn && authStore.hasCompleteAccountIdentity {
                                 Button {
                                     withAnimation(.easeOut(duration: 0.18)) {
                                         isLaunchAnimationVisible = true
@@ -4849,6 +4862,12 @@ private struct IChartAccountSettings: View {
         newPassword.count >= 8 && !authStore.isWorking
     }
 
+    private var canCompleteAccountIdentity: Bool {
+        !trimmed(firstName).isEmpty
+            && !trimmed(lastName).isEmpty
+            && !authStore.isWorking
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -4887,10 +4906,8 @@ private struct IChartAccountSettings: View {
                 verificationRow
             case .passwordRecovery:
                 passwordRecoveryRow
-            case .signedIn where showsSignedInActions:
-                signedInRow
             case .signedIn:
-                EmptyView()
+                signedInContent
             }
 
             statusFooter
@@ -5097,6 +5114,127 @@ private struct IChartAccountSettings: View {
         }
     }
 
+    private var signedInContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            accountIdentitySummary
+
+            if authStore.needsAccountIdentityCompletion {
+                accountIdentityCompletionForm
+            } else {
+                Text("Name and email are tied to account recovery, support, subscriptions, and forum credit. Contact support if they need to change.")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if showsSignedInActions {
+                signedInRow
+            }
+        }
+        .onAppear {
+            prefillAccountIdentityFieldsIfNeeded()
+        }
+        .onChange(of: authStore.profile) { _, _ in
+            prefillAccountIdentityFieldsIfNeeded()
+        }
+    }
+
+    private var accountIdentitySummary: some View {
+        VStack(spacing: 0) {
+            IChartSettingsRow(
+                title: "Email",
+                value: accountEmailText,
+                systemImageName: "envelope",
+                theme: theme
+            )
+
+            Divider()
+
+            IChartSettingsRow(
+                title: "Name",
+                value: accountNameText,
+                systemImageName: authStore.needsAccountIdentityCompletion ? "person.crop.circle.badge.exclamationmark" : "person.text.rectangle",
+                theme: theme
+            )
+        }
+    }
+
+    private var accountIdentityCompletionForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Complete Account Identity")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            Text("This legacy account needs first and last name once so support and forum posts can use stable account credit.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            IChartAccountTextField(
+                title: "First Name",
+                placeholder: "First name",
+                text: $firstName,
+                systemImageName: "person",
+                keyboardType: .default,
+                theme: theme,
+                focusedField: $focusedField,
+                field: .firstName,
+                textInputAutocapitalization: .words,
+                autocorrectionDisabled: false
+            )
+
+            IChartAccountTextField(
+                title: "Last Name",
+                placeholder: "Last name",
+                text: $lastName,
+                systemImageName: "person.text.rectangle",
+                keyboardType: .default,
+                theme: theme,
+                focusedField: $focusedField,
+                field: .lastName,
+                textInputAutocapitalization: .words,
+                autocorrectionDisabled: false
+            )
+
+            Button {
+                Task {
+                    await authStore.completeProfileIdentity(firstName: firstName, lastName: lastName)
+                }
+            } label: {
+                Label("Save Account Name", systemImage: "checkmark.seal")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(IChartHomeBrand.blue)
+            .disabled(!canCompleteAccountIdentity)
+        }
+    }
+
+    private var accountEmailText: String {
+        if let email = authStore.state.signedInSession?.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !email.isEmpty {
+            return email
+        }
+
+        if let email = authStore.profile?.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !email.isEmpty {
+            return email
+        }
+
+        return "Unavailable"
+    }
+
+    private var accountNameText: String {
+        if let name = authStore.profile?.accountName {
+            return name
+        }
+
+        if authStore.needsAccountIdentityCompletion {
+            return "Needs first and last name"
+        }
+
+        return "Unavailable"
+    }
+
     @ViewBuilder
     private var statusFooter: some View {
         if authStore.isWorking {
@@ -5177,6 +5315,24 @@ private struct IChartAccountSettings: View {
             focusedField = .newPassword
         case .unconfigured, .temporarilyOffline, .pendingEmailVerification, .signedIn:
             break
+        }
+    }
+
+    private func prefillAccountIdentityFieldsIfNeeded() {
+        guard authStore.needsAccountIdentityCompletion else {
+            return
+        }
+
+        if firstName.isEmpty,
+           let profileFirstName = authStore.profile?.firstName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !profileFirstName.isEmpty {
+            firstName = profileFirstName
+        }
+
+        if lastName.isEmpty,
+           let profileLastName = authStore.profile?.lastName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !profileLastName.isEmpty {
+            lastName = profileLastName
         }
     }
 }

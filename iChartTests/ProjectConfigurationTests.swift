@@ -126,7 +126,6 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("IChartUserInfoSettings"))
         XCTAssertFalse(libraryText.contains("@State private var userEmail"))
         XCTAssertFalse(libraryText.contains("@State private var userPhone"))
-        XCTAssertFalse(libraryText.contains("IChartAccountSettings(authStore: authStore, theme: homeTheme)"))
         XCTAssertFalse(libraryText.contains("Save Profile"))
         XCTAssertFalse(libraryText.contains("@State private var userAddress"))
         XCTAssertFalse(libraryText.contains("Mailing address"))
@@ -136,6 +135,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("iChartUserAddress"))
         XCTAssertFalse(libraryText.contains("iChartUserPaymentSummary"))
         XCTAssertFalse(libraryText.contains("Payment Info"))
+        XCTAssertTrue(libraryText.contains("title: \"Account\""))
+        XCTAssertTrue(libraryText.contains("Complete Account Identity"))
+        XCTAssertTrue(libraryText.contains("Save Account Name"))
+        XCTAssertTrue(libraryText.contains("Sign Out"))
+        XCTAssertTrue(libraryText.contains("title: \"Email\""))
+        XCTAssertTrue(libraryText.contains("title: \"Name\""))
         XCTAssertTrue(libraryText.contains("Resend Email"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
@@ -550,6 +555,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertTrue(libraryText.contains("showsSignedInActions: false"))
         XCTAssertTrue(libraryText.contains("authStore.state.isVerifiedSignedIn"))
+        XCTAssertTrue(libraryText.contains("authStore.hasCompleteAccountIdentity"))
         XCTAssertTrue(libraryText.contains("Label(\"Continue\", systemImage: \"arrow.right\")"))
         XCTAssertTrue(libraryText.contains("IChartLaunchScreenView("))
         XCTAssertTrue(libraryText.contains("IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()"))
@@ -572,7 +578,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'last_name'"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
-        XCTAssertTrue(rlsTestText.contains("client cannot update locked profile name fields"))
+        XCTAssertTrue(rlsTestText.contains("legacy profile can complete blank account name fields once"))
+        XCTAssertTrue(rlsTestText.contains("client cannot rewrite locked profile name fields after completion"))
         XCTAssertTrue(rlsTestText.contains("client cannot update locked email or legacy phone fields"))
         XCTAssertTrue(rlsTestText.contains("client cannot update server-owned payment summary fields"))
         XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, email, and password"))
@@ -1605,6 +1612,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260705180650_lock_profile_contact_identity.sql")
         )
+        let legacyProfileNameCompletionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260713224343_allow_legacy_profile_name_completion.sql")
+        )
         let serviceRoleSubscriptionGrantMigrationText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260705210845_grant_service_role_subscription_rest_access.sql")
@@ -1646,6 +1657,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(contactIdentityMigrationText.contains("revoke update (email, phone, payment_summary)"))
         XCTAssertTrue(contactIdentityMigrationText.contains("new.payment_summary = old.payment_summary"))
         XCTAssertTrue(contactIdentityMigrationText.contains("private.lock_profile_contact_identity"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("grant update (first_name, last_name)"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("old_first_name is null"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("requested_first_name"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))

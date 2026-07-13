@@ -1,7 +1,7 @@
 # iChart Plan Policy Source Of Truth
 
 Status: Active product policy for v1 implementation
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 This document is the hard source of truth for iChart account, Basic, Pro, cloud sync, Forums, downgrade, and subscription policy. If another planning document conflicts with this file, this file wins for plan and entitlement behavior.
 
@@ -16,7 +16,8 @@ The paid plan should not unlock the basic ability to write, edit, save, or expor
 - Account creation/sign-in is mandatory for production Basic and Pro users.
 - In-app account creation requires first name, last name, email, and password before entering the chart library.
 - Name and email are locked account identity fields after signup so forum attribution, support identity, recovery, and subscription ownership stay stable.
-- Users cannot edit account identity from Settings. Identity changes are customer-support operations.
+- Users cannot edit completed account identity from Settings. Identity changes are customer-support operations.
+- Legacy QA accounts missing first or last name may complete the blank fields once from Settings > Account, then those fields lock under the same account-identity policy.
 - Phone setup and verification are legacy/post-v1. Existing phone values remain support-controlled data, but new users are not asked to set up or verify a phone number in V1.
 - Existing payment or customer-reference metadata is backend/support controlled and must not be writable from the app.
 - First launch shows account signup before the iChart launch animation; after verified automatic sign-in, the onboarding gate shows `Verified`, the user taps `Continue`, and the canonical iChart launch animation opens into the app.
