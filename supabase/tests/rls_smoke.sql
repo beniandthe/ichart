@@ -256,6 +256,27 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', true);
 
+select throws_ok(
+    $$
+    update public.profiles
+    set first_name = 'Partial'
+    where id = '00000000-0000-0000-0000-000000000003'
+    $$,
+    '23514',
+    'first and last name are required to complete account identity',
+    'legacy profile cannot partially complete account name fields'
+);
+
+select is(
+    (
+        select coalesce(first_name, '') || coalesce(last_name, '')
+        from public.profiles
+        where id = '00000000-0000-0000-0000-000000000003'
+    ),
+    '',
+    'partial legacy account name completion leaves both fields blank'
+);
+
 select lives_ok(
     $$
     update public.profiles

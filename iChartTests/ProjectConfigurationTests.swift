@@ -578,6 +578,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'last_name'"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
         XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
+        XCTAssertTrue(rlsTestText.contains("legacy profile cannot partially complete account name fields"))
         XCTAssertTrue(rlsTestText.contains("legacy profile can complete blank account name fields once"))
         XCTAssertTrue(rlsTestText.contains("client cannot rewrite locked profile name fields after completion"))
         XCTAssertTrue(rlsTestText.contains("client cannot update locked email or legacy phone fields"))
@@ -1616,6 +1617,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260713224343_allow_legacy_profile_name_completion.sql")
         )
+        let requireCompleteLegacyProfileNamesMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260713235015_require_complete_legacy_profile_names.sql")
+        )
         let serviceRoleSubscriptionGrantMigrationText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/migrations/20260705210845_grant_service_role_subscription_rest_access.sql")
@@ -1660,6 +1665,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("grant update (first_name, last_name)"))
         XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("old_first_name is null"))
         XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("requested_first_name"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("first and last name are required"))
+        XCTAssertTrue(requireCompleteLegacyProfileNamesMigrationText.contains("private.lock_profile_account_names"))
+        XCTAssertTrue(requireCompleteLegacyProfileNamesMigrationText.contains("first and last name are required"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
         XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))

@@ -1,5 +1,3 @@
-grant update (first_name, last_name) on table public.profiles to authenticated;
-
 create or replace function private.lock_profile_account_names()
 returns trigger
 language plpgsql
