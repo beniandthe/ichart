@@ -198,7 +198,7 @@ final class IChartForumStore: ObservableObject {
                 continue
             }
 
-            guard item.ownerID == currentUserID else {
+            guard let ownerID = item.ownerID, ownerID == currentUserID else {
                 clearUploadQueueItem(item)
                 continue
             }
@@ -219,7 +219,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func retryUpload(_ item: ForumUploadQueueItem, charts: [Chart], currentUserID: UUID?) {
-        guard let currentUserID, item.ownerID == currentUserID else {
+        guard let currentUserID, let ownerID = item.ownerID, ownerID == currentUserID else {
             clearUploadQueueItem(item)
             errorMessage = "This queued upload belongs to another signed-in account."
             return
@@ -337,6 +337,11 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
+        guard let ownerID = queueItem.ownerID else {
+            clearUploadQueueItem(queueItem)
+            return
+        }
+
         activeUploadIDs.insert(itemID)
         defer {
             activeUploadIDs.remove(itemID)
@@ -346,7 +351,7 @@ final class IChartForumStore: ObservableObject {
             try await activeService.publish(
                 chart: chart,
                 draft: draft,
-                ownerID: queueItem.ownerID,
+                ownerID: ownerID,
                 postID: queueItem.postID,
                 exportedAt: queueItem.createdAt
             ) { [weak self] stage in

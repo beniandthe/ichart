@@ -206,6 +206,46 @@ final class ForumCommunityTests: XCTestCase {
         XCTAssertEqual(item.statusText, "Published")
     }
 
+    func testForumUploadQueueItemDecodesLegacyItemsWithoutOwnerID() throws {
+        let id = UUID()
+        let postID = UUID()
+        let chartID = UUID()
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "postID": "\(postID.uuidString)",
+          "chartID": "\(chartID.uuidString)",
+          "chartTitle": "Local Chart",
+          "songTitle": "Blue Bossa",
+          "artistName": "Kenny Dorham",
+          "draft": {
+            "selectedChartID": "\(chartID.uuidString)",
+            "songTitle": "Blue Bossa",
+            "artistName": "Kenny Dorham",
+            "chartTitle": "Local Chart",
+            "arrangerCredit": "Beni Rossman",
+            "creatorDisplayName": "",
+            "tagsText": "",
+            "versionNote": ""
+          },
+          "stage": "queued",
+          "createdAt": 0,
+          "updatedAt": 0
+        }
+        """
+
+        let item = try JSONDecoder().decode(
+            ForumUploadQueueItem.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(item.id, id)
+        XCTAssertEqual(item.postID, postID)
+        XCTAssertNil(item.ownerID)
+        XCTAssertEqual(item.chartID, chartID)
+        XCTAssertEqual(item.stage, .queued)
+    }
+
     private func forumPost(status: ForumPostModerationStatus) -> ForumChartPost {
         ForumChartPost(
             id: UUID(),

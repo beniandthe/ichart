@@ -335,7 +335,7 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
 struct ForumUploadQueueItem: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     let postID: UUID
-    let ownerID: UUID
+    let ownerID: UUID?
     let chartID: Chart.ID
     var chartTitle: String
     var songTitle: String

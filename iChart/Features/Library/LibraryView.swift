@@ -1123,6 +1123,10 @@ struct LibraryView: View {
         }
         .onChange(of: authStore.state) { _, state in
             cloudSyncStore.authStateChanged(state)
+            forumStore.resumePendingUploads(
+                charts: store.charts,
+                currentUserID: state.signedInSession?.id
+            )
             refreshForumHomeIfVisible(authState: state)
             updateAccountLandingPresentation()
         }
@@ -1485,11 +1489,12 @@ struct LibraryView: View {
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
                         uploadQueue: forumStore.uploadQueue.filter { item in
-                            guard let currentUserID = authStore.state.signedInSession?.id else {
+                            guard let currentUserID = authStore.state.signedInSession?.id,
+                                  let ownerID = item.ownerID else {
                                 return false
                             }
 
-                            return item.ownerID == currentUserID
+                            return ownerID == currentUserID
                         },
                         statusMessage: forumStore.statusMessage,
                         errorMessage: forumStore.errorMessage,
