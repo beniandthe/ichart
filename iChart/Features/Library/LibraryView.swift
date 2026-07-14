@@ -1057,6 +1057,7 @@ struct LibraryView: View {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
             cloudSyncStore.authStateChanged(authStore.state)
+            forumStore.resumePendingUploads(charts: store.charts)
             refreshForumHomeIfVisible()
             updateAccountLandingPresentation()
         }
@@ -1138,11 +1139,9 @@ struct LibraryView: View {
                 request: request,
                 theme: homeTheme
             ) { chart, draft in
-                Task {
-                    await forumStore.publish(chart: chart, draft: draft)
-                    forumPublishRequest = nil
-                    selectedHomeTab = .forums
-                }
+                forumStore.enqueuePublish(chart: chart, draft: draft)
+                forumPublishRequest = nil
+                selectedHomeTab = .forums
             }
         }
         .sheet(
@@ -1158,6 +1157,7 @@ struct LibraryView: View {
             if let detail = forumStore.selectedDetail {
                 IChartForumPostDetailView(
                     detail: detail,
+                    currentUserID: authStore.state.signedInSession?.id,
                     downloadedPDF: forumStore.downloadedPDF,
                     isWorking: forumStore.isWorking,
                     theme: homeTheme,
@@ -1199,6 +1199,16 @@ struct LibraryView: View {
                     },
                     onClearDownloadedPDF: {
                         forumStore.clearDownloadedPDF()
+                    },
+                    onWithdrawPost: {
+                        Task {
+                            await forumStore.withdrawPost(detail)
+                        }
+                    },
+                    onRemovePost: {
+                        Task {
+                            await forumStore.removePost(detail)
+                        }
                     }
                 )
             }
@@ -1410,6 +1420,8 @@ struct LibraryView: View {
                         searchText: $forumSearchText,
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
+                        uploadQueue: forumStore.uploadQueue,
+                        statusMessage: forumStore.statusMessage,
                         errorMessage: forumStore.errorMessage,
                         theme: homeTheme,
                         onSearch: { query in
@@ -1432,6 +1444,17 @@ struct LibraryView: View {
                         },
                         onPublishChart: { chart in
                             forumPublishRequest = IChartForumPublishRequest(chart: chart)
+                        },
+                        onRetryUpload: { item in
+                            forumStore.retryUpload(item, charts: store.charts)
+                        },
+                        onWithdrawUpload: { item in
+                            Task {
+                                await forumStore.withdrawUpload(item)
+                            }
+                        },
+                        onDismissUpload: { item in
+                            forumStore.clearUploadQueueItem(item)
                         },
                         onOpenPost: { song, post in
                             Task {
@@ -1656,6 +1679,7 @@ struct LibraryView: View {
         }
 
         if tab == .forums {
+            forumStore.resumePendingUploads(charts: store.charts)
             refreshForumHomeIfVisible()
         }
 
@@ -2617,11 +2641,16 @@ private struct IChartForumHomeView: View {
     @Binding var searchText: String
     let charts: [Chart]
     let currentUserID: UUID?
+    let uploadQueue: [ForumUploadQueueItem]
+    let statusMessage: String?
     let errorMessage: String?
     let theme: IChartHomeTheme
     let onSearch: (String) -> Void
     let onRefresh: () -> Void
     let onPublishChart: (Chart) -> Void
+    let onRetryUpload: (ForumUploadQueueItem) -> Void
+    let onWithdrawUpload: (ForumUploadQueueItem) -> Void
+    let onDismissUpload: (ForumUploadQueueItem) -> Void
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
     @State private var submittedSearchText = ""
@@ -2638,6 +2667,20 @@ private struct IChartForumHomeView: View {
 
             if let errorMessage {
                 IChartForumStatusBanner(text: errorMessage, systemImageName: "exclamationmark.triangle.fill", color: .orange, theme: theme)
+            }
+
+            if let statusMessage {
+                IChartForumStatusBanner(text: statusMessage, systemImageName: "checkmark.circle.fill", color: .green, theme: theme)
+            }
+
+            if !uploadQueue.isEmpty {
+                IChartForumUploadQueueView(
+                    items: uploadQueue,
+                    theme: theme,
+                    onRetry: onRetryUpload,
+                    onWithdraw: onWithdrawUpload,
+                    onDismiss: onDismissUpload
+                )
             }
 
             forumStateContent
@@ -3655,6 +3698,136 @@ private struct IChartForumPostRow: View {
     }
 }
 
+private struct IChartForumUploadQueueView: View {
+    let items: [ForumUploadQueueItem]
+    let theme: IChartHomeTheme
+    let onRetry: (ForumUploadQueueItem) -> Void
+    let onWithdraw: (ForumUploadQueueItem) -> Void
+    let onDismiss: (ForumUploadQueueItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("Forum Uploads", systemImage: "icloud.and.arrow.up")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+                Spacer()
+                Text("\(items.count)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(IChartHomeBrand.blue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.18 : 0.12))
+                    .clipShape(Capsule())
+            }
+
+            ForEach(items) { item in
+                IChartForumUploadQueueRow(
+                    item: item,
+                    theme: theme,
+                    onRetry: { onRetry(item) },
+                    onWithdraw: { onWithdraw(item) },
+                    onDismiss: { onDismiss(item) }
+                )
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.panelBackground.opacity(theme.isDark ? 0.92 : 0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct IChartForumUploadQueueRow: View {
+    let item: ForumUploadQueueItem
+    let theme: IChartHomeTheme
+    let onRetry: () -> Void
+    let onWithdraw: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if item.stage.isActive {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: statusSystemImage)
+                    .foregroundStyle(statusColor)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.songTitle.isEmpty ? item.chartTitle : item.songTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+                    .lineLimit(1)
+
+                Text(item.statusText)
+                    .font(.caption)
+                    .foregroundStyle(item.stage == .failed ? .orange : theme.panelSecondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            if item.canRetry {
+                Button(action: onRetry) {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if item.canWithdraw {
+                Button(role: .destructive, action: onWithdraw) {
+                    Label("Withdraw", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .accessibilityLabel("Dismiss forum upload")
+            }
+        }
+        .padding(10)
+        .background(theme.panelBackground.opacity(theme.isDark ? 0.7 : 0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var statusSystemImage: String {
+        switch item.stage {
+        case .published:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .withdrawn, .removed:
+            return "xmark.circle.fill"
+        case .queued, .preparingPDF, .uploadingPDF, .submittingMetadata, .validating:
+            return "icloud.and.arrow.up"
+        }
+    }
+
+    private var statusColor: Color {
+        switch item.stage {
+        case .published:
+            return .green
+        case .failed:
+            return .orange
+        case .withdrawn, .removed:
+            return .red
+        case .queued, .preparingPDF, .uploadingPDF, .submittingMetadata, .validating:
+            return IChartHomeBrand.blue
+        }
+    }
+}
+
 private struct IChartForumQualityPill: View {
     let status: ForumPostQualityStatus
     let theme: IChartHomeTheme
@@ -3816,6 +3989,7 @@ private struct IChartForumPublishSheet: View {
 private struct IChartForumPostDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let detail: IChartForumPostDetail
+    let currentUserID: UUID?
     let downloadedPDF: ExportedPDF?
     let isWorking: Bool
     let theme: IChartHomeTheme
@@ -3825,6 +3999,8 @@ private struct IChartForumPostDetailView: View {
     let onReportComment: (ForumComment, ForumReportReason) -> Void
     let onDownloadPDF: () -> Void
     let onClearDownloadedPDF: () -> Void
+    let onWithdrawPost: () -> Void
+    let onRemovePost: () -> Void
 
     @State private var commentText = ""
     @FocusState private var isCommentFocused: Bool
@@ -3836,6 +4012,7 @@ private struct IChartForumPostDetailView: View {
                     header
                     moderationNotice
                     actionRow
+                    ownerManagementRow
                     comments
                 }
                 .padding(22)
@@ -3967,6 +4144,31 @@ private struct IChartForumPostDetailView: View {
             .buttonStyle(.bordered)
         }
         .disabled(isWorking || !detail.post.acceptsCommunityActions)
+    }
+
+    @ViewBuilder
+    private var ownerManagementRow: some View {
+        if currentUserID == detail.post.ownerID {
+            HStack(spacing: 10) {
+                switch detail.post.status {
+                case .pending:
+                    Button(role: .destructive, action: onWithdrawPost) {
+                        Label("Withdraw Submission", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking)
+                case .published, .flagged:
+                    Button(role: .destructive, action: onRemovePost) {
+                        Label("Remove From Forums", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking)
+                case .hidden, .removed:
+                    EmptyView()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var comments: some View {

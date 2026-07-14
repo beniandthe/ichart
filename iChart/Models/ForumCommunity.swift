@@ -41,6 +41,52 @@ enum ForumPostQualityStatus: String, Codable, CaseIterable, Hashable, Identifiab
     }
 }
 
+enum ForumUploadStage: String, Codable, CaseIterable, Hashable, Identifiable {
+    case queued
+    case preparingPDF
+    case uploadingPDF
+    case submittingMetadata
+    case validating
+    case published
+    case failed
+    case withdrawn
+    case removed
+
+    var id: String { rawValue }
+
+    var displayText: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .preparingPDF:
+            return "Preparing PDF"
+        case .uploadingPDF:
+            return "Uploading PDF"
+        case .submittingMetadata:
+            return "Submitting Details"
+        case .validating:
+            return "Checking iChart Metadata"
+        case .published:
+            return "Published"
+        case .failed:
+            return "Needs Attention"
+        case .withdrawn:
+            return "Withdrawn"
+        case .removed:
+            return "Removed"
+        }
+    }
+
+    var isActive: Bool {
+        switch self {
+        case .queued, .preparingPDF, .uploadingPDF, .submittingMetadata, .validating:
+            return true
+        case .published, .failed, .withdrawn, .removed:
+            return false
+        }
+    }
+}
+
 enum ForumVoteValue: Int, Codable, CaseIterable, Hashable, Identifiable {
     case down = -1
     case up = 1
@@ -178,7 +224,7 @@ enum ForumAuthorDisplayNamePolicy {
     }
 }
 
-struct ForumPublishDraft: Equatable, Hashable {
+struct ForumPublishDraft: Codable, Equatable, Hashable {
     var selectedChartID: Chart.ID?
     var songTitle = ""
     var artistName = ""
@@ -282,6 +328,41 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
             return "Add the artist."
         case .missingArrangerCredit:
             return "Add arranger credit."
+        }
+    }
+}
+
+struct ForumUploadQueueItem: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    let postID: UUID
+    let chartID: Chart.ID
+    var chartTitle: String
+    var songTitle: String
+    var artistName: String
+    var draft: ForumPublishDraft
+    var stage: ForumUploadStage
+    var createdAt: Date
+    var updatedAt: Date
+    var errorMessage: String?
+
+    var statusText: String {
+        if stage == .failed, let errorMessage, !errorMessage.isEmpty {
+            return errorMessage
+        }
+
+        return stage.displayText
+    }
+
+    var canRetry: Bool {
+        stage == .failed
+    }
+
+    var canWithdraw: Bool {
+        switch stage {
+        case .submittingMetadata, .validating:
+            return true
+        case .queued, .preparingPDF, .uploadingPDF, .published, .failed, .withdrawn, .removed:
+            return false
         }
     }
 }
