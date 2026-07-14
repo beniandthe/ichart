@@ -1206,7 +1206,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let displayName = profiles.first?.publicDisplayName ?? ""
         guard !displayName.isEmpty else {
             throw IChartForumServiceError.invalidPublishDraft(
-                "Finish account first and last name before posting."
+                "Open Settings > Account to finish first and last name before posting."
             )
         }
 

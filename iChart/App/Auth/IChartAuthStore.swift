@@ -61,12 +61,28 @@ struct IChartUserProfile: Codable, Equatable {
         case paymentSummary = "payment_summary"
         case stripeCustomerID = "stripe_customer_id"
     }
+
+    var accountName: String? {
+        let parts = [firstName, lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " ")
+    }
+
+    var hasCompleteAccountName: Bool {
+        let first = firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let last = lastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !first.isEmpty && !last.isEmpty
+    }
 }
 
 enum IChartAuthError: LocalizedError {
     case invalidAuthCallback
     case unexpectedAuthCallback
     case expiredAuthCallback
+    case missingAccountName
+    case profileUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -76,6 +92,10 @@ enum IChartAuthError: LocalizedError {
             return "Open the latest iChart account email from this device."
         case .expiredAuthCallback:
             return "This account link expired. Request a new email from iChart."
+        case .missingAccountName:
+            return "Enter first and last name to finish account identity."
+        case .profileUnavailable:
+            return "Account identity could not be saved. Refresh your session and try again."
         }
     }
 }
@@ -118,6 +138,11 @@ private protocol IChartAccountServicing {
     func handleAuthCallback(url: URL) async throws -> IChartAuthState
     func updatePassword(_ password: String) async throws -> IChartAuthState
     func loadProfile(for userID: UUID) async throws -> IChartUserProfile?
+    func completeProfileIdentity(
+        for userID: UUID,
+        firstName: String,
+        lastName: String
+    ) async throws -> IChartUserProfile
 }
 
 @MainActor
@@ -135,6 +160,18 @@ final class IChartAuthStore: ObservableObject {
     private static let pendingAuthFlowKey = "iChart.pending-auth-flow.v1"
     private static let legacyPendingVerificationEmailKey = "iChartPendingVerificationEmail"
     private static let pendingAuthFlowLifetime: TimeInterval = 60 * 60
+
+    var hasCompleteAccountIdentity: Bool {
+        profile?.hasCompleteAccountName == true
+    }
+
+    var needsAccountIdentityCompletion: Bool {
+        guard case .signedIn = state else {
+            return false
+        }
+
+        return !hasCompleteAccountIdentity
+    }
 
     private init(
         service: IChartAccountServicing,
@@ -230,6 +267,27 @@ final class IChartAuthStore: ObservableObject {
             profile = nil
             clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
+        }
+    }
+
+    func completeProfileIdentity(firstName: String, lastName: String) async {
+        guard case .signedIn(let session) = state else {
+            return
+        }
+
+        guard let firstName = sanitized(firstName),
+              let lastName = sanitized(lastName) else {
+            errorMessage = IChartAuthError.missingAccountName.localizedDescription
+            statusMessage = nil
+            return
+        }
+
+        await run("Account identity saved.") {
+            profile = try await service.completeProfileIdentity(
+                for: session.id,
+                firstName: firstName,
+                lastName: lastName
+            )
         }
     }
 
@@ -577,6 +635,14 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
         nil
     }
 
+    func completeProfileIdentity(
+        for userID: UUID,
+        firstName: String,
+        lastName: String
+    ) async throws -> IChartUserProfile {
+        throw IChartAuthError.profileUnavailable
+    }
+
 }
 
 private struct IChartSupabaseAccountService: IChartAccountServicing {
@@ -709,6 +775,30 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             .value
 
         return profiles.first
+    }
+
+    func completeProfileIdentity(
+        for userID: UUID,
+        firstName: String,
+        lastName: String
+    ) async throws -> IChartUserProfile {
+        let update = IChartUserProfileNameCompletion(
+            firstName: normalized(firstName),
+            lastName: normalized(lastName)
+        )
+        let profiles: [IChartUserProfile] = try await dataClient
+            .from("profiles")
+            .update(update)
+            .eq("id", value: userID)
+            .select()
+            .execute()
+            .value
+
+        guard let profile = profiles.first else {
+            throw IChartAuthError.profileUnavailable
+        }
+
+        return profile
     }
 
     private func accountSession(for user: User) -> IChartAccountSession {
@@ -870,5 +960,15 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         default:
             return nil
         }
+    }
+}
+
+private struct IChartUserProfileNameCompletion: Encodable {
+    let firstName: String
+    let lastName: String
+
+    enum CodingKeys: String, CodingKey {
+        case firstName = "first_name"
+        case lastName = "last_name"
     }
 }

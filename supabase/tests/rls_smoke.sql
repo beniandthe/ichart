@@ -13,6 +13,11 @@ values
         '00000000-0000-0000-0000-000000000002',
         'other@example.com',
         '{"first_name":"Other","last_name":"Player"}'::jsonb
+    ),
+    (
+        '00000000-0000-0000-0000-000000000003',
+        'legacy@example.com',
+        '{}'::jsonb
     )
 on conflict (id) do nothing;
 
@@ -214,16 +219,24 @@ select throws_ok(
     'client cannot update stripe customer id on profile'
 );
 
-select throws_ok(
+select lives_ok(
     $$
     update public.profiles
     set first_name = 'Changed',
         last_name = 'Name'
     where id = '00000000-0000-0000-0000-000000000001'
     $$,
-    '42501',
-    null,
-    'client cannot update locked profile name fields'
+    'client update to locked profile name fields is accepted but ignored'
+);
+
+select is(
+    (
+        select first_name || ' ' || last_name
+        from public.profiles
+        where id = '00000000-0000-0000-0000-000000000001'
+    ),
+    'Beni Rossman',
+    'client cannot rewrite locked profile name fields after completion'
 );
 
 select throws_ok(
@@ -237,6 +250,77 @@ select throws_ok(
     null,
     'client cannot update locked email or legacy phone fields'
 );
+
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', true);
+
+select throws_ok(
+    $$
+    update public.profiles
+    set first_name = 'Partial'
+    where id = '00000000-0000-0000-0000-000000000003'
+    $$,
+    '23514',
+    'first and last name are required to complete account identity',
+    'legacy profile cannot partially complete account name fields'
+);
+
+select is(
+    (
+        select coalesce(first_name, '') || coalesce(last_name, '')
+        from public.profiles
+        where id = '00000000-0000-0000-0000-000000000003'
+    ),
+    '',
+    'partial legacy account name completion leaves both fields blank'
+);
+
+select lives_ok(
+    $$
+    update public.profiles
+    set first_name = 'Legacy',
+        last_name = 'Player'
+    where id = '00000000-0000-0000-0000-000000000003'
+    $$,
+    'legacy profile can complete blank account name fields once'
+);
+
+select is(
+    (
+        select first_name || ' ' || last_name
+        from public.profiles
+        where id = '00000000-0000-0000-0000-000000000003'
+    ),
+    'Legacy Player',
+    'legacy profile stores completed account name fields'
+);
+
+select lives_ok(
+    $$
+    update public.profiles
+    set first_name = 'Changed',
+        last_name = 'Again'
+    where id = '00000000-0000-0000-0000-000000000003'
+    $$,
+    'completed legacy account name fields remain locked'
+);
+
+select is(
+    (
+        select first_name || ' ' || last_name
+        from public.profiles
+        where id = '00000000-0000-0000-0000-000000000003'
+    ),
+    'Legacy Player',
+    'completed legacy account name fields cannot be rewritten'
+);
+
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
 select throws_ok(
     $$
