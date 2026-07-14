@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import Supabase
 
@@ -43,12 +44,14 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var downloadedPDF: ExportedPDF?
     @Published private(set) var isQASampleDataEnabled: Bool
+    @Published private(set) var uploadQueue: [ForumUploadQueueItem]
 
     private let service: IChartForumServicing
     #if DEBUG && targetEnvironment(simulator)
     private let qaSampleService = IChartForumQASampleService()
     #endif
     private var lastQuery = ""
+    private var activeUploadIDs: Set<ForumUploadQueueItem.ID> = []
 
     private init(service: IChartForumServicing) {
         self.service = service
@@ -57,6 +60,7 @@ final class IChartForumStore: ObservableObject {
         #else
         isQASampleDataEnabled = false
         #endif
+        uploadQueue = Self.loadUploadQueue()
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
@@ -78,6 +82,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     static let qaSampleDataStorageKey = "iChartForumQASampleDataEnabled"
+    private static let uploadQueueStorageKey = "iChartForumUploadQueue"
 
     func setQASampleDataEnabled(_ isEnabled: Bool) {
         #if DEBUG && targetEnvironment(simulator)
@@ -142,21 +147,107 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func publish(chart: Chart, draft: ForumPublishDraft) async {
-        isWorking = true
-        statusMessage = nil
-        errorMessage = nil
-        do {
-            let requestService = activeService
-            let detail = try await requestService.publish(chart: chart, draft: draft)
-            selectedDetail = detail
-            statusMessage = "Forum chart submitted for review."
-            let summaries = try await requestService.loadHome(query: lastQuery)
-            state = .loaded(summaries)
-        } catch {
-            errorMessage = Self.displayText(for: error)
+    func enqueuePublish(chart: Chart, draft: ForumPublishDraft) {
+        var publishDraft = draft
+        publishDraft.selectedChartID = chart.id
+        let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
+        guard validationErrors.isEmpty else {
+            errorMessage = validationErrors.map(\.message).joined(separator: " ")
+            return
         }
-        isWorking = false
+
+        let normalizedSongTitle = ForumPublishDraft.normalizedDisplayText(publishDraft.songTitle)
+        let normalizedArtistName = ForumPublishDraft.normalizedDisplayText(publishDraft.artistName)
+        let item = ForumUploadQueueItem(
+            id: UUID(),
+            postID: UUID(),
+            chartID: chart.id,
+            chartTitle: chart.title,
+            songTitle: normalizedSongTitle.isEmpty ? publishDraft.resolvedChartTitle : normalizedSongTitle,
+            artistName: normalizedArtistName,
+            draft: publishDraft,
+            stage: .queued,
+            createdAt: Date(),
+            updatedAt: Date(),
+            errorMessage: nil
+        )
+
+        uploadQueue.insert(item, at: 0)
+        persistUploadQueue()
+        statusMessage = "Forum upload queued."
+        errorMessage = nil
+
+        Task {
+            await processUpload(itemID: item.id, chart: chart, draft: publishDraft)
+        }
+    }
+
+    func resumePendingUploads(charts: [Chart]) {
+        for item in uploadQueue where item.stage.isActive {
+            guard !activeUploadIDs.contains(item.id) else {
+                continue
+            }
+
+            guard let chart = charts.first(where: { $0.id == item.chartID }) else {
+                updateUploadQueueItem(
+                    item.id,
+                    stage: .failed,
+                    errorMessage: "The local chart for this forum upload is no longer available."
+                )
+                continue
+            }
+
+            Task {
+                await processUpload(itemID: item.id, chart: chart, draft: item.draft)
+            }
+        }
+    }
+
+    func retryUpload(_ item: ForumUploadQueueItem, charts: [Chart]) {
+        guard let chart = charts.first(where: { $0.id == item.chartID }) else {
+            updateUploadQueueItem(
+                item.id,
+                stage: .failed,
+                errorMessage: "The local chart for this forum upload is no longer available."
+            )
+            return
+        }
+
+        updateUploadQueueItem(item.id, stage: .queued, errorMessage: nil)
+        Task {
+            await processUpload(itemID: item.id, chart: chart, draft: item.draft)
+        }
+    }
+
+    func withdrawUpload(_ item: ForumUploadQueueItem) async {
+        await run(successMessage: "Forum submission withdrawn.") {
+            try await activeService.withdrawPost(postID: item.postID)
+            updateUploadQueueItem(item.id, stage: .withdrawn, errorMessage: nil)
+            state = .loaded(try await activeService.loadHome(query: lastQuery))
+        }
+    }
+
+    func clearUploadQueueItem(_ item: ForumUploadQueueItem) {
+        uploadQueue.removeAll { $0.id == item.id }
+        persistUploadQueue()
+    }
+
+    func withdrawPost(_ detail: IChartForumPostDetail) async {
+        await run(successMessage: "Forum submission withdrawn.") {
+            try await activeService.withdrawPost(postID: detail.post.id)
+            selectedDetail = nil
+            downloadedPDF = nil
+            state = .loaded(try await activeService.loadHome(query: lastQuery))
+        }
+    }
+
+    func removePost(_ detail: IChartForumPostDetail) async {
+        await run(successMessage: "Chart removed from Forums.") {
+            try await activeService.removePost(postID: detail.post.id)
+            selectedDetail = nil
+            downloadedPDF = nil
+            state = .loaded(try await activeService.loadHome(query: lastQuery))
+        }
     }
 
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
@@ -214,6 +305,87 @@ final class IChartForumStore: ObservableObject {
 
     func clearSelectedDetail() {
         selectedDetail = nil
+    }
+
+    private func processUpload(itemID: ForumUploadQueueItem.ID, chart: Chart, draft: ForumPublishDraft) async {
+        guard !activeUploadIDs.contains(itemID) else {
+            return
+        }
+
+        guard let queueItem = uploadQueue.first(where: { $0.id == itemID }) else {
+            return
+        }
+
+        activeUploadIDs.insert(itemID)
+        defer {
+            activeUploadIDs.remove(itemID)
+        }
+
+        do {
+            try await activeService.publish(
+                chart: chart,
+                draft: draft,
+                postID: queueItem.postID,
+                exportedAt: queueItem.createdAt
+            ) { [weak self] stage in
+                await MainActor.run {
+                    self?.updateUploadQueueItem(itemID, stage: stage, errorMessage: nil)
+                }
+            }
+
+            updateUploadQueueItem(itemID, stage: .published, errorMessage: nil)
+            statusMessage = "Forum chart published."
+            errorMessage = nil
+            if activeService.isConfigured {
+                do {
+                    state = .loaded(try await activeService.loadHome(query: lastQuery))
+                } catch {
+                    statusMessage = "Forum chart published. Refresh Forums to update the list."
+                }
+            }
+        } catch {
+            updateUploadQueueItem(itemID, stage: .failed, errorMessage: Self.displayText(for: error))
+            errorMessage = Self.displayText(for: error)
+        }
+    }
+
+    private func updateUploadQueueItem(
+        _ itemID: ForumUploadQueueItem.ID,
+        stage: ForumUploadStage,
+        errorMessage: String?
+    ) {
+        guard let index = uploadQueue.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        uploadQueue[index].stage = stage
+        uploadQueue[index].updatedAt = Date()
+        uploadQueue[index].errorMessage = errorMessage
+        persistUploadQueue()
+    }
+
+    private func persistUploadQueue() {
+        let persistedItems = uploadQueue.filter { $0.stage != .withdrawn && $0.stage != .removed }
+        guard let data = try? JSONEncoder().encode(persistedItems) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: Self.uploadQueueStorageKey)
+    }
+
+    private static func loadUploadQueue() -> [ForumUploadQueueItem] {
+        guard let data = UserDefaults.standard.data(forKey: uploadQueueStorageKey),
+              var items = try? JSONDecoder().decode([ForumUploadQueueItem].self, from: data) else {
+            return []
+        }
+
+        for index in items.indices where items[index].stage.isActive {
+            items[index].stage = .queued
+            items[index].updatedAt = Date()
+            items[index].errorMessage = nil
+        }
+
+        return items
     }
 
     private func run(
@@ -280,7 +452,15 @@ private protocol IChartForumServicing: Sendable {
     var isConfigured: Bool { get }
     func loadHome(query: String) async throws -> [IChartForumSongSummary]
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail
-    func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail
+    func publish(
+        chart: Chart,
+        draft: ForumPublishDraft,
+        postID: UUID,
+        exportedAt: Date,
+        progress: @escaping (ForumUploadStage) async -> Void
+    ) async throws
+    func withdrawPost(postID: UUID) async throws
+    func removePost(postID: UUID) async throws
     func vote(postID: UUID, vote: ForumVoteValue) async throws
     func addComment(postID: UUID, body: String) async throws
     func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws
@@ -295,7 +475,19 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
         throw IChartForumServiceError.unconfigured
     }
-    func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail {
+    func publish(
+        chart: Chart,
+        draft: ForumPublishDraft,
+        postID: UUID,
+        exportedAt: Date,
+        progress: @escaping (ForumUploadStage) async -> Void
+    ) async throws {
+        throw IChartForumServiceError.unconfigured
+    }
+    func withdrawPost(postID: UUID) async throws {
+        throw IChartForumServiceError.unconfigured
+    }
+    func removePost(postID: UUID) async throws {
         throw IChartForumServiceError.unconfigured
     }
     func vote(postID: UUID, vote: ForumVoteValue) async throws {
@@ -336,7 +528,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
         let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
         let songs = allSongs()
         let postsBySongID = Dictionary(
-            grouping: allPosts().filter { $0.status != .pending },
+            grouping: allPosts().filter { $0.status == .published || $0.status == .flagged },
             by: \.songID
         )
 
@@ -383,7 +575,13 @@ private actor IChartForumQASampleService: IChartForumServicing {
         )
     }
 
-    func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail {
+    func publish(
+        chart: Chart,
+        draft: ForumPublishDraft,
+        postID: UUID,
+        exportedAt: Date,
+        progress: @escaping (ForumUploadStage) async -> Void
+    ) async throws {
         let publishDraft = draft.withCreatorDisplayName(Self.currentUserDisplayName)
         let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
@@ -392,8 +590,11 @@ private actor IChartForumQASampleService: IChartForumServicing {
             )
         }
 
+        await progress(.preparingPDF)
+        await progress(.uploadingPDF)
+        await progress(.submittingMetadata)
+        await progress(.validating)
         let song = resolvedSong(for: publishDraft)
-        let postID = UUID()
         let post = ForumChartPost(
             id: postID,
             songID: song.id,
@@ -405,7 +606,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
             versionNote: ForumPublishDraft.normalizedDisplayText(publishDraft.versionNote).nilIfEmpty,
             layoutStyle: chart.layoutStyle,
             pdfStoragePath: "qa-samples/\(postID.uuidString.lowercased()).pdf",
-            status: .pending,
+            status: .published,
             voteUpCount: 0,
             voteDownCount: 0,
             reportCount: 0,
@@ -413,8 +614,32 @@ private actor IChartForumQASampleService: IChartForumServicing {
             publishedAt: Date()
         )
         submittedPosts[post.id] = post
+    }
 
-        return try await loadPostDetail(postID: post.id, song: song)
+    func withdrawPost(postID: UUID) async throws {
+        guard var post = submittedPosts[postID] else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        guard post.status == .pending else {
+            throw IChartForumServiceError.invalidPublishDraft("Only pending forum submissions can be withdrawn.")
+        }
+
+        post.status = .removed
+        submittedPosts[postID] = post
+    }
+
+    func removePost(postID: UUID) async throws {
+        guard var post = submittedPosts[postID] else {
+            throw IChartForumServiceError.missingForumPost
+        }
+
+        guard post.status == .published || post.status == .flagged else {
+            throw IChartForumServiceError.invalidPublishDraft("Only published forum posts can be removed from Forums.")
+        }
+
+        post.status = .removed
+        submittedPosts[postID] = post
     }
 
     func vote(postID: UUID, vote: ForumVoteValue) async throws {
@@ -1019,7 +1244,13 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         )
     }
 
-    func publish(chart: Chart, draft: ForumPublishDraft) async throws -> IChartForumPostDetail {
+    func publish(
+        chart: Chart,
+        draft: ForumPublishDraft,
+        postID: UUID,
+        exportedAt: Date,
+        progress: @escaping (ForumUploadStage) async -> Void
+    ) async throws {
         let validationErrors = draft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
             throw IChartForumServiceError.invalidPublishDraft(
@@ -1031,34 +1262,43 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let publishDraft = draft.withCreatorDisplayName(
             try await publicAuthorDisplayName(for: ownerID)
         )
-        let postID = UUID()
         let storagePath = publishDraft.storagePath(ownerID: ownerID, postID: postID)
+        await progress(.preparingPDF)
         let exportedPDF = try await pdfExporter.exportPDF(
             for: chart,
             context: ChartPDFExportContext(
                 forumCredit: ForumPDFCredit(
                     creatorDisplayName: ForumPublishDraft.normalizedDisplayText(publishDraft.creatorDisplayName),
                     forumPostID: postID,
-                    exportedAt: Date()
+                    exportedAt: exportedAt
                 )
             )
         )
         let pdfData = try Data(contentsOf: exportedPDF.url)
-        try await client.storage
-            .from(bucketID)
-            .upload(
-                storagePath,
-                data: pdfData,
-                options: FileOptions(
-                    cacheControl: "3600",
-                    contentType: "application/pdf",
-                    upsert: false
+        let pdfSHA256 = Self.sha256HexDigest(for: pdfData)
+        await progress(.uploadingPDF)
+        do {
+            try await client.storage
+                .from(bucketID)
+                .upload(
+                    storagePath,
+                    data: pdfData,
+                    options: FileOptions(
+                        cacheControl: "3600",
+                        contentType: "application/pdf",
+                        upsert: false
+                    )
                 )
-            )
+        } catch {
+            guard Self.isStorageObjectAlreadyExists(error) else {
+                throw error
+            }
+        }
 
         let song: ForumSong
         var shouldRollbackUploadedPDF = true
         do {
+            await progress(.submittingMetadata)
             song = try await resolvedSong(for: publishDraft, ownerID: ownerID)
             let postInsert = ForumChartPostInsert(
                 id: postID,
@@ -1073,11 +1313,24 @@ private actor IChartSupabaseForumService: IChartForumServicing {
                 layoutStyle: chart.layoutStyle.rawValue,
                 pdfStoragePath: storagePath
             )
-            try await client
-                .from("forum_chart_posts")
-                .insert(postInsert)
-                .execute()
+            do {
+                try await client
+                    .from("forum_chart_posts")
+                    .insert(postInsert)
+                    .execute()
+            } catch {
+                guard Self.isDuplicatePostInsert(error) else {
+                    throw error
+                }
+            }
             shouldRollbackUploadedPDF = false
+            await progress(.validating)
+            try await forumPostAction(
+                action: .publish,
+                postID: postID,
+                byteSize: pdfData.count,
+                sha256: pdfSHA256
+            )
         } catch {
             if shouldRollbackUploadedPDF {
                 await rollbackUploadedForumPDF(at: storagePath)
@@ -1085,7 +1338,14 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             throw error
         }
 
-        return try await loadPostDetail(postID: postID, song: song)
+    }
+
+    func withdrawPost(postID: UUID) async throws {
+        try await forumPostAction(action: .withdraw, postID: postID)
+    }
+
+    func removePost(postID: UUID) async throws {
+        try await forumPostAction(action: .remove, postID: postID)
     }
 
     func vote(postID: UUID, vote: ForumVoteValue) async throws {
@@ -1186,6 +1446,37 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         )
     }
 
+    @discardableResult
+    private func forumPostAction(
+        action: ForumPostActionKind,
+        postID: UUID,
+        byteSize: Int? = nil,
+        sha256: String? = nil
+    ) async throws -> ForumPostActionResponse {
+        let session = try await refreshedSessionForRequest()
+        let response: ForumPostActionResponse = try await client.functions.invoke(
+            "forum-post-actions",
+            options: FunctionInvokeOptions(
+                method: .post,
+                headers: ["Authorization": "Bearer \(session.accessToken)"],
+                body: ForumPostActionRequest(
+                    action: action.rawValue,
+                    postID: postID,
+                    byteSize: byteSize,
+                    sha256: sha256
+                )
+            )
+        )
+
+        guard response.accepted else {
+            throw IChartForumServiceError.invalidPublishDraft(
+                response.error ?? "Forum post action was rejected."
+            )
+        }
+
+        return response
+    }
+
     private func refreshedSessionForRequest() async throws -> Session {
         try await sessionRefresher.refreshIfNeeded()
     }
@@ -1221,6 +1512,26 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         } catch {
             // Keep the original publish error visible; cleanup can also fail if the object was already attached.
         }
+    }
+
+    private static func sha256HexDigest(for data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func isStorageObjectAlreadyExists(_ error: Error) -> Bool {
+        let text = "\(error) \(error.localizedDescription)".lowercased()
+        return text.contains("already exists")
+            || text.contains("duplicate")
+            || text.contains("23505")
+    }
+
+    private static func isDuplicatePostInsert(_ error: Error) -> Bool {
+        let text = "\(error) \(error.localizedDescription)".lowercased()
+        return text.contains("duplicate")
+            || text.contains("23505")
+            || text.contains("already exists")
     }
 
     private func resolvedSong(for draft: ForumPublishDraft, ownerID: UUID) async throws -> ForumSong {
@@ -1504,6 +1815,32 @@ private struct ForumCommentInsert: Encodable {
         case ownerID = "owner_id"
         case body
     }
+}
+
+private enum ForumPostActionKind: String {
+    case publish
+    case withdraw
+    case remove
+}
+
+private struct ForumPostActionRequest: Encodable {
+    let action: String
+    let postID: UUID
+    let byteSize: Int?
+    let sha256: String?
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case postID = "post_id"
+        case byteSize = "byte_size"
+        case sha256
+    }
+}
+
+private struct ForumPostActionResponse: Decodable {
+    let accepted: Bool
+    let state: String?
+    let error: String?
 }
 
 private struct ForumVoteRow: Decodable {

@@ -44,3 +44,8 @@ entrypoint = "./functions/storekit-subscription-claims/index.mjs"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/subscription-retention-jobs/index.mjs"
+
+[functions.forum-post-actions]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/forum-post-actions/index.mjs"

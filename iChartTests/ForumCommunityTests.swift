@@ -163,6 +163,44 @@ final class ForumCommunityTests: XCTestCase {
         XCTAssertEqual(post.qualityStatus, .removed)
     }
 
+    func testForumUploadStagesExposeRetryAndWithdrawAffordances() {
+        var item = ForumUploadQueueItem(
+            id: UUID(),
+            postID: UUID(),
+            chartID: UUID(),
+            chartTitle: "Local Chart",
+            songTitle: "Blue Bossa",
+            artistName: "Kenny Dorham",
+            draft: ForumPublishDraft(),
+            stage: .queued,
+            createdAt: Date(),
+            updatedAt: Date(),
+            errorMessage: nil
+        )
+
+        XCTAssertTrue(item.stage.isActive)
+        XCTAssertFalse(item.canWithdraw)
+        XCTAssertFalse(item.canRetry)
+
+        item.stage = .validating
+        XCTAssertTrue(item.stage.isActive)
+        XCTAssertTrue(item.canWithdraw)
+        XCTAssertFalse(item.canRetry)
+
+        item.stage = .failed
+        item.errorMessage = "Network unavailable."
+        XCTAssertFalse(item.stage.isActive)
+        XCTAssertFalse(item.canWithdraw)
+        XCTAssertTrue(item.canRetry)
+        XCTAssertEqual(item.statusText, "Network unavailable.")
+
+        item.stage = .published
+        item.errorMessage = nil
+        XCTAssertFalse(item.canWithdraw)
+        XCTAssertFalse(item.canRetry)
+        XCTAssertEqual(item.statusText, "Published")
+    }
+
     private func forumPost(status: ForumPostModerationStatus) -> ForumChartPost {
         ForumChartPost(
             id: UUID(),

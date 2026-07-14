@@ -90,6 +90,7 @@ scan_for_secrets
 run node --test \
   supabase/functions/_shared/app_store_subscription_authority.test.mjs \
   supabase/functions/_shared/app_store_verifier_config.test.mjs \
+  supabase/functions/_shared/forum_post_actions.test.mjs \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs \
   supabase/functions/_shared/subscription_retention_jobs.test.mjs
 
