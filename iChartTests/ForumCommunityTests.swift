@@ -167,6 +167,7 @@ final class ForumCommunityTests: XCTestCase {
         var item = ForumUploadQueueItem(
             id: UUID(),
             postID: UUID(),
+            ownerID: UUID(),
             chartID: UUID(),
             chartTitle: "Local Chart",
             songTitle: "Blue Bossa",
@@ -181,23 +182,27 @@ final class ForumCommunityTests: XCTestCase {
         XCTAssertTrue(item.stage.isActive)
         XCTAssertFalse(item.canWithdraw)
         XCTAssertFalse(item.canRetry)
+        XCTAssertFalse(item.canDismiss)
 
         item.stage = .validating
         XCTAssertTrue(item.stage.isActive)
         XCTAssertTrue(item.canWithdraw)
         XCTAssertFalse(item.canRetry)
+        XCTAssertFalse(item.canDismiss)
 
         item.stage = .failed
         item.errorMessage = "Network unavailable."
         XCTAssertFalse(item.stage.isActive)
         XCTAssertFalse(item.canWithdraw)
         XCTAssertTrue(item.canRetry)
+        XCTAssertTrue(item.canDismiss)
         XCTAssertEqual(item.statusText, "Network unavailable.")
 
         item.stage = .published
         item.errorMessage = nil
         XCTAssertFalse(item.canWithdraw)
         XCTAssertFalse(item.canRetry)
+        XCTAssertTrue(item.canDismiss)
         XCTAssertEqual(item.statusText, "Published")
     }
 

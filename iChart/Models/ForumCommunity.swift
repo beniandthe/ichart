@@ -335,6 +335,7 @@ enum ForumPublishValidationError: String, Codable, CaseIterable, Hashable, Ident
 struct ForumUploadQueueItem: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     let postID: UUID
+    let ownerID: UUID
     let chartID: Chart.ID
     var chartTitle: String
     var songTitle: String
@@ -364,6 +365,10 @@ struct ForumUploadQueueItem: Identifiable, Codable, Equatable, Hashable {
         case .queued, .preparingPDF, .uploadingPDF, .published, .failed, .withdrawn, .removed:
             return false
         }
+    }
+
+    var canDismiss: Bool {
+        !stage.isActive
     }
 }
 

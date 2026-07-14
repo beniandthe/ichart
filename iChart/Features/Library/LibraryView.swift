@@ -1114,7 +1114,10 @@ struct LibraryView: View {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
             cloudSyncStore.authStateChanged(authStore.state)
-            forumStore.resumePendingUploads(charts: store.charts)
+            forumStore.resumePendingUploads(
+                charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id
+            )
             refreshForumHomeIfVisible()
             updateAccountLandingPresentation()
         }
@@ -1196,7 +1199,11 @@ struct LibraryView: View {
                 request: request,
                 theme: homeTheme
             ) { chart, draft in
-                forumStore.enqueuePublish(chart: chart, draft: draft)
+                forumStore.enqueuePublish(
+                    chart: chart,
+                    draft: draft,
+                    ownerID: authStore.state.signedInSession?.id
+                )
                 forumPublishRequest = nil
                 selectedHomeTab = .forums
             }
@@ -1477,7 +1484,13 @@ struct LibraryView: View {
                         searchText: $forumSearchText,
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
-                        uploadQueue: forumStore.uploadQueue,
+                        uploadQueue: forumStore.uploadQueue.filter { item in
+                            guard let currentUserID = authStore.state.signedInSession?.id else {
+                                return false
+                            }
+
+                            return item.ownerID == currentUserID
+                        },
                         statusMessage: forumStore.statusMessage,
                         errorMessage: forumStore.errorMessage,
                         theme: homeTheme,
@@ -1503,7 +1516,11 @@ struct LibraryView: View {
                             forumPublishRequest = IChartForumPublishRequest(chart: chart)
                         },
                         onRetryUpload: { item in
-                            forumStore.retryUpload(item, charts: store.charts)
+                            forumStore.retryUpload(
+                                item,
+                                charts: store.charts,
+                                currentUserID: authStore.state.signedInSession?.id
+                            )
                         },
                         onWithdrawUpload: { item in
                             Task {
@@ -1736,7 +1753,10 @@ struct LibraryView: View {
         }
 
         if tab == .forums {
-            forumStore.resumePendingUploads(charts: store.charts)
+            forumStore.resumePendingUploads(
+                charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id
+            )
             refreshForumHomeIfVisible()
         }
 
@@ -3844,7 +3864,7 @@ private struct IChartForumUploadQueueRow: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-            } else {
+            } else if item.canDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                 }

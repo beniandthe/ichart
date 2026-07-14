@@ -147,7 +147,12 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func enqueuePublish(chart: Chart, draft: ForumPublishDraft) {
+    func enqueuePublish(chart: Chart, draft: ForumPublishDraft, ownerID: UUID?) {
+        guard let ownerID else {
+            errorMessage = "Sign in before posting to Forums."
+            return
+        }
+
         var publishDraft = draft
         publishDraft.selectedChartID = chart.id
         let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
@@ -161,6 +166,7 @@ final class IChartForumStore: ObservableObject {
         let item = ForumUploadQueueItem(
             id: UUID(),
             postID: UUID(),
+            ownerID: ownerID,
             chartID: chart.id,
             chartTitle: chart.title,
             songTitle: normalizedSongTitle.isEmpty ? publishDraft.resolvedChartTitle : normalizedSongTitle,
@@ -182,9 +188,18 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func resumePendingUploads(charts: [Chart]) {
-        for item in uploadQueue where item.stage.isActive {
+    func resumePendingUploads(charts: [Chart], currentUserID: UUID?) {
+        guard let currentUserID else {
+            return
+        }
+
+        for item in uploadQueue.filter({ $0.stage.isActive }) {
             guard !activeUploadIDs.contains(item.id) else {
+                continue
+            }
+
+            guard item.ownerID == currentUserID else {
+                clearUploadQueueItem(item)
                 continue
             }
 
@@ -203,7 +218,13 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func retryUpload(_ item: ForumUploadQueueItem, charts: [Chart]) {
+    func retryUpload(_ item: ForumUploadQueueItem, charts: [Chart], currentUserID: UUID?) {
+        guard let currentUserID, item.ownerID == currentUserID else {
+            clearUploadQueueItem(item)
+            errorMessage = "This queued upload belongs to another signed-in account."
+            return
+        }
+
         guard let chart = charts.first(where: { $0.id == item.chartID }) else {
             updateUploadQueueItem(
                 item.id,
@@ -325,6 +346,7 @@ final class IChartForumStore: ObservableObject {
             try await activeService.publish(
                 chart: chart,
                 draft: draft,
+                ownerID: queueItem.ownerID,
                 postID: queueItem.postID,
                 exportedAt: queueItem.createdAt
             ) { [weak self] stage in
@@ -455,6 +477,7 @@ private protocol IChartForumServicing: Sendable {
     func publish(
         chart: Chart,
         draft: ForumPublishDraft,
+        ownerID: UUID,
         postID: UUID,
         exportedAt: Date,
         progress: @escaping (ForumUploadStage) async -> Void
@@ -478,6 +501,7 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     func publish(
         chart: Chart,
         draft: ForumPublishDraft,
+        ownerID: UUID,
         postID: UUID,
         exportedAt: Date,
         progress: @escaping (ForumUploadStage) async -> Void
@@ -578,10 +602,17 @@ private actor IChartForumQASampleService: IChartForumServicing {
     func publish(
         chart: Chart,
         draft: ForumPublishDraft,
+        ownerID: UUID,
         postID: UUID,
         exportedAt: Date,
         progress: @escaping (ForumUploadStage) async -> Void
     ) async throws {
+        guard ownerID == currentUserID else {
+            throw IChartForumServiceError.invalidPublishDraft(
+                "This queued upload belongs to another signed-in account."
+            )
+        }
+
         let publishDraft = draft.withCreatorDisplayName(Self.currentUserDisplayName)
         let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
@@ -1247,6 +1278,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     func publish(
         chart: Chart,
         draft: ForumPublishDraft,
+        ownerID expectedOwnerID: UUID,
         postID: UUID,
         exportedAt: Date,
         progress: @escaping (ForumUploadStage) async -> Void
@@ -1259,6 +1291,12 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         }
 
         let ownerID = try await currentUserIDForRequest()
+        guard ownerID == expectedOwnerID else {
+            throw IChartForumServiceError.invalidPublishDraft(
+                "This queued upload belongs to another signed-in account."
+            )
+        }
+
         let publishDraft = draft.withCreatorDisplayName(
             try await publicAuthorDisplayName(for: ownerID)
         )
