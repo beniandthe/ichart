@@ -3,6 +3,7 @@
 Status: Active release-gate source of truth
 Created: 2026-07-15
 Current candidate baseline: TestFlight build 27
+Current media/TestFlight replacement target: build 28
 Post-baseline fix: chart cloud-backup provenance and explicit restore behavior
 
 This document is the final release gate and ordered plan for iChart V1.0.
@@ -21,7 +22,7 @@ Supporting docs:
 ## 1. Current Release Call
 
 Build 27 is the accepted V1.0 candidate baseline from the app/product side.
-The chart cloud-backup provenance fix in the next build must replace build 27
+The chart cloud-backup provenance fix in build 28 must replace build 27
 before public release, because it prevents automatic backup from silently
 pulling or resurrecting stale cloud charts during local editing.
 
@@ -121,8 +122,8 @@ P0 gate is closed.
 
 ### Gate 0 - Freeze the candidate baseline
 
-Status: Complete for build 27 baseline; rerun for the next TestFlight build
-that includes the cloud-backup provenance fix.
+Status: Complete for build 27 baseline; rerun for build 28, which includes the
+cloud-backup provenance fix.
 
 Acceptance:
 
