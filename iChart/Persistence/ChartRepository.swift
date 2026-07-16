@@ -70,8 +70,28 @@ struct ChartLibrarySnapshot: Codable, Hashable {
 struct ChartDeletionTombstone: Codable, Hashable, Identifiable {
     var chartID: Chart.ID
     var deletedAt: Date
+    var shouldSyncToCloud: Bool
 
     var id: Chart.ID { chartID }
+
+    init(chartID: Chart.ID, deletedAt: Date, shouldSyncToCloud: Bool = true) {
+        self.chartID = chartID
+        self.deletedAt = deletedAt
+        self.shouldSyncToCloud = shouldSyncToCloud
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case chartID
+        case deletedAt
+        case shouldSyncToCloud
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        chartID = try container.decode(Chart.ID.self, forKey: .chartID)
+        deletedAt = try container.decode(Date.self, forKey: .deletedAt)
+        shouldSyncToCloud = try container.decodeIfPresent(Bool.self, forKey: .shouldSyncToCloud) ?? true
+    }
 }
 
 struct ChartCloudMetadata: Codable, Hashable {

@@ -218,6 +218,7 @@ final class ChartLibraryStore: ObservableObject {
         if let transpositionView {
             duplicate.setInstrumentTranspositionView(transpositionView)
         }
+        duplicate.cloudBackupStatus = .included
         duplicate.createdAt = now
         duplicate.updatedAt = now
 
@@ -316,11 +317,16 @@ final class ChartLibraryStore: ObservableObject {
             : updatedCharts.last?.id
         let proposedSelection = selectedChartID == chartID ? fallbackSelection : selectedChartID
 
+        let shouldSyncTombstoneToCloud = charts[chartIndex].hasCloudBackupRecord
         let deletedAt = Date()
         performPersistedBatch {
             charts = updatedCharts
             removeChartFromAllProjectsInPlace(chartID)
-            upsertTombstone(chartID: chartID, deletedAt: deletedAt)
+            upsertTombstone(
+                chartID: chartID,
+                deletedAt: deletedAt,
+                shouldSyncToCloud: shouldSyncTombstoneToCloud
+            )
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
         }
         return true
@@ -383,6 +389,19 @@ final class ChartLibraryStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func applySyncedSnapshot(
+        _ snapshot: ChartLibrarySnapshot,
+        ifUnchangedFrom expectedSnapshot: ChartLibrarySnapshot
+    ) -> Bool {
+        guard self.snapshot == expectedSnapshot else {
+            return false
+        }
+
+        applySyncedSnapshot(snapshot)
+        return true
+    }
+
     func updateCloudMetadataFromSync(ownerID: UUID, lastSyncAt: Date, lastRemoteBackupAt: Date?) {
         var updatedMetadata = cloudMetadata
         updatedMetadata.ownerID = ownerID
@@ -393,6 +412,48 @@ final class ChartLibraryStore: ObservableObject {
 
         performPersistedBatch(notifyCloudSync: false) {
             cloudMetadata = updatedMetadata
+        }
+    }
+
+    func enrollLocalChartsForCloudBackup() -> ChartLibrarySnapshot {
+        performPersistedBatch(notifyCloudSync: false) {
+            for chartIndex in charts.indices {
+                charts[chartIndex].includeInCloudBackup()
+            }
+        }
+
+        return snapshot
+    }
+
+    func markChartsBackedUpToCloud(
+        chartIDs: Set<Chart.ID>,
+        ownerID: UUID,
+        backedUpAt: Date,
+        from uploadedSnapshot: ChartLibrarySnapshot
+    ) {
+        guard !chartIDs.isEmpty else {
+            return
+        }
+
+        let uploadedChartsByID = Dictionary(uniqueKeysWithValues: uploadedSnapshot.charts.map { ($0.id, $0) })
+        let matchingChartIndices = charts.indices.filter { chartIndex in
+            let chartID = charts[chartIndex].id
+            guard chartIDs.contains(chartID),
+                  let uploadedChart = uploadedChartsByID[chartID] else {
+                return false
+            }
+
+            return charts[chartIndex].updatedAt == uploadedChart.updatedAt
+        }
+
+        guard !matchingChartIndices.isEmpty else {
+            return
+        }
+
+        performPersistedBatch(notifyCloudSync: false) {
+            for chartIndex in matchingChartIndices {
+                charts[chartIndex].markBackedUpToCloud(ownerID: ownerID, at: backedUpAt)
+            }
         }
     }
 
@@ -537,9 +598,19 @@ final class ChartLibraryStore: ObservableObject {
         cloudSyncNotificationsEnabled = wasCloudSyncNotificationsEnabled
     }
 
-    private func upsertTombstone(chartID: Chart.ID, deletedAt: Date) {
+    private func upsertTombstone(
+        chartID: Chart.ID,
+        deletedAt: Date,
+        shouldSyncToCloud: Bool
+    ) {
         deletionTombstones.removeAll { $0.chartID == chartID }
-        deletionTombstones.append(ChartDeletionTombstone(chartID: chartID, deletedAt: deletedAt))
+        deletionTombstones.append(
+            ChartDeletionTombstone(
+                chartID: chartID,
+                deletedAt: deletedAt,
+                shouldSyncToCloud: shouldSyncToCloud
+            )
+        )
         deletionTombstones = Self.normalizedTombstones(deletionTombstones)
     }
 

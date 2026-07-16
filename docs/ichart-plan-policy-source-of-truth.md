@@ -153,6 +153,16 @@ The editor remains local-first.
 - Cloud sync must never block launch, chart editing, local save, or export.
 - `ChartCloudSyncService` is gated behind active Pro entitlement before production cloud rollout.
 - Supabase RLS must also require active Pro for `chart_documents` and `chart_snapshots`, so Cloud Backup is server-enforced and not only hidden by client UI.
+- Routine cloud backup is local-to-cloud. Creating, editing, and deleting local
+  charts must not implicitly pull older cloud charts back into the local library.
+- Automatic background backup only uploads charts with chart-level cloud backup
+  intent/provenance. Legacy local charts with no cloud tag stay local-only until
+  the user explicitly taps `Back Up Now`; that action enrolls current local
+  charts for backup.
+- Deleting a chart only creates a cloud-sync tombstone after that chart has a
+  confirmed cloud backup record. Never-backed local chart deletes stay local.
+- Remote-to-local cloud restore is explicit from Settings through `Restore Charts
+  from Cloud`.
 - Sync uses whole-chart snapshots and last-writer-wins current state for this phase.
 - Operation-level collaboration and merge logic are out of scope.
 - Delete propagation uses tombstones so older devices do not resurrect deleted charts.

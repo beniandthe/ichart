@@ -436,10 +436,12 @@ Source: `iChart/Models/ChartSyncState.swift`, `iChart/App/Sync/ChartCloudSyncSto
 - [ ] Detail text: "Cloud backup is unavailable right now."
 - [ ] Detail text: "Upgrade to Pro to back up and restore from cloud."
 - [ ] Detail text: "Reconnect to back up."
-- [ ] Detail text: "Checking cloud backup and uploading local changes."
-- [ ] Detail text: "Cloud backup is up to date."
+- [ ] Detail text: "Backing up eligible local charts."
+- [ ] Detail text: "Back Up Now includes this iPad's local charts in cloud backup. Restore only when you want cloud charts added here."
 - [ ] Manual backup actions: "Unavailable", "Sign In First", "Requires Pro", "Try Again", "Backing Up", "Back Up Now"
-- [ ] Disabled reasons: "Sign in to enable cloud backup.", "Cloud backup and restore require Pro."
+- [ ] Behavior note: automatic background backup uploads cloud-enrolled charts only; tapping "Back Up Now" explicitly enrolls current local charts for cloud backup.
+- [ ] Restore action: "Restore Charts from Cloud"
+- [ ] Disabled reasons: "Sign in to enable cloud backup and restore.", "Cloud backup and restore require Pro.", "Reconnect to restore charts from cloud."
 - [ ] Backup/check timestamps are not user-facing.
 - [ ] Failure text: "Sign in again to resume cloud backup.", "Cloud permissions blocked backup. Sign in again, then retry.", "We could not finish cloud backup. Retry when you are online."
 - [x] REVIEW: Cloud-service fallback strings listed in Review Flags. Fixed in triage 3 by replacing setup terms with service-availability language.

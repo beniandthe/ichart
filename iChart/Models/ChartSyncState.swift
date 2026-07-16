@@ -39,9 +39,9 @@ enum ChartSyncState: Equatable {
         case .offline:
             return "Reconnect to back up."
         case .syncing:
-            return "Checking cloud backup and uploading local changes."
+            return "Backing up eligible local charts."
         case .synced:
-            return "Cloud backup is up to date."
+            return "Back Up Now includes this iPad's local charts in cloud backup. Restore only when you want cloud charts added here."
         case .failed(let message):
             return message
         }
@@ -110,12 +110,38 @@ enum ChartSyncState: Equatable {
         case .unconfigured:
             return "Cloud backup is unavailable right now."
         case .signedOut:
-            return "Sign in to enable cloud backup."
+            return "Sign in to enable cloud backup and restore."
         case .requiresPro:
             return "Cloud backup and restore require Pro."
         case .syncing:
             return nil
         case .offline, .synced, .failed:
+            return nil
+        }
+    }
+
+    var allowsCloudRestore: Bool {
+        switch self {
+        case .synced, .failed:
+            return true
+        case .unconfigured, .signedOut, .requiresPro, .offline, .syncing:
+            return false
+        }
+    }
+
+    var cloudRestoreDisabledReason: String? {
+        switch self {
+        case .unconfigured:
+            return "Cloud restore is unavailable right now."
+        case .signedOut:
+            return "Sign in to restore charts from cloud."
+        case .requiresPro:
+            return "Cloud backup and restore require Pro."
+        case .offline:
+            return "Reconnect to restore charts from cloud."
+        case .syncing:
+            return nil
+        case .synced, .failed:
             return nil
         }
     }

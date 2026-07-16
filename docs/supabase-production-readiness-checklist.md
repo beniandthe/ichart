@@ -77,6 +77,11 @@ Required production settings:
 - Expired Pro pauses paid cloud/service features and locks over-cap local chart access until the user reduces the local library to the 3-chart Basic cap.
 - Apple billing grace keeps local chart access available but pauses cloud backup and Forums until payment recovers.
 - Downgrade pruning is local-only and must not create cloud deletion tombstones.
+- Automatic background backup uploads only chart-level cloud-enrolled charts.
+  Legacy local charts without cloud provenance stay local-only until the user
+  explicitly taps `Back Up Now`.
+- `Back Up Now` enrolls current local charts for cloud backup; future automatic
+  backups can then update those enrolled charts.
 - Remote chart backups are deleted after the paid-through date or Apple billing grace deadline unless Pro renews first. Local device charts are never silently deleted by cloud retention cleanup.
 - Subscription retention jobs must create warning/deletion email events before expiration/deletion, dispatch them through the configured provider, and only delete cloud rows after re-checking the stored subscription authority is still inactive.
 
@@ -136,9 +141,12 @@ This gate requires active Pro entitlement because chart cloud backup/sync/restor
 2. Stop the app.
 3. Remove local app data or reinstall the simulator app.
 4. Relaunch with Supabase env and sign in.
-5. Confirm remote active charts restore locally.
-6. Confirm remote tombstones remain deleted and do not resurrect older local copies.
-7. Confirm Settings reports `Cloud backup active`.
+5. Tap `Restore Charts from Cloud`.
+6. Confirm remote active charts restore locally.
+7. Confirm remote tombstones remain deleted and do not resurrect older local copies.
+8. Confirm Settings reports `Cloud backup active`.
+9. Confirm a legacy local-only chart is not uploaded by sign-in/background backup
+   until `Back Up Now` is tapped.
 
 ## Offline/Failure Gate
 

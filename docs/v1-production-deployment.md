@@ -2,6 +2,7 @@
 
 Status: Active for v1 planning
 Source of truth: `docs/core-design-document.md`
+Current release-gate source of truth: `docs/ichart-v1-final-release-gate.md`
 
 ## 1. Purpose
 
@@ -150,6 +151,9 @@ Only add these after the core cloud backup/sync promise is stable:
 - expired Pro should lock over-cap local chart access until the user prunes down to the 3-chart Basic cap
 - chart cloud backup/sync and Forums should pause clearly when Pro is inactive
 - chart cloud backup must be enforced by Supabase RLS, not only by client UI gates
+- automatic chart backup should only upload charts with chart-level cloud backup
+  intent/provenance; legacy local charts stay local-only until the user taps
+  `Back Up Now`
 - downgraded Basic accounts over the 3-chart cap must choose which local charts to remove until only 3 remain
 - downgrade pruning is local-only and must not create cloud deletion tombstones
 - users should be reminded before cancellation/expiration that cloud backups will no longer be maintained and critical charts should be exported

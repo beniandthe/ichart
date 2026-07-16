@@ -8,6 +8,8 @@ struct ChartCloudSyncResult: Equatable {
 struct ChartCloudPushResult: Equatable {
     var ownerID: UUID
     var lastRemoteBackupAt: Date
+    var backedUpChartIDs: Set<Chart.ID>
+    var tombstonedChartIDs: Set<Chart.ID>
 }
 
 struct ChartCloudRemoteLibrary: Equatable {
@@ -93,6 +95,20 @@ enum ChartCloudMerge {
         }
 
         return emptySnapshotForOwner(basedOn: snapshot, ownerID: ownerID)
+    }
+
+    static func snapshotForCloudBackup(
+        _ snapshot: ChartLibrarySnapshot,
+        ownerID: UUID
+    ) -> ChartLibrarySnapshot {
+        ChartLibrarySnapshot(
+            charts: snapshot.charts.filter { $0.shouldBackUpToCloud(for: ownerID) },
+            selectedChartID: snapshot.selectedChartID,
+            entitlements: snapshot.entitlements,
+            deletionTombstones: snapshot.deletionTombstones.filter(\.shouldSyncToCloud),
+            cloudMetadata: snapshot.cloudMetadata,
+            projects: snapshot.projects
+        )
     }
 
     static func emptySnapshotForOwner(

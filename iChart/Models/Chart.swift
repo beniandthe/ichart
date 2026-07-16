@@ -1,5 +1,72 @@
 import Foundation
 
+enum ChartCloudBackupIntent: String, Codable, Hashable {
+    case included
+    case legacyLocal
+    case excluded
+}
+
+struct ChartCloudBackupStatus: Codable, Hashable {
+    static let schemaVersion = 1
+
+    var intent: ChartCloudBackupIntent
+    var ownerID: UUID?
+    var firstBackedUpAt: Date?
+    var lastBackedUpAt: Date?
+    var schemaVersion: Int
+
+    init(
+        intent: ChartCloudBackupIntent,
+        ownerID: UUID? = nil,
+        firstBackedUpAt: Date? = nil,
+        lastBackedUpAt: Date? = nil,
+        schemaVersion: Int = Self.schemaVersion
+    ) {
+        self.intent = intent
+        self.ownerID = ownerID
+        self.firstBackedUpAt = firstBackedUpAt
+        self.lastBackedUpAt = lastBackedUpAt
+        self.schemaVersion = schemaVersion
+    }
+
+    static var included: ChartCloudBackupStatus {
+        ChartCloudBackupStatus(intent: .included)
+    }
+
+    static var legacyLocal: ChartCloudBackupStatus {
+        ChartCloudBackupStatus(intent: .legacyLocal)
+    }
+
+    var hasRemoteBackupRecord: Bool {
+        ownerID != nil || firstBackedUpAt != nil || lastBackedUpAt != nil
+    }
+
+    func shouldBackUp(for ownerID: UUID) -> Bool {
+        guard intent == .included else {
+            return false
+        }
+
+        guard let existingOwnerID = self.ownerID else {
+            return true
+        }
+
+        return existingOwnerID == ownerID
+    }
+
+    mutating func includeForBackup() {
+        intent = .included
+        schemaVersion = Self.schemaVersion
+    }
+
+    mutating func markBackedUp(ownerID: UUID, at date: Date) {
+        intent = .included
+        self.ownerID = ownerID
+        firstBackedUpAt = firstBackedUpAt ?? date
+        lastBackedUpAt = date
+        schemaVersion = Self.schemaVersion
+    }
+}
+
 struct Chart: Identifiable, Codable, Hashable {
     var id: UUID
     var title: String
@@ -29,6 +96,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var pageHandwrittenNotationData: Data?
     var pageHandwrittenHeaderData: Data?
     var pageHandwrittenChordData: Data?
+    var cloudBackupStatus: ChartCloudBackupStatus
     var createdAt: Date
     var updatedAt: Date
 
@@ -69,6 +137,7 @@ struct Chart: Identifiable, Codable, Hashable {
         pageHandwrittenNotationData: Data? = nil,
         pageHandwrittenHeaderData: Data? = nil,
         pageHandwrittenChordData: Data? = nil,
+        cloudBackupStatus: ChartCloudBackupStatus = .included,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -103,6 +172,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.pageHandwrittenNotationData = pageHandwrittenNotationData
         self.pageHandwrittenHeaderData = pageHandwrittenHeaderData
         self.pageHandwrittenChordData = pageHandwrittenChordData
+        self.cloudBackupStatus = cloudBackupStatus
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -136,6 +206,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case pageHandwrittenNotationData
         case pageHandwrittenHeaderData
         case pageHandwrittenChordData
+        case cloudBackupStatus
         case createdAt
         case updatedAt
     }
@@ -180,8 +251,32 @@ struct Chart: Identifiable, Codable, Hashable {
         pageHandwrittenNotationData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
         pageHandwrittenHeaderData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
         pageHandwrittenChordData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenChordData)
+        cloudBackupStatus = try container.decodeIfPresent(ChartCloudBackupStatus.self, forKey: .cloudBackupStatus)
+            ?? .legacyLocal
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
+extension Chart {
+    var shouldBackUpToCloud: Bool {
+        cloudBackupStatus.intent == .included
+    }
+
+    var hasCloudBackupRecord: Bool {
+        cloudBackupStatus.hasRemoteBackupRecord
+    }
+
+    mutating func includeInCloudBackup() {
+        cloudBackupStatus.includeForBackup()
+    }
+
+    mutating func markBackedUpToCloud(ownerID: UUID, at date: Date) {
+        cloudBackupStatus.markBackedUp(ownerID: ownerID, at: date)
+    }
+
+    func shouldBackUpToCloud(for ownerID: UUID) -> Bool {
+        cloudBackupStatus.shouldBackUp(for: ownerID)
     }
 }
 

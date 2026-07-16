@@ -552,6 +552,10 @@ final class ChartLibraryStoreTests: XCTestCase {
             measureCount: 2,
             layoutStyle: .rhythmSectionSheet
         )
+        sourceChart.markBackedUpToCloud(
+            ownerID: UUID(uuidString: "00000000-0000-0000-0000-000000000404")!,
+            at: Date(timeIntervalSinceReferenceDate: 9_300)
+        )
         sourceChart.styleNote = "Medium Swing"
         sourceChart.chordTranspositionSemitones = 5
         let store = ChartLibraryStore(
@@ -569,6 +573,9 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(duplicate.styleNote, sourceChart.styleNote)
         XCTAssertEqual(duplicate.chordTranspositionSemitones, sourceChart.chordTranspositionSemitones)
         XCTAssertEqual(duplicate.systems, sourceChart.systems)
+        XCTAssertEqual(duplicate.cloudBackupStatus.intent, .included)
+        XCTAssertNil(duplicate.cloudBackupStatus.ownerID)
+        XCTAssertNil(duplicate.cloudBackupStatus.firstBackedUpAt)
         XCTAssertEqual(store.selectedChartID, duplicateID)
         let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
         XCTAssertEqual(savedSnapshot.selectedChartID, duplicateID)
@@ -666,7 +673,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(savedSnapshot.selectedChartID)
     }
 
-    func testDeleteChartCreatesLocalTombstoneForCloudSync() throws {
+    func testDeleteChartCreatesLocalOnlyTombstoneForNeverBackedChart() throws {
         let repository = RecordingChartRepository()
         let chart = Chart.blank(title: "Cloud Delete")
         let store = ChartLibraryStore(
@@ -679,8 +686,31 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         let tombstone = try XCTUnwrap(store.deletionTombstones.first)
         XCTAssertEqual(tombstone.chartID, chart.id)
+        XCTAssertFalse(tombstone.shouldSyncToCloud)
         let savedTombstone = try XCTUnwrap(repository.savedSnapshots.last?.deletionTombstones.first)
         XCTAssertEqual(savedTombstone.chartID, chart.id)
+        XCTAssertFalse(savedTombstone.shouldSyncToCloud)
+    }
+
+    func testDeleteChartCreatesCloudTombstoneForBackedChart() throws {
+        let repository = RecordingChartRepository()
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+        var chart = Chart.blank(title: "Cloud Delete")
+        chart.markBackedUpToCloud(ownerID: ownerID, at: Date(timeIntervalSinceReferenceDate: 9_000))
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+
+        XCTAssertTrue(store.deleteChart(id: chart.id))
+
+        let tombstone = try XCTUnwrap(store.deletionTombstones.first)
+        XCTAssertEqual(tombstone.chartID, chart.id)
+        XCTAssertTrue(tombstone.shouldSyncToCloud)
+        let savedTombstone = try XCTUnwrap(repository.savedSnapshots.last?.deletionTombstones.first)
+        XCTAssertEqual(savedTombstone.chartID, chart.id)
+        XCTAssertTrue(savedTombstone.shouldSyncToCloud)
     }
 
     func testDowngradePruneRemovesSelectedLocalChartWithoutCloudTombstoneOrUpload() throws {
@@ -745,6 +775,179 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.charts.map(\.id), [chart.id])
         XCTAssertEqual(repository.savedSnapshots.last?.charts.map(\.id), [chart.id])
         XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
+    func testManualCloudBackupEnrollmentMarksLegacyLocalChartsIncludedWithoutSchedulingUpload() throws {
+        let repository = RecordingChartRepository()
+        var chart = Chart.blank(title: "Legacy Local")
+        chart.cloudBackupStatus = .legacyLocal
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+        var scheduledUploadCount = 0
+        store.onSnapshotSaved = { _ in
+            scheduledUploadCount += 1
+        }
+
+        let snapshot = store.enrollLocalChartsForCloudBackup()
+
+        XCTAssertEqual(store.charts.first?.cloudBackupStatus.intent, .included)
+        XCTAssertEqual(snapshot.charts.first?.cloudBackupStatus.intent, .included)
+        XCTAssertEqual(repository.savedSnapshots.last?.charts.first?.cloudBackupStatus.intent, .included)
+        XCTAssertEqual(scheduledUploadCount, 0)
+    }
+
+    func testSuccessfulCloudBackupMarksMatchingChartsBackedUp() throws {
+        let repository = RecordingChartRepository()
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+        let backupDate = Date(timeIntervalSinceReferenceDate: 9_100)
+        let chart = Chart.blank(title: "Included")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+        let uploadedSnapshot = store.snapshot
+
+        store.markChartsBackedUpToCloud(
+            chartIDs: [chart.id],
+            ownerID: ownerID,
+            backedUpAt: backupDate,
+            from: uploadedSnapshot
+        )
+
+        let updatedChart = try XCTUnwrap(store.charts.first)
+        XCTAssertEqual(updatedChart.cloudBackupStatus.intent, .included)
+        XCTAssertEqual(updatedChart.cloudBackupStatus.ownerID, ownerID)
+        XCTAssertEqual(updatedChart.cloudBackupStatus.firstBackedUpAt, backupDate)
+        XCTAssertEqual(updatedChart.cloudBackupStatus.lastBackedUpAt, backupDate)
+        let savedChart = try XCTUnwrap(repository.savedSnapshots.last?.charts.first)
+        XCTAssertEqual(savedChart.cloudBackupStatus.ownerID, ownerID)
+    }
+
+    func testSuccessfulCloudBackupDoesNotMarkLocallyChangedChartsBackedUp() throws {
+        let repository = RecordingChartRepository()
+        let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000403")!
+        let backupDate = Date(timeIntervalSinceReferenceDate: 9_200)
+        let chart = Chart.blank(title: "Included")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+        let uploadedSnapshot = store.snapshot
+
+        XCTAssertTrue(store.renameChart(id: chart.id, to: "Changed During Upload"))
+        store.markChartsBackedUpToCloud(
+            chartIDs: [chart.id],
+            ownerID: ownerID,
+            backedUpAt: backupDate,
+            from: uploadedSnapshot
+        )
+
+        let updatedChart = try XCTUnwrap(store.charts.first)
+        XCTAssertNil(updatedChart.cloudBackupStatus.ownerID)
+        XCTAssertNil(updatedChart.cloudBackupStatus.firstBackedUpAt)
+        XCTAssertNil(updatedChart.cloudBackupStatus.lastBackedUpAt)
+        XCTAssertEqual(updatedChart.cloudBackupStatus.intent, .included)
+    }
+
+    func testGuardedSyncedSnapshotAppliesWhenLocalLibraryIsUnchanged() throws {
+        let repository = RecordingChartRepository()
+        let localChart = Chart.blank(title: "Local Chart")
+        let restoredChart = Chart.blank(title: "Restored Cloud Chart")
+        let store = ChartLibraryStore(
+            charts: [localChart],
+            selectedChartID: localChart.id,
+            repository: repository
+        )
+        let syncStartSnapshot = store.snapshot
+        let restoredSnapshot = ChartLibrarySnapshot(
+            charts: [restoredChart, localChart],
+            selectedChartID: restoredChart.id,
+            entitlements: store.entitlements,
+            cloudMetadata: ChartCloudMetadata(lastSyncAt: Date(), lastRemoteBackupAt: Date())
+        )
+
+        let didApply = store.applySyncedSnapshot(
+            restoredSnapshot,
+            ifUnchangedFrom: syncStartSnapshot
+        )
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(store.charts.map(\.id), [restoredChart.id, localChart.id])
+        XCTAssertEqual(store.selectedChartID, restoredChart.id)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.charts.map(\.id), [restoredChart.id, localChart.id])
+    }
+
+    func testSyncedSnapshotCanBeGuardedAgainstNewerLocalDeletes() throws {
+        let repository = RecordingChartRepository()
+        let charts = [
+            Chart.blank(title: "Keep"),
+            Chart.blank(title: "Delete")
+        ]
+        let store = ChartLibraryStore(
+            charts: charts,
+            selectedChartID: charts[0].id,
+            repository: repository
+        )
+        let syncStartSnapshot = store.snapshot
+        let staleSyncedSnapshot = ChartLibrarySnapshot(
+            charts: charts,
+            selectedChartID: charts[0].id,
+            entitlements: store.entitlements,
+            deletionTombstones: [],
+            cloudMetadata: ChartCloudMetadata(lastSyncAt: Date(), lastRemoteBackupAt: Date()),
+            projects: []
+        )
+
+        XCTAssertTrue(store.deleteChart(id: charts[1].id))
+
+        let didApply = store.applySyncedSnapshot(
+            staleSyncedSnapshot,
+            ifUnchangedFrom: syncStartSnapshot
+        )
+
+        XCTAssertFalse(didApply)
+        XCTAssertEqual(store.charts.map(\.id), [charts[0].id])
+        XCTAssertEqual(store.deletionTombstones.map(\.chartID), [charts[1].id])
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.charts.map(\.id), [charts[0].id])
+        XCTAssertEqual(savedSnapshot.deletionTombstones.map(\.chartID), [charts[1].id])
+    }
+
+    func testSyncedSnapshotCanBeGuardedAgainstNewerLocalAdds() throws {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Existing")
+        let store = ChartLibraryStore(
+            charts: [chart],
+            selectedChartID: chart.id,
+            repository: repository
+        )
+        let syncStartSnapshot = store.snapshot
+        let staleSyncedSnapshot = ChartLibrarySnapshot(
+            charts: [chart],
+            selectedChartID: chart.id,
+            entitlements: store.entitlements,
+            cloudMetadata: ChartCloudMetadata(lastSyncAt: Date(), lastRemoteBackupAt: Date())
+        )
+
+        XCTAssertTrue(store.createBlankChart(layoutStyle: .simpleChordSheet))
+
+        let didApply = store.applySyncedSnapshot(
+            staleSyncedSnapshot,
+            ifUnchangedFrom: syncStartSnapshot
+        )
+
+        XCTAssertFalse(didApply)
+        XCTAssertEqual(store.charts.count, 2)
+        XCTAssertEqual(store.charts.last?.id, chart.id)
+        let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(savedSnapshot.charts.count, 2)
+        XCTAssertEqual(savedSnapshot.charts.last?.id, chart.id)
     }
 
     func testCloudMetadataSyncUpdatePersistsOwnerWithoutSchedulingUpload() throws {
@@ -886,10 +1089,18 @@ final class ChartLibraryStoreTests: XCTestCase {
             entitlements: .free
         )
         let data = try ChartPersistenceCoders.encoder.encode(legacySnapshot)
+        var legacyPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var legacyCharts = try XCTUnwrap(legacyPayload["charts"] as? [[String: Any]])
+        legacyCharts[0].removeValue(forKey: "cloudBackupStatus")
+        legacyPayload["charts"] = legacyCharts
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyPayload)
 
-        let decoded = try ChartPersistenceCoders.decoder.decode(ChartLibrarySnapshot.self, from: data)
+        let decoded = try ChartPersistenceCoders.decoder.decode(ChartLibrarySnapshot.self, from: legacyData)
 
         XCTAssertEqual(decoded.charts.map(\.id), [chart.id])
+        XCTAssertEqual(decoded.charts.first?.cloudBackupStatus.intent, .legacyLocal)
         XCTAssertTrue(decoded.deletionTombstones.isEmpty)
         XCTAssertNil(decoded.cloudMetadata.ownerID)
         XCTAssertNil(decoded.cloudMetadata.lastSyncAt)

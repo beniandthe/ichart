@@ -64,7 +64,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 return
             }
 
-            syncNow()
+            backUpNow(enrollLocalCharts: false)
         case .temporarilyOffline:
             cancelPendingSyncWork()
             isSignedIn = true
@@ -80,7 +80,29 @@ final class ChartCloudSyncStore: ObservableObject {
         }
     }
 
-    func syncNow() {
+    func backUpNow(enrollLocalCharts: Bool = true) {
+        guard isSignedIn, let service, let libraryStore else {
+            state = service == nil ? .unconfigured : .signedOut
+            return
+        }
+
+        guard isCloudSyncEntitled else {
+            cancelPendingSyncWork()
+            state = .requiresPro
+            return
+        }
+
+        let snapshot = enrollLocalCharts
+            ? libraryStore.enrollLocalChartsForCloudBackup()
+            : libraryStore.snapshot
+        queuedUploadTask?.cancel()
+        syncTask?.cancel()
+        syncTask = Task { [weak self] in
+            await self?.runPush(snapshot: snapshot, service: service)
+        }
+    }
+
+    func restoreChartsFromCloud() {
         guard isSignedIn, let service, let libraryStore else {
             state = service == nil ? .unconfigured : .signedOut
             return
@@ -96,7 +118,7 @@ final class ChartCloudSyncStore: ObservableObject {
         syncTask?.cancel()
         let snapshot = libraryStore.snapshot
         syncTask = Task { [weak self] in
-            await self?.runFullSync(snapshot: snapshot, service: service)
+            await self?.runRestore(snapshot: snapshot, service: service)
         }
     }
 
@@ -121,16 +143,26 @@ final class ChartCloudSyncStore: ObservableObject {
         }
     }
 
-    private func runFullSync(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
+    private func runRestore(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
         isWorking = true
         lastSyncAttemptAt = Date()
         state = .syncing
 
         do {
-            let result = try await service.syncNow(localSnapshot: snapshot)
-            libraryStore?.applySyncedSnapshot(result.snapshot)
+            let result = try await service.restoreFromCloud(localSnapshot: snapshot)
+            if let libraryStore {
+                let didApplySyncedSnapshot = libraryStore.applySyncedSnapshot(
+                    result.snapshot,
+                    ifUnchangedFrom: snapshot
+                )
+                if !didApplySyncedSnapshot {
+                    queueUpload(libraryStore.snapshot)
+                }
+            }
             lastRemoteBackupAt = result.lastRemoteBackupAt
-            state = .synced(Date())
+            if queuedUploadTask == nil {
+                state = .synced(Date())
+            }
         } catch {
             state = Self.failureState(for: error)
         }
@@ -150,6 +182,12 @@ final class ChartCloudSyncStore: ObservableObject {
 
         do {
             let result = try await service.pushLocalSnapshot(snapshot)
+            libraryStore?.markChartsBackedUpToCloud(
+                chartIDs: result.backedUpChartIDs,
+                ownerID: result.ownerID,
+                backedUpAt: result.lastRemoteBackupAt,
+                from: snapshot
+            )
             libraryStore?.updateCloudMetadataFromSync(
                 ownerID: result.ownerID,
                 lastSyncAt: Date(),

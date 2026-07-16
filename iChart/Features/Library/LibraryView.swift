@@ -5995,7 +5995,7 @@ private struct IChartCloudSyncSettings: View {
             }
 
             Button {
-                syncStore.syncNow()
+                syncStore.backUpNow()
             } label: {
                 Label(syncStore.state.manualSyncTitle, systemImage: syncStore.state.manualSyncSystemImageName)
                     .frame(maxWidth: .infinity)
@@ -6007,6 +6007,24 @@ private struct IChartCloudSyncSettings: View {
 
             if let disabledReason = disabledReason {
                 Text(disabledReason)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                syncStore.restoreChartsFromCloud()
+            } label: {
+                Label("Restore Charts from Cloud", systemImage: "icloud.and.arrow.down")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(IChartHomeBrand.blue)
+            .disabled(!canRunCloudRestore)
+            .accessibilityHint(syncStore.state.cloudRestoreDisabledReason ?? "")
+
+            if let restoreDisabledReason = restoreDisabledReason {
+                Text(restoreDisabledReason)
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -6025,6 +6043,22 @@ private struct IChartCloudSyncSettings: View {
         }
 
         return syncStore.state.manualSyncDisabledReason
+    }
+
+    private var canRunCloudRestore: Bool {
+        syncStore.state.allowsCloudRestore && !syncStore.isWorking
+    }
+
+    private var restoreDisabledReason: String? {
+        guard !syncStore.isWorking else {
+            return nil
+        }
+
+        guard syncStore.state.allowsManualSync else {
+            return nil
+        }
+
+        return syncStore.state.cloudRestoreDisabledReason
     }
 
     private var statusTint: Color {

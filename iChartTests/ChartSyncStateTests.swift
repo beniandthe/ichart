@@ -34,7 +34,7 @@ final class ChartSyncStateTests: XCTestCase {
         )
         XCTAssertEqual(
             ChartSyncState.signedOut.manualSyncDisabledReason,
-            "Sign in to enable cloud backup."
+            "Sign in to enable cloud backup and restore."
         )
         XCTAssertEqual(
             ChartSyncState.requiresPro.manualSyncDisabledReason,
@@ -44,5 +44,38 @@ final class ChartSyncStateTests: XCTestCase {
         XCTAssertNil(ChartSyncState.offline.manualSyncDisabledReason)
         XCTAssertNil(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).manualSyncDisabledReason)
         XCTAssertNil(ChartSyncState.failed("Retry later.").manualSyncDisabledReason)
+    }
+
+    func testCloudRestoreOnlyRunsAfterKnownCloudState() {
+        XCTAssertFalse(ChartSyncState.unconfigured.allowsCloudRestore)
+        XCTAssertFalse(ChartSyncState.signedOut.allowsCloudRestore)
+        XCTAssertFalse(ChartSyncState.requiresPro.allowsCloudRestore)
+        XCTAssertFalse(ChartSyncState.offline.allowsCloudRestore)
+        XCTAssertFalse(ChartSyncState.syncing.allowsCloudRestore)
+
+        XCTAssertTrue(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).allowsCloudRestore)
+        XCTAssertTrue(ChartSyncState.failed("Retry later.").allowsCloudRestore)
+    }
+
+    func testCloudRestoreDisabledReasonsStaySpecificForBlockedStates() {
+        XCTAssertEqual(
+            ChartSyncState.unconfigured.cloudRestoreDisabledReason,
+            "Cloud restore is unavailable right now."
+        )
+        XCTAssertEqual(
+            ChartSyncState.signedOut.cloudRestoreDisabledReason,
+            "Sign in to restore charts from cloud."
+        )
+        XCTAssertEqual(
+            ChartSyncState.requiresPro.cloudRestoreDisabledReason,
+            "Cloud backup and restore require Pro."
+        )
+        XCTAssertEqual(
+            ChartSyncState.offline.cloudRestoreDisabledReason,
+            "Reconnect to restore charts from cloud."
+        )
+        XCTAssertNil(ChartSyncState.syncing.cloudRestoreDisabledReason)
+        XCTAssertNil(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).cloudRestoreDisabledReason)
+        XCTAssertNil(ChartSyncState.failed("Retry later.").cloudRestoreDisabledReason)
     }
 }

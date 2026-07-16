@@ -11,11 +11,7 @@ actor ChartCloudSyncService {
         self.sessionRefresher = sessionRefresher
     }
 
-    func bootstrap(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
-        try await syncNow(localSnapshot: localSnapshot)
-    }
-
-    func syncNow(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
+    func restoreFromCloud(localSnapshot: ChartLibrarySnapshot) async throws -> ChartCloudSyncResult {
         let ownerID = try await currentUserID()
         let scopedLocalSnapshot = ChartCloudMerge.localSnapshotForSync(localSnapshot, ownerID: ownerID)
         let remoteLibrary = try await pullRemoteSnapshot(ownerID: ownerID)
@@ -27,7 +23,8 @@ actor ChartCloudSyncService {
         let lastBackupAt: Date
         let snapshotToReturn: ChartLibrarySnapshot
         do {
-            lastBackupAt = try await pushLocalSnapshot(mergedSnapshot, ownerID: ownerID)
+            let backupSnapshot = ChartCloudMerge.snapshotForCloudBackup(mergedSnapshot, ownerID: ownerID)
+            lastBackupAt = try await pushLocalSnapshot(backupSnapshot, ownerID: ownerID).lastBackupAt
             snapshotToReturn = mergedSnapshot
         } catch {
             guard Self.shouldRestoreRemoteForLegacyOwnerlessSnapshot(
@@ -47,7 +44,8 @@ actor ChartCloudSyncService {
                 remote: remoteLibrary,
                 ownerID: ownerID
             )
-            lastBackupAt = try await pushLocalSnapshot(remoteOnlySnapshot, ownerID: ownerID)
+            let backupSnapshot = ChartCloudMerge.snapshotForCloudBackup(remoteOnlySnapshot, ownerID: ownerID)
+            lastBackupAt = try await pushLocalSnapshot(backupSnapshot, ownerID: ownerID).lastBackupAt
             snapshotToReturn = remoteOnlySnapshot
         }
 
@@ -62,14 +60,24 @@ actor ChartCloudSyncService {
     func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot) async throws -> ChartCloudPushResult {
         let ownerID = try await currentUserID()
         let scopedSnapshot = ChartCloudMerge.localSnapshotForSync(snapshot, ownerID: ownerID)
-        let lastBackupAt = try await pushLocalSnapshot(scopedSnapshot, ownerID: ownerID)
-        return ChartCloudPushResult(ownerID: ownerID, lastRemoteBackupAt: lastBackupAt)
+        let backupSnapshot = ChartCloudMerge.snapshotForCloudBackup(scopedSnapshot, ownerID: ownerID)
+        let outcome = try await pushLocalSnapshot(backupSnapshot, ownerID: ownerID)
+        return ChartCloudPushResult(
+            ownerID: ownerID,
+            lastRemoteBackupAt: outcome.lastBackupAt,
+            backedUpChartIDs: outcome.backedUpChartIDs,
+            tombstonedChartIDs: outcome.tombstonedChartIDs
+        )
     }
 
     @discardableResult
-    private func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, ownerID: UUID) async throws -> Date {
+    private func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, ownerID: UUID) async throws -> ChartCloudPushOutcome {
+        var backedUpChartIDs: Set<Chart.ID> = []
+        var tombstonedChartIDs: Set<Chart.ID> = []
+
         for chart in snapshot.charts {
             try await push(chart: chart, ownerID: ownerID)
+            backedUpChartIDs.insert(chart.id)
         }
 
         for tombstone in snapshot.deletionTombstones {
@@ -78,9 +86,14 @@ actor ChartCloudSyncService {
             }
 
             try await push(tombstone: tombstone, ownerID: ownerID)
+            tombstonedChartIDs.insert(tombstone.chartID)
         }
 
-        return Date()
+        return ChartCloudPushOutcome(
+            lastBackupAt: Date(),
+            backedUpChartIDs: backedUpChartIDs,
+            tombstonedChartIDs: tombstonedChartIDs
+        )
     }
 
     func pullRemoteSnapshot() async throws -> ChartCloudRemoteLibrary {
@@ -117,7 +130,12 @@ actor ChartCloudSyncService {
                 ?? snapshotsByChartID[document.id]?.first
 
             if let snapshot {
-                charts.append(try snapshot.chartJSON.decodeChart())
+                var chart = try snapshot.chartJSON.decodeChart()
+                chart.markBackedUpToCloud(
+                    ownerID: ownerID,
+                    at: document.updatedAtDate ?? snapshot.createdAtDate ?? Date()
+                )
+                charts.append(chart)
             }
         }
 
@@ -290,6 +308,12 @@ actor ChartCloudSyncService {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+}
+
+private struct ChartCloudPushOutcome {
+    var lastBackupAt: Date
+    var backedUpChartIDs: Set<Chart.ID>
+    var tombstonedChartIDs: Set<Chart.ID>
 }
 
 private struct ChartCloudDocumentRow: Decodable {
