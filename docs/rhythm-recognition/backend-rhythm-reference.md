@@ -5,7 +5,7 @@ Branch: `codex/rhythm-recognition-overhaul`
 
 ## Purpose
 
-This is the backend rhythm-recognition reference surface. It is not user-facing Help content. It exists to give the V2 recognizer a shared visual and musical context for note/rest vocabulary, beat grouping, beaming, and common rhythm combinations.
+This is the parked backend rhythm-recognition reference surface. It is not user-facing Help content and is not part of the shipping V1 rhythm-entry flow. It remains only as archived context in case handwritten recognition is revisited after literal rhythm input exists.
 
 ## Local Visual Sources
 
@@ -37,7 +37,7 @@ Durations below are expressed in quarter-note beats for ordinary quarter-note me
 | Half | Half note | Half rest | 2 | Yes |
 | Dotted half | Dotted half note | Dotted half rest | 3 | Note yes, rest reference only |
 | Quarter | Quarter note | Quarter rest | 1 | Yes |
-| Dotted quarter | Dotted quarter note | Dotted quarter rest | 1.5 | Note yes, rest reference only |
+| Dotted quarter | Dotted quarter note | Dotted quarter rest | 1.5 | Note yes, rest bounded-dot backed |
 | Eighth | Eighth note | Eighth rest | 0.5 | Yes |
 | Dotted eighth | Dotted eighth note | Dotted eighth rest | 0.75 | Reference only |
 | Sixteenth | Sixteenth note | Sixteenth rest | 0.25 | Reference only |
@@ -51,6 +51,7 @@ Durations below are expressed in quarter-note beats for ordinary quarter-note me
 5. Dots change duration and grouping. A dotted note can push the following short value to a protected beat boundary, so the recognizer must calculate onset/offset positions before trusting beam evidence.
 6. Compound meters group by dotted beats. In 6/8, six eighth notes should naturally form two groups of three, not one group of six and not three groups of two unless the style explicitly asks for it.
 7. Irregular meters need explicit grouping profiles. A 7/8 grouping like 2+3+2 is a meter context, not a visual guess from the noteheads alone.
+8. Dotted rests require a main rest glyph plus a bounded trailing dot. After glyph segmentation, a compact lower-lane dot may modify the previous glyph only when it sits to the right within the allowed x/y attachment window; do not promote plain rests into dotted rests with a generic nearest-dot rule.
 
 ## Critical Example
 
@@ -73,10 +74,11 @@ This is now covered by `RhythmRecognitionContextRules`: the boundary before the 
 
 ## V2 Implication
 
-The recognizer should use a layered pipeline:
+If handwritten recognition is revisited, it should use a layered pipeline:
 
-1. Visual symbol candidates: notehead/rest/dot/stem/flag/beam evidence.
-2. Duration candidates: value proposals per symbol.
-3. Meter positions: start/end offsets for each proposal.
-4. Grouping validation: beaming/rest/dot context checked against meter grouping rules.
-5. Commit gate: only high-confidence exact fits commit; conflicting visual/meter context stays in review.
+1. Neutral ink morphology: compact dot, vertical stroke, horizontal stroke, diagonal stroke, curve hook, zig-zag body, and loop evidence.
+2. Visual symbol candidates: notehead/rest/dot/stem/flag/beam interpretations built from morphology.
+3. Duration candidates: value proposals per symbol.
+4. Meter positions: start/end offsets for each proposal.
+5. Grouping validation: beaming/rest/dot context checked against meter grouping rules.
+6. Commit gate: only high-confidence exact fits commit; conflicting visual/meter context stays in review.

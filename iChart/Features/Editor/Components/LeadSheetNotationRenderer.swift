@@ -150,9 +150,13 @@ enum NotationGlyphPathCache {
             .noteheadBlack,
             .noteWhole,
             .noteHalfUp,
+            .noteHalfDown,
             .noteQuarterUp,
+            .noteQuarterDown,
             .note8thUp,
+            .note8thDown,
             .note16thUp,
+            .note16thDown,
             .slashNotehead,
             .slashWholeNotehead,
             .slashHalfNotehead,
@@ -1391,11 +1395,11 @@ struct LeadSheetNotationRenderer {
 
     private func drawTie(in tieFrame: CGRect, staffSpace: CGFloat) {
         let tiePath = UIBezierPath()
-        tiePath.move(to: CGPoint(x: tieFrame.minX, y: tieFrame.midY))
+        tiePath.move(to: CGPoint(x: tieFrame.minX, y: tieFrame.maxY))
         tiePath.addCurve(
-            to: CGPoint(x: tieFrame.maxX, y: tieFrame.midY),
-            controlPoint1: CGPoint(x: tieFrame.minX + tieFrame.width * 0.28, y: tieFrame.maxY),
-            controlPoint2: CGPoint(x: tieFrame.maxX - tieFrame.width * 0.28, y: tieFrame.maxY)
+            to: CGPoint(x: tieFrame.maxX, y: tieFrame.maxY),
+            controlPoint1: CGPoint(x: tieFrame.minX + tieFrame.width * 0.28, y: tieFrame.minY),
+            controlPoint2: CGPoint(x: tieFrame.maxX - tieFrame.width * 0.28, y: tieFrame.minY)
         )
         tiePath.lineWidth = style.tieMidpointWidth(staffSpace: staffSpace)
         style.inkColor.setStroke()
@@ -1408,6 +1412,7 @@ struct LeadSheetNotationRenderer {
             centeredAt: rest.center(from: noteLayout.noteheadFrame),
             staffSpace: noteLayout.staffSpace
         )
+        drawSharedNoteAdornment(for: noteLayout)
     }
 
     private func drawMeasureRepeat(for noteLayout: LeadSheetNoteLayout) {

@@ -67,13 +67,13 @@ enum LeadSheetRhythmicNotationFinalization {
         )
     }
 
-    static func autoApplyProposal(
+    static func renderProposal(
         drawingData: Data,
         measure: Measure,
         defaultMeter: Meter,
         measureLayout: LeadSheetMeasureLayout
     ) throws -> RhythmicNotationMeasureProposal {
-        try RhythmicNotationQuantizer.autoApplyProposal(
+        try RhythmicNotationQuantizer.renderProposal(
             drawingData: drawingData,
             meter: measure.resolvedMeter(defaultMeter: defaultMeter),
             drawingFrame: analysisDrawingFrame(for: measureLayout)
@@ -96,6 +96,7 @@ enum LeadSheetRhythmicNotationFinalization {
     static func chartByApplyingQuantizedRhythmMap(
         _ values: [RhythmValue],
         drawingData: Data,
+        tieOutSlotIndices: Set<Int> = [],
         for measureID: UUID,
         measureLayout: LeadSheetMeasureLayout? = nil,
         in chart: Chart
@@ -123,6 +124,7 @@ enum LeadSheetRhythmicNotationFinalization {
             return updatedChart.setLeadSheetRhythmMap(
                 values,
                 pitchedNotes: pitchedNoteInputs,
+                tieOutSlotIndices: tieOutSlotIndices,
                 for: measureID
             )
                 ? updatedChart
@@ -132,6 +134,7 @@ enum LeadSheetRhythmicNotationFinalization {
         let appliedRhythmMap = updatedChart.setMeasureRhythmMap(
             values,
             drawingData: drawingData,
+            tieOutSlotIndices: tieOutSlotIndices,
             for: measureID
         )
         let clearedInk = updatedChart.clearMeasureRhythmicNotation(

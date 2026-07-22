@@ -3,6 +3,39 @@ import Foundation
 struct MeasureRhythmMap: Codable, Hashable {
     var values: [RhythmValue]
     var drawingData: Data? = nil
+    var tieOutSlotIndices: Set<Int> = []
+
+    init(
+        values: [RhythmValue],
+        drawingData: Data? = nil,
+        tieOutSlotIndices: Set<Int> = []
+    ) {
+        self.values = values
+        self.drawingData = drawingData
+        self.tieOutSlotIndices = tieOutSlotIndices
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case values
+        case drawingData
+        case tieOutSlotIndices
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        values = try container.decode([RhythmValue].self, forKey: .values)
+        drawingData = try container.decodeIfPresent(Data.self, forKey: .drawingData)
+        tieOutSlotIndices = try container.decodeIfPresent(Set<Int>.self, forKey: .tieOutSlotIndices) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(values, forKey: .values)
+        try container.encodeIfPresent(drawingData, forKey: .drawingData)
+        if !tieOutSlotIndices.isEmpty {
+            try container.encode(tieOutSlotIndices, forKey: .tieOutSlotIndices)
+        }
+    }
 
     var totalWholeNoteLength: Double {
         values.reduce(0) { $0 + $1.wholeNoteLength }
@@ -89,6 +122,7 @@ enum RhythmicNotationCompendium {
         .eighth,
         .dottedEighth,
         .dottedQuarter,
+        .dottedQuarterRest,
         .dottedHalf,
         .eighthRest,
         .quarterRest,
@@ -448,8 +482,16 @@ extension Measure {
         return abs(offset) < 0.0001
     }
 
-    mutating func setRhythmMap(_ values: [RhythmValue], drawingData: Data? = nil) {
-        rhythmMap = MeasureRhythmMap(values: values, drawingData: drawingData)
+    mutating func setRhythmMap(
+        _ values: [RhythmValue],
+        drawingData: Data? = nil,
+        tieOutSlotIndices: Set<Int> = []
+    ) {
+        rhythmMap = MeasureRhythmMap(
+            values: values,
+            drawingData: drawingData,
+            tieOutSlotIndices: tieOutSlotIndices
+        )
     }
 
     mutating func clearInvalidRhythmSlotAssignments(defaultMeter: Meter) {
@@ -515,7 +557,8 @@ extension RhythmValue {
         switch self {
         case .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole:
             return true
-        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarterRest, .halfRest, .wholeRest,
+             .measureRepeat, .tiedContinuation:
             return false
         }
     }
@@ -539,6 +582,7 @@ extension RhythmValue {
             .measureRepeat,
             .halfRest,
             .quarterRest,
+            .dottedQuarterRest,
             .sixteenthRest,
             .eighthRest
         ]

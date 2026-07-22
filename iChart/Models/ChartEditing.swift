@@ -458,13 +458,21 @@ extension Chart {
     mutating func setMeasureRhythmMap(
         _ values: [RhythmValue]?,
         drawingData: Data? = nil,
+        tieOutSlotIndices: Set<Int> = [],
         for measureID: UUID
     ) -> Bool {
         guard let location = measureLocation(id: measureID) else {
             return false
         }
 
-        let normalizedMap = values.map { MeasureRhythmMap(values: $0, drawingData: drawingData) }
+        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedMap = values.map {
+            MeasureRhythmMap(
+                values: $0,
+                drawingData: normalizedData,
+                tieOutSlotIndices: tieOutSlotIndices
+            )
+        }
         guard systems[location.systemIndex].measures[location.measureIndex].rhythmMap != normalizedMap else {
             return false
         }
@@ -501,6 +509,7 @@ extension Chart {
     mutating func setLeadSheetRhythmMap(
         _ values: [RhythmValue],
         pitchedNotes: [LeadSheetPitchedNoteSlotInput],
+        tieOutSlotIndices: Set<Int> = [],
         for measureID: UUID
     ) -> Bool {
         guard layoutStyle == .leadSheet,
@@ -511,7 +520,10 @@ extension Chart {
 
         var measure = systems[location.systemIndex].measures[location.measureIndex]
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
-        let rhythmMap = MeasureRhythmMap(values: values)
+        let rhythmMap = MeasureRhythmMap(
+            values: values,
+            tieOutSlotIndices: tieOutSlotIndices
+        )
         guard RhythmicNotationCompendium.accepts(values, in: meter),
               let slots = rhythmMap.resolvedSlots(for: meter) else {
             return false
@@ -575,7 +587,16 @@ extension Chart {
         }
 
         values[noteIndex] = rhythmValue
-        let replacementMap = MeasureRhythmMap(values: values)
+        let validTieOutSlotIndices = measure.rhythmMap?.tieOutSlotIndices.filter { index in
+            values.indices.contains(index)
+                && values.indices.contains(index + 1)
+                && values[index].supportsPitchedLeadSheetNote
+                && values[index + 1].supportsPitchedLeadSheetNote
+        } ?? []
+        let replacementMap = MeasureRhythmMap(
+            values: values,
+            tieOutSlotIndices: Set(validTieOutSlotIndices)
+        )
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
         let replacementStatus = replacementMap.status(for: meter)
 

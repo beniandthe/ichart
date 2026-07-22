@@ -15,8 +15,6 @@ enum IChartRuntimeDiagnostics {
 }
 
 enum RhythmRecognitionDiagnosticStage: String, Codable, Equatable {
-    case autoApplyCandidate
-    case autoApplied
     case tapToRenderCandidate
     case tapRendered
     case selectionFinalized
@@ -44,7 +42,7 @@ struct RhythmRecognitionDiagnosticEvent: Codable, Equatable, Identifiable {
     var naturalUnits: Int?
     var targetUnits: Int?
     var passesCompendium: Bool?
-    var primitiveCount: Int?
+    var glyphEvidenceCount: Int?
     var symbolCount: Int?
     var unreadSymbolCount: Int?
     var uncoveredStrokeCount: Int?
@@ -62,10 +60,6 @@ struct RhythmRecognitionDiagnosticEvent: Codable, Equatable, Identifiable {
 
     var statusTitle: String {
         switch stage {
-        case .autoApplyCandidate:
-            return "Rhythm Ready"
-        case .autoApplied:
-            return "Rhythm Rendered"
         case .tapToRenderCandidate:
             return "Tap To Render"
         case .tapRendered:
@@ -79,7 +73,7 @@ struct RhythmRecognitionDiagnosticEvent: Codable, Equatable, Identifiable {
 
     var statusDetail: String {
         switch stage {
-        case .autoApplyCandidate, .autoApplied, .tapToRenderCandidate, .tapRendered, .selectionFinalized:
+        case .tapToRenderCandidate, .tapRendered, .selectionFinalized:
             return pipelinePreview.map { "\(valuesText) • \($0.statusText)" } ?? valuesText
         case .inkPreserved:
             let pipelineText = pipelinePreview.map { " • \($0.statusText)" } ?? ""

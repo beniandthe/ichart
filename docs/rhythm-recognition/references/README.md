@@ -21,4 +21,4 @@ Use these files as visual cross-reference material when building fixture prompts
 
 See `../visual-ink-reference-bridge.md` for the backend connector that translates raw ink shapes into visual tokens, handwritten symbol abstractions, and rhythm-combination context.
 
-See `../recognizer-decision-contract.md` and `../golden-fixture-matrix.md` before changing recognition behavior. The contract defines the required recognizer output surface, and the fixture matrix defines the examples that must commit, preserve ink, or refuse auto-render.
+See `../recognizer-decision-contract.md` and `../golden-fixture-matrix.md` before changing recognition behavior. The contract defines the required recognizer output surface, and the fixture matrix defines the examples that must commit, preserve ink, or refuse render proposals.

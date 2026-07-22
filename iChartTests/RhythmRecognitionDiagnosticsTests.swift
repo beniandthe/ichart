@@ -8,7 +8,7 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
         let recorder = RhythmRecognitionDiagnosticsRecorder(
             url: temporaryDirectory.appendingPathComponent("rhythm-recognition-diagnostics.jsonl")
         )
-        let event = diagnosticEvent(stage: .autoApplied, route: "commit")
+        let event = diagnosticEvent(stage: .tapRendered, route: "commit")
 
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
@@ -31,8 +31,8 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
             url: temporaryDirectory.appendingPathComponent("rhythm-recognition-diagnostics.jsonl"),
             maxLogSizeBytes: 1
         )
-        let firstEvent = diagnosticEvent(stage: .autoApplyCandidate, route: "commit")
-        let secondEvent = diagnosticEvent(stage: .autoApplied, route: "commit")
+        let firstEvent = diagnosticEvent(stage: .tapToRenderCandidate, route: "readyToRender")
+        let secondEvent = diagnosticEvent(stage: .tapRendered, route: "commit")
 
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
@@ -60,13 +60,13 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
 
     func testRhythmDiagnosticStatusTextFallsBackToNaturalValues() {
         let event = diagnosticEvent(
-            stage: .autoApplyCandidate,
-            route: "commit",
+            stage: .tapToRenderCandidate,
+            route: "readyToRender",
             proposalValues: [],
             naturalValues: [.slash, .slash, .slash]
         )
 
-        XCTAssertEqual(event.statusTitle, "Rhythm Ready")
+        XCTAssertEqual(event.statusTitle, "Tap To Render")
         XCTAssertEqual(event.valuesText, "slash, slash, slash")
         XCTAssertEqual(event.statusDetail, "slash, slash, slash")
     }
@@ -90,19 +90,20 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
         )
         let preview = RhythmRecognitionPipelinePreview(
             strokeCount: 2,
-            primitiveCounts: ["restShape": 1, "stem": 1],
-            primitives: [
-                RhythmRecognitionPipelinePreview.Primitive(
-                    strokeIndex: 0,
-                    kind: "restShape",
-                    bounds: RhythmRecognitionPipelineBounds(CGRect(x: 10, y: 12, width: 8, height: 18))
+            evidenceCounts: ["eighthRestHook": 1, "stem": 1],
+            evidence: [
+                RhythmRecognitionPipelinePreview.GlyphEvidence(
+                    strokeIndices: [0],
+                    kind: "eighthRestHook",
+                    bounds: RhythmRecognitionPipelineBounds(CGRect(x: 10, y: 12, width: 8, height: 18)),
+                    confidence: 0.1
                 )
             ],
             symbolGroups: [
                 RhythmRecognitionPipelinePreview.SymbolGroup(
                     index: 0,
                     strokeIndices: [0],
-                    primitiveKinds: ["restShape"],
+                    evidenceKinds: ["eighthRestHook"],
                     bounds: RhythmRecognitionPipelineBounds(CGRect(x: 10, y: 12, width: 8, height: 18))
                 )
             ],
@@ -113,11 +114,11 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
             targetUnits: 8,
             reasoningPaths: [
                 RhythmRecognitionPipelinePreview.ReasoningPath(
-                    kind: "visualShape",
+                    kind: "glyphOCR",
                     outcome: "keepWriting",
                     values: [.eighthRest, .eighth],
                     reason: "underfilled",
-                    summary: "source=visual reason=underfilled values=eighthRest,eighth"
+                    summary: "source=gridFirst reason=underfilled values=eighthRest,eighth"
                 )
             ],
             notes: ["rest and notehead evidence both present"]
@@ -134,7 +135,7 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
         let loadedEvent = try XCTUnwrap(recorder.loadEvents().first)
         XCTAssertEqual(loadedEvent.pipelinePreview, preview)
         XCTAssertTrue(loadedEvent.statusDetail.contains("2 strokes"))
-        XCTAssertTrue(loadedEvent.statusDetail.contains("restShape=1"))
+        XCTAssertTrue(loadedEvent.statusDetail.contains("eighthRestHook=1"))
     }
 
     private func diagnosticEvent(
@@ -158,14 +159,14 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
             route: route,
             reason: reason,
             proposalValues: proposalValues,
-            proposalSafety: "autoApply",
+            proposalSafety: "readyToRender",
             proposalIsNaturalExactFit: true,
-            phraseSource: "rasterTemplate",
+            phraseSource: "gridFirst",
             naturalValues: naturalValues,
             naturalUnits: 8,
             targetUnits: 8,
             passesCompendium: true,
-            primitiveCount: 4,
+            glyphEvidenceCount: 4,
             symbolCount: 4,
             unreadSymbolCount: 0,
             uncoveredStrokeCount: 0,

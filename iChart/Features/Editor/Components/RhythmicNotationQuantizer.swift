@@ -4,6 +4,12 @@ import Foundation
 import PencilKit
 
 enum RhythmicNotationQuantizer {
+    private enum HorizontalRestBlockPlacement {
+        case whole
+        case half
+        case ambiguous
+    }
+
     static func quantize(
         drawingData: Data,
         meter: Meter,
@@ -26,16 +32,16 @@ enum RhythmicNotationQuantizer {
         ).values
     }
 
-    static func autoApplyProposal(
+    static func renderProposal(
         drawingData: Data,
         meter: Meter,
         drawingFrame: CGRect
     ) throws -> RhythmicNotationMeasureProposal {
         let drawing = try PKDrawing(data: drawingData)
-        return try autoApplyProposal(drawing: drawing, meter: meter, drawingFrame: drawingFrame)
+        return try renderProposal(drawing: drawing, meter: meter, drawingFrame: drawingFrame)
     }
 
-    static func autoApplyProposal(
+    static func renderProposal(
         drawing: PKDrawing,
         meter: Meter,
         drawingFrame: CGRect
@@ -84,11 +90,7 @@ enum RhythmicNotationQuantizer {
         drawing: PKDrawing,
         drawingFrame: CGRect
     ) -> [RhythmVisualNoteAnchor] {
-        let input = rasterTemplateInput(
-            strokeObservations: strokeObservations(from: drawing),
-            drawingFrame: drawingFrame
-        )
-        return rasterTemplateVisualNoteAnchors(from: input)
+        []
     }
 
     private static func proposal(
@@ -112,396 +114,196 @@ enum RhythmicNotationQuantizer {
         drawingFrame: CGRect,
         includeExtendedStability: Bool
     ) -> RhythmRecognitionDecision {
-        let primitives = rhythmInkPrimitives(
-            from: strokeObservations,
-            drawingFrame: drawingFrame
-        )
-        guard !strokeObservations.isEmpty else {
+        let tieStrokes = strokeObservations.filter { $0.looksLikeTieArc(in: drawingFrame) }
+        let durationStrokeObservations = strokeObservations.filter { !$0.looksLikeTieArc(in: drawingFrame) }
+        guard !durationStrokeObservations.isEmpty else {
             return .keepWriting(.noInk, nil)
         }
-
-        let rasterTemplateDecision = rasterTemplateRecognitionDecision(
-            strokeObservations: strokeObservations,
-            meter: meter,
-            drawingFrame: drawingFrame,
-            includeExtendedStability: includeExtendedStability
+        let retiredDecision = retiredRecognitionDecision(
+            strokeObservations: durationStrokeObservations,
+            meter: meter
         )
-
-        let visualDecision = VisualRhythmRecognizer.recognition(
-            from: strokeObservations,
-            drawingFrame: drawingFrame
-        ).map { visualRecognition in
-            visualRecognitionDecision(
-                recognition: visualRecognition,
-                strokeObservations: strokeObservations,
-                primitives: primitives,
-                meter: meter,
-                includeExtendedStability: includeExtendedStability,
-                drawingFrame: drawingFrame
-            )
+        guard RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool else {
+            return retiredDecision
         }
 
-        let legacyDecision = legacyFallbackRecognitionDecision(
-            strokeObservations: strokeObservations,
-            primitives: primitives,
-            meter: meter,
-            drawingFrame: drawingFrame
-        )
+        let glyphOCRDecision = retiredDecision
 
-        let reasoningPaths = [
-            rasterTemplateDecision?.reasoningPath(kind: .rasterTemplate),
-            visualDecision?.reasoningPath(kind: .visualShape),
-            legacyDecision.reasoningPath(kind: .legacyFallback)
-        ].compactMap { $0 }
-
-        let selectedDecision = preferredRecognitionDecision(
-            rasterTemplateDecision: rasterTemplateDecision,
-            visualDecision: visualDecision,
-            legacyDecision: legacyDecision
+        let meterCheckedDecision = decisionByApplyingMeterValidityRules(
+            glyphOCRDecision,
+            meter: meter
         )
         let contextCheckedDecision = decisionByApplyingContextRules(
-            selectedDecision,
+            meterCheckedDecision,
             meter: meter
         )
-        let confidenceCheckedDecision = decisionByApplyingCrossPathReviewRules(
+        let tieAwareDecision = decisionByApplyingTieMetadata(
             contextCheckedDecision,
-            reasoningPaths: reasoningPaths,
-            meter: meter
-        )
-        let evidenceCheckedDecision = decisionByApplyingInternalEvidenceReviewRules(
-            confidenceCheckedDecision,
-            reasoningPaths: reasoningPaths,
-            meter: meter
+            tieStrokes: tieStrokes,
+            meter: meter,
+            drawingFrame: drawingFrame
         )
         let contextPath = contextReasoningPath(
-            for: evidenceCheckedDecision,
+            for: tieAwareDecision,
             meter: meter
         )
-        return evidenceCheckedDecision.addingReasoningPaths(reasoningPaths + [contextPath])
+        return tieAwareDecision.addingReasoningPaths([
+            glyphOCRDecision.reasoningPath(kind: .glyphOCR),
+            contextPath
+        ])
     }
 
-    private static func preferredRecognitionDecision(
-        rasterTemplateDecision: RhythmRecognitionDecision?,
-        visualDecision: RhythmRecognitionDecision?,
-        legacyDecision: RhythmRecognitionDecision
+    private static func retiredRecognitionDecision(
+        strokeObservations: [StrokeObservation],
+        meter: Meter
     ) -> RhythmRecognitionDecision {
-        guard let rasterTemplateDecision else {
-            return visualDecision ?? legacyDecision
-        }
-
-        guard let visualDecision,
-              case .commit(let visualProposal, let visualPhrase) = visualDecision,
-              visualPhrase.isNaturalExactFit,
-              visualProposal.safety != .manualReview else {
-            return rasterTemplateDecision
-        }
-
-        switch rasterTemplateDecision {
-        case .keepWriting:
-            return visualDecision
-        case .needsReview(let reason, let rasterPhrase, let rasterProposal):
-            let rasterValues = rasterProposal?.values ?? rasterPhrase?.naturalValues ?? []
-            let visualValues = visualProposal.values
-            let sameValues = rasterValues == visualValues
-            let rasterIsNaturalExactFit = rasterPhrase?.isNaturalExactFit == true
-            if sameValues || !rasterIsNaturalExactFit || reason == .nonNaturalExactFit {
-                return visualDecision
-            }
-            return rasterTemplateDecision
-        case .commit:
-            return rasterTemplateDecision
-        }
+        RhythmRecognitionDecision.keepWriting(
+            .unsupported,
+            RhythmPhraseHypothesis(
+                source: .gridFirst,
+                glyphEvidence: [],
+                symbols: [],
+                uncoveredStrokeIndices: Array(strokeObservations.indices),
+                naturalValues: [],
+                naturalUnits: 0,
+                targetUnits: rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
+                passesCompendium: false,
+                reasoningPaths: [
+                    RhythmRecognitionReasoningPath(
+                        kind: .glyphOCR,
+                        outcome: .unavailable,
+                        values: [],
+                        reason: .unsupported,
+                        summary: "source=gridFirst reason=retired values="
+                    )
+                ]
+            )
+        )
     }
 
-    private static func decisionByApplyingCrossPathReviewRules(
+    private static func decisionByApplyingMeterValidityRules(
         _ decision: RhythmRecognitionDecision,
-        reasoningPaths: [RhythmRecognitionReasoningPath],
         meter: Meter
     ) -> RhythmRecognitionDecision {
-        guard case .commit(let proposal, let phrase) = decision,
-              proposal.safety != .manualReview else {
-            return decision
+        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
+        if let proposal = decision.proposal {
+            let proposalUnits = proposal.values.reduce(0) { partialResult, value in
+                partialResult + rhythmUnits(for: value, meter: meter)
+            }
+            guard proposalUnits <= targetUnits else {
+                return .keepWriting(.overflow, decision.phrase)
+            }
         }
 
-        let competingRestNotePaths = reasoningPaths.filter { path in
-            path.outcome == .commitCandidate
-                && path.values != proposal.values
-                && hasSameDurationGrid(path.values, proposal.values, meter: meter)
-                && hasRestNoteDisagreement(path.values, proposal.values)
+        if decision.proposal == nil,
+           let phrase = decision.phrase,
+           phrase.naturalUnits > targetUnits {
+            return .keepWriting(.overflow, phrase)
         }
 
-        if let restAwarePath = competingRestNotePaths.first(where: { path in
-            canPromoteRestAwarePath(path, over: proposal.values, phrase: phrase, meter: meter)
-        }) {
-            let promotedProposal = RhythmicNotationMeasureProposal(
-                values: restAwarePath.values,
-                safety: proposal.safety,
-                isNaturalExactFit: proposal.isNaturalExactFit
-            )
-            return .commit(
-                promotedProposal,
-                phraseByPromotingRestAwareValues(
-                    restAwarePath.values,
-                    from: phrase,
-                    meter: meter
-                )
-            )
-        }
-
-        if let glyphRestValues = restAwareValuesFromGlyphEvidence(
-            over: proposal.values,
-            phrase: phrase,
-            meter: meter
-        ) {
-            let promotedProposal = RhythmicNotationMeasureProposal(
-                values: glyphRestValues,
-                safety: proposal.safety,
-                isNaturalExactFit: proposal.isNaturalExactFit
-            )
-            return .commit(
-                promotedProposal,
-                phraseByPromotingRestAwareValues(
-                    glyphRestValues,
-                    from: phrase,
-                    meter: meter,
-                    source: phrase.source
-                )
-            )
-        }
-
-        guard !competingRestNotePaths.isEmpty else {
-            return decision
-        }
-
-        let reviewProposal = RhythmicNotationMeasureProposal(
-            values: proposal.values,
-            safety: .manualReview,
-            isNaturalExactFit: proposal.isNaturalExactFit
-        )
-        return .needsReview(.competingExactPhrases, phrase, reviewProposal)
+        return decision
     }
 
-    private static func canPromoteRestAwarePath(
-        _ path: RhythmRecognitionReasoningPath,
-        over selectedValues: [RhythmValue],
-        phrase: RhythmPhraseHypothesis,
-        meter: Meter
-    ) -> Bool {
-        guard path.kind == .visualShape,
-              path.values.reduce(0, { $0 + rhythmUnits(for: $1, meter: meter) }) == phrase.targetUnits,
-              RhythmicNotationCompendium.accepts(path.values, in: meter) else {
-            return false
-        }
-
-        return zip(path.values, selectedValues).enumerated().contains { index, pair in
-            let (candidateValue, selectedValue) = pair
-            return candidateValue.isRest
-                && !selectedValue.isRest
-                && rhythmUnits(for: candidateValue, meter: meter) == rhythmUnits(for: selectedValue, meter: meter)
-                && phraseHasRestShapeEvidence(phrase, atSymbolIndex: index)
-        }
-    }
-
-    private static func phraseByPromotingRestAwareValues(
-        _ values: [RhythmValue],
-        from phrase: RhythmPhraseHypothesis,
+    private static func decisionByApplyingTieMetadata(
+        _ decision: RhythmRecognitionDecision,
+        tieStrokes: [StrokeObservation],
         meter: Meter,
-        source: RhythmPhraseSource = .visual
-    ) -> RhythmPhraseHypothesis {
-        let promotedSymbols: [RhythmSymbolHypothesis]
-        if phrase.symbols.count == values.count {
-            promotedSymbols = zip(phrase.symbols, values).map { symbol, value in
-                let candidateValues = symbol.candidateValues.contains(value)
-                    ? symbol.candidateValues
-                    : symbol.candidateValues + [value]
-                return RhythmSymbolHypothesis(
-                    coveredStrokeIndices: symbol.coveredStrokeIndices,
-                    bounds: symbol.bounds,
-                    candidateValues: candidateValues,
-                    selectedValue: value
-                )
-            }
-        } else {
-            promotedSymbols = phrase.symbols
-        }
-
-        return RhythmPhraseHypothesis(
-            source: source,
-            primitives: phrase.primitives,
-            symbols: promotedSymbols,
-            uncoveredStrokeIndices: phrase.uncoveredStrokeIndices,
-            naturalValues: values,
-            naturalUnits: values.reduce(0) { $0 + rhythmUnits(for: $1, meter: meter) },
-            targetUnits: phrase.targetUnits,
-            passesCompendium: RhythmicNotationCompendium.accepts(values, in: meter)
-        )
-    }
-
-    private static func restAwareValuesFromGlyphEvidence(
-        over selectedValues: [RhythmValue],
-        phrase: RhythmPhraseHypothesis,
-        meter: Meter
-    ) -> [RhythmValue]? {
-        for index in selectedValues.indices {
-            let selectedValue = selectedValues[index]
-            guard !selectedValue.isRest,
-                  let restValue = sameDurationRestValue(for: selectedValue),
-                  phraseSymbolHasRestDominantEvidence(phrase, atSymbolIndex: index) else {
-                continue
-            }
-
-            var promotedValues = selectedValues
-            promotedValues[index] = restValue
-            guard hasSameDurationGrid(promotedValues, selectedValues, meter: meter),
-                  RhythmicNotationCompendium.accepts(promotedValues, in: meter) else {
-                continue
-            }
-            return promotedValues
-        }
-
-        return nil
-    }
-
-    private static func sameDurationRestValue(for value: RhythmValue) -> RhythmValue? {
-        switch value {
-        case .sixteenth:
-            return .sixteenthRest
-        case .eighth:
-            return .eighthRest
-        case .quarter:
-            return .quarterRest
-        case .half:
-            return .halfRest
-        case .whole:
-            return .wholeRest
-        case .slash, .dottedEighth, .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarter, .halfRest, .dottedHalf,
-             .wholeRest, .measureRepeat, .tiedContinuation:
-            return nil
-        }
-    }
-
-    private static func decisionByApplyingInternalEvidenceReviewRules(
-        _ decision: RhythmRecognitionDecision,
-        reasoningPaths: [RhythmRecognitionReasoningPath],
-        meter: Meter
+        drawingFrame: CGRect
     ) -> RhythmRecognitionDecision {
-        guard case .commit(let proposal, let phrase) = decision,
-              proposal.safety != .manualReview,
-              !reasoningPathsHaveExactVisualRasterConsensus(reasoningPaths, values: proposal.values, phrase: phrase, meter: meter),
-              !phraseHasRestAuthoritativeExactFit(phrase, values: proposal.values, meter: meter),
-              phraseHasInternalRestNoteEvidenceConflict(phrase) else {
+        guard !tieStrokes.isEmpty,
+              let proposal = decision.proposal else {
             return decision
         }
 
-        let reviewProposal = RhythmicNotationMeasureProposal(
+        let tieOutSlotIndices = inferredTieOutSlotIndices(
+            from: tieStrokes,
             values: proposal.values,
-            safety: .manualReview,
-            isNaturalExactFit: proposal.isNaturalExactFit
+            meter: meter,
+            drawingFrame: drawingFrame
         )
-        return .needsReview(.ambiguousPhrase, phrase, reviewProposal)
+        guard !tieOutSlotIndices.isEmpty else {
+            return decision
+        }
+
+        let tiedProposal = RhythmicNotationMeasureProposal(
+            values: proposal.values,
+            safety: proposal.safety,
+            isNaturalExactFit: proposal.isNaturalExactFit,
+            tieOutSlotIndices: tieOutSlotIndices
+        )
+
+        switch decision {
+        case .commit(_, let phrase):
+            return .commit(tiedProposal, phrase)
+        case .needsReview(let reason, let phrase, _):
+            return .needsReview(reason, phrase, tiedProposal)
+        case .keepWriting:
+            return decision
+        }
     }
 
-    private static func reasoningPathsHaveExactVisualRasterConsensus(
-        _ reasoningPaths: [RhythmRecognitionReasoningPath],
+    private static func inferredTieOutSlotIndices(
+        from tieStrokes: [StrokeObservation],
         values: [RhythmValue],
-        phrase: RhythmPhraseHypothesis,
-        meter: Meter
-    ) -> Bool {
-        guard values == phrase.naturalValues,
-              phrase.naturalUnits == phrase.targetUnits,
-              RhythmicNotationCompendium.accepts(values, in: meter) else {
-            return false
+        meter: Meter,
+        drawingFrame: CGRect
+    ) -> Set<Int> {
+        guard let slots = MeasureRhythmMap(values: values).resolvedSlots(for: meter),
+              slots.count >= 2 else {
+            return []
         }
 
-        let rasterAgrees = reasoningPaths.contains { path in
-            path.kind == .rasterTemplate
-                && path.outcome == .commitCandidate
-                && path.values == values
-        }
-        let visualAgrees = reasoningPaths.contains { path in
-            path.kind == .visualShape
-                && path.outcome == .commitCandidate
-                && path.values == values
-        }
-        return rasterAgrees && visualAgrees
-    }
-
-    private static func phraseHasRestAuthoritativeExactFit(
-        _ phrase: RhythmPhraseHypothesis,
-        values: [RhythmValue],
-        meter: Meter
-    ) -> Bool {
-        guard phrase.source == .visual,
-              values == phrase.naturalValues,
-              values.contains(where: \.isRest),
-              phrase.naturalUnits == phrase.targetUnits,
-              RhythmicNotationCompendium.accepts(values, in: meter) else {
-            return false
+        let centers = slots.map { slot -> CGFloat in
+            let startOffset = slot.startPosition.startOffset(in: meter) ?? 0
+            let centerOffset = startOffset + slot.duration.wholeNoteLength(in: meter) / 2
+            let fraction = meter.measureLengthInWholeNotes > 0
+                ? centerOffset / meter.measureLengthInWholeNotes
+                : 0
+            return drawingFrame.minX + drawingFrame.width * CGFloat(fraction)
         }
 
-        return values.indices.contains { index in
-            values[index].isRest && phraseHasRestShapeEvidence(phrase, atSymbolIndex: index)
-        }
-    }
+        var tiedIndices = Set<Int>()
+        for tieStroke in tieStrokes {
+            var bestIndex: Int?
+            var bestScore = CGFloat.greatestFiniteMagnitude
 
-    private static func hasSameDurationGrid(
-        _ lhs: [RhythmValue],
-        _ rhs: [RhythmValue],
-        meter: Meter
-    ) -> Bool {
-        lhs.count == rhs.count
-            && zip(lhs, rhs).allSatisfy { pair in
-                rhythmUnits(for: pair.0, meter: meter) == rhythmUnits(for: pair.1, meter: meter)
+            for index in 0..<(slots.count - 1) {
+                guard slots[index].duration.supportsPitchedLeadSheetNote,
+                      slots[index + 1].duration.supportsPitchedLeadSheetNote else {
+                    continue
+                }
+
+                let leftCenter = centers[index]
+                let rightCenter = centers[index + 1]
+                guard rightCenter > leftCenter else {
+                    continue
+                }
+
+                let pairMidX = (leftCenter + rightCenter) / 2
+                let pairSpan = rightCenter - leftCenter
+                let tieMidX = tieStroke.bounds.midX
+                let centerScore = abs(tieMidX - pairMidX) / max(CGFloat(1), pairSpan)
+                let spanScore = abs(tieStroke.bounds.width - pairSpan) / max(CGFloat(1), pairSpan)
+                let overlapsPair = tieStroke.bounds.maxX >= leftCenter - pairSpan * 0.25
+                    && tieStroke.bounds.minX <= rightCenter + pairSpan * 0.25
+                guard overlapsPair else {
+                    continue
+                }
+
+                let score = centerScore + spanScore * 0.45
+                if score < bestScore {
+                    bestScore = score
+                    bestIndex = index
+                }
             }
-    }
 
-    private static func hasRestNoteDisagreement(
-        _ lhs: [RhythmValue],
-        _ rhs: [RhythmValue]
-    ) -> Bool {
-        zip(lhs, rhs).contains { pair in
-            pair.0.isRest != pair.1.isRest
-        }
-    }
-
-    private static func phraseHasRestShapeEvidence(
-        _ phrase: RhythmPhraseHypothesis,
-        atSymbolIndex symbolIndex: Int
-    ) -> Bool {
-        let primitiveByStrokeIndex = Dictionary(
-            uniqueKeysWithValues: phrase.primitives.map { primitive in
-                (primitive.strokeIndex, primitive)
+            if let bestIndex,
+               bestScore <= 0.9 {
+                tiedIndices.insert(bestIndex)
             }
-        )
-        guard phrase.symbols.indices.contains(symbolIndex) else {
-            return phrase.primitives.contains { $0.kind == .restShape }
         }
 
-        return phrase.symbols[symbolIndex].coveredStrokeIndices.contains { strokeIndex in
-            primitiveByStrokeIndex[strokeIndex]?.kind == .restShape
-        }
-    }
-
-    private static func phraseSymbolHasRestDominantEvidence(
-        _ phrase: RhythmPhraseHypothesis,
-        atSymbolIndex symbolIndex: Int
-    ) -> Bool {
-        let primitiveByStrokeIndex = Dictionary(
-            uniqueKeysWithValues: phrase.primitives.map { primitive in
-                (primitive.strokeIndex, primitive)
-            }
-        )
-        guard phrase.symbols.indices.contains(symbolIndex) else {
-            return false
-        }
-
-        let primitiveKinds = phrase.symbols[symbolIndex].coveredStrokeIndices.compactMap { strokeIndex in
-            primitiveByStrokeIndex[strokeIndex]?.kind
-        }
-        return primitiveKinds.contains(.restShape)
-            && !primitiveKinds.contains(.notehead)
-            && !primitiveKinds.contains(.stem)
-            && !primitiveKinds.contains(.beam)
+        return tiedIndices
     }
 
     private static func decisionByApplyingContextRules(
@@ -552,343 +354,6 @@ enum RhythmicNotationQuantizer {
         )
     }
 
-    private static func visualRecognitionDecision(
-        recognition: VisualRhythmRecognition,
-        strokeObservations: [StrokeObservation],
-        primitives: [RhythmInkPrimitive],
-        meter: Meter,
-        includeExtendedStability: Bool,
-        drawingFrame: CGRect
-    ) -> RhythmRecognitionDecision {
-        let candidateGroups = recognition.candidateGroups
-        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
-        let orderedStrokes = strokeObservations.sortedByVisualPosition()
-        let phrase = phraseHypothesis(
-            source: .visual,
-            primitives: primitives,
-            symbols: symbolHypotheses(
-                from: recognition.events,
-                orderedStrokes: orderedStrokes
-            ),
-            uncoveredStrokeIndices: strokeIndices(
-                for: recognition.uncoveredStrokes,
-                orderedStrokes: orderedStrokes
-            ),
-            candidateGroups: candidateGroups,
-            naturalPath: naturalPath,
-            meter: meter
-        )
-
-        if !phrase.uncoveredStrokeIndices.isEmpty {
-            return .keepWriting(.uncoveredStrokes, phrase)
-        }
-
-        if phrase.isNaturalExactFit {
-            let proposal = measureProposal(
-                from: candidateGroups,
-                exactPath: naturalPath,
-                meter: meter,
-                includeExtendedStability: includeExtendedStability
-            )
-            if phraseHasTightMixedRestNoteCluster(phrase, drawingFrame: drawingFrame) {
-                let reviewProposal = RhythmicNotationMeasureProposal(
-                    values: proposal.values,
-                    safety: .manualReview,
-                    isNaturalExactFit: proposal.isNaturalExactFit
-                )
-                return .needsReview(.ambiguousPhrase, phrase, reviewProposal)
-            }
-            if proposal.safety == .manualReview {
-                let reviewReason = manualReviewReason(
-                    for: naturalPath,
-                    candidateGroups: candidateGroups,
-                    meter: meter
-                ) ?? .manualReview
-                return .needsReview(reviewReason, phrase, proposal)
-            }
-            return .commit(proposal, phrase)
-        }
-
-        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        if let exactPath = bestMeasureAlignedPath(from: candidateGroups, meter: meter),
-           RhythmicNotationCompendium.accepts(exactPath.values, in: meter) {
-            let proposal = RhythmicNotationMeasureProposal(
-                values: exactPath.values,
-                safety: .manualReview,
-                isNaturalExactFit: false
-            )
-            return .needsReview(.nonNaturalExactFit, phrase, proposal)
-        }
-
-        if naturalPath.units < targetUnits {
-            return .keepWriting(.underfilled, phrase)
-        }
-        if naturalPath.units > targetUnits {
-            return .keepWriting(.overflow, phrase)
-        }
-
-        return .keepWriting(.unsupported, phrase)
-    }
-
-    private static func legacyFallbackRecognitionDecision(
-        strokeObservations: [StrokeObservation],
-        primitives: [RhythmInkPrimitive],
-        meter: Meter,
-        drawingFrame: CGRect
-    ) -> RhythmRecognitionDecision {
-        let candidateGroups: [[RhythmCandidate]]
-        do {
-            candidateGroups = try leftToRightCandidateGroups(
-                from: strokeObservations,
-                drawingFrame: drawingFrame
-            )
-        } catch {
-            return .keepWriting(.unsupported, nil)
-        }
-
-        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
-        let phrase = phraseHypothesis(
-            source: .legacyFallback,
-            primitives: primitives,
-            symbols: legacySymbolHypotheses(from: candidateGroups),
-            uncoveredStrokeIndices: [],
-            candidateGroups: candidateGroups,
-            naturalPath: naturalPath,
-            meter: meter
-        )
-
-        if let exactPath = bestMeasureAlignedPath(from: candidateGroups, meter: meter),
-           RhythmicNotationCompendium.accepts(exactPath.values, in: meter) {
-            return .keepWriting(.nonVisualFallback, phrase)
-        }
-
-        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        if naturalPath.units < targetUnits {
-            return .keepWriting(.underfilled, phrase)
-        }
-        if naturalPath.units > targetUnits {
-            return .keepWriting(.overflow, phrase)
-        }
-
-        return .keepWriting(.unsupported, phrase)
-    }
-
-    private static func phraseHypothesis(
-        source: RhythmPhraseSource,
-        primitives: [RhythmInkPrimitive],
-        symbols: [RhythmSymbolHypothesis],
-        uncoveredStrokeIndices: [Int],
-        candidateGroups: [[RhythmCandidate]],
-        naturalPath: CandidatePath,
-        meter: Meter
-    ) -> RhythmPhraseHypothesis {
-        RhythmPhraseHypothesis(
-            source: source,
-            primitives: primitives,
-            symbols: symbols,
-            uncoveredStrokeIndices: uncoveredStrokeIndices,
-            naturalValues: naturalPath.values,
-            naturalUnits: naturalPath.units,
-            targetUnits: rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
-            passesCompendium: RhythmicNotationCompendium.accepts(naturalPath.values, in: meter)
-        )
-    }
-
-    private static func symbolHypotheses(
-        from events: [VisualRhythmEvent],
-        orderedStrokes: [StrokeObservation]
-    ) -> [RhythmSymbolHypothesis] {
-        let indexByStroke = Dictionary(
-            uniqueKeysWithValues: orderedStrokes.enumerated().map { index, stroke in
-                (stroke, index)
-            }
-        )
-
-        return events.flatMap { event -> [RhythmSymbolHypothesis] in
-            let coveredStrokeIndices = Set(event.strokes.compactMap { indexByStroke[$0] })
-            let bounds = Array(event.strokes).nonEmptyBounds ?? .null
-            return event.candidateGroups.map { candidates in
-                RhythmSymbolHypothesis(
-                    coveredStrokeIndices: coveredStrokeIndices,
-                    bounds: bounds,
-                    candidateValues: candidates.map(\.value),
-                    selectedValue: candidates.min { lhs, rhs in lhs.score < rhs.score }?.value
-                )
-            }
-        }
-    }
-
-    private static func strokeIndices(
-        for strokes: [StrokeObservation],
-        orderedStrokes: [StrokeObservation]
-    ) -> [Int] {
-        let uncoveredStrokes = Set(strokes)
-        return orderedStrokes.enumerated().compactMap { index, stroke in
-            uncoveredStrokes.contains(stroke) ? index : nil
-        }
-    }
-
-    private static func legacySymbolHypotheses(
-        from candidateGroups: [[RhythmCandidate]]
-    ) -> [RhythmSymbolHypothesis] {
-        candidateGroups.map { candidates in
-            RhythmSymbolHypothesis(
-                coveredStrokeIndices: [],
-                bounds: .null,
-                candidateValues: candidates.map(\.value),
-                selectedValue: candidates.min { lhs, rhs in lhs.score < rhs.score }?.value
-            )
-        }
-    }
-
-    static func phraseHasTightMixedRestNoteCluster(
-        _ phrase: RhythmPhraseHypothesis,
-        drawingFrame: CGRect
-    ) -> Bool {
-        let selectedSymbols = phrase.symbols
-            .compactMap { symbol -> (bounds: CGRect, value: RhythmValue)? in
-                guard let value = symbol.selectedValue,
-                      !symbol.bounds.isNull,
-                      !symbol.bounds.isEmpty else {
-                    return nil
-                }
-                return (symbol.bounds, value)
-            }
-            .sorted { lhs, rhs in
-                if abs(lhs.bounds.minX - rhs.bounds.minX) > 0.5 {
-                    return lhs.bounds.minX < rhs.bounds.minX
-                }
-                return lhs.bounds.midY < rhs.bounds.midY
-            }
-
-        guard selectedSymbols.count >= 2,
-              selectedSymbols.contains(where: { $0.value.isRest }),
-              selectedSymbols.contains(where: { !$0.value.isRest }) else {
-            return false
-        }
-
-        for (lhs, rhs) in zip(selectedSymbols, selectedSymbols.dropFirst()) {
-            guard lhs.value.isRest != rhs.value.isRest else {
-                continue
-            }
-
-            let horizontalOverlap = min(lhs.bounds.maxX, rhs.bounds.maxX)
-                - max(lhs.bounds.minX, rhs.bounds.minX)
-            let verticalOverlap = min(lhs.bounds.maxY, rhs.bounds.maxY) - max(lhs.bounds.minY, rhs.bounds.minY)
-            let verticalOverlapRatio = verticalOverlap / max(CGFloat(1), min(lhs.bounds.height, rhs.bounds.height))
-            let collisionTolerance = max(CGFloat(2), min(CGFloat(5), drawingFrame.width * 0.012))
-            let symbolsCollide = horizontalOverlap >= -collisionTolerance
-            if symbolsCollide && verticalOverlapRatio >= 0.35 {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    static func phraseHasInternalRestNoteEvidenceConflict(
-        _ phrase: RhythmPhraseHypothesis
-    ) -> Bool {
-        let primitiveByStrokeIndex = Dictionary(
-            uniqueKeysWithValues: phrase.primitives.map { primitive in
-                (primitive.strokeIndex, primitive)
-            }
-        )
-
-        return phrase.symbols.contains { symbol in
-            guard let selectedValue = symbol.selectedValue,
-                  !selectedValue.isRest else {
-                return false
-            }
-
-            let primitiveKinds = symbol.coveredStrokeIndices.compactMap { strokeIndex in
-                primitiveByStrokeIndex[strokeIndex]?.kind
-            }
-            let hasRestShape = primitiveKinds.contains(.restShape)
-            let hasNotehead = primitiveKinds.contains(.notehead)
-            let hasNoteStructure = primitiveKinds.contains(.stem) || primitiveKinds.contains(.beam)
-            if phraseHasSelectedRestSharingEvidence(phrase, with: symbol) {
-                return false
-            }
-            guard hasRestShape,
-                  hasNotehead,
-                  !hasNoteStructure else {
-                return false
-            }
-
-            let candidateIncludesRest = symbol.candidateValues.contains(where: \.isRest)
-            return !candidateIncludesRest || primitiveKinds.contains(.dot)
-        }
-    }
-
-    private static func phraseHasSelectedRestSharingEvidence(
-        _ phrase: RhythmPhraseHypothesis,
-        with symbol: RhythmSymbolHypothesis
-    ) -> Bool {
-        phrase.symbols.contains { otherSymbol in
-            guard otherSymbol.selectedValue?.isRest == true else {
-                return false
-            }
-
-            return !otherSymbol.coveredStrokeIndices.isDisjoint(with: symbol.coveredStrokeIndices)
-        }
-    }
-
-    static func rhythmInkPrimitives(
-        from strokes: [StrokeObservation],
-        drawingFrame: CGRect
-    ) -> [RhythmInkPrimitive] {
-        let orderedStrokes = strokes.sortedByVisualPosition()
-        let sceneBounds = orderedStrokes.nonEmptyBounds ?? drawingFrame
-        let stems = orderedStrokes.filter { $0.looksLikeVisualStem(in: sceneBounds) }
-
-        return orderedStrokes.enumerated().map { index, stroke in
-            let kind: RhythmInkPrimitiveKind
-            let singleStrokeFeatures = SymbolFeatures(
-                symbol: SymbolObservation(strokes: [stroke]),
-                drawingFrame: sceneBounds
-            )
-            if stroke.looksLikeVisualNotehead(in: sceneBounds) {
-                kind = .notehead
-            } else if stroke.looksLikeLooseDot(in: sceneBounds) {
-                kind = .dot
-            } else if stroke.looksLikeRhythmicPlaceholderSlash(in: stroke.bounds) {
-                kind = .slash
-            } else if stroke.looksLikeVisualBeamSeed(in: sceneBounds)
-                || stroke.looksLikeSlopedVisualBeamSeed(
-                    over: stems,
-                    in: sceneBounds,
-                    drawingFrame: drawingFrame
-                )
-                || stroke.looksLikeFoldedBeamStemSeed(
-                    over: stems,
-                    in: sceneBounds,
-                    drawingFrame: drawingFrame
-                ) {
-                kind = .beam
-            } else if stroke.looksLikeQuarterRestBody(in: sceneBounds)
-                || stroke.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
-                || stroke.looksLikeSingleStrokeEighthRest(in: sceneBounds)
-                || stroke.looksLikeEighthRestHook(in: sceneBounds)
-                || looksLikeHalfRest(singleStrokeFeatures)
-                || looksLikeWholeRest(singleStrokeFeatures) {
-                kind = .restShape
-            } else if stroke.looksLikeVisualStem(in: sceneBounds) {
-                kind = .stem
-            } else if stroke.isIgnorableVisualNoise(in: sceneBounds) {
-                kind = .cleanup
-            } else {
-                kind = .unknown
-            }
-
-            return RhythmInkPrimitive(
-                strokeIndex: index,
-                kind: kind,
-                bounds: stroke.bounds
-            )
-        }
-    }
-
     private static func quantizationError(
         for reason: RhythmRecognitionReason,
         phrase: RhythmPhraseHypothesis?,
@@ -903,7 +368,7 @@ enum RhythmicNotationQuantizer {
             return .underfilled(expectedBeats: expectedBeats, actualBeats: actualBeats)
         case .overflow:
             return .overflow(expectedBeats: expectedBeats, actualBeats: actualBeats)
-        case .unsupported, .nonNaturalExactFit, .ambiguousPhrase, .manualReview, .nonVisualFallback, .uncoveredStrokes, .competingExactPhrases:
+        case .unsupported, .nonNaturalExactFit, .ambiguousPhrase, .manualReview, .uncoveredStrokes:
             return .unsupportedSymbol(0)
         }
     }
@@ -914,130 +379,14 @@ enum RhythmicNotationQuantizer {
         drawingFrame: CGRect,
         includeExtendedStability: Bool
     ) throws -> RhythmicNotationMeasureProposal {
-        let strokeObservations = strokeObservations(from: drawing)
-        if let visualRecognition = VisualRhythmRecognizer.recognition(
-            from: strokeObservations,
-            drawingFrame: drawingFrame
-        ),
-           visualRecognition.uncoveredStrokes.isEmpty {
-            let visualNaturalPath = bestNaturalPath(from: visualRecognition.candidateGroups, meter: meter)
-            if visualRecognition.containsBeamedEighthEvent,
-               visualNaturalPath.units == rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
-               RhythmicNotationCompendium.accepts(visualNaturalPath.values, in: meter) {
-                return measureProposal(
-                    from: visualRecognition.candidateGroups,
-                    exactPath: visualNaturalPath,
-                    meter: meter,
-                    includeExtendedStability: includeExtendedStability
-                )
-            }
-
-            if let visualPath = bestMeasureAlignedPath(from: visualRecognition.candidateGroups, meter: meter) {
-                return measureProposal(
-                    from: visualRecognition.candidateGroups,
-                    exactPath: visualPath,
-                    meter: meter,
-                    includeExtendedStability: includeExtendedStability
-                )
-            }
-
-            if visualRecognition.containsBeamedEighthEvent {
-                return try measureProposal(
-                    candidateGroups: visualRecognition.candidateGroups,
-                    meter: meter,
-                    includeExtendedStability: includeExtendedStability
-                )
-            }
-        }
-
-        return try measureProposal(
-            candidateGroups: leftToRightCandidateGroups(
-                from: strokeObservations,
-                drawingFrame: drawingFrame
-            ),
-            meter: meter,
-            includeExtendedStability: includeExtendedStability
-        )
-    }
-
-    private static func leftToRightCandidateGroups(
-        from strokeObservations: [StrokeObservation],
-        drawingFrame: CGRect
-    ) throws -> [[RhythmCandidate]] {
-        let symbolGroups = groupedSymbols(from: strokeObservations, drawingFrame: drawingFrame)
-        var candidateGroups: [[RhythmCandidate]] = []
-        for (index, group) in symbolGroups.enumerated() {
-            if let slashGroups = slashCandidateGroups(for: group, drawingFrame: drawingFrame) {
-                candidateGroups.append(contentsOf: slashGroups)
-                continue
-            }
-
-            if let beamedEighthGroups = beamedEighthCandidateGroups(for: group, drawingFrame: drawingFrame) {
-                candidateGroups.append(contentsOf: beamedEighthGroups)
-                continue
-            }
-
-            let candidates = classifyCandidates(group, drawingFrame: drawingFrame)
-            guard !candidates.isEmpty else {
-                throw RhythmicNotationQuantizationError.unsupportedSymbol(index)
-            }
-            candidateGroups.append(candidates)
-        }
-
-        return candidateGroups
-    }
-
-    private static func measureProposal(
-        candidateGroups: [[RhythmCandidate]],
-        meter: Meter,
-        includeExtendedStability: Bool
-    ) throws -> RhythmicNotationMeasureProposal {
-        if let exactPath = bestMeasureAlignedPath(from: candidateGroups, meter: meter) {
-            return measureProposal(
-                from: candidateGroups,
-                exactPath: exactPath,
+        try proposal(
+            from: recognitionDecision(
+                strokeObservations: strokeObservations(from: drawing),
                 meter: meter,
-                includeExtendedStability: includeExtendedStability
-            )
-        }
-
-        let expectedBeats = meter.measureLengthInWholeNotes / meter.beatUnitWholeNoteLength
-        let values = bestNaturalValues(from: candidateGroups, meter: meter)
-        let actualBeats = values.reduce(0) { partialResult, value in
-            partialResult + value.wholeNoteLength(in: meter) / meter.beatUnitWholeNoteLength
-        }
-        let delta = actualBeats - expectedBeats
-
-        if delta < 0 {
-            throw RhythmicNotationQuantizationError.underfilled(
-                expectedBeats: expectedBeats,
-                actualBeats: actualBeats
-            )
-        }
-
-        throw RhythmicNotationQuantizationError.overflow(
-            expectedBeats: expectedBeats,
-            actualBeats: actualBeats
-        )
-    }
-
-    static func measureProposal(
-        from candidateGroups: [[RhythmCandidate]],
-        exactPath: CandidatePath,
-        meter: Meter,
-        includeExtendedStability: Bool
-    ) -> RhythmicNotationMeasureProposal {
-        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
-        return RhythmicNotationMeasureProposal(
-            values: exactPath.values,
-            safety: proposalSafety(
-                for: exactPath,
-                candidateGroups: candidateGroups,
-                meter: meter,
+                drawingFrame: drawingFrame,
                 includeExtendedStability: includeExtendedStability
             ),
-            isNaturalExactFit: naturalPath.units == rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-                && naturalPath.values == exactPath.values
+            meter: meter
         )
     }
 
@@ -1100,220 +449,6 @@ enum RhythmicNotationQuantizer {
         return changeCount
     }
 
-    static func groupedSymbols(
-        from strokes: [StrokeObservation],
-        drawingFrame: CGRect
-    ) -> [SymbolObservation] {
-        let sortedStrokes = strokes.sorted { lhs, rhs in
-            if abs(lhs.bounds.minX - rhs.bounds.minX) > 0.5 {
-                return lhs.bounds.minX < rhs.bounds.minX
-            }
-            return lhs.bounds.midY < rhs.bounds.midY
-        }
-
-        let gapThreshold = max(14, min(32, drawingFrame.width * 0.085))
-        let glyphAttachThreshold = max(CGFloat(5), min(CGFloat(10), drawingFrame.width * 0.028))
-        let dotThreshold = max(CGFloat(5), min(CGFloat(9), drawingFrame.height * 0.1))
-        var groups: [[StrokeObservation]] = []
-
-        for stroke in sortedStrokes {
-            guard var currentGroup = groups.popLast() else {
-                groups.append([stroke])
-                continue
-            }
-
-            let currentBounds = currentGroup.reduce(into: CGRect.null) { partialResult, member in
-                partialResult = partialResult.union(member.bounds)
-            }
-            let horizontalGap = stroke.bounds.minX - currentBounds.maxX
-            let verticalDistance = abs(stroke.bounds.midY - currentBounds.midY)
-            let verticalTolerance = max(18, drawingFrame.height * 0.42)
-            let attachesAsDot = stroke.bounds.width <= dotThreshold
-                && stroke.bounds.height <= dotThreshold
-                && horizontalGap <= gapThreshold * 1.55
-                && verticalDistance <= verticalTolerance
-                && stroke.bounds.minX >= currentBounds.midX
-
-            let combinedStrokes = currentGroup + [stroke]
-            let combinedBounds = currentBounds.union(stroke.bounds)
-            let currentBeamCount = SymbolObservation(strokes: currentGroup)
-                .beamedEighthNoteCount(drawingFrame: drawingFrame)
-            let combinedBeamCount = SymbolObservation(strokes: combinedStrokes)
-                .beamedEighthNoteCount(drawingFrame: drawingFrame)
-            let beamConnectsGlyphs = combinedBeamCount >= 2
-                && combinedBeamCount > currentBeamCount
-            let attachesWithinGlyph = horizontalGap <= glyphAttachThreshold
-                || currentGroup.canAttachStrokeWithinSingleGlyph(stroke, drawingFrame: drawingFrame)
-
-            let overlapsEnough = (attachesWithinGlyph || beamConnectsGlyphs)
-                && stroke.bounds.minY <= currentBounds.maxY + verticalTolerance * 0.65
-                && stroke.bounds.maxY >= currentBounds.minY - verticalTolerance * 0.65
-                && combinedBounds.width <= max(currentBounds.width + stroke.bounds.width + glyphAttachThreshold, drawingFrame.width * 0.48)
-
-            if attachesAsDot || overlapsEnough {
-                currentGroup.append(stroke)
-                groups.append(currentGroup)
-            } else {
-                groups.append(currentGroup)
-                groups.append([stroke])
-            }
-        }
-
-        return groups
-            .mergingLooseDots(drawingFrame: drawingFrame)
-            .reattachingLeadingEighthRestDotsToFollowingTails(drawingFrame: drawingFrame)
-            .reattachingLeadingNoteheadsToFollowingBeams(drawingFrame: drawingFrame)
-            .splittingCompoundStemmedSymbols(drawingFrame: drawingFrame)
-            .reattachingLeadingEighthRestDotsToFollowingTails(drawingFrame: drawingFrame)
-            .reattachingLeadingNoteheadsToFollowingBeams(drawingFrame: drawingFrame)
-            .reattachingLeadingDotsToPreviousSymbols(drawingFrame: drawingFrame)
-            .map(SymbolObservation.init(strokes:))
-    }
-
-    private static func bestMeasureAlignedValues(
-        from candidateGroups: [[RhythmCandidate]],
-        meter: Meter
-    ) -> [RhythmValue]? {
-        bestMeasureAlignedPath(from: candidateGroups, meter: meter)?.values
-    }
-
-    static func bestMeasureAlignedPath(
-        from candidateGroups: [[RhythmCandidate]],
-        meter: Meter
-    ) -> CandidatePath? {
-        guard !candidateGroups.isEmpty else {
-            return nil
-        }
-
-        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
-        if naturalPath.units == targetUnits {
-            return naturalPath
-        }
-
-        guard let exactPath = bestExactPath(from: candidateGroups, targetUnits: targetUnits, meter: meter) else {
-            return nil
-        }
-
-        let tolerance = max(1.0, Double(candidateGroups.count) * 0.5)
-        guard exactPath.score <= naturalPath.score + tolerance else {
-            return nil
-        }
-
-        return exactPath
-    }
-
-    private static func bestNaturalValues(from candidateGroups: [[RhythmCandidate]], meter: Meter) -> [RhythmValue] {
-        bestNaturalPath(from: candidateGroups, meter: meter).values
-    }
-
-    static func bestNaturalPath(from candidateGroups: [[RhythmCandidate]], meter: Meter? = nil) -> CandidatePath {
-        candidateGroups.reduce(CandidatePath(values: [], score: 0, units: 0)) { partialResult, candidates in
-            guard let bestCandidate = candidates.min(by: { $0.score < $1.score }) else {
-                return partialResult
-            }
-
-            return CandidatePath(
-                values: partialResult.values + [bestCandidate.value],
-                score: partialResult.score + bestCandidate.score,
-                units: partialResult.units + rhythmUnits(for: bestCandidate.value, meter: meter)
-            )
-        }
-    }
-
-    private static func bestExactPath(
-        from candidateGroups: [[RhythmCandidate]],
-        targetUnits: Int,
-        meter: Meter? = nil
-    ) -> CandidatePath? {
-        rankedExactPaths(
-            from: candidateGroups,
-            targetUnits: targetUnits,
-            meter: meter
-        ).first
-    }
-
-    private static func rankedExactPaths(
-        from candidateGroups: [[RhythmCandidate]],
-        targetUnits: Int,
-        meter: Meter? = nil
-    ) -> [CandidatePath] {
-        var states: [Int: [CandidatePath]] = [
-            0: [CandidatePath(values: [], score: 0, units: 0)]
-        ]
-
-        for candidates in candidateGroups {
-            var nextStates: [Int: [CandidatePath]] = [:]
-            for rankedStates in states.values {
-                for state in rankedStates {
-                    for candidate in candidates {
-                        guard candidate.isConfidentEnoughForMeasureFit else {
-                            continue
-                        }
-
-                        let nextUnits = state.units + rhythmUnits(for: candidate.value, meter: meter)
-                        guard nextUnits <= targetUnits else {
-                            continue
-                        }
-
-                        let nextPath = CandidatePath(
-                            values: state.values + [candidate.value],
-                            score: state.score + candidate.score,
-                            units: nextUnits
-                        )
-                        nextStates[nextUnits, default: []].append(nextPath)
-                    }
-                }
-            }
-
-            states = nextStates.mapValues { paths in
-                rankedUniquePaths(paths, limit: 4, meter: meter)
-            }
-        }
-
-        return rankedUniquePaths(states[targetUnits] ?? [], limit: 4, meter: meter)
-    }
-
-    private static func rankedUniquePaths(_ paths: [CandidatePath], limit: Int, meter: Meter? = nil) -> [CandidatePath] {
-        var bestByValues: [[RhythmValue]: CandidatePath] = [:]
-        for path in paths {
-            if let existingPath = bestByValues[path.values],
-               existingPath.score <= path.score {
-                continue
-            }
-            bestByValues[path.values] = path
-        }
-
-        return Array(bestByValues.values)
-            .sorted { lhs, rhs in
-                let lhsContextRank = recognitionContextRank(for: lhs.values, meter: meter)
-                let rhsContextRank = recognitionContextRank(for: rhs.values, meter: meter)
-                if lhsContextRank != rhsContextRank {
-                    return lhsContextRank < rhsContextRank
-                }
-                if abs(lhs.score - rhs.score) > 0.0001 {
-                    return lhs.score < rhs.score
-                }
-                if lhs.values.count != rhs.values.count {
-                    return lhs.values.count > rhs.values.count
-                }
-                return lhs.values.map(\.rawValue).lexicographicallyPrecedes(rhs.values.map(\.rawValue))
-            }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    private static func recognitionContextRank(for values: [RhythmValue], meter: Meter?) -> Int {
-        guard let meter else {
-            return 0
-        }
-
-        return RhythmRecognitionContextRules.hasProtectedBeamableBoundary(
-            in: values,
-            meter: meter
-        ) ? 1 : 0
-    }
-
     static func rhythmUnits(for value: RhythmValue) -> Int {
         rhythmUnits(forWholeNotes: value.wholeNoteLength)
     }
@@ -1330,553 +465,75 @@ enum RhythmicNotationQuantizer {
         Int((wholeNotes * 16).rounded())
     }
 
-    // Auto-apply is stricter than manual quantize because a bad live commit clears the user's ink.
-    private static func proposalSafety(
-        for exactPath: CandidatePath,
-        candidateGroups: [[RhythmCandidate]],
-        meter: Meter,
-        includeExtendedStability: Bool
-    ) -> RhythmicNotationMeasureProposalSafety {
-        guard includeExtendedStability else {
-            return .autoApply
+    // Whole and half rests use the same horizontal block shape; placement resolves the value.
+    private static func horizontalRestBlockPlacement(for features: SymbolFeatures) -> HorizontalRestBlockPlacement {
+        guard features.hasHorizontalRestBlock else {
+            return .ambiguous
         }
 
-        if manualReviewReason(
-            for: exactPath,
-            candidateGroups: candidateGroups,
-            meter: meter
-        ) != nil {
-            return .manualReview
+        if let shelfPlacement = horizontalRestShelfPlacement(for: features) {
+            return shelfPlacement
         }
 
-        if requiresExtendedStabilityBeforeAutoApply(
-            for: exactPath,
-            candidateGroups: candidateGroups
-        ) {
-            return .extendedStability
+        let frameHeight = max(CGFloat(1), features.drawingFrame.height)
+        let relativeMidY = (features.contentBounds.midY - features.drawingFrame.minY) / frameHeight
+        if relativeMidY <= 0.49 {
+            return .whole
+        }
+        if relativeMidY >= 0.51 {
+            return .half
         }
 
-        return .autoApply
+        let centerTolerance = max(CGFloat(1.2), frameHeight * 0.015)
+        if features.contentBounds.midY < features.drawingFrame.midY - centerTolerance {
+            return .whole
+        }
+        if features.contentBounds.midY > features.drawingFrame.midY + centerTolerance {
+            return .half
+        }
+
+        return .ambiguous
     }
 
-    static func manualReviewReason(
-        for exactPath: CandidatePath,
-        candidateGroups: [[RhythmCandidate]],
-        meter: Meter
-    ) -> RhythmRecognitionReason? {
-        if exactPath.values.count == 1 {
-            switch exactPath.values[0] {
-            case .whole, .wholeRest, .measureRepeat:
-                return .manualReview
-            default:
-                break
+    private static func horizontalRestShelfPlacement(for features: SymbolFeatures) -> HorizontalRestBlockPlacement? {
+        let horizontalStrokes = features.contentStrokes.filter { stroke in
+            stroke.looksLikeHorizontalRestBlockStroke(in: features.contentBounds)
+                || (
+                    stroke.bounds.width >= max(CGFloat(8), features.width * 0.42)
+                        && stroke.bounds.height <= max(CGFloat(10), features.height * 0.62)
+                        && stroke.pathLength >= max(CGFloat(6), stroke.bounds.width * 0.72)
+                )
+        }
+        guard let shelfStroke = horizontalStrokes.max(by: { lhs, rhs in
+            if abs(lhs.bounds.width - rhs.bounds.width) > 0.5 {
+                return lhs.bounds.width < rhs.bounds.width
             }
+            return lhs.pathLength < rhs.pathLength
+        }) else {
+            return nil
         }
 
-        if exactPath.values.count == candidateGroups.count {
-            let selectedCandidates = zip(exactPath.values, candidateGroups).compactMap { value, candidates in
-                candidates.first { $0.value == value }
-            }
-            if selectedCandidates.contains(where: { !$0.canDriveExactFit }) {
-                return .manualReview
-            }
-            if selectedCandidates.contains(where: { $0.score >= 1.1 }) {
-                return .manualReview
-            }
+        let bodyStrokes = features.contentStrokes.filter { $0 != shelfStroke }
+        guard let bodyBounds = bodyStrokes.nonEmptyBounds else {
+            return nil
         }
 
-        let naturalPath = bestNaturalPath(from: candidateGroups, meter: meter)
-        if exactPath.values != naturalPath.values {
-            let stretchTolerance = max(0.35, Double(candidateGroups.count) * 0.18)
-            if exactPath.score > naturalPath.score + stretchTolerance {
-                return .manualReview
-            }
+        let minimumSeparation = max(CGFloat(3), features.height * 0.14)
+        if shelfStroke.bounds.midY <= bodyBounds.midY - minimumSeparation {
+            return .whole
         }
-
-        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        let rankedPaths = rankedExactPaths(from: candidateGroups, targetUnits: targetUnits, meter: meter)
-        if let bestPath = rankedPaths.first,
-           bestPath.values == exactPath.values,
-           let alternatePath = rankedPaths.dropFirst().first {
-            let margin = alternatePath.score - bestPath.score
-            let requiredMargin = max(0.45, Double(candidateGroups.count) * 0.12)
-            if margin < requiredMargin {
-                return .competingExactPhrases
-            }
+        if shelfStroke.bounds.midY >= bodyBounds.midY + minimumSeparation {
+            return .half
         }
 
         return nil
     }
 
-    static func exactFitReviewReasonForTesting(
-        exactValues: [RhythmValue],
-        candidateScores: [[RhythmValue: Double]],
-        meter: Meter
-    ) -> RhythmRecognitionReason? {
-        let candidateGroups = candidateScores.map { scoresByValue in
-            scoresByValue.map { value, score in
-                RhythmCandidate(value: value, score: score)
-            }
-        }
-        let exactScore = zip(exactValues, candidateGroups).reduce(0) { partialResult, pair in
-            let candidateScore = pair.1.first { $0.value == pair.0 }?.score ?? Double.greatestFiniteMagnitude
-            return partialResult + candidateScore
-        }
-        let exactPath = CandidatePath(
-            values: exactValues,
-            score: exactScore,
-            units: exactValues.reduce(0) { $0 + rhythmUnits(for: $1, meter: meter) }
-        )
-        return manualReviewReason(for: exactPath, candidateGroups: candidateGroups, meter: meter)
-    }
-
-    static func bestExactValuesForTesting(
-        candidateScores: [[RhythmValue: Double]],
-        meter: Meter
-    ) -> [RhythmValue]? {
-        let candidateGroups = candidateScores.map { scoresByValue in
-            scoresByValue.map { value, score in
-                RhythmCandidate(value: value, score: score)
-            }
-        }
-        let targetUnits = rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes)
-        return bestExactPath(
-            from: candidateGroups,
-            targetUnits: targetUnits,
-            meter: meter
-        )?.values
-    }
-
-    static func crossPathReviewReasonForTesting(
-        selectedValues: [RhythmValue],
-        alternateValues: [RhythmValue],
-        meter: Meter
-    ) -> RhythmRecognitionReason? {
-        let proposal = RhythmicNotationMeasureProposal(
-            values: selectedValues,
-            safety: .autoApply,
-            isNaturalExactFit: true
-        )
-        let phrase = RhythmPhraseHypothesis(
-            source: .rasterTemplate,
-            primitives: [],
-            symbols: [],
-            uncoveredStrokeIndices: [],
-            naturalValues: selectedValues,
-            naturalUnits: selectedValues.reduce(0) { $0 + rhythmUnits(for: $1, meter: meter) },
-            targetUnits: rhythmUnits(forWholeNotes: meter.measureLengthInWholeNotes),
-            passesCompendium: true
-        )
-        let alternatePath = RhythmRecognitionReasoningPath(
-            kind: .visualShape,
-            outcome: .commitCandidate,
-            values: alternateValues,
-            reason: nil,
-            summary: "source=visual reason=none values=\(alternateValues.map(\.rawValue).joined(separator: ","))"
-        )
-        let decision = decisionByApplyingCrossPathReviewRules(
-            .commit(proposal, phrase),
-            reasoningPaths: [alternatePath],
-            meter: meter
-        )
-
-        return decision.reason
-    }
-
-    private static func requiresExtendedStabilityBeforeAutoApply(
-        for exactPath: CandidatePath,
-        candidateGroups: [[RhythmCandidate]]
-    ) -> Bool {
-        guard exactPath.values.count == candidateGroups.count,
-              exactPath.values.last == .quarter,
-              let terminalCandidates = candidateGroups.last else {
-            return false
-        }
-
-        let hasSelectedQuarter = terminalCandidates.contains { candidate in
-            candidate.value == .quarter && candidate.isConfidentEnoughForMeasureFit
-        }
-        let hasPlayableEighthAlternative = terminalCandidates.contains { candidate in
-            candidate.value == .eighth
-                && (candidate.isConfidentEnoughForMeasureFit || candidate.canExtendAutoApplyStability)
-        }
-
-        return hasSelectedQuarter && hasPlayableEighthAlternative
-    }
-
-    static func classifyCandidates(
-        _ symbol: SymbolObservation,
-        drawingFrame: CGRect
-    ) -> [RhythmCandidate] {
-        let features = SymbolFeatures(symbol: symbol, drawingFrame: drawingFrame)
-        guard !features.contentStrokes.isEmpty else {
-            return []
-        }
-
-        var candidateScores: [RhythmValue: Double] = [:]
-        func add(_ value: RhythmValue, score: Double) {
-            let clampedScore = max(0, score)
-            if let existingScore = candidateScores[value],
-               existingScore <= clampedScore {
-                return
-            }
-            candidateScores[value] = clampedScore
-        }
-
-        let sixteenthRestMatch = looksLikeSixteenthRest(features)
-        let quarterRestMatch = looksLikeQuarterRest(features)
-        let eighthRestMatch = looksLikeEighthRest(features)
-        if sixteenthRestMatch || quarterRestMatch || eighthRestMatch {
-            if sixteenthRestMatch {
-                add(.sixteenthRest, score: 0.0)
-                add(.eighthRest, score: 1.15)
-                add(.quarterRest, score: 1.55)
-            } else if eighthRestMatch {
-                add(.eighthRest, score: 0.0)
-                add(.quarterRest, score: 1.35)
-            } else {
-                add(.quarterRest, score: 0.0)
-                add(.eighthRest, score: 1.35)
-            }
-
-            return candidateScores
-                .map { RhythmCandidate(value: $0.key, score: $0.value) }
-                .sorted { lhs, rhs in
-                    if abs(lhs.score - rhs.score) > 0.0001 {
-                        return lhs.score < rhs.score
-                    }
-                    return lhs.value.wholeNoteLength < rhs.value.wholeNoteLength
-                }
-        }
-
-        if looksLikeRhythmSlash(symbol, drawingFrame: drawingFrame) {
-            return [
-                RhythmCandidate(value: .slash, score: 0.0)
-            ]
-        }
-
-        if looksLikeWholeRest(features) {
-            add(.wholeRest, score: 0.05)
-            add(.halfRest, score: 0.9)
-        }
-
-        if looksLikeHalfRest(features) {
-            add(.halfRest, score: 0.05)
-            add(.wholeRest, score: 1.15)
-        }
-
-        if features.hasStem {
-            if features.hasFlag {
-                if features.hasDot {
-                    add(.dottedEighth, score: 0.02)
-                }
-                add(.eighth, score: features.hasDot ? 1.25 : (features.hasLowerHeadMass ? 0.02 : 0.18))
-                add(.quarter, score: features.hasDot ? 1.8 : 1.25)
-            }
-
-            if features.hasDot,
-               !features.hasFlag {
-                if features.hasHollowHead && !features.hasFilledHead {
-                    add(.dottedHalf, score: 0.02)
-                    add(.dottedQuarter, score: 0.5)
-                    add(.half, score: 1.55)
-                } else if features.hasFilledHead || features.hasLowerHeadMass || features.hasStemAndKick {
-                    add(.dottedQuarter, score: 0.02)
-                    add(.quarter, score: 1.6)
-                    add(.dottedHalf, score: 0.9)
-                } else {
-                    add(.dottedQuarter, score: 0.18)
-                    add(.dottedHalf, score: 0.28)
-                }
-            }
-
-            if features.hasHollowHead && !features.hasFilledHead {
-                add(.half, score: features.hasDot ? 1.55 : 0.05)
-                add(.quarter, score: 0.75)
-            }
-
-            if !features.hasHollowHead,
-               features.hasFilledHead || features.hasLowerHeadMass || features.hasStemAndKick {
-                add(.quarter, score: features.hasDot ? 1.6 : 0.05)
-                add(.half, score: 0.9)
-            }
-        }
-
-        if features.hasHollowHead && !features.hasStem {
-            add(.whole, score: 0.05)
-            add(.half, score: 1.0)
-        }
-
-        if candidateScores.isEmpty {
-            addFallbackCandidates(for: features, into: &candidateScores)
-        }
-
-        return candidateScores
-            .map { RhythmCandidate(value: $0.key, score: $0.value) }
-            .sorted { lhs, rhs in
-                if abs(lhs.score - rhs.score) > 0.0001 {
-                    return lhs.score < rhs.score
-                }
-                return lhs.value.wholeNoteLength < rhs.value.wholeNoteLength
-            }
-    }
-
-    static func visualRestCandidates(
-        for symbol: SymbolObservation,
-        drawingFrame: CGRect
-    ) -> [RhythmCandidate]? {
-        let features = SymbolFeatures(symbol: symbol, drawingFrame: drawingFrame)
-        guard !features.contentStrokes.isEmpty else {
-            return nil
-        }
-
-        var candidateScores: [RhythmValue: Double] = [:]
-        func add(_ value: RhythmValue, score: Double) {
-            let clampedScore = max(0, score)
-            if let existingScore = candidateScores[value],
-               existingScore <= clampedScore {
-                return
-            }
-            candidateScores[value] = clampedScore
-        }
-
-        if looksLikeSixteenthRest(features) {
-            add(.sixteenthRest, score: 0.0)
-            add(.eighthRest, score: 1.15)
-            add(.quarterRest, score: 1.55)
-        }
-
-        if features.contentStrokes.count == 1,
-           let stroke = features.contentStrokes.first,
-           stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame),
-           !stroke.looksFilledNoteHead {
-            add(.eighthRest, score: 0.0)
-            add(.quarterRest, score: 1.35)
-        }
-
-        if looksLikeEighthRest(features) {
-            add(.eighthRest, score: 0.0)
-            add(.quarterRest, score: 1.35)
-        }
-
-        let hasQuarterRestBody = features.contentStrokes.contains {
-            $0.looksLikeQuarterRestBody(in: features.contentBounds)
-        }
-        let hasOneStrokeQuarterRestGesture = features.contentStrokes.count == 1
-            && features.contentStrokes.contains {
-                $0.looksLikeFlexibleOneStrokeQuarterRest(in: features.contentBounds)
-            }
-        let hasFullZigZagRestGesture = features.contentStrokes.count == 1
-            && features.contentStrokes.contains { stroke in
-                stroke.directionChangeCount >= 3
-                    && stroke.bounds.height >= max(CGFloat(18), features.contentBounds.height * 0.72)
-            }
-        let isSevenLikeEighthRest = symbol.sevenLikeEighthRestComparisonScore(in: features.contentBounds) != nil
-        if looksLikeQuarterRest(features),
-           hasQuarterRestBody || hasOneStrokeQuarterRestGesture || hasFullZigZagRestGesture || !isSevenLikeEighthRest {
-            add(.quarterRest, score: 0.0)
-            add(.eighthRest, score: 1.35)
-        }
-
-        if looksLikeWholeRest(features) {
-            add(.wholeRest, score: 0.05)
-            add(.halfRest, score: 0.9)
-        }
-
-        if symbol.strokes.count >= 2,
-           looksLikeHalfRest(features) {
-            add(.halfRest, score: 0.05)
-            add(.wholeRest, score: 1.15)
-        }
-
-        guard !candidateScores.isEmpty else {
-            return nil
-        }
-
-        return candidateScores
-            .map { RhythmCandidate(value: $0.key, score: $0.value) }
-            .sorted { lhs, rhs in
-                if abs(lhs.score - rhs.score) > 0.0001 {
-                    return lhs.score < rhs.score
-                }
-                return lhs.value.wholeNoteLength < rhs.value.wholeNoteLength
-            }
-    }
-
-    private static func beamedEighthCandidateGroups(
-        for symbol: SymbolObservation,
-        drawingFrame: CGRect
-    ) -> [[RhythmCandidate]]? {
-        let noteheadCount = symbol.beamedEighthNoteCount(drawingFrame: drawingFrame)
-        guard noteheadCount >= 2 else {
-            return nil
-        }
-
-        return (0..<noteheadCount).map { _ in
-            [RhythmCandidate(value: .eighth, score: 0.01)]
-        }
-    }
-
-    private static func addFallbackCandidates(
-        for features: SymbolFeatures,
-        into candidateScores: inout [RhythmValue: Double]
-    ) {
-        func add(_ value: RhythmValue, score: Double) {
-            if let existingScore = candidateScores[value],
-               existingScore <= score {
-                return
-            }
-            candidateScores[value] = score
-        }
-
-        if features.hasNoNoteheadRestShape {
-            add(.eighthRest, score: 0.0)
-            add(.quarterRest, score: 1.35)
-            return
-        }
-
-        if features.hasSingleStrokeFlagGesture {
-            add(.eighth, score: 0.65)
-            add(.quarter, score: 1.25)
-        }
-
-        if features.hasStem || features.height > features.width * 1.05 {
-            add(.quarter, score: 1.2)
-            add(.eighth, score: 1.35)
-            add(.quarterRest, score: 1.45)
-            add(.eighthRest, score: 1.55)
-        }
-
-        if features.width > features.height * 1.05 {
-            add(.half, score: 1.25)
-            add(.halfRest, score: 1.35)
-            add(.whole, score: 1.55)
-            add(.wholeRest, score: 1.65)
-        }
-    }
-
-    private static func looksLikeRhythmSlash(_ symbol: SymbolObservation, drawingFrame: CGRect) -> Bool {
-        guard symbol.strokes.count == 1,
-              let stroke = symbol.strokes.first else {
-            return false
-        }
-        guard !stroke.looksLikeQuarterRestBody(in: symbol.bounds),
-              !stroke.looksLikeFlexibleOneStrokeQuarterRest(in: symbol.bounds),
-              !stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: drawingFrame),
-              !stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame) else {
-            return false
-        }
-
-        return stroke.looksLikeRhythmicPlaceholderSlash(in: symbol.bounds)
-    }
-
-    private static func slashCandidateGroups(for symbol: SymbolObservation, drawingFrame: CGRect) -> [[RhythmCandidate]]? {
-        guard !symbol.strokes.isEmpty,
-              symbol.strokes.allSatisfy({
-                  !$0.looksLikeQuarterRestBody(in: $0.bounds)
-                      && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
-                      && !$0.looksLikeFlexibleOneStrokeSixteenthRest(in: drawingFrame)
-                      && !$0.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame)
-                      && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
-              }) else {
-            return nil
-        }
-
-        return symbol.strokes.map { _ in
-            [RhythmCandidate(value: .slash, score: 0.0)]
-        }
-    }
-
-    private static func looksLikeQuarterRest(_ features: SymbolFeatures) -> Bool {
-        guard features.contentStrokes.count <= 5,
-              features.height > max(8, features.width * 0.55),
-              !features.hasDefiniteLowerNotehead,
-              !features.hasClearNoteGlyph else {
-            return false
-        }
-
-        if features.contentStrokes.contains(where: { $0.looksLikeQuarterRestBody(in: features.contentBounds) }) {
-            return true
-        }
-
-        if features.contentStrokes.count == 1,
-           let stroke = features.contentStrokes.first,
-           stroke.looksLikeFlexibleOneStrokeQuarterRest(in: features.contentBounds) {
-            return true
-        }
-
-        let stackedNarrowGesture = features.contentStrokes.count >= 2
-            && features.height > features.width * 0.9
-            && features.contentStrokes.allSatisfy { !$0.looksClosed && !$0.looksFilledNoteHead }
-            && features.contentStrokes.filter { $0.bounds.height >= features.height * 0.18 }.count >= 2
-        if stackedNarrowGesture {
-            return true
-        }
-
-        let angularSegments = features.contentStrokes.filter { stroke in
-            stroke.looksLikeQuarterRestSegment(in: features.contentBounds)
-        }
-        return angularSegments.count >= 2
-    }
-
-    private static func looksLikeSixteenthRest(_ features: SymbolFeatures) -> Bool {
-        guard features.contentStrokes.count <= 6,
-              features.height > max(7, features.width * 0.72),
-              !features.hasDefiniteLowerNotehead,
-              !features.hasClearNoteGlyph else {
-            return false
-        }
-
-        let symbol = SymbolObservation(strokes: features.contentStrokes)
-        if symbol.sixteenthRestComparisonScore(in: features.drawingFrame) != nil {
-            return true
-        }
-
-        if features.contentStrokes.count == 1,
-           let stroke = features.contentStrokes.first,
-           stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: features.drawingFrame) {
-            return true
-        }
-
-        return false
-    }
-
-    private static func looksLikeEighthRest(_ features: SymbolFeatures) -> Bool {
-        guard features.contentStrokes.count <= 5,
-              features.height > max(7, features.width * 0.72),
-              !features.hasDefiniteLowerNotehead,
-              !features.hasClearNoteGlyph else {
-            return false
-        }
-
-        if features.hasNoNoteheadRestShape {
-            return true
-        }
-
-        if features.contentStrokes.count == 1,
-           let stroke = features.contentStrokes.first,
-           stroke.looksLikeFlexibleOneStrokeEighthRest(in: features.drawingFrame) {
-            return true
-        }
-
-        let upperDots = features.contentStrokes.filter {
-            $0.looksLikeEighthRestDot(in: features.contentBounds)
-        }
-        guard !upperDots.isEmpty else {
-            return false
-        }
-
-        return upperDots.contains { dot in
-            features.contentStrokes.contains { stroke in
-                stroke != dot && stroke.looksLikeEighthRestDescendingTail(
-                    belowOrBeside: dot,
-                    in: features.contentBounds
-                )
-            }
-        }
-    }
-
     private static func looksLikeWholeRest(_ features: SymbolFeatures) -> Bool {
+        if features.hasHorizontalRestBlock {
+            return horizontalRestBlockPlacement(for: features) == .whole
+        }
+
         guard features.width > features.height * 1.05,
               !features.hasStem,
               !features.hasStemAndKick,
@@ -1895,6 +552,11 @@ enum RhythmicNotationQuantizer {
     }
 
     private static func looksLikeHalfRest(_ features: SymbolFeatures) -> Bool {
+        if features.hasHorizontalRestBlock {
+            let placement = horizontalRestBlockPlacement(for: features)
+            return placement == .half || placement == .ambiguous
+        }
+
         guard features.width > max(8, features.height * 1.05),
               !features.hasStem,
               !features.hasStemAndKick,
@@ -2042,24 +704,47 @@ struct StrokeObservation: Hashable {
         return compactWidth && compactHeight && shortPath
     }
 
+    func hasRestBodyVerticalMotion(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let minimumEndpointTravel = max(CGFloat(5), bounds.height * 0.16)
+        let minimumSegmentTravel = max(CGFloat(3), bounds.height * 0.12)
+        let endpointTravelsDown = endPoint.y >= startPoint.y + minimumEndpointTravel
+        let endpointTravelsUp = startPoint.y >= endPoint.y + minimumEndpointTravel
+        let segmentDeltas = zip(points, points.dropFirst()).map { segment in
+            segment.1.y - segment.0.y
+        }
+        let hasDownwardSegment = segmentDeltas.contains { $0 >= minimumSegmentTravel }
+        let hasUpwardSegment = segmentDeltas.contains { $0 <= -minimumSegmentTravel }
+        let spansEnoughBody = bounds.height >= max(CGFloat(16), referenceHeight * 0.42)
+        let hasRestTurn = directionChangeCount >= 1
+            || pathLength >= hypot(bounds.width, bounds.height) * 1.12
+
+        return spansEnoughBody
+            && (
+                endpointTravelsDown
+                    || (endpointTravelsUp && directionChangeCount >= 2)
+                    || (hasDownwardSegment && hasRestTurn)
+                    || (hasDownwardSegment && hasUpwardSegment)
+            )
+    }
+
     func looksLikeQuarterRestBody(in referenceBounds: CGRect) -> Bool {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
-        let coversRestHeight = bounds.height >= referenceHeight * 0.55
+        let coversRestHeight = bounds.height >= max(CGFloat(28), referenceHeight * 0.55)
         let narrowEnough = bounds.width <= max(referenceBounds.width * 1.05, bounds.height * 1.35)
         let spansBody = bounds.minY <= referenceBounds.minY + referenceHeight * 0.24
             && bounds.maxY >= referenceBounds.maxY - referenceHeight * 0.18
-        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.18)
         let hasHandwrittenZigZag = directionChangeCount >= 2
             || (bounds.width <= bounds.height * 0.5 && pathLength >= bounds.height * 1.08)
-        let restShaped = bounds.height > bounds.width * 0.72 || directionChangeCount >= 2
+        let hasRestGestureContour = bounds.height > bounds.width * 0.72 || directionChangeCount >= 2
         let upperHookSuggestsEighthRest = hasHorizontalUpperHook && directionChangeCount <= 2
 
         return coversRestHeight
             && narrowEnough
             && spansBody
-            && drawnDownward
+            && hasRestBodyVerticalMotion(in: referenceBounds)
             && hasHandwrittenZigZag
-            && restShaped
+            && hasRestGestureContour
             && !upperHookSuggestsEighthRest
             && !looksClosed
     }
@@ -2077,9 +762,8 @@ struct StrokeObservation: Hashable {
         let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
             .filter { $0 != $1 }
             .count
-        let coversRestHeight = bounds.height >= max(CGFloat(18), referenceHeight * 0.62)
+        let coversRestHeight = bounds.height >= max(CGFloat(28), referenceHeight * 0.62)
         let narrowEnough = bounds.width <= max(CGFloat(18), bounds.height * 0.48)
-        let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.22)
         let hasRestMotion = directionChangeCount >= 2
             || horizontalTurnCount >= 2
             || (directionChangeCount >= 1 && pathLength >= diagonalSpan * 1.12)
@@ -2089,7 +773,7 @@ struct StrokeObservation: Hashable {
 
         return coversRestHeight
             && narrowEnough
-            && drawnDownward
+            && hasRestBodyVerticalMotion(in: referenceBounds)
             && hasRestMotion
             && moreThanStraightStroke
             && !upperHookSuggestsEighthRest
@@ -2112,7 +796,7 @@ struct StrokeObservation: Hashable {
         let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
             .filter { $0 != $1 }
             .count
-        let compactHeight = bounds.height >= max(CGFloat(14), referenceHeight * 0.15)
+        let compactHeight = bounds.height >= max(CGFloat(12), referenceHeight * 0.15)
             && bounds.height <= max(CGFloat(36), referenceHeight * 0.48)
         let narrowEnough = bounds.width <= max(CGFloat(22), bounds.height * 0.92)
         let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(5), bounds.height * 0.18)
@@ -2132,7 +816,6 @@ struct StrokeObservation: Hashable {
 
     func looksLikeFlexibleOneStrokeSixteenthRest(in referenceBounds: CGRect) -> Bool {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
-        let diagonalSpan = hypot(bounds.width, bounds.height)
         let horizontalDirections = zip(points, points.dropFirst()).compactMap { segment -> Int? in
             let deltaX = segment.1.x - segment.0.x
             guard abs(deltaX) >= 0.65 else {
@@ -2147,10 +830,9 @@ struct StrokeObservation: Hashable {
             && bounds.height <= max(CGFloat(42), referenceHeight * 0.58)
         let narrowEnough = bounds.width <= max(CGFloat(24), bounds.height * 0.96)
         let drawnDownward = endPoint.y >= startPoint.y + max(CGFloat(6), bounds.height * 0.2)
-        let hasTwoShortValueTurns = directionChangeCount >= 2
+        let hasTwoShortValueTurns = directionChangeCount >= 3
             || horizontalTurnCount >= 2
-            || pathLength >= diagonalSpan * 1.24
-        let hasTwoFlagLevels = hasTwoRestFlagLevels(in: bounds)
+        let hasTwoFlagLevels = hasDistinctOneStrokeSixteenthRestFlagLevels(in: bounds)
         let notQuarterRestSize = bounds.height < max(CGFloat(48), referenceHeight * 0.64)
 
         return compactHeight
@@ -2162,6 +844,142 @@ struct StrokeObservation: Hashable {
             && !looksClosed
             && !looksHollowNoteHead
             && !looksFilledNoteHead
+    }
+
+    func hasDistinctOneStrokeSixteenthRestFlagLevels(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let referenceWidth = max(CGFloat(1), referenceBounds.width)
+        let horizontalDirections = zip(points, points.dropFirst()).compactMap { segment -> Int? in
+            let deltaX = segment.1.x - segment.0.x
+            guard abs(deltaX) >= 0.65 else {
+                return nil
+            }
+            return deltaX > 0 ? 1 : -1
+        }
+        let horizontalTurnCount = zip(horizontalDirections, horizontalDirections.dropFirst())
+            .filter { $0 != $1 }
+            .count
+        let upperPoints = points.filter { point in
+            point.y <= referenceBounds.minY + referenceHeight * 0.32
+        }
+        let middleFlagPoints = points.filter { point in
+            point.y >= referenceBounds.minY + referenceHeight * 0.44
+                && point.y <= referenceBounds.minY + referenceHeight * 0.76
+        }
+        let lowerTailPoints = points.filter { point in
+            point.y >= referenceBounds.minY + referenceHeight * 0.72
+        }
+
+        guard let upperBounds = upperPoints.nonEmptyBounds,
+              let middleFlagBounds = middleFlagPoints.nonEmptyBounds,
+              let lowerTailBounds = lowerTailPoints.nonEmptyBounds else {
+            return false
+        }
+
+        let upperFlag = upperBounds.width >= max(CGFloat(4), referenceWidth * 0.24)
+            || hasHorizontalUpperHook
+        let middleFlag = middleFlagBounds.width >= max(CGFloat(6), referenceWidth * 0.34)
+            && middleFlagBounds.height <= max(CGFloat(12), referenceHeight * 0.46)
+        let separatedFlagLevels = middleFlagBounds.midY - upperBounds.midY >= max(CGFloat(6), referenceHeight * 0.22)
+        let descendingTail = lowerTailBounds.maxY >= referenceBounds.minY + referenceHeight * 0.84
+        let lowerFlagHasIndependentMotion = horizontalTurnCount >= 2
+            || containsSegmentAngle(
+                inDegrees: 0...55,
+                minimumLength: max(CGFloat(4), referenceHeight * 0.16)
+            )
+
+        return upperFlag
+            && middleFlag
+            && separatedFlagLevels
+            && descendingTail
+            && lowerFlagHasIndependentMotion
+    }
+
+    func looksLikeShortRestBodyCandidate(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let diagonalSpan = hypot(bounds.width, bounds.height)
+        let compactHeight = bounds.height >= max(CGFloat(14), referenceHeight * 0.18)
+            && bounds.height <= max(CGFloat(44), referenceHeight * 0.7)
+        let narrowEnough = bounds.width <= max(CGFloat(26), bounds.height * 1.02)
+        let hasRestMotion = endPoint.y >= startPoint.y + max(CGFloat(4), bounds.height * 0.14)
+            || hasRestBodyVerticalMotion(in: referenceBounds)
+            || directionChangeCount >= 1
+            || pathLength >= diagonalSpan * 1.05
+        let hasHookOrFlag = hasHorizontalUpperHook
+            || containsSegmentAngle(
+                inDegrees: 0...60,
+                minimumLength: max(CGFloat(3), bounds.height * 0.1)
+            )
+
+        return compactHeight
+            && narrowEnough
+            && hasRestMotion
+            && hasHookOrFlag
+            && !looksClosed
+            && !looksLikeQuarterRestBody(in: referenceBounds)
+            && !looksLikeRhythmicPlaceholderSlash(in: bounds)
+    }
+
+    func looksLikeSixteenthRestEighthBodyCandidate(
+        symbolBounds: CGRect,
+        sceneBounds: CGRect
+    ) -> Bool {
+        let sceneHeight = max(CGFloat(1), sceneBounds.height)
+        let symbolHeight = max(CGFloat(1), symbolBounds.height)
+        let compactHeight = bounds.height >= max(CGFloat(12), sceneHeight * 0.18)
+            && bounds.height <= max(CGFloat(42), sceneHeight * 0.64)
+        let narrowEnough = bounds.width <= max(CGFloat(26), bounds.height * 1.32)
+        let reachesLowerRestBody = bounds.maxY >= symbolBounds.minY + symbolHeight * 0.54
+        let hasRestGesture = looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
+            || looksLikeSingleStrokeEighthRest(in: symbolBounds)
+            || looksLikeShortRestBodyCandidate(in: sceneBounds)
+            || looksLikeShortRestBodyCandidate(in: symbolBounds)
+            || hasRestBodyVerticalMotion(in: symbolBounds)
+            || directionChangeCount >= 1
+
+        return compactHeight
+            && narrowEnough
+            && reachesLowerRestBody
+            && hasRestGesture
+            && !looksClosed
+            && !looksFilledNoteHead
+            && !looksHollowNoteHead
+            && !looksLikeRhythmicPlaceholderSlash(in: bounds)
+            && !looksLikeNeutralHorizontalStrokePrimitive(in: symbolBounds)
+    }
+
+    func looksLikeAddedSixteenthRestFlag(
+        attachedTo bodyBounds: CGRect,
+        symbolBounds: CGRect,
+        sceneBounds: CGRect
+    ) -> Bool {
+        let sceneHeight = max(CGFloat(1), sceneBounds.height)
+        let bodyHeight = max(CGFloat(1), bodyBounds.height)
+        let bodyWidth = max(CGFloat(1), bodyBounds.width)
+        let compactEnough = bounds.height <= max(CGFloat(10), bodyHeight * 0.72)
+            && bounds.width <= max(CGFloat(20), bodyWidth * 1.4)
+        let visibleEnough = bounds.width >= max(CGFloat(3), bodyWidth * 0.18)
+            || pathLength >= max(CGFloat(4), sceneHeight * 0.05)
+            || isCompactMark(comparedTo: symbolBounds)
+        let overlapsBodyHorizontally = bounds.maxX >= bodyBounds.minX - max(CGFloat(5), bodyWidth * 0.38)
+            && bounds.minX <= bodyBounds.maxX + max(CGFloat(5), bodyWidth * 0.38)
+        let internalFlagLane = center.y >= bodyBounds.minY + bodyHeight * 0.22
+            && center.y <= bodyBounds.maxY + bodyHeight * 0.46
+        let detachedDurationDot = bounds.minX >= bodyBounds.maxX + max(CGFloat(3), bodyWidth * 0.22)
+        let topEighthRestDotLane = center.y <= bodyBounds.minY + bodyHeight * 0.18
+        let compactInternalMark = isCompactMark(comparedTo: symbolBounds)
+            || bounds.width <= max(CGFloat(8), bodyWidth * 0.72)
+                && bounds.height <= max(CGFloat(8), bodyHeight * 0.42)
+
+        return compactEnough
+            && visibleEnough
+            && overlapsBodyHorizontally
+            && internalFlagLane
+            && !detachedDurationDot
+            && !topEighthRestDotLane
+            && (!looksClosed || compactInternalMark)
+            && (!looksFilledNoteHead || compactInternalMark)
+            && !looksHollowNoteHead
     }
 
     func looksLikeQuarterRestSegment(in referenceBounds: CGRect) -> Bool {
@@ -2176,6 +994,23 @@ struct StrokeObservation: Hashable {
             && angledOrCurved
             && !looksClosed
             && !isCompactMark(comparedTo: referenceBounds)
+    }
+
+    func looksLikeHorizontalRestBlockStroke(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let wideEnough = bounds.width >= max(CGFloat(8), referenceHeight * 0.14)
+        let compactEnough = bounds.height <= max(CGFloat(24), referenceHeight * 0.32)
+        let horizontalBody = isMostlyHorizontal
+            || (bounds.width >= bounds.height * 0.85 && (looksDense || looksClosed))
+        let notVerticalGlyph = !looksLikeNeutralVerticalStrokePrimitive(in: referenceBounds)
+            && !looksLikeVisualStem(in: referenceBounds)
+
+        return wideEnough
+            && compactEnough
+            && horizontalBody
+            && notVerticalGlyph
+            && !looksLikeLooseDot(in: referenceBounds)
+            && !looksLikeRhythmicPlaceholderSlash(in: bounds)
     }
 
     func looksLikeEighthRestHook(in referenceBounds: CGRect) -> Bool {
@@ -2246,11 +1081,11 @@ struct StrokeObservation: Hashable {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
         let referenceWidth = max(CGFloat(1), referenceBounds.width)
         let upperPoints = points.filter { point in
-            point.y <= referenceBounds.minY + referenceHeight * 0.4
+            point.y <= referenceBounds.minY + referenceHeight * 0.38
         }
         let middlePoints = points.filter { point in
-            point.y >= referenceBounds.minY + referenceHeight * 0.28
-                && point.y <= referenceBounds.minY + referenceHeight * 0.68
+            point.y >= referenceBounds.minY + referenceHeight * 0.42
+                && point.y <= referenceBounds.minY + referenceHeight * 0.78
         }
         guard let upperBounds = upperPoints.nonEmptyBounds,
               let middleBounds = middlePoints.nonEmptyBounds else {
@@ -2259,9 +1094,15 @@ struct StrokeObservation: Hashable {
 
         let upperHook = upperBounds.width >= max(CGFloat(3), referenceWidth * 0.16)
             || upperBounds.height >= max(CGFloat(3), referenceHeight * 0.08)
-        let middleHook = middleBounds.width >= max(CGFloat(3), referenceWidth * 0.16)
-            || middleBounds.height >= max(CGFloat(4), referenceHeight * 0.12)
-        let separatedLevels = middleBounds.midY - upperBounds.midY >= max(CGFloat(3), referenceHeight * 0.12)
+        let middleHook = middleBounds.width >= max(CGFloat(4.5), referenceWidth * 0.22)
+            || (
+                middleBounds.width >= max(CGFloat(3), referenceWidth * 0.14)
+                    && containsSegmentAngle(
+                        inDegrees: 0...55,
+                        minimumLength: max(CGFloat(3), referenceHeight * 0.09)
+                    )
+            )
+        let separatedLevels = middleBounds.midY - upperBounds.midY >= max(CGFloat(4), referenceHeight * 0.16)
         return upperHook && middleHook && separatedLevels
     }
 
@@ -2352,577 +1193,6 @@ struct StrokeObservation: Hashable {
     }
 }
 
-private struct VisualRhythmRecognizer {
-    static func recognition(
-        from strokes: [StrokeObservation],
-        drawingFrame: CGRect
-    ) -> VisualRhythmRecognition? {
-        let orderedStrokes = strokes.sortedByVisualPosition()
-        guard !orderedStrokes.isEmpty else {
-            return nil
-        }
-
-        let sceneBounds = orderedStrokes.nonEmptyBounds ?? drawingFrame
-        var usedStrokes = Set<StrokeObservation>()
-        var events: [VisualRhythmEvent] = []
-
-        func append(_ event: VisualRhythmEvent) {
-            events.append(event)
-            usedStrokes.formUnion(event.strokes)
-        }
-
-        for event in eighthRestEvents(
-            from: orderedStrokes,
-            usedStrokes: usedStrokes,
-            sceneBounds: sceneBounds
-        ) {
-            append(event)
-        }
-
-        for event in slashEvents(
-            from: orderedStrokes,
-            usedStrokes: usedStrokes,
-            sceneBounds: sceneBounds
-        ) {
-            append(event)
-        }
-
-        for event in beamedEighthEvents(
-            from: orderedStrokes,
-            usedStrokes: usedStrokes,
-            sceneBounds: sceneBounds,
-            drawingFrame: drawingFrame
-        ) {
-            append(event)
-        }
-
-        for event in noteEvents(
-            from: orderedStrokes,
-            usedStrokes: usedStrokes,
-            sceneBounds: sceneBounds
-        ) {
-            append(event)
-        }
-
-        for event in restEvents(
-            from: orderedStrokes,
-            usedStrokes: usedStrokes,
-            sceneBounds: sceneBounds,
-            drawingFrame: drawingFrame
-        ) {
-            append(event)
-        }
-
-        guard !events.isEmpty else {
-            return nil
-        }
-
-        let uncoveredStrokes = orderedStrokes.filter { stroke in
-            !usedStrokes.contains(stroke)
-                && !stroke.isIgnorableVisualNoise(in: sceneBounds)
-        }
-
-        let orderedEvents = events
-            .sorted { lhs, rhs in
-                if abs(lhs.xPosition - rhs.xPosition) > 0.5 {
-                    return lhs.xPosition < rhs.xPosition
-                }
-                return lhs.yPosition < rhs.yPosition
-            }
-        return VisualRhythmRecognition(
-            events: orderedEvents,
-            uncoveredStrokes: uncoveredStrokes
-        )
-    }
-
-    private static func beamedEighthEvents(
-        from strokes: [StrokeObservation],
-        usedStrokes: Set<StrokeObservation>,
-        sceneBounds: CGRect,
-        drawingFrame: CGRect
-    ) -> [VisualRhythmEvent] {
-        let availableStrokes = strokes.filter { !usedStrokes.contains($0) }
-        let noteheads = noteheadClusters(from: availableStrokes, sceneBounds: sceneBounds)
-        let stems = availableStrokes.filter { $0.looksLikeVisualStem(in: sceneBounds) }
-        let beamSeeds = availableStrokes.filter { stroke in
-            let connectedStemXs = stroke.connectedBeamStemXs(in: stroke.bounds)
-            let frameNoteheadCount = noteheads.filter { head in
-                connectedStemXs.contains { stemX in
-                    abs(stemX - head.bounds.midX) <= max(CGFloat(12), drawingFrame.width * 0.04)
-                }
-            }.count
-            let connectedFrameHasNoteheads = connectedStemXs.count >= 2 && frameNoteheadCount >= 2
-            if !connectedFrameHasNoteheads {
-                if let restCandidates = RhythmicNotationQuantizer.visualRestCandidates(
-                    for: SymbolObservation(strokes: [stroke]),
-                    drawingFrame: drawingFrame
-                ),
-                   restCandidates.first?.value == .quarterRest {
-                    return false
-                }
-            }
-
-            return stroke.looksLikeVisualBeamSeed(in: sceneBounds)
-                || stroke.looksLikeSlopedVisualBeamSeed(
-                    over: stems,
-                    in: sceneBounds,
-                    drawingFrame: drawingFrame
-                )
-                || stroke.looksLikeFoldedBeamStemSeed(
-                    over: stems,
-                    in: sceneBounds,
-                    drawingFrame: drawingFrame
-                )
-                || connectedFrameHasNoteheads
-        }
-
-        var events: [VisualRhythmEvent] = []
-        var locallyUsedStrokes = Set<StrokeObservation>()
-        for beam in beamSeeds.sortedByVisualPosition() where !locallyUsedStrokes.contains(beam) {
-            let inferredStemXs = beam.connectedBeamStemXs(in: beam.bounds)
-            let coveredStems = stems.filter { stem in
-                guard !locallyUsedStrokes.contains(stem) else {
-                    return false
-                }
-
-                if inferredStemXs.contains(where: { abs($0 - stem.bounds.midX) <= max(CGFloat(9), beam.bounds.width * 0.18) }) {
-                    return true
-                }
-
-                let coveragePadding = max(CGFloat(8), drawingFrame.width * 0.025)
-                let horizontallyCovered = beam.bounds.minX - coveragePadding <= stem.bounds.midX
-                    && beam.bounds.maxX + coveragePadding >= stem.bounds.midX
-                let verticallyConnected = stem.bounds.minY <= beam.bounds.maxY + max(CGFloat(10), sceneBounds.height * 0.16)
-                    && stem.bounds.maxY >= beam.bounds.maxY
-                return horizontallyCovered && verticallyConnected
-            }
-
-            let stemXs = (coveredStems.map(\.bounds.midX) + inferredStemXs)
-                .clusteredXs(minimumSeparation: max(CGFloat(8), drawingFrame.width * 0.03))
-            guard stemXs.count >= 2 else {
-                continue
-            }
-
-            let coveredNoteheads = noteheads.filter { head in
-                stemXs.contains { stemX in
-                    abs(stemX - head.bounds.midX) <= max(CGFloat(12), drawingFrame.width * 0.04)
-                }
-            }
-            let baseEventStrokeList = [beam]
-                + coveredStems
-                + coveredNoteheads.flatMap(\.strokes)
-            let baseEventBounds = baseEventStrokeList.nonEmptyBounds ?? beam.bounds
-            let touchUpStrokes = availableStrokes.filter { stroke in
-                guard !locallyUsedStrokes.contains(stroke),
-                      !baseEventStrokeList.contains(stroke),
-                      stroke.isBeamedEventTouchUp(
-                          near: baseEventBounds,
-                          sceneBounds: sceneBounds,
-                          drawingFrame: drawingFrame
-                      ) else {
-                    return false
-                }
-
-                return true
-            }
-            let eventStrokeList = baseEventStrokeList + touchUpStrokes
-            let eventStrokes = Set(eventStrokeList)
-            let eventBounds = eventStrokeList.nonEmptyBounds ?? beam.bounds
-            let noteCount = max(stemXs.count, coveredNoteheads.count)
-            guard noteCount >= 2 else {
-                continue
-            }
-            let hasProtectedNoteheads = coveredNoteheads.count >= 2
-
-            locallyUsedStrokes.formUnion(eventStrokes)
-            events.append(
-                VisualRhythmEvent(
-                    xPosition: eventBounds.minX,
-                    yPosition: eventBounds.midY,
-                    candidateGroups: (0..<min(noteCount, 4)).map { _ in
-                        [RhythmCandidate(value: .eighth, score: 0.0)]
-                    },
-                    strokes: eventStrokes,
-                    isBeamedEighthEvent: hasProtectedNoteheads
-                )
-            )
-        }
-
-        return events
-    }
-
-    private static func eighthRestEvents(
-        from strokes: [StrokeObservation],
-        usedStrokes: Set<StrokeObservation>,
-        sceneBounds: CGRect
-    ) -> [VisualRhythmEvent] {
-        let availableStrokes = strokes.filter { !usedStrokes.contains($0) }
-        var events: [VisualRhythmEvent] = []
-        var locallyUsedStrokes = Set<StrokeObservation>()
-
-        for anchor in availableStrokes.sortedByVisualPosition() where !locallyUsedStrokes.contains(anchor) {
-            let nearbyStrokes = availableStrokes
-                .filter { stroke in
-                    !locallyUsedStrokes.contains(stroke)
-                        && stroke.isCloseToVisualSymbol(anchoredBy: anchor, in: sceneBounds)
-                }
-                .sortedByVisualPosition()
-            let candidateSymbols = nearbyStrokes
-                .subsets(containing: anchor, maximumCount: 4)
-                .compactMap { strokes -> (symbol: SymbolObservation, score: CGFloat)? in
-                    let symbol = SymbolObservation(strokes: strokes)
-                    guard !symbol.strokes.allSatisfy({
-                        !$0.looksLikeQuarterRestBody(in: $0.bounds)
-                            && !$0.looksLikeFlexibleOneStrokeQuarterRest(in: $0.bounds)
-                            && !$0.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
-                            && $0.looksLikeRhythmicPlaceholderSlash(in: $0.bounds)
-                            && $0.isIsolatedPlaceholderSlash(
-                                among: availableStrokes,
-                                sceneBounds: sceneBounds
-                            )
-                    }) else {
-                        return nil
-                    }
-                    guard !symbol.hasAttachedLowerNotehead(among: availableStrokes, in: sceneBounds) else {
-                        return nil
-                    }
-                    guard !symbol.isSingleVisualNoteheadWithAttachedStem(
-                        among: availableStrokes,
-                        in: sceneBounds
-                    ) else {
-                        return nil
-                    }
-                    if let restCandidates = RhythmicNotationQuantizer.visualRestCandidates(
-                        for: symbol,
-                        drawingFrame: sceneBounds
-                    ),
-                       restCandidates.first?.value == .quarterRest {
-                        return nil
-                    }
-                    guard let score = symbol.eighthRestComparisonScore(in: sceneBounds) else {
-                        return nil
-                    }
-                    return (symbol, score)
-                }
-
-            guard let bestSymbol = candidateSymbols.min(by: { lhs, rhs in
-                if abs(lhs.score - rhs.score) > 0.001 {
-                    return lhs.score < rhs.score
-                }
-                return lhs.symbol.bounds.width < rhs.symbol.bounds.width
-            }) else {
-                continue
-            }
-
-            let eventStrokes = Set(bestSymbol.symbol.strokes)
-            let eventBounds = bestSymbol.symbol.bounds
-            locallyUsedStrokes.formUnion(eventStrokes)
-            events.append(
-                VisualRhythmEvent(
-                    xPosition: eventBounds.minX,
-                    yPosition: eventBounds.midY,
-                    candidateGroups: [[
-                        RhythmCandidate(value: .eighthRest, score: 0.0),
-                        RhythmCandidate(value: .quarterRest, score: 1.45)
-                    ]],
-                    strokes: eventStrokes,
-                    isBeamedEighthEvent: false
-                )
-            )
-        }
-
-        return events
-    }
-
-    private static func restEvents(
-        from strokes: [StrokeObservation],
-        usedStrokes: Set<StrokeObservation>,
-        sceneBounds: CGRect,
-        drawingFrame: CGRect
-    ) -> [VisualRhythmEvent] {
-        let availableStrokes = strokes.filter { !usedStrokes.contains($0) }
-        var events: [VisualRhythmEvent] = []
-        var locallyUsedStrokes = Set<StrokeObservation>()
-
-        for anchor in availableStrokes.sortedByVisualPosition() where !locallyUsedStrokes.contains(anchor) {
-            let nearbyStrokes = availableStrokes
-                .filter { stroke in
-                    !locallyUsedStrokes.contains(stroke)
-                        && stroke.isCloseToVisualSymbol(anchoredBy: anchor, in: sceneBounds)
-                }
-                .sortedByVisualPosition()
-            let candidateSymbols = nearbyStrokes
-                .subsets(containing: anchor, maximumCount: 5)
-                .compactMap { strokes -> (symbol: SymbolObservation, candidates: [RhythmCandidate])? in
-                    let symbol = SymbolObservation(strokes: strokes)
-                    guard let candidates = RhythmicNotationQuantizer.visualRestCandidates(
-                        for: symbol,
-                        drawingFrame: drawingFrame
-                    ) else {
-                        return nil
-                    }
-                    return (symbol, candidates)
-                }
-
-            guard let bestSymbol = candidateSymbols.min(by: { lhs, rhs in
-                let lhsScore = lhs.candidates.first?.score ?? .greatestFiniteMagnitude
-                let rhsScore = rhs.candidates.first?.score ?? .greatestFiniteMagnitude
-                if abs(lhsScore - rhsScore) > 0.001 {
-                    return lhsScore < rhsScore
-                }
-                return lhs.symbol.bounds.width < rhs.symbol.bounds.width
-            }) else {
-                continue
-            }
-
-            let eventStrokes = Set(bestSymbol.symbol.strokes)
-            let eventBounds = bestSymbol.symbol.bounds
-            locallyUsedStrokes.formUnion(eventStrokes)
-            events.append(
-                VisualRhythmEvent(
-                    xPosition: eventBounds.minX,
-                    yPosition: eventBounds.midY,
-                    candidateGroups: [bestSymbol.candidates],
-                    strokes: eventStrokes,
-                    isBeamedEighthEvent: false
-                )
-            )
-        }
-
-        return events
-    }
-
-    private static func noteEvents(
-        from strokes: [StrokeObservation],
-        usedStrokes: Set<StrokeObservation>,
-        sceneBounds: CGRect
-    ) -> [VisualRhythmEvent] {
-        let availableStrokes = strokes.filter { !usedStrokes.contains($0) }
-        let noteheads = noteheadClusters(from: availableStrokes, sceneBounds: sceneBounds)
-        let stemCandidates = availableStrokes.filter { $0.looksLikeVisualStem(in: sceneBounds) }
-        let dotCandidates = availableStrokes.filter { $0.looksLikeLooseDot(in: sceneBounds) }
-        var events: [VisualRhythmEvent] = []
-        var locallyUsedStrokes = Set<StrokeObservation>()
-
-        for notehead in noteheads.sorted(by: { $0.bounds.minX < $1.bounds.minX }) {
-            guard notehead.strokes.allSatisfy({ !locallyUsedStrokes.contains($0) }) else {
-                continue
-            }
-
-            let nearestStem = stemCandidates
-                .filter { stem in
-                    !locallyUsedStrokes.contains(stem)
-                        && abs(stem.bounds.midX - notehead.bounds.midX) <= max(CGFloat(16), notehead.bounds.width * 2.5)
-                        && stem.bounds.minY <= notehead.bounds.midY
-                        && stem.bounds.maxY >= notehead.bounds.minY - max(CGFloat(4), sceneBounds.height * 0.06)
-                }
-                .min { lhs, rhs in
-                    abs(lhs.bounds.midX - notehead.bounds.midX) < abs(rhs.bounds.midX - notehead.bounds.midX)
-                }
-
-            let provisionalBounds = ([notehead.bounds] + (nearestStem.map { [$0.bounds] } ?? []))
-                .reduce(CGRect.null) { partialResult, bounds in
-                    partialResult.union(bounds)
-                }
-            let augmentationDot = dotCandidates
-                .filter { dot in
-                    !locallyUsedStrokes.contains(dot)
-                        && !notehead.strokes.contains(dot)
-                        && dot.looksLikeAugmentationDot(toRightOf: provisionalBounds, headBounds: notehead.bounds)
-                }
-                .min { lhs, rhs in lhs.bounds.minX < rhs.bounds.minX }
-
-            let flagStroke = nearestStem.flatMap { stem in
-                availableStrokes
-                    .filter { stroke in
-                        !locallyUsedStrokes.contains(stroke)
-                            && !notehead.strokes.contains(stroke)
-                            && stroke != stem
-                            && stroke != augmentationDot
-                            && stroke.looksLikeVisualFlag(near: stem, in: sceneBounds)
-                    }
-                    .min { lhs, rhs in
-                        abs(lhs.bounds.midX - stem.bounds.midX) < abs(rhs.bounds.midX - stem.bounds.midX)
-                    }
-            }
-
-            guard let rhythmCandidates = candidates(
-                for: notehead,
-                stem: nearestStem,
-                flag: flagStroke,
-                dot: augmentationDot
-            ) else {
-                continue
-            }
-
-            let eventStrokeList = notehead.strokes
-                + (nearestStem.map { [$0] } ?? [])
-                + (flagStroke.map { [$0] } ?? [])
-                + (augmentationDot.map { [$0] } ?? [])
-            let eventStrokes = Set(eventStrokeList)
-            let eventBounds = eventStrokeList.nonEmptyBounds ?? notehead.bounds
-
-            locallyUsedStrokes.formUnion(eventStrokes)
-            events.append(
-                VisualRhythmEvent(
-                    xPosition: eventBounds.minX,
-                    yPosition: eventBounds.midY,
-                    candidateGroups: [rhythmCandidates],
-                    strokes: eventStrokes,
-                    isBeamedEighthEvent: false
-                )
-            )
-        }
-
-        return events
-    }
-
-    private static func slashEvents(
-        from strokes: [StrokeObservation],
-        usedStrokes: Set<StrokeObservation>,
-        sceneBounds: CGRect
-    ) -> [VisualRhythmEvent] {
-        strokes
-            .filter { stroke in
-                !usedStrokes.contains(stroke)
-                    && !stroke.looksLikeQuarterRestBody(in: stroke.bounds)
-                    && !stroke.looksLikeFlexibleOneStrokeQuarterRest(in: stroke.bounds)
-                    && !stroke.looksLikeFlexibleOneStrokeEighthRest(in: sceneBounds)
-                    && stroke.looksLikeRhythmicPlaceholderSlash(in: stroke.bounds)
-                    && stroke.isIsolatedPlaceholderSlash(among: strokes, sceneBounds: sceneBounds)
-            }
-            .map { stroke in
-                VisualRhythmEvent(
-                    xPosition: stroke.bounds.minX,
-                    yPosition: stroke.bounds.midY,
-                    candidateGroups: [[RhythmCandidate(value: .slash, score: 0.0)]],
-                    strokes: [stroke],
-                    isBeamedEighthEvent: false
-                )
-            }
-    }
-
-    private static func noteheadClusters(
-        from strokes: [StrokeObservation],
-        sceneBounds: CGRect
-    ) -> [VisualNotehead] {
-        strokes
-            .filter { $0.looksLikeVisualNotehead(in: sceneBounds) }
-            .sortedByVisualPosition()
-            .reduce(into: [[StrokeObservation]]()) { clusters, stroke in
-                guard var previousCluster = clusters.popLast(),
-                      let previousBounds = previousCluster.nonEmptyBounds else {
-                    clusters.append([stroke])
-                    return
-                }
-
-                let horizontalDistance = abs(stroke.bounds.midX - previousBounds.midX)
-                let verticalDistance = abs(stroke.bounds.midY - previousBounds.midY)
-                let belongsToSameHead = horizontalDistance <= max(CGFloat(10), previousBounds.width * 1.35)
-                    && verticalDistance <= max(CGFloat(10), previousBounds.height * 1.4)
-
-                if belongsToSameHead {
-                    previousCluster.append(stroke)
-                    clusters.append(previousCluster)
-                } else {
-                    clusters.append(previousCluster)
-                    clusters.append([stroke])
-                }
-            }
-            .map(VisualNotehead.init(strokes:))
-    }
-
-    private static func candidates(
-        for notehead: VisualNotehead,
-        stem: StrokeObservation?,
-        flag: StrokeObservation?,
-        dot: StrokeObservation?
-    ) -> [RhythmCandidate]? {
-        let hasDot = dot != nil
-        if let stem {
-            if hasDot {
-                if notehead.isHollow {
-                    return [
-                        RhythmCandidate(value: .dottedHalf, score: 0.0),
-                        RhythmCandidate(value: .half, score: 1.4),
-                        RhythmCandidate(value: .dottedQuarter, score: 0.8)
-                    ]
-                }
-
-                return [
-                    RhythmCandidate(value: .dottedEighth, score: 0.0),
-                    RhythmCandidate(value: .dottedQuarter, score: 0.0),
-                    RhythmCandidate(value: .quarter, score: 1.5),
-                    RhythmCandidate(value: .dottedHalf, score: 0.95)
-                ]
-            }
-
-            if notehead.isHollow {
-                return [
-                    RhythmCandidate(value: .half, score: 0.0),
-                    RhythmCandidate(value: .quarter, score: 0.9)
-                ]
-            }
-
-            if flag != nil || stem.looksLikeSingleStrokeEighthNote {
-                return [
-                    RhythmCandidate(value: .eighth, score: 0.0),
-                    RhythmCandidate(value: .quarter, score: 1.2)
-                ]
-            }
-
-            return [
-                RhythmCandidate(value: .quarter, score: 0.0),
-                RhythmCandidate(value: .eighth, score: 1.15)
-            ]
-        }
-
-        if notehead.isHollow {
-            return [
-                RhythmCandidate(value: .whole, score: 0.0),
-                RhythmCandidate(value: .half, score: 1.0)
-            ]
-        }
-
-        return nil
-    }
-}
-
-private struct VisualRhythmRecognition {
-    let events: [VisualRhythmEvent]
-    let uncoveredStrokes: [StrokeObservation]
-
-    var candidateGroups: [[RhythmCandidate]] {
-        events.flatMap(\.candidateGroups)
-    }
-
-    var containsBeamedEighthEvent: Bool {
-        events.contains(where: \.isBeamedEighthEvent)
-    }
-}
-
-private struct VisualRhythmEvent: Hashable {
-    let xPosition: CGFloat
-    let yPosition: CGFloat
-    let candidateGroups: [[RhythmCandidate]]
-    let strokes: Set<StrokeObservation>
-    let isBeamedEighthEvent: Bool
-}
-
-private struct VisualNotehead: Hashable {
-    let strokes: [StrokeObservation]
-    let bounds: CGRect
-    let isFilled: Bool
-    let isHollow: Bool
-
-    init(strokes: [StrokeObservation]) {
-        self.strokes = strokes
-        self.bounds = strokes.nonEmptyBounds ?? .null
-        self.isFilled = strokes.contains(where: \.looksFilledNoteHead)
-        self.isHollow = strokes.contains(where: \.looksHollowNoteHead)
-    }
-}
-
 extension StrokeObservation {
     var isNoteheadLikeMark: Bool {
         bounds.width >= 4
@@ -2930,7 +1200,7 @@ extension StrokeObservation {
             && (looksFilledNoteHead || looksHollowNoteHead || looksClosed)
     }
 
-    func looksLikeVisualNotehead(in sceneBounds: CGRect) -> Bool {
+    func looksLikeRhythmNotehead(in sceneBounds: CGRect) -> Bool {
         let sceneHeight = max(CGFloat(1), sceneBounds.height)
         let largeEnough = bounds.width >= 4
             && bounds.height >= 4
@@ -2941,6 +1211,119 @@ extension StrokeObservation {
         return largeEnough
             && lowerOrSubstantial
             && roundedHead
+            && !looksLikeZigZagBodyPrimitive(in: sceneBounds)
+            && !looksLikeNeutralVerticalStrokePrimitive(in: sceneBounds)
+    }
+
+    func looksLikeOpenRhythmNotehead(in sceneBounds: CGRect) -> Bool {
+        let sceneHeight = max(CGFloat(1), sceneBounds.height)
+        let sceneWidth = max(CGFloat(1), sceneBounds.width)
+        let largeEnough = bounds.width >= max(CGFloat(7), sceneWidth * 0.06)
+            && bounds.height >= max(CGFloat(6), sceneHeight * 0.12)
+        let lowerEnough = center.y >= sceneBounds.minY + sceneHeight * 0.38
+            || bounds.maxY >= sceneBounds.maxY - sceneHeight * 0.16
+        let aspect = bounds.width / max(CGFloat(1), bounds.height)
+        let ovalish = aspect >= 0.45 && aspect <= 2.25
+        let outlineLength = pathLength >= max(CGFloat(10), (bounds.width + bounds.height) * 0.68)
+        let notStraightAxis = !isMostlyVertical && !isMostlyHorizontal
+        let openOrCurved = looksHollowNoteHead
+            || looksClosed
+            || directionChangeCount >= 1
+            || pathLength >= hypot(bounds.width, bounds.height) * 1.18
+
+        return largeEnough
+            && lowerEnough
+            && ovalish
+            && outlineLength
+            && notStraightAxis
+            && openOrCurved
+            && !looksDense
+            && !looksLikeZigZagBodyPrimitive(in: sceneBounds)
+            && !looksLikeNeutralVerticalStrokePrimitive(in: sceneBounds)
+            && !looksLikeShortRestBodyCandidate(in: sceneBounds)
+    }
+
+    func looksLikeZigZagBodyPrimitive(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let diagonalSpan = hypot(bounds.width, bounds.height)
+        let tallEnough = bounds.height >= max(CGFloat(14), referenceHeight * 0.14)
+        let yDominant = bounds.height >= bounds.width * 1.18
+        let hasAngularMotion = directionChangeCount >= 1
+            || pathLength >= diagonalSpan * 1.08
+        let stemLikeVertical = isMostlyVertical
+            && bounds.width <= max(CGFloat(8), bounds.height * 0.24)
+            && directionChangeCount <= 1
+            && pathLength <= bounds.height * 1.8
+        let notPlainStem = !stemLikeVertical
+
+        return tallEnough
+            && yDominant
+            && hasAngularMotion
+            && notPlainStem
+            && !looksClosed
+            && !looksLikeLooseDot(in: referenceBounds)
+            && !looksLikeRhythmicPlaceholderSlash(in: bounds)
+    }
+
+    func looksLikeNeutralVerticalStrokePrimitive(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let tallEnough = bounds.height >= max(CGFloat(12), referenceHeight * 0.16)
+        let narrowEnough = bounds.width <= max(CGFloat(12), bounds.height * 0.5)
+        let mostlyStraight = directionChangeCount <= 1
+            && pathLength <= bounds.height * 2.2
+
+        return tallEnough
+            && narrowEnough
+            && mostlyStraight
+            && !looksClosed
+            && !looksLikeLooseDot(in: referenceBounds)
+            && !looksLikeRhythmicPlaceholderSlash(in: bounds)
+    }
+
+    func looksLikeNeutralHorizontalStrokePrimitive(in referenceBounds: CGRect) -> Bool {
+        let referenceWidth = max(CGFloat(1), referenceBounds.width)
+        let wideEnough = bounds.width >= max(CGFloat(10), referenceWidth * 0.07)
+        let thinEnough = bounds.height <= max(CGFloat(10), bounds.width * 0.5)
+        let mostlyStraight = directionChangeCount <= 1
+            && pathLength <= bounds.width * 2.1
+
+        return wideEnough
+            && thinEnough
+            && mostlyStraight
+            && !looksClosed
+            && !looksLikeLooseDot(in: referenceBounds)
+    }
+
+    func looksLikeNeutralDiagonalStrokePrimitive(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let largeEnough = bounds.width >= max(CGFloat(6), referenceHeight * 0.07)
+            && bounds.height >= max(CGFloat(8), referenceHeight * 0.1)
+        let diagonalEnough = !isMostlyHorizontal
+            && !isMostlyVertical
+            && abs(endPoint.x - startPoint.x) >= bounds.width * 0.42
+            && abs(endPoint.y - startPoint.y) >= bounds.height * 0.42
+        let mostlyStraight = directionChangeCount <= 1
+            && pathLength <= hypot(bounds.width, bounds.height) * 1.55
+
+        return largeEnough
+            && diagonalEnough
+            && mostlyStraight
+            && !looksClosed
+            && !looksLikeLooseDot(in: referenceBounds)
+    }
+
+    func looksLikeNeutralCurveHookPrimitive(in referenceBounds: CGRect) -> Bool {
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let compactEnough = bounds.height <= max(CGFloat(22), referenceHeight * 0.36)
+        let hasCurveOrHook = hasHorizontalUpperHook
+            || directionChangeCount >= 1
+            || pathLength >= hypot(bounds.width, bounds.height) * 1.12
+
+        return compactEnough
+            && hasCurveOrHook
+            && !looksClosed
+            && !looksLikeLooseDot(in: referenceBounds)
+            && !looksLikeVisualStem(in: referenceBounds)
     }
 
     func looksLikeVisualStem(in sceneBounds: CGRect) -> Bool {
@@ -2995,7 +1378,7 @@ extension StrokeObservation {
             && coveredStemCount >= 2
             && !looksClosed
             && !looksLikeVisualStem(in: sceneBounds)
-            && !looksLikeVisualNotehead(in: sceneBounds)
+            && !looksLikeRhythmNotehead(in: sceneBounds)
     }
 
     func looksLikeFoldedBeamStemSeed(
@@ -3043,9 +1426,9 @@ extension StrokeObservation {
 
     func looksLikeLooseDot(in referenceBounds: CGRect) -> Bool {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
-        let referenceWidth = max(CGFloat(1), referenceBounds.width)
-        let compactEnough = bounds.width <= max(CGFloat(10), referenceWidth * 0.34)
-            && bounds.height <= max(CGFloat(10), referenceHeight * 0.34)
+        let maxDotSide = max(CGFloat(10), min(CGFloat(14), referenceHeight * 0.26))
+        let compactEnough = bounds.width <= maxDotSide
+            && bounds.height <= maxDotSide
         let shortEnough = pathLength <= max(CGFloat(36), referenceHeight * 1.5)
         let dotLikeBody = pathLength <= 1
             || looksFilledNoteHead
@@ -3054,6 +1437,32 @@ extension StrokeObservation {
         return compactEnough
             && shortEnough
             && dotLikeBody
+    }
+
+    func looksLikeTieArc(in referenceBounds: CGRect) -> Bool {
+        let referenceWidth = max(CGFloat(1), referenceBounds.width)
+        let referenceHeight = max(CGFloat(1), referenceBounds.height)
+        let wideEnough = bounds.width >= max(CGFloat(18), referenceWidth * 0.08)
+        let shallowEnough = bounds.height <= max(CGFloat(18), bounds.width * 0.34)
+        let tallEnoughToCurve = bounds.height >= max(CGFloat(3), referenceHeight * 0.035)
+        let endpointsLevel = abs(startPoint.y - endPoint.y) <= max(CGFloat(9), bounds.height * 0.85)
+        let horizontalTravel = abs(endPoint.x - startPoint.x) >= bounds.width * 0.62
+        let chordLength = hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y)
+        let hasCurvature = pathLength >= max(chordLength + 2.5, chordLength * 1.05)
+            || directionChangeCount >= 1
+        let notStraightBeam = bounds.height >= 4
+            || pathLength >= chordLength * 1.08
+
+        return wideEnough
+            && shallowEnough
+            && tallEnoughToCurve
+            && endpointsLevel
+            && horizontalTravel
+            && hasCurvature
+            && notStraightBeam
+            && !looksClosed
+            && !looksDense
+            && !isMostlyVertical
     }
 
     func looksLikeAugmentationDot(toRightOf symbolBounds: CGRect, headBounds: CGRect) -> Bool {
@@ -3102,7 +1511,7 @@ extension StrokeObservation {
                 && verticalDistance <= max(CGFloat(24), sceneBounds.height * 0.42)
             return nearEnough
                 && (other.looksLikeVisualStem(in: sceneBounds)
-                    || other.looksLikeVisualNotehead(in: sceneBounds)
+                    || other.looksLikeRhythmNotehead(in: sceneBounds)
                     || other.looksLikeVisualBeamSeed(in: sceneBounds))
         }
 
@@ -3173,7 +1582,7 @@ extension StrokeObservation {
         drawingFrame: CGRect
     ) -> Bool {
         let glyphLike = looksLikeVisualStem(in: sceneBounds)
-            || looksLikeVisualNotehead(in: sceneBounds)
+            || looksLikeRhythmNotehead(in: sceneBounds)
             || looksLikeVisualBeamSeed(in: sceneBounds)
             || looksLikeLooseDot(in: sceneBounds)
         guard glyphLike else {
@@ -3211,6 +1620,10 @@ extension SymbolObservation {
             return nil
         }
 
+        if let score = eighthRestBodyPlusAddedFlagScore(in: sceneBounds) {
+            return score
+        }
+
         let features = SymbolFeatures(symbol: self, drawingFrame: sceneBounds)
         guard !features.hasStem,
               !features.hasClearNoteGlyph,
@@ -3232,12 +1645,15 @@ extension SymbolObservation {
             return nil
         }
 
-        let singleStrokeDoubleFlag = strokes.contains { stroke in
+        let singleStrokeDoubleFlag = strokes.count == 1 && strokes.contains { stroke in
             stroke.looksLikeFlexibleOneStrokeSixteenthRest(in: sceneBounds)
         }
-        let twoFlagLevels = strokes.contains { stroke in
-            stroke.hasTwoRestFlagLevels(in: bounds)
-        } || hasTwoRestFlagLevels(in: sceneBounds)
+        let twoFlagLevels = strokes.count >= 2
+            && (
+                strokes.contains { stroke in
+                    stroke.hasTwoRestFlagLevels(in: bounds)
+                } || hasTwoRestFlagLevels(in: sceneBounds)
+            )
         guard singleStrokeDoubleFlag || twoFlagLevels else {
             return nil
         }
@@ -3247,6 +1663,58 @@ extension SymbolObservation {
             ?? CGFloat(0.22)
         let secondFlagPenalty = singleStrokeDoubleFlag ? CGFloat(0) : CGFloat(0.08)
         return baseScore + secondFlagPenalty
+    }
+
+    private func eighthRestBodyPlusAddedFlagScore(in sceneBounds: CGRect) -> CGFloat? {
+        guard strokes.count >= 2,
+              strokes.count <= 5 else {
+            return nil
+        }
+
+        let sceneHeight = max(CGFloat(1), sceneBounds.height)
+        let symbolHeight = max(CGFloat(1), bounds.height)
+        let symbolWidth = max(CGFloat(1), bounds.width)
+        guard symbolWidth <= max(CGFloat(42), sceneHeight * 1.05),
+              symbolHeight >= max(CGFloat(14), sceneHeight * 0.24),
+              symbolHeight <= max(CGFloat(46), sceneHeight * 0.74) else {
+            return nil
+        }
+
+        let bodyCandidates = strokes.filter { stroke in
+            stroke.looksLikeSixteenthRestEighthBodyCandidate(
+                symbolBounds: bounds,
+                sceneBounds: sceneBounds
+            )
+        }
+
+        guard !bodyCandidates.isEmpty else {
+            return nil
+        }
+
+        for body in bodyCandidates {
+            let addedFlags = strokes.filter { stroke in
+                stroke != body
+                    && stroke.looksLikeAddedSixteenthRestFlag(
+                        attachedTo: body.bounds,
+                        symbolBounds: bounds,
+                        sceneBounds: sceneBounds
+                    )
+            }
+            guard !addedFlags.isEmpty else {
+                continue
+            }
+
+            let baseScore = SymbolObservation(strokes: [body]).eighthRestComparisonScore(in: sceneBounds)
+                ?? SymbolObservation(strokes: [body]).sevenLikeEighthRestComparisonScore(in: sceneBounds)
+                ?? CGFloat(0.18)
+            let flagScore = addedFlags.map { flag in
+                let verticalTarget = body.bounds.minY + body.bounds.height * 0.48
+                return abs(flag.bounds.midY - verticalTarget) / max(CGFloat(1), body.bounds.height) * 0.12
+            }.min() ?? 0
+            return baseScore + flagScore
+        }
+
+        return nil
     }
 
     func eighthRestComparisonScore(in sceneBounds: CGRect) -> CGFloat? {
@@ -3429,7 +1897,7 @@ extension SymbolObservation {
                 return false
             }
 
-            return stroke.looksLikeVisualNotehead(in: sceneBounds)
+            return stroke.looksLikeRhythmNotehead(in: sceneBounds)
                 && stroke.center.y >= lowerBandY
                 && stroke.bounds.midX >= bounds.minX - leftTolerance
                 && stroke.bounds.midX <= bounds.maxX + rightTolerance
@@ -3437,13 +1905,13 @@ extension SymbolObservation {
         }
     }
 
-    func isSingleVisualNoteheadWithAttachedStem(
+    func isSingleRhythmNoteheadWithAttachedStem(
         among strokes: [StrokeObservation],
         in sceneBounds: CGRect
     ) -> Bool {
         guard self.strokes.count == 1,
               let notehead = self.strokes.first,
-              notehead.looksLikeVisualNotehead(in: sceneBounds) else {
+              notehead.looksLikeRhythmNotehead(in: sceneBounds) else {
             return false
         }
 
@@ -3467,17 +1935,27 @@ extension SymbolObservation {
     func containsLowerNoteheadMass(in sceneBounds: CGRect) -> Bool {
         let lowerBandY = bounds.minY + bounds.height * 0.45
         return strokes.contains { stroke in
+            guard !stroke.looksLikeShortRestBodyCandidate(in: bounds),
+                  !stroke.looksLikeShortRestBodyCandidate(in: sceneBounds) else {
+                return false
+            }
+
             let compactWithinSymbol = stroke.bounds.height <= max(CGFloat(16), bounds.height * 0.45)
                 && stroke.bounds.width <= max(CGFloat(18), bounds.width * 0.75)
             return compactWithinSymbol
                 && stroke.center.y >= lowerBandY
-                && stroke.looksLikeVisualNotehead(in: sceneBounds)
+                && stroke.looksLikeRhythmNotehead(in: sceneBounds)
         }
     }
 
     func containsNoteheadSizedMass(in referenceBounds: CGRect) -> Bool {
         let referenceHeight = max(CGFloat(1), referenceBounds.height)
         return strokes.contains { stroke in
+            guard !stroke.looksLikeShortRestBodyCandidate(in: bounds),
+                  !stroke.looksLikeShortRestBodyCandidate(in: referenceBounds) else {
+                return false
+            }
+
             let noteheadSized = stroke.bounds.width >= max(CGFloat(8), referenceHeight * 0.09)
                 && stroke.bounds.height >= max(CGFloat(7), referenceHeight * 0.07)
             let roundedMass = stroke.looksFilledNoteHead
@@ -3665,6 +2143,14 @@ extension SymbolObservation {
         let maxHeadWidth = max(CGFloat(18), drawingFrame.width * 0.09)
         let maxHeadHeight = max(CGFloat(18), symbolHeight * 0.58)
         let candidates = strokes.compactMap { stroke -> CGFloat? in
+            guard !stroke.looksLikeShortRestBodyCandidate(in: bounds),
+                  !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame),
+                  !stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame),
+                  !stroke.looksLikeSingleStrokeEighthRest(in: drawingFrame),
+                  !stroke.looksLikeQuarterRestBody(in: bounds) else {
+                return nil
+            }
+
             let sitsInHeadBand = stroke.bounds.maxY >= lowerBandY
                 || stroke.center.y >= bounds.midY - symbolHeight * 0.12
             let compactEnough = stroke.bounds.width <= maxHeadWidth
@@ -3682,6 +2168,14 @@ extension SymbolObservation {
     private func inferredStemXs(drawingFrame: CGRect) -> [CGFloat] {
         let symbolHeight = max(CGFloat(1), bounds.height)
         let directStems = strokes.compactMap { stroke -> CGFloat? in
+            guard !stroke.looksLikeShortRestBodyCandidate(in: bounds),
+                  !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame),
+                  !stroke.looksLikeFlexibleOneStrokeEighthRest(in: drawingFrame),
+                  !stroke.looksLikeSingleStrokeEighthRest(in: drawingFrame),
+                  !stroke.looksLikeQuarterRestBody(in: bounds) else {
+                return nil
+            }
+
             let verticalEnough = stroke.bounds.height >= max(CGFloat(10), symbolHeight * 0.36)
             let narrowEnough = stroke.bounds.width <= max(CGFloat(10), stroke.bounds.height * 0.62)
             let touchesLowerBody = stroke.bounds.maxY >= bounds.minY + symbolHeight * 0.42
@@ -3724,6 +2218,10 @@ extension Array where Element == [StrokeObservation] {
                 continue
             }
 
+            let currentHasQuarterRestBody = resolvedGroups[index].contains { stroke in
+                stroke.looksLikeQuarterRestBody(in: currentBounds)
+                    || stroke.looksLikeFlexibleOneStrokeQuarterRest(in: currentBounds)
+            }
             let movableDots = resolvedGroups[index].filter { stroke in
                 let dotLike = stroke.isDotLike(in: currentBounds)
                     && stroke.bounds.width <= dotSizeLimit * 1.2
@@ -3733,7 +2231,12 @@ extension Array where Element == [StrokeObservation] {
                 let aboveTail = stroke.center.y < nextBounds.midY
                 let trailingCurrentDot = stroke.bounds.minX >= currentBounds.midX
 
-                return dotLike && nearNextTail && aboveTail && trailingCurrentDot
+                let readsAsCurrentRestAugmentation = currentHasQuarterRestBody
+                    && stroke.center.x >= currentBounds.midX
+                    && stroke.center.y >= currentBounds.minY + currentBounds.height * 0.25
+                    && stroke.center.y <= currentBounds.maxY + currentBounds.height * 0.55
+
+                return dotLike && nearNextTail && aboveTail && trailingCurrentDot && !readsAsCurrentRestAugmentation
             }
 
             guard !movableDots.isEmpty else {
@@ -3753,32 +2256,19 @@ extension Array where Element == [StrokeObservation] {
         return resolvedGroups
     }
 
-    func mergingLooseDots(drawingFrame: CGRect) -> [[StrokeObservation]] {
+    func attachingTrailingDurationDotsToPreviousGlyphs(drawingFrame: CGRect) -> [[StrokeObservation]] {
         var mergedGroups: [[StrokeObservation]] = []
-        let dotSizeLimit = Swift.max(CGFloat(5), Swift.min(CGFloat(9), drawingFrame.height * 0.1))
-        let mergeGapLimit = Swift.max(CGFloat(36), drawingFrame.width * 0.17)
-        let verticalLimit = Swift.max(CGFloat(24), drawingFrame.height * 0.5)
 
         for group in self {
-            guard let groupBounds = group.nonEmptyBounds else {
+            guard group.nonEmptyBounds != nil else {
                 continue
             }
 
-            let isLooseDotGroup = group.count <= 2
-                && groupBounds.width <= dotSizeLimit
-                && groupBounds.height <= dotSizeLimit
-
-            if isLooseDotGroup,
-               var previousGroup = mergedGroups.popLast(),
-               let previousBounds = previousGroup.nonEmptyBounds {
-                let horizontalGap = groupBounds.minX - previousBounds.maxX
-                let verticalDistance = abs(groupBounds.midY - previousBounds.midY)
-                let shouldMergeAsDottedRhythm = horizontalGap >= -dotSizeLimit
-                    && horizontalGap <= mergeGapLimit
-                    && verticalDistance <= verticalLimit
-                    && groupBounds.midX >= previousBounds.midX
-
-                if shouldMergeAsDottedRhythm {
+            if var previousGroup = mergedGroups.popLast() {
+                if group.canAttachAsTrailingDurationDot(
+                    to: previousGroup,
+                    drawingFrame: drawingFrame
+                ) {
                     previousGroup.append(contentsOf: group)
                     mergedGroups.append(previousGroup)
                     continue
@@ -3895,7 +2385,7 @@ extension Array where Element == [StrokeObservation] {
             let movableDots = group.filter { stroke in
                 stroke.isDotLike(in: groupBounds)
                     && !stroke.looksLikeLowerNotehead(in: groupBounds)
-                    && !stroke.looksLikeVisualNotehead(in: groupBounds)
+                    && !stroke.looksLikeRhythmNotehead(in: groupBounds)
                     && stroke.bounds.maxX < firstStem.bounds.midX
                     && stroke.center.y >= groupBounds.midY - groupBounds.height * 0.12
             }
@@ -3915,6 +2405,109 @@ extension Array where Element == [StrokeObservation] {
 }
 
 extension Array where Element == StrokeObservation {
+    fileprivate func canAttachAsTrailingDurationDot(
+        to previousGroup: [StrokeObservation],
+        drawingFrame: CGRect
+    ) -> Bool {
+        guard isLooseDurationDotGroup(drawingFrame: drawingFrame),
+              previousGroup.canOwnTrailingDurationDot(drawingFrame: drawingFrame),
+              let dotBounds = nonEmptyBounds,
+              let previousBounds = previousGroup.nonEmptyBounds else {
+            return false
+        }
+
+        let previousFeatures = SymbolFeatures(
+            symbol: SymbolObservation(strokes: previousGroup),
+            drawingFrame: drawingFrame
+        )
+        let bodyBounds = previousFeatures.contentStrokes.nonEmptyBounds ?? previousBounds
+        let bodyWidth = Swift.max(CGFloat(1), bodyBounds.width)
+        let bodyHeight = Swift.max(CGFloat(1), bodyBounds.height)
+        let horizontalGap = dotBounds.minX - bodyBounds.maxX
+        let minimumGap = -Swift.max(CGFloat(3), dotBounds.width * 0.55)
+        let maximumGap = Swift.max(
+            CGFloat(18),
+            Swift.min(
+                CGFloat(58),
+                Swift.max(bodyWidth * 1.25, drawingFrame.width * 0.075)
+            )
+        )
+        let sitsAfterGlyph = dotBounds.midX >= bodyBounds.midX + bodyWidth * 0.18
+        let lowerLaneTop = bodyBounds.minY + bodyHeight * 0.30
+        let lowerLaneBottom = bodyBounds.maxY + Swift.max(CGFloat(12), bodyHeight * 0.38)
+        let sitsInLowerDotLane = dotBounds.midY >= lowerLaneTop
+            && dotBounds.midY <= lowerLaneBottom
+        let readsAsLeadingRestDot = dotBounds.midY <= bodyBounds.minY + bodyHeight * 0.28
+            && dotBounds.midX <= bodyBounds.midX + bodyWidth * 0.22
+
+        return horizontalGap >= minimumGap
+            && horizontalGap <= maximumGap
+            && sitsAfterGlyph
+            && sitsInLowerDotLane
+            && !readsAsLeadingRestDot
+    }
+
+    fileprivate func isLooseDurationDotGroup(drawingFrame: CGRect) -> Bool {
+        guard count <= 2,
+              let bounds = nonEmptyBounds else {
+            return false
+        }
+
+        let maxDotSide = Swift.max(CGFloat(6), Swift.min(CGFloat(16), drawingFrame.height * 0.14))
+        guard bounds.width <= maxDotSide,
+              bounds.height <= maxDotSide else {
+            return false
+        }
+
+        return allSatisfy { stroke in
+            stroke.looksLikeLooseDot(in: drawingFrame)
+                || stroke.isDotLike(in: drawingFrame)
+                || stroke.isCompactMark(comparedTo: drawingFrame)
+        }
+    }
+
+    fileprivate func canOwnTrailingDurationDot(drawingFrame: CGRect) -> Bool {
+        guard let bounds = nonEmptyBounds else {
+            return false
+        }
+
+        if SymbolObservation(strokes: self).isSelfContainedBeamedEighthRun(drawingFrame: drawingFrame)
+            || SymbolObservation(strokes: self).isSelfContainedMixedBeamedSixteenthRun(drawingFrame: drawingFrame) {
+            return false
+        }
+
+        if allSatisfy({ $0.looksLikeRhythmicPlaceholderSlash(in: bounds) }) {
+            return false
+        }
+
+        let features = SymbolFeatures(
+            symbol: SymbolObservation(strokes: self),
+            drawingFrame: drawingFrame
+        )
+        guard !features.hasDot else {
+            return false
+        }
+
+        let hasNoteGlyph = features.hasStem
+            || features.hasStemAndKick
+            || features.hasFilledHead
+            || features.hasHollowHead
+            || features.hasLowerHeadMass
+            || features.hasDefiniteLowerNotehead
+        let hasQuarterRestGlyph = features.contentStrokes.contains { stroke in
+            stroke.looksLikeQuarterRestBody(in: features.contentBounds)
+                || stroke.looksLikeFlexibleOneStrokeQuarterRest(in: features.contentBounds)
+                || stroke.looksLikeQuarterRestSegment(in: features.contentBounds)
+        }
+        let hasNonNoteRestGlyph = features.hasNoNoteheadRestShape || hasQuarterRestGlyph
+        let hasHorizontalRestBlock = bounds.width > Swift.max(CGFloat(8), bounds.height * 1.05)
+            && contains { stroke in
+                stroke.isMostlyHorizontal || stroke.looksDense
+            }
+
+        return hasNoteGlyph || hasNonNoteRestGlyph || hasHorizontalRestBlock
+    }
+
     func sortedByVisualPosition() -> [StrokeObservation] {
         sorted { lhs, rhs in
             if abs(lhs.bounds.minX - rhs.bounds.minX) > 0.5 {
@@ -3943,11 +2536,11 @@ extension Array where Element == StrokeObservation {
         let groupSymbol = SymbolObservation(strokes: self)
         let groupFeatures = SymbolFeatures(symbol: groupSymbol, drawingFrame: drawingFrame)
         let strokeIsStem = stroke.looksLikeVisualStem(in: groupBounds.union(stroke.bounds))
-        let strokeIsHead = stroke.looksLikeVisualNotehead(in: groupBounds.union(stroke.bounds))
+        let strokeIsHead = stroke.looksLikeRhythmNotehead(in: groupBounds.union(stroke.bounds))
 
         let attachesStemToLooseHead = !groupFeatures.hasStem
             && strokeIsStem
-            && contains { $0.looksLikeVisualNotehead(in: groupBounds) }
+            && contains { $0.looksLikeRhythmNotehead(in: groupBounds) }
         let attachesHeadToLooseStem = groupFeatures.hasStem
             && !groupFeatures.hasClearNoteGlyph
             && strokeIsHead
@@ -4215,7 +2808,7 @@ struct SymbolFeatures {
 
                 return stroke != localStemStroke
                     && !isLikelyDot
-                    && !stroke.looksLikeVisualNotehead(in: localContentBounds)
+                    && !stroke.looksLikeRhythmNotehead(in: localContentBounds)
                     && !stroke.isNoteheadLikeMark
                     && nearStemTop
                     && closeToStem
@@ -4270,6 +2863,10 @@ struct SymbolFeatures {
     var hasHollowHead: Bool {
         headStrokes.contains { stroke in
             stroke.looksHollowNoteHead
+                && !stroke.looksLikeZigZagBodyPrimitive(in: contentBounds)
+                && !stroke.looksLikeNeutralVerticalStrokePrimitive(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame)
         }
     }
 
@@ -4279,6 +2876,10 @@ struct SymbolFeatures {
                 && stroke.bounds.width >= max(4, width * 0.14)
                 && stroke.bounds.height >= max(4, height * 0.14)
                 && stroke.center.y >= contentBounds.midY - height * 0.2
+                && !stroke.looksLikeZigZagBodyPrimitive(in: contentBounds)
+                && !stroke.looksLikeNeutralVerticalStrokePrimitive(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame)
         }
     }
 
@@ -4287,6 +2888,10 @@ struct SymbolFeatures {
             stroke.center.y >= contentBounds.midY
                 && stroke.bounds.width >= max(4, width * 0.12)
                 && stroke.bounds.height >= max(4, height * 0.12)
+                && !stroke.looksLikeZigZagBodyPrimitive(in: contentBounds)
+                && !stroke.looksLikeNeutralVerticalStrokePrimitive(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame)
         }
     }
 
@@ -4307,6 +2912,8 @@ struct SymbolFeatures {
     var hasDefiniteLowerNotehead: Bool {
         contentStrokes.contains { stroke in
             stroke.looksLikeLowerNotehead(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: contentBounds)
+                && !stroke.looksLikeShortRestBodyCandidate(in: drawingFrame)
         }
     }
 
@@ -4364,6 +2971,40 @@ struct SymbolFeatures {
             && !stroke.looksFilledNoteHead
         }
     }
+
+    var hasHorizontalRestBlock: Bool {
+        let compactBody = height <= max(CGFloat(32), drawingFrame.height * 0.24)
+        let blockAspect = width >= max(CGFloat(8), height * 0.78)
+        let hasShelfStroke = contentStrokes.contains { stroke in
+            stroke.looksLikeHorizontalRestBlockStroke(in: contentBounds)
+                || (
+                    stroke.bounds.width >= max(CGFloat(8), width * 0.48)
+                        && stroke.bounds.height <= max(CGFloat(10), height * 0.62)
+                        && stroke.pathLength >= max(CGFloat(6), stroke.bounds.width * 0.72)
+                )
+        }
+        let hasDenseBody = contentStrokes.contains { stroke in
+            stroke.bounds.width >= max(CGFloat(7), width * 0.38)
+                && stroke.bounds.height >= max(CGFloat(4), height * 0.24)
+                && stroke.bounds.height <= max(CGFloat(24), stroke.bounds.width * 1.2)
+                && (stroke.looksDense || stroke.looksClosed)
+        }
+        let hasLongStem = contentStrokes.contains { stroke in
+            stroke.looksLikeVisualStem(in: drawingFrame)
+                && stroke.bounds.height >= max(CGFloat(30), drawingFrame.height * 0.24)
+        }
+        let hasSustainedVerticalAxis = contentStrokes.contains { stroke in
+            stroke.isMostlyVertical
+                && stroke.bounds.height >= max(CGFloat(28), height * 1.1)
+        }
+
+        return compactBody
+            && blockAspect
+            && (hasShelfStroke || hasDenseBody)
+            && !hasLongStem
+            && !hasSustainedVerticalAxis
+            && !hasFlag
+    }
 }
 
 extension Array where Element == StrokeObservation {
@@ -4405,15 +3046,6 @@ extension Array where Element == StrokeObservation {
     }
 
     func looksLikeContextualLeadingEighthRest(drawingFrame: CGRect) -> Bool {
-        if let restCandidate = RhythmicNotationQuantizer.visualRestCandidates(
-            for: SymbolObservation(strokes: self),
-            drawingFrame: drawingFrame
-        )?.first,
-           restCandidate.value == .eighthRest,
-           restCandidate.score <= 0.35 {
-            return true
-        }
-
         guard count == 1,
               let stroke = first else {
             return false

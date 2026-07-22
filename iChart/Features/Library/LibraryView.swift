@@ -335,7 +335,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "top-row",
                     title: "Top Row",
-                    detail: "The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Write. Treat each one as its own mode so accidental marks do not land in the wrong layer."
+                    detail: "The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Chord, and Free-Write. Treat each one as its own mode so accidental marks do not land in the wrong layer."
                 ),
                 IChartTutorialStep(
                     id: "active-row",
@@ -350,7 +350,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "write-vs-free-write",
                     title: "Read Tools Vs Free-Write",
-                    detail: "Chord and Rhythm are read tools: iChart tries to interpret your writing and render notation. Free-Write is raw persistent ink for anything you want to stay exactly handwritten."
+                    detail: "Chord is the read tool: iChart interprets handwritten chord symbols and renders them. Free-Write is raw persistent ink for rhythms, articulations, cues, and anything you want to stay exactly handwritten."
                 )
             ]
         ),
@@ -523,30 +523,30 @@ private struct IChartTutorialSection: Identifiable {
             ]
         ),
         IChartTutorialSection(
-            id: "rhythm-tool",
-            title: "Rhythm",
-            summary: "Use Rhythm when iChart should read and render supported rhythm notation.",
-            systemImageName: "music.note",
+            id: "rhythm-entry",
+            title: "Rhythm Entry",
+            summary: "Use Free-Write for rhythm notation in this version.",
+            systemImageName: "pencil.and.scribble",
             steps: [
                 IChartTutorialStep(
                     id: "availability",
-                    title: "Availability",
-                    detail: "Rhythm appears on chart styles that support rhythm notation, especially Rhythm Section Sheet. Simple chord charts can still use Free-Write for handwritten rhythm notes."
+                    title: "Current Workflow",
+                    detail: "Rhythm Section charts keep the staff, measure layout, chords, repeats, text, and export systems. Handwritten rhythm notation is entered with Free-Write."
                 ),
                 IChartTutorialStep(
                     id: "write-rhythm",
                     title: "Write",
-                    detail: "Tap Rhythm, choose Write, and write inside the target measure. Let the preview tell you what iChart is reading before you commit."
+                    detail: "Tap Free-Write, choose Write, and draw rhythms directly on the page. The ink stays exactly as written and exports with the chart."
                 ),
                 IChartTutorialStep(
-                    id: "supported-values",
-                    title: "Use Supported Values",
-                    detail: "The reader is built for clear slash rhythm, rests, common note values, dotted figures, ties, beams, and full-measure repeat symbols. If you need a custom mark, use Free-Write instead."
+                    id: "erase-rhythm",
+                    title: "Erase",
+                    detail: "Use the Free-Write eraser to remove rhythm ink. Since this ink is not interpreted into symbols, rebuilding a rhythm means erasing and rewriting it."
                 ),
                 IChartTutorialStep(
-                    id: "clear-rhythm",
-                    title: "Clear And Rewrite",
-                    detail: "Use Clear Rendered Rhythm when a measure should be rebuilt. Erase removes rhythm ink while you are still writing; Clear removes the rendered result at the selected measure."
+                    id: "future-input",
+                    title: "Literal Input",
+                    detail: "A dedicated literal rhythm input method will come later. For this version, Free-Write is the reliable rhythm-entry path."
                 )
             ]
         ),
@@ -6091,7 +6091,7 @@ private struct IChartDiagnosticsSettings: View {
                         Text("Rhythm Diagnostics")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(theme.panelTitle)
-                        Text("Show the Rhythm tool's last read and save local recognition notes for TestFlight QA.")
+                        Text("Show the Rhythm tool's last read and save local recognition notes for local review.")
                             .font(.caption)
                             .foregroundStyle(theme.panelSecondary)
                             .fixedSize(horizontal: false, vertical: true)

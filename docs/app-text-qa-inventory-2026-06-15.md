@@ -234,10 +234,10 @@ Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/Edito
 
 - [ ] Exit accessibility: "Exit Chart"
 - [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
-- [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Rhythm", "Chord", "Free-Write"
+- [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Chord", "Free-Write"
 - [ ] Ink tool labels: "Write", "Erase"
 - [ ] Chord row explainer: "Read and render chords. Want handwritten notation? Use Free-Write."
-- [ ] Rhythm row explainer: "Read and render rhythms. Want handwritten notation? Use Free-Write."
+- [ ] Rhythm entry explainer: dedicated Rhythm tool retired for V1; use Free-Write for rhythm notation.
 - [ ] Free-Write row explainer: "Persistent-ink mode. This ink is never read or interpreted by iChart."
 - [ ] Measures row: "Add", "Stack", "First", "Double", "Join", "New Row", "Delete", "Range", "Delete To", "Clear"
 - [ ] Repeats row: "One Bar", "Start", "End Rep", "1st", "2nd", "End 1st", "End 2nd", "Remove Repeat", "Remove Ending", "Clear"

@@ -5,12 +5,12 @@ Branch: `codex/rhythm-recognition-overhaul`
 
 ## Purpose
 
-This contract defines what every rhythm recognition pass must return before it can affect the chart. It exists to keep the V2 recognizer inspectable, testable, and musician-safe.
+This parked contract defines what any future rhythm recognition pass would need to return before it could affect the chart. The shipping editor does not use handwritten rhythm recognition; rhythm entry ships through Free-Write until a literal rhythm input method is implemented.
 
-The recognizer is not allowed to be a black box that returns only `[RhythmValue]`. It must explain:
+If recognition is revisited, it is not allowed to be a black box that returns only `[RhythmValue]`. It must explain:
 
 1. what ink it saw,
-2. what visual tokens it extracted,
+2. what typed glyph evidence it extracted,
 3. which symbols it considered,
 4. how those symbols fit the meter,
 5. whether grouping or beaming rules were violated,
@@ -26,7 +26,7 @@ Every decision must map to one of the existing decision outcomes:
 | `keepWriting` | The ink is incomplete, empty, or still plausibly in progress. | Preserve ink and keep the measure active. |
 | `needsReview` | The recognizer found something useful but unsafe for automatic render. | Preserve ink, keep the measure selected, and show review/rewrite options. |
 
-Live advisory recognition may run repeatedly against stable selected rhythm ink while the user writes. These passes can persist raw ink, update diagnostics, and show readiness/review feedback, but they must not render values, clear ink, or mutate the rhythm map until tap/finalization explicitly commits.
+Live advisory recognition is parked with the dedicated Rhythm tool. If it returns later, advisory passes may inspect stable selected rhythm ink, update diagnostics, and show readiness/review feedback, but they must not render values, clear ink, or mutate the rhythm map until an explicit literal or user-confirmed action commits.
 
 ## Required Fields
 
@@ -34,9 +34,9 @@ Each recognition attempt should expose these fields through `RhythmPhraseHypothe
 
 | Field | Required for | Description |
 | --- | --- | --- |
-| `source` | all outcomes | The recognizer layer that produced the phrase: visual, raster, grid, or fallback. |
+| `source` | all outcomes | The recognizer layer that produced the phrase. Future research must identify its source explicitly; no source is active in the shipping editor. |
 | `strokeCoverage` | all outcomes with ink | Which input strokes were consumed and which were left uncovered. |
-| `visualTokens` | all outcomes with ink | Local visual tokens such as notehead, rest shape, stem, dot, flag, beam, tie, tuplet number. |
+| `glyphEvidence` | all outcomes with ink | Local typed glyph evidence such as filled/open notehead, stem, single/double beam, duration dot, tie arc, slash, quarter-rest zigzag, eighth-rest hook, sixteenth-rest double hook, half-rest block, or whole-rest block. |
 | `symbolHypotheses` | all outcomes with ink | Candidate rhythm symbols per cluster, including rejected alternatives when useful. |
 | `selectedValues` | `commit`, `needsReview` | The selected rhythm values, if any. |
 | `candidateScores` | `commit`, `needsReview` | Confidence or distance scores per candidate path. |
@@ -72,7 +72,7 @@ The chart must not render a partial guess during `keepWriting`.
 
 ## Needs-Review Requirements
 
-Use `needsReview` when the recognizer sees meaningful musical intent but cannot safely auto-render:
+Use `needsReview` when the recognizer sees meaningful musical intent but cannot safely offer a tap-render proposal:
 
 - unsupported value, such as sixteenth, dotted eighth, dotted rest, or triplet in the current V1 model,
 - exact duration fit but weak local visual evidence,
@@ -80,18 +80,18 @@ Use `needsReview` when the recognizer sees meaningful musical intent but cannot 
 - rest/note conflict,
 - uncovered strokes,
 - beam crossing a protected meter boundary,
-- phrase only fits by stretching or legacy fallback.
+- phrase only fits by stretching or by inventing a whole-measure fit without local glyph evidence.
 
 The app should preserve ink and make the proposed reading inspectable.
 
 ## Hard Negative Rules
 
-These cases must not auto-commit:
+These cases must not render without user confirmation:
 
 1. An eighth-rest-shaped cluster cannot become an eighth note unless that cluster has its own lower filled notehead.
 2. A beam cannot force two eighths together across a protected beat or meter boundary.
 3. A slash cannot replace a real note/rest candidate just because it makes the measure fit.
-4. A dot cannot be inferred from notehead overdraw without clear right-side modifier evidence.
+4. A dot cannot be inferred from notehead overdraw without clear right-side duration-dot evidence.
 5. A reference-only rhythm value cannot be collapsed to the nearest supported value just to avoid review.
 6. Uncovered strokes cannot be ignored if they are large enough to represent a symbol or modifier.
 
@@ -103,14 +103,14 @@ For debug builds, every non-commit should be explainable in one compact diagnost
 
 Examples:
 
-- `source=visual reason=underfilled values=eighthRest,eighth units=1/8 uncovered=0 grouping=ok`
-- `source=visual reason=manualReview values=dottedEighth,sixteenth units=1/4 uncovered=0 grouping=unsupported`
-- `source=visual reason=ambiguousPhrase values=eighth,eighth|eighthRest,eighth units=1/4 uncovered=0 grouping=rest-note-conflict`
+- `source=gridFirst reason=underfilled values=eighthRest,eighth units=1/8 uncovered=0 grouping=ok`
+- `source=gridFirst reason=manualReview values=dottedEighth,sixteenth units=1/4 uncovered=0 grouping=unsupported`
+- `source=gridFirst reason=ambiguousPhrase values=eighth,eighth|eighthRest,eighth units=1/4 uncovered=0 grouping=rest-note-conflict`
 
-## V2 Build Order
+## Build Order
 
 1. Local stroke clustering.
-2. Local visual token assignment.
+2. Typed glyph-evidence assignment.
 3. Per-cluster symbol hypotheses.
 4. Phrase candidate path search.
 5. Meter exact-fit validation.

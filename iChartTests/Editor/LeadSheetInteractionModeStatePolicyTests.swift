@@ -11,9 +11,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(policy.inkTool.width, 2.5, accuracy: 0.001)
     }
 
-    func testInkToolPolicyUsesEraserForInkEraseMode() {
+    func testInkToolPolicyUsesEraserForFreeWriteEraseMode() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(
-            for: .rhythmicNotationEdit,
+            for: .freeHand,
             inkToolMode: .erase
         )
 
@@ -313,7 +313,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.measureEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertFalse(EditorCanvasMode.repeatEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertFalse(EditorCanvasMode.timeSignatureEdit.restrictsPageScrollToOutsideMargins)
-        XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.restrictsPageScrollToOutsideMargins)
+        XCTAssertFalse(EditorCanvasMode.rhythmicNotationEdit.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.headerEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.chordEntry.restrictsPageScrollToOutsideMargins)
         XCTAssertTrue(EditorCanvasMode.noteEdit.restrictsPageScrollToOutsideMargins)
@@ -353,7 +353,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.measureEdit.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.repeatEdit.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.timeSignatureEdit.showsActiveToolControls)
-        XCTAssertTrue(EditorCanvasMode.rhythmicNotationEdit.showsActiveToolControls)
+        XCTAssertFalse(EditorCanvasMode.rhythmicNotationEdit.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.headerEntry.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.chordEntry.showsActiveToolControls)
         XCTAssertTrue(EditorCanvasMode.noteEdit.showsActiveToolControls)
@@ -458,8 +458,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testInkCanvasSyncPolicyPreservesDirtyRhythmInkFromStaleModelReload() {
-        XCTAssertTrue(
+    func testInkCanvasSyncPolicyDoesNotPreserveDirtyRetiredRhythmInkFromStaleModelReload() {
+        XCTAssertFalse(EditorCanvasMode.rhythmicNotationEdit.allowsDirectRhythmicNotationInk)
+        XCTAssertFalse(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
                 activeInkScope: .rhythmicMeasure(
                     measureID: UUID(),
@@ -650,7 +651,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(rhythmFrame, rhythmPage.header.handwrittenFrame)
     }
 
-    func testRhythmicNotationActiveInkScopeRequiresProfileRhythmTool() throws {
+    func testRhythmicNotationActiveInkScopeIsRetiredEvenForRhythmCapableProfiles() throws {
         let simpleChart = Chart.blank(title: "Simple", measureCount: 1, layoutStyle: .simpleChordSheet)
         let rhythmChart = Chart.blank(title: "Rhythm", measureCount: 1, layoutStyle: .rhythmSectionSheet)
         let leadChart = Chart.blank(title: "Lead", measureCount: 1, layoutStyle: .leadSheet)
@@ -697,37 +698,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertNil(simpleScope)
-        guard case .rhythmicMeasure(rhythmMeasureID, _) = rhythmScope,
-              case .rhythmicMeasure(leadMeasureID, _) = leadScope else {
-            XCTFail("Rhythm Section and Lead Sheet should resolve rhythm ink scopes")
-            return
-        }
-        XCTAssertEqual(rhythmMeasureID, rhythmChart.measures.first?.id)
-        XCTAssertEqual(leadMeasureID, leadChart.measures.first?.id)
+        XCTAssertNil(rhythmScope)
+        XCTAssertNil(leadScope)
     }
 
-    func testRhythmicNotationActiveInkScopeUsesExpandedCaptureFrame() throws {
+    func testParkedRhythmicNotationCapturePolicyUsesExpandedCaptureFrame() throws {
         let chart = Chart.blank(title: "Rhythm", measureCount: 1, layoutStyle: .rhythmSectionSheet)
         let page = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1400)
         )
         let measureLayout = try XCTUnwrap(page.systems.first?.measures.first)
-        let measureID = try XCTUnwrap(chart.measures.first?.id)
 
-        let scope = LeadSheetActiveInkScope.resolve(
-            interactionMode: .rhythmicNotationEdit,
-            chartLayoutStyle: .rhythmSectionSheet,
-            selectedMeasureID: measureID,
-            selectedMeasureLayout: measureLayout,
-            pageLayout: page
-        )
-
-        guard case .rhythmicMeasure(_, let captureFrame) = scope else {
-            XCTFail("Rhythm Section should resolve an expanded rhythm ink scope")
-            return
-        }
-
+        let captureFrame = LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(for: measureLayout)
         let legacyFrame = measureLayout.writableFrame.insetBy(dx: 2, dy: 2)
         XCTAssertEqual(
             captureFrame,
@@ -825,29 +808,29 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testRhythmAutoApplyRequiresStableNonEmptyScheduledSnapshot() {
+    func testRhythmAdvisoryRequiresStableNonEmptyScheduledSnapshot() {
         let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
 
         XCTAssertTrue(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: snapshot,
                 scheduledInkSnapshot: snapshot
             )
         )
         XCTAssertFalse(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [1, 3]),
                 scheduledInkSnapshot: snapshot
             )
         )
         XCTAssertFalse(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: nil,
                 scheduledInkSnapshot: snapshot
             )
         )
         XCTAssertFalse(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: nil,
                 scheduledInkSnapshot: nil
             )
@@ -877,12 +860,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testRhythmLiveAdvisoryRecognitionAnalyzesStableSelectedRhythmInk() {
+    func testRhythmLiveAdvisoryRecognitionStaysDisabledWhileToolIsRetired() {
         let measureID = UUID()
         let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
 
         XCTAssertFalse(LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy.persistsLiveInkDuringAdvisory)
-        XCTAssertTrue(
+        XCTAssertFalse(
             LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy.shouldAnalyzeStableInk(
                 interactionMode: .rhythmicNotationEdit,
                 selectedMeasureID: measureID,
@@ -927,7 +910,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testRhythmAutoApplySnapshotIgnoresSerializedDrawingMetadata() {
+    func testRhythmAdvisorySnapshotIgnoresSerializedDrawingMetadata() {
         let firstDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let secondDrawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 20))])
         let firstSnapshot = LeadSheetInkDrawingSnapshot(drawing: firstDrawing)
@@ -936,85 +919,60 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNotNil(firstSnapshot)
         XCTAssertNotNil(secondSnapshot)
         XCTAssertTrue(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAttemptAutoApply(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: firstSnapshot,
                 scheduledInkSnapshot: secondSnapshot
             )
         )
     }
 
-    func testRhythmAutoApplyRequiresNaturalExactFit() {
+    func testRhythmReadyToRenderRequiresNaturalExactFitAfterErase() {
         let naturallyExactProposal = RhythmicNotationMeasureProposal(
             values: [.quarter, .quarter, .half],
-            safety: .autoApply,
+            safety: .readyToRender,
             isNaturalExactFit: true
         )
         let stretchedProposal = RhythmicNotationMeasureProposal(
             values: [.quarter, .quarter, .half],
-            safety: .autoApply,
+            safety: .readyToRender,
             isNaturalExactFit: false
         )
 
         XCTAssertFalse(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAutoApplyProposal(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canRenderProposal(
                 stretchedProposal,
                 requiresNaturalExactFitAfterErase: true
             )
         )
         XCTAssertTrue(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAutoApplyProposal(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canRenderProposal(
                 naturallyExactProposal,
                 requiresNaturalExactFitAfterErase: true
             )
         )
         XCTAssertFalse(
-            LeadSheetRhythmicNotationAutoApplyPolicy.canAutoApplyProposal(
+            LeadSheetRhythmicNotationAdvisoryPolicy.canRenderProposal(
                 stretchedProposal,
                 requiresNaturalExactFitAfterErase: false
             )
         )
     }
 
-    func testRhythmAutoApplyKeepsGraceWindowAfterFirstExactFitSnapshot() {
-        let totalAutoApplyDelay = LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay
-            + LeadSheetRhythmicNotationAutoApplyPolicy.exactFitGraceDelay
-
-        XCTAssertGreaterThanOrEqual(totalAutoApplyDelay, 1.0)
-        XCTAssertLessThanOrEqual(totalAutoApplyDelay, 1.4)
-    }
-
-    func testRhythmTapToRenderAdvisoryWaitsLongerThanLegacyAutoApply() {
-        XCTAssertGreaterThan(
-            LeadSheetRhythmicNotationAutoApplyPolicy.tapToRenderAdvisoryDelay,
-            LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay
+    func testRhythmTapToRenderAdvisoryUsesReadableDelay() {
+        XCTAssertGreaterThanOrEqual(
+            LeadSheetRhythmicNotationAdvisoryPolicy.tapToRenderAdvisoryDelay,
+            0.5
         )
         XCTAssertLessThanOrEqual(
-            LeadSheetRhythmicNotationAutoApplyPolicy.tapToRenderAdvisoryDelay,
+            LeadSheetRhythmicNotationAdvisoryPolicy.tapToRenderAdvisoryDelay,
             1.3
         )
-    }
-
-    func testRhythmAutoApplyExtendsGraceForAmbiguousTerminalStem() {
-        let normalAutoApplyDelay = LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay
-            + LeadSheetRhythmicNotationAutoApplyPolicy.exactFitGraceDelay(
-                requiresExtendedStability: false
-            )
-        let ambiguousAutoApplyDelay = LeadSheetRhythmicNotationAutoApplyPolicy.idleDelay
-            + LeadSheetRhythmicNotationAutoApplyPolicy.exactFitGraceDelay(
-                requiresExtendedStability: true
-            )
-
-        XCTAssertGreaterThan(
-            ambiguousAutoApplyDelay,
-            normalAutoApplyDelay
-        )
-        XCTAssertLessThanOrEqual(ambiguousAutoApplyDelay, 2.3)
     }
 
     func testRhythmLiveDecisionRouteMarksSafeProposalReadyUntilUserTap() {
         let proposal = RhythmicNotationMeasureProposal(
             values: [.quarter, .quarter, .quarter, .quarter],
-            safety: .autoApply,
+            safety: .readyToRender,
             isNaturalExactFit: true
         )
         let decision = RhythmRecognitionDecision.commit(
@@ -1027,16 +985,16 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             requiresNaturalExactFitAfterErase: false
         )
 
-        guard case .readyToRender(let values) = route else {
+        guard case .readyToRender(let renderedProposal) = route else {
             return XCTFail("Expected a safe full-measure phrase to wait for tap-to-render.")
         }
-        XCTAssertEqual(values, proposal.values)
+        XCTAssertEqual(renderedProposal, proposal)
     }
 
     func testRhythmLiveDecisionRouteCommitsSafeProposalDuringTapFinalization() {
         let proposal = RhythmicNotationMeasureProposal(
             values: [.quarter, .quarter, .quarter, .quarter],
-            safety: .autoApply,
+            safety: .readyToRender,
             isNaturalExactFit: true
         )
         let decision = RhythmRecognitionDecision.commit(
@@ -1050,17 +1008,16 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             allowsCommit: true
         )
 
-        guard case .commit(let values, let requiresExtendedStability) = route else {
+        guard case .commit(let renderedProposal) = route else {
             return XCTFail("Expected tap finalization to commit a safe full-measure phrase.")
         }
-        XCTAssertEqual(values, proposal.values)
-        XCTAssertFalse(requiresExtendedStability)
+        XCTAssertEqual(renderedProposal, proposal)
     }
 
     func testRhythmLiveAdvisoryRecognitionNeverCommitsRenderedValues() {
         let proposal = RhythmicNotationMeasureProposal(
             values: [.quarter, .quarter, .quarter, .quarter],
-            safety: .autoApply,
+            safety: .readyToRender,
             isNaturalExactFit: true
         )
         let decision = RhythmRecognitionDecision.commit(
@@ -1072,7 +1029,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             requiresNaturalExactFitAfterErase: false
         )
 
-        XCTAssertEqual(route, .readyToRender(values: proposal.values))
+        XCTAssertEqual(route, .readyToRender(proposal: proposal))
         XCTAssertFalse(
             LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy.shouldCommitFromAdvisoryRoute(route)
         )
@@ -1102,8 +1059,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let decision = RhythmRecognitionDecision.keepWriting(
             .underfilled,
             RhythmPhraseHypothesis(
-                source: .rasterTemplate,
-                primitives: [],
+                source: .gridFirst,
                 symbols: [],
                 uncoveredStrokeIndices: [],
                 naturalValues: [.quarter, .quarter],
@@ -1129,8 +1085,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let decision = RhythmRecognitionDecision.keepWriting(
             .underfilled,
             RhythmPhraseHypothesis(
-                source: .rasterTemplate,
-                primitives: [],
+                source: .gridFirst,
                 symbols: [
                     RhythmSymbolHypothesis(
                         coveredStrokeIndices: [0],
@@ -1163,8 +1118,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let decision = RhythmRecognitionDecision.keepWriting(
             .unsupported,
             RhythmPhraseHypothesis(
-                source: .rasterTemplate,
-                primitives: [],
+                source: .gridFirst,
                 symbols: [
                     RhythmSymbolHypothesis(
                         coveredStrokeIndices: [0],
@@ -1216,7 +1170,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testRhythmUnreadInkFeedbackWaitsForCompletedTargetedDecision() {
         XCTAssertFalse(
             LeadSheetRhythmicNotationFeedbackPolicy.shouldHighlightUnreadInk(
-                for: .keepWriting(.nonVisualFallback, nil)
+                for: .keepWriting(.unsupported, nil)
             )
         )
         XCTAssertFalse(
@@ -1240,7 +1194,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let feedbackFrame = LeadSheetRhythmicNotationFeedbackPolicy.unreadInkFrame(
             for: drawing,
-            decision: .keepWriting(.nonVisualFallback, nil),
+            decision: .keepWriting(.unsupported, nil),
             canvasFrame: CGRect(x: 30, y: 40, width: 120, height: 80)
         )
 
@@ -1252,8 +1206,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let decision = RhythmRecognitionDecision.keepWriting(
             .underfilled,
             RhythmPhraseHypothesis(
-                source: .rasterTemplate,
-                primitives: [],
+                source: .gridFirst,
                 symbols: [],
                 uncoveredStrokeIndices: [],
                 naturalValues: [.quarter, .quarter],
@@ -1281,17 +1234,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testRhythmUnreadInkFeedbackTargetsUncoveredStrokeFrameWhenAvailable() {
         let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let phrase = RhythmPhraseHypothesis(
-            source: .visual,
-            primitives: [
-                RhythmInkPrimitive(
-                    strokeIndex: 0,
+            source: .gridFirst,
+            glyphEvidence: [
+                RhythmGlyphEvidence(
                     kind: .slash,
-                    bounds: CGRect(x: 8, y: 52, width: 12, height: 18)
+                    strokeIndices: [0],
+                    bounds: CGRect(x: 8, y: 52, width: 12, height: 18),
+                    confidence: 0.05
                 ),
-                RhythmInkPrimitive(
-                    strokeIndex: 1,
-                    kind: .unknown,
-                    bounds: CGRect(x: 78, y: 20, width: 6, height: 24)
+                RhythmGlyphEvidence(
+                    kind: .unknownStroke,
+                    strokeIndices: [1],
+                    bounds: CGRect(x: 78, y: 20, width: 6, height: 24),
+                    confidence: 1.0
                 )
             ],
             symbols: [],
@@ -1317,8 +1272,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testRhythmUnreadInkFeedbackDoesNotTargetUnreadV4SymbolBeforeMeasureIsComplete() {
         let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let phrase = RhythmPhraseHypothesis(
-            source: .rasterTemplate,
-            primitives: [],
+            source: .gridFirst,
             symbols: [
                 RhythmSymbolHypothesis(
                     coveredStrokeIndices: [0],
@@ -1358,8 +1312,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     func testRhythmUnreadInkFeedbackTargetsUnreadV4SymbolFrameWhenMeasureIsComplete() {
         let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
         let phrase = RhythmPhraseHypothesis(
-            source: .rasterTemplate,
-            primitives: [],
+            source: .gridFirst,
             symbols: [
                 RhythmSymbolHypothesis(
                     coveredStrokeIndices: [0],
@@ -1418,8 +1371,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
     private func completedRhythmPhrase(values: [RhythmValue]) -> RhythmPhraseHypothesis {
         RhythmPhraseHypothesis(
-            source: .rasterTemplate,
-            primitives: [],
+            source: .gridFirst,
             symbols: [],
             uncoveredStrokeIndices: [],
             naturalValues: values,

@@ -2374,7 +2374,7 @@ enum LeadSheetPageLayoutEngine {
         let stemBottomY = staffFrame.maxY + 10
         let staffSpace = staffLineYPositions[1] - staffLineYPositions[0]
 
-        return slots.enumerated().map { index, slot in
+        let baseLayouts = slots.enumerated().map { index, slot in
             let noteCenterX = slashAttackCenterX(
                 for: slot,
                 meter: meter,
@@ -2389,11 +2389,17 @@ enum LeadSheetPageLayoutEngine {
                     staffLineYPositions: staffLineYPositions
                 )
             case .wholeRest:
-                return wholeRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
+                return wholeRestLayout(centerX: staffFrame.midX, staffLineYPositions: staffLineYPositions)
             case .halfRest:
                 return halfRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .quarterRest:
                 return quarterRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
+            case .dottedQuarterRest:
+                return quarterRestLayout(
+                    centerX: noteCenterX,
+                    staffLineYPositions: staffLineYPositions,
+                    isDotted: true
+                )
             case .sixteenthRest:
                 return sixteenthRestLayout(centerX: noteCenterX, staffLineYPositions: staffLineYPositions)
             case .eighthRest:
@@ -2475,6 +2481,13 @@ enum LeadSheetPageLayoutEngine {
                 )
             }
         }
+
+        return layoutsByApplyingTieFrames(
+            baseLayouts,
+            slots: slots,
+            tieOutSlotIndices: measure.rhythmMap?.tieOutSlotIndices ?? [],
+            staffSpace: staffSpace
+        )
     }
 
     private static func noteLayouts(
@@ -2531,7 +2544,7 @@ enum LeadSheetPageLayoutEngine {
         let usableWidth = staffFrame.width - 16
         let staffSpace = staffLineYPositions[1] - staffLineYPositions[0]
 
-        return slots.enumerated().map { index, slot in
+        let baseLayouts = slots.enumerated().map { index, slot in
             guard slot.duration.supportsPitchedLeadSheetNote,
                   let event = pitchedEventsBySlot[index] else {
                 return fallbackLayouts[index]
@@ -2599,6 +2612,13 @@ enum LeadSheetPageLayoutEngine {
                 beamEndPoint: nil
             )
         }
+
+        return layoutsByApplyingTieFrames(
+            baseLayouts,
+            slots: slots,
+            tieOutSlotIndices: measure.rhythmMap?.tieOutSlotIndices ?? [],
+            staffSpace: staffSpace
+        )
     }
 
     private static func staffY(
@@ -2630,7 +2650,11 @@ enum LeadSheetPageLayoutEngine {
         guard abs((currentStart + slots[index].duration.wholeNoteLength(in: meter)) - nextStart) < 0.0001 else {
             return nil
         }
-        guard slots[index].startPosition.beat == slots[index + 1].startPosition.beat else {
+        guard RhythmRecognitionContextRules.allowsBeamAcrossBoundary(
+            beforeValueAt: index + 1,
+            in: slots.map(\.duration),
+            meter: meter
+        ) else {
             return nil
         }
 
@@ -2712,7 +2736,11 @@ enum LeadSheetPageLayoutEngine {
         guard index > 0,
               slots[index].duration.isSlashBeamableValue,
               slots[index - 1].duration.isSlashBeamableValue,
-              slots[index - 1].startPosition.beat == slots[index].startPosition.beat else {
+              RhythmRecognitionContextRules.allowsBeamAcrossBoundary(
+                beforeValueAt: index,
+                in: slots.map(\.duration),
+                meter: meter
+              ) else {
             return false
         }
 
@@ -2721,13 +2749,67 @@ enum LeadSheetPageLayoutEngine {
         return abs((previousStart + slots[index - 1].duration.wholeNoteLength(in: meter)) - currentStart) < 0.0001
     }
 
+    private static func layoutsByApplyingTieFrames(
+        _ layouts: [LeadSheetNoteLayout],
+        slots: [MeasureRhythmSlot],
+        tieOutSlotIndices: Set<Int>,
+        staffSpace: CGFloat
+    ) -> [LeadSheetNoteLayout] {
+        guard !tieOutSlotIndices.isEmpty else {
+            return layouts
+        }
+
+        var updatedLayouts = layouts
+        for index in tieOutSlotIndices {
+            guard updatedLayouts.indices.contains(index),
+                  updatedLayouts.indices.contains(index + 1),
+                  slots.indices.contains(index),
+                  slots.indices.contains(index + 1),
+                  slots[index].duration.supportsPitchedLeadSheetNote,
+                  slots[index + 1].duration.supportsPitchedLeadSheetNote,
+                  let tieFrame = tieFrame(
+                    from: updatedLayouts[index].noteheadFrame,
+                    to: updatedLayouts[index + 1].noteheadFrame,
+                    staffSpace: staffSpace
+                  ) else {
+                continue
+            }
+
+            updatedLayouts[index].tieFrame = tieFrame
+        }
+
+        return updatedLayouts
+    }
+
+    private static func tieFrame(
+        from currentNoteheadFrame: CGRect,
+        to nextNoteheadFrame: CGRect,
+        staffSpace: CGFloat
+    ) -> CGRect? {
+        let startX = currentNoteheadFrame.maxX - min(CGFloat(2), staffSpace * 0.2)
+        let endX = nextNoteheadFrame.minX + min(CGFloat(2), staffSpace * 0.2)
+        guard endX > startX + max(CGFloat(8), staffSpace * 0.7) else {
+            return nil
+        }
+
+        let tieHeight = max(CGFloat(6), staffSpace * 0.72)
+        let endpointY = min(currentNoteheadFrame.minY, nextNoteheadFrame.minY) - max(CGFloat(2), staffSpace * 0.18)
+        return CGRect(
+            x: startX,
+            y: endpointY - tieHeight,
+            width: endX - startX,
+            height: tieHeight
+        )
+    }
+
     private static func wholeRestLayout(
         centerX: CGFloat,
         staffLineYPositions: [CGFloat]
     ) -> LeadSheetNoteLayout {
+        let staffSpace = staffLineYPositions[1] - staffLineYPositions[0]
         let restFrame = CGRect(
             x: centerX - 9,
-            y: staffLineYPositions[1] + 1,
+            y: staffLineYPositions[2] + 1,
             width: 18,
             height: 6
         )
@@ -2736,7 +2818,7 @@ enum LeadSheetPageLayoutEngine {
             symbolStyle: .wholeRest,
             noteheadSymbol: nil,
             noteheadFrame: restFrame,
-            staffSpace: staffLineYPositions[1] - staffLineYPositions[0],
+            staffSpace: staffSpace,
             headStyle: .whole,
             stemStart: nil,
             stemEnd: nil,
@@ -2777,7 +2859,8 @@ enum LeadSheetPageLayoutEngine {
 
     private static func quarterRestLayout(
         centerX: CGFloat,
-        staffLineYPositions: [CGFloat]
+        staffLineYPositions: [CGFloat],
+        isDotted: Bool = false
     ) -> LeadSheetNoteLayout {
         let restFrame = CGRect(
             x: centerX - 7,
@@ -2796,7 +2879,9 @@ enum LeadSheetPageLayoutEngine {
             stemEnd: nil,
             stemGoesUp: true,
             flagStyle: .none,
-            dotFrame: nil,
+            dotFrame: isDotted
+                ? CGRect(x: restFrame.maxX + 4, y: restFrame.midY - 1.5, width: 3, height: 3)
+                : nil,
             tieFrame: nil,
             beamEndPoint: nil
         )
@@ -2893,16 +2978,18 @@ enum LeadSheetPageLayoutEngine {
             return .whole
         case .half, .dottedHalf, .halfRest:
             return .half
-        case .slash, .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .quarterRest, .sixteenthRest, .eighthRest, .measureRepeat, .tiedContinuation:
+        case .slash, .quarter, .dottedQuarter, .dottedEighth, .sixteenth, .eighth, .quarterRest,
+             .dottedQuarterRest, .sixteenthRest, .eighthRest, .measureRepeat, .tiedContinuation:
             return .filled
         }
     }
 
     private static func dottedDuration(_ duration: RhythmValue) -> Bool {
         switch duration {
-        case .dottedEighth, .dottedQuarter, .dottedHalf:
+        case .dottedEighth, .dottedQuarter, .dottedQuarterRest, .dottedHalf:
             return true
-        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest,
+             .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }
@@ -2913,8 +3000,8 @@ enum LeadSheetPageLayoutEngine {
             return .double
         case .dottedEighth, .eighth:
             return .single
-        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-             .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarterRest, .dottedQuarter,
+             .half, .halfRest, .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return .none
         }
     }

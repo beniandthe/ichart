@@ -18,7 +18,7 @@ final class RhythmRecognitionDecisionInfrastructureTests: XCTestCase {
         XCTAssertTrue(contractText.contains("keepWriting"))
         XCTAssertTrue(contractText.contains("needsReview"))
         XCTAssertTrue(contractText.contains("neighboring notes cannot donate noteheads"))
-        XCTAssertTrue(contractText.contains("visualTokens"))
+        XCTAssertTrue(contractText.contains("glyphEvidence"))
         XCTAssertTrue(contractText.contains("groupingBoundaries"))
         XCTAssertTrue(recognitionTypesText.contains("enum RhythmRecognitionDecision"))
         XCTAssertTrue(recognitionTypesText.contains("case commit"))
@@ -40,7 +40,7 @@ final class RhythmRecognitionDecisionInfrastructureTests: XCTestCase {
         XCTAssertTrue(matrixText.contains("mustCommit"))
         XCTAssertTrue(matrixText.contains("mustKeepWriting"))
         XCTAssertTrue(matrixText.contains("mustReview"))
-        XCTAssertTrue(matrixText.contains("mustRejectAutoCommit"))
+        XCTAssertTrue(matrixText.contains("mustRejectRenderProposal"))
 
         for fixture in Self.goldenFixtures {
             XCTAssertTrue(
@@ -52,14 +52,14 @@ final class RhythmRecognitionDecisionInfrastructureTests: XCTestCase {
         XCTAssertTrue(
             Self.goldenFixtures.contains {
                 $0.id == "eighth-rest-plus-eighth-not-note-pair"
-                    && $0.decision == .mustRejectAutoCommit
+                    && $0.decision == .mustRejectRenderProposal
                     && $0.expectedValues == [.eighthRest, .eighth]
             }
         )
         XCTAssertTrue(
             Self.goldenFixtures.contains {
                 $0.id == "dotted-quarter-eighth-eighth-dotted-quarter"
-                    && $0.decision == .mustRejectAutoCommit
+                    && $0.decision == .mustRejectRenderProposal
                     && $0.expectedValues == [.dottedQuarter, .eighth, .eighth, .dottedQuarter]
             }
         )
@@ -155,13 +155,13 @@ final class RhythmRecognitionDecisionInfrastructureTests: XCTestCase {
             id: "eighth-rest-plus-eighth-not-note-pair",
             meter: Meter(numerator: 4, denominator: 4),
             expectedValues: [.eighthRest, .eighth],
-            decision: .mustRejectAutoCommit
+            decision: .mustRejectRenderProposal
         ),
         GoldenRhythmFixture(
             id: "dotted-quarter-eighth-eighth-dotted-quarter",
             meter: Meter(numerator: 4, denominator: 4),
             expectedValues: [.dottedQuarter, .eighth, .eighth, .dottedQuarter],
-            decision: .mustRejectAutoCommit
+            decision: .mustRejectRenderProposal
         ),
         GoldenRhythmFixture(
             id: "underfilled-clean-pair",
@@ -189,13 +189,13 @@ private enum GoldenRhythmDecision: Hashable {
     case mustCommit
     case mustKeepWriting
     case mustReview
-    case mustRejectAutoCommit
+    case mustRejectRenderProposal
 }
 
 private extension RhythmValue {
     var isCurrentlyCommitSupportedByGoldenMatrix: Bool {
         switch self {
-        case .slash, .eighth, .dottedEighth, .eighthRest, .quarter, .quarterRest, .dottedQuarter,
+        case .slash, .eighth, .dottedEighth, .eighthRest, .quarter, .quarterRest, .dottedQuarterRest, .dottedQuarter,
                 .half, .halfRest, .dottedHalf, .whole, .wholeRest, .measureRepeat:
             return true
         case .sixteenth, .sixteenthRest, .tiedContinuation:
