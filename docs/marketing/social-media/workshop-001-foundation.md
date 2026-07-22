@@ -79,8 +79,8 @@ Best channels:
 ### 3. Rhythm Section And Session Players
 
 Pain:
-- Need roadmaps, hits, chords, and form to be readable.
-- Need rhythm-aware placement without full notation engraving.
+- Need roadmaps, chords, and form to be readable for rhythm-section/session work.
+- Need clear chart placement without full notation engraving.
 - Need transposition support.
 
 Proof to show:
@@ -104,7 +104,7 @@ Best channels:
 Say:
 - iPad-first chart writing.
 - Apple Pencil workflow.
-- Chord and rhythm charts.
+- Chord charts for rhythm-section and gig workflows.
 - Clean readable PDF export.
 - Practical rehearsal and gig prep.
 - Not full notation software.
@@ -142,7 +142,7 @@ Decision:
 
 Alternates:
 - Teachers remain a strong second lane for trust and educational use.
-- Rhythm section/session players remain a strong feature-proof lane once we are ready to show beat-aware placement.
+- Rhythm section/session players remain a strong feature-proof lane once we have stronger capture evidence for chart placement and roadmap workflows.
 
 Decision 2: First proof asset to capture.
 
@@ -169,7 +169,7 @@ Post 1: Write Once, Transpose, Send
 - Hook: "Write one chart. Transpose it for the band. Send the PDFs."
 - CTA: "Testing on iPad now."
 
-Post 2: Why Beat Placement Matters
+Post 2: Why Chart Placement Matters
 - Format: Instagram carousel + LinkedIn.
 - Audience: rhythm section/session players and teachers.
 - Hook: "Chord charts are not just chord names. Placement matters."

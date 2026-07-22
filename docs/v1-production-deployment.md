@@ -280,7 +280,8 @@ Possible additions:
 - chart templates
 - chart library polish
 - improved roadmap symbol coverage
-- broader limited rhythm coverage
+- V1.1 roadmap: key signatures, select-input rhythm notation, and enharmonic
+  transposition/preferences
 - better manual layout controls
 - evaluate iPhone companion scope
 

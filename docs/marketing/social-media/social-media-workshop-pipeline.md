@@ -70,20 +70,20 @@ Parked lanes:
 
 ### Core Promise
 
-Write naturally with Apple Pencil. iChart turns practical chord and rhythm chart ideas into clean, editable, exportable iPad charts.
+Write naturally with Apple Pencil. iChart turns practical chord chart ideas into clean, editable, exportable iPad charts.
 
 ### Short Message Bank
 
 - Pencil-first charts for iPad.
 - Handwrite clean charts at paper speed.
 - Write once, transpose, copy, export, and edit later.
-- Chord charts with rhythm-aware placement, without becoming full notation software.
+- Chord charts with clear measure placement, without becoming full notation software.
 - Fast enough for gig prep. Structured enough for the bandstand.
 
 ### Audience Segments
 
 - Working bandleaders who need charts quickly.
-- Rhythm section players who need readable roadmaps and hits.
+- Rhythm section players who need readable roadmaps and quick PDFs.
 - Teachers creating simplified charts for students.
 - Session players and gigging musicians who need quick, reliable PDFs.
 - Music educators and creators who can explain the workflow to others.
@@ -142,7 +142,7 @@ Primary surfaces:
 Default audience pages:
 - Bandleaders: fast rehearsal prep, transposed parts, and PDF sharing.
 - Teachers: simplified charts for students and readable export.
-- Rhythm section/session players: roadmaps, hits, transposition, and quick correction.
+- Rhythm section/session players: roadmaps, form cues, transposition, and quick correction.
 
 Apple rules:
 - Use Apple-provided badge artwork without modification, animation, or visual dominance.
@@ -196,7 +196,7 @@ Role: conversion support and continuity between social posts, App Store pages, a
 
 Requirements:
 - `useichart.com` should explain the product promise in the same words social uses.
-- Build separate landing paths for major audiences: bandleaders, teachers, rhythm section/session players.
+- Build separate landing paths for major audiences: bandleaders, teachers, and rhythm section/session players.
 - Use campaign tags or App Store custom product page URLs when available.
 - Match Apple-facing copy, pricing claims, and Basic/Pro policy exactly.
 
@@ -211,16 +211,16 @@ YouTube Shorts is intentionally out of scope for now. Do not create Shorts-speci
    - Best for Reels, TikTok, app previews, and App Store screenshots.
 
 2. Real Rehearsal Utility
-   - Solve a musician problem: last-minute chart writing, transposition, PDF distribution, rhythm hit placement.
+   - Solve a musician problem: last-minute chart writing, transposition, PDF distribution, or chart-version cleanup.
    - Best for TikTok, Instagram Reels, LinkedIn/Facebook posts, and audience-specific custom product pages.
 
 3. Write Once, Reuse
    - Handwritten chart entry, then transposed/exported iChart versions.
    - Best for Reels, TikTok, carousels, screenshots, and app preview storyboards.
 
-4. Rhythm-Aware Chords
-   - Show why beat placement matters without promising full notation.
-   - Best for educators, rhythm section players, and product explainers.
+4. Chord Placement Matters
+   - Show why chord placement inside the chart matters without promising full notation.
+   - Best for educators, gigging players, and product explainers.
 
 5. Pro Trust Layer
    - Cloud backup, restore, Projects, Forums, and why Basic still includes real local writing/export.
@@ -443,7 +443,7 @@ Tasks:
 - Pull 10 high-quality app screenshots.
 - Produce 12 finished vertical masters.
 - Draft 2 App Store app-preview storyboards from the strongest vertical workflows.
-- Draft 3 custom product page concepts: bandleaders, teachers, rhythm section/session players.
+- Draft 3 custom product page concepts: bandleaders, teachers, and rhythm section/session players.
 - Draft 3 longer-form social posts for LinkedIn/Facebook/Threads from the best early proof assets.
 
 Exit criteria:
@@ -476,7 +476,7 @@ Tasks:
 - Create audience-specific landing paths or custom product pages:
   - Bandleader: fast rehearsal prep.
   - Teacher: simplified student charts and clean PDFs.
-  - Rhythm section/session player: roadmap, hits, and transposition.
+  - Rhythm section/session player: roadmap, chart versions, and transposition.
 - Run product page optimization once enough traffic exists.
 - Convert the best organic posts into paid creative tests only after they show audience fit.
 - Keep TikTok and Instagram campaign links separate so App Analytics can distinguish source quality.
@@ -507,7 +507,7 @@ Do not scale past this until the content calendar, asset library, and measuremen
 2. "POV: rehearsal starts soon and the chart is not ready."
 3. Correcting a handwritten chord symbol without starting over.
 4. Simple Chord Sheet vs Rhythm Section Sheet.
-5. Beat-aware chord placement in one measure.
+5. Chord placement in one measure.
 6. Transpose a chart for a Bb or Eb player.
 7. Export and share a PDF.
 8. What iChart is not: not full notation, not playback, not a DAW.
@@ -515,12 +515,12 @@ Do not scale past this until the content calendar, asset library, and measuremen
 10. Why Pro pays for cloud backup, restore, Projects, and Forums.
 11. Teacher workflow: make a simplified chart for a student.
 12. Bandleader workflow: write tonight's roadmap fast.
-13. Rhythm section workflow: show hits without over-notating.
+13. Rhythm section workflow: show a readable roadmap without over-notating.
 14. Bandleader workflow: write one chart, transpose for horn-section parts, send PDFs.
 15. Wedding gig workflow: quick chord charts for new keys on the fly.
 16. Forum preview: reviewed PDF snapshots, not source files.
 17. App build/testing day: what changed because of musician feedback.
-18. Feature boundary: chord/rhythm charts without melody entry.
+18. Feature boundary: chord charts without melody entry or full notation.
 19. App Store/TestFlight ask: the exact feedback that helps.
 20. "The chart I would actually hand to a player."
 

@@ -1,7 +1,7 @@
 # iChart App Store and TestFlight Metadata Draft
 
-Status: Public App Store metadata draft, aligned with current TestFlight build and social positioning
-Last updated: 2026-07-20
+Status: Public App Store metadata draft, aligned with current V1 launch positioning
+Last updated: 2026-07-22
 
 ## App Identity
 
@@ -27,13 +27,13 @@ Alternates:
 
 ## Short Description
 
-> iChart helps musicians handwrite clean, reusable chord and rhythm charts on iPad. Write with Apple Pencil, transpose chord symbols, organize charts into projects, and export PDFs for rehearsal or performance prep.
+> iChart helps musicians handwrite clean, reusable chord charts on iPad. Write with Apple Pencil, transpose chord symbols, organize charts into projects, and export PDFs for rehearsal or performance prep.
 
 ## Full Description Draft
 
 iChart is an iPad chart-writing app for musicians who need practical charts without slowing down into full notation software.
 
-Write clean chord and rhythm charts by hand with Apple Pencil. Add chords, repeats, form markings, and notes directly on the page, then keep the chart editable for the next rehearsal, singer, horn player, or gig.
+Write clean chord charts by hand with Apple Pencil. Add chords, repeats, form markings, and notes directly on the page, then keep the chart editable for the next rehearsal, singer, horn player, or gig.
 
 Use iChart when paper is fast but not reusable, when quick chord-chart apps feel limiting, and when full notation software is more tool than the moment needs.
 
@@ -53,11 +53,11 @@ iChart is not full notation engraving software. It is built for musicians who ne
 
 ## Keywords Draft
 
-chord chart,lead sheet,music chart,jazz chart,rhythm chart,rehearsal,transpose,Apple Pencil,musician
+chord chart,lead sheet,music chart,jazz chart,rehearsal,transpose,Apple Pencil,musician
 
 ## Promotional Text Draft
 
-> Handwrite reusable chord and rhythm charts on iPad, then transpose, organize, and export when the gig changes.
+> Handwrite reusable chord charts on iPad, then transpose, organize, and export when the gig changes.
 
 ## Public Product Page Guardrails
 
@@ -65,7 +65,8 @@ chord chart,lead sheet,music chart,jazz chart,rhythm chart,rehearsal,transpose,A
 - Do not imply full notation engraving, automatic horn arranging, or automatic part generation.
 - Use "handwrite clean charts at paper speed" as the core promise.
 - Use "Available on the App Store" and the official App Store badge only after the public product page or pre-order page is live.
-- Until then, social and website CTAs should use launch updates, beta updates, or TestFlight language.
+- Do not use public V1 copy to promise dedicated rhythm notation tools, rhythm recognition, or rhythm rendering.
+- If rhythm notation comes up, frame it only as a planned V1.1 lane for select-input notation and future workflow expansion.
 
 ## Current Apple Product Page Requirements Checked 2026-07-20
 
@@ -95,8 +96,11 @@ Please test the core iChart loop:
 
 Known V1 boundaries:
 
-- iChart is focused on chord/rhythm charts, not full notation engraving.
-- Recognition will still need correction on some handwriting styles.
+- iChart is focused on reusable chord charts and practical gig charts, not full notation engraving.
+- Chord recognition will still need correction on some handwriting styles.
+- V1.1 roadmap note: dedicated rhythm notation input is planned as a select-input workflow. Do not describe V1.0 as shipping handwritten rhythm recognition or rendered rhythm notation.
+- Key signatures and enharmonic transposition preferences are V1.1 roadmap
+  items, not V1.0 launch promises.
 - Forums publish reviewed PDF snapshots, not editable chart source files.
 - Cloud backup and Forums require active Pro.
 

@@ -23,7 +23,7 @@ Audience:
 - Bandleaders, MDs, arrangers-in-practice, gigging musicians responsible for getting charts to a band.
 
 Situation:
-- A bandleader needs one practical chord/rhythm chart to become usable chart versions for multiple players.
+- A bandleader needs one practical chord chart for the rhythm section to become usable chart versions for multiple players.
 - The workflow should feel like rehearsal prep, not engraving.
 
 Core proof:
@@ -53,7 +53,7 @@ Best assets:
 ### 2. Wedding Gig / Key Changes
 
 Audience:
-- Wedding/corporate/event gig musicians, rhythm section players, bandleaders preparing large song lists.
+- Wedding/corporate/event gig musicians, rhythm section players, bandleaders, and players preparing large song lists.
 
 Situation:
 - A singer or client wants songs in different keys.
@@ -87,7 +87,7 @@ Best assets:
 Allowed claims:
 - iPad-first chart writing.
 - Apple Pencil input.
-- Structured chord/rhythm chart editing.
+- Structured chord chart editing.
 - Transpose chord symbols and use Concert/Bb/Eb views.
 - Duplicate chart variants.
 - Export/share PDFs.

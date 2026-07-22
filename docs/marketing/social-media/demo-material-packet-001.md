@@ -70,7 +70,7 @@ Use only what feels natural in the actual chart:
 - Repeat span or `2x`
 - Ending marker, if easy and visually clean
 - `D.S.` / `Fine` only if it makes the chart clearer
-- A small rhythm/hit indication if it is visually reliable in the current build
+- A simple form cue or accent note if it is visually reliable in the current build
 
 Goal:
 - Make the chart feel like a working band chart, not a blank feature demo.
