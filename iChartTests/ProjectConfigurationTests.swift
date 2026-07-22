@@ -375,7 +375,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(parkingPlanText.contains("V1 ships without the dedicated Rhythm tool"))
         XCTAssertTrue(parkingPlanText.contains("Keep Active"))
         XCTAssertTrue(parkingPlanText.contains("Free-Write page ink for rhythm notation"))
-        XCTAssertTrue(parkingPlanText.contains("Build a literal rhythm input method before reintroducing any dedicated rhythm tool"))
+        XCTAssertTrue(parkingPlanText.contains("Build select input for rhythm notation as the V1.1 path before reconsidering"))
     }
 
     func testRhythmToolClearActionIsDormantWhileDedicatedToolIsRetired() throws {

@@ -39,6 +39,9 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
             changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.repository.default_branch }}"
+            changed_files="$(git diff --name-only "origin/${{ github.event.repository.default_branch }}"...HEAD)"
           elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
             if ! changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null)"; then
               changed_files="$(git ls-files)"
@@ -90,6 +93,9 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
             changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.repository.default_branch }}"
+            changed_files="$(git diff --name-only "origin/${{ github.event.repository.default_branch }}"...HEAD)"
           elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
             if ! changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null)"; then
               changed_files="$(git ls-files)"
