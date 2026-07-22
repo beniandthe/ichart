@@ -44,8 +44,8 @@ jobs:
 
           case "${{ github.event_name }}" in
             pull_request)
-              git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-              changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+              git fetch --no-tags --depth=1 origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+              changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
               printf '%s\n' "$changed_files"
 
               if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml)'; then
