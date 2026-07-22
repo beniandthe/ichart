@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - name: Decide CodeQL scope
         id: codeql_scope
@@ -39,10 +40,22 @@ jobs:
           set -euo pipefail
 
           run_codeql=false
-          reason="CodeQL is deferred on direct main pushes; it still runs on pull requests, the weekly schedule, and manual dispatch."
+          reason="CodeQL is deferred on direct main pushes and documentation/static-site-only pull requests."
 
           case "${{ github.event_name }}" in
-            pull_request|schedule|workflow_dispatch)
+            pull_request)
+              git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+              changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+              printf '%s\n' "$changed_files"
+
+              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml)'; then
+                run_codeql=true
+                reason="CodeQL is enabled because Swift or build inputs changed."
+              else
+                reason="No Swift or build inputs changed; CodeQL analysis is skipped for this documentation/static-site pass."
+              fi
+              ;;
+            schedule|workflow_dispatch)
               run_codeql=true
               reason="CodeQL is enabled for ${{ github.event_name }}."
               ;;
@@ -70,16 +83,12 @@ jobs:
           languages: swift
           build-mode: manual
 
-      - name: Select iPad simulator
-        if: steps.codeql_scope.outputs.run_codeql == 'true'
-        run: .github/scripts/select-ipad-simulator.sh
-
       - name: Build for CodeQL
         if: steps.codeql_scope.outputs.run_codeql == 'true'
         run: |
           xcodebuild build \
             -scheme iChart \
-            -destination "$SIMULATOR_DESTINATION" \
+            -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Perform CodeQL analysis
