@@ -15,8 +15,8 @@ The first recognizer implementation does not need to support every reference-onl
 | --- | --- |
 | `mustCommit` | Supported value sequence should become ready to render, then commit when the user taps/finalizes. |
 | `mustKeepWriting` | Incomplete or underfilled ink should stay live without rendering. |
-| `mustReview` | Intent is visible but unsupported, ambiguous, or unsafe for auto-render. |
-| `mustRejectAutoCommit` | A tempting wrong read must not auto-render, even if it creates an exact fit. |
+| `mustReview` | Intent is visible but unsupported, ambiguous, or unsafe for tap-render without confirmation. |
+| `mustRejectRenderProposal` | A tempting wrong read must not become a render proposal, even if it creates an exact fit. |
 
 ## Core V1 Supported Fixtures
 
@@ -36,8 +36,8 @@ The first recognizer implementation does not need to support every reference-onl
 
 | ID | Meter | Intended read | Decision | Required local evidence | Guardrail |
 | --- | --- | --- | --- | --- | --- |
-| `eighth-rest-plus-eighth-not-note-pair` | 4/4 | eighth rest, eighth | `mustRejectAutoCommit` | First cluster is rest hook without lower notehead; second cluster is eighth note. | Must not become eighth, eighth. |
-| `dotted-quarter-eighth-eighth-dotted-quarter` | 4/4 | dotted quarter, eighth, eighth, dotted quarter | `mustRejectAutoCommit` | Two adjacent eighths are separated by beat 3. | Must not beam eighths across protected midpoint. |
+| `eighth-rest-plus-eighth-not-note-pair` | 4/4 | eighth rest, eighth | `mustRejectRenderProposal` | First cluster is rest hook without lower notehead; second cluster is eighth note. | Must not become eighth, eighth. |
+| `dotted-quarter-eighth-eighth-dotted-quarter` | 4/4 | dotted quarter, eighth, eighth, dotted quarter | `mustRejectRenderProposal` | Two adjacent eighths are separated by beat 3. | Must not beam eighths across protected midpoint. |
 | `quarter-rest-too-small-as-eighth-rest` | 4/4 | quarter rest | `mustReview` | Ambiguous squiggle too small for quarter rest but too tall for eighth rest. | Preserve ink instead of forcing exact fit. |
 | `dotted-eighth-sixteenth` | 4/4 | dotted eighth, sixteenth | `mustReview` | Eighth note with right-side dot, then double-flag/double-beam short value. | Reference-only until model supports it. |
 | `sixteenth-dotted-eighth` | 4/4 | sixteenth, dotted eighth | `mustReview` | Double-flag short value followed by dotted eighth. | Do not reorder or collapse to eighth pair. |
@@ -61,7 +61,7 @@ The first recognizer implementation does not need to support every reference-onl
 Before the new recognizer becomes render authority, it should pass at least:
 
 1. all `mustCommit` fixtures currently supported by `RhythmValue`,
-2. all `mustRejectAutoCommit` fixtures,
+2. all `mustRejectRenderProposal` fixtures,
 3. all underfilled/overflow safety fixtures,
 4. the eighth-rest/eighth-note separation fixtures,
 5. the dotted-quarter/eighth/eighth/dotted-quarter grouping fixture.

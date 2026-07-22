@@ -1122,8 +1122,10 @@ final class ChartLibraryStoreTests: XCTestCase {
                 .sixteenthNote,
                 .eighthNote,
                 .measureRepeat,
+                .tie,
                 .wholeRest,
                 .quarterRest,
+                .dottedQuarterRest,
                 .halfRest,
                 .sixteenthRest,
                 .eighthRest
@@ -1131,7 +1133,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             Set(RhythmicNotationPrimitive.pendingUniversalGuidePrimitives),
-            Set([.tie])
+            Set()
         )
     }
 
@@ -1146,7 +1148,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             RhythmicNotationReferenceCompendium.rests.map(\.value),
-            [.wholeRest, .halfRest, .quarterRest, .eighthRest, .sixteenthRest]
+            [.wholeRest, .halfRest, .dottedQuarterRest, .quarterRest, .eighthRest, .sixteenthRest]
         )
         XCTAssertEqual(
             Set(RhythmicNotationReferenceCompendium.all.map(\.value)),

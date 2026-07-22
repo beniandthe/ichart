@@ -18,6 +18,8 @@ It is not user-facing Help content. It describes what the visual interpreter sho
 
 The core rule is simple: classify shape evidence first, then validate it against duration, meter position, grouping, and neighboring symbols. A mark that looks like an eighth rest alone should not become an eighth note just because another stroke appears nearby.
 
+Before assigning semantic music labels, the visualizer should preserve neutral morphology: compact dots, heavy vertical strokes, horizontal strokes, diagonals, curve hooks, zig-zag bodies, and loops. These raw shape tokens are evidence, not final rhythm values. A tall angular mark should not become a `filledNotehead` merely because it has mass; it should remain a `zigZagBody`/`verticalStroke` candidate until notehead, rest-body, dot, stem, and meter context agree.
+
 ## Visual Interpreter Vocabulary
 
 Normalize every ink cluster into these visual tokens before assigning a rhythm value:
@@ -39,6 +41,12 @@ Normalize every ink cluster into these visual tokens before assigning a rhythm v
 | `sixteenthRestHook` | Eighth-rest-like gesture with two hook/dot levels. | Sixteenth-rest evidence. |
 | `tieArc` | Smooth curved arc connecting sustained values. | Tie/continuation evidence, not a new attack. |
 | `tupletNumber` | Small number above or near a grouped rhythm, especially `3`. | Tuplet grouping evidence. |
+| `verticalStroke` | Tall mark with heavy y-axis travel and small x-axis spread. | Neutral morphology before deciding stem, rest body, or noise. |
+| `horizontalStroke` | Flat mark with heavy x-axis travel and small y-axis spread. | Neutral morphology before deciding beam, rest block, staff-relative rest, or noise. |
+| `diagonalStroke` | Slanted line that is not yet a slash, stem, or beam. | Neutral morphology before assigning placeholder slash or gesture fragment. |
+| `curveHook` | Curved or hooked mark that is not yet a flag, tie, or rest hook. | Neutral morphology before assigning flag/tie/rest meaning. |
+| `zigZagBody` | Angular vertical squiggle/lightning/S-like body. | Neutral rest-body morphology, especially quarter-rest family evidence. |
+| `loop` | Closed or nearly closed stroke. | Neutral morphology before deciding open/filled notehead or overdraw. |
 
 ## Global Shape Rules
 
@@ -225,7 +233,7 @@ Handwritten abstraction:
 Users may draw the rest quickly and tap the dot. The dot can be close but should not be part of the zig-zag stroke.
 
 Key rejection cues:
-Current support is reference-only. Preserve as review if the visual is clear but the model cannot commit the value.
+Do not create this from generic dot proximity. Segment the quarter-rest body first, then attach a compact lower-lane dot only if it trails the glyph within the bounded x/y attachment window; otherwise keep the plain rest or route to review.
 
 ### Eighth Rest
 

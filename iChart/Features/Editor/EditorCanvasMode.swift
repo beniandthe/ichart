@@ -29,7 +29,14 @@ enum EditorCanvasMode: Hashable {
     }
 
     var showsActiveToolControls: Bool {
-        self != .browse
+        switch self {
+        case .browse:
+            return false
+        case .rhythmicNotationEdit:
+            return RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool
+        default:
+            return true
+        }
     }
 
     var activeToolTitle: String {
@@ -120,6 +127,7 @@ enum EditorCanvasMode: Hashable {
 
     var allowsDirectRhythmicNotationInk: Bool {
         self == .rhythmicNotationEdit
+            && RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool
     }
 
     var allowsPageInkEditing: Bool {

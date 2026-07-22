@@ -68,10 +68,6 @@ enum RhythmRecognitionContextRules {
             return []
         }
 
-        if meter.numerator == 4, meter.denominator == 4 {
-            return [meter.measureLengthInWholeNotes / 2]
-        }
-
         if meter.denominator == 8,
            meter.numerator > 3,
            meter.numerator.isMultiple(of: 3) {
@@ -142,8 +138,8 @@ private extension RhythmValue {
         switch self {
         case .sixteenth, .eighth, .dottedEighth:
             return true
-        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarter, .half, .halfRest,
-             .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenthRest, .eighthRest, .quarter, .quarterRest, .dottedQuarterRest, .dottedQuarter,
+             .half, .halfRest, .dottedHalf, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }

@@ -7,6 +7,7 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
     case quarterNote
     case slash
     case dottedQuarterNote
+    case dottedQuarterRest
     case dottedEighthNote
     case sixteenthNote
     case eighthNote
@@ -34,6 +35,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "Slash"
         case .dottedQuarterNote:
             return "Dotted Quarter Note"
+        case .dottedQuarterRest:
+            return "Dotted Quarter Rest"
         case .dottedEighthNote:
             return "Dotted Eighth Note"
         case .sixteenthNote:
@@ -71,6 +74,8 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
             return "/"
         case .dottedQuarterNote:
             return "Q."
+        case .dottedQuarterRest:
+            return "QR."
         case .dottedEighthNote:
             return "8."
         case .sixteenthNote:
@@ -214,6 +219,26 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                     "The dot merges into the note body",
                     "A top flag appears, making it closer to a dotted eighth-like form",
                     "The head is hollow"
+                ]
+            )
+        case .dottedQuarterRest:
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept a quarter-rest body with one detached dot to the right. The dot extends the silent value by half without turning the rest into a note.",
+                mustContain: [
+                    "One quarter-rest zig-zag or handwritten rest body",
+                    "One separate compact dot to the right",
+                    "No filled or hollow notehead"
+                ],
+                allowedVariations: [
+                    "The rest body can be angular, curved, or one-stroke handwritten",
+                    "The dot can sit slightly high or low as long as it reads beside the rest",
+                    "The body can lean naturally without becoming a note stem"
+                ],
+                rejectWhen: [
+                    "A notehead and stem are present",
+                    "The dot merges into the rest body",
+                    "The body is only an eighth-rest hook or sixteenth-rest double hook"
                 ]
             )
         case .dottedEighthNote:
@@ -397,7 +422,25 @@ enum RhythmicNotationPrimitive: String, Codable, CaseIterable, Hashable, Identif
                 ]
             )
         case .tie:
-            return nil
+            return RhythmicNotationUniversalGuide(
+                primitive: self,
+                acceptanceSummary: "Accept a shallow curved connector between two adjacent noteheads as a tie. It connects sustained notes and should not add rhythmic duration by itself.",
+                mustContain: [
+                    "One shallow curved line",
+                    "The curve begins near one notehead and ends near the next notehead",
+                    "No rest body, stem, notehead, flag, or dot shape inside the curve"
+                ],
+                allowedVariations: [
+                    "Curve can bow slightly upward or downward",
+                    "Endpoints can be a little outside the noteheads",
+                    "The line can be lightly handwritten as long as it stays one connector"
+                ],
+                rejectWhen: [
+                    "The stroke is mostly vertical like a stem",
+                    "The stroke is a beam above or below stems",
+                    "The curve floats without nearby noteheads to connect"
+                ]
+            )
         }
     }
 
@@ -488,6 +531,7 @@ enum RhythmicNotationReferenceCompendium {
     static let rests: [RhythmicNotationReferenceEntry] = [
         entry(value: .wholeRest, primitive: .wholeRest, kind: .rest, durationText: "4 beats of silence in 4/4"),
         entry(value: .halfRest, primitive: .halfRest, kind: .rest, durationText: "2 beats of silence in 4/4"),
+        entry(value: .dottedQuarterRest, primitive: .dottedQuarterRest, kind: .rest, durationText: "1.5 beats of silence in 4/4"),
         entry(value: .quarterRest, primitive: .quarterRest, kind: .rest, durationText: "1 beat of silence in 4/4"),
         entry(value: .eighthRest, primitive: .eighthRest, kind: .rest, durationText: "Half beat of silence in 4/4"),
         entry(value: .sixteenthRest, primitive: .sixteenthRest, kind: .rest, durationText: "Quarter beat of silence in 4/4")
@@ -547,6 +591,8 @@ extension RhythmValue {
             return "Quarter Note"
         case .quarterRest:
             return "Quarter Rest"
+        case .dottedQuarterRest:
+            return "Dotted Quarter Rest"
         case .dottedQuarter:
             return "Dotted Quarter Note"
         case .half:
@@ -568,9 +614,10 @@ extension RhythmValue {
 
     var isDottedReferenceValue: Bool {
         switch self {
-        case .dottedEighth, .dottedQuarter, .dottedHalf:
+        case .dottedEighth, .dottedQuarter, .dottedQuarterRest, .dottedHalf:
             return true
-        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest, .whole, .wholeRest, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenth, .sixteenthRest, .eighth, .eighthRest, .quarter, .quarterRest, .half, .halfRest,
+             .whole, .wholeRest, .measureRepeat, .tiedContinuation:
             return false
         }
     }

@@ -1,59 +1,49 @@
-# iChart Rhythm Recognition Overhaul Parking Lot
+# iChart Rhythm Recognition Boundary
 
 Date: 2026-06-22
 Branch: `codex/rhythm-recognition-overhaul`
 
 ## Goal
 
-Park the unreliable handwritten rhythm-recognition pipeline without removing the rhythm chart authoring tool set. The overhaul branch should keep the product surface usable for rhythm charts while the new recognizer is rebuilt against live handwriting fixtures.
+Park handwritten rhythm recognition as research and keep the shipping rhythm-entry path reliable. V1 ships without the dedicated Rhythm tool; Rhythm Section users enter rhythm notation with Free-Write until a literal rhythm input method is designed and implemented.
 
 ## Keep Active
 
 - Rhythm chart layout, measure sizing, systems, and scrolling behavior.
-- Rhythm chart tool rows and editor mode switching.
 - `MeasureRhythmMap`, `MeasureRhythmSlot`, and rhythm-map rendering.
 - Existing rendered rhythm values already saved in charts.
-- Raw handwritten rhythm ink persistence in the selected measure.
-- Rhythm edit/select/delete affordances that operate on saved chart data.
+- Free-Write page ink for rhythm notation, cues, articulations, and personal markings.
 - PDF/export behavior for charts that already contain rendered rhythm maps.
 
-## Parked Legacy Recognition Systems
+## Current Recognition System
 
-- `RhythmicNotationQuantizer`
-- `RhythmicNotationRasterTemplateRecognizer`
-- `VisualRhythmRecognizer` and visual phrase heuristics inside the quantizer file.
-- Legacy fallback recognition and exact-fit repair paths.
-- Legacy live rhythm auto-apply from handwritten ink.
-- Raster/template crop ownership heuristics.
-- The recent diagnostic recorder/chip work as evidence collection only, not as the trusted engine.
+- The dedicated Rhythm toolbar tool is hidden and unavailable in the shipping editor.
+- `RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool` is disabled.
+- `EditorCanvasMode.allowsDirectRhythmicNotationInk` is false while the gate is disabled, so live Pencil input cannot enter the recognizer path from the app surface.
+- Existing rhythm reference documents remain parked for future research, but no recognizer path is part of the active rhythm-entry UX.
 
-## Current Code Boundary
+## Parked Recognizer Research
 
-`RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked` and `RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled` are enabled on this branch.
+- `RhythmicNotationQuantizer` remains as parked research code and must not be reachable from the shipping editor while the dedicated Rhythm tool is retired.
+- `RhythmicNotationRecognitionTypes` owns the archived decision, phrase, typed glyph-evidence, symbol, and proposal contracts.
+- `RhythmRecognitionContextRules` remains as archived meter, grouping, beaming, and impossible-render context.
+- `RhythmRecognitionOverhaulGate.isConstrainedGlyphOCRPrimaryForSimpleMeters` is disabled while the dedicated tool is retired.
 
-When the gate is enabled:
+## Removed Systems
 
-- Pencil input in rhythm mode is still persisted as raw measure ink.
-- Idle live advisory recognition may persist/analyze stable raw ink and surface a "tap outside to render" state.
-- Selection changes and taps are allowed after raw ink is saved and are the only render authority for recognized rhythm ink.
-- The legacy recognizer does not auto-render, auto-clear, or commit rhythm maps from handwritten ink on a timer.
-- Existing legacy recognizer code remains in place for reference and comparison until V2 replaces it.
+- Timer-driven rhythm map commits from handwritten ink.
+- Whole-measure inferred repair paths that invent a fit without local glyph evidence.
+- Cross-path arbitration between competing recognizers.
+- Constrained OCR experiments from the rejected rhythm-recognition pass.
+- Template crop ownership as a runtime recognition authority.
+- One-off diagnostic helpers that bypass the current glyph OCR decision contract.
 
-## Deferred Until V2
+## Future Build Direction
 
-- Any threshold tuning in the old quantizer.
-- Any new raster/template rest or note heuristics.
-- Any broadening of exact-fit fallback repair.
-- Any timer-driven auto-commit behavior from handwritten rhythm ink.
-- Any user-facing confidence claim based only on synthetic recognizer tests.
+Build a literal rhythm input method before reintroducing any dedicated rhythm tool:
 
-## V2 Direction
-
-Build the next recognizer fixture-first:
-
-1. Capture replayable iPad rhythm ink fixtures.
-2. Segment strokes into candidate symbol groups.
-3. Classify symbols with ranked evidence.
-4. Parse against the measure grid without inventing unsupported symbols.
-5. Mark exact supported reads as ready, then commit only when the user taps to render/finalize.
-6. Otherwise preserve ink and show a clear recovery/check state.
+1. Keep Free-Write as the reliable rhythm-entry path for launch.
+2. Design a literal selector/palette for rhythms, rests, dots, ties, and grouped beaming.
+3. Make selector input deterministic: no shape guessing, no inferred render from handwriting.
+4. Preserve the existing rhythm-map renderer/export path for data created by the future selector.
+5. Revisit handwritten recognition only as an optional research surface after the literal input loop is trusted.

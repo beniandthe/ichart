@@ -177,7 +177,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Clear Log"))
         XCTAssertTrue(libraryText.contains("#if DEBUG && targetEnvironment(simulator)"))
         XCTAssertTrue(editorText.contains("rhythmDiagnosticStatusChip"))
-        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: handleRhythmicNotationPreviewChanged"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: isDedicatedRhythmToolAvailable"))
         XCTAssertTrue(hostText.contains("RhythmRecognitionDiagnosticsRecorder.live().append(event)"))
         XCTAssertTrue(diagnosticsText.contains("iChartRhythmRecognitionDiagnosticsEnabled"))
         XCTAssertTrue(diagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)"))
@@ -327,7 +327,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(projectText.contains("- path: StoreKit\n        buildPhase: resources"))
     }
 
-    func testRhythmRecognitionOverhaulParksLegacyAutoRenderButKeepsToolSet() throws {
+    func testRhythmRecognitionOverhaulRetiresDedicatedToolForFreeWriteFallback() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -338,6 +338,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let hostText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
         )
         let modeText = try String(
             contentsOf: projectRoot
@@ -352,25 +356,29 @@ final class ProjectConfigurationTests: XCTestCase {
                 .appendingPathComponent("docs/ichart-rhythm-recognition-overhaul-parking-2026-06-22.md")
         )
 
-        XCTAssertTrue(gateText.contains("isLegacyAutoRenderParked = true"))
-        XCTAssertTrue(gateText.contains("isTapToRenderRecognitionEnabled = true"))
+        XCTAssertTrue(gateText.contains("shipsDedicatedRhythmTool = false"))
+        XCTAssertTrue(gateText.contains("isConstrainedGlyphOCRPrimaryForSimpleMeters = false"))
+        XCTAssertTrue(editorText.contains("releaseSafeInitialCanvasMode"))
+        XCTAssertTrue(editorText.contains("if isDedicatedRhythmToolAvailable"))
+        XCTAssertTrue(editorText.contains("activateFreeHandForRetiredRhythmTool()"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: isDedicatedRhythmToolAvailable"))
         XCTAssertTrue(hostText.contains("persistRhythmicNotationInkIfStable"))
         XCTAssertTrue(hostText.contains("LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy"))
-        XCTAssertTrue(hostText.contains("RhythmRecognitionOverhaulGate.isLegacyAutoRenderParked"))
-        XCTAssertTrue(hostText.contains("RhythmRecognitionOverhaulGate.isTapToRenderRecognitionEnabled"))
+        XCTAssertTrue(hostText.contains("LeadSheetRhythmicNotationAdvisoryPolicy"))
         XCTAssertTrue(hostText.contains("chartByPersistingLiveDrawing"))
         XCTAssertTrue(modeText.contains("case rhythmicNotationEdit"))
         XCTAssertTrue(modeText.contains("allowsDirectRhythmicNotationInk"))
+        XCTAssertTrue(modeText.contains("&& RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool"))
         XCTAssertTrue(mapText.contains("struct MeasureRhythmMap"))
         XCTAssertTrue(mapText.contains("struct MeasureRhythmSlot"))
-        XCTAssertTrue(parkingPlanText.contains("Parked Legacy Recognition Systems"))
-        XCTAssertTrue(parkingPlanText.contains("Idle live advisory recognition"))
+        XCTAssertTrue(parkingPlanText.contains("Current Recognition System"))
+        XCTAssertTrue(parkingPlanText.contains("V1 ships without the dedicated Rhythm tool"))
         XCTAssertTrue(parkingPlanText.contains("Keep Active"))
-        XCTAssertTrue(parkingPlanText.contains("Legacy live rhythm auto-apply from handwritten ink"))
-        XCTAssertTrue(parkingPlanText.contains("tap outside to render"))
+        XCTAssertTrue(parkingPlanText.contains("Free-Write page ink for rhythm notation"))
+        XCTAssertTrue(parkingPlanText.contains("Build a literal rhythm input method before reintroducing any dedicated rhythm tool"))
     }
 
-    func testRhythmToolExposesRenderedRhythmClearAction() throws {
+    func testRhythmToolClearActionIsDormantWhileDedicatedToolIsRetired() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -384,6 +392,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("handleClearRenderedRhythmAtSelectedMeasure"))
         XCTAssertTrue(editorText.contains("clearRenderedRhythm(in measureID: UUID)"))
         XCTAssertTrue(editorText.contains("clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true)"))
+        XCTAssertTrue(editorText.contains("guard isDedicatedRhythmToolAvailable else"))
+        XCTAssertTrue(editorText.contains("Use Free-Write for rhythm entry in this version."))
     }
 
     func testRhythmRecognitionReferenceIsBackendOnly() throws {
@@ -711,7 +721,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Coda for roadmap marks like Coda, Segno, Fine, D.S., and D.C."))
         XCTAssertTrue(libraryText.contains("Use Text for cues, feel notes, section labels, and rehearsal reminders."))
         XCTAssertTrue(libraryText.contains("Use Time for meter changes inside the chart."))
-        XCTAssertTrue(libraryText.contains("Use Rhythm when iChart should read and render supported rhythm notation."))
+        XCTAssertTrue(libraryText.contains("Use Free-Write for rhythm notation in this version."))
         XCTAssertTrue(libraryText.contains("Use Chord when iChart should read handwritten chord symbols and render them cleanly."))
         XCTAssertTrue(libraryText.contains("Use Free-Write for persistent raw ink that iChart never reads or interprets."))
         XCTAssertTrue(libraryText.contains("Tap Done Before Switching"))
@@ -721,7 +731,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Instrument Transposition changes the reading view"))
         XCTAssertTrue(libraryText.contains("common /4 and /8 meters"))
         XCTAssertTrue(libraryText.contains("3/8, 5/8, 6/8, 7/8, 9/8, and 12/8"))
-        XCTAssertTrue(libraryText.contains("The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Rhythm when available, Chord, and Free-Write."))
+        XCTAssertTrue(libraryText.contains("The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Chord, and Free-Write."))
         XCTAssertTrue(libraryText.contains("On the first measure, Delete clears only the right barline when needed and keeps the opening barline."))
         XCTAssertFalse(libraryText.contains("Del Thru finishes it"))
         XCTAssertTrue(libraryText.contains("Start marks the opening repeat. Move to the last measure of the repeated section and tap End Rep to close the span."))
@@ -823,7 +833,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(notationRendererText.contains("markerPath.fill()"))
         XCTAssertFalse(notationRendererText.contains("markerPath.stroke()"))
         XCTAssertTrue(editorText.contains("systemImage: \"rectangle.split.3x1\""))
-        XCTAssertTrue(editorText.contains("systemImage: \"music.note\""))
+        XCTAssertTrue(editorText.contains("if isDedicatedRhythmToolAvailable"))
         XCTAssertTrue(typographySheetText.contains("To Coda"))
         XCTAssertFalse(typographySheetText.contains("To 𝄌"))
         XCTAssertTrue(editorText.contains("Meter(numerator: 7, denominator: 8)"))
@@ -831,7 +841,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("Ink Only"))
         XCTAssertTrue(editorText.contains("activeToolExplainer"))
         XCTAssertTrue(editorText.contains("Read and render chords. Want handwritten notation? Use Free-Write."))
-        XCTAssertTrue(editorText.contains("Read and render rhythms. Want handwritten notation? Use Free-Write."))
+        XCTAssertTrue(libraryText.contains("A dedicated literal rhythm input method will come later."))
+        XCTAssertFalse(editorText.contains("Read and render rhythms. Want handwritten notation? Use Free-Write."))
         XCTAssertTrue(editorText.contains("Persistent-ink mode. This ink is never read or interpreted by iChart."))
         XCTAssertTrue(editorText.contains("ActiveToolDoneButtonStyle"))
         XCTAssertTrue(editorText.contains("configuration.isPressed"))

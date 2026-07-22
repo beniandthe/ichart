@@ -43,6 +43,14 @@ fastlane/test_output
 *.p8
 *.mobileprovision
 
+# Local marketing source media and rendered review cuts
+docs/marketing/social-media/assets/
+
+# Parked local rhythm-recognition experiments not used by the shipping app
+docs/rhythm-recognition/ocr-reference/
+iChart/Features/Editor/Components/RhythmicNotationConstrainedGlyphOCR.swift
+scripts/generate_rhythm_ocr_reference_pack.py
+
 # Supabase local runtime state
 supabase/.branches/
 supabase/.temp/

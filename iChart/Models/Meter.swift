@@ -141,6 +141,7 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
     case dottedEighth
     case quarter
     case quarterRest
+    case dottedQuarterRest
     case dottedQuarter
     case half
     case halfRest
@@ -168,6 +169,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return "quarter"
         case .quarterRest:
             return "quarter rest"
+        case .dottedQuarterRest:
+            return "dotted quarter rest"
         case .dottedQuarter:
             return "dotted quarter"
         case .half:
@@ -205,6 +208,8 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return 0.25
         case .quarterRest:
             return 0.25
+        case .dottedQuarterRest:
+            return 0.375
         case .dottedQuarter:
             return 0.375
         case .half:
@@ -230,20 +235,23 @@ enum RhythmValue: String, Codable, CaseIterable, Hashable {
             return meter.beatUnitWholeNoteLength
         case .measureRepeat:
             return meter.measureLengthInWholeNotes
-        case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .dottedEighth, .quarter, .quarterRest, .dottedQuarter,
-             .half, .halfRest, .dottedHalf, .whole, .wholeRest, .tiedContinuation:
+        case .sixteenth, .sixteenthRest, .eighth, .eighthRest, .dottedEighth, .quarter, .quarterRest,
+             .dottedQuarterRest, .dottedQuarter, .half, .halfRest, .dottedHalf, .whole, .wholeRest,
+             .tiedContinuation:
             return wholeNoteLength
         }
     }
 
     var isRest: Bool {
         switch self {
-        case .sixteenthRest, .eighthRest, .quarterRest, .halfRest, .wholeRest:
+        case .sixteenthRest, .eighthRest, .quarterRest, .dottedQuarterRest, .halfRest, .wholeRest:
             return true
-        case .slash, .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole, .measureRepeat, .tiedContinuation:
+        case .slash, .sixteenth, .eighth, .dottedEighth, .quarter, .dottedQuarter, .half, .dottedHalf, .whole,
+             .measureRepeat, .tiedContinuation:
             return false
         }
     }
+
 }
 
 enum RhythmPlacement: String, Codable, CaseIterable, Hashable {

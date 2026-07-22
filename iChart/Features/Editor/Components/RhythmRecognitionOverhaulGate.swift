@@ -1,11 +1,9 @@
 import Foundation
 
 enum RhythmRecognitionOverhaulGate {
-    /// Keeps the old timer-driven rhythm render loop parked while the V2 recognizer is rebuilt.
-    static let isLegacyAutoRenderParked = true
+    /// V1 ships rhythm entry as Free-Write only while literal rhythm input is designed.
+    static let shipsDedicatedRhythmTool = false
 
-    /// Enables deliberate rhythm recognition from the active ink, committed only by tap/finalization.
-    static let isTapToRenderRecognitionEnabled = true
-
-    static let isLegacyHandwritingRecognitionParked = isLegacyAutoRenderParked
+    /// Kept for parked recognizer research only; the app must not route live input here.
+    static let isConstrainedGlyphOCRPrimaryForSimpleMeters = false
 }

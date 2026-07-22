@@ -32,7 +32,7 @@ enum RhythmicNotationQuantizationError: LocalizedError, Hashable {
 }
 
 enum RhythmicNotationMeasureProposalSafety: Hashable {
-    case autoApply
+    case readyToRender
     case extendedStability
     case manualReview
 }
@@ -41,8 +41,21 @@ struct RhythmicNotationMeasureProposal: Hashable {
     let values: [RhythmValue]
     let safety: RhythmicNotationMeasureProposalSafety
     let isNaturalExactFit: Bool
+    let tieOutSlotIndices: Set<Int>
 
-    var canAutoApply: Bool {
+    init(
+        values: [RhythmValue],
+        safety: RhythmicNotationMeasureProposalSafety,
+        isNaturalExactFit: Bool,
+        tieOutSlotIndices: Set<Int> = []
+    ) {
+        self.values = values
+        self.safety = safety
+        self.isNaturalExactFit = isNaturalExactFit
+        self.tieOutSlotIndices = tieOutSlotIndices
+    }
+
+    var canRenderWithoutReview: Bool {
         safety != .manualReview && isNaturalExactFit
     }
 
@@ -51,34 +64,36 @@ struct RhythmicNotationMeasureProposal: Hashable {
     }
 }
 
-enum RhythmInkPrimitiveKind: String, Hashable {
-    case notehead
+enum RhythmGlyphEvidenceKind: String, Hashable {
+    case filledNotehead
+    case openNotehead
     case stem
-    case beam
-    case dot
+    case singleBeam
+    case doubleBeam
+    case durationDot
+    case tieArc
     case slash
-    case restShape
-    case cleanup
-    case unknown
+    case quarterRestZigzag
+    case eighthRestHook
+    case sixteenthRestDoubleHook
+    case halfRestBlock
+    case wholeRestBlock
+    case unknownStroke
 }
 
-struct RhythmInkPrimitive: Hashable {
-    let strokeIndex: Int
-    let kind: RhythmInkPrimitiveKind
+struct RhythmGlyphEvidence: Hashable {
+    let kind: RhythmGlyphEvidenceKind
+    let strokeIndices: Set<Int>
     let bounds: CGRect
+    let confidence: Double
 }
 
 enum RhythmPhraseSource: String, Hashable {
     case gridFirst
-    case rasterTemplate
-    case visual
-    case legacyFallback
 }
 
 enum RhythmRecognitionReasoningPathKind: String, Hashable {
-    case rasterTemplate
-    case visualShape
-    case legacyFallback
+    case glyphOCR
     case contextRules
 }
 
@@ -103,11 +118,33 @@ struct RhythmSymbolHypothesis: Hashable {
     let bounds: CGRect
     let candidateValues: [RhythmValue]
     let selectedValue: RhythmValue?
+    let evidence: [RhythmGlyphEvidence]
+
+    init(
+        coveredStrokeIndices: Set<Int>,
+        bounds: CGRect,
+        candidateValues: [RhythmValue],
+        selectedValue: RhythmValue?,
+        evidence: [RhythmGlyphEvidence] = []
+    ) {
+        self.coveredStrokeIndices = coveredStrokeIndices
+        self.bounds = bounds
+        self.candidateValues = candidateValues
+        self.selectedValue = selectedValue
+        self.evidence = evidence
+    }
+}
+
+struct RhythmVisualNoteAnchor: Hashable {
+    let index: Int
+    let center: CGPoint
+    let bounds: CGRect
+    let normalizedBounds: CGRect
 }
 
 struct RhythmPhraseHypothesis: Hashable {
     let source: RhythmPhraseSource
-    let primitives: [RhythmInkPrimitive]
+    let glyphEvidence: [RhythmGlyphEvidence]
     let symbols: [RhythmSymbolHypothesis]
     let uncoveredStrokeIndices: [Int]
     let naturalValues: [RhythmValue]
@@ -115,6 +152,28 @@ struct RhythmPhraseHypothesis: Hashable {
     let targetUnits: Int
     let passesCompendium: Bool
     var reasoningPaths: [RhythmRecognitionReasoningPath] = []
+
+    init(
+        source: RhythmPhraseSource,
+        glyphEvidence: [RhythmGlyphEvidence] = [],
+        symbols: [RhythmSymbolHypothesis],
+        uncoveredStrokeIndices: [Int],
+        naturalValues: [RhythmValue],
+        naturalUnits: Int,
+        targetUnits: Int,
+        passesCompendium: Bool,
+        reasoningPaths: [RhythmRecognitionReasoningPath] = []
+    ) {
+        self.source = source
+        self.glyphEvidence = glyphEvidence
+        self.symbols = symbols
+        self.uncoveredStrokeIndices = uncoveredStrokeIndices
+        self.naturalValues = naturalValues
+        self.naturalUnits = naturalUnits
+        self.targetUnits = targetUnits
+        self.passesCompendium = passesCompendium
+        self.reasoningPaths = reasoningPaths
+    }
 
     var isNaturalExactFit: Bool {
         naturalUnits == targetUnits && passesCompendium
@@ -214,25 +273,6 @@ enum RhythmRecognitionReason: String, Hashable {
     case nonNaturalExactFit
     case ambiguousPhrase
     case manualReview
-    case nonVisualFallback
     case uncoveredStrokes
-    case competingExactPhrases
-}
-
-struct RhythmCandidate: Hashable {
-    let value: RhythmValue
-    let score: Double
-    var canDriveExactFit: Bool = true
-    var canExtendAutoApplyStability: Bool = false
-
-    var isConfidentEnoughForMeasureFit: Bool {
-        canDriveExactFit && score <= 1.15
-    }
-}
-
-struct CandidatePath: Hashable {
-    let values: [RhythmValue]
-    let score: Double
-    let units: Int
 }
 #endif

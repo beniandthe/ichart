@@ -363,8 +363,16 @@ Acceptance:
 
 ### Gate 8 - App Store public submission package
 
-Status: Pending.
+Status: In progress.
 Priority: P0.
+
+2026-07-20 website/App Store readiness update:
+
+- Local `public-site/useichart` source now has a launch-facing home page with current support/privacy routes and prelaunch-safe CTAs.
+- Live `https://useichart.com` still needs deployment from the updated local source before this gate can be marked complete.
+- App Store metadata draft has been revised toward the current `handwrite clean charts at paper speed` positioning and away from automatic cleanup/messy-chart language.
+- Screenshot plan is drafted, but actual App Store screenshot assets still need capture/export at Apple-accepted iPad sizes.
+- Do not use the launch-video end-card wording `Available on the App Store` publicly until the App Store product page or pre-order page is live.
 
 Acceptance:
 

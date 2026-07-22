@@ -10,9 +10,13 @@ enum NotationGlyphCatalog {
         case noteheadBlack
         case noteWhole
         case noteHalfUp
+        case noteHalfDown
         case noteQuarterUp
+        case noteQuarterDown
         case note8thUp
+        case note8thDown
         case note16thUp
+        case note16thDown
         case slashNotehead
         case slashWholeNotehead
         case slashHalfNotehead
@@ -40,9 +44,13 @@ enum NotationGlyphCatalog {
     static let noteheadBlack = "\u{E0A4}"
     static let noteWhole = "\u{E1D2}"
     static let noteHalfUp = "\u{E1D3}"
+    static let noteHalfDown = "\u{E1D4}"
     static let noteQuarterUp = "\u{E1D5}"
+    static let noteQuarterDown = "\u{E1D6}"
     static let note8thUp = "\u{E1D7}"
+    static let note8thDown = "\u{E1D8}"
     static let note16thUp = "\u{E1D9}"
+    static let note16thDown = "\u{E1DA}"
     static let slashNotehead = "\u{E100}"
     static let slashWholeNotehead = "\u{E102}"
     static let slashHalfNotehead = "\u{E103}"
@@ -86,12 +94,20 @@ enum NotationGlyphCatalog {
             return noteWhole
         case .noteHalfUp:
             return noteHalfUp
+        case .noteHalfDown:
+            return noteHalfDown
         case .noteQuarterUp:
             return noteQuarterUp
+        case .noteQuarterDown:
+            return noteQuarterDown
         case .note8thUp:
             return note8thUp
+        case .note8thDown:
+            return note8thDown
         case .note16thUp:
             return note16thUp
+        case .note16thDown:
+            return note16thDown
         case .slashNotehead:
             return slashNotehead
         case .slashWholeNotehead:
@@ -149,9 +165,9 @@ enum NotationGlyphCatalog {
             return 2.19
         case .noteWhole:
             return 2.52
-        case .noteHalfUp, .noteQuarterUp:
+        case .noteHalfUp, .noteHalfDown, .noteQuarterUp, .noteQuarterDown:
             return 4.9
-        case .note8thUp, .note16thUp:
+        case .note8thUp, .note8thDown, .note16thUp, .note16thDown:
             return 5.05
         case .slashNotehead, .slashWholeNotehead, .slashHalfNotehead:
             return 2.29
@@ -192,12 +208,20 @@ extension NotationGlyphCatalog.Symbol {
             return "noteWhole"
         case .noteHalfUp:
             return "noteHalfUp"
+        case .noteHalfDown:
+            return "noteHalfDown"
         case .noteQuarterUp:
             return "noteQuarterUp"
+        case .noteQuarterDown:
+            return "noteQuarterDown"
         case .note8thUp:
             return "note8thUp"
+        case .note8thDown:
+            return "note8thDown"
         case .note16thUp:
             return "note16thUp"
+        case .note16thDown:
+            return "note16thDown"
         case .slashNotehead:
             return "noteheadSlashVerticalEnds"
         case .slashWholeNotehead:
