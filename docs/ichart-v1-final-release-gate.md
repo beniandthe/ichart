@@ -14,6 +14,7 @@ release-gate document.
 Supporting docs:
 
 - `docs/v1-production-deployment.md`
+- `docs/ichart-v1-1-roadmap.md`
 - `docs/supabase-production-readiness-checklist.md`
 - `docs/ichart-storekit-subscription-runbook.md`
 - `docs/ichart-plan-policy-source-of-truth.md`
@@ -84,6 +85,20 @@ they are wrong.
 - Observability for V1: Apple-native crash/TestFlight feedback plus in-app
   Help/Contact path. Do not add Sentry, Firebase, or analytics SDKs during this
   release gate.
+
+## 2.1 V1.1 Forward Promise
+
+Do not expand the V1.0 release promise to include these items. They are the
+V1.1 goal and statement moving forward:
+
+- Key signatures.
+- Select input for rhythm notation.
+- Enharmonic transposition and preferences.
+
+Use `docs/ichart-v1-1-roadmap.md` as the source of truth for V1.1 scope. In
+V1.0, Rhythm Section rhythm notation remains Free-Write unless data already
+exists as rendered rhythm maps; the retired handwritten rhythm recognizer should
+not be reintroduced as a release blocker.
 
 ## 3. Supabase Plan Decision
 
