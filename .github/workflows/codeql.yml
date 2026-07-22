@@ -48,11 +48,11 @@ jobs:
               changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
               printf '%s\n' "$changed_files"
 
-              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml)'; then
+              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml)'; then
                 run_codeql=true
-                reason="CodeQL is enabled because Swift or build inputs changed."
+                reason="CodeQL is enabled because production Swift or build inputs changed."
               else
-                reason="No Swift or build inputs changed; CodeQL analysis is skipped for this documentation/static-site pass."
+                reason="No production Swift or build inputs changed; CodeQL analysis is skipped for this documentation/static-site/test-only pass."
               fi
               ;;
             schedule|workflow_dispatch)
