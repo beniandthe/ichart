@@ -383,7 +383,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "export",
                     title: "Export PDF",
-                    detail: "Export PDF creates the handoff file and saves it to PDFs. Export after checking title, page style, measure flow, repeats, text, chord placement, and rhythm rendering."
+                    detail: "Export PDF creates the handoff file and saves it to PDFs. Export after checking title, page style, measure flow, repeats, text, chord placement, and overall readability."
                 )
             ]
         ),
@@ -5699,7 +5699,7 @@ private struct IChartPlanSettings: View {
     let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
     let onForumQASampleDataChanged: (Bool) -> Void
 
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG
     @State private var debugPreview: IChartDebugPlanPreview = .basic
     #endif
 
@@ -5754,16 +5754,16 @@ private struct IChartPlanSettings: View {
 
             storeKitControls
 
-            #if DEBUG && targetEnvironment(simulator)
+            #if DEBUG
             debugControls
             #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG
         .onAppear {
             debugPreview = IChartDebugPlanPreview.preview(for: store.subscriptionState)
         }
-        .onChange(of: store.entitlements.subscription) { _, subscription in
+        .onChange(of: store.entitlements.subscription) { subscription in
             let nextPreview = IChartDebugPlanPreview.preview(for: subscription)
             if debugPreview != nextPreview {
                 debugPreview = nextPreview
@@ -5914,7 +5914,7 @@ private struct IChartPlanSettings: View {
         }
     }
 
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG
     private var debugControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
@@ -5930,9 +5930,11 @@ private struct IChartPlanSettings: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: debugPreview) { _, preview in
-                let subscriptionState = preview.subscriptionState()
+            .onChange(of: debugPreview) {
+                let subscriptionState = debugPreview.subscriptionState()
+                #if targetEnvironment(simulator)
                 subscriptionStore.applyLocalPreview(subscriptionState)
+                #endif
                 onSelectSubscriptionState(subscriptionState)
             }
 

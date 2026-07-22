@@ -67,6 +67,7 @@ a {
 .hero-actions,
 .launch-actions,
 .pro-benefits,
+.plan-benefits,
 .teacher-grid {
   display: flex;
   flex-wrap: wrap;
@@ -247,7 +248,7 @@ p {
 }
 
 .intro-section > p,
-.workflow-copy p,
+.use-case-copy p,
 .launch-section p,
 .pro-copy p,
 .teacher-section > p {
@@ -289,40 +290,97 @@ p {
   background: var(--paper);
 }
 
-.workflow-band {
+.teacher-proof,
+.pro-plan-proof,
+.forum-proof,
+.forum-chart-proof,
+.launch-proof,
+.inline-proof {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.teacher-proof img,
+.pro-plan-proof img,
+.forum-proof img,
+.forum-chart-proof img,
+.launch-proof img,
+.inline-proof img {
+  width: 100%;
+  object-fit: cover;
+}
+
+.inline-proof {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.56fr) minmax(0, 1fr);
+  align-items: center;
+  margin-top: 36px;
+}
+
+.inline-proof img {
+  height: 420px;
+  object-position: center top;
+}
+
+.inline-proof figcaption {
+  max-width: 470px;
+  padding: 22px;
+  color: var(--muted);
+  font-size: 1.02rem;
+}
+
+.teacher-proof figcaption {
+  padding: 14px 16px 16px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.teacher-proof {
+  margin-top: 28px;
+}
+
+.teacher-proof img {
+  height: 540px;
+  object-position: center top;
+}
+
+.use-case-band {
   background: var(--navy);
   color: var(--cream);
 }
 
-.workflow-band.alternate {
+.use-case-band.alternate {
   background: var(--paper-soft);
   color: var(--ink);
 }
 
-.workflow-band .section-kicker {
+.use-case-band .section-kicker {
   color: var(--blue);
 }
 
-.workflow-band.alternate .section-kicker {
+.use-case-band.alternate .section-kicker {
   color: var(--teal-dark);
 }
 
-.workflow-band .workflow-copy p {
+.use-case-band .use-case-copy p {
   color: rgba(255, 248, 231, 0.76);
 }
 
-.workflow-band.alternate .workflow-copy p {
+.use-case-band.alternate .use-case-copy p {
   color: var(--muted);
 }
 
-.workflow-grid {
+.use-case-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.72fr);
   align-items: center;
   gap: 52px;
 }
 
-.alternate .workflow-grid {
+.alternate .use-case-grid {
   grid-template-columns: minmax(320px, 0.72fr) minmax(0, 0.9fr);
 }
 
@@ -339,7 +397,7 @@ p {
   width: 100%;
   height: 580px;
   object-fit: cover;
-  object-position: center 14%;
+  object-position: center top;
 }
 
 .pro-band {
@@ -362,17 +420,35 @@ p {
   color: rgba(255, 248, 231, 0.76);
 }
 
-.pro-benefits {
+.pro-plan-proof {
+  margin-top: 28px;
+  border-color: rgba(132, 207, 229, 0.34);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
+}
+
+.pro-plan-proof img {
+  height: 340px;
+  object-position: center top;
+}
+
+.pro-benefits,
+.plan-benefits {
   align-items: stretch;
 }
 
-.pro-benefits article {
+.pro-benefits article,
+.plan-benefits article {
   flex: 1 1 240px;
   min-height: 220px;
   border: 1px solid rgba(132, 207, 229, 0.34);
   border-radius: 8px;
   padding: 22px;
   background: rgba(255, 255, 255, 0.07);
+}
+
+.plan-benefits {
+  margin-top: 18px;
 }
 
 .pro-benefits .forum-highlight {
@@ -382,8 +458,39 @@ p {
   background: rgba(132, 207, 229, 0.12);
 }
 
-.pro-benefits p {
+.pro-benefits p,
+.plan-benefits p {
   color: rgba(255, 248, 231, 0.74);
+}
+
+.forum-proof {
+  margin-top: 18px;
+  border-color: rgba(132, 207, 229, 0.28);
+  background: rgba(8, 18, 24, 0.24);
+}
+
+.forum-proof img {
+  height: 380px;
+  object-position: center top;
+}
+
+.forum-chart-proof {
+  margin-top: 18px;
+  border-color: rgba(132, 207, 229, 0.28);
+  background: rgba(8, 18, 24, 0.24);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.18);
+}
+
+.forum-chart-proof img {
+  height: auto;
+  object-fit: contain;
+  object-position: center top;
+}
+
+.forum-chart-proof figcaption {
+  padding: 12px 14px 14px;
+  color: rgba(255, 248, 231, 0.74);
+  font-size: 0.9rem;
 }
 
 .benefit-label {
@@ -396,9 +503,25 @@ p {
 
 .launch-section {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 0.95fr) minmax(190px, 0.36fr) auto;
   align-items: center;
   gap: 36px;
+}
+
+.launch-proof {
+  border-color: rgba(34, 127, 150, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.launch-proof img {
+  height: 260px;
+  object-position: center top;
+}
+
+.launch-proof figcaption {
+  padding: 10px 12px 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .launch-section .secondary-action {
@@ -431,15 +554,16 @@ p {
 .site-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 22px;
   padding: 34px 0;
   border-top: 1px solid var(--line);
   color: var(--muted);
+  text-align: center;
 }
 
-.site-footer p {
-  margin: 0;
+.footer-links {
+  justify-content: center;
 }
 
 .footer-links a {
@@ -450,7 +574,6 @@ p {
 
 @media (max-width: 860px) {
   .site-header,
-  .site-footer,
   .launch-section {
     align-items: flex-start;
     flex-direction: column;
@@ -486,9 +609,10 @@ p {
 
   .feature-grid,
   .teacher-grid,
-  .workflow-grid,
-  .alternate .workflow-grid,
-  .pro-grid {
+  .use-case-grid,
+  .alternate .use-case-grid,
+  .pro-grid,
+  .launch-section {
     grid-template-columns: 1fr;
   }
 
@@ -503,11 +627,34 @@ p {
   .product-shot img {
     height: 520px;
   }
+
+  .teacher-proof img {
+    height: 500px;
+  }
+
+  .inline-proof {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-proof img {
+    height: 500px;
+  }
+
+  .pro-plan-proof img,
+  .forum-proof img,
+  .launch-proof img {
+    height: 360px;
+  }
 }
 
 @media (max-width: 560px) {
   .shell {
     width: min(100% - 28px, 1120px);
+  }
+
+  .eyebrow,
+  .section-kicker {
+    overflow-wrap: anywhere;
   }
 
   .top-nav a {
@@ -526,7 +673,30 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .hero-actions,
+  .launch-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .primary-action,
+  .secondary-action,
+  .links a {
+    width: 100%;
+  }
+
   .product-shot img {
     height: 440px;
+  }
+
+  .inline-proof img,
+  .teacher-proof img {
+    height: 420px;
+  }
+
+  .pro-plan-proof img,
+  .forum-proof img,
+  .launch-proof img {
+    height: 310px;
   }
 }

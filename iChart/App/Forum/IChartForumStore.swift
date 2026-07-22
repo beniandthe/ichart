@@ -47,7 +47,7 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var uploadQueue: [ForumUploadQueueItem]
 
     private let service: IChartForumServicing
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG
     private let qaSampleService = IChartForumQASampleService()
     #endif
     private var lastQuery = ""
@@ -55,7 +55,7 @@ final class IChartForumStore: ObservableObject {
 
     private init(service: IChartForumServicing) {
         self.service = service
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG
         isQASampleDataEnabled = UserDefaults.standard.bool(forKey: Self.qaSampleDataStorageKey)
         #else
         isQASampleDataEnabled = false
@@ -85,7 +85,7 @@ final class IChartForumStore: ObservableObject {
     private static let uploadQueueStorageKey = "iChartForumUploadQueue"
 
     func setQASampleDataEnabled(_ isEnabled: Bool) {
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG
         guard isQASampleDataEnabled != isEnabled else {
             return
         }
@@ -118,7 +118,7 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG
         if isQASampleDataEnabled {
             await qaSampleService.setCurrentUserID(signedInSession.id)
         }
@@ -449,7 +449,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     private var activeService: IChartForumServicing {
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG
         isQASampleDataEnabled ? qaSampleService : service
         #else
         service
@@ -536,7 +536,7 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     }
 }
 
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG
 private actor IChartForumQASampleService: IChartForumServicing {
     let isConfigured = true
 
@@ -769,12 +769,16 @@ private actor IChartForumQASampleService: IChartForumServicing {
 
     private var sampleSongs: [ForumSong] {
         [
-            ForumSong(id: Self.multiUserDemoSongID, songTitle: "Funky Jam", artistName: "iChart Community"),
-            ForumSong(id: Self.blueBossaSongID, songTitle: "Blue Bossa", artistName: "Kenny Dorham"),
-            ForumSong(id: Self.cantaloupeSongID, songTitle: "Cantaloupe Island", artistName: "Herbie Hancock"),
-            ForumSong(id: Self.justFriendsSongID, songTitle: "Just Friends", artistName: "John Klenner"),
-            ForumSong(id: Self.anotherYouSongID, songTitle: "There Will Never Be Another You", artistName: "Harry Warren"),
-            ForumSong(id: Self.actualProofSongID, songTitle: "Actual Proof", artistName: "Herbie Hancock")
+            ForumSong(id: Self.lateNightPocketSongID, songTitle: "Late Night Pocket", artistName: "iChart Community"),
+            ForumSong(id: Self.firstDanceSongID, songTitle: "First Dance", artistName: "Wedding Set"),
+            ForumSong(id: Self.brassCityShuffleSongID, songTitle: "Brass City Shuffle", artistName: "Maya Torres"),
+            ForumSong(id: Self.riverwalkBossaSongID, songTitle: "Riverwalk Bossa", artistName: "Jamal Reed"),
+            ForumSong(id: Self.sundayProcessionalSongID, songTitle: "Sunday Processional", artistName: "Ceremony Band"),
+            ForumSong(id: Self.comboClassWarmupSongID, songTitle: "Combo Class Warmup", artistName: "Studio Curriculum"),
+            ForumSong(id: Self.uptownWalkSongID, songTitle: "Uptown Walk", artistName: "Nate Coleman"),
+            ForumSong(id: Self.balladForLenaSongID, songTitle: "Ballad for Lena", artistName: "Sophie Lane"),
+            ForumSong(id: Self.hornSectionStabsSongID, songTitle: "Horn Section Stabs", artistName: "Session Band"),
+            ForumSong(id: Self.afterHoursWaltzSongID, songTitle: "After Hours Waltz", artistName: "Eli Park")
         ]
     }
 
@@ -787,116 +791,212 @@ private actor IChartForumQASampleService: IChartForumServicing {
         let now = Date()
         return [
             post(
-                id: Self.multiUserDemoPostID,
-                songID: Self.multiUserDemoSongID,
+                id: Self.lateNightPocketRoadmapPostID,
+                songID: Self.lateNightPocketSongID,
                 ownerID: currentUserID,
-                chartTitle: "Funky Jam - Community Roadmap",
+                chartTitle: "Late Night Pocket - Rhythm Section Roadmap",
                 arrangerCredit: "Beni Rossman",
                 creatorDisplayName: "Beni R.",
-                tags: ["demo", "rhythm section", "discussion"],
-                versionNote: "A sample interaction thread with votes, comments, reports, and PDF preview behavior.",
+                tags: ["funk", "rhythm section", "rehearsal"],
+                versionNote: "One-page roadmap with repeats, section labels, and notes for the band.",
                 layoutStyle: .rhythmSectionSheet,
                 status: .published,
-                upVotes: 37,
+                upVotes: 62,
                 downVotes: 1,
                 reports: 0,
-                publishedAt: now.addingTimeInterval(-45 * 60)
+                publishedAt: now.addingTimeInterval(-35 * 60)
             ),
             post(
-                id: Self.blueBossaRhythmPostID,
-                songID: Self.blueBossaSongID,
-                ownerID: currentUserID,
-                chartTitle: "Blue Bossa - Rhythm Section Roadmap",
-                arrangerCredit: "iChart Samples",
-                creatorDisplayName: "Beni R.",
-                tags: ["standard", "bossa", "rhythm section"],
-                versionNote: "Clean rehearsal map with hits, repeats, and a short tag.",
-                layoutStyle: .rhythmSectionSheet,
+                id: Self.lateNightPocketHornPostID,
+                songID: Self.lateNightPocketSongID,
+                ownerID: Self.mayaOwnerID,
+                chartTitle: "Late Night Pocket - Bb Horn Version",
+                arrangerCredit: "Maya Torres",
+                creatorDisplayName: "Maya T.",
+                tags: ["horns", "Bb", "funk"],
+                versionNote: "Transposed copy for the horn line with the same rehearsal form.",
+                layoutStyle: .simpleChordSheet,
                 status: .published,
-                upVotes: 24,
-                downVotes: 2,
+                upVotes: 31,
+                downVotes: 0,
                 reports: 0,
                 publishedAt: now.addingTimeInterval(-2 * 60 * 60)
             ),
             post(
-                id: Self.blueBossaHornsPostID,
-                songID: Self.blueBossaSongID,
-                ownerID: Self.mayaOwnerID,
-                chartTitle: "Blue Bossa - Horn Friendly Changes",
-                arrangerCredit: "Maya Torres",
-                creatorDisplayName: "Maya T.",
-                tags: ["horns", "concert", "standard"],
-                versionNote: "Compact chart for horn players reading with rhythm section.",
+                id: Self.firstDanceFPostID,
+                songID: Self.firstDanceSongID,
+                ownerID: currentUserID,
+                chartTitle: "First Dance - Key of F",
+                arrangerCredit: "Beni Rossman",
+                creatorDisplayName: "Beni R.",
+                tags: ["wedding", "singer key", "set list"],
+                versionNote: "Last-minute singer key version, stored with the weekend wedding project.",
                 layoutStyle: .simpleChordSheet,
                 status: .published,
-                upVotes: 11,
-                downVotes: 3,
+                upVotes: 48,
+                downVotes: 1,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-75 * 60)
+            ),
+            post(
+                id: Self.firstDanceCPostID,
+                songID: Self.firstDanceSongID,
+                ownerID: Self.sophieOwnerID,
+                chartTitle: "First Dance - Original Key",
+                arrangerCredit: "Sophie Lane",
+                creatorDisplayName: "Sophie L.",
+                tags: ["wedding", "original key", "piano"],
+                versionNote: "Original chart kept alongside the transposed singer version.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 18,
+                downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-8 * 60 * 60)
+            ),
+            post(
+                id: Self.brassCityConcertPostID,
+                songID: Self.brassCityShuffleSongID,
+                ownerID: Self.mayaOwnerID,
+                chartTitle: "Brass City Shuffle - Concert Chart",
+                arrangerCredit: "Maya Torres",
+                creatorDisplayName: "Maya T.",
+                tags: ["horns", "concert", "shuffle"],
+                versionNote: "Compact concert chart for bandleaders handing charts to a horn section.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 36,
+                downVotes: 2,
                 reports: 0,
                 publishedAt: now.addingTimeInterval(-18 * 60 * 60)
             ),
             post(
-                id: Self.cantaloupePostID,
-                songID: Self.cantaloupeSongID,
+                id: Self.brassCityEbPostID,
+                songID: Self.brassCityShuffleSongID,
+                ownerID: Self.lenaOwnerID,
+                chartTitle: "Brass City Shuffle - Eb Horn Copy",
+                arrangerCredit: "Lena Ortiz",
+                creatorDisplayName: "Lena O.",
+                tags: ["horns", "Eb", "transposed"],
+                versionNote: "Readable horn copy for alto players using the same roadmap.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 22,
+                downVotes: 1,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-25 * 60 * 60)
+            ),
+            post(
+                id: Self.riverwalkBossaPostID,
+                songID: Self.riverwalkBossaSongID,
                 ownerID: Self.jamalOwnerID,
-                chartTitle: "Cantaloupe Island - Pocket Hits",
+                chartTitle: "Riverwalk Bossa - Pocket Chart",
                 arrangerCredit: "Jamal Reed",
                 creatorDisplayName: "Jamal R.",
-                tags: ["funk", "hits", "rhythm section"],
-                versionNote: "Big form markers and simple hit language for a fast rehearsal.",
+                tags: ["bossa", "gig book", "rhythm section"],
+                versionNote: "Clean rhythm section chart with large section markers.",
                 layoutStyle: .rhythmSectionSheet,
                 status: .published,
-                upVotes: 19,
+                upVotes: 41,
                 downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-3 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.sundayProcessionalPostID,
+                songID: Self.sundayProcessionalSongID,
+                ownerID: Self.averyOwnerID,
+                chartTitle: "Sunday Processional - Ceremony Packet",
+                arrangerCredit: "Avery Brooks",
+                creatorDisplayName: "Avery B.",
+                tags: ["ceremony", "wedding", "strings"],
+                versionNote: "Simple form and cue notes for a ceremony ensemble.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 16,
+                downVotes: 1,
                 reports: 0,
                 publishedAt: now.addingTimeInterval(-4 * 24 * 60 * 60)
             ),
             post(
-                id: Self.justFriendsPostID,
-                songID: Self.justFriendsSongID,
-                ownerID: Self.sophieOwnerID,
-                chartTitle: "Just Friends - Jam Session Form",
-                arrangerCredit: "Sophie Lane",
-                creatorDisplayName: "Sophie L.",
-                tags: ["standard", "jam session", "medium swing"],
-                versionNote: nil,
+                id: Self.comboClassWarmupPostID,
+                songID: Self.comboClassWarmupSongID,
+                ownerID: Self.professorKimOwnerID,
+                chartTitle: "Combo Class Warmup - Student Set",
+                arrangerCredit: "Professor Kim",
+                creatorDisplayName: "Prof. Kim",
+                tags: ["teaching", "students", "warmup"],
+                versionNote: "Reusable class chart so students can always find the current version.",
                 layoutStyle: .simpleChordSheet,
                 status: .published,
-                upVotes: 8,
-                downVotes: 1,
-                reports: 0,
-                publishedAt: now.addingTimeInterval(-11 * 24 * 60 * 60)
-            ),
-            post(
-                id: Self.anotherYouPostID,
-                songID: Self.anotherYouSongID,
-                ownerID: Self.nateOwnerID,
-                chartTitle: "Another You - Gig Roadmap",
-                arrangerCredit: "Nate Coleman",
-                creatorDisplayName: "Nate C.",
-                tags: ["standard", "gig book"],
-                versionNote: "Short and clean for a singer rehearsal packet.",
-                layoutStyle: .simpleChordSheet,
-                status: .published,
-                upVotes: 4,
+                upVotes: 27,
                 downVotes: 0,
                 reports: 0,
-                publishedAt: now.addingTimeInterval(-45 * 24 * 60 * 60)
+                publishedAt: now.addingTimeInterval(-5 * 24 * 60 * 60)
             ),
             post(
-                id: Self.actualProofPostID,
-                songID: Self.actualProofSongID,
+                id: Self.uptownWalkPostID,
+                songID: Self.uptownWalkSongID,
+                ownerID: Self.nateOwnerID,
+                chartTitle: "Uptown Walk - Club Date Chart",
+                arrangerCredit: "Nate Coleman",
+                creatorDisplayName: "Nate C.",
+                tags: ["club date", "walk", "set list"],
+                versionNote: "Short roadmap for a one-rehearsal club date.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .published,
+                upVotes: 13,
+                downVotes: 1,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-9 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.balladForLenaPostID,
+                songID: Self.balladForLenaSongID,
+                ownerID: Self.sophieOwnerID,
+                chartTitle: "Ballad for Lena - Singer Key",
+                arrangerCredit: "Sophie Lane",
+                creatorDisplayName: "Sophie L.",
+                tags: ["ballad", "singer key", "piano trio"],
+                versionNote: "A clean singer-key chart for a quiet cocktail set.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
+                upVotes: 9,
+                downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-12 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.hornSectionStabsPostID,
+                songID: Self.hornSectionStabsSongID,
+                ownerID: Self.mayaOwnerID,
+                chartTitle: "Horn Section Stabs - Rehearsal Hits",
+                arrangerCredit: "Maya Torres",
+                creatorDisplayName: "Maya T.",
+                tags: ["horns", "hits", "rehearsal"],
+                versionNote: "Section hits and roadmap notes for a quick band rehearsal.",
+                layoutStyle: .rhythmSectionSheet,
+                status: .published,
+                upVotes: 21,
+                downVotes: 2,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-16 * 24 * 60 * 60)
+            ),
+            post(
+                id: Self.afterHoursWaltzPostID,
+                songID: Self.afterHoursWaltzSongID,
                 ownerID: Self.eliOwnerID,
-                chartTitle: "Actual Proof - Alt Form Check",
+                chartTitle: "After Hours Waltz - New Chart",
                 arrangerCredit: "Eli Park",
                 creatorDisplayName: "Eli P.",
-                tags: ["fusion", "needs check"],
-                versionNote: "Community review example with reports already attached.",
-                layoutStyle: .rhythmSectionSheet,
-                status: .flagged,
+                tags: ["waltz", "new", "lead sheet"],
+                versionNote: "Fresh upload for review before the weekend set.",
+                layoutStyle: .simpleChordSheet,
+                status: .published,
                 upVotes: 2,
-                downVotes: 7,
-                reports: 2,
-                publishedAt: now.addingTimeInterval(-20 * 24 * 60 * 60)
+                downVotes: 0,
+                reports: 0,
+                publishedAt: now.addingTimeInterval(-20 * 60)
             )
         ]
     }
@@ -969,10 +1069,10 @@ private actor IChartForumQASampleService: IChartForumServicing {
 
     private var sampleCommentsByPostID: [UUID: [ForumComment]] {
         [
-            Self.multiUserDemoPostID: [
+            Self.lateNightPocketRoadmapPostID: [
                 comment(
                     id: Self.multiUserDemoCommentOneID,
-                    postID: Self.multiUserDemoPostID,
+                    postID: Self.lateNightPocketRoadmapPostID,
                     ownerID: Self.mayaOwnerID,
                     creator: "Maya T.",
                     body: "This is the kind of chart I would send before rehearsal. The form is clear and the hits are easy to catch.",
@@ -980,7 +1080,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
                 ),
                 comment(
                     id: Self.multiUserDemoCommentTwoID,
-                    postID: Self.multiUserDemoPostID,
+                    postID: Self.lateNightPocketRoadmapPostID,
                     ownerID: Self.jamalOwnerID,
                     creator: "Jamal R.",
                     body: "Upvoted. The roadmap works well for rhythm section, especially with the repeat labels up front.",
@@ -988,7 +1088,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
                 ),
                 comment(
                     id: Self.multiUserDemoCommentThreeID,
-                    postID: Self.multiUserDemoPostID,
+                    postID: Self.lateNightPocketRoadmapPostID,
                     ownerID: Self.sophieOwnerID,
                     creator: "Sophie L.",
                     body: "Downloaded the PDF preview. I would maybe add one cue before the tag, but this is readable as-is.",
@@ -996,22 +1096,34 @@ private actor IChartForumQASampleService: IChartForumServicing {
                 ),
                 comment(
                     id: Self.multiUserDemoCommentFourID,
-                    postID: Self.multiUserDemoPostID,
+                    postID: Self.lateNightPocketRoadmapPostID,
                     ownerID: Self.nateOwnerID,
                     creator: "Nate C.",
                     body: "The public names are just enough attribution without exposing full account details. This feels right.",
                     hoursAgo: 1
                 )
             ],
-            Self.blueBossaRhythmPostID: [
-                comment(id: Self.blueBossaCommentOneID, postID: Self.blueBossaRhythmPostID, ownerID: Self.mayaOwnerID, creator: "Maya T.", body: "This one reads clean on a loud stage. The ending is easy to catch."),
-                comment(id: Self.blueBossaCommentTwoID, postID: Self.blueBossaRhythmPostID, ownerID: Self.jamalOwnerID, creator: "Jamal R.", body: "Good roadmap for rhythm section. I would keep the tag exactly like this.")
+            Self.firstDanceFPostID: [
+                comment(id: Self.firstDanceCommentOneID, postID: Self.firstDanceFPostID, ownerID: Self.averyOwnerID, creator: "Avery B.", body: "This solved a last-minute singer key change for me. Keeping the original and the new key together is huge.", hoursAgo: 4),
+                comment(id: Self.firstDanceCommentTwoID, postID: Self.firstDanceFPostID, ownerID: Self.sophieOwnerID, creator: "Sophie L.", body: "Clean enough to send straight to the band. I like the simple project organization.", hoursAgo: 2)
             ],
-            Self.cantaloupePostID: [
-                comment(id: Self.cantaloupeCommentOneID, postID: Self.cantaloupePostID, ownerID: Self.sophieOwnerID, creator: "Sophie L.", body: "The hit layout is quick to scan. Nice for rehearsal.")
+            Self.brassCityConcertPostID: [
+                comment(id: Self.brassCityCommentOneID, postID: Self.brassCityConcertPostID, ownerID: Self.lenaOwnerID, creator: "Lena O.", body: "The concert version plus horn copies make this easy to drop into a rehearsal packet.", hoursAgo: 12),
+                comment(id: Self.brassCityCommentTwoID, postID: Self.brassCityConcertPostID, ownerID: Self.nateOwnerID, creator: "Nate C.", body: "Roadmap is clear and the section labels are easy to scan.", hoursAgo: 9)
             ],
-            Self.actualProofPostID: [
-                comment(id: Self.actualProofCommentOneID, postID: Self.actualProofPostID, ownerID: Self.nateOwnerID, creator: "Nate C.", body: "Form might need review around the bridge.")
+            Self.riverwalkBossaPostID: [
+                comment(id: Self.riverwalkCommentOneID, postID: Self.riverwalkBossaPostID, ownerID: Self.mayaOwnerID, creator: "Maya T.", body: "This one reads clean on a loud stage. The ending is easy to catch.", hoursAgo: 30),
+                comment(id: Self.riverwalkCommentTwoID, postID: Self.riverwalkBossaPostID, ownerID: Self.jamalOwnerID, creator: "Jamal R.", body: "Good roadmap for rhythm section. I would keep the tag exactly like this.", hoursAgo: 28)
+            ],
+            Self.comboClassWarmupPostID: [
+                comment(id: Self.comboClassCommentOneID, postID: Self.comboClassWarmupPostID, ownerID: Self.professorKimOwnerID, creator: "Prof. Kim", body: "Students losing the current chart used to be half the lesson. This keeps the set organized.", hoursAgo: 18),
+                comment(id: Self.comboClassCommentTwoID, postID: Self.comboClassWarmupPostID, ownerID: Self.lenaOwnerID, creator: "Lena O.", body: "Great for weekly combo folders. I would use this for sight-reading packets.", hoursAgo: 11)
+            ],
+            Self.hornSectionStabsPostID: [
+                comment(id: Self.hornSectionCommentOneID, postID: Self.hornSectionStabsPostID, ownerID: Self.jamalOwnerID, creator: "Jamal R.", body: "The hit layout is quick to scan. Nice for rehearsal.", hoursAgo: 42)
+            ],
+            Self.afterHoursWaltzPostID: [
+                comment(id: Self.afterHoursCommentOneID, postID: Self.afterHoursWaltzPostID, ownerID: Self.eliOwnerID, creator: "Eli P.", body: "Posting this here before I send it to the trio. Feedback welcome.", hoursAgo: 1)
             ]
         ]
     }
@@ -1115,35 +1227,54 @@ private actor IChartForumQASampleService: IChartForumServicing {
             .replacingOccurrences(of: ")", with: "\\)")
     }
 
-    private static let blueBossaSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000001")!
-    private static let cantaloupeSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000002")!
-    private static let justFriendsSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000003")!
-    private static let anotherYouSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000004")!
-    private static let actualProofSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000005")!
-    private static let multiUserDemoSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000006")!
+    private static let lateNightPocketSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000001")!
+    private static let firstDanceSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000002")!
+    private static let brassCityShuffleSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000003")!
+    private static let riverwalkBossaSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000004")!
+    private static let sundayProcessionalSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000005")!
+    private static let comboClassWarmupSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000006")!
+    private static let uptownWalkSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000007")!
+    private static let balladForLenaSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000008")!
+    private static let hornSectionStabsSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000009")!
+    private static let afterHoursWaltzSongID = UUID(uuidString: "61000000-0000-0000-0000-000000000010")!
 
-    private static let blueBossaRhythmPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000001")!
-    private static let blueBossaHornsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000002")!
-    private static let cantaloupePostID = UUID(uuidString: "62000000-0000-0000-0000-000000000003")!
-    private static let justFriendsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000004")!
-    private static let anotherYouPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000005")!
-    private static let actualProofPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000006")!
-    private static let multiUserDemoPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000007")!
+    private static let lateNightPocketRoadmapPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000001")!
+    private static let lateNightPocketHornPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000002")!
+    private static let firstDanceFPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000003")!
+    private static let firstDanceCPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000004")!
+    private static let brassCityConcertPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000005")!
+    private static let brassCityEbPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000006")!
+    private static let riverwalkBossaPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000007")!
+    private static let sundayProcessionalPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000008")!
+    private static let comboClassWarmupPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000009")!
+    private static let uptownWalkPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000010")!
+    private static let balladForLenaPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000011")!
+    private static let hornSectionStabsPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000012")!
+    private static let afterHoursWaltzPostID = UUID(uuidString: "62000000-0000-0000-0000-000000000013")!
 
-    private static let blueBossaCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000001")!
-    private static let blueBossaCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000002")!
-    private static let cantaloupeCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000003")!
-    private static let actualProofCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000004")!
     private static let multiUserDemoCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000005")!
     private static let multiUserDemoCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000006")!
     private static let multiUserDemoCommentThreeID = UUID(uuidString: "63000000-0000-0000-0000-000000000007")!
     private static let multiUserDemoCommentFourID = UUID(uuidString: "63000000-0000-0000-0000-000000000008")!
+    private static let firstDanceCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000009")!
+    private static let firstDanceCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000010")!
+    private static let brassCityCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000011")!
+    private static let brassCityCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000012")!
+    private static let riverwalkCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000013")!
+    private static let riverwalkCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000014")!
+    private static let comboClassCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000015")!
+    private static let comboClassCommentTwoID = UUID(uuidString: "63000000-0000-0000-0000-000000000016")!
+    private static let hornSectionCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000017")!
+    private static let afterHoursCommentOneID = UUID(uuidString: "63000000-0000-0000-0000-000000000018")!
 
     private static let mayaOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000001")!
     private static let jamalOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000002")!
     private static let sophieOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000003")!
     private static let nateOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000004")!
     private static let eliOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000005")!
+    private static let lenaOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000006")!
+    private static let averyOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000007")!
+    private static let professorKimOwnerID = UUID(uuidString: "64000000-0000-0000-0000-000000000008")!
 }
 #endif
 
