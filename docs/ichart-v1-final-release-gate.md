@@ -94,6 +94,7 @@ V1.1 goal and statement moving forward:
 - Key signatures.
 - Select input for rhythm notation.
 - Enharmonic transposition and preferences.
+- Additional chord coverage for obscure and less-common chord symbols.
 
 Use `docs/ichart-v1-1-roadmap.md` as the source of truth for V1.1 scope. In
 V1.0, Rhythm Section rhythm notation remains Free-Write unless data already
