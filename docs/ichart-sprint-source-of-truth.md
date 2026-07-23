@@ -23,6 +23,7 @@ V1.1 will focus on:
 - Key signatures.
 - Select input for rhythm notation.
 - Enharmonic transposition and preferences.
+- Additional chord coverage for obscure and less-common chord symbols.
 
 This is the active forward statement. Do not treat older rhythm-recognition,
 Lead Sheet, or full-notation notes in this document as V1.1 promises unless they

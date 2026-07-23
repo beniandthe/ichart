@@ -32,8 +32,8 @@ V1.0 ships as a trustworthy chart-writing app for working musicians:
 V1.1 will focus on chart-musician control rather than handwriting guesses:
 
 > Add key signatures, deterministic rhythm-notation input, and stronger
-> transposition preferences so iChart charts feel more complete, predictable,
-> and player-ready.
+> transposition preferences, while expanding chord coverage so iChart charts
+> feel more complete, predictable, and player-ready.
 
 ## V1.1 Goals
 
@@ -65,12 +65,24 @@ V1.1 will focus on chart-musician control rather than handwriting guesses:
 - Avoid implying automatic arranging or generated horn parts; V1.1 improves chart
   spelling/control, not full part generation.
 
+### Additional Chord Coverage
+
+- Expand supported chord recognition for obscure and less-common chord symbols
+  that were not part of the V1.0 coverage pass.
+- Keep new chord families validated through the chord compendium and parser
+  before they can render as structured `ChordEvent`s.
+- Prefer transferable chord-family coverage over one-off handwriting fixtures.
+- Preserve the correction/confirmation loop for ambiguous complex chords rather
+  than promising automatic recognition for every handwritten variant.
+
 ## Non-Goals
 
 - No return to handwriting-based rhythm recognition as a V1.1 requirement.
 - No melody/lyric lead-sheet engraving promise.
 - No automatic horn-part generation.
 - No automatic cleanup of messy paper charts.
+- No promise that every obscure chord spelling will auto-render from handwriting
+  without confirmation.
 
 ## Acceptance Shape
 
@@ -81,5 +93,6 @@ V1.1 is ready when a tester can:
    recognition.
 3. Transpose chord symbols with enharmonic spelling that matches the user's
    selected preference.
-4. Export a PDF whose key signatures, rhythms, chord spellings, and visible
+4. Write, confirm, and render a broader set of supported uncommon chord symbols.
+5. Export a PDF whose key signatures, rhythms, chord spellings, and visible
    chart metadata match the in-app chart.

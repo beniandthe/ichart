@@ -101,6 +101,9 @@ Known V1 boundaries:
 - V1.1 roadmap note: dedicated rhythm notation input is planned as a select-input workflow. Do not describe V1.0 as shipping handwritten rhythm recognition or rendered rhythm notation.
 - Key signatures and enharmonic transposition preferences are V1.1 roadmap
   items, not V1.0 launch promises.
+- Additional obscure/less-common chord coverage is a V1.1 roadmap item; V1.0
+  should be described around the supported chord families that are already
+  working.
 - Forums publish reviewed PDF snapshots, not editable chart source files.
 - Cloud backup and Forums require active Pro.
 
