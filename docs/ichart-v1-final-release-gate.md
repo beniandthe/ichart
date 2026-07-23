@@ -2,9 +2,12 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Current candidate baseline: TestFlight build 27
-Current media/TestFlight replacement target: build 28
-Post-baseline fix: chart cloud-backup provenance and explicit restore behavior
+Last refreshed: 2026-07-23
+Current candidate baseline: TestFlight build 29
+Current public-release blocker: final local/integration release evidence
+Post-baseline fixes included: chart cloud-backup provenance, explicit restore
+behavior, current outside-QA polish, product screenshots, and public-site source
+cleanup
 
 This document is the final release gate and ordered plan for iChart V1.0.
 If another planning document conflicts with this file on launch ordering, gate
@@ -16,16 +19,21 @@ Supporting docs:
 - `docs/v1-production-deployment.md`
 - `docs/ichart-v1-1-roadmap.md`
 - `docs/supabase-production-readiness-checklist.md`
+- `docs/supabase-pro-upgrade-switch-checklist.md`
 - `docs/ichart-storekit-subscription-runbook.md`
 - `docs/ichart-plan-policy-source-of-truth.md`
 - `docs/app-store-testflight-metadata-draft.md`
 
 ## 1. Current Release Call
 
-Build 27 is the accepted V1.0 candidate baseline from the app/product side.
-The chart cloud-backup provenance fix in build 28 must replace build 27
-before public release, because it prevents automatic backup from silently
-pulling or resurrecting stale cloud charts during local editing.
+Build 29 is the current accepted V1.0 candidate baseline from the
+app/product side. It supersedes the earlier build 27 baseline and the build 28
+cloud-backup provenance replacement target.
+
+The chart cloud-backup provenance fix is now part of the candidate baseline. It
+prevents automatic backup from silently pulling or resurrecting stale cloud
+charts during local editing, and keeps cloud restore as an explicit Settings
+action.
 
 The app can continue through outside QA and final release preparation, but public
 App Store release should wait until the remaining operational backend gates are
@@ -34,35 +42,32 @@ account-security, and subscription-retention gates.
 
 Current verified baseline:
 
-- `main` and `origin/main` were aligned at `d9b0a5d` before the chart
-  cloud-backup provenance fix.
-- GitHub CI and CodeQL passed for build 27.
+- `main` and `origin/main` are aligned at `f543dfc`.
+- GitHub CI and CodeQL passed for build 29 candidate source on 2026-07-23.
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
 - Supabase shared Node authority/function tests passed: `64/64`.
-- SwiftPM passed locally after the cloud-backup provenance fix: `651` tests,
+- SwiftPM passed locally on the current candidate: `653` tests,
   `38` skipped, `0` failures.
+- Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
+- A generic iOS Simulator build succeeded from the generated Xcode project.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
 - Edge Function unauthenticated/bad-input smoke checks fail closed as expected.
 - No tracked or non-ignored untracked `.env`, key, cert, provisioning, `.p8`,
   PEM, or mobile provisioning files were found.
+- Public site source has been moved back to prelaunch-safe App Store wording
+  until a real public App Store or pre-order URL is verified and deployed.
 
-Current public-launch blockers:
+Current remaining release caveats:
 
-1. Supabase is not yet upgraded to Pro, so leaked-password protection cannot be
-   enabled and production backup/log/support posture is too thin.
-2. Supabase Auth advisor still reports leaked-password protection disabled.
-3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
+1. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
-4. Subscription retention automation is not production-complete: `pg_cron` and
-   `pg_net` are not installed, and retention/email secrets are not present.
-5. Postgres SSL enforcement is off.
-6. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
+2. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
    being available.
-7. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
+3. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
    installed during the latest sweep.
 
 ## 2. Fixed Production Facts
@@ -138,15 +143,14 @@ P0 gate is closed.
 
 ### Gate 0 - Freeze the candidate baseline
 
-Status: Complete for build 27 baseline; rerun for build 28, which includes the
-cloud-backup provenance fix.
+Status: Complete for build 29 candidate baseline.
 
 Acceptance:
 
 - [x] Confirm `main` and `origin/main` point to the candidate commit.
 - [x] Confirm no open PRs.
 - [x] Confirm CI and CodeQL passed on the candidate commit.
-- [x] Confirm TestFlight build 27 was manually tested and accepted as V1.0
+- [x] Confirm TestFlight build 29 was manually tested and accepted as V1.0
   candidate.
 - [ ] Record any tester-facing known issues that are accepted for V1.0.
 
@@ -161,15 +165,15 @@ gh run list --branch main --limit 5
 
 ### Gate 1 - Upgrade Supabase to Pro
 
-Status: Blocked on card/payment method.
+Status: Complete on 2026-07-23.
 Priority: P0 before public release.
 
 Acceptance:
 
-- [ ] Supabase organization/project is on Pro.
-- [ ] Spend cap is on unless deliberately changed.
-- [ ] Billing owner/payment method is confirmed.
-- [ ] Project no longer has Free-plan production risk: project pausing, no
+- [x] Supabase organization/project is on Pro.
+- [x] Spend cap is on unless deliberately changed.
+- [x] Billing owner/payment method is confirmed.
+- [x] Project no longer has Free-plan production risk: project pausing, no
   automatic backups, thin support/log posture.
 
 Notes:
@@ -177,24 +181,39 @@ Notes:
 - This is not needed to keep testing with two trusted external QA users.
 - This is required before public paid V1.0 launch.
 
+2026-07-23 result: the organization shows Pro Plan, spend cap is enabled, and
+the initial `$25.00` invoice is paid.
+
 ### Gate 2 - Harden Supabase Auth
 
-Status: Waiting for Pro upgrade.
+Status: Leaked-password protection complete; MFA advisor intentionally deferred
+unless V1 scope changes.
 Priority: P0 for leaked-password protection, P1 for MFA user-flow expansion.
 
 Acceptance:
 
-- [ ] Enable leaked-password protection.
-- [ ] Set password requirements deliberately. Minimum: do not allow weak
+- [x] Enable leaked-password protection.
+- [x] Set password requirements deliberately. Minimum: do not allow weak
   production passwords below the current policy.
-- [ ] Confirm email/password provider remains enabled.
-- [ ] Confirm email verification remains enabled.
-- [ ] Confirm anonymous auth is disabled unless intentionally changed.
-- [ ] Confirm custom SMTP remains configured through `support@useichart.com`.
-- [ ] Confirm password reset and signup confirmation flows still land in
+- [x] Confirm email/password provider remains enabled.
+- [x] Confirm email verification remains enabled.
+- [x] Confirm anonymous auth is disabled unless intentionally changed.
+- [x] Confirm custom SMTP remains configured through `support@useichart.com`.
+- [x] Confirm password reset and signup confirmation flows still land in
   `ichart://auth-callback` and are protected by pending-flow state in app code.
-- [ ] Decide MFA posture for V1. Recommended: document warning as post-V1 unless
+- [x] Decide MFA posture for V1. Recommended: document warning as post-V1 unless
   a complete enrollment/recovery UX is added and tested.
+
+2026-07-23 update: leaked-password protection is enabled, minimum password
+length is `8`, secure email change remains enabled, secure password change
+remains enabled, email auth remains enabled, email confirmation remains enabled,
+and anonymous sign-ins remain disabled. Custom SMTP is enabled with sender
+`support@useichart.com`, sender name `iChart`, host `smtp.ionos.com`, port
+`587`, and SMTP user `support@useichart.com`. Auth Site URL and redirect
+allowlist include `ichart://auth-callback`. Supabase advisors now report only
+the expected MFA warning. A live password-recovery request for the existing QA
+account returned HTTP `200` through the public Auth API with redirect
+`ichart://auth-callback`.
 
 Validation:
 
@@ -209,7 +228,7 @@ Expected after Pro/auth hardening:
 
 ### Gate 3 - Finish subscription retention automation
 
-Status: Incomplete.
+Status: Complete as of 2026-07-23.
 Priority: P0 before public paid V1.0.
 
 Why this matters:
@@ -222,22 +241,36 @@ public release.
 
 Acceptance:
 
-- [ ] Set `ICHART_RETENTION_JOB_SECRET` as a Supabase Edge Function secret.
-- [ ] Set `RESEND_API_KEY` or the chosen provider secret as a Supabase Edge
+- [x] Set `ICHART_RETENTION_JOB_SECRET` as a Supabase Edge Function secret.
+- [x] Set `RESEND_API_KEY` or the chosen provider secret as a Supabase Edge
   Function secret.
-- [ ] Set `ICHART_RETENTION_EMAIL_FROM`, preferably
+- [x] Set `ICHART_RETENTION_EMAIL_FROM`, preferably
   `iChart <support@useichart.com>`.
-- [ ] Enable/install `pg_cron` and `pg_net`, or choose an equivalent trusted
+- [x] Enable/install `pg_cron` and `pg_net`, or choose an equivalent trusted
   scheduler.
-- [ ] Schedule `subscription-retention-jobs` as a POST request.
-- [ ] Scheduler includes either
+- [x] Schedule `subscription-retention-jobs` as a POST request.
+- [x] Scheduler includes either
   `Authorization: Bearer <ICHART_RETENTION_JOB_SECRET>` or
   `x-ichart-retention-job-secret: <ICHART_RETENTION_JOB_SECRET>`.
-- [ ] Run against disposable QA rows and confirm warning/deletion events behave
-  correctly.
-- [ ] Confirm missing email-provider secrets leave email events queued rather
+- [x] Run against a release-gate retention row and confirm warning/deletion
+  events behave correctly.
+- [x] Confirm missing email-provider secrets leave email events queued rather
   than silently dropping them.
-- [ ] Confirm the job never deletes local device charts.
+- [x] Confirm the job never deletes local device charts.
+
+2026-07-23 production evidence:
+
+- Resend domain `useichart.com` is verified and ready to send.
+- Supabase Edge Function secrets exist for `ICHART_RETENTION_JOB_SECRET`,
+  `RESEND_API_KEY`, and `ICHART_RETENTION_EMAIL_FROM`.
+- `pg_cron`, `pg_net`, and Vault are installed/enabled.
+- Cron job `ichart-subscription-retention-hourly` is active at
+  `17 * * * *` and reads the scheduler secret from Vault.
+- Manual pg_net smoke request returned `202` with `email_status: processed`,
+  `emails_sent: 1`, and `emails_failed: 0`.
+- DB evidence after the smoke: `retention_events = 1`, `sent_events = 1`,
+  `failed_events = 0`, `pending_retention_count = 0`, and
+  `deleted_subscription_count = 1`.
 
 Validation:
 
@@ -252,17 +285,25 @@ the app bundle.
 
 ### Gate 4 - Enable database transport hardening
 
-Status: Incomplete.
+Status: Complete as of 2026-07-23.
 Priority: P0/P1. Treat as P0 if any direct DB clients exist outside Supabase
 managed paths.
 
 Acceptance:
 
-- [ ] Inventory direct Postgres clients: local scripts, GitHub Actions,
+- [x] Inventory direct Postgres clients: local scripts, GitHub Actions,
   Supabase CLI, Edge Functions, external tools.
-- [ ] Confirm every direct DB client can use SSL.
-- [ ] Enable Postgres SSL enforcement.
-- [ ] Re-run readiness and remote DB smoke checks.
+- [x] Confirm every direct DB client can use SSL.
+- [x] Enable Postgres SSL enforcement.
+- [x] Re-run readiness and remote DB smoke checks.
+
+2026-07-23 production evidence:
+
+- `supabase ssl-enforcement get --project-ref pausvvwoazbvmzyrebwl
+  --experimental` reports `database: true`.
+- `scripts/run_supabase_production_readiness.sh` passed after the SSL switch.
+- Live Edge Function smokes still fail closed with the expected
+  `400`/`401` responses.
 
 Validation:
 
@@ -274,19 +315,20 @@ supabase ssl-enforcement get --project-ref pausvvwoazbvmzyrebwl
 
 ### Gate 5 - Re-run database, RLS, storage, and secret checks
 
-Status: Partially complete. Re-run after Gates 1-4.
+Status: Complete for remote production checks as of 2026-07-23; local Supabase
+reset/RLS integration remains optional when Docker/OrbStack is available.
 Priority: P0.
 
 Acceptance:
 
-- [ ] `scripts/run_supabase_production_readiness.sh` passes.
-- [ ] `supabase migration list --linked` shows local and remote alignment.
-- [ ] `supabase db advisors --linked --output json` has no unaccepted P0/P1
+- [x] `scripts/run_supabase_production_readiness.sh` passes.
+- [x] `supabase migration list --linked` shows local and remote alignment.
+- [x] `supabase db advisors --linked --output json` has no unaccepted P0/P1
   findings.
-- [ ] All app-facing public tables still have RLS enabled.
-- [ ] `private` schema still denies `anon` and `authenticated` usage.
-- [ ] Forum PDF bucket remains private, PDF-only, and capped.
-- [ ] Edge Function public boundaries still fail closed.
+- [x] All app-facing public tables still have RLS enabled.
+- [x] `private` schema still denies `anon` and `authenticated` usage.
+- [x] Forum PDF bucket remains private, PDF-only, and capped.
+- [x] Edge Function public boundaries still fail closed.
 - [ ] Dedicated history scanner runs, or GitHub secret scanning/push protection
   is verified as active.
 
@@ -366,7 +408,7 @@ Priority: P0 before App Store submission.
 
 Acceptance:
 
-- [ ] Build 27 is assigned as the active outside-QA build, or a newer build is
+- [x] Build 29 is assigned as the active outside-QA build, or a newer build is
   created only for a release-blocking fix.
 - [ ] At least two outside testers can create new accounts.
 - [ ] At least one tester exercises Basic: create/edit/export/reopen charts.
@@ -385,7 +427,8 @@ Priority: P0.
 2026-07-20 website/App Store readiness update:
 
 - Local `public-site/useichart` source now has a launch-facing home page with current support/privacy routes and prelaunch-safe CTAs.
-- Live `https://useichart.com` still needs deployment from the updated local source before this gate can be marked complete.
+- Live `https://useichart.com` must be checked after deployment from the
+  updated local source before this gate can be marked complete.
 - App Store metadata draft has been revised toward the current `handwrite clean charts at paper speed` positioning and away from automatic cleanup/messy-chart language.
 - Screenshot plan is drafted, but actual App Store screenshot assets still need capture/export at Apple-accepted iPad sizes.
 - Do not use the launch-video end-card wording `Available on the App Store` publicly until the App Store product page or pre-order page is live.
@@ -418,7 +461,8 @@ Acceptance:
 - [ ] App Store Server Notification function is checked for errors.
 - [ ] Retention job schedule is checked after the first run.
 - [ ] StoreKit restore path is rechecked after public availability.
-- [ ] A hotfix branch process is ready if build 27 needs a fast patch.
+- [ ] A hotfix branch process is ready if the accepted V1.0 build needs a fast
+  patch.
 
 ## 5. What Is Allowed Before Supabase Pro
 
@@ -477,7 +521,7 @@ appears.
 
 Release can move to public App Store only when:
 
-1. Build 27, or a newer intentionally approved build, remains product-green.
+1. Build 29, or a newer intentionally approved build, remains product-green.
 2. Supabase Pro is active.
 3. Leaked-password protection is enabled.
 4. Retention job secrets and scheduler are live.

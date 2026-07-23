@@ -1,6 +1,7 @@
 # iChart Publish Packet: SM-002 Wedding Gig Key Changes
 
-Status: vJ launch end card/progress rail repaired; native preview required
+Status: Draft/proof master only until the App Store end card is regenerated or
+a live App Store URL is verified; native preview required
 Date: 2026-07-18
 Campaign: Beta Proof
 Primary audience: wedding/corporate/event gig musicians and bandleaders
@@ -17,6 +18,10 @@ Primary upload candidate:
 - Use for TikTok and Instagram Reels native draft preview.
 - Rationale: keeps the approved SM-001 vertical treatment, removes workflow header pop-up cards, keeps spoken word-reveal captions below the app, and lifts/tightens the app-captions stack so the captions clear modeled TikTok/Reels bottom UI.
 - 2026-07-20 final-touch note: vJ was regenerated with the launch end card (`Follow @useichart`, `TikTok + Instagram`, `useichart.com`, `Available on the App Store`) and the bottom progress rail removed.
+- 2026-07-23 release-gate note: because the public App Store product/pre-order
+  URL is not yet verified, vJ remains a draft/proof asset only. Before posting
+  publicly, either replace the end card with prelaunch-safe launch-update
+  wording or confirm and link the live App Store page.
 
 Full-size SM-001-style alternate:
 

@@ -217,7 +217,7 @@ func render(_ layout: TitleCardLayout, logo: CGImage) throws {
     )
 
     drawCenteredText(
-        "Available on the App Store",
+        "Launch updates at useichart.com",
         in: bottomRect(fromTopLeft: layout.appStoreRect, canvasHeight: layout.size.height),
         fontSize: layout.appStoreSize,
         weight: .semibold,

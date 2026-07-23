@@ -1,6 +1,8 @@
 # iChart Publish Packet: SM-001 Funk Groove
 
-Status: Launch end card/progress rail repaired; native TikTok/Instagram previews still required
+Status: Draft/proof master only until the App Store end card is regenerated or
+a live App Store URL is verified; native TikTok/Instagram previews still
+required
 Date: 2026-07-18
 Campaign: Beta Proof
 Primary audience: bandleaders and gigging musicians
@@ -24,6 +26,11 @@ Alternate cut:
 - Rationale: the app context is clearer, but the horizontal source still feels more like a composed demo than native phone-feed footage.
 
 2026-07-20 final-touch note: primary `vX` and alternate `vAA` were regenerated with the launch end card (`Follow @useichart`, `TikTok + Instagram`, `useichart.com`, `Available on the App Store`) and the bottom progress rail removed. Do not publish either master until native platform preview checks safe-zone fit, audio loudness, caption readability, and link behavior.
+
+2026-07-23 release-gate note: because the public App Store product/pre-order
+URL is not yet verified, these masters remain draft/proof assets only. Before
+posting publicly, either replace the end card with prelaunch-safe launch-update
+wording or confirm and link the live App Store page.
 
 ## Core Message
 

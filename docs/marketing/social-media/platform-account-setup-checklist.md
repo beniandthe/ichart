@@ -155,7 +155,9 @@ For each platform and each video:
 - [ ] Upload video as draft/private preview.
 - [ ] Confirm the cover image can be applied or selected cleanly.
 - [ ] Confirm spoken word captions are not covered by account/caption UI.
-- [ ] Confirm launch end card text remains readable: `Follow @useichart`, `TikTok + Instagram`, `useichart.com`, `Available on the App Store`.
+- [ ] Confirm launch end card text remains readable and prelaunch-safe:
+  `Follow @useichart`, `TikTok + Instagram`, `useichart.com`, and launch-update
+  wording only.
 - [ ] Confirm no bottom progress/loading rail appears in the uploaded file.
 - [ ] Confirm the app frame is not hidden by right-side controls.
 - [ ] Confirm post caption does not cover the video text too aggressively.
