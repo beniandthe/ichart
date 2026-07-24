@@ -2,9 +2,9 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Last refreshed: 2026-07-23
-Current candidate baseline: TestFlight build 29
-Current public-release blocker: final local/integration release evidence
+Last refreshed: 2026-07-24
+Current candidate baseline: TestFlight build 30 package target
+Current public-release blocker: final build-30 TestFlight QA and release snapshot evidence
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, product screenshots, and public-site source
 cleanup
@@ -26,9 +26,11 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 29 is the current accepted V1.0 candidate baseline from the
-app/product side. It supersedes the earlier build 27 baseline and the build 28
-cloud-backup provenance replacement target.
+Build 30 is the current V1.0 package target and supersedes the build 29
+candidate baseline because build 29 was followed by release-blocking outside-QA
+polish: repeat-tool visual feedback and a simplified chord-correction flow.
+Build 30 must receive its own clean TestFlight QA pass before public App Store
+submission.
 
 The chart cloud-backup provenance fix is now part of the candidate baseline. It
 prevents automatic backup from silently pulling or resurrecting stale cloud
@@ -40,10 +42,10 @@ App Store release should wait until the remaining operational backend gates are
 closed. These are not broad app-code blockers. They are production-safety,
 account-security, and subscription-retention gates.
 
-Current verified baseline:
+Current verified source baseline:
 
-- `main` and `origin/main` are aligned at `f543dfc`.
-- GitHub CI and CodeQL passed for build 29 candidate source on 2026-07-23.
+- `main` and `origin/main` are aligned at `378c456`.
+- GitHub CI and CodeQL passed for build 30 source on 2026-07-24.
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
@@ -143,14 +145,17 @@ P0 gate is closed.
 
 ### Gate 0 - Freeze the candidate baseline
 
-Status: Complete for build 29 candidate baseline.
+Status: Complete for build 30 source baseline; TestFlight package pending.
 
 Acceptance:
 
 - [x] Confirm `main` and `origin/main` point to the candidate commit.
 - [x] Confirm no open PRs.
 - [x] Confirm CI and CodeQL passed on the candidate commit.
-- [x] Confirm TestFlight build 29 was manually tested and accepted as V1.0
+- [x] Confirm build 29 was manually tested and accepted before the final polish
+  fixes.
+- [ ] Package and upload TestFlight build 30 from current `main`.
+- [ ] Confirm TestFlight build 30 was manually tested and accepted as V1.0
   candidate.
 - [ ] Record any tester-facing known issues that are accepted for V1.0.
 
@@ -408,11 +413,13 @@ Priority: P0 before App Store submission.
 
 Acceptance:
 
-- [x] Build 29 is assigned as the active outside-QA build, or a newer build is
-  created only for a release-blocking fix.
+- [ ] Build 30 is assigned as the active outside-QA build.
 - [ ] At least two outside testers can create new accounts.
 - [ ] At least one tester exercises Basic: create/edit/export/reopen charts.
 - [ ] At least one tester exercises Pro sandbox purchase/restore and Forums.
+- [ ] Build 30-specific polish is verified: repeat-tool pending selections show
+  visual feedback and double-tap chord correction remains keyboard-only,
+  uncluttered, and bounded to the correction sheet.
 - [ ] No critical crashes, data loss, account lockout, purchase/restore failure,
   or chart export corruption is seen.
 - [ ] Any accepted known issue is written down in this doc or the release notes.
@@ -521,7 +528,7 @@ appears.
 
 Release can move to public App Store only when:
 
-1. Build 29, or a newer intentionally approved build, remains product-green.
+1. Build 30, or a newer intentionally approved build, remains product-green.
 2. Supabase Pro is active.
 3. Leaked-password protection is enabled.
 4. Retention job secrets and scheduler are live.
