@@ -624,19 +624,22 @@ struct ChordCorrectionSheetView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Update Chord")
-                .font(.system(.title2, design: .rounded).weight(.bold))
-                .frame(maxWidth: .infinity, alignment: .center)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Update Chord")
+                    .font(.system(.title2, design: .rounded).weight(.bold))
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-            correctionCandidates
-            correctionEntry
-            correctionActions
+                correctionCandidates
+                correctionEntry
+                correctionActions
+            }
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 24)
         }
-        .frame(maxWidth: 520)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 24)
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color(uiColor: .systemGroupedBackground))
         .presentationDetents([.medium])
         .task {
