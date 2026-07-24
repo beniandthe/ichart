@@ -1338,6 +1338,7 @@ struct EditorView: View {
             activeToolButton(
                 title: pendingDeleteStartMeasureID == nil ? "Range" : "Delete To",
                 systemImage: pendingDeleteStartMeasureID == nil ? "trash.circle" : "checkmark.circle",
+                isSelected: pendingDeleteStartMeasureID != nil,
                 isDestructive: pendingDeleteStartMeasureID != nil,
                 isDisabled: pendingDeleteStartMeasureID == nil
                     ? !canDeleteSelectedMeasure
@@ -1366,6 +1367,7 @@ struct EditorView: View {
             activeToolButton(
                 title: "Start",
                 systemImage: "repeat.circle",
+                isSelected: pendingRepeatStartMeasureID != nil,
                 action: handleStartRepeatHere
             )
 
@@ -1379,6 +1381,7 @@ struct EditorView: View {
             activeToolButton(
                 title: pendingEndingButtonTitle(for: .ending1),
                 systemImage: "1.circle",
+                isSelected: pendingEndingType == .ending1,
                 isDisabled: isEndingButtonDisabled(for: .ending1)
             ) {
                 handleRepeatActiveEndingTapped(.ending1)
@@ -1387,6 +1390,7 @@ struct EditorView: View {
             activeToolButton(
                 title: pendingEndingButtonTitle(for: .ending2),
                 systemImage: "2.circle",
+                isSelected: pendingEndingType == .ending2,
                 isDisabled: isEndingButtonDisabled(for: .ending2)
             ) {
                 handleRepeatActiveEndingTapped(.ending2)
@@ -1459,7 +1463,11 @@ struct EditorView: View {
         isDisabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let selectedBackgroundColor = isDestructive
+            ? Color.red
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.caption.weight(.semibold))
                 .labelStyle(.titleAndIcon)
@@ -1473,7 +1481,7 @@ struct EditorView: View {
                 )
                 .background(
                     isSelected
-                    ? Color(red: 0.16, green: 0.38, blue: 0.82)
+                    ? selectedBackgroundColor
                     : Color(uiColor: .tertiarySystemBackground)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -3216,7 +3224,8 @@ struct EditorView: View {
             measureID: measure.id,
             measureIndex: measure.index,
             currentText: chordEvent.symbol.displayText,
-            rawInput: chordEvent.rawInput
+            rawInput: chordEvent.rawInput,
+            candidateTexts: chordEvent.sourceCandidateSignature
         )
     }
 
