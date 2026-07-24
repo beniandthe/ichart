@@ -4,8 +4,7 @@ Status: Active release-gate source of truth
 Created: 2026-07-15
 Last refreshed: 2026-07-24
 Current candidate baseline: iChart V1.0 submission build `1.0 (30)`
-Current App Review submission blocker: App Review Contact Information and
-demo/review account fields must be entered user-side in App Store Connect
+Current App Review state: Submitted and `Waiting for Review`
 Current public-release blocker: App Review approval and final release-day switch
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, product screenshots, and public-site source
@@ -39,10 +38,9 @@ prevents automatic backup from silently pulling or resurrecting stale cloud
 charts during local editing, and keeps cloud restore as an explicit Settings
 action.
 
-The app is cleared to move into App Review after the private App Review Contact
-Information and demo account fields are completed in App Store Connect. Public
-availability still depends on Apple approval, final release controls in App
-Store Connect, and normal release-day monitoring.
+The app was submitted to App Review on 2026-07-24. Public availability still
+depends on Apple approval, final release controls in App Store Connect, and
+normal release-day monitoring.
 
 Current verified source baseline:
 
@@ -59,6 +57,8 @@ Current verified source baseline:
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
   build `30`.
 - TestFlight Outside QA lists build `1.0 (30)` as `Testing`.
+- App Store Connect submission `d83d8099-934d-4cfd-a381-04edb2150367` is
+  `Waiting for Review`.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -437,7 +437,7 @@ window. The release call is to proceed with build `1.0 (30)`.
 
 ### Gate 8 - App Store public submission package
 
-Status: In progress for App Review submission.
+Status: Submitted; waiting for App Review.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:
@@ -457,27 +457,42 @@ Priority: P0.
 - App pricing is set to Free, and availability is configured for all 175
   countries or regions.
 - The iPad screenshot set has five current screenshots attached.
-- The `iChart Pro` subscription group is added to the draft App Review
-  submission.
-- App Store Connect currently blocks adding version `1.0` for review until App
-  Review Contact Information is completed. Demo review account credentials
-  should be entered directly in App Store Connect and kept out of chat, docs,
+- The `iChart Pro` subscription group was added to the App Review submission.
+- App Review Contact Information and demo review account credentials were
+  entered in App Store Connect. The demo account password is stored in local
+  Keychain item `iChart App Review Account` and must stay out of chat, docs,
   git, and local scripts.
+
+2026-07-24 App Review submission update:
+
+- Submission ID: `d83d8099-934d-4cfd-a381-04edb2150367`.
+- Date submitted: 2026-07-24 at 3:08 PM Pacific.
+- Submitted by: Beni Rossman.
+- Status: `Waiting for Review`.
+- Items submitted together:
+  - `iOS App 1.0`, build `1.0 (30)`.
+  - `iChart Pro`, subscription group.
+  - `iChart Pro Monthly`, subscription
+    `com.ichart.app.pro.monthly`.
+  - `iChart Pro Annual`, subscription
+    `com.ichart.app.pro.annual`.
+- Manual release remains selected, so approval alone should not automatically
+  make V1.0 public.
 
 Acceptance:
 
 - [x] App metadata final.
 - [x] Privacy policy URL live.
 - [x] Support URL live.
-- [ ] App privacy nutrition answers complete and truthful.
+- [x] App privacy nutrition answers complete and truthful.
 - [x] Subscription review notes complete.
-- [ ] App Review contact information and demo/review account credentials are
+- [x] App Review contact information and demo/review account credentials are
   entered user-side in App Store Connect.
 - [x] Screenshots and preview media match the current app.
 - [x] Known issues are either fixed or acceptable for V1.
 - [x] Version/build numbers are final.
 - [x] Final archive is created from the accepted `main` commit.
-- [ ] Release evidence is saved: build number, commit hash, CI URL, Supabase
+- [x] Release evidence is saved: build number, commit hash, CI URL, Supabase
   checks, App Store Connect state, and QA notes.
 
 ### Gate 9 - Release day and first-week watch
