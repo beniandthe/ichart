@@ -79,26 +79,49 @@ struct PendingChordCorrection: Identifiable {
     let measureIndex: Int
     let currentText: String
     let rawInput: String?
+    let candidateTexts: [String]
 
     var displayMeasureNumber: Int {
         measureIndex + 1
     }
 
-    var candidateTexts: [String] {
-        var texts = [currentText]
-        if let rawInput {
-            texts.append(rawInput)
-        }
+    var currentDisplayText: String {
+        Self.normalizedDisplayText(for: currentText) ?? currentText
+    }
 
-        return texts.reduce(into: [String]()) { result, text in
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedText.isEmpty,
-                  !result.contains(trimmedText) else {
+    var quickChoiceTexts: [String] {
+        var blockedTexts = Set([currentText, rawInput].compactMap(Self.normalizedDisplayText))
+        blockedTexts.insert(currentDisplayText)
+
+        var texts = candidateTexts.reduce(into: [String]()) { result, candidateText in
+            guard let displayText = Self.normalizedDisplayText(for: candidateText),
+                  !blockedTexts.contains(displayText),
+                  !result.contains(displayText) else {
                 return
             }
 
-            result.append(trimmedText)
+            result.append(displayText)
         }
+
+        if !blockedTexts.contains(ChordInkManualEntryShortcut.chordRepeatText),
+           !texts.contains(ChordInkManualEntryShortcut.chordRepeatText) {
+            texts.append(ChordInkManualEntryShortcut.chordRepeatText)
+        }
+
+        return texts
+    }
+
+    private static func normalizedDisplayText(for text: String?) -> String? {
+        guard let text else {
+            return nil
+        }
+
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            return nil
+        }
+
+        return ChordRecognitionCompendium.match(trimmedText)?.displayText ?? trimmedText
     }
 }
 
@@ -248,10 +271,12 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
     let placeholder: String
     @Binding var text: String
     var isFocused: Bool
+    var allowsScribble = true
     var onFocusChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> ChordInkScopedScribbleUITextField {
         let textField = ChordInkScopedScribbleUITextField()
+        textField.allowsScribble = allowsScribble
         textField.placeholder = placeholder
         textField.borderStyle = .roundedRect
         textField.autocapitalizationType = .none
@@ -274,6 +299,7 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
 
     func updateUIView(_ textField: ChordInkScopedScribbleUITextField, context: Context) {
         context.coordinator.parent = self
+        textField.allowsScribble = allowsScribble
 
         if textField.text != text {
             textField.text = text
@@ -318,6 +344,7 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
 
 private final class ChordInkScopedScribbleUITextField: UITextField, UIScribbleInteractionDelegate {
     private var scopedScribbleInteraction: UIScribbleInteraction?
+    var allowsScribble = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -339,7 +366,7 @@ private final class ChordInkScopedScribbleUITextField: UITextField, UIScribbleIn
         _ interaction: UIScribbleInteraction,
         shouldBeginAt location: CGPoint
     ) -> Bool {
-        bounds.contains(location)
+        allowsScribble && bounds.contains(location)
     }
 }
 
@@ -583,7 +610,7 @@ struct ChordCorrectionSheetView: View {
     let onAcceptCandidate: (String) -> Void
     let onCancel: () -> Void
     @State private var candidateText: String
-    @FocusState private var isCandidateFocused: Bool
+    @State private var isCandidateFocused = false
 
     init(
         correction: PendingChordCorrection,
@@ -593,100 +620,41 @@ struct ChordCorrectionSheetView: View {
         self.correction = correction
         self.onAcceptCandidate = onAcceptCandidate
         self.onCancel = onCancel
-        _candidateText = State(initialValue: correction.rawInput ?? correction.currentText)
+        _candidateText = State(initialValue: "")
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    correctionHeader
-                    correctionCandidates
-                    correctionEntry
-                    correctionActions
-                }
-                .padding(22)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Update Chord")
+                    .font(.system(.title2, design: .rounded).weight(.bold))
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                correctionCandidates
+                correctionEntry
+                correctionActions
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Correct Chord")
-            .navigationBarTitleDisplayMode(.inline)
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 24)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Color(uiColor: .systemGroupedBackground))
         .presentationDetents([.medium])
         .task {
             isCandidateFocused = true
         }
     }
 
-    private var correctionHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "square.and.pencil")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.blue)
-                    .frame(width: 34, height: 34)
-                    .background(Color.blue.opacity(0.12), in: Circle())
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Update the chord")
-                        .font(.title3.weight(.semibold))
-
-                    Text("Measure \(correction.displayMeasureNumber)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            Text("Make this rendered chord match the chart.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Divider()
-
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Current")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(correction.currentText)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                }
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .trailing, spacing: 5) {
-                    Text("New")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(trimmedCandidateText.isEmpty ? "Type chord" : trimmedCandidateText)
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.55)
-                }
-            }
-        }
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
-        }
-    }
-
     private var correctionCandidates: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Quick choices", systemImage: "list.bullet")
-                .font(.headline.weight(.semibold))
+            Text("Quick Choices")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
 
             FlowLayout(spacing: 8, rowSpacing: 8) {
-                ForEach(correctionShortcutTexts, id: \.self) { candidate in
+                ForEach(correction.quickChoiceTexts, id: \.self) { candidate in
                     Button {
                         candidateText = candidate
                     } label: {
@@ -714,79 +682,38 @@ struct ChordCorrectionSheetView: View {
         }
     }
 
-    private var correctionShortcutTexts: [String] {
-        var texts = correction.candidateTexts
-        if !texts.contains(ChordInkManualEntryShortcut.chordRepeatText) {
-            texts.append(ChordInkManualEntryShortcut.chordRepeatText)
-        }
-        return texts
-    }
-
     private var correctionEntry: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Chord", systemImage: "keyboard")
-                    .font(.headline.weight(.semibold))
-
-                Spacer()
-
-                Button {
-                    isCandidateFocused = true
-                } label: {
-                    Label("Keyboard", systemImage: "keyboard")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 34, height: 30)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel("Open keyboard for chord correction")
-            }
-
-            HStack(spacing: 10) {
-                TextField("C, Bb, Db7(b9), G/B", text: $candidateText)
-                    .font(.title3.weight(.semibold))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($isCandidateFocused)
-                    .submitLabel(.done)
-                    .animation(nil, value: candidateText)
-                    .onSubmit {
-                        acceptTrimmedCandidate()
-                    }
-
-                Image(systemName: "return")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isCandidateFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.06), lineWidth: 1)
-            }
+            ChordInkScopedScribbleTextField(
+                placeholder: "Type chord",
+                text: $candidateText,
+                isFocused: isCandidateFocused,
+                allowsScribble: false,
+                onFocusChanged: { isCandidateFocused = $0 }
+            )
+            .frame(height: 54)
+            .accessibilityLabel("Updated chord entry")
         }
     }
 
     private var correctionActions: some View {
-        VStack(spacing: 10) {
+        HStack(spacing: 10) {
+            Button {
+                onCancel()
+            } label: {
+                Text("Cancel")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
             Button {
                 acceptTrimmedCandidate()
             } label: {
-                Label(trimmedCandidateText.isEmpty ? "Update Chord" : "Update to \(trimmedCandidateText)", systemImage: "checkmark.circle.fill")
+                Text("Update")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .disabled(trimmedCandidateText.isEmpty)
-
-            Button {
-                onCancel()
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
         }
     }
 

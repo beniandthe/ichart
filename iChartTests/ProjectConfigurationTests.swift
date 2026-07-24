@@ -63,6 +63,12 @@ final class ProjectConfigurationTests: XCTestCase {
                 .components(separatedBy: "enum ChordInkFixtureCopyResult")
                 .first
         )
+        let correctionSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordCorrectionSheetView: View")
+                .dropFirst()
+                .first
+        )
 
         XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
         XCTAssertTrue(confirmationSheetText.contains("TextField(\"Type chord\""))
@@ -78,6 +84,28 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(batchSheetText.contains("shouldBeginAt location"))
         XCTAssertTrue(batchSheetText.contains("bounds.contains(location)"))
         XCTAssertFalse(batchSheetText.contains("TextField(\n                \"Chord\""))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Update Chord\")"))
+        XCTAssertTrue(correctionSheetText.contains("correction.quickChoiceTexts"))
+        XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: \"\")"))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkScopedScribbleTextField"))
+        XCTAssertTrue(correctionSheetText.contains("placeholder: \"Type chord\""))
+        XCTAssertTrue(correctionSheetText.contains("allowsScribble: false"))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Update\")"))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Cancel\")"))
+        XCTAssertTrue(correctionSheetText.contains("ScrollView(.vertical)"))
+        XCTAssertTrue(correctionSheetText.contains(".scrollBounceBehavior(.basedOnSize)"))
+        XCTAssertTrue(sheetText.contains("candidateTexts: [String]"))
+        XCTAssertTrue(sheetText.contains("var allowsScribble = true"))
+        XCTAssertTrue(sheetText.contains("textField.allowsScribble = allowsScribble"))
+        XCTAssertTrue(sheetText.contains("allowsScribble && bounds.contains(location)"))
+        XCTAssertTrue(sheetText.contains("blockedTexts.contains(ChordInkManualEntryShortcut.chordRepeatText)"))
+        XCTAssertFalse(correctionSheetText.contains("Correct Chord"))
+        XCTAssertFalse(correctionSheetText.contains("Update the chord"))
+        XCTAssertFalse(correctionSheetText.contains("Make this rendered chord match the chart."))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"Current\")"))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"New\")"))
+        XCTAssertFalse(correctionSheetText.contains("Open keyboard for chord correction"))
+        XCTAssertFalse(correctionSheetText.contains("Update to \\("))
     }
 
     func testChordInkRenderIsTapConfirmedOnly() throws {
@@ -498,7 +526,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
         XCTAssertFalse(editorText.contains(".sheet(isPresented: $showingCueTextEntry)"))
         XCTAssertFalse(editorText.contains(".presentationDetents([.height(275)])"))
-        XCTAssertTrue(chordSheetText.contains("Open keyboard for chord correction"))
+        XCTAssertFalse(chordSheetText.contains("Open keyboard for chord correction"))
     }
 
     func testApplePencilObjectMovePanRequiresMovableTarget() throws {
@@ -611,6 +639,26 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+    }
+
+    func testEditorDelayedAndContinuationActionsShowVisualFeedback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+
+        XCTAssertTrue(editorText.contains("isSelected: pendingRepeatStartMeasureID != nil"))
+        XCTAssertTrue(editorText.contains("isSelected: pendingEndingType == .ending1"))
+        XCTAssertTrue(editorText.contains("isSelected: pendingEndingType == .ending2"))
+        XCTAssertTrue(editorText.contains("isSelected: pendingDeleteStartMeasureID != nil"))
+        XCTAssertTrue(editorText.contains("let selectedBackgroundColor = isDestructive"))
+        XCTAssertTrue(editorText.contains("? Color.red"))
+        XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
+        XCTAssertTrue(editorText.contains("runEditorOperation(\"Updating page style...\""))
+        XCTAssertTrue(editorText.contains("runEditorOperation(\"Updating engraving...\""))
     }
 
     func testHostedSupportSiteRoutesToRealContactPath() throws {
