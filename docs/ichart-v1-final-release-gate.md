@@ -3,8 +3,10 @@
 Status: Active release-gate source of truth
 Created: 2026-07-15
 Last refreshed: 2026-07-24
-Current candidate baseline: TestFlight build 30 package target
-Current public-release blocker: final build-30 TestFlight QA and release snapshot evidence
+Current candidate baseline: iChart V1.0 submission build `1.0 (30)`
+Current App Review submission blocker: App Review Contact Information and
+demo/review account fields must be entered user-side in App Store Connect
+Current public-release blocker: App Review approval and final release-day switch
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, product screenshots, and public-site source
 cleanup
@@ -26,34 +28,37 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 30 is the current V1.0 package target and supersedes the build 29
+Build 30 is the official V1.0 submission build and supersedes the build 29
 candidate baseline because build 29 was followed by release-blocking outside-QA
 polish: repeat-tool visual feedback and a simplified chord-correction flow.
-Build 30 must receive its own clean TestFlight QA pass before public App Store
-submission.
+Build 30 completed the final TestFlight QA acceptance window with no incoming
+critical QA blockers as of 2026-07-24.
 
 The chart cloud-backup provenance fix is now part of the candidate baseline. It
 prevents automatic backup from silently pulling or resurrecting stale cloud
 charts during local editing, and keeps cloud restore as an explicit Settings
 action.
 
-The app can continue through outside QA and final release preparation, but public
-App Store release should wait until the remaining operational backend gates are
-closed. These are not broad app-code blockers. They are production-safety,
-account-security, and subscription-retention gates.
+The app is cleared to move into App Review after the private App Review Contact
+Information and demo account fields are completed in App Store Connect. Public
+availability still depends on Apple approval, final release controls in App
+Store Connect, and normal release-day monitoring.
 
 Current verified source baseline:
 
-- `main` and `origin/main` are aligned at `378c456`.
+- `main` and `origin/main` are aligned at `3138e3b`.
 - GitHub CI and CodeQL passed for build 30 source on 2026-07-24.
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
 - Supabase shared Node authority/function tests passed: `64/64`.
-- SwiftPM passed locally on the current candidate: `653` tests,
+- SwiftPM passed locally on the current candidate: `654` tests,
   `38` skipped, `0` failures.
 - Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
+- Signed archive and upload completed for `com.ichart.app`, version `1.0`,
+  build `30`.
+- TestFlight Outside QA lists build `1.0 (30)` as `Testing`.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -145,7 +150,7 @@ P0 gate is closed.
 
 ### Gate 0 - Freeze the candidate baseline
 
-Status: Complete for build 30 source baseline; TestFlight package pending.
+Status: Complete for build 30.
 
 Acceptance:
 
@@ -154,10 +159,10 @@ Acceptance:
 - [x] Confirm CI and CodeQL passed on the candidate commit.
 - [x] Confirm build 29 was manually tested and accepted before the final polish
   fixes.
-- [ ] Package and upload TestFlight build 30 from current `main`.
-- [ ] Confirm TestFlight build 30 was manually tested and accepted as V1.0
+- [x] Package and upload TestFlight build 30 from current `main`.
+- [x] Confirm TestFlight build 30 was manually tested and accepted as V1.0
   candidate.
-- [ ] Record any tester-facing known issues that are accepted for V1.0.
+- [x] Record any tester-facing known issues that are accepted for V1.0.
 
 Commands:
 
@@ -408,27 +413,31 @@ or verifier secrets into the app.
 
 ### Gate 7 - Final TestFlight outside-QA evidence
 
-Status: In progress.
+Status: Accepted for V1.0 submission.
 Priority: P0 before App Store submission.
 
 Acceptance:
 
-- [ ] Build 30 is assigned as the active outside-QA build.
+- [x] Build 30 is assigned as the active outside-QA build.
 - [ ] At least two outside testers can create new accounts.
 - [ ] At least one tester exercises Basic: create/edit/export/reopen charts.
 - [ ] At least one tester exercises Pro sandbox purchase/restore and Forums.
-- [ ] Build 30-specific polish is verified: repeat-tool pending selections show
+- [x] Build 30-specific polish is verified: repeat-tool pending selections show
   visual feedback and double-tap chord correction remains keyboard-only,
   uncluttered, and bounded to the correction sheet.
-- [ ] No critical crashes, data loss, account lockout, purchase/restore failure,
+- [x] No critical crashes, data loss, account lockout, purchase/restore failure,
   or chart export corruption is seen.
-- [ ] Any accepted known issue is written down in this doc or the release notes.
+- [x] Any accepted known issue is written down in this doc or the release notes.
 - [ ] If a new build is created, it repeats the repo/CI/Supabase gate instead of
   bypassing it.
 
+2026-07-24 acceptance note: outside QA remains available for ongoing signal, but
+no critical build-30 QA blockers were reported during the final acceptance
+window. The release call is to proceed with build `1.0 (30)`.
+
 ### Gate 8 - App Store public submission package
 
-Status: In progress.
+Status: In progress for App Review submission.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:
@@ -440,18 +449,34 @@ Priority: P0.
 - Screenshot plan is drafted, but actual App Store screenshot assets still need capture/export at Apple-accepted iPad sizes.
 - Do not use the launch-video end-card wording `Available on the App Store` publicly until the App Store product page or pre-order page is live.
 
+2026-07-24 App Review prep update:
+
+- Build `1.0 (30)` is attached to App Store Connect version `1.0`.
+- App Review notes are saved for build `1.0 (30)`.
+- Manual release remains selected.
+- App pricing is set to Free, and availability is configured for all 175
+  countries or regions.
+- The iPad screenshot set has five current screenshots attached.
+- The `iChart Pro` subscription group is added to the draft App Review
+  submission.
+- App Store Connect currently blocks adding version `1.0` for review until App
+  Review Contact Information is completed. Demo review account credentials
+  should be entered directly in App Store Connect and kept out of chat, docs,
+  git, and local scripts.
+
 Acceptance:
 
-- [ ] App metadata final.
-- [ ] Privacy policy URL live.
-- [ ] Support URL live.
+- [x] App metadata final.
+- [x] Privacy policy URL live.
+- [x] Support URL live.
 - [ ] App privacy nutrition answers complete and truthful.
-- [ ] Subscription review notes complete.
-- [ ] Demo/review account prepared if Apple needs one.
-- [ ] Screenshots and preview media match the current app.
-- [ ] Known issues are either fixed or acceptable for V1.
-- [ ] Version/build numbers are final.
-- [ ] Final archive is created from the accepted `main` commit.
+- [x] Subscription review notes complete.
+- [ ] App Review contact information and demo/review account credentials are
+  entered user-side in App Store Connect.
+- [x] Screenshots and preview media match the current app.
+- [x] Known issues are either fixed or acceptable for V1.
+- [x] Version/build numbers are final.
+- [x] Final archive is created from the accepted `main` commit.
 - [ ] Release evidence is saved: build number, commit hash, CI URL, Supabase
   checks, App Store Connect state, and QA notes.
 
