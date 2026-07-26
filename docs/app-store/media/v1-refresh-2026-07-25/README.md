@@ -1,6 +1,8 @@
 # iChart V1 App Store Media Refresh
 
-Prepared on July 25, 2026 while App Store submission `d83d8099-934d-4cfd-a381-04edb2150367` was still `Waiting for Review`.
+Prepared on July 25, 2026 to replace the original build `1.0 (30)` App Store
+submission media. The refreshed package shipped in replacement App Review
+submission `06b203db-9cdf-401b-bf58-78066c20ad0b` with build `1.0 (31)`.
 
 ## Screenshots
 
@@ -33,6 +35,7 @@ The AppIcon asset catalog was regenerated from that source so the App Store thum
 
 ## Release Note
 
-The screenshot files can be uploaded in App Store Connect only when the app version media is editable. The submitted build `1.0 (30)` remains untouched unless the submission is canceled or Apple returns it for edits.
+The screenshot files were uploaded sequentially in the recommended order because
+App Store Connect may display a multi-file batch in upload-completion order.
 
-The app icon change is binary-backed. Shipping it requires a new archive/upload and replacing the submitted build, for example build `1.0 (31)`.
+The app icon change is binary-backed and is included in build `1.0 (31)`.

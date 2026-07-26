@@ -2,13 +2,13 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Last refreshed: 2026-07-24
-Current candidate baseline: iChart V1.0 submission build `1.0 (30)`
+Last refreshed: 2026-07-25
+Current candidate baseline: iChart V1.0 submission build `1.0 (31)`
 Current App Review state: Submitted and `Waiting for Review`
 Current public-release blocker: App Review approval and final release-day switch
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
-behavior, current outside-QA polish, product screenshots, and public-site source
-cleanup
+behavior, current outside-QA polish, refreshed App Store screenshots and full
+logo app icon, and public-site source cleanup
 
 This document is the final release gate and ordered plan for iChart V1.0.
 If another planning document conflicts with this file on launch ordering, gate
@@ -27,25 +27,34 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 30 is the official V1.0 submission build and supersedes the build 29
-candidate baseline because build 29 was followed by release-blocking outside-QA
-polish: repeat-tool visual feedback and a simplified chord-correction flow.
+Build 31 is the official V1.0 submission build and supersedes the build 30
+candidate baseline because the first submission used generic App Store media
+and the smaller previous icon treatment. Build 31 keeps the accepted V1 app
+behavior while refreshing the App Store screenshot set and binary-backed app
+icon.
+
 Build 30 completed the final TestFlight QA acceptance window with no incoming
-critical QA blockers as of 2026-07-24.
+critical QA blockers as of 2026-07-24. Build 31 is a media/build-number
+replacement for that accepted V1 state.
 
 The chart cloud-backup provenance fix is now part of the candidate baseline. It
 prevents automatic backup from silently pulling or resurrecting stale cloud
 charts during local editing, and keeps cloud restore as an explicit Settings
 action.
 
-The app was submitted to App Review on 2026-07-24. Public availability still
+The app was resubmitted to App Review on 2026-07-25 after replacing build 30
+with build 31 and the refreshed iPad screenshot set. Public availability still
 depends on Apple approval, final release controls in App Store Connect, and
 normal release-day monitoring.
 
 Current verified source baseline:
 
-- `main` and `origin/main` are aligned at `3138e3b`.
-- GitHub CI and CodeQL passed for build 30 source on 2026-07-24.
+- Build 31 archive/upload app-source commit: `da55cf1`.
+- Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
+- `2ad1bc5` differs from the uploaded build source only by the test-target
+  build-number gate assertion update.
+- Later release-evidence doc updates do not alter the app target.
+- GitHub CI and CodeQL passed for `2ad1bc5` on 2026-07-25.
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
@@ -55,9 +64,10 @@ Current verified source baseline:
 - Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `30`.
-- TestFlight Outside QA lists build `1.0 (30)` as `Testing`.
-- App Store Connect submission `d83d8099-934d-4cfd-a381-04edb2150367` is
+  build `31`.
+- TestFlight Outside QA accepted build `1.0 (30)` behavior; build `1.0 (31)`
+  is the App Store media/icon replacement package.
+- App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` is
   `Waiting for Review`.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
@@ -418,7 +428,8 @@ Priority: P0 before App Store submission.
 
 Acceptance:
 
-- [x] Build 30 is assigned as the active outside-QA build.
+- [x] Build 30 was assigned as the active outside-QA build for final behavior
+  acceptance.
 - [ ] At least two outside testers can create new accounts.
 - [ ] At least one tester exercises Basic: create/edit/export/reopen charts.
 - [ ] At least one tester exercises Pro sandbox purchase/restore and Forums.
@@ -428,12 +439,16 @@ Acceptance:
 - [x] No critical crashes, data loss, account lockout, purchase/restore failure,
   or chart export corruption is seen.
 - [x] Any accepted known issue is written down in this doc or the release notes.
-- [ ] If a new build is created, it repeats the repo/CI/Supabase gate instead of
-  bypassing it.
+- [x] Build 31 repeated the repo/CI gate; Supabase/backend state is unchanged
+  from the earlier final gate.
 
 2026-07-24 acceptance note: outside QA remains available for ongoing signal, but
 no critical build-30 QA blockers were reported during the final acceptance
-window. The release call is to proceed with build `1.0 (30)`.
+window. The release call is to proceed with the same accepted app behavior.
+
+2026-07-25 replacement note: build `1.0 (31)` replaces build `1.0 (30)` for
+App Store submission media quality. The app behavior is unchanged; build 31
+adds the refreshed ten-image iPad screenshot package and full-logo app icon.
 
 ### Gate 8 - App Store public submission package
 
@@ -468,7 +483,7 @@ Priority: P0.
 - Submission ID: `d83d8099-934d-4cfd-a381-04edb2150367`.
 - Date submitted: 2026-07-24 at 3:08 PM Pacific.
 - Submitted by: Beni Rossman.
-- Status: `Waiting for Review`.
+- Status: Developer removed/replaced on 2026-07-25.
 - Items submitted together:
   - `iOS App 1.0`, build `1.0 (30)`.
   - `iChart Pro`, subscription group.
@@ -476,6 +491,27 @@ Priority: P0.
     `com.ichart.app.pro.monthly`.
   - `iChart Pro Annual`, subscription
     `com.ichart.app.pro.annual`.
+- Manual release remains selected, so approval alone should not automatically
+  make V1.0 public.
+
+2026-07-25 App Review replacement update:
+
+- Replacement submission ID: `06b203db-9cdf-401b-bf58-78066c20ad0b`.
+- Date submitted: 2026-07-25 at 8:28 PM Pacific.
+- Submitted by: Beni Rossman.
+- Status: `Waiting for Review`.
+- Items submitted together:
+  - `iOS App 1.0`, build `1.0 (31)`.
+  - `iChart Pro`, subscription group.
+  - `iChart Pro Monthly`, subscription
+    `com.ichart.app.pro.monthly`.
+  - `iChart Pro Annual`, subscription
+    `com.ichart.app.pro.annual`.
+- Ten refreshed 13-inch iPad screenshots are attached in order:
+  `01-chart-editor-first-dance.png` through
+  `10-rhythm-chart-last-dance.png`.
+- The build 31 App Store Connect icon thumbnail resolves to the regenerated
+  full-logo iChart icon.
 - Manual release remains selected, so approval alone should not automatically
   make V1.0 public.
 
@@ -491,7 +527,8 @@ Acceptance:
 - [x] Screenshots and preview media match the current app.
 - [x] Known issues are either fixed or acceptable for V1.
 - [x] Version/build numbers are final.
-- [x] Final archive is created from the accepted `main` commit.
+- [x] Final archive is created from the accepted app-source commit; later
+  commits are limited to test-target gate alignment and release-evidence docs.
 - [x] Release evidence is saved: build number, commit hash, CI URL, Supabase
   checks, App Store Connect state, and QA notes.
 
