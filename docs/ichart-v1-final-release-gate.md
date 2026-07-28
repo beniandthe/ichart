@@ -2,10 +2,10 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Last refreshed: 2026-07-25
-Current candidate baseline: iChart V1.0 submission build `1.0 (31)`
-Current App Review state: Submitted and `Waiting for Review`
-Current public-release blocker: App Review approval and final release-day switch
+Last refreshed: 2026-07-27
+Current candidate baseline: iChart V1.0 App Review repair build `1.0 (32)`
+Current App Review state: Rejected; build 32 repair and resubmission in progress
+Current public-release blocker: App Review approval after metadata/sign-in repair
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
 logo app icon, and public-site source cleanup
@@ -27,11 +27,16 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 31 is the official V1.0 submission build and supersedes the build 30
-candidate baseline because the first submission used generic App Store media
-and the smaller previous icon treatment. Build 31 keeps the accepted V1 app
-behavior while refreshing the App Store screenshot set and binary-backed app
-icon.
+Build 32 is the active V1.0 App Review repair build. It supersedes build 31
+only to address App Review feedback: App Store metadata now avoids the
+inappropriate subtitle use of Apple product terms, and the signed-out account
+panel defaults to an explicit, prominent Sign In flow for the provided review
+account.
+
+Build 31 superseded the build 30 candidate baseline because the first
+submission used generic App Store media and the smaller previous icon
+treatment. Build 31 kept the accepted V1 app behavior while refreshing the App
+Store screenshot set and binary-backed app icon.
 
 Build 30 completed the final TestFlight QA acceptance window with no incoming
 critical QA blockers as of 2026-07-24. Build 31 is a media/build-number
@@ -49,6 +54,7 @@ normal release-day monitoring.
 
 Current verified source baseline:
 
+- Build 32 archive/upload app-source commit: pending until the repair archive is uploaded.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
 - `2ad1bc5` differs from the uploaded build source only by the test-target
@@ -64,11 +70,12 @@ Current verified source baseline:
 - Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `31`.
+  build `31`; build `32` is the current repair package.
 - TestFlight Outside QA accepted build `1.0 (30)` behavior; build `1.0 (31)`
   is the App Store media/icon replacement package.
-- App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` is
-  `Waiting for Review`.
+- App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
+  rejected on 2026-07-27 for subtitle wording and Sign In actionability. Build
+  `32` is the repair lane.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -450,9 +457,15 @@ window. The release call is to proceed with the same accepted app behavior.
 App Store submission media quality. The app behavior is unchanged; build 31
 adds the refreshed ten-image iPad screenshot package and full-logo app icon.
 
+2026-07-27 repair note: App Review rejected build `1.0 (31)` for metadata
+wording around Apple product terms in the subtitle and for the review Sign In
+button being judged non-actionable. The repair keeps version `1.0`, bumps the
+build to `32`, uses the App Review-safe subtitle `Fast charts for musicians`,
+and makes Sign In the default signed-out account mode.
+
 ### Gate 8 - App Store public submission package
 
-Status: Submitted; waiting for App Review.
+Status: Rejected; repair/resubmission in progress.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:

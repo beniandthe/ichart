@@ -5101,31 +5101,38 @@ private enum IChartAccountInputField: Hashable {
     case newPassword
 }
 
+private enum IChartAccountEntryMode: String, CaseIterable {
+    case signIn
+    case createAccount
+}
+
 private struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
     var requiresNameForSignup = true
     var showsSignedInActions = true
+    @State private var entryMode: IChartAccountEntryMode = .signIn
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var email = ""
     @State private var password = ""
     @State private var newPassword = ""
+    @State private var accountEntryPrompt: String?
     @FocusState private var focusedField: IChartAccountInputField?
 
-    private var canSubmitCredentials: Bool {
+    private var hasSignInCredentials: Bool {
         !trimmed(email).isEmpty
             && password.count >= 8
+    }
+
+    private var canSubmitCredentials: Bool {
+        hasSignInCredentials
             && !authStore.isWorking
     }
 
     private var canCreateAccount: Bool {
         canSubmitCredentials
             && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty))
-    }
-
-    private var canSignIn: Bool {
-        canSubmitCredentials
     }
 
     private var canRequestPasswordReset: Bool {
@@ -5172,9 +5179,7 @@ private struct IChartAccountSettings: View {
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .signedOut:
-                credentialsForm
-                actionRow
-                passwordResetRow
+                signedOutContent
             case .temporarilyOffline:
                 offlineRow
             case .pendingEmailVerification:
@@ -5188,14 +5193,34 @@ private struct IChartAccountSettings: View {
             statusFooter
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: authStore.state.statusText) {
+        .task(id: "\(authStore.state.statusText)-\(entryMode.rawValue)") {
             focusDefaultInputIfNeeded()
+        }
+    }
+
+    private var signedOutContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Account action", selection: $entryMode) {
+                Text("Sign In").tag(IChartAccountEntryMode.signIn)
+                Text("Create Account").tag(IChartAccountEntryMode.createAccount)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Account action")
+            .disabled(authStore.isWorking)
+
+            credentialsForm
+            accountEntryPromptText
+            actionRow
+
+            if entryMode == .signIn {
+                passwordResetRow
+            }
         }
     }
 
     private var credentialsForm: some View {
         VStack(spacing: 10) {
-            if requiresNameForSignup {
+            if requiresNameForSignup && entryMode == .createAccount {
                 IChartAccountTextField(
                     title: "First Name",
                     placeholder: "First name",
@@ -5247,32 +5272,64 @@ private struct IChartAccountSettings: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task {
-                    await authStore.createAccount(
-                        email: email,
-                        password: password,
-                        firstName: firstName,
-                        lastName: lastName
-                    )
-                }
-            } label: {
-                Label("Create Account", systemImage: "person.badge.plus")
+        Group {
+            switch entryMode {
+            case .signIn:
+                signInButton
+            case .createAccount:
+                createAccountButton
             }
-            .buttonStyle(.borderedProminent)
-            .tint(IChartHomeBrand.blue)
-            .disabled(!canCreateAccount)
+        }
+    }
 
-            Button {
-                Task {
-                    await authStore.signIn(email: email, password: password)
-                }
-            } label: {
-                Label("Sign In", systemImage: "person.crop.circle")
+    private var signInButton: some View {
+        Button {
+            guard hasSignInCredentials else {
+                accountEntryPrompt = "Enter your email and password, then tap Sign In."
+                focusedField = trimmed(email).isEmpty ? .email : .password
+                return
             }
-            .buttonStyle(.bordered)
-            .disabled(!canSignIn)
+
+            accountEntryPrompt = nil
+            Task {
+                await authStore.signIn(email: email, password: password)
+            }
+        } label: {
+            Label("Sign In", systemImage: "person.crop.circle")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(IChartHomeBrand.blue)
+        .disabled(authStore.isWorking)
+    }
+
+    private var createAccountButton: some View {
+        Button {
+            Task {
+                await authStore.createAccount(
+                    email: email,
+                    password: password,
+                    firstName: firstName,
+                    lastName: lastName
+                )
+            }
+        } label: {
+            Label("Create Account", systemImage: "person.badge.plus")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(IChartHomeBrand.blue)
+        .disabled(!canCreateAccount)
+    }
+
+    @ViewBuilder
+    private var accountEntryPromptText: some View {
+        if let accountEntryPrompt {
+            Text(accountEntryPrompt)
+                .font(.caption)
+                .foregroundStyle(Color(red: 0.62, green: 0.18, blue: 0.12))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("account-entry-prompt")
         }
     }
 
@@ -5581,7 +5638,7 @@ private struct IChartAccountSettings: View {
 
         switch authStore.state {
         case .signedOut:
-            if requiresNameForSignup {
+            if requiresNameForSignup && entryMode == .createAccount {
                 focusedField = .firstName
             } else {
                 focusedField = .email

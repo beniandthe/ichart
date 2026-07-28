@@ -1,7 +1,7 @@
 # iChart App Store and TestFlight Metadata Draft
 
 Status: Public App Store metadata draft, aligned with current V1 launch positioning
-Last updated: 2026-07-22
+Last updated: 2026-07-27
 
 ## App Identity
 
@@ -16,24 +16,24 @@ Last updated: 2026-07-22
 
 Preferred:
 
-> Pencil-first charts for iPad
+> Fast charts for musicians
 
 Alternates:
 
-- Pencil-first chord charts
 - Fast chord charts for working musicians
-- Write clean rehearsal charts on iPad
-- Pencil to polished chord charts
+- Clean charts for rehearsal
+- Chord charts made faster
+- Handwritten chart workflow
 
 ## Short Description
 
-> iChart helps musicians handwrite clean, reusable chord charts on iPad. Write with Apple Pencil, transpose chord symbols, organize charts into projects, and export PDFs for rehearsal or performance prep.
+> iChart helps musicians handwrite clean, reusable chord charts. Write by hand, transpose chord symbols, organize charts into projects, and export PDFs for rehearsal or performance prep.
 
 ## Full Description Draft
 
-iChart is an iPad chart-writing app for musicians who need practical charts without slowing down into full notation software.
+iChart is a chart-writing app for musicians who need practical charts without slowing down into full notation software.
 
-Write clean chord charts by hand with Apple Pencil. Add chords, repeats, form markings, and notes directly on the page, then keep the chart editable for the next rehearsal, singer, horn player, or gig.
+Write clean chord charts by hand. Add chords, repeats, form markings, and notes directly on the page, then keep the chart editable for the next rehearsal, singer, horn player, or gig.
 
 Use iChart when paper is fast but not reusable, when quick chord-chart apps feel limiting, and when full notation software is more tool than the moment needs.
 
@@ -53,11 +53,11 @@ iChart is not full notation engraving software. It is built for musicians who ne
 
 ## Keywords Draft
 
-chord chart,lead sheet,music chart,jazz chart,rehearsal,transpose,Apple Pencil,musician
+chord chart,lead sheet,music chart,jazz chart,rehearsal,transpose,handwriting,musician
 
 ## Promotional Text Draft
 
-> Handwrite reusable chord charts on iPad, then transpose, organize, and export when the gig changes.
+> Handwrite reusable chord charts, then transpose, organize, and export when the gig changes.
 
 ## Public Product Page Guardrails
 
@@ -81,7 +81,7 @@ chord chart,lead sheet,music chart,jazz chart,rehearsal,transpose,Apple Pencil,m
 
 ## What's New / Release Notes Template
 
-> Initial TestFlight build for iChart V1: local chart creation, Apple Pencil editing, PDF export, account sign-in, Pro subscription restore, cloud backup, Projects, and Forums access.
+> Initial TestFlight build for iChart V1: local chart creation, handwritten editing, PDF export, account sign-in, Pro subscription restore, cloud backup, Projects, and Forums access.
 
 ## TestFlight Beta Description
 
@@ -111,7 +111,7 @@ Please send TestFlight feedback with your iPad model, iPadOS version, chart type
 
 ## App Review Notes Draft
 
-iChart is an iPad-only music chart-writing app.
+iChart is a chart-writing app for musicians.
 
 Test account:
 
@@ -146,7 +146,7 @@ Required iPad product-page set:
 
 1. Charts library with a real gig-oriented chart list and New Chart available.
    - Caption direction: "Start a clean chart fast."
-2. Apple Pencil chart editor showing handwritten and recognized chord content.
+2. Handwritten chart editor showing handwritten and recognized chord content.
    - Caption direction: "Handwrite chords directly on the page."
 3. Chord, repeat, text, and form-marking workflow on a simple chart.
    - Caption direction: "Build the chart musicians actually need."
