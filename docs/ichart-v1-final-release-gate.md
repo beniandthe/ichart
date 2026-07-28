@@ -4,7 +4,7 @@ Status: Active release-gate source of truth
 Created: 2026-07-15
 Last refreshed: 2026-07-27
 Current candidate baseline: iChart V1.0 App Review repair build `1.0 (32)`
-Current App Review state: Rejected; build 32 repair and resubmission in progress
+Current App Review state: Waiting for Review after build 32 repair resubmission
 Current public-release blocker: App Review approval after metadata/sign-in repair
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
@@ -52,15 +52,21 @@ with build 31 and the refreshed iPad screenshot set. Public availability still
 depends on Apple approval, final release controls in App Store Connect, and
 normal release-day monitoring.
 
+The build 31 App Review rejection was repaired and resubmitted on 2026-07-27
+with build 32 attached to the same App Store Connect submission. The app
+version, subscription group, monthly subscription, and annual subscription all
+show `Waiting for Review`.
+
 Current verified source baseline:
 
-- Build 32 archive/upload app-source commit: pending until the repair archive is uploaded.
+- Build 32 archive/upload app-source commit: `68fd288`.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
 - `2ad1bc5` differs from the uploaded build source only by the test-target
   build-number gate assertion update.
 - Later release-evidence doc updates do not alter the app target.
-- GitHub CI and CodeQL passed for `2ad1bc5` on 2026-07-25.
+- GitHub CI passed for `68fd288` on 2026-07-27; CodeQL passed for the repair
+  commit during the build 32 repair checks.
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
@@ -70,12 +76,13 @@ Current verified source baseline:
 - Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `31`; build `32` is the current repair package.
+  build `32`; build `32` is the current repair package.
 - TestFlight Outside QA accepted build `1.0 (30)` behavior; build `1.0 (31)`
   is the App Store media/icon replacement package.
 - App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
   rejected on 2026-07-27 for subtitle wording and Sign In actionability. Build
-  `32` is the repair lane.
+  `32` repaired those issues and is resubmitted with all included subscription
+  items `Waiting for Review`.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -463,9 +470,24 @@ button being judged non-actionable. The repair keeps version `1.0`, bumps the
 build to `32`, uses the App Review-safe subtitle `Fast charts for musicians`,
 and makes Sign In the default signed-out account mode.
 
+2026-07-27 repair resubmission update:
+
+- Submission ID: `06b203db-9cdf-401b-bf58-78066c20ad0b`.
+- Date resubmitted: 2026-07-27.
+- Status: `Waiting for Review`.
+- Items submitted together:
+  - `iOS App 1.0`, build `1.0 (32)`.
+  - `iChart Pro`, subscription group.
+  - `iChart Pro Monthly`, subscription
+    `com.ichart.app.pro.monthly`.
+  - `iChart Pro Annual`, subscription
+    `com.ichart.app.pro.annual`.
+- Manual release remains selected, so approval alone should not automatically
+  make V1.0 public.
+
 ### Gate 8 - App Store public submission package
 
-Status: Rejected; repair/resubmission in progress.
+Status: Waiting for Review after build 32 repair resubmission.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:
