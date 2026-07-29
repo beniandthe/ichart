@@ -301,6 +301,15 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
+    func blockUser(ownerID: UUID, displayName: String) async {
+        await run(successMessage: "\(displayName.isEmpty ? "Contributor" : displayName) blocked. Their forum posts and comments are hidden for this account.") {
+            try await activeService.blockUser(ownerID: ownerID)
+            selectedDetail = nil
+            downloadedPDF = nil
+            state = .loaded(try await activeService.loadHome(query: lastQuery))
+        }
+    }
+
     @discardableResult
     func downloadPDF(for detail: IChartForumPostDetail) async -> ExportedPDF? {
         var downloadedPDF: ExportedPDF?
@@ -493,6 +502,7 @@ private protocol IChartForumServicing: Sendable {
     func addComment(postID: UUID, body: String) async throws
     func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws
+    func blockUser(ownerID: UUID) async throws
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF
 }
 
@@ -531,6 +541,9 @@ private struct IChartUnconfiguredForumService: IChartForumServicing {
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws {
         throw IChartForumServiceError.unconfigured
     }
+    func blockUser(ownerID: UUID) async throws {
+        throw IChartForumServiceError.unconfigured
+    }
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
         throw IChartForumServiceError.unconfigured
     }
@@ -548,6 +561,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private var addedCommentsByPostID: [UUID: [ForumComment]] = [:]
     private var voteOverridesByPostID: [UUID: ForumVoteValue] = [:]
     private var reportAdjustmentsByPostID: [UUID: Int] = [:]
+    private var blockedOwnerIDs: Set<UUID> = []
 
     func setCurrentUserID(_ userID: UUID) {
         currentUserID = userID
@@ -557,7 +571,10 @@ private actor IChartForumQASampleService: IChartForumServicing {
         let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
         let songs = allSongs()
         let postsBySongID = Dictionary(
-            grouping: allPosts().filter { $0.status == .published || $0.status == .flagged },
+            grouping: allPosts().filter {
+                ($0.status == .published || $0.status == .flagged)
+                    && !blockedOwnerIDs.contains($0.ownerID)
+            },
             by: \.songID
         )
 
@@ -590,7 +607,8 @@ private actor IChartForumQASampleService: IChartForumServicing {
     }
 
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
-        guard let post = allPosts().first(where: { $0.id == postID }) else {
+        guard let post = allPosts().first(where: { $0.id == postID }),
+              !blockedOwnerIDs.contains(post.ownerID) else {
             throw IChartForumServiceError.missingForumPost
         }
 
@@ -598,7 +616,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
         return IChartForumPostDetail(
             song: resolvedSong,
             post: post,
-            comments: comments(for: postID),
+            comments: comments(for: postID).filter { !blockedOwnerIDs.contains($0.ownerID) },
             authorBadges: badges(for: post.ownerID),
             currentUserVote: voteOverridesByPostID[postID]
         )
@@ -719,6 +737,14 @@ private actor IChartForumQASampleService: IChartForumServicing {
         guard commentsByID()[commentID] != nil else {
             throw IChartForumServiceError.missingForumPost
         }
+    }
+
+    func blockUser(ownerID: UUID) async throws {
+        guard ownerID != currentUserID else {
+            throw IChartForumServiceError.invalidPublishDraft("You cannot block your own forum account.")
+        }
+
+        blockedOwnerIDs.insert(ownerID)
     }
 
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
@@ -1594,6 +1620,24 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             .execute()
     }
 
+    func blockUser(ownerID blockedOwnerID: UUID) async throws {
+        let ownerID = try await currentUserIDForRequest()
+        guard ownerID != blockedOwnerID else {
+            throw IChartForumServiceError.invalidPublishDraft("You cannot block your own forum account.")
+        }
+
+        do {
+            try await client
+                .from("forum_user_blocks")
+                .insert(ForumUserBlockInsert(ownerID: ownerID, blockedOwnerID: blockedOwnerID))
+                .execute()
+        } catch {
+            guard Self.isDuplicatePostInsert(error) else {
+                throw error
+            }
+        }
+    }
+
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
         _ = try await refreshedSessionForRequest()
         let data = try await client.storage
@@ -2066,6 +2110,16 @@ private struct ForumReportInsert: Encodable {
         case commentID = "comment_id"
         case reason
         case detail
+    }
+}
+
+private struct ForumUserBlockInsert: Encodable {
+    let ownerID: UUID
+    let blockedOwnerID: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case ownerID = "owner_id"
+        case blockedOwnerID = "blocked_owner_id"
     }
 }
 

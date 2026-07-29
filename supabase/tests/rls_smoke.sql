@@ -611,6 +611,141 @@ select is(
 
 reset role;
 
+insert into public.forum_chart_posts (
+    id,
+    song_id,
+    owner_id,
+    local_chart_id,
+    chart_title,
+    arranger_credit,
+    tags,
+    version_note,
+    layout_style,
+    pdf_storage_path,
+    status,
+    pdf_provenance_status,
+    pdf_validated_at
+) values (
+    '40000000-0000-0000-0000-000000000004',
+    '30000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000002',
+    '10000000-0000-0000-0000-000000000099',
+    'Other Player Published Chart',
+    'Other Player',
+    array['standard'],
+    null,
+    'simpleChordSheet',
+    '00000000-0000-0000-0000-000000000002/40000000-0000-0000-0000-000000000004.pdf',
+    'published',
+    'validated',
+    now()
+);
+
+insert into public.forum_comments (
+    id,
+    post_id,
+    owner_id,
+    body
+) values (
+    '60000000-0000-0000-0000-000000000004',
+    '40000000-0000-0000-0000-000000000004',
+    '00000000-0000-0000-0000-000000000002',
+    'Thanks for checking this chart.'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000004'
+    ),
+    1,
+    'active Pro can read another contributor published forum post before blocking'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_comments
+        where id = '60000000-0000-0000-0000-000000000004'
+    ),
+    1,
+    'active Pro can read another contributor visible forum comment before blocking'
+);
+
+select lives_ok(
+    $$
+    insert into public.forum_user_blocks (
+        owner_id,
+        blocked_owner_id
+    ) values (
+        '00000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000002'
+    )
+    $$,
+    'active Pro can block another forum contributor'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_user_blocks
+    ),
+    1,
+    'active Pro can read own forum block records'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_chart_posts
+        where id = '40000000-0000-0000-0000-000000000004'
+    ),
+    0,
+    'blocked contributor published posts are hidden from the blocking user'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_comments
+        where id = '60000000-0000-0000-0000-000000000004'
+    ),
+    0,
+    'blocked contributor comments are hidden from the blocking user'
+);
+
+select is(
+    (
+        select count(*)::integer
+        from public.forum_chart_posts
+        where owner_id = '00000000-0000-0000-0000-000000000001'
+            and status = 'pending'
+    ),
+    2,
+    'forum user blocks do not hide the blocking user own pending submissions'
+);
+
+select throws_ok(
+    $$
+    insert into public.forum_user_blocks (
+        owner_id,
+        blocked_owner_id
+    ) values (
+        '00000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001'
+    )
+    $$,
+    '42501',
+    null,
+    'active Pro cannot block their own forum account'
+);
+
+reset role;
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 

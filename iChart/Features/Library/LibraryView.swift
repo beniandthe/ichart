@@ -702,7 +702,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Members can browse, download, vote, comment, and report charts that need attention."
+                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see."
             ]
         ),
         IChartHelpArticleSection(
@@ -781,7 +781,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Treat the community library like a shared music stand.",
             bullets: [
                 "Use comments for helpful corrections, version notes, and respectful discussion.",
-                "Report charts or comments that look inaccurate, miscredited, abusive, or unsafe.",
+                "Use Safety to report charts or comments that look inaccurate, miscredited, abusive, or unsafe. You can also block a contributor to hide their forum posts and comments from your account.",
                 "Voting is for chart quality, not personal pile-ons. Repeated bad-faith behavior may limit forum access."
             ]
         ),
@@ -1247,6 +1247,11 @@ struct LibraryView: View {
                     onReportComment: { comment, reason in
                         Task {
                             await forumStore.reportComment(comment, reason: reason, detailText: nil, detail: detail)
+                        }
+                    },
+                    onBlockUser: { ownerID, displayName in
+                        Task {
+                            await forumStore.blockUser(ownerID: ownerID, displayName: displayName)
                         }
                     },
                     onDownloadPDF: {
@@ -4079,6 +4084,7 @@ private struct IChartForumPostDetailView: View {
     let onComment: (String) -> Void
     let onReportPost: (ForumReportReason) -> Void
     let onReportComment: (ForumComment, ForumReportReason) -> Void
+    let onBlockUser: (UUID, String) -> Void
     let onDownloadPDF: () -> Void
     let onClearDownloadedPDF: () -> Void
     let onWithdrawPost: () -> Void
@@ -4220,8 +4226,17 @@ private struct IChartForumPostDetailView: View {
                         onReportPost(reason)
                     }
                 }
+
+                if currentUserID != detail.post.ownerID {
+                    Divider()
+                    Button(role: .destructive) {
+                        onBlockUser(detail.post.ownerID, detail.post.creatorDisplayName)
+                    } label: {
+                        Label("Block Contributor", systemImage: "person.crop.circle.badge.xmark")
+                    }
+                }
             } label: {
-                Label("Report", systemImage: "flag")
+                Label("Safety", systemImage: "flag")
             }
             .buttonStyle(.bordered)
         }
@@ -4300,9 +4315,13 @@ private struct IChartForumPostDetailView: View {
                 ForEach(detail.comments) { comment in
                     IChartForumCommentRow(
                         comment: comment,
+                        currentUserID: currentUserID,
                         theme: theme,
                         onReport: { reason in
                             onReportComment(comment, reason)
+                        },
+                        onBlockUser: {
+                            onBlockUser(comment.ownerID, comment.creatorDisplayName ?? "")
                         }
                     )
                 }
@@ -4338,8 +4357,10 @@ private struct IChartForumPostDetailView: View {
 
 private struct IChartForumCommentRow: View {
     let comment: ForumComment
+    let currentUserID: UUID?
     let theme: IChartHomeTheme
     let onReport: (ForumReportReason) -> Void
+    let onBlockUser: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -4371,11 +4392,18 @@ private struct IChartForumCommentRow: View {
                         onReport(reason)
                     }
                 }
+
+                if currentUserID != comment.ownerID {
+                    Divider()
+                    Button(role: .destructive, action: onBlockUser) {
+                        Label("Block Commenter", systemImage: "person.crop.circle.badge.xmark")
+                    }
+                }
             } label: {
                 Image(systemName: "flag")
                     .frame(width: 30, height: 30)
             }
-            .accessibilityLabel("Report comment")
+            .accessibilityLabel("Comment safety options")
         }
         .padding(11)
         .background(theme.emptyStateBackground)
@@ -5206,7 +5234,7 @@ private struct IChartAccountSettings: View {
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes your iChart account, profile, cloud backup, subscription authority, and forum activity from iChart servers. This cannot be undone.")
+            Text("This deletes your iChart account, profile, cloud backup, subscription authority, and forum activity from iChart servers. App Store subscriptions and billing are managed by Apple; cancel or manage them from your Apple account before continuing. This cannot be undone.")
         }
     }
 
@@ -5562,7 +5590,7 @@ private struct IChartAccountSettings: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            Text("Permanently removes your iChart account and server data. Local chart files on this iPad remain on the device until you delete them or remove the app.")
+            Text("Permanently removes your iChart account and server data. App Store subscriptions and billing are managed by Apple. Local chart files on this iPad remain on the device until you delete them or remove the app.")
                 .font(.caption)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
