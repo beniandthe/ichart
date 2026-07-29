@@ -39,9 +39,10 @@ Required before resubmission:
 - [x] Add forum contributor blocking so Forums cover App Review Guideline 1.2
   UGC safety expectations alongside reporting and support contact.
 - [x] Deploy updated `index.html`, `privacy.html`, and `support.html` to live
-  `https://useichart.com`.
+  `https://useichart.com` via IONOS on 2026-07-29.
 - [x] Verify live `https://useichart.com/privacy` includes Settings > Account >
-  Delete Account.
+  Delete Account; cache-busted live/local SHA-256 evidence is recorded in
+  `docs/ichart-v1-final-release-gate.md`.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.
 - [ ] Upload/attach build `1.0 (33)`.
