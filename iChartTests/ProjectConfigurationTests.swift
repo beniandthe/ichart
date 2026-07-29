@@ -197,6 +197,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Label(\"Safety\", systemImage: \"flag\")"))
         XCTAssertTrue(libraryText.contains("Label(\"Block Contributor\", systemImage: \"person.crop.circle.badge.xmark\")"))
         XCTAssertTrue(libraryText.contains("Label(\"Block Commenter\", systemImage: \"person.crop.circle.badge.xmark\")"))
+        XCTAssertTrue(libraryText.contains("\"Block Contributor?\""))
+        XCTAssertTrue(libraryText.contains("ForumBlockConfirmationRequest"))
         XCTAssertTrue(libraryText.contains("block contributors they no longer want to see"))
         XCTAssertTrue(forumStoreText.contains("func blockUser(ownerID: UUID) async throws"))
         XCTAssertTrue(forumStoreText.contains(".from(\"forum_user_blocks\")"))

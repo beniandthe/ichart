@@ -140,6 +140,10 @@ Current verified source baseline:
 - Live `https://useichart.com`, `https://useichart.com/privacy`, and
   `https://useichart.com/support` were redeployed from
   `public-site/useichart` and cache-bust verified on 2026-07-29.
+  Cache-busted SHA-256 matches at verification time:
+  `index.html=3de9ea14432654e25d4da5ed890f83bc99338a573c9aa02874b4a418ffa8d4ef`,
+  `privacy.html=aa047bbf05ac8cb349943e898677b27f26ca2ccd7f4ce1f03340a9a70db107ad`,
+  `support.html=636b9b1fa3c6cc0eedc77280c23e3b012fd3d93238878225263e2b8e8baa05bf`.
 
 Current remaining release caveats:
 

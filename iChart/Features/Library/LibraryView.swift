@@ -4091,6 +4091,7 @@ private struct IChartForumPostDetailView: View {
     let onRemovePost: () -> Void
 
     @State private var commentText = ""
+    @State private var blockConfirmationRequest: ForumBlockConfirmationRequest?
     @FocusState private var isCommentFocused: Bool
 
     var body: some View {
@@ -4129,6 +4130,21 @@ private struct IChartForumPostDetailView: View {
             if let downloadedPDF {
                 PDFExportPreviewView(exportedPDF: downloadedPDF)
             }
+        }
+        .alert(
+            "Block Contributor?",
+            isPresented: blockConfirmationPresented,
+            presenting: blockConfirmationRequest
+        ) { request in
+            Button("Block", role: .destructive) {
+                onBlockUser(request.ownerID, request.displayName)
+                blockConfirmationRequest = nil
+            }
+            Button("Cancel", role: .cancel) {
+                blockConfirmationRequest = nil
+            }
+        } message: { request in
+            Text(request.confirmationMessage)
         }
     }
 
@@ -4230,7 +4246,7 @@ private struct IChartForumPostDetailView: View {
                 if currentUserID != detail.post.ownerID {
                     Divider()
                     Button(role: .destructive) {
-                        onBlockUser(detail.post.ownerID, detail.post.creatorDisplayName)
+                        requestBlockUser(ownerID: detail.post.ownerID, displayName: detail.post.creatorDisplayName)
                     } label: {
                         Label("Block Contributor", systemImage: "person.crop.circle.badge.xmark")
                     }
@@ -4321,7 +4337,7 @@ private struct IChartForumPostDetailView: View {
                             onReportComment(comment, reason)
                         },
                         onBlockUser: {
-                            onBlockUser(comment.ownerID, comment.creatorDisplayName ?? "")
+                            requestBlockUser(ownerID: comment.ownerID, displayName: comment.creatorDisplayName ?? "")
                         }
                     )
                 }
@@ -4352,6 +4368,37 @@ private struct IChartForumPostDetailView: View {
         case .removed:
             return "This chart is no longer available in Forums."
         }
+    }
+
+    private var blockConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { blockConfirmationRequest != nil },
+            set: { isPresented in
+                if !isPresented {
+                    blockConfirmationRequest = nil
+                }
+            }
+        )
+    }
+
+    private func requestBlockUser(ownerID: UUID, displayName: String) {
+        blockConfirmationRequest = ForumBlockConfirmationRequest(ownerID: ownerID, displayName: displayName)
+    }
+}
+
+private struct ForumBlockConfirmationRequest: Identifiable {
+    let ownerID: UUID
+    let displayName: String
+
+    var id: UUID { ownerID }
+
+    var confirmationMessage: String {
+        let contributorName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if contributorName.isEmpty {
+            return "Hide this contributor's forum posts and comments from this account."
+        }
+
+        return "Hide \(contributorName)'s forum posts and comments from this account."
     }
 }
 
