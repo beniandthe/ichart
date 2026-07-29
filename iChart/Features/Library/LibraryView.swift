@@ -5118,6 +5118,7 @@ private struct IChartAccountSettings: View {
     @State private var password = ""
     @State private var newPassword = ""
     @State private var accountEntryPrompt: String?
+    @State private var isShowingDeleteAccountConfirmation = false
     @FocusState private var focusedField: IChartAccountInputField?
 
     private var hasSignInCredentials: Bool {
@@ -5195,6 +5196,17 @@ private struct IChartAccountSettings: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(authStore.state.statusText)-\(entryMode.rawValue)") {
             focusDefaultInputIfNeeded()
+        }
+        .alert("Delete Account?", isPresented: $isShowingDeleteAccountConfirmation) {
+            Button("Delete Account", role: .destructive) {
+                Task {
+                    await authStore.deleteAccount()
+                }
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes your iChart account, profile, cloud backup, subscription authority, and forum activity from iChart servers. This cannot be undone.")
         }
     }
 
@@ -5461,6 +5473,7 @@ private struct IChartAccountSettings: View {
 
             if showsSignedInActions {
                 signedInRow
+                deleteAccountSection
             }
         }
         .onAppear {
@@ -5538,6 +5551,30 @@ private struct IChartAccountSettings: View {
             .buttonStyle(.borderedProminent)
             .tint(IChartHomeBrand.blue)
             .disabled(!canCompleteAccountIdentity)
+        }
+    }
+
+    private var deleteAccountSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            Text("Delete Account")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+
+            Text("Permanently removes your iChart account and server data. Local chart files on this iPad remain on the device until you delete them or remove the app.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(role: .destructive) {
+                isShowingDeleteAccountConfirmation = true
+            } label: {
+                Label("Delete Account", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .disabled(authStore.isWorking)
+            .accessibilityIdentifier("delete-account-button")
         }
     }
 

@@ -133,6 +133,7 @@ private protocol IChartAccountServicing {
     ) async throws -> IChartAuthState
     func signIn(email: String, password: String) async throws -> IChartAuthState
     func signOut() async throws
+    func deleteAccount() async throws
     func resendVerificationEmail(email: String, redirectURL: URL) async throws
     func requestPasswordReset(email: String, redirectURL: URL) async throws
     func handleAuthCallback(url: URL) async throws -> IChartAuthState
@@ -263,6 +264,16 @@ final class IChartAuthStore: ObservableObject {
     func signOut() async {
         await run("Signed out.") {
             try await service.signOut()
+            state = service.isConfigured ? .signedOut : .unconfigured
+            profile = nil
+            clearPendingAuthFlow()
+            rememberPendingVerificationEmailIfNeeded()
+        }
+    }
+
+    func deleteAccount() async {
+        await run("Account deleted.") {
+            try await service.deleteAccount()
             state = service.isConfigured ? .signedOut : .unconfigured
             profile = nil
             clearPendingAuthFlow()
@@ -619,6 +630,8 @@ private struct IChartUnconfiguredAccountService: IChartAccountServicing {
 
     func signOut() async throws {}
 
+    func deleteAccount() async throws {}
+
     func resendVerificationEmail(email: String, redirectURL: URL) async throws {}
 
     func requestPasswordReset(email: String, redirectURL: URL) async throws {}
@@ -717,6 +730,27 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
 
     func signOut() async throws {
         try await authClient.auth.signOut()
+        try? persistentSessionStore.clear()
+        await sessionStore.clear()
+    }
+
+    func deleteAccount() async throws {
+        let session = try await authClient.auth.session
+        let response: IChartAccountDeletionResponse = try await dataClient.functions.invoke(
+            "account-deletion",
+            options: FunctionInvokeOptions(
+                method: .post,
+                headers: ["Authorization": "Bearer \(session.accessToken)"],
+                body: IChartAccountDeletionRequest()
+            )
+        )
+
+        guard response.accepted else {
+            throw IChartAccountDeletionError.rejected(
+                response.error ?? "Account deletion could not be completed."
+            )
+        }
+
         try? persistentSessionStore.clear()
         await sessionStore.clear()
     }
@@ -959,6 +993,26 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             return .email
         default:
             return nil
+        }
+    }
+}
+
+private struct IChartAccountDeletionRequest: Encodable {
+    let confirmation = "DELETE_MY_ICHART_ACCOUNT"
+}
+
+private struct IChartAccountDeletionResponse: Decodable {
+    let accepted: Bool
+    let error: String?
+}
+
+private enum IChartAccountDeletionError: LocalizedError {
+    case rejected(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .rejected(let message):
+            return message
         }
     }
 }

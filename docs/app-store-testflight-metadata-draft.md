@@ -1,7 +1,7 @@
 # iChart App Store and TestFlight Metadata Draft
 
 Status: Public App Store metadata draft, aligned with current V1 launch positioning
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 ## App Identity
 
@@ -132,12 +132,15 @@ Suggested review path:
 5. Export/share a PDF.
 6. Open Settings > Pro Subscription and use restore/purchase flow in sandbox.
 7. Confirm Pro unlocks unlimited charts, Projects, cloud backup, and Forums.
+8. Account deletion is available from Settings > Account > Delete Account.
 
 Notes:
 
 - Apple handles purchase, restore, cancellation, and subscription management.
 - iChart sends StoreKit transactions to a Supabase Edge Function for server-side verification.
 - The app does not include service-role keys, App Store Connect keys, or webhook secrets.
+- Account deletion is initiated in-app at Settings > Account > Delete Account. Use a disposable review account before completing the deletion flow; deletion removes the iChart account/server data and signs the app out.
+- Attach the physical-device account deletion screen recording requested by App Review to the Notes field for this submission and future submissions until the review history is stable.
 - Forum publishing creates reviewed PDF snapshots; editable source chart data is not published in V1.
 
 ## Screenshot Plan
