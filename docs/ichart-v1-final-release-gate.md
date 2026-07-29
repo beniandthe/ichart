@@ -2,10 +2,10 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Last refreshed: 2026-07-27
-Current candidate baseline: iChart V1.0 App Review repair build `1.0 (32)`
-Current App Review state: Waiting for Review after build 32 repair resubmission
-Current public-release blocker: App Review approval after metadata/sign-in repair
+Last refreshed: 2026-07-29
+Current candidate baseline: iChart V1.0 App Review account-deletion repair build `1.0 (33)`
+Current App Review state: Build 32 rejected for Guideline 5.1.1 account deletion
+Current public-release blocker: Build 33 account-deletion repair package, App Review notes/recording, and Apple approval
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
 logo app icon, and public-site source cleanup
@@ -24,14 +24,41 @@ Supporting docs:
 - `docs/ichart-storekit-subscription-runbook.md`
 - `docs/ichart-plan-policy-source-of-truth.md`
 - `docs/app-store-testflight-metadata-draft.md`
+- `docs/apple-app-review-submission-checklist.md`
 
 ## 1. Current Release Call
 
-Build 32 is the active V1.0 App Review repair build. It supersedes build 31
-only to address App Review feedback: App Store metadata now avoids the
-inappropriate subtitle use of Apple product terms, and the signed-out account
-panel defaults to an explicit, prominent Sign In flow for the provided review
-account.
+Build 33 is the planned V1.0 App Review repair build. It supersedes build 32
+only to address App Review feedback for Guideline 5.1.1: apps that support
+account creation must let users initiate account deletion in the app.
+
+Build 32 was rejected by App Review on 2026-07-29 under `5.1.1 Legal:
+Privacy - Data Collection and Storage` because iChart supports account creation
+but did not include an in-app account deletion option. The included
+subscription group and subscription products were rejected only because the
+associated app version was rejected.
+
+Build 33 acceptance before resubmission:
+
+- Settings > Account exposes `Delete Account` for signed-in users.
+- Deletion uses a destructive confirmation and signs the app out after the
+  server accepts deletion.
+- The account-deletion server path requires authenticated user bearer auth,
+  rejects malformed/oversized/unconfirmed requests, deletes server-owned
+  account data for only the authenticated user, and then deletes the Supabase
+  Auth user.
+- `account-deletion` is deployed as a Supabase Edge Function with
+  `verify_jwt = true`.
+- App Review Notes explain the deletion path:
+  Settings > Account > Delete Account.
+- A physical-device recording is attached in App Review Notes showing sign-in
+  or account creation, navigation to the deletion option, and the deletion
+  flow through confirmation.
+
+Build 32 superseded build 31 only to address App Review feedback: App Store
+metadata now avoids the inappropriate subtitle use of Apple product terms, and
+the signed-out account panel defaults to an explicit, prominent Sign In flow
+for the provided review account.
 
 Build 31 superseded the build 30 candidate baseline because the first
 submission used generic App Store media and the smaller previous icon
@@ -53,12 +80,12 @@ depends on Apple approval, final release controls in App Store Connect, and
 normal release-day monitoring.
 
 The build 31 App Review rejection was repaired and resubmitted on 2026-07-27
-with build 32 attached to the same App Store Connect submission. The app
-version, subscription group, monthly subscription, and annual subscription all
-show `Waiting for Review`.
+with build 32 attached to the same App Store Connect submission. Build 32 was
+then rejected on 2026-07-29 for missing in-app account deletion.
 
 Current verified source baseline:
 
+- Build 33 archive/upload app-source commit: pending.
 - Build 32 archive/upload app-source commit: `68fd288`.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
@@ -70,19 +97,27 @@ Current verified source baseline:
 - There are no open PRs.
 - Remote Supabase migrations are aligned through `20260714172551`.
 - `scripts/run_supabase_production_readiness.sh` passed.
-- Supabase shared Node authority/function tests passed: `64/64`.
+- Supabase shared Node authority/function tests passed before account-deletion
+  repair: `64/64`.
+- Supabase shared Node authority/function tests passed after account-deletion
+  repair: `75/75`.
 - SwiftPM passed locally on the current candidate: `654` tests,
   `38` skipped, `0` failures.
 - Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `32`; build `32` is the current repair package.
+  build `32`; build `32` is superseded by the planned build `33` account
+  deletion repair.
+- Supabase `account-deletion` Edge Function is deployed and active with
+  `verify_jwt = true`.
+- `account-deletion` unauthenticated hosted smoke returns `401`
+  `UNAUTHORIZED_NO_AUTH_HEADER`.
 - TestFlight Outside QA accepted build `1.0 (30)` behavior; build `1.0 (31)`
   is the App Store media/icon replacement package.
 - App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
   rejected on 2026-07-27 for subtitle wording and Sign In actionability. Build
-  `32` repaired those issues and is resubmitted with all included subscription
-  items `Waiting for Review`.
+  `32` repaired those issues but was rejected on 2026-07-29 for missing
+  in-app account deletion.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -399,6 +434,10 @@ curl -i -X POST https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/forum-post
   -H 'content-type: application/json' \
   --data '{}'
 
+curl -i -X POST https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/account-deletion \
+  -H 'content-type: application/json' \
+  --data '{}'
+
 curl -i -X POST https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/subscription-retention-jobs \
   -H 'content-type: application/json' \
   --data '{}'
@@ -409,6 +448,7 @@ Expected unauthenticated/bad-input shape:
 - App Store notifications missing signed payload: `400`.
 - StoreKit claim without auth: `401`.
 - Forum post actions without auth: `401`.
+- Account deletion without auth: `401`.
 - Retention job without scheduler secret: `401`.
 
 ### Gate 6 - Switch/confirm Apple production subscription authority
@@ -485,9 +525,22 @@ and makes Sign In the default signed-out account mode.
 - Manual release remains selected, so approval alone should not automatically
   make V1.0 public.
 
+2026-07-29 account-deletion repair update:
+
+- App Review rejected build `1.0 (32)` for Guideline `5.1.1 Legal: Privacy -
+  Data Collection and Storage`.
+- Required repair: users must be able to initiate account deletion from inside
+  iChart because the app supports account creation.
+- Implemented repair target: build `1.0 (33)` with Settings > Account > Delete
+  Account, Supabase `account-deletion` Edge Function, hosted privacy/support
+  copy updates, and App Review notes/recording evidence.
+- The local public-site source is updated, but live `https://useichart.com`
+  still needs the changed `privacy.html` and `support.html` deployed before
+  resubmission if App Review metadata continues to point to those URLs.
+
 ### Gate 8 - App Store public submission package
 
-Status: Waiting for Review after build 32 repair resubmission.
+Status: Build 32 rejected; build 33 account-deletion repair in progress.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:

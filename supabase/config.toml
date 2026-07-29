@@ -49,3 +49,8 @@ entrypoint = "./functions/subscription-retention-jobs/index.mjs"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/forum-post-actions/index.mjs"
+
+[functions.account-deletion]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/account-deletion/index.mjs"

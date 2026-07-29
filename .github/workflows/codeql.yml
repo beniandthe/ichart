@@ -24,7 +24,7 @@ jobs:
   analyze:
     name: Analyze Swift
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 75
 
     steps:
       - name: Check out repository
@@ -89,6 +89,7 @@ jobs:
           xcodebuild build \
             -scheme iChart \
             -destination "generic/platform=iOS Simulator" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Perform CodeQL analysis

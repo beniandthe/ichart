@@ -47,6 +47,9 @@ Required production settings:
 - StoreKit transaction claims are received by `storekit-subscription-claims`.
 - `supabase/config.toml` sets `verify_jwt = true` for the claim function because it is invoked by signed-in app users.
 - The claim function must reject missing user bearer auth, missing `signedTransactionInfo`, unverified StoreKit transactions, non-Pro products, missing original transaction identity, and missing/mismatched StoreKit `appAccountToken`.
+- Account deletion is received by `account-deletion`.
+- `supabase/config.toml` sets `verify_jwt = true` for the account deletion function because it is invoked only by signed-in app users.
+- The account deletion function must reject missing user bearer auth, missing confirmation, oversized bodies, malformed JSON, and failed server-owned cleanup before deleting the authenticated Supabase Auth user.
 - The server-only subscription writer reads Edge Function secrets and never runs in the iOS app.
 - Nested App Store transaction/renewal payloads must also be verified before any write path is enabled.
 - Verified webhook events still need StoreKit product and original transaction identity before they can touch subscription authority.
@@ -60,6 +63,7 @@ Required production settings:
 - Local mapping coverage can run without Deno:
   ```sh
   node --test \
+    supabase/functions/_shared/account_deletion.test.mjs \
     supabase/functions/_shared/app_store_subscription_authority.test.mjs \
     supabase/functions/_shared/app_store_verifier_config.test.mjs \
     supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
@@ -118,18 +122,19 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.
 10. Confirm the account gate shows `Set new password`, enter a new password, save, sign out, and sign back in with the new password.
 11. Confirm Settings does not expose user-editable account identity, phone setup, or payment fields.
-12. With Basic entitlement, confirm PDF/export remains available, Cloud Backup explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
-13. With active Pro entitlement, tap `Back Up Now` and confirm Cloud Backup returns to `Cloud backup active`.
-14. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for Cloud Backup to return to `Cloud backup active`.
-15. With active Pro entitlement, create a Rhythm Section chart, add visible chart content, and wait for Cloud Backup to return to `Cloud backup active`.
-16. Delete one disposable QA chart and confirm it does not return after relaunch.
-17. Sign out, relaunch, sign back in, and confirm the expected charts restore.
-18. Simulate canceled renewal before expiration and confirm the app still shows active Pro with a visible end date.
-19. Simulate Apple billing grace and confirm local chart access remains available while cloud backup and Forums are paused.
-20. Simulate expired Pro with more than 3 local charts and confirm the app locks chart opening/editing until user-selected local pruning reaches 3 charts.
-21. Confirm downgrade-pruned local charts do not create remote deletion tombstones.
-22. Run the private subscription retention job against disposable cloud rows and confirm it deletes remote `chart_documents` / `chart_snapshots` only after the retention deadline.
-23. Run `subscription-retention-jobs` with the job secret and disposable outbox rows; confirm configured email events are marked sent, failures are retained with `send_error`, and missing email-provider secrets leave events queued.
+12. Confirm Settings > Account exposes `Delete Account` for a signed-in user, shows a destructive confirmation, and signs out after deletion. Use only a disposable QA account for this pass.
+13. With Basic entitlement, confirm PDF/export remains available, Cloud Backup explains that cloud backup requires Pro, Forums are locked, and creating a 4th chart is blocked.
+14. With active Pro entitlement, tap `Back Up Now` and confirm Cloud Backup returns to `Cloud backup active`.
+15. With active Pro entitlement, create a Simple Chord Sheet, edit at least one chord, and wait for Cloud Backup to return to `Cloud backup active`.
+16. With active Pro entitlement, create a Rhythm Section chart, add visible chart content, and wait for Cloud Backup to return to `Cloud backup active`.
+17. Delete one disposable QA chart and confirm it does not return after relaunch.
+18. Sign out, relaunch, sign back in, and confirm the expected charts restore.
+19. Simulate canceled renewal before expiration and confirm the app still shows active Pro with a visible end date.
+20. Simulate Apple billing grace and confirm local chart access remains available while cloud backup and Forums are paused.
+21. Simulate expired Pro with more than 3 local charts and confirm the app locks chart opening/editing until user-selected local pruning reaches 3 charts.
+22. Confirm downgrade-pruned local charts do not create remote deletion tombstones.
+23. Run the private subscription retention job against disposable cloud rows and confirm it deletes remote `chart_documents` / `chart_snapshots` only after the retention deadline.
+24. Run `subscription-retention-jobs` with the job secret and disposable outbox rows; confirm configured email events are marked sent, failures are retained with `send_error`, and missing email-provider secrets leave events queued.
 
 ## Restore/Reinstall Gate
 

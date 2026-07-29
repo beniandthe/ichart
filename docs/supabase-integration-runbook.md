@@ -92,14 +92,15 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
 1. Link the local repo to the Supabase project: `supabase link --project-ref <project-ref>`
 2. Preview pending migrations: `supabase db diff --linked`
 3. Push migrations: `supabase db push`
-4. Deploy `app-store-server-notifications`, `storekit-subscription-claims`, and `subscription-retention-jobs` after verifier/app/job secrets are configured for the target environment.
+4. Deploy `app-store-server-notifications`, `storekit-subscription-claims`, `subscription-retention-jobs`, and `account-deletion` after verifier/app/job/admin secrets are configured for the target environment.
 5. Smoke-test the notification endpoint for missing payload `400`, invalid signed payload `401`, wrong method `405`, and oversized body `413`.
 6. Smoke-test the claim endpoint so unauthenticated requests return `401`.
-7. Confirm RLS is enabled on `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices`.
-8. Confirm Cloud Backup policies require active Pro for `chart_documents` and `chart_snapshots`.
-9. Confirm forum attribution and PDF finalization/provenance remain server-owned.
-10. Confirm the app redirect URL is present: `ichart://auth-callback`.
-11. Confirm no raw card data exists in database tables.
+7. Smoke-test the account deletion endpoint so unauthenticated requests return `401`, then confirm the full Settings > Account > Delete Account flow only with a disposable QA account.
+8. Confirm RLS is enabled on `profiles`, `chart_documents`, `chart_snapshots`, `subscriptions`, and `devices`.
+9. Confirm Cloud Backup policies require active Pro for `chart_documents` and `chart_snapshots`.
+10. Confirm forum attribution and PDF finalization/provenance remain server-owned.
+11. Confirm the app redirect URL is present: `ichart://auth-callback`.
+12. Confirm no raw card data exists in database tables.
 
 ### Subscription Retention Job
 
@@ -126,6 +127,7 @@ Use `docs/supabase-production-readiness-checklist.md` as the release-candidate c
 - Confirm downgrade-pruned local charts do not create remote deletion tombstones.
 - Confirm the private subscription retention job deletes remote cloud snapshots only after the paid-through date or Apple billing grace deadline.
 - Confirm the scheduled `subscription-retention-jobs` endpoint dispatches queued retention emails or leaves them queued if the provider is intentionally not configured.
+- Confirm a disposable signed-in account can initiate deletion in Settings > Account and ends signed out after server deletion accepts the request.
 - Make offline edits, regain network, tap Back Up Now, and confirm state recovers.
 
 ## Opt-In Integration Tests
