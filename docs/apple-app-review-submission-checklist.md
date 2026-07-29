@@ -34,10 +34,15 @@ Required before resubmission:
 - [x] Deploy `account-deletion` Edge Function with `verify_jwt = true`.
 - [x] Smoke unauthenticated function request returns `401`.
 - [x] Update local privacy/support page source to describe in-app deletion.
-- [ ] Deploy updated `privacy.html` and `support.html` to live
-  `https://useichart.com`.
-- [ ] Verify live `https://useichart.com/privacy` includes Settings > Account >
-  Delete Account.
+- [x] Add App Store subscription/billing warning to the in-app account deletion
+  copy.
+- [x] Add forum contributor blocking so Forums cover App Review Guideline 1.2
+  UGC safety expectations alongside reporting and support contact.
+- [x] Deploy updated `index.html`, `privacy.html`, and `support.html` to live
+  `https://useichart.com` via IONOS on 2026-07-29.
+- [x] Verify live `https://useichart.com/privacy` includes Settings > Account >
+  Delete Account; cache-busted live/local SHA-256 evidence is recorded in
+  `docs/ichart-v1-final-release-gate.md`.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.
 - [ ] Upload/attach build `1.0 (33)`.
@@ -116,6 +121,8 @@ Required before resubmission:
 - [ ] User Policy and Legal Policy are accessible in Help.
 - [ ] Forum/upload flow states that users may upload only content they have the
   right to share.
+- [ ] Forum detail surfaces include report and block controls for non-owned
+  contributors.
 - [ ] Forum PDF validation/provenance remains server-owned.
 - [ ] User attribution is server-owned from immutable account names.
 - [ ] User can withdraw pending forum submissions and remove published forum

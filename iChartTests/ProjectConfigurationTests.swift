@@ -170,10 +170,47 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Delete Account"))
         XCTAssertTrue(libraryText.contains("delete-account-button"))
         XCTAssertTrue(libraryText.contains("isShowingDeleteAccountConfirmation"))
+        XCTAssertTrue(libraryText.contains("App Store subscriptions and billing are managed by Apple"))
         XCTAssertTrue(libraryText.contains("title: \"Email\""))
         XCTAssertTrue(libraryText.contains("title: \"Name\""))
         XCTAssertTrue(libraryText.contains("Resend Email"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
+    }
+
+    func testForumUGCSafetyControlsArePresent() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Forum/IChartForumStore.swift")
+        )
+        let migrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260729175642_forum_user_blocks.sql")
+        )
+
+        XCTAssertTrue(libraryText.contains("Label(\"Safety\", systemImage: \"flag\")"))
+        XCTAssertTrue(libraryText.contains("Label(\"Block Contributor\", systemImage: \"person.crop.circle.badge.xmark\")"))
+        XCTAssertTrue(libraryText.contains("Label(\"Block Commenter\", systemImage: \"person.crop.circle.badge.xmark\")"))
+        XCTAssertTrue(libraryText.contains("\"Block Contributor?\""))
+        XCTAssertTrue(libraryText.contains("ForumBlockConfirmationRequest"))
+        XCTAssertTrue(libraryText.contains("block contributors they no longer want to see"))
+        XCTAssertTrue(forumStoreText.contains("func blockUser(ownerID: UUID) async throws"))
+        XCTAssertTrue(forumStoreText.contains(".from(\"forum_user_blocks\")"))
+        XCTAssertTrue(forumStoreText.contains("ForumUserBlockInsert(ownerID: ownerID, blockedOwnerID: blockedOwnerID)"))
+        XCTAssertTrue(migrationText.contains("create table if not exists public.forum_user_blocks"))
+        XCTAssertTrue(migrationText.contains("alter table public.forum_user_blocks enable row level security"))
+        XCTAssertTrue(migrationText.contains("owner_id <> blocked_owner_id"))
+        XCTAssertTrue(migrationText.contains("forum_chart_posts_select_active_pro_visible"))
+        XCTAssertTrue(migrationText.contains("forum_comments_select_active_pro_visible"))
+        XCTAssertTrue(migrationText.contains("or (status = 'pending' and owner_id = (select auth.uid()))"))
+        XCTAssertTrue(migrationText.contains("blocked_owner_id = forum_chart_posts.owner_id"))
+        XCTAssertTrue(migrationText.contains("blocked_owner_id = forum_comments.owner_id"))
     }
 
     func testRhythmDiagnosticsAreOptInAndLocalOnly() throws {

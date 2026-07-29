@@ -702,7 +702,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Members can browse, download, vote, comment, and report charts that need attention."
+                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see."
             ]
         ),
         IChartHelpArticleSection(
@@ -781,7 +781,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Treat the community library like a shared music stand.",
             bullets: [
                 "Use comments for helpful corrections, version notes, and respectful discussion.",
-                "Report charts or comments that look inaccurate, miscredited, abusive, or unsafe.",
+                "Use Safety to report charts or comments that look inaccurate, miscredited, abusive, or unsafe. You can also block a contributor to hide their forum posts and comments from your account.",
                 "Voting is for chart quality, not personal pile-ons. Repeated bad-faith behavior may limit forum access."
             ]
         ),
@@ -1247,6 +1247,11 @@ struct LibraryView: View {
                     onReportComment: { comment, reason in
                         Task {
                             await forumStore.reportComment(comment, reason: reason, detailText: nil, detail: detail)
+                        }
+                    },
+                    onBlockUser: { ownerID, displayName in
+                        Task {
+                            await forumStore.blockUser(ownerID: ownerID, displayName: displayName)
                         }
                     },
                     onDownloadPDF: {
@@ -4079,12 +4084,14 @@ private struct IChartForumPostDetailView: View {
     let onComment: (String) -> Void
     let onReportPost: (ForumReportReason) -> Void
     let onReportComment: (ForumComment, ForumReportReason) -> Void
+    let onBlockUser: (UUID, String) -> Void
     let onDownloadPDF: () -> Void
     let onClearDownloadedPDF: () -> Void
     let onWithdrawPost: () -> Void
     let onRemovePost: () -> Void
 
     @State private var commentText = ""
+    @State private var blockConfirmationRequest: ForumBlockConfirmationRequest?
     @FocusState private var isCommentFocused: Bool
 
     var body: some View {
@@ -4123,6 +4130,21 @@ private struct IChartForumPostDetailView: View {
             if let downloadedPDF {
                 PDFExportPreviewView(exportedPDF: downloadedPDF)
             }
+        }
+        .alert(
+            "Block Contributor?",
+            isPresented: blockConfirmationPresented,
+            presenting: blockConfirmationRequest
+        ) { request in
+            Button("Block", role: .destructive) {
+                onBlockUser(request.ownerID, request.displayName)
+                blockConfirmationRequest = nil
+            }
+            Button("Cancel", role: .cancel) {
+                blockConfirmationRequest = nil
+            }
+        } message: { request in
+            Text(request.confirmationMessage)
         }
     }
 
@@ -4220,8 +4242,17 @@ private struct IChartForumPostDetailView: View {
                         onReportPost(reason)
                     }
                 }
+
+                if currentUserID != detail.post.ownerID {
+                    Divider()
+                    Button(role: .destructive) {
+                        requestBlockUser(ownerID: detail.post.ownerID, displayName: detail.post.creatorDisplayName)
+                    } label: {
+                        Label("Block Contributor", systemImage: "person.crop.circle.badge.xmark")
+                    }
+                }
             } label: {
-                Label("Report", systemImage: "flag")
+                Label("Safety", systemImage: "flag")
             }
             .buttonStyle(.bordered)
         }
@@ -4300,9 +4331,13 @@ private struct IChartForumPostDetailView: View {
                 ForEach(detail.comments) { comment in
                     IChartForumCommentRow(
                         comment: comment,
+                        currentUserID: currentUserID,
                         theme: theme,
                         onReport: { reason in
                             onReportComment(comment, reason)
+                        },
+                        onBlockUser: {
+                            requestBlockUser(ownerID: comment.ownerID, displayName: comment.creatorDisplayName ?? "")
                         }
                     )
                 }
@@ -4334,12 +4369,45 @@ private struct IChartForumPostDetailView: View {
             return "This chart is no longer available in Forums."
         }
     }
+
+    private var blockConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { blockConfirmationRequest != nil },
+            set: { isPresented in
+                if !isPresented {
+                    blockConfirmationRequest = nil
+                }
+            }
+        )
+    }
+
+    private func requestBlockUser(ownerID: UUID, displayName: String) {
+        blockConfirmationRequest = ForumBlockConfirmationRequest(ownerID: ownerID, displayName: displayName)
+    }
+}
+
+private struct ForumBlockConfirmationRequest: Identifiable {
+    let ownerID: UUID
+    let displayName: String
+
+    var id: UUID { ownerID }
+
+    var confirmationMessage: String {
+        let contributorName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if contributorName.isEmpty {
+            return "Hide this contributor's forum posts and comments from this account."
+        }
+
+        return "Hide \(contributorName)'s forum posts and comments from this account."
+    }
 }
 
 private struct IChartForumCommentRow: View {
     let comment: ForumComment
+    let currentUserID: UUID?
     let theme: IChartHomeTheme
     let onReport: (ForumReportReason) -> Void
+    let onBlockUser: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -4371,11 +4439,18 @@ private struct IChartForumCommentRow: View {
                         onReport(reason)
                     }
                 }
+
+                if currentUserID != comment.ownerID {
+                    Divider()
+                    Button(role: .destructive, action: onBlockUser) {
+                        Label("Block Commenter", systemImage: "person.crop.circle.badge.xmark")
+                    }
+                }
             } label: {
                 Image(systemName: "flag")
                     .frame(width: 30, height: 30)
             }
-            .accessibilityLabel("Report comment")
+            .accessibilityLabel("Comment safety options")
         }
         .padding(11)
         .background(theme.emptyStateBackground)
@@ -5206,7 +5281,7 @@ private struct IChartAccountSettings: View {
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes your iChart account, profile, cloud backup, subscription authority, and forum activity from iChart servers. This cannot be undone.")
+            Text("This deletes your iChart account, profile, cloud backup, subscription authority, and forum activity from iChart servers. App Store subscriptions and billing are managed by Apple; cancel or manage them from your Apple account before continuing. This cannot be undone.")
         }
     }
 
@@ -5562,7 +5637,7 @@ private struct IChartAccountSettings: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            Text("Permanently removes your iChart account and server data. Local chart files on this iPad remain on the device until you delete them or remove the app.")
+            Text("Permanently removes your iChart account and server data. App Store subscriptions and billing are managed by Apple. Local chart files on this iPad remain on the device until you delete them or remove the app.")
                 .font(.caption)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)

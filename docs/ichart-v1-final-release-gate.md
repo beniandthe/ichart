@@ -51,6 +51,10 @@ Build 33 acceptance before resubmission:
   `verify_jwt = true`.
 - App Review Notes explain the deletion path:
   Settings > Account > Delete Account.
+- The in-app deletion copy tells users that App Store subscriptions and billing
+  are managed by Apple.
+- Forums include user-facing report and contributor-block controls, published
+  support contact, and server-backed block records for signed-in users.
 - A physical-device recording is attached in App Review Notes showing sign-in
   or account creation, navigation to the deletion option, and the deletion
   flow through confirmation.
@@ -86,6 +90,9 @@ then rejected on 2026-07-29 for missing in-app account deletion.
 Current verified source baseline:
 
 - Build 33 archive/upload app-source commit: pending.
+- Build 33 App Review hardening PR: `#32`, branch
+  `codex/app-review-final-hardening`; verify the final PR head with
+  `git rev-parse --short HEAD` before packaging.
 - Build 32 archive/upload app-source commit: `68fd288`.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
@@ -94,16 +101,17 @@ Current verified source baseline:
 - Later release-evidence doc updates do not alter the app target.
 - GitHub CI passed for `68fd288` on 2026-07-27; CodeQL passed for the repair
   commit during the build 32 repair checks.
-- There are no open PRs.
-- Remote Supabase migrations are aligned through `20260714172551`.
+- PR `#32` is open as the build 33 App Review hardening PR until CI,
+  physical-device evidence, and the final package are complete.
+- Remote Supabase migrations are aligned through `20260729175642`.
 - `scripts/run_supabase_production_readiness.sh` passed.
 - Supabase shared Node authority/function tests passed before account-deletion
   repair: `64/64`.
-- Supabase shared Node authority/function tests passed after account-deletion
-  repair: `75/75`.
-- SwiftPM passed locally on the current candidate: `654` tests,
+- Supabase shared Node authority/function tests passed after forum block and
+  account-deletion hardening: `79/79`.
+- SwiftPM passed locally on the current candidate: `655` tests,
   `38` skipped, `0` failures.
-- Focused Swift tests passed: `94` tests, `2` skipped, `0` failures.
+- Focused `ProjectConfigurationTests` passed: `29` tests, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
   build `32`; build `32` is superseded by the planned build `33` account
@@ -112,6 +120,9 @@ Current verified source baseline:
   `verify_jwt = true`.
 - `account-deletion` unauthenticated hosted smoke returns `401`
   `UNAUTHORIZED_NO_AUTH_HEADER`.
+- Forum contributor blocks use `public.forum_user_blocks` with RLS enabled, so
+  blocked contributors' forum posts and comments are hidden from the blocking
+  account.
 - TestFlight Outside QA accepted build `1.0 (30)` behavior; build `1.0 (31)`
   is the App Store media/icon replacement package.
 - App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
@@ -126,14 +137,24 @@ Current verified source baseline:
   PEM, or mobile provisioning files were found.
 - Public site source has been moved back to prelaunch-safe App Store wording
   until a real public App Store or pre-order URL is verified and deployed.
+- Live `https://useichart.com`, `https://useichart.com/privacy`, and
+  `https://useichart.com/support` were redeployed from
+  `public-site/useichart` and cache-bust verified on 2026-07-29.
+  Cache-busted SHA-256 matches at verification time:
+  `index.html=3de9ea14432654e25d4da5ed890f83bc99338a573c9aa02874b4a418ffa8d4ef`,
+  `privacy.html=aa047bbf05ac8cb349943e898677b27f26ca2ccd7f4ce1f03340a9a70db107ad`,
+  `support.html=636b9b1fa3c6cc0eedc77280c23e3b012fd3d93238878225263e2b8e8baa05bf`.
 
 Current remaining release caveats:
 
-1. Supabase Auth advisor still reports insufficient MFA options. This is tracked
+1. GitHub CodeQL must be green on PR `#32` before merge/package.
+2. Physical-device App Review evidence for account deletion still needs to be
+   attached in App Store Connect review notes.
+3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
-2. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
+4. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
    being available.
-3. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
+5. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
    installed during the latest sweep.
 
 ## 2. Fixed Production Facts
@@ -534,9 +555,9 @@ and makes Sign In the default signed-out account mode.
 - Implemented repair target: build `1.0 (33)` with Settings > Account > Delete
   Account, Supabase `account-deletion` Edge Function, hosted privacy/support
   copy updates, and App Review notes/recording evidence.
-- The local public-site source is updated, but live `https://useichart.com`
-  still needs the changed `privacy.html` and `support.html` deployed before
-  resubmission if App Review metadata continues to point to those URLs.
+- Live `https://useichart.com`, `https://useichart.com/privacy`, and
+  `https://useichart.com/support` now serve the updated App Review
+  account-deletion, support, billing, and UGC-safety copy.
 
 ### Gate 8 - App Store public submission package
 
