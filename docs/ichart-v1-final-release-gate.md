@@ -24,6 +24,7 @@ Supporting docs:
 - `docs/ichart-storekit-subscription-runbook.md`
 - `docs/ichart-plan-policy-source-of-truth.md`
 - `docs/app-store-testflight-metadata-draft.md`
+- `docs/apple-app-review-submission-checklist.md`
 
 ## 1. Current Release Call
 
