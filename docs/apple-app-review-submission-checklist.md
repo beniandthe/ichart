@@ -38,9 +38,9 @@ Required before resubmission:
   copy.
 - [x] Add forum contributor blocking so Forums cover App Review Guideline 1.2
   UGC safety expectations alongside reporting and support contact.
-- [ ] Deploy updated `index.html`, `privacy.html`, and `support.html` to live
+- [x] Deploy updated `index.html`, `privacy.html`, and `support.html` to live
   `https://useichart.com`.
-- [ ] Verify live `https://useichart.com/privacy` includes Settings > Account >
+- [x] Verify live `https://useichart.com/privacy` includes Settings > Account >
   Delete Account.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.

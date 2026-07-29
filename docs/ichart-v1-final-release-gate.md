@@ -91,7 +91,8 @@ Current verified source baseline:
 
 - Build 33 archive/upload app-source commit: pending.
 - Build 33 App Review hardening PR: `#32`, branch
-  `codex/app-review-final-hardening`, commit `83e13e9`.
+  `codex/app-review-final-hardening`; verify the final PR head with
+  `git rev-parse --short HEAD` before packaging.
 - Build 32 archive/upload app-source commit: `68fd288`.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
@@ -100,8 +101,8 @@ Current verified source baseline:
 - Later release-evidence doc updates do not alter the app target.
 - GitHub CI passed for `68fd288` on 2026-07-27; CodeQL passed for the repair
   commit during the build 32 repair checks.
-- PR `#32` is open as the build 33 App Review hardening PR until CI, live site
-  deployment, physical-device evidence, and the final package are complete.
+- PR `#32` is open as the build 33 App Review hardening PR until CI,
+  physical-device evidence, and the final package are complete.
 - Remote Supabase migrations are aligned through `20260729175642`.
 - `scripts/run_supabase_production_readiness.sh` passed.
 - Supabase shared Node authority/function tests passed before account-deletion
@@ -136,20 +137,20 @@ Current verified source baseline:
   PEM, or mobile provisioning files were found.
 - Public site source has been moved back to prelaunch-safe App Store wording
   until a real public App Store or pre-order URL is verified and deployed.
+- Live `https://useichart.com`, `https://useichart.com/privacy`, and
+  `https://useichart.com/support` were redeployed from
+  `public-site/useichart` and cache-bust verified on 2026-07-29.
 
 Current remaining release caveats:
 
-1. Live `useichart.com` is not yet aligned with local
-   `public-site/useichart`; deploy `index.html`, `privacy.html`, and
-   `support.html`, then cache-bust verify before resubmitting.
-2. GitHub CodeQL must be green on PR `#32` before merge/package.
-3. Physical-device App Review evidence for account deletion still needs to be
+1. GitHub CodeQL must be green on PR `#32` before merge/package.
+2. Physical-device App Review evidence for account deletion still needs to be
    attached in App Store Connect review notes.
-4. Supabase Auth advisor still reports insufficient MFA options. This is tracked
+3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
-5. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
+4. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
    being available.
-6. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
+5. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
    installed during the latest sweep.
 
 ## 2. Fixed Production Facts
@@ -550,9 +551,9 @@ and makes Sign In the default signed-out account mode.
 - Implemented repair target: build `1.0 (33)` with Settings > Account > Delete
   Account, Supabase `account-deletion` Edge Function, hosted privacy/support
   copy updates, and App Review notes/recording evidence.
-- The local public-site source is updated, but live `https://useichart.com`
-  still needs the changed `privacy.html` and `support.html` deployed before
-  resubmission if App Review metadata continues to point to those URLs.
+- Live `https://useichart.com`, `https://useichart.com/privacy`, and
+  `https://useichart.com/support` now serve the updated App Review
+  account-deletion, support, billing, and UGC-safety copy.
 
 ### Gate 8 - App Store public submission package
 
