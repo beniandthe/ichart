@@ -18,6 +18,7 @@ export function createAccountDeletionDependencies(env = globalThis.Deno?.env, op
   return {
     authenticatedUserID: (request) => authenticatedUserIDFromBearer(request, configuration, fetcher),
     listForumPDFStoragePaths: (ownerID) => listForumPDFStoragePaths(configuration, ownerID, fetcher),
+    prepareAccountDeletion: (ownerID) => prepareAccountDeletion(configuration, ownerID, fetcher),
     deleteForumPDFStoragePaths: (paths) => deleteForumPDFStoragePaths(configuration, paths, fetcher),
     deleteAuthUser: (ownerID) => deleteAuthUser(configuration, ownerID, fetcher),
   };
@@ -76,6 +77,10 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
       storagePaths = await dependencies.listForumPDFStoragePaths(ownerID);
     }
 
+    if (typeof dependencies.prepareAccountDeletion === "function") {
+      await dependencies.prepareAccountDeletion(ownerID);
+    }
+
     if (storagePaths.length > 0 && typeof dependencies.deleteForumPDFStoragePaths === "function") {
       await dependencies.deleteForumPDFStoragePaths(storagePaths);
     }
@@ -104,6 +109,19 @@ async function listForumPDFStoragePaths(configuration, ownerID, fetcher) {
   }
 
   return Array.from(paths).filter((path) => path.startsWith(`${normalizedOwnerID}/`));
+}
+
+async function prepareAccountDeletion(configuration, ownerID, fetcher) {
+  const response = await fetcher(
+    supabaseURL(configuration, "/rest/v1/rpc/prepare_account_deletion"),
+    {
+      method: "POST",
+      headers: supabaseJSONHeaders(configuration),
+      body: JSON.stringify({ target_owner_id: normalizedString(ownerID).toLowerCase() }),
+    }
+  );
+
+  await parseSupabaseJSONResponse(response);
 }
 
 async function forumPostPDFPathsForOwner(configuration, ownerID, fetcher) {
@@ -180,16 +198,67 @@ async function deleteAuthUser(configuration, ownerID, fetcher) {
 }
 
 async function boundedJSON(request, maxBytes) {
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > maxBytes) {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     return { ok: false, tooLarge: true };
   }
 
   try {
+    const readResult = await readBoundedText(request, maxBytes);
+    if (!readResult.ok) {
+      return { ok: false, tooLarge: true };
+    }
+
+    const text = readResult.text;
     return { ok: true, value: text.trim().length === 0 ? {} : JSON.parse(text) };
   } catch {
     return { ok: false, tooLarge: false };
   }
+}
+
+async function readBoundedText(request, maxBytes) {
+  if (request.body === null) {
+    return { ok: true, text: "" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (value === undefined) {
+      continue;
+    }
+
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+    totalBytes += chunk.byteLength;
+    if (totalBytes > maxBytes) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The response is already decided; stream cancellation is best effort.
+      }
+      return { ok: false, text: "" };
+    }
+
+    chunks.push(chunk);
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return {
+    ok: true,
+    text: new TextDecoder().decode(body),
+  };
 }
 
 function supabaseURL(configuration, path) {

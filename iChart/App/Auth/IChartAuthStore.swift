@@ -751,6 +751,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             )
         }
 
+        try? await authClient.auth.signOut(scope: .local)
         try? persistentSessionStore.clear()
         await sessionStore.clear()
     }

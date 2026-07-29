@@ -1189,6 +1189,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authStoreText.contains("func deleteAccount() async"))
         XCTAssertTrue(authStoreText.contains("\"account-deletion\""))
         XCTAssertTrue(authStoreText.contains("DELETE_MY_ICHART_ACCOUNT"))
+        XCTAssertTrue(authStoreText.contains("signOut(scope: .local)"))
         XCTAssertTrue(clientFactoryText.contains("SupabaseClient("))
         XCTAssertTrue(clientFactoryText.contains("IChartSupabaseAuthLocalStorage"))
         XCTAssertTrue(clientFactoryText.contains("IChartSupabaseSessionStore"))
@@ -1827,6 +1828,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("scripts/run_supabase_production_readiness.sh")
         )
+        let accountDeletionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260729145831_prepare_account_deletion.sql")
+        )
 
         XCTAssertTrue(gitignoreText.contains("!.env.example"))
         XCTAssertTrue(envExampleText.contains("SUPABASE_URL"))
@@ -1864,6 +1869,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(supabaseConfigText.contains("otp_length = 6"))
         XCTAssertTrue(supabaseConfigText.contains("[functions.account-deletion]"))
         XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/account-deletion/index.mjs\""))
+        XCTAssertTrue(accountDeletionMigrationText.contains("create or replace function public.prepare_account_deletion"))
+        XCTAssertTrue(accountDeletionMigrationText.contains("grant execute on function public.prepare_account_deletion(uuid) to service_role"))
         XCTAssertTrue(runbookText.contains("account-deletion"))
         XCTAssertTrue(productionReadinessScriptText.contains("account_deletion.test.mjs"))
         XCTAssertTrue(rlsTestText.contains("inactive Basic user cannot insert own cloud chart document"))
