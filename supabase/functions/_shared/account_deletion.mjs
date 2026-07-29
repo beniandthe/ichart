@@ -71,15 +71,20 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
     });
   }
 
+  if (typeof dependencies.prepareAccountDeletion !== "function") {
+    return jsonResponse(501, {
+      accepted: false,
+      error: "Account deletion database preparation is not configured.",
+    });
+  }
+
   try {
     let storagePaths = [];
     if (typeof dependencies.listForumPDFStoragePaths === "function") {
       storagePaths = await dependencies.listForumPDFStoragePaths(ownerID);
     }
 
-    if (typeof dependencies.prepareAccountDeletion === "function") {
-      await dependencies.prepareAccountDeletion(ownerID);
-    }
+    await dependencies.prepareAccountDeletion(ownerID);
 
     if (storagePaths.length > 0 && typeof dependencies.deleteForumPDFStoragePaths === "function") {
       await dependencies.deleteForumPDFStoragePaths(storagePaths);

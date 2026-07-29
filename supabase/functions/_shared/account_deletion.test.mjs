@@ -156,6 +156,20 @@ test("account deletion requires a signed-in bearer identity", async () => {
   assert.equal(body.error, "A signed-in iChart account is required.");
 });
 
+test("account deletion requires configured database preparation", async () => {
+  const response = await handleAccountDeletionRequest(
+    deletionRequest({ confirmation }),
+    {
+      authenticatedUserID: async () => ownerID,
+      deleteAuthUser: async () => {},
+    }
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 501);
+  assert.equal(body.error, "Account deletion database preparation is not configured.");
+});
+
 test("account deletion prepares forum rows before deleting storage and auth user", async () => {
   const calls = [];
   const response = await handleAccountDeletionRequest(
