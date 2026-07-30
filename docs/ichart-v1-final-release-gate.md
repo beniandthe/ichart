@@ -5,10 +5,11 @@ Created: 2026-07-15
 Last refreshed: 2026-07-30
 Current candidate baseline: iChart V1.0 App Review account-deletion repair build `1.0 (35)`
 Current App Review state: Build 32 rejected for Guideline 5.1.1 account deletion
-Current public-release blocker: Build 35 account-deletion repair package, App Review notes/recording, hosted verification-page deployment, and Apple approval
+Current public-release blocker: Build 35 account-deletion repair package, App Review notes/recording, and Apple approval
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
-logo app icon, public-site source cleanup, and email verification landing-page source
+logo app icon, public-site source cleanup, and email verification landing-page
+source plus live deployment
 
 This document is the final release gate and ordered plan for iChart V1.0.
 If another planning document conflicts with this file on launch ordering, gate
@@ -64,9 +65,12 @@ Build 35 acceptance before resubmission:
 - Account-entry Pencil/Scribble input is disabled so segmented controls,
   confirmation buttons, and tab switches remain tappable while recording the
   deletion-flow evidence; text entry remains keyboard-only.
-- `https://useichart.com/verify` is deployed as a real branded email
-  verification/password recovery browser fallback before it is referenced by
-  production Auth email settings, review notes, or support flows.
+- `https://useichart.com/verify` is deployed and cache-bust verified as a real
+  branded email verification/password recovery browser fallback before it is
+  referenced by production Auth email settings, review notes, or support flows.
+  Use the canonical slashless route; IONOS currently serves `/verify`,
+  `/support`, and `/privacy` through slashless extension negotiation while the
+  matching trailing-slash paths return `404`.
 
 Build 32 superseded build 31 only to address App Review feedback: App Store
 metadata now avoids the inappropriate subtitle use of Apple product terms, and
@@ -130,6 +134,10 @@ Current verified source baseline:
   `verify_jwt = true`.
 - `account-deletion` unauthenticated hosted smoke returns `401`
   `UNAUTHORIZED_NO_AUTH_HEADER`.
+- `https://useichart.com/verify?cachebust=20260730-live-verify` returned
+  `200` on 2026-07-30 and served the branded iChart verification fallback with
+  the `Open iChart` handoff. Home, support, privacy, and `styles.css` were also
+  cache-bust checked after the IONOS upload.
 - Forum contributor blocks use `public.forum_user_blocks` with RLS enabled, so
   blocked contributors' forum posts and comments are hidden from the blocking
   account.

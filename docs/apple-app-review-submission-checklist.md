@@ -49,8 +49,10 @@ Required before resubmission:
 - [x] Replace the email verification placeholder source with a branded
   `https://useichart.com/verify` browser fallback that never displays token
   values and can pass callback parameters into iChart.
-- [ ] Deploy and cache-bust verify `https://useichart.com/verify` after this
+- [x] Deploy and cache-bust verify `https://useichart.com/verify` after this
   branch merges.
+  - 2026-07-30: live route returned `200`, preserved the `Open iChart`
+    handoff, and served the refreshed public-site support/privacy/home links.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.
 - [ ] Upload/attach build `1.0 (35)`.

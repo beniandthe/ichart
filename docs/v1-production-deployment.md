@@ -263,8 +263,10 @@ Forum publishing should keep attribution and PDF provenance server-owned: creato
 
 ### Operations
 - [ ] support email monitored
-- [ ] `https://useichart.com/verify` deployed and cache-busted after public-site
+- [x] `https://useichart.com/verify` deployed and cache-busted after public-site
   source changes
+  - 2026-07-30: live `https://useichart.com/verify?cachebust=20260730-live-verify`
+    returned `200` and served the branded iChart verification fallback.
 - [ ] release notes template prepared
 - [ ] triage workflow for bugs/feedback prepared
 
