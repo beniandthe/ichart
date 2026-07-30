@@ -1,6 +1,6 @@
 # iChart Apple App Review Submission Checklist
 
-Status: V1.0 App Review checklist for build `1.0 (34)`
+Status: V1.0 App Review checklist for build `1.0 (35)`
 Last updated: 2026-07-30
 
 Use this checklist before every App Review submission or resubmission. It is
@@ -22,9 +22,10 @@ Build `1.0 (32)` was rejected on 2026-07-29 for Guideline `5.1.1 Legal:
 Privacy - Data Collection and Storage` because iChart supports account creation
 but did not include an in-app account deletion option.
 
-Build `1.0 (34)` is the repair target. It includes the build `1.0 (33)`
-account-deletion repair plus the account-entry Scribble scope fix needed for
-the physical-device deletion-flow recording.
+Build `1.0 (35)` is the repair target. It includes the build `1.0 (33)`
+account-deletion repair, the build `1.0 (34)` account-entry Scribble scope
+repair, and the follow-up account-field UI rollback/narrow ink suppression
+needed for the physical-device deletion-flow recording.
 
 Required before resubmission:
 
@@ -47,7 +48,7 @@ Required before resubmission:
   `docs/ichart-v1-final-release-gate.md`.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.
-- [ ] Upload/attach build `1.0 (34)`.
+- [ ] Upload/attach build `1.0 (35)`.
 - [ ] Resubmit app version plus subscription group/monthly/annual items.
 
 ## Binary And App Completeness
@@ -155,8 +156,8 @@ Required before resubmission:
 ## Resubmission Packet
 
 - [ ] PR merged to `main`.
-- [ ] Build `1.0 (34)` archived from `main`, not only the repair branch.
-- [ ] Build `1.0 (34)` uploaded and processed in App Store Connect.
+- [ ] Build `1.0 (35)` archived from `main`, not only the repair branch.
+- [ ] Build `1.0 (35)` uploaded and processed in App Store Connect.
 - [ ] App Review Notes include:
   - Review account email and password, entered only in App Store Connect.
   - Settings > Account > Delete Account deletion path.
