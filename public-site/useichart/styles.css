@@ -629,6 +629,13 @@ p {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.auth-actions .primary-action.is-disabled {
+  border-color: var(--line);
+  background: var(--line);
+  color: var(--muted);
+  pointer-events: none;
+}
+
 .auth-steps {
   margin: 0;
   padding-left: 22px;

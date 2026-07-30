@@ -29,7 +29,7 @@
         <a class="secondary-action" href="/support">Get Help</a>
       </div>
 
-      <ol class="auth-steps">
+      <ol class="auth-steps" data-auth-steps>
         <li>If iChart opens automatically, return to the app and sign in with the same email address.</li>
         <li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li>
         <li>If the link is expired or already used, request a fresh verification email from iChart.</li>
@@ -54,29 +54,86 @@
         return queryParams.get(name) || hashParams.get(name);
       }
 
+      function callbackTarget() {
+        var redirectTo = valueFor("redirect_to") || valueFor("redirectTo");
+        if (!redirectTo) {
+          return "ichart://auth-callback";
+        }
+
+        try {
+          var decoded = decodeURIComponent(redirectTo);
+          if (decoded.indexOf("ichart://auth-callback") === 0) {
+            return decoded;
+          }
+        } catch (_error) {
+          return "ichart://auth-callback";
+        }
+
+        return "ichart://auth-callback";
+      }
+
+      function callbackHasParam(callbackURL, name) {
+        try {
+          return new URL(callbackURL).searchParams.has(name);
+        } catch (_error) {
+          return callbackURL.indexOf(encodeURIComponent(name) + "=") !== -1 || callbackURL.indexOf(name + "=") !== -1;
+        }
+      }
+
+      function appendCallbackParam(callbackURL, name) {
+        var value = valueFor(name);
+        if (!value || callbackHasParam(callbackURL, name)) {
+          return callbackURL;
+        }
+
+        var fragmentIndex = callbackURL.indexOf("#");
+        var fragment = "";
+        if (fragmentIndex !== -1) {
+          fragment = callbackURL.slice(fragmentIndex);
+          callbackURL = callbackURL.slice(0, fragmentIndex);
+        }
+
+        var separator = callbackURL.indexOf("?") === -1 ? "?" : "&";
+        return callbackURL + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value) + fragment;
+      }
+
       var type = valueFor("type");
       var error = valueFor("error");
       var title = document.querySelector("[data-auth-title]");
       var status = document.querySelector("[data-auth-status]");
+      var steps = document.querySelector("[data-auth-steps]");
       var openLink = document.getElementById("open-app-link");
-      var callbackURL = "ichart://auth-callback" + query + hash;
+      var callbackURL = callbackTarget();
+
+      ["flow_nonce", "token_hash", "token", "type", "email"].forEach(function (name) {
+        callbackURL = appendCallbackParam(callbackURL, name);
+      });
 
       openLink.addEventListener("click", function (event) {
         event.preventDefault();
+        if (document.body.classList.contains("auth-error")) {
+          return;
+        }
         window.location.href = callbackURL;
       });
 
       if (type === "recovery") {
         title.textContent = "Password Reset";
         status.textContent = "Return to iChart to finish resetting your password.";
+        steps.innerHTML = "<li>If iChart opens automatically, enter your new password in the app.</li><li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li><li>If the link is expired or already used, request a fresh password reset email from iChart.</li>";
       } else if (type === "email_change") {
         title.textContent = "Email Change";
         status.textContent = "Return to iChart to finish confirming your email change.";
+        steps.innerHTML = "<li>If iChart opens automatically, return to the app to finish the email change.</li><li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li><li>If the link is expired or already used, request a fresh email-change confirmation from iChart.</li>";
       }
 
       if (error) {
         document.body.classList.add("auth-error");
         status.textContent = "This link could not be completed. It may be expired, already used, or opened from the wrong device.";
+        steps.innerHTML = "<li>Return to iChart and request a fresh verification or password recovery email.</li><li>If the problem continues, contact support from the email tied to your iChart account.</li>";
+        openLink.classList.add("is-disabled");
+        openLink.setAttribute("aria-disabled", "true");
+        openLink.textContent = "Link Expired";
         return;
       }
 

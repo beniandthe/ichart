@@ -31,7 +31,7 @@ Required production settings:
 - `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.
 - `https://useichart.com/verify` is hosted as the browser fallback for email verification and password recovery links. It must preserve URL query/fragment parameters when handing users back to `ichart://auth-callback`.
-- If Supabase Auth emails are changed to land on `https://useichart.com/verify`, add that exact URL to the Supabase redirect allow list and make the email template use the intended redirect target rather than hard-coding a stale callback.
+- If Supabase Auth emails are changed to land on `https://useichart.com/verify`, add that exact URL to the Supabase redirect allow list and make the email template preserve the token/hash, callback `type`, and pending-flow `flow_nonce` either as top-level URL parameters or through a trusted `redirect_to=ichart://auth-callback?...` value.
 - The app stores a pending auth-flow record before sending signup/resend/password-reset email and rejects callbacks without the matching flow type and `flow_nonce`.
 - Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
 - After custom SMTP unlocks hosted template editing, Reset password template uses a direct app recovery link, not the default prefetch-prone hosted verify link:
