@@ -5169,6 +5169,76 @@ private struct IChartKeyboardFocusButton: View {
     }
 }
 
+private struct IChartAccountScribbleSuppressionBridge: UIViewRepresentable {
+    func makeUIView(context: Context) -> IChartAccountScribbleSuppressionView {
+        let view = IChartAccountScribbleSuppressionView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: IChartAccountScribbleSuppressionView, context: Context) {
+        view.coordinator = context.coordinator
+        view.suppressScribbleWhenReady()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, UIScribbleInteractionDelegate {
+        private let fields = NSHashTable<UITextField>.weakObjects()
+
+        func suppressScribble(in root: UIView) {
+            for textField in root.accountTextFields {
+                guard !fields.contains(textField) else {
+                    continue
+                }
+
+                textField.addInteraction(UIScribbleInteraction(delegate: self))
+                fields.add(textField)
+            }
+        }
+
+        func scribbleInteraction(
+            _ interaction: UIScribbleInteraction,
+            shouldBeginAt location: CGPoint
+        ) -> Bool {
+            false
+        }
+    }
+}
+
+private final class IChartAccountScribbleSuppressionView: UIView {
+    weak var coordinator: IChartAccountScribbleSuppressionBridge.Coordinator?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        suppressScribbleWhenReady()
+    }
+
+    func suppressScribbleWhenReady() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            coordinator?.suppressScribble(in: window ?? superview ?? self)
+        }
+    }
+}
+
+private extension UIView {
+    var accountTextFields: [UITextField] {
+        subviews.flatMap { subview in
+            var fields = subview.accountTextFields
+            if let textField = subview as? UITextField {
+                fields.append(textField)
+            }
+            return fields
+        }
+    }
+}
+
 private enum IChartAccountInputField: Hashable {
     case firstName
     case lastName
@@ -5270,6 +5340,7 @@ private struct IChartAccountSettings: View {
             statusFooter
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(IChartAccountScribbleSuppressionBridge())
         .task(id: "\(authStore.state.statusText)-\(entryMode.rawValue)") {
             focusDefaultInputIfNeeded()
         }
@@ -6343,33 +6414,8 @@ private struct IChartAccountTextField: View {
     let theme: IChartHomeTheme
     let focusedField: FocusState<IChartAccountInputField?>.Binding
     let field: IChartAccountInputField
-    var textInputAutocapitalization: UITextAutocapitalizationType = .none
+    var textInputAutocapitalization: TextInputAutocapitalization = .never
     var autocorrectionDisabled = true
-
-    private var textContentType: UITextContentType? {
-        switch field {
-        case .firstName:
-            .givenName
-        case .lastName:
-            .familyName
-        case .email:
-            .username
-        case .password, .newPassword:
-            nil
-        }
-    }
-
-    private var isFocused: Binding<Bool> {
-        Binding {
-            focusedField.wrappedValue == field
-        } set: { shouldFocus in
-            if shouldFocus {
-                focusedField.wrappedValue = field
-            } else if focusedField.wrappedValue == field {
-                focusedField.wrappedValue = nil
-            }
-        }
-    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -6385,17 +6431,13 @@ private struct IChartAccountTextField: View {
                 .minimumScaleFactor(0.82)
                 .frame(width: 104, alignment: .leading)
 
-            IChartAccountScopedScribbleTextField(
-                placeholder: placeholder,
-                text: $text,
-                isSecureTextEntry: false,
-                keyboardType: keyboardType,
-                textContentType: textContentType,
-                autocapitalizationType: textInputAutocapitalization,
-                autocorrectionDisabled: autocorrectionDisabled,
-                textColor: UIColor(theme.panelTitle),
-                isFocused: isFocused
-            )
+            TextField(placeholder, text: $text)
+                .focused(focusedField, equals: field)
+                .keyboardType(keyboardType)
+                .textInputAutocapitalization(textInputAutocapitalization)
+                .autocorrectionDisabled(autocorrectionDisabled)
+                .font(.subheadline)
+                .foregroundStyle(theme.panelTitle)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(
@@ -6425,27 +6467,6 @@ private struct IChartAccountSecureField: View {
     let focusedField: FocusState<IChartAccountInputField?>.Binding
     let field: IChartAccountInputField
 
-    private var textContentType: UITextContentType {
-        switch field {
-        case .newPassword:
-            .newPassword
-        default:
-            .password
-        }
-    }
-
-    private var isFocused: Binding<Bool> {
-        Binding {
-            focusedField.wrappedValue == field
-        } set: { shouldFocus in
-            if shouldFocus {
-                focusedField.wrappedValue = field
-            } else if focusedField.wrappedValue == field {
-                focusedField.wrappedValue = nil
-            }
-        }
-    }
-
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImageName)
@@ -6460,17 +6481,12 @@ private struct IChartAccountSecureField: View {
                 .minimumScaleFactor(0.82)
                 .frame(width: 104, alignment: .leading)
 
-            IChartAccountScopedScribbleTextField(
-                placeholder: placeholder,
-                text: $text,
-                isSecureTextEntry: true,
-                keyboardType: .default,
-                textContentType: textContentType,
-                autocapitalizationType: .none,
-                autocorrectionDisabled: true,
-                textColor: UIColor(theme.panelTitle),
-                isFocused: isFocused
-            )
+            SecureField(placeholder, text: $text)
+                .focused(focusedField, equals: field)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.subheadline)
+                .foregroundStyle(theme.panelTitle)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(
@@ -6488,123 +6504,6 @@ private struct IChartAccountSecureField: View {
                 focusedField.wrappedValue = field
             }
         }
-    }
-}
-
-private struct IChartAccountScopedScribbleTextField: UIViewRepresentable {
-    let placeholder: String
-    @Binding var text: String
-    let isSecureTextEntry: Bool
-    let keyboardType: UIKeyboardType
-    let textContentType: UITextContentType?
-    let autocapitalizationType: UITextAutocapitalizationType
-    let autocorrectionDisabled: Bool
-    let textColor: UIColor
-    @Binding var isFocused: Bool
-
-    func makeUIView(context: Context) -> IChartAccountScopedScribbleUITextField {
-        let textField = IChartAccountScopedScribbleUITextField()
-        configure(textField)
-        textField.delegate = context.coordinator
-        textField.addTarget(
-            context.coordinator,
-            action: #selector(Coordinator.textDidChange(_:)),
-            for: .editingChanged
-        )
-        return textField
-    }
-
-    func updateUIView(_ textField: IChartAccountScopedScribbleUITextField, context: Context) {
-        context.coordinator.parent = self
-        configure(textField)
-
-        if textField.text != text {
-            textField.text = text
-        }
-
-        if isFocused, !textField.isFirstResponder {
-            textField.becomeFirstResponder()
-        } else if !isFocused, textField.isFirstResponder {
-            textField.resignFirstResponder()
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    private func configure(_ textField: IChartAccountScopedScribbleUITextField) {
-        textField.allowsScribble = true
-        textField.placeholder = placeholder
-        textField.borderStyle = .none
-        textField.backgroundColor = .clear
-        textField.keyboardType = keyboardType
-        textField.textContentType = textContentType
-        textField.isSecureTextEntry = isSecureTextEntry
-        textField.autocapitalizationType = autocapitalizationType
-        textField.autocorrectionType = autocorrectionDisabled ? .no : .yes
-        textField.spellCheckingType = autocorrectionDisabled ? .no : .default
-        textField.smartDashesType = autocorrectionDisabled ? .no : .default
-        textField.smartQuotesType = autocorrectionDisabled ? .no : .default
-        textField.returnKeyType = .done
-        textField.clearButtonMode = .never
-        textField.textColor = textColor
-        textField.font = .preferredFont(forTextStyle: .subheadline)
-        textField.adjustsFontForContentSizeCategory = true
-        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    }
-
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: IChartAccountScopedScribbleTextField
-
-        init(parent: IChartAccountScopedScribbleTextField) {
-            self.parent = parent
-        }
-
-        @objc func textDidChange(_ textField: UITextField) {
-            parent.text = textField.text ?? ""
-        }
-
-        func textFieldDidBeginEditing(_ textField: UITextField) {
-            parent.isFocused = true
-        }
-
-        func textFieldDidEndEditing(_ textField: UITextField) {
-            parent.isFocused = false
-        }
-
-        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-            textField.resignFirstResponder()
-            return true
-        }
-    }
-}
-
-private final class IChartAccountScopedScribbleUITextField: UITextField, UIScribbleInteractionDelegate {
-    private var scopedScribbleInteraction: UIScribbleInteraction?
-    var allowsScribble = true
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        installScopedScribbleInteraction()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        installScopedScribbleInteraction()
-    }
-
-    private func installScopedScribbleInteraction() {
-        let interaction = UIScribbleInteraction(delegate: self)
-        addInteraction(interaction)
-        scopedScribbleInteraction = interaction
-    }
-
-    func scribbleInteraction(
-        _ interaction: UIScribbleInteraction,
-        shouldBeginAt location: CGPoint
-    ) -> Bool {
-        allowsScribble && bounds.contains(location)
     }
 }
 
