@@ -46,6 +46,11 @@ Required before resubmission:
 - [x] Verify live `https://useichart.com/privacy` includes Settings > Account >
   Delete Account; cache-busted live/local SHA-256 evidence is recorded in
   `docs/ichart-v1-final-release-gate.md`.
+- [x] Replace the email verification placeholder source with a branded
+  `https://useichart.com/verify` browser fallback that never displays token
+  values and can pass callback parameters into iChart.
+- [ ] Deploy and cache-bust verify `https://useichart.com/verify` after this
+  branch merges.
 - [ ] Attach the physical-device screen recording Apple requested in App Review
   Notes.
 - [ ] Upload/attach build `1.0 (35)`.

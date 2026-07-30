@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email Verification - iChart</title>
+  <meta name="description" content="Open iChart after email verification or password recovery.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-landing">
+  <header class="auth-header shell">
+    <a class="brand-mark" href="/" aria-label="iChart home">
+      <img src="assets/ichart-logo.png" alt="iChart">
+    </a>
+    <nav class="top-nav" aria-label="iChart account links">
+      <a href="/support">Support</a>
+      <a href="/privacy">Privacy</a>
+    </nav>
+  </header>
+
+  <main class="auth-shell">
+    <section class="auth-panel" aria-labelledby="auth-title">
+      <p class="eyebrow">iChart Account</p>
+      <h1 id="auth-title" data-auth-title>Email Verification</h1>
+      <p class="auth-status" data-auth-status>Return to iChart to finish verifying your account.</p>
+
+      <div class="auth-actions" aria-label="Verification actions">
+        <a class="primary-action" id="open-app-link" href="ichart://auth-callback">Open iChart</a>
+        <a class="secondary-action" href="/support">Get Help</a>
+      </div>
+
+      <ol class="auth-steps">
+        <li>If iChart opens automatically, return to the app and sign in with the same email address.</li>
+        <li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li>
+        <li>If the link is expired or already used, request a fresh verification email from iChart.</li>
+      </ol>
+
+      <p class="auth-fine-print">For security, this page never displays verification token values. Do not forward verification or recovery links.</p>
+
+      <noscript>
+        <p class="auth-fine-print">JavaScript is required to pass the verification link safely into iChart. Enable JavaScript, reopen the email link, or contact support.</p>
+      </noscript>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var query = window.location.search || "";
+      var hash = window.location.hash || "";
+      var queryParams = new URLSearchParams(query.charAt(0) === "?" ? query.slice(1) : query);
+      var hashParams = new URLSearchParams(hash.charAt(0) === "#" ? hash.slice(1) : hash);
+
+      function valueFor(name) {
+        return queryParams.get(name) || hashParams.get(name);
+      }
+
+      var type = valueFor("type");
+      var error = valueFor("error");
+      var title = document.querySelector("[data-auth-title]");
+      var status = document.querySelector("[data-auth-status]");
+      var openLink = document.getElementById("open-app-link");
+      var callbackURL = "ichart://auth-callback" + query + hash;
+
+      openLink.addEventListener("click", function (event) {
+        event.preventDefault();
+        window.location.href = callbackURL;
+      });
+
+      if (type === "recovery") {
+        title.textContent = "Password Reset";
+        status.textContent = "Return to iChart to finish resetting your password.";
+      } else if (type === "email_change") {
+        title.textContent = "Email Change";
+        status.textContent = "Return to iChart to finish confirming your email change.";
+      }
+
+      if (error) {
+        document.body.classList.add("auth-error");
+        status.textContent = "This link could not be completed. It may be expired, already used, or opened from the wrong device.";
+        return;
+      }
+
+      if (query || hash) {
+        window.setTimeout(function () {
+          window.location.href = callbackURL;
+        }, 700);
+      }
+    }());
+  </script>
+</body>
+</html>

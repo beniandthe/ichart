@@ -30,6 +30,8 @@ Required production settings:
 - URL Configuration allows `ichart://auth-callback`.
 - `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
 - Password reset and signup confirmation redirects use `ichart://auth-callback`.
+- `https://useichart.com/verify` is hosted as the browser fallback for email verification and password recovery links. It must preserve URL query/fragment parameters when handing users back to `ichart://auth-callback`.
+- If Supabase Auth emails are changed to land on `https://useichart.com/verify`, add that exact URL to the Supabase redirect allow list and make the email template use the intended redirect target rather than hard-coding a stale callback.
 - The app stores a pending auth-flow record before sending signup/resend/password-reset email and rejects callbacks without the matching flow type and `flow_nonce`.
 - Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
 - After custom SMTP unlocks hosted template editing, Reset password template uses a direct app recovery link, not the default prefetch-prone hosted verify link:
@@ -116,7 +118,7 @@ Use the iPad simulator because the runtime app target owns the Settings/account/
 3. Confirm charts can still be created, edited, deleted, relaunched, and kept on the device.
 4. Relaunch the same installed build with runtime `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, not only xcodebuild build-setting values. With XcodeBuildMCP, use `launch_app_sim` env after `build_run_sim`.
 5. Create a new account with first name, last name, email, and password.
-6. Open the verification email. If the browser ends on a blank deep-link page, return to the app and sign in with the same email/password.
+6. Open the verification email. If the browser opens `https://useichart.com/verify`, confirm it offers a clear Open iChart handoff and does not display token values. If the app opens directly, return to iChart and sign in with the same email/password.
 7. Confirm the account gate shows `Verified`.
 8. Request a password reset from the signed-out account gate.
 9. Open the reset email's direct app recovery link in the simulator/app. Temporary hosted-link fallback: if the email still contains Supabase's default hosted `/verify?token=...` link while the dashboard template is being updated, extract the `token` value and open `ichart://auth-callback?token=<token>&type=recovery` in the simulator instead of letting Safari consume the hosted link.

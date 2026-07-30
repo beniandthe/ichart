@@ -263,6 +263,8 @@ Forum publishing should keep attribution and PDF provenance server-owned: creato
 
 ### Operations
 - [ ] support email monitored
+- [ ] `https://useichart.com/verify` deployed and cache-busted after public-site
+  source changes
 - [ ] release notes template prepared
 - [ ] triage workflow for bugs/feedback prepared
 
