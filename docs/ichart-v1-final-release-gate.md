@@ -5,10 +5,10 @@ Created: 2026-07-15
 Last refreshed: 2026-07-30
 Current candidate baseline: iChart V1.0 App Review account-deletion repair build `1.0 (35)`
 Current App Review state: Build 32 rejected for Guideline 5.1.1 account deletion
-Current public-release blocker: Build 35 account-deletion repair package, App Review notes/recording, and Apple approval
+Current public-release blocker: Build 35 account-deletion repair package, App Review notes/recording, hosted verification-page deployment, and Apple approval
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
-logo app icon, and public-site source cleanup
+logo app icon, public-site source cleanup, and email verification landing-page source
 
 This document is the final release gate and ordered plan for iChart V1.0.
 If another planning document conflicts with this file on launch ordering, gate
@@ -64,6 +64,9 @@ Build 35 acceptance before resubmission:
 - Account-entry Pencil/Scribble input is disabled so segmented controls,
   confirmation buttons, and tab switches remain tappable while recording the
   deletion-flow evidence; text entry remains keyboard-only.
+- `https://useichart.com/verify` is deployed as a real branded email
+  verification/password recovery browser fallback before it is referenced by
+  production Auth email settings, review notes, or support flows.
 
 Build 32 superseded build 31 only to address App Review feedback: App Store
 metadata now avoids the inappropriate subtitle use of Apple product terms, and

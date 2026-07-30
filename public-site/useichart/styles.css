@@ -572,6 +572,92 @@ p {
   text-decoration: none;
 }
 
+.auth-landing {
+  min-height: 100svh;
+  background:
+    linear-gradient(145deg, rgba(11, 21, 26, 0.98), rgba(20, 83, 102, 0.94) 52%, rgba(242, 239, 230, 0.98));
+  color: var(--cream);
+}
+
+.auth-header {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px 0 0;
+}
+
+.auth-shell {
+  display: grid;
+  min-height: calc(100svh - 104px);
+  place-items: center;
+  padding: 34px 0 72px;
+}
+
+.auth-panel {
+  width: min(720px, calc(100% - 40px));
+  border: 1px solid rgba(132, 207, 229, 0.4);
+  border-radius: 8px;
+  padding: 38px;
+  background: rgba(255, 248, 231, 0.96);
+  color: var(--ink);
+  box-shadow: 0 24px 64px rgba(7, 17, 22, 0.28);
+}
+
+.auth-panel h1 {
+  font-size: 3rem;
+}
+
+.auth-status {
+  max-width: 570px;
+  color: var(--muted);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 30px 0 24px;
+}
+
+.auth-actions .secondary-action {
+  color: var(--teal-dark);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.auth-actions .primary-action.is-disabled {
+  border-color: var(--line);
+  background: var(--line);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.auth-steps {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--muted);
+}
+
+.auth-steps li {
+  margin-bottom: 10px;
+}
+
+.auth-fine-print {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.auth-error .auth-status {
+  color: #7a241b;
+}
+
 @media (max-width: 860px) {
   .site-header,
   .launch-section {
@@ -645,6 +731,10 @@ p {
   .launch-proof img {
     height: 360px;
   }
+
+  .auth-panel h1 {
+    font-size: 2.45rem;
+  }
 }
 
 @media (max-width: 560px) {
@@ -683,6 +773,25 @@ p {
   .secondary-action,
   .links a {
     width: 100%;
+  }
+
+  .auth-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .auth-panel {
+    width: min(100% - 28px, 720px);
+    padding: 28px;
+  }
+
+  .auth-panel h1 {
+    font-size: 2.15rem;
+  }
+
+  .auth-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .product-shot img {
