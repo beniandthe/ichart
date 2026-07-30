@@ -4,12 +4,15 @@ Status: Active release-gate source of truth
 Created: 2026-07-15
 Last refreshed: 2026-07-30
 Current candidate baseline: iChart V1.0 App Review account-deletion repair build `1.0 (35)`
-Current App Review state: Build 32 rejected for Guideline 5.1.1 account deletion
-Current public-release blocker: Build 35 account-deletion repair package, App Review notes/recording, and Apple approval
+Current App Review state: Build `1.0 (35)` submitted and `Waiting for Review`
+as of 2026-07-30 at 9:33 AM Pacific
+Current public-release blocker: Apple approval and the final manual public
+release decision in App Store Connect
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
 logo app icon, public-site source cleanup, and email verification landing-page
-source plus live deployment
+source plus live deployment, in-app account deletion, and App Review
+recording/submission evidence
 
 This document is the final release gate and ordered plan for iChart V1.0.
 If another planning document conflicts with this file on launch ordering, gate
@@ -29,7 +32,7 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 35 is the planned V1.0 App Review repair build. It supersedes build 32
+Build 35 is the submitted V1.0 App Review repair build. It supersedes build 32
 to address App Review feedback for Guideline 5.1.1: apps that support account
 creation must let users initiate account deletion in the app. It also supersedes
 builds 33 and 34 because the account-entry screen needed the original field UI
@@ -42,7 +45,7 @@ but did not include an in-app account deletion option. The included
 subscription group and subscription products were rejected only because the
 associated app version was rejected.
 
-Build 35 acceptance before resubmission:
+Build 35 repair evidence accepted before resubmission:
 
 - Settings > Account exposes `Delete Account` for signed-in users.
 - Deletion uses a destructive confirmation and signs the app out after the
@@ -102,11 +105,15 @@ then rejected on 2026-07-29 for missing in-app account deletion.
 
 Current verified source baseline:
 
-- Build 35 archive/upload app-source commit: pending.
+- Build 35 archive/upload app-source baseline: `87f11f6`, merged through PR
+  `#34` (`Bump App Review build to 35`). It contains the build number update
+  and points at the accepted account-deletion/account-entry repair source.
+- Pre-resubmission-record `main` head: `52e49a6`. Later commits after
+  `87f11f6` are public-site/email-verification and release-evidence doc work;
+  they do not alter the app target.
 - Build 35 App Review hardening PRs: `#32` for account deletion, `#33` for
-  account-entry Scribble scope, and the build 35 package PR for the account UI
-  rollback/narrow ink suppression; verify the final `main` head with
-  `git rev-parse --short HEAD` before packaging.
+  account-entry Scribble scope, `#34` for the build 35 package, and `#35` for
+  the email-verification landing page referenced by review/support flows.
 - Build 32 archive/upload app-source commit: `68fd288`.
 - Build 31 archive/upload app-source commit: `da55cf1`.
 - Last code/test gate head before doc-only release-evidence updates: `2ad1bc5`.
@@ -128,8 +135,8 @@ Current verified source baseline:
 - Focused `ProjectConfigurationTests` passed: `29` tests, `0` failures.
 - A generic iOS Simulator build succeeded from the generated Xcode project.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `32`; build `32` is superseded by the planned build `35` account
-  deletion repair and account-entry keyboard-only fix.
+  build `35`; build `35` supersedes build `32` for account deletion repair and
+  account-entry keyboard-only fix.
 - Supabase `account-deletion` Edge Function is deployed and active with
   `verify_jwt = true`.
 - `account-deletion` unauthenticated hosted smoke returns `401`
@@ -147,6 +154,14 @@ Current verified source baseline:
   rejected on 2026-07-27 for subtitle wording and Sign In actionability. Build
   `32` repaired those issues but was rejected on 2026-07-29 for missing
   in-app account deletion.
+- App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
+  resubmitted on 2026-07-30 at 9:33 AM Pacific. Submitted items all show
+  `Waiting for Review`: `iOS App 1.0` with build `1.0 (35)`, `iChart Pro`,
+  `iChart Pro Monthly`, and `iChart Pro Annual`.
+- App Review Notes now start with `Review build: iChart 1.0 (35)`, include the
+  Settings > Account > Delete Account path, Support/Privacy/Verify URLs, and
+  reference the attached physical-device recording
+  `ichart-app-review-deletion-flow.mp4`.
 - App-facing `public` tables have RLS enabled.
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
@@ -165,9 +180,10 @@ Current verified source baseline:
 
 Current remaining release caveats:
 
-1. GitHub CodeQL must be green on PR `#32` before merge/package.
-2. Physical-device App Review evidence for account deletion still needs to be
-   attached in App Store Connect review notes.
+1. Apple approval is still pending; App Store Connect currently shows build
+   `1.0 (35)` and all submitted subscription items as `Waiting for Review`.
+2. Manual public release should remain controlled in App Store Connect after
+   approval.
 3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
 4. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
@@ -570,7 +586,7 @@ and makes Sign In the default signed-out account mode.
   Data Collection and Storage`.
 - Required repair: users must be able to initiate account deletion from inside
   iChart because the app supports account creation.
-- Implemented repair target: build `1.0 (34)` with Settings > Account > Delete
+- Implemented repair target: build `1.0 (35)` with Settings > Account > Delete
   Account, Supabase `account-deletion` Edge Function, hosted privacy/support
   copy updates, account-entry Scribble scoped to input boxes, and App Review
   notes/recording evidence.
@@ -578,9 +594,28 @@ and makes Sign In the default signed-out account mode.
   `https://useichart.com/support` now serve the updated App Review
   account-deletion, support, billing, and UGC-safety copy.
 
+2026-07-30 App Review resubmission update:
+
+- Submission ID: `06b203db-9cdf-401b-bf58-78066c20ad0b`.
+- Date submitted: 2026-07-30 at 9:33 AM Pacific.
+- Submitted by: Beni Rossman.
+- Status: `Waiting for Review`.
+- Items submitted together:
+  - `iOS App 1.0`, build `1.0 (35)`.
+  - `iChart Pro`, subscription group.
+  - `iChart Pro Monthly`, subscription
+    `com.ichart.app.pro.monthly`.
+  - `iChart Pro Annual`, subscription
+    `com.ichart.app.pro.annual`.
+- App Review Notes include the account deletion path, StoreKit sandbox
+  purchase/restore guidance, Support/Privacy/Verify URLs, and the physical
+  iPad deletion-flow recording attachment.
+- Manual release remains selected, so approval alone should not automatically
+  make V1.0 public.
+
 ### Gate 8 - App Store public submission package
 
-Status: Build 32 rejected; build 34 account-deletion repair in progress.
+Status: Build 35 submitted to App Review and waiting for review.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:

@@ -16,16 +16,21 @@ Official Apple references:
 - Auto-renewable subscriptions: `https://developer.apple.com/app-store/subscriptions/`
 - App privacy in App Store Connect: `https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy/`
 
-## Current Resubmission Blocker
+## Current App Review State
 
 Build `1.0 (32)` was rejected on 2026-07-29 for Guideline `5.1.1 Legal:
 Privacy - Data Collection and Storage` because iChart supports account creation
 but did not include an in-app account deletion option.
 
-Build `1.0 (35)` is the repair target. It includes the build `1.0 (33)`
+Build `1.0 (35)` is the submitted repair build. It includes the build `1.0 (33)`
 account-deletion repair, the build `1.0 (34)` account-entry Scribble scope
 repair, and the follow-up account-field UI rollback/narrow ink suppression
 needed for the physical-device deletion-flow recording.
+
+App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
+resubmitted on 2026-07-30 at 9:33 AM Pacific and is `Waiting for Review`.
+The submitted items are app version `1.0` build `1.0 (35)`, the `iChart Pro`
+subscription group, `iChart Pro Monthly`, and `iChart Pro Annual`.
 
 Required before resubmission:
 
@@ -53,10 +58,14 @@ Required before resubmission:
   branch merges.
   - 2026-07-30: live route returned `200`, preserved the `Open iChart`
     handoff, and served the refreshed public-site support/privacy/home links.
-- [ ] Attach the physical-device screen recording Apple requested in App Review
+- [x] Attach the physical-device screen recording Apple requested in App Review
   Notes.
-- [ ] Upload/attach build `1.0 (35)`.
-- [ ] Resubmit app version plus subscription group/monthly/annual items.
+  - 2026-07-30: attached as `ichart-app-review-deletion-flow.mp4`.
+- [x] Upload/attach build `1.0 (35)`.
+  - 2026-07-30: App Store Connect build table showed only build `35` attached
+    to the app version before resubmission.
+- [x] Resubmit app version plus subscription group/monthly/annual items.
+  - 2026-07-30: all four submitted items show `Waiting for Review`.
 
 ## Binary And App Completeness
 
@@ -162,17 +171,18 @@ Required before resubmission:
 
 ## Resubmission Packet
 
-- [ ] PR merged to `main`.
-- [ ] Build `1.0 (35)` archived from `main`, not only the repair branch.
-- [ ] Build `1.0 (35)` uploaded and processed in App Store Connect.
-- [ ] App Review Notes include:
+- [x] PR merged to `main`.
+- [x] Build `1.0 (35)` archived from the accepted app source, not only the
+  repair branch.
+- [x] Build `1.0 (35)` uploaded, processed, and attached in App Store Connect.
+- [x] App Review Notes include:
   - Review account email and password, entered only in App Store Connect.
   - Settings > Account > Delete Account deletion path.
   - Attached physical-device deletion-flow recording.
   - StoreKit sandbox subscription path.
   - Support/privacy URLs.
   - Any special notes for Forums/cloud backup/reviewed chart PDFs.
-- [ ] App version, subscription group, monthly product, and annual product are
+- [x] App version, subscription group, monthly product, and annual product are
   included in the same submission.
-- [ ] Manual release remains selected unless a deliberate public-release
+- [x] Manual release remains selected unless a deliberate public-release
   decision changes it.
