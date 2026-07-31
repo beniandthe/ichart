@@ -74,4 +74,21 @@ enum IChartStoreKitEntitlementResolver {
 
         return .basic
     }
+
+    static func serverBackedEntitlement(
+        remoteEntitlement: IChartSubscriptionEntitlement?,
+        localEntitlement: IChartSubscriptionEntitlement
+    ) -> IChartSubscriptionEntitlement {
+        if let remoteEntitlement {
+            return remoteEntitlement
+        }
+
+        return .basic
+    }
+
+    static func serverBackedFallbackForRemoteFailure(
+        localEntitlement: IChartSubscriptionEntitlement
+    ) -> IChartSubscriptionEntitlement? {
+        localEntitlement.status == .proActive ? nil : .basic
+    }
 }

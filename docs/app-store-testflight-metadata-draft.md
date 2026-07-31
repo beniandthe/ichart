@@ -138,6 +138,8 @@ Notes:
 
 - Apple handles purchase, restore, cancellation, and subscription management.
 - iChart sends StoreKit transactions to a Supabase Edge Function for server-side verification.
+- Paid Apps Agreement, banking, and U.S. tax setup are active in App Store Connect. The subscription group and both products are included in this submission with the app version.
+- If StoreKit shows a sandbox account availability alert before the Apple purchase confirmation completes, no transaction has reached iChart yet. Please retry the sandbox purchase or use Restore Purchases after the sandbox account is available.
 - The app does not include service-role keys, App Store Connect keys, or webhook secrets.
 - Account deletion is initiated in-app at Settings > Account > Delete Account. Use a disposable review account before completing the deletion flow; deletion removes the iChart account/server data and signs the app out.
 - Attach the physical-device account deletion screen recording requested by App Review to the Notes field for this submission and future submissions until the review history is stable.
@@ -179,8 +181,8 @@ Capture notes:
 
 ## URLs And Contact Placeholders
 
-- Privacy Policy URL: https://useichart.com/privacy
-- Support URL: https://useichart.com/support
+- Privacy Policy URL: https://useichart.com/privacy.html
+- Support URL: https://useichart.com/support.html
 - Marketing URL: https://useichart.com
 - Support email: support@useichart.com
 - Beta feedback email: support@useichart.com

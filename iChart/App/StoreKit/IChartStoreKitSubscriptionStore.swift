@@ -139,8 +139,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     return
                 }
             } catch {
-                if localEvaluation.entitlement.status != .proActive {
-                    entitlement = localEvaluation.entitlement
+                if let fallbackEntitlement = IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
+                    localEntitlement: localEvaluation.entitlement
+                ) {
+                    entitlement = fallbackEntitlement
                     state = .ready
                     return
                 }
@@ -148,6 +150,13 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 applyClaimFailureFallback(localEvaluation.entitlement)
                 return
             }
+
+            entitlement = IChartStoreKitEntitlementResolver.serverBackedEntitlement(
+                remoteEntitlement: nil,
+                localEntitlement: localEvaluation.entitlement
+            )
+            state = .ready
+            return
         }
 
         entitlement = localEvaluation.entitlement

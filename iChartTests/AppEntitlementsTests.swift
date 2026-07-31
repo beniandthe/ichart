@@ -203,4 +203,53 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertNil(basic.lastVerifiedAt)
     }
 
+    func testServerBackedSubscriptionAuthorityDoesNotTrustStaleLocalStoreKitHistory() {
+        let verifiedAt = Date(timeIntervalSinceReferenceDate: 200)
+        let remoteExpired = IChartSubscriptionEntitlement.proExpired(verifiedAt: verifiedAt)
+
+        XCTAssertEqual(
+            IChartStoreKitEntitlementResolver.serverBackedEntitlement(
+                remoteEntitlement: nil,
+                localEntitlement: .proExpired(verifiedAt: verifiedAt)
+            ).status,
+            .basic
+        )
+        XCTAssertEqual(
+            IChartStoreKitEntitlementResolver.serverBackedEntitlement(
+                remoteEntitlement: nil,
+                localEntitlement: .activePro(verifiedAt: verifiedAt)
+            ).status,
+            .basic
+        )
+        XCTAssertEqual(
+            IChartStoreKitEntitlementResolver.serverBackedEntitlement(
+                remoteEntitlement: remoteExpired,
+                localEntitlement: .basic
+            ),
+            remoteExpired
+        )
+    }
+
+    func testServerBackedRemoteFailureOnlyBlocksLocalActivePro() {
+        let verifiedAt = Date(timeIntervalSinceReferenceDate: 200)
+
+        XCTAssertEqual(
+            IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
+                localEntitlement: .proExpired(verifiedAt: verifiedAt)
+            )?.status,
+            .basic
+        )
+        XCTAssertEqual(
+            IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
+                localEntitlement: .basic
+            )?.status,
+            .basic
+        )
+        XCTAssertNil(
+            IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
+                localEntitlement: .activePro(verifiedAt: verifiedAt)
+            )
+        )
+    }
+
 }
