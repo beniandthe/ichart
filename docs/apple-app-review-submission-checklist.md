@@ -22,10 +22,11 @@ Build `1.0 (32)` was rejected on 2026-07-29 for Guideline `5.1.1 Legal:
 Privacy - Data Collection and Storage` because iChart supports account creation
 but did not include an in-app account deletion option.
 
-Build `1.0 (35)` is the submitted repair build. It includes the build `1.0 (33)`
-account-deletion repair, the build `1.0 (34)` account-entry Scribble scope
-repair, and the follow-up account-field UI rollback/narrow ink suppression
-needed for the physical-device deletion-flow recording.
+Build `1.0 (35)` was the submitted account-deletion repair build. It includes
+the build `1.0 (33)` account-deletion repair, the build `1.0 (34)`
+account-entry Scribble scope repair, and the follow-up account-field UI
+rollback/narrow ink suppression needed for the physical-device deletion-flow
+recording.
 
 App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
 rejected again on 2026-07-31 for Guideline `2.1(b) Performance: App
