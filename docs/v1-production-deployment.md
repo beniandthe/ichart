@@ -268,9 +268,13 @@ Forum publishing should keep attribution and PDF provenance server-owned: creato
   - 2026-07-30: live `https://useichart.com/verify.html?cachebust=20260730-live-verify`
     returned `200` and served the branded iChart verification fallback.
 - [x] Deploy and cache-bust verify the 2026-07-31 public-site repair:
+  the App Store Connect-facing URLs use the explicit `support.html`,
+  `privacy.html`, `verify.html`, and `terms.html` pages, and extensionless
   `/support`, `/privacy`, `/verify`, and `/terms` serve usable pages through
-  `.htaccess`, and the App Store Connect-facing URLs use the explicit
-  `support.html`, `privacy.html`, `verify.html`, and `terms.html` pages.
+  `.htaccess`.
+- [ ] Deploy and cache-bust verify the follow-up public-site route hardening:
+  trailing-slash routes `/support/`, `/privacy/`, `/verify/`, and `/terms/`
+  redirect to canonical `.html` pages instead of returning host-level `404`.
 - [ ] release notes template prepared
 - [ ] triage workflow for bugs/feedback prepared
 

@@ -4,11 +4,11 @@ Status: Active release-gate source of truth
 Created: 2026-07-15
 Last refreshed: 2026-07-31
 Current candidate baseline: iChart V1.0 App Review StoreKit-completeness repair for build `1.0 (36)`
-Current App Review state: Build `1.0 (35)` rejected on 2026-07-31 under
-Guideline `2.1(b) Performance: App Completeness`
-Current public-release blocker: new build with the StoreKit-completeness repair,
-Apple approval, and the final manual public release decision in App Store
-Connect
+Current App Review state: Build `1.0 (36)` is submitted and `Waiting for
+Review` with the app version, subscription group, monthly subscription, and
+annual subscription in the same submission
+Current public-release blocker: Apple approval and the final manual public
+release decision in App Store Connect
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
 logo app icon, public-site source cleanup, and email verification landing-page
@@ -39,6 +39,12 @@ bug and the attached screenshot shows StoreKit's sandbox alert:
 `Your account is temporarily unavailable. Try again later. [Environment:
 Sandbox]`. The subscription group and subscription products were returned only
 because the associated app version was rejected.
+
+Build 36 is the submitted StoreKit-completeness repair. App Store Connect shows
+the iOS app version `1.0 (36)`, the `iChart Pro` subscription group, `iChart Pro
+Monthly`, and `iChart Pro Annual` all `Waiting for Review`. Do not edit the
+submitted binary or App Store Connect review metadata during this waiting state
+unless Apple asks for a change or a verified release blocker appears.
 
 The 2026-07-31 dashboard inspection found the external commerce gates active:
 Paid Apps Agreement active, bank account active, U.S. Form W-9 active, the
@@ -122,6 +128,10 @@ then rejected on 2026-07-29 for missing in-app account deletion.
 
 Current verified source baseline:
 
+- Build 36 archive/upload app-source baseline: `01d920a`, merged through PR
+  `#36` (`Harden App Review StoreKit flow`). It keeps signed-in production
+  entitlement display server-backed so stale local StoreKit sandbox history
+  cannot present the fresh review account as expired Pro.
 - Build 35 archive/upload app-source baseline: `87f11f6`, merged through PR
   `#34` (`Bump App Review build to 35`). It contains the build number update
   and points at the accepted account-deletion/account-entry repair source.
@@ -139,8 +149,8 @@ Current verified source baseline:
 - Later release-evidence doc updates do not alter the app target.
 - GitHub CI passed for `68fd288` on 2026-07-27; CodeQL passed for the repair
   commit during the build 32 repair checks.
-- PRs `#32` and `#33` are merged. Build 35 remains open as a release gate until
-  physical-device evidence and the final App Store Connect package are complete.
+- PRs `#32`, `#33`, `#34`, `#35`, and `#36` are merged. Build 36 is now the
+  App Review release gate candidate.
 - Remote Supabase migrations are aligned through `20260729175642`.
 - `scripts/run_supabase_production_readiness.sh` passed.
 - Supabase shared Node authority/function tests passed before account-deletion
@@ -153,8 +163,8 @@ Current verified source baseline:
 - iPad Air 11-inch (M4) simulator builds succeeded from the generated Xcode
   project for Debug and unsigned Release with `CODE_SIGNING_ALLOWED=NO`.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
-  build `35`; build `35` supersedes build `32` for account deletion repair and
-  account-entry keyboard-only fix.
+  build `36`; build `36` supersedes build `35` for the StoreKit-completeness
+  repair while retaining the account deletion and account-entry fixes.
 - Supabase `account-deletion` Edge Function is deployed and active with
   `verify_jwt = true`.
 - `account-deletion` unauthenticated hosted smoke returns `401`
@@ -191,7 +201,7 @@ Current verified source baseline:
   rejected on 2026-07-31 under `2.1(b) Performance: App Completeness`.
   Submitted items were `iOS App 1.0` with build `1.0 (35)`, `iChart Pro`,
   `iChart Pro Monthly`, and `iChart Pro Annual`.
-- App Review Notes now start with `Review build: iChart 1.0 (35)`, include the
+- App Review Notes now start with `Review build: iChart 1.0 (36)`, include the
   Settings > Account > Delete Account path, Support/Privacy/Verify URLs, and
   reference the attached physical-device recording
   `ichart-app-review-deletion-flow.mp4`.
@@ -216,19 +226,15 @@ Current verified source baseline:
 
 Current remaining release caveats:
 
-1. Build `1.0 (36)` must be packaged and submitted after the StoreKit
-   server-backed entitlement repair lands on `main`.
-2. App Store Connect review notes and subscription product review notes must
-   call out the sandbox purchase/restore path and the fresh review account.
-3. Apple approval is still pending; build `1.0 (35)` must not be resubmitted as
-   the final V1 binary.
-4. Manual public release should remain controlled in App Store Connect after
+1. Apple approval is still pending; build `1.0 (36)` is the current submitted
+   final V1 repair candidate.
+2. Manual public release should remain controlled in App Store Connect after
    approval.
-5. Supabase Auth advisor still reports insufficient MFA options. This is tracked
+3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
-6. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
+4. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
    being available.
-7. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
+5. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
    installed during the latest sweep.
 
 ## 2. Fixed Production Facts
@@ -657,8 +663,8 @@ and makes Sign In the default signed-out account mode.
 
 ### Gate 8 - App Store public submission package
 
-Status: Build 35 rejected for StoreKit sandbox purchase completeness; build 36
-repair and resubmission required.
+Status: Build 36 submitted and waiting for Apple review after the StoreKit
+sandbox purchase completeness repair.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:

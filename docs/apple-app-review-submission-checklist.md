@@ -1,6 +1,6 @@
 # iChart Apple App Review Submission Checklist
 
-Status: V1.0 App Review checklist for build `1.0 (35)` rejection and build `1.0 (36)` repair
+Status: V1.0 App Review checklist for submitted build `1.0 (36)` repair
 Last updated: 2026-07-31
 
 Use this checklist before every App Review submission or resubmission. It is
@@ -93,10 +93,15 @@ Required before resubmission:
     chart/forum rows and only an inactive/free subscription row, and saved the
     generated password in App Store Connect only.
 - [x] App Review sign-in account remains stored only in App Store Connect.
-- [ ] Submit a new repair build after the server-backed StoreKit entitlement
+- [x] Submit a new repair build after the server-backed StoreKit entitlement
   display patch merges.
-- [ ] Resubmit app version plus subscription group/monthly/annual items with
+- [x] Resubmit app version plus subscription group/monthly/annual items with
   updated review notes.
+
+2026-07-31 post-repair check: App Store Connect submission
+`06b203db-9cdf-401b-bf58-78066c20ad0b` shows iOS App `1.0 (36)`, the
+`iChart Pro` subscription group, `iChart Pro Monthly`, and `iChart Pro Annual`
+all `Waiting for Review`.
 
 ## Binary And App Completeness
 
@@ -139,21 +144,21 @@ Required before resubmission:
   - 2026-07-31: Business > Agreements showed Paid Apps Agreement active through
     Jun 16, 2027.
 - [x] Banking and U.S. tax setup are active.
-- [ ] Subscription group is submitted with the app version.
+- [x] Subscription group is submitted with the app version.
 - [x] Monthly product ID is `com.ichart.app.pro.monthly`.
 - [x] Annual product ID is `com.ichart.app.pro.annual`.
 - [x] Product names, duration, description, availability, and screenshots/metadata are
   complete.
-- [ ] Product review notes explain the sandbox purchase path and that Apple may
+- [x] Product review notes explain the sandbox purchase path and that Apple may
   retry if their sandbox account is temporarily unavailable before iChart
   receives a transaction.
 - [ ] In-app subscription screen clearly shows name, duration, services, renewal
   price, restore purchases, and manage subscription path.
 - [ ] Terms of Use and Privacy Policy are available from metadata and in app.
 - [ ] Restore purchase works in sandbox/TestFlight.
-- [ ] Pro entitlement server verification is alive.
-- [ ] Review Notes explain StoreKit sandbox purchase/restore path.
-- [ ] Fresh server-backed review account shows Basic, not `Pro Expired`, when no
+- [x] Pro entitlement server verification is alive.
+- [x] Review Notes explain StoreKit sandbox purchase/restore path.
+- [x] Fresh server-backed review account shows Basic, not `Pro Expired`, when no
   server subscription authority row exists.
 
 ## Metadata, Screenshots, Media, And Age Rating
@@ -196,28 +201,28 @@ Required before resubmission:
   - 2026-07-31: passed after the StoreKit-completeness repair; Node shared
     backend tests `79/79`, full SwiftPM `657` tests, `38` skipped, `0`
     failures.
-- [ ] GitHub CI and CodeQL pass on the release PR.
-- [ ] Supabase Edge Functions list shows expected `verify_jwt` boundaries:
+- [x] GitHub CI and CodeQL pass on the release PR.
+- [x] Supabase Edge Functions list shows expected `verify_jwt` boundaries:
   `app-store-server-notifications=false`, `storekit-subscription-claims=true`,
   `forum-post-actions=true`, `account-deletion=true`,
   `subscription-retention-jobs=false`.
 - [x] Hosted Edge Function smokes fail closed:
   App Store notification bad payload `400`, StoreKit claim unauth `401`, forum
   action unauth `401`, account deletion unauth `401`, retention unauth `401`.
-- [ ] RLS remains enabled on app-facing tables.
-- [ ] Private schema remains unavailable to `anon` and `authenticated`.
-- [ ] No service-role keys, JWT secrets, App Store keys, database URLs, `.p8`,
+- [x] RLS remains enabled on app-facing tables.
+- [x] Private schema remains unavailable to `anon` and `authenticated`.
+- [x] No service-role keys, JWT secrets, App Store keys, database URLs, `.p8`,
   provisioning profiles, or `.env` files are tracked or non-ignored.
-- [ ] Supabase warnings are accepted or tracked with rationale. Current known
+- [x] Supabase warnings are accepted or tracked with rationale. Current known
   caveat: MFA advisor warning remains a post-V1 account UX/security follow-up
   unless a complete MFA/passkey flow is added.
 
 ## Resubmission Packet
 
-- [ ] PR merged to `main`.
-- [ ] Build `1.0 (36)` archived from the accepted app source, not only the
+- [x] PR merged to `main`.
+- [x] Build `1.0 (36)` archived from the accepted app source, not only the
   repair branch.
-- [ ] Build `1.0 (36)` uploaded, processed, and attached in App Store Connect.
+- [x] Build `1.0 (36)` uploaded, processed, and attached in App Store Connect.
 - [x] App Review Notes include:
   - Review account email and password, entered only in App Store Connect.
   - Settings > Account > Delete Account deletion path.
@@ -225,7 +230,7 @@ Required before resubmission:
   - StoreKit sandbox subscription path.
   - Support/privacy URLs.
   - Any special notes for Forums/cloud backup/reviewed chart PDFs.
-- [ ] App version, subscription group, monthly product, and annual product are
+- [x] App version, subscription group, monthly product, and annual product are
   included in the same submission.
 - [x] Manual release remains selected unless a deliberate public-release
   decision changes it.

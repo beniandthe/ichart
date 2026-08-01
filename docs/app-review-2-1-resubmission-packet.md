@@ -1,9 +1,11 @@
 # iChart App Review 2.1(b) Resubmission Packet
 
-Status: Active repair packet for the 2026-07-31 rejection
+Status: Submitted repair packet for the 2026-07-31 rejection
 Build rejected: `1.0 (35)`
 Target repair build: `1.0 (36)`
 Submission ID: `06b203db-9cdf-401b-bf58-78066c20ad0b`
+Current submitted state: build `1.0 (36)`, app version, subscription group,
+monthly subscription, and annual subscription are `Waiting for Review`
 
 ## Rejection Summary
 
@@ -21,6 +23,9 @@ Annual` were returned because the associated app version was rejected.
 
 ## Verified External State
 
+- App Store Connect submission: build `1.0 (36)` is attached to app version
+  `1.0` with the subscription group, monthly product, and annual product in
+  the same review submission.
 - Paid Apps Agreement: active.
 - Bank account: active.
 - U.S. Form W-9: active.
@@ -95,14 +100,14 @@ Additional notes:
   - Privacy: `https://useichart.com/privacy.html`
   - Terms: `https://useichart.com/terms.html`
 
-## Final Gate Before Resubmission
+## Final Gate Evidence
 
-- [ ] PR with the server-backed entitlement repair is merged to `main`.
-- [ ] Build `1.0 (36)` is archived from `main`.
-- [ ] Build `1.0 (36)` is uploaded and processed.
-- [ ] The fresh review account shows Basic before purchase/restore.
+- [x] PR with the server-backed entitlement repair is merged to `main`.
+- [x] Build `1.0 (36)` is archived from `main`.
+- [x] Build `1.0 (36)` is uploaded and processed.
+- [x] The fresh review account shows Basic before purchase/restore.
 - [ ] Purchase or restore is tested on physical device/TestFlight when possible.
-- [ ] App version, subscription group, monthly, and annual products are included
+- [x] App version, subscription group, monthly, and annual products are included
   in the same resubmission.
-- [ ] App Review notes include the resubmission notes above.
-- [ ] Manual release remains selected.
+- [x] App Review notes include the resubmission notes above.
+- [x] Manual release remains selected.

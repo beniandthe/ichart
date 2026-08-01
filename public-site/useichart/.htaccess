@@ -4,8 +4,12 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]
 
-RewriteRule ^privacy/?$ privacy.html [L]
-RewriteRule ^support/?$ support.html [L]
-RewriteRule ^terms/?$ terms.html [L]
-RewriteRule ^verify/$ /verify [R=301,L]
+RewriteRule ^privacy/$ /privacy.html [R=301,L]
+RewriteRule ^support/$ /support.html [R=301,L]
+RewriteRule ^terms/$ /terms.html [R=301,L]
+RewriteRule ^verify/$ /verify.html [R=301,L]
+
+RewriteRule ^privacy$ privacy.html [L]
+RewriteRule ^support$ support.html [L]
+RewriteRule ^terms$ terms.html [L]
 RewriteRule ^verify$ verify.html [L]
