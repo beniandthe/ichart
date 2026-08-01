@@ -16,7 +16,7 @@ private enum IChartHomeBrand {
 }
 
 private enum IChartSupportLinks {
-    static let supportURL = URL(string: "https://useichart.com/support")!
+    static let supportURL = URL(string: "https://useichart.com/support.html")!
     static let supportEmail = "support@useichart.com"
 }
 
@@ -4723,7 +4723,7 @@ private struct IChartHelpArticlePage: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .tint(IChartHomeBrand.blue)
-                    .accessibilityHint("Opens useichart.com/support")
+                    .accessibilityHint("Opens useichart.com/support.html")
 
                     IChartPerformanceReportShareRow(theme: theme)
                 }

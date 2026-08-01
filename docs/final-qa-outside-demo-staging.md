@@ -20,7 +20,7 @@ This document keeps the final QA lane aligned while iChart moves from internal p
 
 2. Add/verify real contact routing through `useichart.com`.
    - Done: `4ade59e Guard hosted support contact route`.
-   - Public URLs: `https://useichart.com`, `https://useichart.com/support`, `https://useichart.com/privacy`.
+   - Public URLs: `https://useichart.com`, `https://useichart.com/support.html`, `https://useichart.com/privacy.html`.
    - Support email: `support@useichart.com`.
 
 3. Remove or hide dev-facing/test-only tools from Release surfaces.
@@ -42,7 +42,7 @@ This document keeps the final QA lane aligned while iChart moves from internal p
    - Active release docs align on App identity: `iChart: Quick-Notation Charts`, bundle `com.ichart.app`, SKU `ichart-ios`.
    - Product IDs are `com.ichart.app.pro.monthly` and `com.ichart.app.pro.annual`.
    - Supabase project is `pausvvwoazbvmzyrebwl`.
-   - Public URLs are `https://useichart.com`, `https://useichart.com/support`, and `https://useichart.com/privacy`.
+   - Public URLs are `https://useichart.com`, `https://useichart.com/support.html`, and `https://useichart.com/privacy.html`.
    - TestFlight callback remains `ichart://auth-callback`; universal links remain a production follow-up after associated-domain setup.
    - StoreKit and Supabase runbooks describe server-owned subscription authority, app-account token binding, replay/idempotency guards, Cloud Backup RLS, forum attribution/provenance, and remaining dashboard follow-ups.
 

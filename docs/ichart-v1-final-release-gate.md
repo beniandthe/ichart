@@ -2,12 +2,13 @@
 
 Status: Active release-gate source of truth
 Created: 2026-07-15
-Last refreshed: 2026-07-30
-Current candidate baseline: iChart V1.0 App Review account-deletion repair build `1.0 (35)`
-Current App Review state: Build `1.0 (35)` submitted and `Waiting for Review`
-as of 2026-07-30 at 9:33 AM Pacific
-Current public-release blocker: Apple approval and the final manual public
-release decision in App Store Connect
+Last refreshed: 2026-07-31
+Current candidate baseline: iChart V1.0 App Review StoreKit-completeness repair for build `1.0 (36)`
+Current App Review state: Build `1.0 (35)` rejected on 2026-07-31 under
+Guideline `2.1(b) Performance: App Completeness`
+Current public-release blocker: new build with the StoreKit-completeness repair,
+Apple approval, and the final manual public release decision in App Store
+Connect
 Post-baseline fixes included: chart cloud-backup provenance, explicit restore
 behavior, current outside-QA polish, refreshed App Store screenshots and full
 logo app icon, public-site source cleanup, and email verification landing-page
@@ -32,12 +33,28 @@ Supporting docs:
 
 ## 1. Current Release Call
 
-Build 35 is the submitted V1.0 App Review repair build. It supersedes build 32
-to address App Review feedback for Guideline 5.1.1: apps that support account
-creation must let users initiate account deletion in the app. It also supersedes
-builds 33 and 34 because the account-entry screen needed the original field UI
-restored and all account-screen Pencil/Scribble input disabled before the
-required physical-device deletion-flow recording could be captured reliably.
+Build 35 was rejected on 2026-07-31 under Guideline `2.1(b) Performance: App
+Completeness`. Apple's message says the In-App Purchase products exhibited a
+bug and the attached screenshot shows StoreKit's sandbox alert:
+`Your account is temporarily unavailable. Try again later. [Environment:
+Sandbox]`. The subscription group and subscription products were returned only
+because the associated app version was rejected.
+
+The 2026-07-31 dashboard inspection found the external commerce gates active:
+Paid Apps Agreement active, bank account active, U.S. Form W-9 active, the
+subscription group present, both product IDs configured, all countries or
+regions selected, English localizations present, and subscription review
+screenshots present. The app-side repair for build 36 is to keep local StoreKit
+history from showing `Pro Expired` or local Pro for a server-backed signed-in
+iChart account unless the Supabase subscription authority has a row for that
+account.
+
+Build 35 superseded build 32 to address App Review feedback for Guideline
+5.1.1: apps that support account creation must let users initiate account
+deletion in the app. It also superseded builds 33 and 34 because the
+account-entry screen needed the original field UI restored and all account-screen
+Pencil/Scribble input disabled before the required physical-device
+deletion-flow recording could be captured reliably.
 
 Build 32 was rejected by App Review on 2026-07-29 under `5.1.1 Legal:
 Privacy - Data Collection and Storage` because iChart supports account creation
@@ -68,12 +85,12 @@ Build 35 repair evidence accepted before resubmission:
 - Account-entry Pencil/Scribble input is disabled so segmented controls,
   confirmation buttons, and tab switches remain tappable while recording the
   deletion-flow evidence; text entry remains keyboard-only.
-- `https://useichart.com/verify` is deployed and cache-bust verified as a real
-  branded email verification/password recovery browser fallback before it is
-  referenced by production Auth email settings, review notes, or support flows.
-  Use the canonical slashless route; IONOS currently serves `/verify`,
-  `/support`, and `/privacy` through slashless extension negotiation while the
-  matching trailing-slash paths return `404`.
+- `https://useichart.com/verify.html` is deployed and cache-bust verified as a
+  real branded email verification/password recovery browser fallback before it
+  is referenced by production Auth email settings, review notes, or support
+  flows. The extensionless routes remain rewritten by `.htaccess`, but App
+  Store Connect metadata should use explicit `.html` URLs because IONOS
+  physical folders changed directory routing during the 2026-07-31 sweep.
 
 Build 32 superseded build 31 only to address App Review feedback: App Store
 metadata now avoids the inappropriate subtitle use of Apple product terms, and
@@ -130,10 +147,11 @@ Current verified source baseline:
   repair: `64/64`.
 - Supabase shared Node authority/function tests passed after forum block and
   account-deletion hardening: `79/79`.
-- SwiftPM passed locally on the current candidate: `655` tests,
+- SwiftPM passed locally on the current candidate: `657` tests,
   `38` skipped, `0` failures.
 - Focused `ProjectConfigurationTests` passed: `29` tests, `0` failures.
-- A generic iOS Simulator build succeeded from the generated Xcode project.
+- iPad Air 11-inch (M4) simulator builds succeeded from the generated Xcode
+  project for Debug and unsigned Release with `CODE_SIGNING_ALLOWED=NO`.
 - Signed archive and upload completed for `com.ichart.app`, version `1.0`,
   build `35`; build `35` supersedes build `32` for account deletion repair and
   account-entry keyboard-only fix.
@@ -141,10 +159,25 @@ Current verified source baseline:
   `verify_jwt = true`.
 - `account-deletion` unauthenticated hosted smoke returns `401`
   `UNAUTHORIZED_NO_AUTH_HEADER`.
-- `https://useichart.com/verify?cachebust=20260730-live-verify` returned
+- `https://useichart.com/verify.html?cachebust=20260730-live-verify` returned
   `200` on 2026-07-30 and served the branded iChart verification fallback with
   the `Open iChart` handoff. Home, support, privacy, and `styles.css` were also
   cache-bust checked after the IONOS upload.
+- 2026-07-31 public-site repair added real `terms.html`, verified explicit
+  `.html` pages, and removed accidental route folders that interfered with
+  `.htaccess` extensionless rewrites. Live cache-busted checks returned `200`
+  for `/`, `/support.html`, `/privacy.html`, `/terms.html`, `/verify.html`,
+  and the extensionless `/support`, `/privacy`, `/terms`, and `/verify`
+  fallbacks.
+- 2026-07-31 App Store Connect App Privacy was corrected from 10 to 8 data
+  types by removing Phone Number and Physical Address, which the V1 app no
+  longer collects.
+- 2026-07-31 a fresh App Review account was created for
+  `appreview-v1-20260731@useichart.com`, auto-confirmed in Supabase Auth,
+  given an immutable `App Reviewer` profile, verified with no chart/forum data
+  and only a default inactive/free subscription row, then saved in App Store
+  Connect App Review Information with updated IAP review notes. The generated
+  password is stored only in App Store Connect, not in repo or docs.
 - Forum contributor blocks use `public.forum_user_blocks` with RLS enabled, so
   blocked contributors' forum posts and comments are hidden from the blocking
   account.
@@ -155,8 +188,8 @@ Current verified source baseline:
   `32` repaired those issues but was rejected on 2026-07-29 for missing
   in-app account deletion.
 - App Store Connect submission `06b203db-9cdf-401b-bf58-78066c20ad0b` was
-  resubmitted on 2026-07-30 at 9:33 AM Pacific. Submitted items all show
-  `Waiting for Review`: `iOS App 1.0` with build `1.0 (35)`, `iChart Pro`,
+  rejected on 2026-07-31 under `2.1(b) Performance: App Completeness`.
+  Submitted items were `iOS App 1.0` with build `1.0 (35)`, `iChart Pro`,
   `iChart Pro Monthly`, and `iChart Pro Annual`.
 - App Review Notes now start with `Review build: iChart 1.0 (35)`, include the
   Settings > Account > Delete Account path, Support/Privacy/Verify URLs, and
@@ -166,12 +199,15 @@ Current verified source baseline:
 - `private` schema is not usable by `anon` or `authenticated`.
 - `forum_chart_pdfs` storage is private, PDF-only, and capped at 10 MB.
 - Edge Function unauthenticated/bad-input smoke checks fail closed as expected.
+  2026-07-31 hosted checks: StoreKit claim unauth `401`, App Store notification
+  missing payload `400`, forum action unauth `401`, account deletion unauth
+  `401`, and retention job unauth `401`.
 - No tracked or non-ignored untracked `.env`, key, cert, provisioning, `.p8`,
   PEM, or mobile provisioning files were found.
 - Public site source has been moved back to prelaunch-safe App Store wording
   until a real public App Store or pre-order URL is verified and deployed.
-- Live `https://useichart.com`, `https://useichart.com/privacy`, and
-  `https://useichart.com/support` were redeployed from
+- Live `https://useichart.com`, `https://useichart.com/privacy.html`, and
+  `https://useichart.com/support.html` were redeployed from
   `public-site/useichart` and cache-bust verified on 2026-07-29.
   Cache-busted SHA-256 matches at verification time:
   `index.html=3de9ea14432654e25d4da5ed890f83bc99338a573c9aa02874b4a418ffa8d4ef`,
@@ -180,15 +216,19 @@ Current verified source baseline:
 
 Current remaining release caveats:
 
-1. Apple approval is still pending; App Store Connect currently shows build
-   `1.0 (35)` and all submitted subscription items as `Waiting for Review`.
-2. Manual public release should remain controlled in App Store Connect after
+1. Build `1.0 (36)` must be packaged and submitted after the StoreKit
+   server-backed entitlement repair lands on `main`.
+2. App Store Connect review notes and subscription product review notes must
+   call out the sandbox purchase/restore path and the fresh review account.
+3. Apple approval is still pending; build `1.0 (35)` must not be resubmitted as
+   the final V1 binary.
+4. Manual public release should remain controlled in App Store Connect after
    approval.
-3. Supabase Auth advisor still reports insufficient MFA options. This is tracked
+5. Supabase Auth advisor still reports insufficient MFA options. This is tracked
    but should not force a half-built user MFA flow into V1.
-4. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
+6. Local Supabase reset/RLS integration QA still depends on Docker/OrbStack
    being available.
-5. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
+7. Dedicated local history scanners such as `gitleaks` or `trufflehog` were not
    installed during the latest sweep.
 
 ## 2. Fixed Production Facts
@@ -201,8 +241,9 @@ they are wrong.
 - Supabase project ref: `pausvvwoazbvmzyrebwl`
 - Supabase URL: `https://pausvvwoazbvmzyrebwl.supabase.co`
 - Support site: `https://useichart.com`
-- Support URL: `https://useichart.com/support`
-- Privacy URL: `https://useichart.com/privacy`
+- Support URL: `https://useichart.com/support.html`
+- Privacy URL: `https://useichart.com/privacy.html`
+- Terms URL: `https://useichart.com/terms.html`
 - Support email: `support@useichart.com`
 - Monthly product: `com.ichart.app.pro.monthly`
 - Annual product: `com.ichart.app.pro.annual`
@@ -590,9 +631,10 @@ and makes Sign In the default signed-out account mode.
   Account, Supabase `account-deletion` Edge Function, hosted privacy/support
   copy updates, account-entry Scribble scoped to input boxes, and App Review
   notes/recording evidence.
-- Live `https://useichart.com`, `https://useichart.com/privacy`, and
-  `https://useichart.com/support` now serve the updated App Review
-  account-deletion, support, billing, and UGC-safety copy.
+- Live `https://useichart.com`, `https://useichart.com/privacy.html`,
+  `https://useichart.com/support.html`, `https://useichart.com/terms.html`,
+  and `https://useichart.com/verify.html` now serve the updated App Review
+  account-deletion, support, billing, UGC-safety, terms, and auth-fallback copy.
 
 2026-07-30 App Review resubmission update:
 
@@ -615,7 +657,8 @@ and makes Sign In the default signed-out account mode.
 
 ### Gate 8 - App Store public submission package
 
-Status: Build 35 submitted to App Review and waiting for review.
+Status: Build 35 rejected for StoreKit sandbox purchase completeness; build 36
+repair and resubmission required.
 Priority: P0.
 
 2026-07-20 website/App Store readiness update:
@@ -684,9 +727,16 @@ Acceptance:
 - [x] Privacy policy URL live.
 - [x] Support URL live.
 - [x] App privacy nutrition answers complete and truthful.
+  - 2026-07-31: Phone Number and Physical Address were removed from App Store
+    Connect App Privacy. Current listed linked data: Name, Email Address,
+    Customer Support, Other User Content, User ID, Purchase History, Product
+    Interaction, and Other Usage Data.
 - [x] Subscription review notes complete.
 - [x] App Review contact information and demo/review account credentials are
-  entered user-side in App Store Connect.
+  entered in App Store Connect.
+  - 2026-07-31: replaced the previous stale review account with fresh
+    `appreview-v1-20260731@useichart.com`; password stored only in App Store
+    Connect.
 - [x] Screenshots and preview media match the current app.
 - [x] Known issues are either fixed or acceptable for V1.
 - [x] Version/build numbers are final.
