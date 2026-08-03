@@ -14,6 +14,7 @@ import {
   appStoreVerifierConfigurationFromEnv,
   appStoreVerifierEnvironmentProduction,
   appStoreVerifierEnvironmentSandbox,
+  compactAppStoreJWSVerificationAllowed,
 } from "./app_store_verifier_config.mjs";
 import { verifyWithAppStoreEnvironmentFallback } from "./app_store_environment_fallback.mjs";
 
@@ -132,8 +133,8 @@ async function verifySignedPayload(
   });
 }
 
-async function verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config, payloadKind) {
-  if (config.environment === appStoreVerifierEnvironmentProduction || config.enableOnlineChecks) {
+export async function verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config, payloadKind) {
+  if (!compactAppStoreJWSVerificationAllowed(config)) {
     throw new AppStoreJWSVerificationError(11);
   }
 

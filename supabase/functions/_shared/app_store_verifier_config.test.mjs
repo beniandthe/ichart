@@ -6,6 +6,7 @@ import {
   appStoreVerifierEnvironmentProduction,
   appStoreVerifierEnvironmentSandbox,
   certificateBase64BodiesFromPEMBundle,
+  compactAppStoreJWSVerificationAllowed,
   normalizeAppStoreVerifierEnvironment,
 } from "./app_store_verifier_config.mjs";
 
@@ -108,6 +109,25 @@ test("allows explicit online verification check overrides", () => {
   assert.equal(sandboxResult.value.enableOnlineChecks, true);
   assert.equal(productionResult.ok, true);
   assert.equal(productionResult.value.enableOnlineChecks, false);
+});
+
+test("allows compact JWS fallback for production verifier failures", () => {
+  assert.equal(compactAppStoreJWSVerificationAllowed({
+    environment: appStoreVerifierEnvironmentProduction,
+    enableOnlineChecks: true,
+  }), true);
+  assert.equal(compactAppStoreJWSVerificationAllowed({
+    environment: appStoreVerifierEnvironmentProduction,
+    enableOnlineChecks: false,
+  }), true);
+  assert.equal(compactAppStoreJWSVerificationAllowed({
+    environment: appStoreVerifierEnvironmentSandbox,
+    enableOnlineChecks: false,
+  }), true);
+  assert.equal(compactAppStoreJWSVerificationAllowed({
+    environment: appStoreVerifierEnvironmentSandbox,
+    enableOnlineChecks: true,
+  }), false);
 });
 
 test("rejects invalid verifier environment, app id, and certificate content", () => {
