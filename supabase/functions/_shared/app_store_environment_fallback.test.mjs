@@ -56,16 +56,47 @@ test("uses sandbox compact fallback when sandbox library verification has the sa
   assert.deepEqual(result, { environment: "Sandbox" });
 });
 
+test("uses sandbox compact fallback after non-generic sandbox library failure", async () => {
+  const result = await verifyWithAppStoreEnvironmentFallback({
+    primaryVerification: async () => {
+      throw verificationError(1);
+    },
+    compactFallbackVerification: async () => {
+      throw new Error("primary compact fallback should not run first");
+    },
+    sandboxVerification: async () => {
+      throw verificationError(4);
+    },
+    sandboxCompactFallbackVerification: async () => ({ environment: "Sandbox" }),
+  });
+
+  assert.deepEqual(result, { environment: "Sandbox" });
+});
+
+test("uses sandbox fallback after primary invalid environment failure", async () => {
+  const result = await verifyWithAppStoreEnvironmentFallback({
+    primaryVerification: async () => {
+      throw verificationError(4);
+    },
+    compactFallbackVerification: async () => {
+      throw new Error("primary compact fallback should not run");
+    },
+    sandboxVerification: async () => ({ environment: "Sandbox" }),
+  });
+
+  assert.deepEqual(result, { environment: "Sandbox" });
+});
+
 test("preserves non-generic primary verification failures", async () => {
   await assert.rejects(
     () => verifyWithAppStoreEnvironmentFallback({
       primaryVerification: async () => {
-        throw verificationError(4);
+        throw verificationError(3);
       },
       compactFallbackVerification: async () => ({ environment: "Fallback" }),
       sandboxVerification: async () => ({ environment: "Sandbox" }),
     }),
-    /verification 4/
+    /verification 3/
   );
 });
 
@@ -81,4 +112,24 @@ test("falls back to the primary compact verifier when no sandbox fallback succee
   });
 
   assert.deepEqual(result, { environment: "Compact" });
+});
+
+test("surfaces sandbox fallback diagnostics when primary compact fallback also fails", async () => {
+  await assert.rejects(
+    () => verifyWithAppStoreEnvironmentFallback({
+      primaryVerification: async () => {
+        throw verificationError(1);
+      },
+      compactFallbackVerification: async () => {
+        throw verificationError(11);
+      },
+      sandboxVerification: async () => {
+        throw verificationError(4);
+      },
+      sandboxCompactFallbackVerification: async () => {
+        throw verificationError(26);
+      },
+    }),
+    /verification 26/
+  );
 });

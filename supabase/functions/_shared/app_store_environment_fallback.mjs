@@ -7,10 +7,11 @@ export async function verifyWithAppStoreEnvironmentFallback({
   try {
     return await primaryVerification();
   } catch (primaryError) {
-    if (!isGenericVerificationFailure(primaryError)) {
+    if (!isEnvironmentFallbackEligible(primaryError)) {
       throw primaryError;
     }
 
+    let sandboxFailure = null;
     if (typeof sandboxVerification === "function") {
       const sandboxResult = await attemptFallbackVerification(
         sandboxVerification,
@@ -19,9 +20,22 @@ export async function verifyWithAppStoreEnvironmentFallback({
       if (sandboxResult.ok) {
         return sandboxResult.value;
       }
+      sandboxFailure = sandboxResult.error;
     }
 
-    return compactFallbackVerification();
+    if (isGenericVerificationFailure(primaryError)) {
+      try {
+        return await compactFallbackVerification();
+      } catch (compactError) {
+        if (sandboxFailure !== null) {
+          throw sandboxFailure;
+        }
+
+        throw compactError;
+      }
+    }
+
+    throw sandboxFailure ?? primaryError;
   }
 }
 
@@ -32,19 +46,23 @@ async function attemptFallbackVerification(verification, compactFallbackVerifica
       value: await verification(),
     };
   } catch (error) {
-    if (isGenericVerificationFailure(error) && typeof compactFallbackVerification === "function") {
+    if (typeof compactFallbackVerification === "function") {
       try {
         return {
           ok: true,
           value: await compactFallbackVerification(),
         };
-      } catch {
-        return { ok: false };
+      } catch (compactError) {
+        return { ok: false, error: compactError };
       }
     }
 
-    return { ok: false };
+    return { ok: false, error };
   }
+}
+
+function isEnvironmentFallbackEligible(error) {
+  return isGenericVerificationFailure(error) || Number(error?.status) === 4;
 }
 
 function isGenericVerificationFailure(error) {
