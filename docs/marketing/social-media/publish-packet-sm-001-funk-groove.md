@@ -1,10 +1,9 @@
 # iChart Publish Packet: SM-001 Funk Groove
 
-Status: Draft/proof master only until the App Store end card is regenerated or
-a live App Store URL is verified; native TikTok/Instagram previews still
-required
+Status: Published on Instagram and TikTok; monitor first two hours
+URL verified 2026-08-04
 Date: 2026-07-18
-Campaign: Beta Proof
+Campaign: Public Launch
 Primary audience: bandleaders and gigging musicians
 Source brief: `docs/marketing/social-media/brief-sm-001-handwrite-clean-gig-charts.md`
 Assembly notes: `docs/marketing/social-media/post-capture-sm-001-funk-groove-assembly.md`
@@ -27,10 +26,9 @@ Alternate cut:
 
 2026-07-20 final-touch note: primary `vX` and alternate `vAA` were regenerated with the launch end card (`Follow @useichart`, `TikTok + Instagram`, `useichart.com`, `Available on the App Store`) and the bottom progress rail removed. Do not publish either master until native platform preview checks safe-zone fit, audio loudness, caption readability, and link behavior.
 
-2026-07-23 release-gate note: because the public App Store product/pre-order
-URL is not yet verified, these masters remain draft/proof assets only. Before
-posting publicly, either replace the end card with prelaunch-safe launch-update
-wording or confirm and link the live App Store page.
+2026-08-04 release-gate note: Apple public lookup verified the live listing:
+`https://apps.apple.com/us/app/ichart-quick-notation-charts/id6782173484`.
+Keep native TikTok/Instagram preview as the final UI/safe-zone gate, then publish.
 
 ## Core Message
 
@@ -71,14 +69,15 @@ Reference links checked 2026-07-18:
 
 ## Landing Paths
 
-Use these as placeholders until the live beta/App Store path is confirmed:
+Use the website as the social landing page so the profile link can route visitors
+to the App Store, support, privacy, terms, and socials:
 
 - TikTok: `https://useichart.com?utm_source=tiktok&utm_medium=social&utm_campaign=sm001_funk_groove`
 - Instagram: `https://useichart.com?utm_source=instagram&utm_medium=social&utm_campaign=sm001_funk_groove`
+- App Store: `https://apps.apple.com/us/app/ichart-quick-notation-charts/id6782173484`
 
-If `useichart.com` does not have a clear beta/update action on publish day, use a softer CTA in the caption: "Follow for iPad testing updates."
-
-Do not say "Download on the App Store" unless the public App Store listing is live and the official badge/link are ready.
+Use "Download on the App Store" only after the live website has the App Store CTA
+wired and verified.
 
 ## Cover Candidates
 
@@ -118,15 +117,15 @@ Hook:
 
 Caption:
 
-> Paper charts are fast until the whole band needs versions. iChart lets you handwrite clean gig charts, transpose for players, export PDFs, and keep the chart for later edits. Testing on iPad now.
+> Paper charts are fast until the whole band needs versions. iChart lets you handwrite clean gig charts, transpose for players, export PDFs, and keep the chart for later edits. Available now for iPad.
 
 CTA:
 
-> Follow for iPad testing updates.
+> Download iChart on the App Store at useichart.com.
 
 Pinned comment:
 
-> Would you use this more for rehearsals, wedding gigs, teaching, or session work?
+> iChart is live for iPad. Would you use this more for rehearsals, wedding gigs, teaching, or session work?
 
 Hashtag set:
 
@@ -134,17 +133,19 @@ Hashtag set:
 
 Publish notes:
 
+- 2026-08-04 published on TikTok: `https://www.tiktok.com/@useichart/video/7670304999137709342`
+- TikTok Web Studio cover upload applied the Bb-version cover image.
+- Prompt comment posted. TikTok Web showed only `Delete` in the creator comment menu, so pinning was not available from that surface.
 - 2026-07-20 TikTok Web Studio preview staged with `Only you` visibility; not posted.
 - Preview proof: `assets/sm-001-funk-groove/review/sm-001-tiktok-draft-preview-2026-07-20.png`
 - Full caption competed with the lower spoken captions, so the TikTok caption was shortened in the staged preview.
-- Staged caption:
+- Old staged caption, kept for historical preview only:
 
-> One chart. Versions for the players. Testing on iPad now.
+> One chart. Versions for the players. Available now for iPad.
 >
 > #GiggingMusician #Bandleader #ChordCharts #iPadMusic
 
 - App frame clears the right-side TikTok controls in feed preview.
-- Cover caveat: TikTok Web Studio showed the logo end-card as the cover thumbnail. The cover editor was scrubbed to about `00:48:17`, close to the recommended Bb-version proof frame, but the upload page still displayed the logo thumbnail afterward. Verify or adjust cover again in native/mobile TikTok before posting.
 - Web Studio exposed only `Post` and `Discard`, not a true draft-save action. The staged preview was left unpublished.
 
 ## Instagram Reel Package
@@ -164,15 +165,20 @@ Caption:
 >
 > Handwrite a clean chart with Apple Pencil, make chart versions for the players, export PDFs, and keep the chart for future edits.
 >
-> Testing on iPad now.
+> Available now for iPad.
 
 CTA:
 
-> Follow for beta updates and more iPad chart-writing demos.
+> Download iChart on the App Store at useichart.com.
 
 Hashtag set:
 
 `#GiggingMusician #Bandleader #MusicDirector #ChordCharts #iPadMusician #ApplePencil`
+
+Publish notes:
+
+- 2026-08-04 published on Instagram Reels: `https://www.instagram.com/useichart/reel/DbondfrvMZW/`
+- Instagram cover upload applied the chart-written cover image.
 
 Story repost prompt:
 
@@ -216,16 +222,16 @@ Apple wording guardrails:
 
 ## Final Pre-Post Checklist
 
-- [ ] Complete TikTok/Instagram account setup in `docs/marketing/social-media/platform-account-setup-checklist.md`.
-- [ ] Choose final master: `vX` or `vAA`.
-- [ ] Watch final master in real time after the 2026-07-20 launch end-card/progress-rail pass.
+- [x] Complete TikTok/Instagram account setup in `docs/marketing/social-media/platform-account-setup-checklist.md`.
+- [x] Choose final master: `vX` or `vAA`.
+- [x] Watch final master in real time after the 2026-07-20 launch end-card/progress-rail pass.
 - [x] Preview in TikTok with caption UI visible.
-- [ ] Preview in Instagram Reels with caption UI visible.
-- [ ] Select cover image and verify crop. TikTok Web Studio did not reliably apply the preferred cover frame.
-- [ ] Confirm landing URL or decide on "follow for updates" only.
-- [ ] Confirm no private info is visible.
-- [ ] Confirm no unsupported claims in video, caption, cover, pinned comment, or Story repost.
-- [ ] Publish manually or schedule natively.
+- [x] Preview in Instagram Reels with caption UI visible.
+- [x] Select cover image and verify crop.
+- [x] Confirm live App Store URL and landing-page CTA.
+- [x] Confirm no private info is visible.
+- [x] Confirm no unsupported claims in video, caption, cover, pinned comment, or Story repost.
+- [x] Publish manually or schedule natively.
 - [ ] Monitor comments for the first 2 hours.
 
 ## Measurement Prompts
@@ -235,7 +241,7 @@ Apple wording guardrails:
 - Which hook held attention better: "one chart" or "Concert to Bb"?
 - Did musicians comment with real workflows?
 - Did anyone ask how transposition works?
-- Did anyone ask about TestFlight, beta, or release timing?
+- Did anyone ask about pricing, iPad compatibility, or App Store access?
 - Were saves/shares stronger than likes?
 
 7-day review:
