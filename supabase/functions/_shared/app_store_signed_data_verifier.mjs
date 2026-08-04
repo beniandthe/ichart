@@ -13,7 +13,10 @@ import {
 import {
   appStoreVerifierConfigurationFromEnv,
   appStoreVerifierEnvironmentProduction,
+  appStoreVerifierEnvironmentSandbox,
+  compactAppStoreJWSVerificationAllowed,
 } from "./app_store_verifier_config.mjs";
+import { verifyWithAppStoreEnvironmentFallback } from "./app_store_environment_fallback.mjs";
 
 export function createAppStoreSignedDataVerifiers(env = Deno.env) {
   const config = appStoreVerifierConfigurationFromEnv(env);
@@ -24,31 +27,70 @@ export function createAppStoreSignedDataVerifiers(env = Deno.env) {
   try {
     const rootCertificateBuffers = config.value.rootCertificateBase64Bodies
       .map((body) => Buffer.from(body, "base64"));
-    const verifier = new SignedDataVerifier(
-      rootCertificateBuffers,
-      config.value.enableOnlineChecks,
-      appStoreLibraryEnvironment(config.value.environment),
-      config.value.bundleID,
-      config.value.appAppleID ?? undefined
-    );
+    const verifier = createSignedDataVerifier(rootCertificateBuffers, config.value);
+    const sandboxFallbackConfig = sandboxFallbackConfigurationFor(config.value);
+    const sandboxFallbackVerifier = sandboxFallbackConfig === null
+      ? null
+      : createSignedDataVerifier(rootCertificateBuffers, sandboxFallbackConfig);
 
     return {
-      verifyAndDecodeNotification: (signedPayload) => verifyWithSandboxFallback(
-        () => verifier.verifyAndDecodeNotification(signedPayload),
-        () => verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config.value, "notification")
+      verifyAndDecodeNotification: (signedPayload) => verifySignedPayload(
+        signedPayload,
+        "notification",
+        "verifyAndDecodeNotification",
+        verifier,
+        config.value,
+        sandboxFallbackVerifier,
+        sandboxFallbackConfig,
+        rootCertificateBuffers
       ),
-      verifyAndDecodeTransaction: (signedTransactionInfo) => verifyWithSandboxFallback(
-        () => verifier.verifyAndDecodeTransaction(signedTransactionInfo),
-        () => verifyCompactAppStoreJWS(signedTransactionInfo, rootCertificateBuffers, config.value, "transaction")
+      verifyAndDecodeTransaction: (signedTransactionInfo) => verifySignedPayload(
+        signedTransactionInfo,
+        "transaction",
+        "verifyAndDecodeTransaction",
+        verifier,
+        config.value,
+        sandboxFallbackVerifier,
+        sandboxFallbackConfig,
+        rootCertificateBuffers
       ),
-      verifyAndDecodeRenewalInfo: (signedRenewalInfo) => verifyWithSandboxFallback(
-        () => verifier.verifyAndDecodeRenewalInfo(signedRenewalInfo),
-        () => verifyCompactAppStoreJWS(signedRenewalInfo, rootCertificateBuffers, config.value, "renewalInfo")
+      verifyAndDecodeRenewalInfo: (signedRenewalInfo) => verifySignedPayload(
+        signedRenewalInfo,
+        "renewalInfo",
+        "verifyAndDecodeRenewalInfo",
+        verifier,
+        config.value,
+        sandboxFallbackVerifier,
+        sandboxFallbackConfig,
+        rootCertificateBuffers
       ),
     };
   } catch {
     return {};
   }
+}
+
+function createSignedDataVerifier(rootCertificateBuffers, config) {
+  return new SignedDataVerifier(
+    rootCertificateBuffers,
+    config.enableOnlineChecks,
+    appStoreLibraryEnvironment(config.environment),
+    config.bundleID,
+    config.appAppleID ?? undefined
+  );
+}
+
+function sandboxFallbackConfigurationFor(config) {
+  if (config.environment !== appStoreVerifierEnvironmentProduction) {
+    return null;
+  }
+
+  return {
+    ...config,
+    environment: appStoreVerifierEnvironmentSandbox,
+    appAppleID: null,
+    enableOnlineChecks: false,
+  };
 }
 
 function appStoreLibraryEnvironment(environment) {
@@ -59,20 +101,40 @@ function appStoreLibraryEnvironment(environment) {
   return Environment.SANDBOX;
 }
 
-async function verifyWithSandboxFallback(appleVerification, fallbackVerification) {
-  try {
-    return await appleVerification();
-  } catch (error) {
-    if (Number(error?.status) !== 1) {
-      throw error;
-    }
-
-    return fallbackVerification();
-  }
+async function verifySignedPayload(
+  signedPayload,
+  payloadKind,
+  verifierMethod,
+  verifier,
+  config,
+  sandboxFallbackVerifier,
+  sandboxFallbackConfig,
+  rootCertificateBuffers
+) {
+  return verifyWithAppStoreEnvironmentFallback({
+    primaryVerification: () => verifier[verifierMethod](signedPayload),
+    compactFallbackVerification: () => verifyCompactAppStoreJWS(
+      signedPayload,
+      rootCertificateBuffers,
+      config,
+      payloadKind
+    ),
+    sandboxVerification: sandboxFallbackVerifier === null
+      ? null
+      : () => sandboxFallbackVerifier[verifierMethod](signedPayload),
+    sandboxCompactFallbackVerification: sandboxFallbackConfig === null
+      ? null
+      : () => verifyCompactAppStoreJWS(
+        signedPayload,
+        rootCertificateBuffers,
+        sandboxFallbackConfig,
+        payloadKind
+      ),
+  });
 }
 
-async function verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config, payloadKind) {
-  if (config.environment === appStoreVerifierEnvironmentProduction || config.enableOnlineChecks) {
+export async function verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config, payloadKind) {
+  if (!compactAppStoreJWSVerificationAllowed(config)) {
     throw new AppStoreJWSVerificationError(11);
   }
 
