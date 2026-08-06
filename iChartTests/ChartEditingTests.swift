@@ -990,6 +990,45 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[4]), .cMajor)
     }
 
+    func testLeadSheetKeyChangeCreatesSystemBoundary() throws {
+        var chart = Chart.blank(title: "Lead Modulation", measureCount: 6, layoutStyle: .leadSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[2]))
+
+        XCTAssertEqual(chart.systems.first?.measures.map(\.id), Array(measureIDs[0..<2]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[2])
+        XCTAssertEqual(chart.systems.dropFirst().first?.lineBreakRule, .forced)
+    }
+
+    func testRemovingKeyChangeRemovesOnlyModulationCreatedSystemBreak() throws {
+        var chart = Chart.blank(title: "Remove Modulation", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+
+        XCTAssertTrue(chart.removeKeyChange(atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertNotEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+    }
+
+    func testRemovingKeyChangePreservesExistingManualSystemBreak() throws {
+        var chart = Chart.blank(title: "Manual Break Modulation", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[3]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.removeKeyChange(atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+        XCTAssertEqual(chart.systems.dropFirst().first?.lineBreakRule, .forced)
+    }
+
     func testFirstMeasureKeyChangeCollapsesToDocumentKey() throws {
         var chart = Chart.blank(title: "First Key", measureCount: 3, layoutStyle: .simpleChordSheet)
         let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)

@@ -1754,6 +1754,33 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(layout.systems.dropFirst().allSatisfy { $0.timeSignatureFrame == nil })
     }
 
+    func testLeadSheetKeyChangeStartsVisibleKeySignatureSystem() throws {
+        var chart = Chart.blank(
+            title: "Lead Modulation Keys",
+            key: .dMajor,
+            measureCount: 6,
+            layoutStyle: .leadSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[2]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let secondSystem = try XCTUnwrap(layout.systems.dropFirst().first)
+
+        XCTAssertEqual(firstSystem.measures.first?.sourceMeasureID, measureIDs[0])
+        XCTAssertEqual(secondSystem.measures.first?.sourceMeasureID, measureIDs[2])
+        XCTAssertEqual(firstSystem.keySignatureLayouts.map(\.symbol), [.accidentalSharp, .accidentalSharp])
+        XCTAssertEqual(
+            secondSystem.keySignatureLayouts.map(\.symbol),
+            [.accidentalFlat, .accidentalFlat, .accidentalFlat]
+        )
+    }
+
     func testLeadSheetBassClefKeySignatureUsesBassPositions() throws {
         let key = DocumentKey(tonic: .d, accidental: .natural, mode: .major)
         var trebleChart = Chart.draft(title: "Treble", key: key, layoutStyle: .leadSheet)

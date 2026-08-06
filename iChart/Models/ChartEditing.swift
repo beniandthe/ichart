@@ -202,11 +202,12 @@ extension Chart {
             by: previousKey.semitoneDelta(to: normalizedKey),
             in: transpositionRange
         )
-        if supportsManualSystemBreaks {
-            var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
-            forcedBreakStartIDs.insert(measureID)
-            rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        if !forcedBreakStartIDs.contains(measureID) {
+            keyChangeSystemBreakMeasureIDs.insert(measureID)
         }
+        forcedBreakStartIDs.insert(measureID)
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
         updatedAt = .now
         return true
     }
@@ -232,6 +233,11 @@ extension Chart {
             by: previousKey.semitoneDelta(to: newKey),
             in: transpositionRange
         )
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        if keyChangeSystemBreakMeasureIDs.remove(measureID) != nil {
+            forcedBreakStartIDs.remove(measureID)
+        }
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
         updatedAt = .now
         return true
     }
@@ -2275,6 +2281,8 @@ extension Chart {
             (id: $0.id, spacingMode: $0.spacingMode, lineBreakRule: $0.lineBreakRule)
         }
         keyChanges = normalizedKeyChanges(for: flattenedMeasures)
+        let keyChangeMeasureIDs = Set(keyChanges.map(\.measureID))
+        keyChangeSystemBreakMeasureIDs.formIntersection(keyChangeMeasureIDs)
         timeSignatureChanges = normalizedTimeSignatureChanges(for: flattenedMeasures)
 
         var normalizedMeasures = synchronizedMeterOverrides(in: flattenedMeasures)
@@ -2309,22 +2317,38 @@ extension Chart {
             return
         }
 
+        let forcedBreakStartIDs = forcedBreakStartIDsOverride ?? keyChangeSystemBreakMeasureIDs
         var rebuiltSystems: [ChartSystem] = []
         var cursor = 0
         var systemIndex = 0
         while cursor < normalizedMeasures.count {
-            let chunkEnd = min(cursor + 4, normalizedMeasures.count)
+            var chunkEnd = min(cursor + 4, normalizedMeasures.count)
+            if cursor + 1 < chunkEnd,
+               let forcedBreakIndex = (cursor + 1..<chunkEnd).first(where: {
+                   forcedBreakStartIDs.contains(normalizedMeasures[$0].id)
+               }) {
+                chunkEnd = forcedBreakIndex
+            }
             let measuresChunk = Array(normalizedMeasures[cursor..<chunkEnd])
             let template = systemTemplates.indices.contains(systemIndex)
                 ? systemTemplates[systemIndex]
                 : (UUID(), .automatic, .automatic)
+            let lineBreakRule: LineBreakRule = {
+                guard systemIndex > 0,
+                      let firstMeasureID = measuresChunk.first?.id,
+                      forcedBreakStartIDs.contains(firstMeasureID) else {
+                    return .automatic
+                }
+
+                return .forced
+            }()
 
             rebuiltSystems.append(
                 ChartSystem(
                     id: template.0,
                     index: systemIndex,
                     spacingMode: template.1,
-                    lineBreakRule: template.2,
+                    lineBreakRule: lineBreakRule,
                     measures: measuresChunk
                 )
             )

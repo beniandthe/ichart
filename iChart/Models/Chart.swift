@@ -88,6 +88,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var hasCompletedInitialSetup: Bool = true
     var systems: [ChartSystem]
     var keyChanges: [KeyChange]
+    var keyChangeSystemBreakMeasureIDs: Set<UUID>
     var timeSignatureChanges: [TimeSignatureChange]
     var sectionLabels: [SectionLabel]
     var cueTexts: [CueText]
@@ -135,6 +136,7 @@ struct Chart: Identifiable, Codable, Hashable {
         hasCompletedInitialSetup: Bool = true,
         systems: [ChartSystem],
         keyChanges: [KeyChange] = [],
+        keyChangeSystemBreakMeasureIDs: Set<UUID> = [],
         timeSignatureChanges: [TimeSignatureChange] = [],
         sectionLabels: [SectionLabel],
         cueTexts: [CueText],
@@ -172,6 +174,7 @@ struct Chart: Identifiable, Codable, Hashable {
             by: chordTranspositionSemitones
         )
         self.keyChanges = keyChanges
+        self.keyChangeSystemBreakMeasureIDs = keyChangeSystemBreakMeasureIDs
         self.timeSignatureChanges = timeSignatureChanges
         self.sectionLabels = sectionLabels
         self.cueTexts = cueTexts
@@ -208,6 +211,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case hasCompletedInitialSetup
         case systems
         case keyChanges
+        case keyChangeSystemBreakMeasureIDs
         case timeSignatureChanges
         case sectionLabels
         case cueTexts
@@ -255,6 +259,10 @@ struct Chart: Identifiable, Codable, Hashable {
             by: decodedChordTranspositionSemitones
         )
         keyChanges = try container.decodeIfPresent([KeyChange].self, forKey: .keyChanges) ?? []
+        keyChangeSystemBreakMeasureIDs = try container.decodeIfPresent(
+            Set<UUID>.self,
+            forKey: .keyChangeSystemBreakMeasureIDs
+        ) ?? []
         timeSignatureChanges = try container.decodeIfPresent([TimeSignatureChange].self, forKey: .timeSignatureChanges) ?? []
         sectionLabels = try container.decode([SectionLabel].self, forKey: .sectionLabels)
         cueTexts = try container.decode([CueText].self, forKey: .cueTexts)

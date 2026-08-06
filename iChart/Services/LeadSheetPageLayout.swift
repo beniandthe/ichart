@@ -976,9 +976,13 @@ enum LeadSheetPageLayoutEngine {
             systemIndex: currentSystemIndex
         )
         var currentBodyWidth: CGFloat = 0
-        let forcedBreakStartIDs = chart.layoutStyle == .rhythmSectionSheet
-            ? forcedSystemBreakStartIDs(for: chart)
-            : Set<UUID>()
+        let forcedBreakStartIDs: Set<UUID>
+        if chart.layoutStyle == .rhythmSectionSheet || chart.layoutStyle == .leadSheet {
+            forcedBreakStartIDs = forcedSystemBreakStartIDs(for: chart)
+                .union(chart.keyChanges.map(\.measureID))
+        } else {
+            forcedBreakStartIDs = []
+        }
 
         func flushCurrentSystem() {
             guard !currentMeasures.isEmpty else {
