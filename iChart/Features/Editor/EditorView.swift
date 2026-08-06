@@ -893,6 +893,42 @@ struct EditorView: View {
         }
 
         Menu {
+            Menu {
+                keySelectionMenuItems(selectedKey: chart.displayedDocumentKey) { key in
+                    activateSelectTool(clearsMeasureSelection: true)
+                    chart.setDisplayedDocumentKey(key)
+                }
+            } label: {
+                Label("Chart Key", systemImage: "key")
+            }
+
+            Menu {
+                keySelectionMenuItems(selectedKey: selectedMeasureDisplayedEffectiveKey) { key in
+                    handleKeyChangeSelection(key)
+                }
+            } label: {
+                Label("Key Change at Selected Measure", systemImage: "arrow.triangle.branch")
+            }
+            .disabled(resolvedMeasureActionTargetID() == nil)
+
+            if let targetMeasureID = resolvedMeasureActionTargetID(),
+               chart.keyChange(atStartOf: targetMeasureID) != nil {
+                Divider()
+
+                Button(role: .destructive) {
+                    handleRemoveKeyChangeAtSelectedMeasure()
+                } label: {
+                    Label("Remove Selected Key Change", systemImage: "trash")
+                }
+            }
+        } label: {
+            Label(
+                "Key (\(chart.displayedDocumentKey.compactDisplayText))",
+                systemImage: "key"
+            )
+        }
+
+        Menu {
             ForEach(TranspositionView.instrumentOptions) { view in
                 Button {
                     activateSelectTool(clearsMeasureSelection: true)
@@ -1002,6 +1038,44 @@ struct EditorView: View {
         } label: {
             Label("Engraving", systemImage: "slider.horizontal.3")
         }
+    }
+
+    @ViewBuilder
+    private func keySelectionMenuItems(
+        selectedKey: DocumentKey,
+        action: @escaping (DocumentKey) -> Void
+    ) -> some View {
+        Menu("Major") {
+            ForEach(DocumentKey.standardMajorKeys) { key in
+                Button {
+                    action(key)
+                } label: {
+                    notationMenuLabel(
+                        key.titleDisplayText,
+                        isSelected: selectedKey == key
+                    )
+                }
+            }
+        }
+
+        Menu("Minor") {
+            ForEach(DocumentKey.standardMinorKeys) { key in
+                Button {
+                    action(key)
+                } label: {
+                    notationMenuLabel(
+                        key.titleDisplayText,
+                        isSelected: selectedKey == key
+                    )
+                }
+            }
+        }
+    }
+
+    private var selectedMeasureDisplayedEffectiveKey: DocumentKey {
+        resolvedMeasureActionTargetID()
+            .map { chart.displayedEffectiveKey(forMeasureID: $0) }
+            ?? chart.displayedDocumentKey
     }
 
     @ViewBuilder
@@ -2773,6 +2847,35 @@ struct EditorView: View {
         }
     }
 
+    private func handleKeyChangeSelection(_ key: DocumentKey) {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard chart.hasCompletedInitialSetup,
+              let targetMeasureID,
+              chart.setDisplayedKeyChange(key, atStartOf: targetMeasureID) else {
+            if !chart.hasCompletedInitialSetup {
+                showingSetupSheet = true
+            }
+            return
+        }
+
+        selectedMeasureID = targetMeasureID
+        selectedNoteSelection = nil
+        canvasMode = .browse
+    }
+
+    private func handleRemoveKeyChangeAtSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard chart.hasCompletedInitialSetup,
+              let targetMeasureID,
+              chart.removeKeyChange(atStartOf: targetMeasureID) else {
+            return
+        }
+
+        selectedMeasureID = targetMeasureID
+        selectedNoteSelection = nil
+        canvasMode = .browse
+    }
+
     private func handleChordInkRecognitionProposal(
         measureID: UUID,
         result: ChordInkRecognitionResult,
@@ -3223,9 +3326,10 @@ struct EditorView: View {
             chordEventID: chordEventID,
             measureID: measure.id,
             measureIndex: measure.index,
-            currentText: chordEvent.symbol.displayText,
+            currentText: chart.displayedChordSymbol(for: chordEvent, in: measure.id).displayText,
             rawInput: chordEvent.rawInput,
-            candidateTexts: chordEvent.sourceCandidateSignature
+            candidateTexts: chordEvent.sourceCandidateSignature,
+            enharmonicChoiceTexts: chart.enharmonicChordSpellingTexts(for: chordEvent, in: measure.id)
         )
     }
 

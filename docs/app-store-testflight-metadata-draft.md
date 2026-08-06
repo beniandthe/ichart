@@ -66,7 +66,7 @@ chord chart,lead sheet,music chart,jazz chart,rehearsal,transpose,handwriting,mu
 - Use "handwrite clean charts at paper speed" as the core promise.
 - Use "Available on the App Store" and the official App Store badge only after the public product page or pre-order page is live.
 - Do not use public V1 copy to promise dedicated rhythm notation tools, rhythm recognition, or rhythm rendering.
-- If rhythm notation comes up, frame it only as a planned V1.1 lane for select-input notation and future workflow expansion.
+- If rhythm notation comes up, frame it only as a planned V1.2 lane for select-input notation and future workflow expansion.
 
 ## Current Apple Product Page Requirements Checked 2026-07-20
 
@@ -98,8 +98,8 @@ Known V1 boundaries:
 
 - iChart is focused on reusable chord charts and practical gig charts, not full notation engraving.
 - Chord recognition will still need correction on some handwriting styles.
-- V1.1 roadmap note: dedicated rhythm notation input is planned as a select-input workflow. Do not describe V1.0 as shipping handwritten rhythm recognition or rendered rhythm notation.
-- Key signatures and enharmonic transposition preferences are V1.1 roadmap
+- V1.2 roadmap note: dedicated rhythm notation input is planned as a select-input workflow. Do not describe V1.0 or V1.1 as shipping handwritten rhythm recognition or rendered rhythm notation.
+- Key signatures and key-aware enharmonic chord spelling are V1.1 roadmap
   items, not V1.0 launch promises.
 - Additional obscure/less-common chord coverage is a V1.1 roadmap item; V1.0
   should be described around the supported chord families that are already

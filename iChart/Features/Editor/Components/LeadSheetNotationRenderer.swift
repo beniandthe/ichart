@@ -449,7 +449,7 @@ struct LeadSheetNotationRenderer {
 
         if let keyFrame = header.keyFrame {
             drawText(
-                chart.documentKey.transposed(for: chart.defaultTranspositionView).displayText.uppercased(),
+                chart.displayedDocumentKey.titleDisplayText,
                 in: keyFrame,
                 font: style.metadataFont(size: style.headerMetadataFontSize),
                 color: style.inkColor.withAlphaComponent(style.headerMetadataAlpha),
@@ -684,6 +684,16 @@ struct LeadSheetNotationRenderer {
                 staffSpace: layout.staffSpace
             )
         }
+    }
+
+    func drawKeyText(_ text: String, in frame: CGRect) {
+        drawText(
+            text,
+            in: frame,
+            font: style.metadataFont(size: min(13, frame.height * 0.72)),
+            color: style.inkColor.withAlphaComponent(0.74),
+            alignment: .center
+        )
     }
 
     func drawTimeSignature(_ meter: Meter, in frame: CGRect) {

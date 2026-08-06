@@ -127,6 +127,95 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertGreaterThan(pageBounds.height, pageBounds.width)
     }
 
+    func testSimpleChordSheetPDFOmitsRowKeyTextForModulation() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: "PDF Key Modulation",
+            key: .bFlatMajor,
+            measureCount: 6,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.setKeyChange(.dMajor, atStartOf: measureIDs[3]))
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedURL = try await exporter.exportPDF(for: chart).url
+        let documentText = PDFDocument(url: exportedURL)?.string ?? ""
+
+        XCTAssertFalse(documentText.contains("BB MAJOR"))
+        XCTAssertFalse(documentText.contains("Bb maj"))
+        XCTAssertFalse(documentText.contains("D maj"))
+    }
+
+    func testPDFOmitsPrintedKeyMetadataAfterInstrumentTransposition() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: "PDF Written Key",
+            key: .cMajor,
+            measureCount: 4,
+            layoutStyle: .simpleChordSheet
+        )
+        chart.setInstrumentTranspositionView(.bb)
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedURL = try await exporter.exportPDF(for: chart).url
+        let documentText = PDFDocument(url: exportedURL)?.string ?? ""
+
+        XCTAssertFalse(documentText.contains("D MAJOR"))
+        XCTAssertFalse(documentText.contains("D maj"))
+    }
+
+    func testPDFChordSpellingUsesActiveKeyAndExplicitOverride() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: "PDF Chord Spelling",
+            key: .dMajor,
+            measureCount: 2,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureIDs[0],
+                atFraction: 0.1,
+                spellingIntent: .automatic
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureIDs[1],
+                atFraction: 0.1,
+                spellingIntent: .explicit
+            )
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedURL = try await exporter.exportPDF(for: chart).url
+        let documentText = PDFDocument(url: exportedURL)?.string ?? ""
+
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "C#7/F")
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "Db7/F")
+    }
+
     func testExportPDFUsesProductReadyReadableFileNames() async throws {
         let exportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
