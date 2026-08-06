@@ -980,7 +980,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertFalse(ChartLayoutStyle.v1NewChartOptions.contains(.leadSheet))
     }
 
-    func testLibrarySummaryUsesInstrumentTranspositionInsteadOfDocumentKey() {
+    func testLibrarySummaryUsesDisplayedKeyForInstrumentTransposition() {
         var simpleChart = Chart.blank(
             title: "Simple",
             key: .bFlatMajor,
@@ -1004,9 +1004,9 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         rhythmChart.setInstrumentTranspositionView(.bb)
 
-        XCTAssertEqual(simpleChart.librarySummaryText, "Simple Chord Sheet · Concert · 3/4 · 4 measures")
-        XCTAssertEqual(rhythmChart.librarySummaryText, "Rhythm Section Sheet · Bb Horn · 6/8 · 8 measures")
-        XCTAssertEqual(leadChart.librarySummaryText, "Lead Sheet · Concert · 4/4 · 4 measures")
+        XCTAssertEqual(simpleChart.librarySummaryText, "Simple Chord Sheet · Concert · Bb maj · 3/4 · 4 measures")
+        XCTAssertEqual(rhythmChart.librarySummaryText, "Rhythm Section Sheet · Bb Horn · F maj · 6/8 · 8 measures")
+        XCTAssertEqual(leadChart.librarySummaryText, "Lead Sheet · Concert · Bb maj · 4/4 · 4 measures")
     }
 
     func testLibrarySummaryUsesSetupPendingForUnconfiguredDraft() {

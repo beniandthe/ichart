@@ -33,6 +33,10 @@ private extension ChartLayoutStyle {
     func visibleLibrarySetupSummaryParts(for chart: Chart) -> [String] {
         var parts = [String]()
 
+        if profile.setupPolicy.includesKeySelection {
+            parts.append(chart.displayedDocumentKey.compactDisplayText)
+        }
+
         if profile.setupPolicy.includesTimeSignatureSelection {
             parts.append(chart.defaultMeter.displayText)
         }
@@ -62,6 +66,14 @@ struct ChartLayoutSetupPolicy: Hashable {
     var includesTimeSignatureSelection: Bool
     var includesStartingMeasureSelection: Bool
     var clefOptions: [ChartClef]
+
+    var creationDefaultClef: ChartClef {
+        clefOptions.first ?? .treble
+    }
+
+    var allowsInitialClefSelection: Bool {
+        !clefOptions.isEmpty
+    }
 }
 
 enum ChartClef: String, Codable, CaseIterable, Hashable, Identifiable {
@@ -121,7 +133,7 @@ extension ChartLayoutStyle {
                 toolbarEmphasis: .chordRoadmap,
                 primaryToolFocus: [.chordEntry, .sectionRoadmap, .cueText, .measureLayout, .appearance],
                 setupPolicy: ChartLayoutSetupPolicy(
-                    includesKeySelection: false,
+                    includesKeySelection: true,
                     includesTimeSignatureSelection: true,
                     includesStartingMeasureSelection: true,
                     clefOptions: []
@@ -146,10 +158,10 @@ extension ChartLayoutStyle {
                 toolbarEmphasis: .rhythmAndHits,
                 primaryToolFocus: [.chordEntry, .rhythmNotation, .sectionRoadmap, .cueText, .measureLayout, .appearance],
                 setupPolicy: ChartLayoutSetupPolicy(
-                    includesKeySelection: false,
+                    includesKeySelection: true,
                     includesTimeSignatureSelection: true,
                     includesStartingMeasureSelection: true,
-                    clefOptions: []
+                    clefOptions: [.bass, .treble]
                 ),
                 measureDefaults: ChartLayoutMeasureDefaults(
                     initialMeasureCount: 8,

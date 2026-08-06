@@ -323,7 +323,11 @@ final class ChordSymbolParserTests: XCTestCase {
             "C"
         )
         XCTAssertNil(
-            ChordRecognitionCompendium.match(candidates: ["8b", "H", "Cmaj7"])
+            ChordRecognitionCompendium.match(candidates: ["8b", "H", "Cmaj"])
+        )
+        XCTAssertEqual(
+            ChordRecognitionCompendium.match(candidates: ["8b", "H", "Cmaj7"])?.displayText,
+            "C△7"
         )
         XCTAssertEqual(
             ChordRecognitionCompendium.match(candidates: ["C-△", "C-7"])?.displayText,
@@ -340,10 +344,12 @@ final class ChordSymbolParserTests: XCTestCase {
         XCTAssertEqual(ChordRecognitionCompendium.match("G/B")?.displayText, "G/B")
         XCTAssertEqual(ChordRecognitionCompendium.match("C△")?.displayText, "C△")
         XCTAssertEqual(ChordRecognitionCompendium.match("C△9")?.displayText, "C△9")
+        XCTAssertEqual(ChordRecognitionCompendium.match("Cmaj7")?.displayText, "C△7")
+        XCTAssertEqual(ChordRecognitionCompendium.match("Cmajor9")?.displayText, "C△9")
         XCTAssertEqual(ChordRecognitionCompendium.match("Csus4")?.displayText, "Csus4")
         XCTAssertEqual(ChordRecognitionCompendium.match("C7sus")?.displayText, "C7sus")
+        XCTAssertEqual(ChordRecognitionCompendium.match("C7sus4")?.displayText, "C7sus")
         XCTAssertNil(ChordRecognitionCompendium.match("CM7"))
-        XCTAssertNil(ChordRecognitionCompendium.match("Cmaj7"))
     }
 
     func testZeroTranspositionPreservesWrittenEnharmonicSpellings() throws {
@@ -572,16 +578,61 @@ final class ChordSymbolParserTests: XCTestCase {
         }
     }
 
-    func testParserRejectsUnsupportedMajorSuffixAliases() {
-        for spelling in ["CM", "CM7", "Cmaj", "Cmajor", "C major", "Bbmaj7"] {
+    func testParserRejectsUnsupportedBareMajorSuffixAliases() {
+        for spelling in ["CM", "CM7", "Cmaj", "Cmajor", "C major"] {
             XCTAssertThrowsError(try ChordSymbolParser.parse(spelling), spelling)
         }
     }
 
     func testParserRejectsUnsupportedGlyphNoiseDescriptors() {
-        for spelling in ["CC", "CG7", "C△C", "C-△", "C-△9", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "Csus7", "C7()", "C7(9)", "Db(b9)", "Db(b9)(b9)", "Db7(b9)(b9)", "Db7b9b9"] {
+        for spelling in ["CC", "CG7", "C△C", "C-△", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "C7()", "C7(9)", "Db(b9)", "Db(b9)(b9)", "Db7(b9)(b9)", "Db7b9b9"] {
             XCTAssertThrowsError(try ChordSymbolParser.parse(spelling), spelling)
             XCTAssertNil(ChordRecognitionCompendium.match(spelling), spelling)
+        }
+    }
+
+    func testParsesV11ExpandedChordCoverage() throws {
+        let expectations = [
+            "Cmaj7": "C△7",
+            "Cmajor9": "C△9",
+            "Bbmaj13": "Bb△13",
+            "C6/9": "C6/9",
+            "C-6/9": "C-6/9",
+            "Cadd2": "Cadd2",
+            "Cadd9": "Cadd9",
+            "Cadd11": "Cadd11",
+            "Csus2": "Csus2",
+            "Csus7": "C7sus",
+            "C7sus4": "C7sus",
+            "C9sus": "Csus9",
+            "C7sus(b9)": "C7sus(b9)",
+            "C-△9": "C-△9",
+            "C6/9/E": "C6/9/E"
+        ]
+
+        for (input, expectedDisplayText) in expectations {
+            let symbol = try ChordSymbolParser.parse(input)
+
+            XCTAssertEqual(symbol.displayText, expectedDisplayText, input)
+            XCTAssertEqual(ChordRecognitionCompendium.match(input)?.displayText, expectedDisplayText, input)
+        }
+    }
+
+    func testChordCoveragePrintoutDocumentsV11Families() {
+        let printout = ChordRecognitionCompendium.supportedChordTypePrintout
+
+        for expectedText in [
+            "major seventh",
+            "six-nine",
+            "add chords",
+            "altered dominants",
+            "suspended chords",
+            "diminished and half-diminished",
+            "minor-major",
+            "slash bass",
+            "chord repeat"
+        ] {
+            XCTAssertTrue(printout.contains(expectedText), expectedText)
         }
     }
 

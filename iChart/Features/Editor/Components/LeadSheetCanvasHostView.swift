@@ -1589,6 +1589,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawKeySignature(system.keySignatureLayouts)
         }
 
+        if let keyTextFrame = system.keyTextFrame,
+           let keyText = system.keyText {
+            renderer.drawKeyText(keyText, in: keyTextFrame)
+        }
+
         if chart.hasCompletedInitialSetup,
            let timeSignatureFrame = system.timeSignatureFrame {
             if let activePerformanceTraceDrawIndex {
@@ -1614,7 +1619,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if leadingMarkers.isEmpty {
                 renderer.drawLeadingBarline(
                     firstMeasure.leadingBarline ?? .single,
-                    at: firstMeasure.frame.minX,
+                    at: firstMeasure.leadingBarlineX,
                     from: firstMeasure.staffFrame.minY,
                     to: firstMeasure.staffFrame.maxY
                 )

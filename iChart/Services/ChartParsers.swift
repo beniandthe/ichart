@@ -47,11 +47,9 @@ enum ChordSymbolParser {
 
         let descriptorStart = descriptorStartIndex(in: trimmed)
         let descriptorText = String(trimmed[descriptorStart...])
-        let pieces = descriptorText
-            .split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
-            .map(String.init)
-        let descriptor = pieces.first ?? ""
-        let slashBass = pieces.count > 1 ? pieces[1] : nil
+        let parsedDescriptorText = try descriptorAndSlashBass(from: descriptorText)
+        let descriptor = parsedDescriptorText.descriptor
+        let slashBass = parsedDescriptorText.slashBass
 
         let parsedSlashBass = slashBass.flatMap(ChordPitch.parse)
 
@@ -117,6 +115,29 @@ enum ChordSymbolParser {
         return secondIndex
     }
 
+    private static func descriptorAndSlashBass(from descriptorText: String) throws -> (descriptor: String, slashBass: String?) {
+        guard let slashIndex = descriptorText.lastIndex(of: "/") else {
+            return (descriptorText, nil)
+        }
+
+        let bassStartIndex = descriptorText.index(after: slashIndex)
+        let bassText = String(descriptorText[bassStartIndex...])
+        guard ChordPitch.parse(bassText) != nil else {
+            let descriptorBeforeSlash = String(descriptorText[..<slashIndex])
+            if descriptorBeforeSlash.hasSuffix("6"), bassText == "9" {
+                return (descriptorText, nil)
+            }
+
+            if bassText.first.map({ "ABCDEFGabcdefg".contains($0) }) == true {
+                throw ChordSymbolParseError.invalidSlashBass
+            }
+
+            return (descriptorText, nil)
+        }
+
+        return (String(descriptorText[..<slashIndex]), bassText)
+    }
+
     private static func parseDescriptor(_ descriptor: String) throws -> (quality: String, extensions: [String], alterations: [String]) {
         var quality = ""
         var extensions: [String] = []
@@ -155,6 +176,12 @@ enum ChordSymbolParser {
         } else if lowercasedDescriptor.hasPrefix("alt") {
             quality = "alt"
             extensions = ["7"]
+            index = 3
+        } else if let majorPrefixLength = majorPrefixLength(in: descriptor) {
+            quality = "△"
+            index = majorPrefixLength
+        } else if lowercasedDescriptor.hasPrefix("add") {
+            quality = "add"
             index = 3
         } else if let firstCharacter = characters.first,
                   firstCharacter.isAugmentedQuality {
@@ -222,16 +249,20 @@ enum ChordSymbolParser {
 
                 extensions.append(token)
 
-                if token == "7",
+                if ["7", "9", "13"].contains(token),
                    quality.isEmpty,
                    let suspendedSuffixEndIndex = namedSuffixEndIndex(
                        in: characters,
                        startIndex: index,
                        longForm: "suspended",
                        shortForm: "sus"
-                   ) {
+                    ) {
                     quality = "sus"
                     index = suspendedSuffixEndIndex
+                    if index < characters.count,
+                       characters[index] == "4" {
+                        index += 1
+                    }
                 } else if token == "7",
                    quality.isEmpty,
                    let alteredSuffixEndIndex = namedSuffixEndIndex(
@@ -250,6 +281,16 @@ enum ChordSymbolParser {
                 )
                 alterations.append(contentsOf: parsedParenthetical.alterations)
                 index = parsedParenthetical.nextIndex
+            } else if character == "/" {
+                guard quality != "sus",
+                      extensions == ["6"],
+                      index + 1 < characters.count,
+                      characters[index + 1] == "9" else {
+                    throw ChordSymbolParseError.unsupportedQuality
+                }
+
+                extensions.append("9")
+                index += 2
             } else if character == ")" {
                 throw ChordSymbolParseError.unsupportedQuality
             } else if character.isMajorTriangleQuality {
@@ -374,6 +415,15 @@ enum ChordSymbolParser {
         ["diminished", "dim"].first { lowercasedDescriptor.hasPrefix($0) }?.count
     }
 
+    private static func majorPrefixLength(in descriptor: String) -> Int? {
+        let lowercasedDescriptor = descriptor.lowercased()
+        for prefix in ["major", "maj"] where lowercasedDescriptor.hasPrefix(prefix) {
+            return prefix.count
+        }
+
+        return nil
+    }
+
     private static func normalizeDiminishedAliases(
         quality: inout String,
         extensions: inout [String],
@@ -433,15 +483,27 @@ enum ChordSymbolParser {
         }
 
         if quality == "-△" {
-            guard extensions == ["7"],
+            guard ["7", "9", "11", "13"].contains(extensions.joined(separator: "")),
                   alterations.isEmpty else {
                 throw ChordSymbolParseError.unsupportedQuality
             }
         }
 
         if quality == "sus" {
-            guard (extensions.isEmpty || extensions == ["4"] || extensions == ["7"]),
-                  alterations.isEmpty else {
+            guard extensions.isEmpty
+                    || extensions == ["2"]
+                    || extensions == ["4"]
+                    || extensions == ["7"]
+                    || extensions == ["9"]
+                    || extensions == ["13"] else {
+                throw ChordSymbolParseError.unsupportedQuality
+            }
+        }
+
+        if quality == "add" {
+            guard alterations.isEmpty,
+                  extensions.count == 1,
+                  ["2", "4", "9", "11"].contains(extensions[0]) else {
                 throw ChordSymbolParseError.unsupportedQuality
             }
         }
@@ -449,7 +511,11 @@ enum ChordSymbolParser {
 
     private static func isSupportedExtension(_ token: String, quality: String) -> Bool {
         if quality == "sus" {
-            return token == "4"
+            return ["2", "4", "7", "9", "13"].contains(token)
+        }
+
+        if quality == "add" {
+            return ["2", "4", "9", "11"].contains(token)
         }
 
         return ["6", "7", "9", "11", "13"].contains(token)
@@ -467,15 +533,13 @@ enum ChordSymbolParser {
             return true
         }
 
-        if trimmedDescriptor.first == "M" {
-            let suffix = trimmedDescriptor.dropFirst()
-            if suffix.allSatisfy(\.isNumber) {
-                return true
-            }
+        if trimmedDescriptor.first == "M",
+           trimmedDescriptor.dropFirst().isEmpty {
+            return true
         }
 
-        return lowercasedDescriptor.hasPrefix("maj")
-            || lowercasedDescriptor.hasPrefix("major")
+        return lowercasedDescriptor == "maj"
+            || lowercasedDescriptor == "major"
     }
 }
 
