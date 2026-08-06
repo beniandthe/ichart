@@ -21,11 +21,20 @@ extension Chart {
         clef: ChartClef = .treble,
         stylePreset: StylePreset? = nil
     ) {
+        let wasCompletedInitialSetup = hasCompletedInitialSetup
         self.title = title
-        documentKey = key
+        if wasCompletedInitialSetup {
+            _ = applyDocumentKeyChange(key)
+        } else {
+            documentKey = key
+            keyChanges = []
+        }
         defaultMeter = meter
         self.staffStyle = staffStyle
-        defaultClef = clef
+        if !wasCompletedInitialSetup {
+            defaultClef = clef
+            hasExplicitClefSelection = layoutStyle.profile.setupPolicy.allowsInitialClefSelection
+        }
         if let stylePreset {
             self.stylePreset = stylePreset
         }
@@ -92,6 +101,145 @@ extension Chart {
     mutating func setTranspositionView(_ view: TranspositionView) {
         defaultTranspositionView = view
         updatedAt = .now
+    }
+
+    @discardableResult
+    mutating func setDisplayedDocumentKey(_ key: DocumentKey) -> Bool {
+        setDocumentKey(key.concertKey(for: defaultTranspositionView))
+    }
+
+    @discardableResult
+    mutating func setDocumentKey(_ key: DocumentKey) -> Bool {
+        applyDocumentKeyChange(key)
+    }
+
+    @discardableResult
+    private mutating func applyDocumentKeyChange(_ key: DocumentKey) -> Bool {
+        guard documentKey != key else {
+            return false
+        }
+
+        let transpositionSemitones = documentKey.semitoneDelta(to: key)
+        documentKey = key
+        if let firstMeasureID = measures.first?.id {
+            keyChanges.removeAll { $0.measureID == firstMeasureID }
+        }
+        transposeKeyChanges(by: transpositionSemitones)
+        transposeChordEvents(by: transpositionSemitones, in: measures.indices)
+        updatedAt = .now
+        return true
+    }
+
+    func effectiveKey(for measure: Measure) -> DocumentKey {
+        effectiveKey(forMeasureID: measure.id)
+    }
+
+    func effectiveKey(forMeasureID measureID: UUID) -> DocumentKey {
+        guard let targetIndex = measures.firstIndex(where: { $0.id == measureID }) else {
+            return documentKey
+        }
+
+        let indexByMeasureID = Dictionary(
+            uniqueKeysWithValues: measures.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        let activeChange = keyChanges
+            .compactMap { change -> (index: Int, change: KeyChange)? in
+                guard let changeIndex = indexByMeasureID[change.measureID],
+                      changeIndex <= targetIndex else {
+                    return nil
+                }
+
+                return (changeIndex, change)
+            }
+            .sorted { lhs, rhs in
+                lhs.index == rhs.index
+                    ? lhs.change.id.uuidString < rhs.change.id.uuidString
+                    : lhs.index < rhs.index
+            }
+            .last
+
+        return activeChange?.change.key ?? documentKey
+    }
+
+    func keyChange(atStartOf measureID: UUID) -> KeyChange? {
+        keyChanges.first(where: { $0.measureID == measureID })
+    }
+
+    @discardableResult
+    mutating func setDisplayedKeyChange(_ key: DocumentKey, atStartOf measureID: UUID) -> Bool {
+        setKeyChange(
+            key.concertKey(for: defaultTranspositionView),
+            atStartOf: measureID
+        )
+    }
+
+    @discardableResult
+    mutating func setKeyChange(_ key: DocumentKey, atStartOf measureID: UUID) -> Bool {
+        guard measure(id: measureID) != nil,
+              let targetIndex = measures.firstIndex(where: { $0.id == measureID }) else {
+            return false
+        }
+
+        if measures.first?.id == measureID {
+            return setDocumentKey(key)
+        }
+
+        let previousKey = effectiveKey(forMeasureID: measureID)
+        let normalizedKey = DocumentKey.allStandardKeys.contains(key) ? key : documentKey
+        if let existingIndex = keyChanges.firstIndex(where: { $0.measureID == measureID }) {
+            guard keyChanges[existingIndex].key != normalizedKey else {
+                return false
+            }
+
+            keyChanges[existingIndex].key = normalizedKey
+        } else {
+            keyChanges.append(KeyChange(measureID: measureID, key: normalizedKey))
+        }
+        keyChanges = normalizedKeyChanges(for: measures)
+        let nextKeyChangeIndex = keyChangeMeasureIndex(after: targetIndex)
+        let transpositionRange = targetIndex..<(nextKeyChangeIndex ?? measures.count)
+        transposeChordEvents(
+            by: previousKey.semitoneDelta(to: normalizedKey),
+            in: transpositionRange
+        )
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        if !forcedBreakStartIDs.contains(measureID) {
+            keyChangeSystemBreakMeasureIDs.insert(measureID)
+        }
+        forcedBreakStartIDs.insert(measureID)
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func removeKeyChange(atStartOf measureID: UUID) -> Bool {
+        guard let targetIndex = measures.firstIndex(where: { $0.id == measureID }),
+              keyChanges.contains(where: { $0.measureID == measureID }) else {
+            return false
+        }
+
+        let previousKey = effectiveKey(forMeasureID: measureID)
+        let previousCount = keyChanges.count
+        keyChanges.removeAll { $0.measureID == measureID }
+        guard keyChanges.count != previousCount else {
+            return false
+        }
+
+        let newKey = effectiveKey(forMeasureID: measureID)
+        let nextKeyChangeIndex = keyChangeMeasureIndex(after: targetIndex)
+        let transpositionRange = targetIndex..<(nextKeyChangeIndex ?? measures.count)
+        transposeChordEvents(
+            by: previousKey.semitoneDelta(to: newKey),
+            in: transpositionRange
+        )
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        if keyChangeSystemBreakMeasureIDs.remove(measureID) != nil {
+            forcedBreakStartIDs.remove(measureID)
+        }
+        rebuildSystems(using: measures, forcedBreakStartIDsOverride: forcedBreakStartIDs)
+        updatedAt = .now
+        return true
     }
 
     mutating func setChordTranspositionSemitones(_ semitones: Int) {
@@ -626,7 +774,8 @@ extension Chart {
         to measureID: UUID,
         atFraction fraction: Double?,
         sourceInkData: Data? = nil,
-        sourceCandidateSignature: [String] = []
+        sourceCandidateSignature: [String] = [],
+        spellingIntent: ChordSpellingIntent? = nil
     ) -> Bool {
         appendRecognizedChordEvent(
             symbol,
@@ -634,7 +783,8 @@ extension Chart {
             to: measureID,
             atFraction: fraction,
             sourceInkData: sourceInkData,
-            sourceCandidateSignature: sourceCandidateSignature
+            sourceCandidateSignature: sourceCandidateSignature,
+            spellingIntent: spellingIntent
         ) != nil
     }
 
@@ -645,13 +795,15 @@ extension Chart {
         to measureID: UUID,
         atFraction fraction: Double?,
         sourceInkData: Data? = nil,
-        sourceCandidateSignature: [String] = []
+        sourceCandidateSignature: [String] = [],
+        spellingIntent: ChordSpellingIntent? = nil
     ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
             return nil
         }
 
         var measure = systems[location.systemIndex].measures[location.measureIndex]
+        let resolvedSpellingIntent = spellingIntent ?? .automatic
         let suggestion = chordInsertionSuggestion(
             for: measure,
             atFraction: fraction,
@@ -660,6 +812,7 @@ extension Chart {
         )
         let chordEventID = measure.appendChordEvent(
             symbol: symbol,
+            spellingIntent: resolvedSpellingIntent,
             rawInput: rawInput,
             suggestion: suggestion,
             sourceInkData: sourceInkData,
@@ -678,7 +831,8 @@ extension Chart {
         to measureID: UUID,
         atFraction fraction: Double?,
         sourceInkData: Data,
-        sourceCandidateSignature: [String] = []
+        sourceCandidateSignature: [String] = [],
+        spellingIntent: ChordSpellingIntent? = nil
     ) -> UUID? {
         guard let chordEventID = appendRecognizedChordEvent(
             symbol,
@@ -686,7 +840,8 @@ extension Chart {
             to: measureID,
             atFraction: fraction,
             sourceInkData: sourceInkData,
-            sourceCandidateSignature: sourceCandidateSignature
+            sourceCandidateSignature: sourceCandidateSignature,
+            spellingIntent: spellingIntent
         ) else {
             return nil
         }
@@ -699,7 +854,8 @@ extension Chart {
     mutating func replaceChordEvent(
         _ chordEventID: UUID,
         with symbol: ChordSymbol,
-        rawInput: String?
+        rawInput: String?,
+        spellingIntent: ChordSpellingIntent = .explicit
     ) -> Bool {
         guard let location = chordEventLocation(id: chordEventID) else {
             return false
@@ -709,6 +865,14 @@ extension Chart {
             .measures[location.measureIndex]
             .chordEvents[location.chordIndex]
             .symbol = symbol
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .spellingIntent = spellingIntent
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .spellingOverrideSource = spellingIntent == .explicit ? .userSelection : nil
         systems[location.systemIndex]
             .measures[location.measureIndex]
             .chordEvents[location.chordIndex]
@@ -2045,6 +2209,68 @@ extension Chart {
         measure.meterOverride ?? defaultMeter
     }
 
+    private mutating func transposeKeyChanges(by semitones: Int) {
+        let normalizedSemitones = Self.normalizedChordTranspositionSemitones(semitones)
+        guard normalizedSemitones != 0 else {
+            return
+        }
+
+        for keyChangeIndex in keyChanges.indices {
+            keyChanges[keyChangeIndex].key = keyChanges[keyChangeIndex].key.transposed(by: normalizedSemitones)
+        }
+        keyChanges = normalizedKeyChanges(for: measures)
+    }
+
+    private mutating func transposeChordEvents(
+        by semitones: Int,
+        in measureIndices: Range<Int>
+    ) {
+        let normalizedSemitones = Self.normalizedChordTranspositionSemitones(semitones)
+        guard normalizedSemitones != 0,
+              !measureIndices.isEmpty else {
+            return
+        }
+
+        var flattenedMeasureIndex = 0
+        for systemIndex in systems.indices {
+            for measureIndex in systems[systemIndex].measures.indices {
+                defer {
+                    flattenedMeasureIndex += 1
+                }
+
+                guard measureIndices.contains(flattenedMeasureIndex) else {
+                    continue
+                }
+
+                for chordIndex in systems[systemIndex].measures[measureIndex].chordEvents.indices {
+                    let transposedSymbol = systems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .symbol
+                        .transposedForChartDisplay(by: normalizedSemitones)
+                    systems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .symbol = transposedSymbol
+                    systems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .rawInput = transposedSymbol.displayText
+                }
+            }
+        }
+    }
+
+    private func keyChangeMeasureIndex(after measureIndex: Int) -> Int? {
+        let indexByMeasureID = Dictionary(
+            uniqueKeysWithValues: measures.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        return keyChanges
+            .compactMap { indexByMeasureID[$0.measureID] }
+            .filter { $0 > measureIndex }
+            .min()
+    }
+
     private mutating func rebuildSystems(
         using flattenedMeasures: [Measure],
         forcedBreakStartIDsOverride: Set<UUID>? = nil
@@ -2054,6 +2280,9 @@ extension Chart {
         let systemTemplates = systems.map {
             (id: $0.id, spacingMode: $0.spacingMode, lineBreakRule: $0.lineBreakRule)
         }
+        keyChanges = normalizedKeyChanges(for: flattenedMeasures)
+        let keyChangeMeasureIDs = Set(keyChanges.map(\.measureID))
+        keyChangeSystemBreakMeasureIDs.formIntersection(keyChangeMeasureIDs)
         timeSignatureChanges = normalizedTimeSignatureChanges(for: flattenedMeasures)
 
         var normalizedMeasures = synchronizedMeterOverrides(in: flattenedMeasures)
@@ -2088,22 +2317,38 @@ extension Chart {
             return
         }
 
+        let forcedBreakStartIDs = forcedBreakStartIDsOverride ?? keyChangeSystemBreakMeasureIDs
         var rebuiltSystems: [ChartSystem] = []
         var cursor = 0
         var systemIndex = 0
         while cursor < normalizedMeasures.count {
-            let chunkEnd = min(cursor + 4, normalizedMeasures.count)
+            var chunkEnd = min(cursor + 4, normalizedMeasures.count)
+            if cursor + 1 < chunkEnd,
+               let forcedBreakIndex = (cursor + 1..<chunkEnd).first(where: {
+                   forcedBreakStartIDs.contains(normalizedMeasures[$0].id)
+               }) {
+                chunkEnd = forcedBreakIndex
+            }
             let measuresChunk = Array(normalizedMeasures[cursor..<chunkEnd])
             let template = systemTemplates.indices.contains(systemIndex)
                 ? systemTemplates[systemIndex]
                 : (UUID(), .automatic, .automatic)
+            let lineBreakRule: LineBreakRule = {
+                guard systemIndex > 0,
+                      let firstMeasureID = measuresChunk.first?.id,
+                      forcedBreakStartIDs.contains(firstMeasureID) else {
+                    return .automatic
+                }
+
+                return .forced
+            }()
 
             rebuiltSystems.append(
                 ChartSystem(
                     id: template.0,
                     index: systemIndex,
                     spacingMode: template.1,
-                    lineBreakRule: template.2,
+                    lineBreakRule: lineBreakRule,
                     measures: measuresChunk
                 )
             )
@@ -2253,6 +2498,18 @@ extension Chart {
 
         for change in timeSignatureChanges where validMeasureIDs.contains(change.afterMeasureID) {
             normalizedChanges.removeAll { $0.afterMeasureID == change.afterMeasureID }
+            normalizedChanges.append(change)
+        }
+
+        return normalizedChanges
+    }
+
+    private func normalizedKeyChanges(for flattenedMeasures: [Measure]) -> [KeyChange] {
+        let validMeasureIDs = Set(flattenedMeasures.map(\.id))
+        var normalizedChanges: [KeyChange] = []
+
+        for change in keyChanges where validMeasureIDs.contains(change.measureID) {
+            normalizedChanges.removeAll { $0.measureID == change.measureID }
             normalizedChanges.append(change)
         }
 

@@ -84,8 +84,11 @@ struct Chart: Identifiable, Codable, Hashable {
     var defaultMeter: Meter
     var staffStyle: StaffStyle = .fiveLine
     var defaultClef: ChartClef = .treble
+    var hasExplicitClefSelection: Bool = false
     var hasCompletedInitialSetup: Bool = true
     var systems: [ChartSystem]
+    var keyChanges: [KeyChange]
+    var keyChangeSystemBreakMeasureIDs: Set<UUID>
     var timeSignatureChanges: [TimeSignatureChange]
     var sectionLabels: [SectionLabel]
     var cueTexts: [CueText]
@@ -105,7 +108,11 @@ struct Chart: Identifiable, Codable, Hashable {
     }
 
     var renderedClef: ChartClef {
-        layoutStyle == .rhythmSectionSheet ? .bass : defaultClef
+        if layoutStyle == .rhythmSectionSheet && !hasExplicitClefSelection {
+            return .bass
+        }
+
+        return defaultClef
     }
 
     init(
@@ -125,8 +132,11 @@ struct Chart: Identifiable, Codable, Hashable {
         defaultMeter: Meter,
         staffStyle: StaffStyle = .fiveLine,
         defaultClef: ChartClef = .treble,
+        hasExplicitClefSelection: Bool = false,
         hasCompletedInitialSetup: Bool = true,
         systems: [ChartSystem],
+        keyChanges: [KeyChange] = [],
+        keyChangeSystemBreakMeasureIDs: Set<UUID> = [],
         timeSignatureChanges: [TimeSignatureChange] = [],
         sectionLabels: [SectionLabel],
         cueTexts: [CueText],
@@ -157,11 +167,14 @@ struct Chart: Identifiable, Codable, Hashable {
         self.defaultMeter = defaultMeter
         self.staffStyle = staffStyle
         self.defaultClef = defaultClef
+        self.hasExplicitClefSelection = hasExplicitClefSelection
         self.hasCompletedInitialSetup = hasCompletedInitialSetup
         self.systems = Self.systemsApplyingChordTransposition(
             to: systems,
             by: chordTranspositionSemitones
         )
+        self.keyChanges = keyChanges
+        self.keyChangeSystemBreakMeasureIDs = keyChangeSystemBreakMeasureIDs
         self.timeSignatureChanges = timeSignatureChanges
         self.sectionLabels = sectionLabels
         self.cueTexts = cueTexts
@@ -194,8 +207,11 @@ struct Chart: Identifiable, Codable, Hashable {
         case defaultMeter
         case staffStyle
         case defaultClef
+        case hasExplicitClefSelection
         case hasCompletedInitialSetup
         case systems
+        case keyChanges
+        case keyChangeSystemBreakMeasureIDs
         case timeSignatureChanges
         case sectionLabels
         case cueTexts
@@ -233,13 +249,20 @@ struct Chart: Identifiable, Codable, Hashable {
         chordTranspositionSemitones = 0
         defaultMeter = try container.decode(Meter.self, forKey: .defaultMeter)
         staffStyle = try container.decodeIfPresent(StaffStyle.self, forKey: .staffStyle) ?? .fiveLine
-        defaultClef = try container.decodeIfPresent(ChartClef.self, forKey: .defaultClef) ?? .treble
+        defaultClef = try container.decodeIfPresent(ChartClef.self, forKey: .defaultClef)
+            ?? (layoutStyle == .rhythmSectionSheet ? .bass : .treble)
+        hasExplicitClefSelection = try container.decodeIfPresent(Bool.self, forKey: .hasExplicitClefSelection) ?? false
         hasCompletedInitialSetup = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInitialSetup) ?? true
         let decodedSystems = try container.decode([ChartSystem].self, forKey: .systems)
         systems = Self.systemsApplyingChordTransposition(
             to: decodedSystems,
             by: decodedChordTranspositionSemitones
         )
+        keyChanges = try container.decodeIfPresent([KeyChange].self, forKey: .keyChanges) ?? []
+        keyChangeSystemBreakMeasureIDs = try container.decodeIfPresent(
+            Set<UUID>.self,
+            forKey: .keyChangeSystemBreakMeasureIDs
+        ) ?? []
         timeSignatureChanges = try container.decodeIfPresent([TimeSignatureChange].self, forKey: .timeSignatureChanges) ?? []
         sectionLabels = try container.decode([SectionLabel].self, forKey: .sectionLabels)
         cueTexts = try container.decode([CueText].self, forKey: .cueTexts)
@@ -369,16 +392,51 @@ struct DocumentKey: Codable, Hashable {
     var accidental: Accidental
     var mode: KeyMode
 
+    var pitch: ChordPitch {
+        ChordPitch(root: tonic, accidental: accidental)
+    }
+
     var displayText: String {
         "\(tonic.rawValue)\(accidental.rawValue) \(mode.displayText)"
     }
 
-    func transposed(for view: TranspositionView) -> DocumentKey {
-        guard view.semitoneOffsetFromConcert != 0 else { return self }
+    var titleDisplayText: String {
+        let modeText = mode.displayText
+        let titleModeText = modeText.prefix(1).uppercased() + String(modeText.dropFirst())
+        return "\(tonic.rawValue)\(accidental.rawValue) \(titleModeText)"
+    }
 
-        let pitch = ChordPitch(root: tonic, accidental: accidental)
-        let preference = PitchSpellingPreference.forAccidental(accidental)
-        let transposedPitch = pitch.transposed(by: view.semitoneOffsetFromConcert).spelled(using: preference)
+    var compactDisplayText: String {
+        "\(tonic.rawValue)\(accidental.rawValue) \(mode.shortDisplayText)"
+    }
+
+    var keySignature: KeySignature? {
+        Self.keySignatureByKey[self]
+    }
+
+    var spellingPreference: PitchSpellingPreference {
+        keySignature?.spellingPreference ?? PitchSpellingPreference.forAccidental(accidental)
+    }
+
+    func transposed(for view: TranspositionView) -> DocumentKey {
+        transposed(by: view.semitoneOffsetFromConcert)
+    }
+
+    func transposed(by semitones: Int) -> DocumentKey {
+        let normalizedSemitones = normalizedSemitone(semitones)
+        guard normalizedSemitones != 0 else { return self }
+
+        if let standardKey = Self.standardKey(
+            matchingSemitone: normalizedSemitone(pitch.semitone + normalizedSemitones),
+            mode: mode,
+            preference: spellingPreference
+        ) {
+            return standardKey
+        }
+
+        let transposedPitch = pitch
+            .transposed(by: normalizedSemitones)
+            .spelled(using: spellingPreference)
 
         return DocumentKey(
             tonic: transposedPitch.root,
@@ -386,6 +444,213 @@ struct DocumentKey: Codable, Hashable {
             mode: mode
         )
     }
+
+    func semitoneDelta(to key: DocumentKey) -> Int {
+        normalizedSemitone(key.pitch.semitone - pitch.semitone)
+    }
+
+    func concertKey(for view: TranspositionView) -> DocumentKey {
+        guard view.semitoneOffsetFromConcert != 0 else { return self }
+
+        if let exactKey = Self.standardKeys(for: mode).first(where: { $0.transposed(for: view) == self }) {
+            return exactKey
+        }
+
+        let semitone = normalizedSemitone(pitch.semitone - view.semitoneOffsetFromConcert)
+        if let standardKey = Self.standardKey(
+            matchingSemitone: semitone,
+            mode: mode,
+            preference: spellingPreference
+        ) {
+            return standardKey
+        }
+
+        let concertPitch = ChordPitch.from(semitone: semitone, preference: spellingPreference)
+        return DocumentKey(
+            tonic: concertPitch.root,
+            accidental: concertPitch.accidental,
+            mode: mode
+        )
+    }
+
+    private static func standardKey(
+        matchingSemitone semitone: Int,
+        mode: KeyMode,
+        preference: PitchSpellingPreference
+    ) -> DocumentKey? {
+        let candidates = standardKeys(for: mode)
+        guard !candidates.isEmpty else { return nil }
+
+        let matchingKeys = candidates.filter { $0.pitch.semitone == semitone }
+        if let preferredKey = matchingKeys.first(where: { $0.spellingPreference == preference }) {
+            return preferredKey
+        }
+
+        return matchingKeys.min {
+            ($0.keySignature?.count ?? 0) < ($1.keySignature?.count ?? 0)
+        }
+    }
+
+    private static func standardKeys(for mode: KeyMode) -> [DocumentKey] {
+        switch mode {
+        case .major:
+            return standardMajorKeys
+        case .minor:
+            return standardMinorKeys
+        case .modal:
+            return []
+        }
+    }
+
+    private func normalizedSemitone(_ semitone: Int) -> Int {
+        let modulo = semitone % 12
+        return modulo >= 0 ? modulo : modulo + 12
+    }
+}
+
+enum KeySignatureAccidentalKind: String, Codable, Hashable {
+    case sharps
+    case flats
+}
+
+struct KeySignature: Codable, Hashable {
+    var kind: KeySignatureAccidentalKind
+    var count: Int
+
+    var spellingPreference: PitchSpellingPreference {
+        kind == .sharps ? .sharps : .flats
+    }
+}
+
+struct KeyChange: Identifiable, Codable, Hashable {
+    var id: UUID
+    var measureID: UUID
+    var key: DocumentKey
+
+    init(
+        id: UUID = UUID(),
+        measureID: UUID,
+        key: DocumentKey
+    ) {
+        self.id = id
+        self.measureID = measureID
+        self.key = key
+    }
+}
+
+extension DocumentKey: Identifiable {
+    var id: String {
+        "\(tonic.rawValue)\(accidental.rawValue)-\(mode.rawValue)"
+    }
+
+    static let cMajor = DocumentKey(tonic: .c, accidental: .natural, mode: .major)
+    static let gMajor = DocumentKey(tonic: .g, accidental: .natural, mode: .major)
+    static let dMajor = DocumentKey(tonic: .d, accidental: .natural, mode: .major)
+    static let aMajor = DocumentKey(tonic: .a, accidental: .natural, mode: .major)
+    static let eMajor = DocumentKey(tonic: .e, accidental: .natural, mode: .major)
+    static let bMajor = DocumentKey(tonic: .b, accidental: .natural, mode: .major)
+    static let fSharpMajor = DocumentKey(tonic: .f, accidental: .sharp, mode: .major)
+    static let cSharpMajor = DocumentKey(tonic: .c, accidental: .sharp, mode: .major)
+    static let fMajor = DocumentKey(tonic: .f, accidental: .natural, mode: .major)
+    static let bFlatMajor = DocumentKey(tonic: .b, accidental: .flat, mode: .major)
+    static let eFlatMajor = DocumentKey(tonic: .e, accidental: .flat, mode: .major)
+    static let aFlatMajor = DocumentKey(tonic: .a, accidental: .flat, mode: .major)
+    static let dFlatMajor = DocumentKey(tonic: .d, accidental: .flat, mode: .major)
+    static let gFlatMajor = DocumentKey(tonic: .g, accidental: .flat, mode: .major)
+    static let cFlatMajor = DocumentKey(tonic: .c, accidental: .flat, mode: .major)
+
+    static let aMinor = DocumentKey(tonic: .a, accidental: .natural, mode: .minor)
+    static let eMinor = DocumentKey(tonic: .e, accidental: .natural, mode: .minor)
+    static let bMinor = DocumentKey(tonic: .b, accidental: .natural, mode: .minor)
+    static let fSharpMinor = DocumentKey(tonic: .f, accidental: .sharp, mode: .minor)
+    static let cSharpMinor = DocumentKey(tonic: .c, accidental: .sharp, mode: .minor)
+    static let gSharpMinor = DocumentKey(tonic: .g, accidental: .sharp, mode: .minor)
+    static let dSharpMinor = DocumentKey(tonic: .d, accidental: .sharp, mode: .minor)
+    static let aSharpMinor = DocumentKey(tonic: .a, accidental: .sharp, mode: .minor)
+    static let dMinor = DocumentKey(tonic: .d, accidental: .natural, mode: .minor)
+    static let gMinor = DocumentKey(tonic: .g, accidental: .natural, mode: .minor)
+    static let cMinor = DocumentKey(tonic: .c, accidental: .natural, mode: .minor)
+    static let fMinor = DocumentKey(tonic: .f, accidental: .natural, mode: .minor)
+    static let bFlatMinor = DocumentKey(tonic: .b, accidental: .flat, mode: .minor)
+    static let eFlatMinor = DocumentKey(tonic: .e, accidental: .flat, mode: .minor)
+    static let aFlatMinor = DocumentKey(tonic: .a, accidental: .flat, mode: .minor)
+
+    static let standardMajorKeys: [DocumentKey] = [
+        .cFlatMajor,
+        .gFlatMajor,
+        .dFlatMajor,
+        .aFlatMajor,
+        .eFlatMajor,
+        .bFlatMajor,
+        .fMajor,
+        .cMajor,
+        .gMajor,
+        .dMajor,
+        .aMajor,
+        .eMajor,
+        .bMajor,
+        .fSharpMajor,
+        .cSharpMajor
+    ]
+
+    static let standardMinorKeys: [DocumentKey] = [
+        .aFlatMinor,
+        .eFlatMinor,
+        .bFlatMinor,
+        .fMinor,
+        .cMinor,
+        .gMinor,
+        .dMinor,
+        .aMinor,
+        .eMinor,
+        .bMinor,
+        .fSharpMinor,
+        .cSharpMinor,
+        .gSharpMinor,
+        .dSharpMinor,
+        .aSharpMinor
+    ]
+
+    static let allStandardKeys: [DocumentKey] = standardMajorKeys + standardMinorKeys
+
+    static let commonCreationKeys: [DocumentKey] = [
+        .cMajor,
+        .fMajor,
+        .bFlatMajor,
+        .eFlatMajor,
+        .gMajor
+    ]
+
+    private static let keySignatureByKey: [DocumentKey: KeySignature] = [
+        .gMajor: KeySignature(kind: .sharps, count: 1),
+        .dMajor: KeySignature(kind: .sharps, count: 2),
+        .aMajor: KeySignature(kind: .sharps, count: 3),
+        .eMajor: KeySignature(kind: .sharps, count: 4),
+        .bMajor: KeySignature(kind: .sharps, count: 5),
+        .fSharpMajor: KeySignature(kind: .sharps, count: 6),
+        .cSharpMajor: KeySignature(kind: .sharps, count: 7),
+        .eMinor: KeySignature(kind: .sharps, count: 1),
+        .bMinor: KeySignature(kind: .sharps, count: 2),
+        .fSharpMinor: KeySignature(kind: .sharps, count: 3),
+        .cSharpMinor: KeySignature(kind: .sharps, count: 4),
+        .gSharpMinor: KeySignature(kind: .sharps, count: 5),
+        .dSharpMinor: KeySignature(kind: .sharps, count: 6),
+        .aSharpMinor: KeySignature(kind: .sharps, count: 7),
+        .fMajor: KeySignature(kind: .flats, count: 1),
+        .bFlatMajor: KeySignature(kind: .flats, count: 2),
+        .eFlatMajor: KeySignature(kind: .flats, count: 3),
+        .aFlatMajor: KeySignature(kind: .flats, count: 4),
+        .dFlatMajor: KeySignature(kind: .flats, count: 5),
+        .gFlatMajor: KeySignature(kind: .flats, count: 6),
+        .cFlatMajor: KeySignature(kind: .flats, count: 7),
+        .dMinor: KeySignature(kind: .flats, count: 1),
+        .gMinor: KeySignature(kind: .flats, count: 2),
+        .cMinor: KeySignature(kind: .flats, count: 3),
+        .fMinor: KeySignature(kind: .flats, count: 4),
+        .bFlatMinor: KeySignature(kind: .flats, count: 5),
+        .eFlatMinor: KeySignature(kind: .flats, count: 6),
+        .aFlatMinor: KeySignature(kind: .flats, count: 7)
+    ]
 }
 
 enum KeyMode: String, Codable, CaseIterable, Hashable {
@@ -399,6 +664,17 @@ enum KeyMode: String, Codable, CaseIterable, Hashable {
             return "major"
         case .minor:
             return "minor"
+        case .modal:
+            return "modal"
+        }
+    }
+
+    var shortDisplayText: String {
+        switch self {
+        case .major:
+            return "maj"
+        case .minor:
+            return "min"
         case .modal:
             return "modal"
         }
@@ -461,6 +737,18 @@ enum TranspositionView: String, Codable, CaseIterable, Hashable, Identifiable {
 }
 
 extension Chart {
+    var displayedDocumentKey: DocumentKey {
+        documentKey.transposed(for: defaultTranspositionView)
+    }
+
+    func displayedEffectiveKey(for measure: Measure) -> DocumentKey {
+        displayedEffectiveKey(forMeasureID: measure.id)
+    }
+
+    func displayedEffectiveKey(forMeasureID measureID: UUID) -> DocumentKey {
+        effectiveKey(forMeasureID: measureID).transposed(for: defaultTranspositionView)
+    }
+
     static func normalizedChordTranspositionSemitones(_ semitones: Int) -> Int {
         let modulo = semitones % 12
         return modulo >= 0 ? modulo : modulo + 12
@@ -547,10 +835,29 @@ extension Chart {
     }
 
     func displayedChordSymbol(for chordEvent: ChordEvent) -> ChordSymbol {
-        chordEvent
+        displayedChordSymbol(for: chordEvent, in: nil)
+    }
+
+    func displayedChordSymbol(for chordEvent: ChordEvent, in measureID: UUID?) -> ChordSymbol {
+        let activeKey = measureID.map { displayedEffectiveKey(forMeasureID: $0) } ?? displayedDocumentKey
+        let transposedSymbol = chordEvent
             .transposed(for: defaultTranspositionView)
             .symbol
             .transposedForChartDisplay(by: chordTranspositionSemitones)
+
+        guard chordEvent.spellingIntent == .automatic else {
+            return transposedSymbol
+        }
+
+        guard let keySignature = activeKey.keySignature else {
+            return transposedSymbol
+        }
+
+        return transposedSymbol.spelledForChartDisplay(using: keySignature.spellingPreference)
+    }
+
+    func enharmonicChordSpellingTexts(for chordEvent: ChordEvent, in measureID: UUID?) -> [String] {
+        displayedChordSymbol(for: chordEvent, in: measureID).enharmonicDisplayTexts()
     }
 }
 

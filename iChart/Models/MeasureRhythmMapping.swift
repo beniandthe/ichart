@@ -345,11 +345,13 @@ extension Measure {
         symbol: ChordSymbol,
         rawInput: String?,
         defaultMeter: Meter,
-        hitStyle: HitStyle = .none
+        hitStyle: HitStyle = .none,
+        spellingIntent: ChordSpellingIntent = .automatic
     ) -> UUID {
         let suggestion = suggestedChordInsertion(defaultMeter: defaultMeter)
         return appendChordEvent(
             symbol: symbol,
+            spellingIntent: spellingIntent,
             rawInput: rawInput,
             suggestion: suggestion,
             hitStyle: hitStyle
@@ -359,6 +361,7 @@ extension Measure {
     @discardableResult
     mutating func appendChordEvent(
         symbol: ChordSymbol,
+        spellingIntent: ChordSpellingIntent = .automatic,
         rawInput: String?,
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
@@ -370,6 +373,7 @@ extension Measure {
             ChordEvent(
                 id: chordEventID,
                 symbol: symbol,
+                spellingIntent: spellingIntent,
                 startPosition: suggestion.startPosition,
                 duration: suggestion.duration,
                 rhythmPlacement: suggestion.isRhythmMapped ? .aboveChord : .inline,

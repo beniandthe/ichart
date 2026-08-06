@@ -137,6 +137,47 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(target.fraction, 1)
     }
 
+    func testChordTargetingUsesRhythmFirstMeasureBodyAfterSetupExtension() throws {
+        let chart = Chart.blank(title: "Top Lane Chord", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let setupExtensionPoint = CGPoint(
+            x: measure.frame.minX + 20,
+            y: measure.chordWritingFrame.midY
+        )
+        let inkStartX = measure.staffFrame.minX + measure.staffFrame.width * 0.08
+        let drawing = PKDrawing(strokes: [
+            chordStroke(
+                in: measure,
+                fromX: inkStartX,
+                toX: inkStartX + 16,
+                chordFrame: chordFrame
+            )
+        ])
+
+        XCTAssertGreaterThan(measure.staffFrame.minX, measure.frame.minX)
+        XCTAssertEqual(measure.chordWritingFrame.minX, measure.staffFrame.minX + 2, accuracy: 0.001)
+        XCTAssertLessThan(measure.chordWritingFrame.width, measure.frame.width)
+        XCTAssertFalse(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(setupExtensionPoint, in: layout))
+
+        let target = try XCTUnwrap(
+            LeadSheetChordInkRecognitionTargeting.target(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: layout
+            )
+        )
+
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertGreaterThanOrEqual(target.fraction, 0)
+        XCTAssertLessThan(target.fraction, 0.2)
+    }
+
     func testChordBatchTargetingSplitsAdjacentMeasureChordGroups() throws {
         let chart = Chart.blank(title: "Batch Chords", measureCount: 4, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -189,6 +230,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
         XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
         XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
+        XCTAssertFalse(
+            inputFrames.contains {
+                $0.contains(CGPoint(x: firstMeasure.frame.minX + 16, y: firstMeasure.chordWritingFrame.midY))
+            }
+        )
         XCTAssertFalse(inputFrames.contains { $0.contains(CGPoint(x: firstMeasure.staffFrame.midX, y: firstMeasure.frame.maxY - 2)) })
     }
 

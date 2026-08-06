@@ -266,6 +266,11 @@ private struct ChartPDFRenderer {
 
         renderer.drawKeySignature(system.keySignatureLayouts)
 
+        if let keyTextFrame = system.keyTextFrame,
+           let keyText = system.keyText {
+            renderer.drawKeyText(keyText, in: keyTextFrame)
+        }
+
         if let timeSignatureFrame = system.timeSignatureFrame {
             renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
         }
@@ -276,7 +281,7 @@ private struct ChartPDFRenderer {
             if leadingMarkers.isEmpty {
                 renderer.drawLeadingBarline(
                     firstMeasure.leadingBarline ?? .single,
-                    at: firstMeasure.frame.minX,
+                    at: firstMeasure.leadingBarlineX,
                     from: firstMeasure.staffFrame.minY,
                     to: firstMeasure.staffFrame.maxY
                 )

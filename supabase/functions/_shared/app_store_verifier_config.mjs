@@ -103,6 +103,14 @@ export function certificateBase64BodiesFromPEMBundle(pemBundle) {
     .filter((body) => body.length > 0 && isBase64CertificateBody(body));
 }
 
+export function compactAppStoreJWSVerificationAllowed(config) {
+  if (config?.environment === appStoreVerifierEnvironmentProduction) {
+    return true;
+  }
+
+  return config?.enableOnlineChecks !== true;
+}
+
 function envString(env, key) {
   if (typeof env?.get === "function") {
     return normalizedString(env.get(key));

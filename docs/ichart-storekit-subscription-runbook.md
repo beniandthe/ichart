@@ -126,6 +126,8 @@ supabase secrets set ICHART_RETENTION_EMAIL_FROM='iChart <support@useichart.com>
 # supabase secrets set APP_STORE_APP_APPLE_ID=<numeric-app-apple-id>
 ```
 
+Production deployments verify App Store signed data against Apple's Production environment first. If Apple's verifier returns the generic JWS verification failure that can occur when a TestFlight/App Review/sandbox transaction reaches the production backend, the verifier retries with a Sandbox verifier and still requires the signed payload to match the iChart bundle, product ids, and app-account-token owner before writing any entitlement. The stored `storekit_environment` records which Apple environment signed the accepted transaction.
+
 Supabase hosted Edge Functions expose `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` by default. The secret key is server-only and must never be copied into the iOS app, docs, `.env.example`, or chat.
 
 Current behavior is intentionally locked:
@@ -155,6 +157,7 @@ The shared authority reducer and Supabase writer are testable with Node so the m
 
 ```sh
 node --test \
+  supabase/functions/_shared/app_store_environment_fallback.test.mjs \
   supabase/functions/_shared/app_store_subscription_authority.test.mjs \
   supabase/functions/_shared/app_store_verifier_config.test.mjs \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs

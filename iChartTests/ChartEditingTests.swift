@@ -842,6 +842,108 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(displayedKey.mode, .major)
     }
 
+    func testDocumentKeyTranspositionStaysInsideStandardKeyCatalog() {
+        XCTAssertEqual(DocumentKey.cSharpMajor.transposed(for: .bb), .eFlatMajor)
+        XCTAssertEqual(DocumentKey.fSharpMajor.transposed(for: .bb), .aFlatMajor)
+        XCTAssertEqual(DocumentKey.aSharpMinor.transposed(for: .bb), .cMinor)
+        XCTAssertEqual(DocumentKey.gFlatMajor.transposed(for: .bb), .aFlatMajor)
+    }
+
+    func testDocumentKeyTitleDisplayTextPreservesFlatAccidentalCase() {
+        XCTAssertEqual(DocumentKey.bFlatMajor.titleDisplayText, "Bb Major")
+        XCTAssertEqual(DocumentKey.eFlatMinor.titleDisplayText, "Eb Minor")
+    }
+
+    func testDisplayedDocumentKeyTracksInstrumentViewAndWritesBackToConcertKey() {
+        var chart = Chart.blank(title: "Written Key", key: .cMajor, measureCount: 4, layoutStyle: .rhythmSectionSheet)
+
+        XCTAssertEqual(chart.displayedDocumentKey, .cMajor)
+
+        chart.setInstrumentTranspositionView(.bb)
+
+        XCTAssertEqual(chart.documentKey, .cMajor)
+        XCTAssertEqual(chart.displayedDocumentKey, .dMajor)
+
+        XCTAssertTrue(chart.setDisplayedDocumentKey(.eFlatMajor))
+
+        XCTAssertEqual(chart.defaultTranspositionView, .bb)
+        XCTAssertEqual(chart.documentKey, .dFlatMajor)
+        XCTAssertEqual(chart.displayedDocumentKey, .eFlatMajor)
+
+        chart.setInstrumentTranspositionView(.concert)
+
+        XCTAssertEqual(chart.displayedDocumentKey, .dFlatMajor)
+    }
+
+    func testDisplayedDocumentKeyChangeTransposesChordsAndModulationKeys() throws {
+        var chart = Chart.blank(title: "Key Transpose", key: .cMajor, measureCount: 3, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureIDs[0],
+                atFraction: 0.1
+            )
+        )
+        XCTAssertTrue(chart.setKeyChange(.fMajor, atStartOf: measureIDs[2]))
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("F"),
+                rawInput: "F",
+                to: measureIDs[2],
+                atFraction: 0.1
+            )
+        )
+
+        XCTAssertTrue(chart.setDisplayedDocumentKey(.dMajor))
+
+        XCTAssertEqual(chart.documentKey, .dMajor)
+        XCTAssertEqual(chart.keyChange(atStartOf: measureIDs[2])?.key, .gMajor)
+        XCTAssertEqual(chart.measure(id: measureIDs[0])?.chordEvents.map(\.symbol.displayText), ["D"])
+        XCTAssertEqual(chart.measure(id: measureIDs[2])?.chordEvents.map(\.symbol.displayText), ["G"])
+    }
+
+    func testDisplayedKeyChangesWriteConcertKeyForCurrentInstrumentView() throws {
+        var chart = Chart.blank(title: "Written Modulation", key: .cMajor, measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        chart.setInstrumentTranspositionView(.bb)
+
+        XCTAssertTrue(chart.setDisplayedKeyChange(.fMajor, atStartOf: measureIDs[2]))
+
+        XCTAssertEqual(chart.keyChange(atStartOf: measureIDs[2])?.key, .eFlatMajor)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[1]), .cMajor)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[2]), .eFlatMajor)
+        XCTAssertEqual(chart.displayedEffectiveKey(forMeasureID: measureIDs[1]), .dMajor)
+        XCTAssertEqual(chart.displayedEffectiveKey(forMeasureID: measureIDs[2]), .fMajor)
+    }
+
+    func testMeasureKeyChangeTransposesOnlyAffectedSection() throws {
+        var chart = Chart.blank(title: "Scoped Modulation", key: .cMajor, measureCount: 4, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        for measureID in measureIDs {
+            _ = try XCTUnwrap(
+                chart.appendRecognizedChordEvent(
+                    try ChordSymbolParser.parse("C"),
+                    rawInput: "C",
+                    to: measureID,
+                    atFraction: 0.1
+                )
+            )
+        }
+
+        XCTAssertTrue(chart.setKeyChange(.fMajor, atStartOf: measureIDs[3]))
+        XCTAssertTrue(chart.setKeyChange(.dMajor, atStartOf: measureIDs[1]))
+
+        XCTAssertEqual(chart.measure(id: measureIDs[0])?.chordEvents.map(\.symbol.displayText), ["C"])
+        XCTAssertEqual(chart.measure(id: measureIDs[1])?.chordEvents.map(\.symbol.displayText), ["D"])
+        XCTAssertEqual(chart.measure(id: measureIDs[2])?.chordEvents.map(\.symbol.displayText), ["D"])
+        XCTAssertEqual(chart.measure(id: measureIDs[3])?.chordEvents.map(\.symbol.displayText), ["F"])
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[1]), .dMajor)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[3]), .fMajor)
+    }
+
     func testDocumentKeyConcertViewPreservesWrittenEnharmonicSpelling() {
         let writtenKey = DocumentKey(tonic: .c, accidental: .flat, mode: .major)
         let displayedKey = writtenKey.transposed(for: .concert)
@@ -849,6 +951,278 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(displayedKey.tonic, .c)
         XCTAssertEqual(displayedKey.accidental, .flat)
         XCTAssertEqual(displayedKey.displayText, "Cb major")
+    }
+
+    func testDocumentKeyCatalogCoversStandardMajorAndMinorSignatures() {
+        XCTAssertEqual(DocumentKey.standardMajorKeys.count, 15)
+        XCTAssertEqual(DocumentKey.standardMinorKeys.count, 15)
+        XCTAssertEqual(DocumentKey.allStandardKeys.count, 30)
+        XCTAssertEqual(Set(DocumentKey.allStandardKeys).count, 30)
+        XCTAssertNil(DocumentKey.cMajor.keySignature)
+        XCTAssertNil(DocumentKey.aMinor.keySignature)
+        XCTAssertEqual(DocumentKey.dMajor.keySignature, KeySignature(kind: .sharps, count: 2))
+        XCTAssertEqual(DocumentKey.bFlatMajor.keySignature, KeySignature(kind: .flats, count: 2))
+        XCTAssertEqual(DocumentKey.cSharpMajor.keySignature, KeySignature(kind: .sharps, count: 7))
+        XCTAssertEqual(DocumentKey.cFlatMajor.keySignature, KeySignature(kind: .flats, count: 7))
+        XCTAssertEqual(DocumentKey.bMinor.keySignature, KeySignature(kind: .sharps, count: 2))
+        XCTAssertEqual(DocumentKey.gMinor.keySignature, KeySignature(kind: .flats, count: 2))
+        XCTAssertEqual(DocumentKey.aSharpMinor.keySignature, KeySignature(kind: .sharps, count: 7))
+        XCTAssertEqual(DocumentKey.aFlatMinor.keySignature, KeySignature(kind: .flats, count: 7))
+    }
+
+    func testMeasureStartKeyChangesDriveEffectiveKeyAndCleanup() throws {
+        var chart = Chart.blank(title: "Modulation", measureCount: 5, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[1]), .cMajor)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[2]), .cMajor)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[3]), .eFlatMajor)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[4]), .eFlatMajor)
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+
+        XCTAssertTrue(chart.deleteMeasure(id: measureIDs[3]))
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertEqual(chart.effectiveKey(forMeasureID: measureIDs[4]), .cMajor)
+    }
+
+    func testLeadSheetKeyChangeCreatesSystemBoundary() throws {
+        var chart = Chart.blank(title: "Lead Modulation", measureCount: 6, layoutStyle: .leadSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[2]))
+
+        XCTAssertEqual(chart.systems.first?.measures.map(\.id), Array(measureIDs[0..<2]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[2])
+        XCTAssertEqual(chart.systems.dropFirst().first?.lineBreakRule, .forced)
+    }
+
+    func testRemovingKeyChangeRemovesOnlyModulationCreatedSystemBreak() throws {
+        var chart = Chart.blank(title: "Remove Modulation", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+
+        XCTAssertTrue(chart.removeKeyChange(atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertNotEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+    }
+
+    func testRemovingKeyChangePreservesExistingManualSystemBreak() throws {
+        var chart = Chart.blank(title: "Manual Break Modulation", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[3]))
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.removeKeyChange(atStartOf: measureIDs[3]))
+
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+        XCTAssertEqual(chart.systems.dropFirst().first?.measures.first?.id, measureIDs[3])
+        XCTAssertEqual(chart.systems.dropFirst().first?.lineBreakRule, .forced)
+    }
+
+    func testFirstMeasureKeyChangeCollapsesToDocumentKey() throws {
+        var chart = Chart.blank(title: "First Key", measureCount: 3, layoutStyle: .simpleChordSheet)
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+
+        XCTAssertTrue(chart.setKeyChange(.dMajor, atStartOf: firstMeasureID))
+
+        XCTAssertEqual(chart.documentKey, .dMajor)
+        XCTAssertTrue(chart.keyChanges.isEmpty)
+    }
+
+    func testChordDisplaySpellsAutomaticChordsByActiveKeyAndPreservesExplicitOverride() throws {
+        var chart = Chart.blank(title: "Enharmonics", key: .dMajor, measureCount: 2, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+
+        let automaticSharpID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureIDs[0],
+                atFraction: 0.1,
+                spellingIntent: .automatic
+            )
+        )
+        let explicitFlatID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureIDs[0],
+                atFraction: 0.6,
+                spellingIntent: .explicit
+            )
+        )
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[1]))
+        let automaticFlatID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("F#7/C#"),
+                rawInput: "F#7/C#",
+                to: measureIDs[1],
+                atFraction: 0.1,
+                spellingIntent: .automatic
+            )
+        )
+
+        XCTAssertEqual(
+            chart.displayedChordSymbol(
+                for: try XCTUnwrap(chart.chordEvent(id: automaticSharpID)),
+                in: measureIDs[0]
+            ).displayText,
+            "C#7/F"
+        )
+        XCTAssertEqual(
+            chart.displayedChordSymbol(
+                for: try XCTUnwrap(chart.chordEvent(id: explicitFlatID)),
+                in: measureIDs[0]
+            ).displayText,
+            "Db7/F"
+        )
+        XCTAssertEqual(
+            chart.displayedChordSymbol(
+                for: try XCTUnwrap(chart.chordEvent(id: automaticFlatID)),
+                in: measureIDs[1]
+            ).displayText,
+            "Gb7/Db"
+        )
+        XCTAssertEqual(
+            chart.enharmonicChordSpellingTexts(
+                for: try XCTUnwrap(chart.chordEvent(id: automaticSharpID)),
+                in: measureIDs[0]
+            ),
+            ["Db7/F", "C#7/F"]
+        )
+
+        var neutralChart = Chart.blank(title: "Neutral", key: .cMajor, measureCount: 1, layoutStyle: .simpleChordSheet)
+        let neutralMeasureID = try XCTUnwrap(neutralChart.measures.first?.id)
+        let neutralChordID = try XCTUnwrap(
+            neutralChart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("F#"),
+                rawInput: "F#",
+                to: neutralMeasureID,
+                atFraction: 0.1,
+                spellingIntent: .automatic
+            )
+        )
+        XCTAssertEqual(
+            neutralChart.displayedChordSymbol(
+                for: try XCTUnwrap(neutralChart.chordEvent(id: neutralChordID)),
+                in: neutralMeasureID
+            ).displayText,
+            "F#"
+        )
+    }
+
+    func testRecognizedChordsDefaultToAutomaticAndFollowDisplayedKeyChanges() throws {
+        var chart = Chart.blank(title: "Automatic Enharmonics", key: .dMajor, measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureID,
+                atFraction: 0.1
+            )
+        )
+
+        var chord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chord.spellingIntent, .automatic)
+        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "C#7/F")
+
+        XCTAssertTrue(chart.setDisplayedDocumentKey(.eFlatMajor))
+
+        chord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chord.spellingIntent, .automatic)
+        XCTAssertEqual(chord.symbol.displayText, "D7/F#")
+        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "D7/Gb")
+    }
+
+    func testInstrumentTranspositionRespellsAutomaticChordDisplay() throws {
+        var chart = Chart.blank(title: "Instrument Enharmonics", key: .cMajor, measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureID,
+                atFraction: 0.1
+            )
+        )
+
+        let concertChord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chart.displayedChordSymbol(for: concertChord, in: measureID).displayText, "Db7/F")
+
+        chart.setInstrumentTranspositionView(.bb)
+
+        let transposedChord = try XCTUnwrap(chart.chordEvent(id: chordID))
+        XCTAssertEqual(chart.displayedDocumentKey, .dMajor)
+        XCTAssertEqual(chart.displayedChordSymbol(for: transposedChord, in: measureID).displayText, "D#7/G")
+    }
+
+    func testLegacyChartAndChordEventDecodingDefaultsV11Fields() throws {
+        let event = ChordEvent(
+            id: UUID(),
+            symbol: try ChordSymbolParser.parse("C7"),
+            startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 2),
+            duration: .quarter,
+            rhythmPlacement: .inline,
+            tieOut: false,
+            hitStyle: .none,
+            rawInput: "C7"
+        )
+        let encodedEvent = try JSONEncoder().encode(event)
+        var eventObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedEvent) as? [String: Any])
+        eventObject.removeValue(forKey: "spellingIntent")
+        let legacyEventData = try JSONSerialization.data(withJSONObject: eventObject)
+        let decodedEvent = try JSONDecoder().decode(ChordEvent.self, from: legacyEventData)
+
+        XCTAssertEqual(decodedEvent.spellingIntent, .automatic)
+
+        var legacyExplicitEventObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedEvent) as? [String: Any])
+        legacyExplicitEventObject["spellingIntent"] = ChordSpellingIntent.explicit.rawValue
+        legacyExplicitEventObject.removeValue(forKey: "spellingOverrideSource")
+        let legacyExplicitEventData = try JSONSerialization.data(withJSONObject: legacyExplicitEventObject)
+        let decodedLegacyExplicitEvent = try JSONDecoder().decode(ChordEvent.self, from: legacyExplicitEventData)
+
+        XCTAssertEqual(decodedLegacyExplicitEvent.spellingIntent, .automatic)
+        XCTAssertNil(decodedLegacyExplicitEvent.spellingOverrideSource)
+
+        let explicitEvent = ChordEvent(
+            id: UUID(),
+            symbol: try ChordSymbolParser.parse("Db7"),
+            spellingIntent: .explicit,
+            startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 2),
+            duration: .quarter,
+            rhythmPlacement: .inline,
+            tieOut: false,
+            hitStyle: .none,
+            rawInput: "Db7"
+        )
+        let decodedExplicitEvent = try JSONDecoder().decode(
+            ChordEvent.self,
+            from: try JSONEncoder().encode(explicitEvent)
+        )
+
+        XCTAssertEqual(decodedExplicitEvent.spellingIntent, .explicit)
+        XCTAssertEqual(decodedExplicitEvent.spellingOverrideSource, .userSelection)
+
+        let chart = Chart.blank(title: "Legacy", measureCount: 2)
+        let encodedChart = try JSONEncoder().encode(chart)
+        var chartObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedChart) as? [String: Any])
+        chartObject.removeValue(forKey: "keyChanges")
+        let legacyChartData = try JSONSerialization.data(withJSONObject: chartObject)
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyChartData)
+
+        XCTAssertTrue(decodedChart.keyChanges.isEmpty)
     }
 
     func testInstrumentTranspositionViewsExposeInstrumentLabelsAndIntervals() {
@@ -1048,6 +1422,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.defaultMeter, Meter(numerator: 6, denominator: 8))
         XCTAssertEqual(chart.staffStyle, .fiveLine)
         XCTAssertEqual(chart.defaultClef, .treble)
+        XCTAssertTrue(chart.hasExplicitClefSelection)
         XCTAssertTrue(chart.hasCompletedInitialSetup)
         XCTAssertEqual(chart.systems.count, 1)
         XCTAssertEqual(chart.systems[0].spacingMode, .automatic)
@@ -1069,6 +1444,7 @@ final class ChartEditingTests: XCTestCase {
         )
 
         XCTAssertEqual(chart.defaultClef, .bass)
+        XCTAssertTrue(chart.hasExplicitClefSelection)
         XCTAssertEqual(chart.systems.count, 1)
         XCTAssertEqual(chart.systems[0].spacingMode, .relaxed)
         XCTAssertEqual(chart.measures.count, 8)
@@ -1078,15 +1454,60 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.last?.authoringState, .open)
     }
 
-    func testRenderedClefUsesBassForRhythmSectionAndDefaultForLeadSheets() {
+    func testRhythmSectionSetupCanStoreTrebleClefChoice() {
+        var chart = Chart.draft(title: "Pocket Chart", layoutStyle: .rhythmSectionSheet)
+
+        chart.completeInitialSetup(
+            title: "Pocket Chart",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 8,
+            clef: .treble
+        )
+
+        XCTAssertEqual(chart.defaultClef, .treble)
+        XCTAssertTrue(chart.hasExplicitClefSelection)
+        XCTAssertEqual(chart.renderedClef, .treble)
+    }
+
+    func testCompletedSetupDoesNotChangeClefAfterCreation() {
+        var chart = Chart.draft(title: "Pocket Chart", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Pocket Chart",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 8,
+            clef: .bass
+        )
+
+        chart.completeInitialSetup(
+            title: "Pocket Chart",
+            key: .dMajor,
+            meter: Meter(numerator: 3, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 8,
+            clef: .treble
+        )
+
+        XCTAssertEqual(chart.defaultClef, .bass)
+        XCTAssertEqual(chart.renderedClef, .bass)
+    }
+
+    func testRenderedClefUsesStoredClefWithLegacyRhythmBassFallback() {
         var rhythmChart = Chart.blank(title: "Pocket", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         var leadChart = Chart.blank(title: "Lead", measureCount: 4, layoutStyle: .leadSheet)
 
         rhythmChart.defaultClef = .treble
+        rhythmChart.hasExplicitClefSelection = true
         leadChart.defaultClef = .treble
 
-        XCTAssertEqual(rhythmChart.renderedClef, .bass)
+        XCTAssertEqual(rhythmChart.renderedClef, .treble)
         XCTAssertEqual(leadChart.renderedClef, .treble)
+
+        rhythmChart.hasExplicitClefSelection = false
+        XCTAssertEqual(rhythmChart.renderedClef, .bass)
 
         leadChart.defaultClef = .bass
 
@@ -1172,7 +1593,7 @@ final class ChartEditingTests: XCTestCase {
 
         XCTAssertEqual(chordProfile.toolbarEmphasis, .chordRoadmap)
         XCTAssertEqual(chordProfile.primaryToolFocus, [.chordEntry, .sectionRoadmap, .cueText, .measureLayout, .appearance])
-        XCTAssertEqual(chordProfile.setupPolicy.includesKeySelection, false)
+        XCTAssertEqual(chordProfile.setupPolicy.includesKeySelection, true)
         XCTAssertEqual(chordProfile.setupPolicy.includesTimeSignatureSelection, true)
         XCTAssertEqual(chordProfile.setupPolicy.includesStartingMeasureSelection, true)
         XCTAssertEqual(chordProfile.setupPolicy.clefOptions, [])
@@ -1187,10 +1608,10 @@ final class ChartEditingTests: XCTestCase {
 
         XCTAssertEqual(rhythmProfile.toolbarEmphasis, .rhythmAndHits)
         XCTAssertEqual(rhythmProfile.primaryToolFocus, [.chordEntry, .rhythmNotation, .sectionRoadmap, .cueText, .measureLayout, .appearance])
-        XCTAssertEqual(rhythmProfile.setupPolicy.includesKeySelection, false)
+        XCTAssertEqual(rhythmProfile.setupPolicy.includesKeySelection, true)
         XCTAssertEqual(rhythmProfile.setupPolicy.includesTimeSignatureSelection, true)
         XCTAssertEqual(rhythmProfile.setupPolicy.includesStartingMeasureSelection, true)
-        XCTAssertEqual(rhythmProfile.setupPolicy.clefOptions, [])
+        XCTAssertEqual(rhythmProfile.setupPolicy.clefOptions, [.bass, .treble])
         XCTAssertEqual(rhythmProfile.notationLanePolicy, .rhythmHits)
         XCTAssertTrue(rhythmProfile.allowsRhythmicNotationInk)
         XCTAssertFalse(rhythmProfile.allowsUserFacingRhythmNoteEditing)
@@ -1484,6 +1905,7 @@ final class ChartEditingTests: XCTestCase {
         object.removeValue(forKey: "notationFont")
         object.removeValue(forKey: "engravingPreset")
         object.removeValue(forKey: "defaultClef")
+        object.removeValue(forKey: "hasExplicitClefSelection")
         let legacyData = try JSONSerialization.data(withJSONObject: object)
 
         let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
@@ -1492,6 +1914,23 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(decodedChart.notationFont, .petaluma)
         XCTAssertEqual(decodedChart.engravingPreset, .balanced)
         XCTAssertEqual(decodedChart.defaultClef, .treble)
+        XCTAssertFalse(decodedChart.hasExplicitClefSelection)
+    }
+
+    func testLegacyRhythmChartWithoutExplicitClefSelectionRendersBass() throws {
+        let chart = Chart.blank(title: "Older Rhythm Snapshot", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let encodedData = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        object["defaultClef"] = ChartClef.treble.rawValue
+        object.removeValue(forKey: "hasExplicitClefSelection")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertEqual(decodedChart.layoutStyle, .rhythmSectionSheet)
+        XCTAssertEqual(decodedChart.defaultClef, .treble)
+        XCTAssertFalse(decodedChart.hasExplicitClefSelection)
+        XCTAssertEqual(decodedChart.renderedClef, .bass)
     }
 
     func testChordEventDecodingDefaultsMissingSourceCandidateSignature() throws {
@@ -1852,6 +2291,8 @@ final class ChartEditingTests: XCTestCase {
 
         let chord = try XCTUnwrap(chart.chordEvent(id: chordID))
         XCTAssertEqual(chord.symbol.displayText, "Db/A")
+        XCTAssertEqual(chord.spellingIntent, .explicit)
+        XCTAssertEqual(chord.spellingOverrideSource, .userSelection)
         XCTAssertEqual(chord.rawInput, "Db/A")
         XCTAssertEqual(chord.sourceInkData, sourceInkData)
         XCTAssertEqual(chord.sourceCandidateSignature, ["Bb/A", "Db/A"])

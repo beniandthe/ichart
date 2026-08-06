@@ -547,6 +547,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             staffLineYPositions: [],
             clefFrame: nil,
             keySignatureLayouts: [],
+            keyTextFrame: nil,
+            keyText: nil,
             timeSignatureFrame: nil,
             sectionTextFrame: nil,
             sectionText: nil,

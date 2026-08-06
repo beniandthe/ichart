@@ -1,16 +1,17 @@
 # iChart V1.1 Roadmap
 
-Status: active post-V1 product promise
+Status: active post-V1.0 product promise
 Created: 2026-07-22
+Revised: 2026-08-03
 
 ## Purpose
 
 This document defines the V1.1 goal and public/internal statement after the
 V1.0 release shape was narrowed to a more reliable promise.
 
-If older docs imply handwritten rhythm recognition, full notation engraving, or
-key-signature support in V1.0, this document supersedes that language for the
-V1.1 roadmap.
+If older docs imply handwritten rhythm recognition, full notation engraving,
+key-signature support in V1.0, or select-input rhythm notation in V1.1, this
+document supersedes that language for the current V1.1 roadmap.
 
 ## V1.0 Boundary
 
@@ -31,52 +32,52 @@ V1.0 ships as a trustworthy chart-writing app for working musicians:
 
 V1.1 will focus on chart-musician control rather than handwriting guesses:
 
-> Add key signatures, deterministic rhythm-notation input, and stronger
-> transposition preferences, while expanding chord coverage so iChart charts
-> feel more complete, predictable, and player-ready.
+> Add official key signatures, key-aware enharmonic chord spelling, and broader
+> complex-chord coverage so iChart charts feel more complete, predictable, and
+> player-ready without widening the release into a notation-input rebuild.
 
 ## V1.1 Goals
 
 ### Key Signatures
 
-- Add key-signature support to chart setup and editing.
-- Render key signatures on supported chart styles where they make musical sense.
-- Keep Rhythm Section chart behavior deliberate: key signatures should not be
-  forced into layouts where the product has chosen keyless chart identity.
-- Keep chord-symbol transposition separate from visual key-signature rendering.
+- Users can choose a concert key when starting a chart.
+- Users can edit the chart key after creation without recreating the chart.
+- Key signatures populate at the front of stanzas like an actual chart, in both
+  the editor and PDF export.
+- Chart modulations can change the active key at the correct musical location.
+- Key changes and modulations provide the spelling context for rendered chord
+  symbols.
+- Keep chord-symbol transposition separate from visual key-signature rendering,
+  but make both flows agree on the active musical key.
 
-### Select Input For Rhythm Notation
+### Enharmonic Chord Spelling
 
-- Replace the retired handwritten rhythm recognizer with a literal/select input
-  system.
-- Input should be deterministic: users choose rhythm values, rests, dots, ties,
-  and beamed groupings instead of relying on ink shape recognition.
-- Preserve the existing rhythm-map model, renderer, export path, and saved-data
-  compatibility for charts that already contain rendered rhythm maps.
-- Free-Write remains available for personal rhythm ink, cues, articulations, and
-  markings.
-
-### Enharmonic Transposition And Preferences
-
-- Add enharmonic spelling controls for transposed chord symbols.
-- Add user/chart preferences for sharp/flat spelling and common instrument
-  transposition defaults.
-- Keep transposition predictable and reversible where possible.
+- Chords enharmonically respond to their active key unless the chord was entered
+  or manually corrected with a specific spelling.
+- Users can tap a rendered chord and choose an alternate enharmonic spelling.
+- Modulating the chart updates new-key chord spellings while preserving explicit
+  user overrides.
+- Chart-wide transposition and per-section modulation must maintain coherent
+  chord spelling in the destination key.
 - Avoid implying automatic arranging or generated horn parts; V1.1 improves chart
-  spelling/control, not full part generation.
+  spelling and key control, not full part generation.
 
 ### Additional Chord Coverage
 
-- Expand supported chord recognition for obscure and less-common chord symbols
-  that were not part of the V1.0 coverage pass.
-- Keep new chord families validated through the chord compendium and parser
-  before they can render as structured `ChordEvent`s.
+- Produce a full internal printout of all covered chord types. This is not
+  user-facing; it is a development and QA artifact for spotting coverage gaps.
+- Expand supported chord recognition for obscure, complex, and less-common chord
+  symbols that were not part of the V1.0 coverage pass.
+- Add every newly supported chord family to the internal coverage printout.
+- Keep new chord families validated through the chord compendium, parser, render
+  path, and export path before they can ship as structured `ChordEvent`s.
 - Prefer transferable chord-family coverage over one-off handwriting fixtures.
 - Preserve the correction/confirmation loop for ambiguous complex chords rather
   than promising automatic recognition for every handwritten variant.
 
 ## Non-Goals
 
+- No select-input rhythm notation in V1.1; that moves to V1.2.
 - No return to handwriting-based rhythm recognition as a V1.1 requirement.
 - No melody/lyric lead-sheet engraving promise.
 - No automatic horn-part generation.
@@ -88,11 +89,24 @@ V1.1 will focus on chart-musician control rather than handwriting guesses:
 
 V1.1 is ready when a tester can:
 
-1. Create or edit a chart with a visible key signature where supported.
-2. Enter basic rhythm notation through a select-input flow without handwriting
-   recognition.
-3. Transpose chord symbols with enharmonic spelling that matches the user's
-   selected preference.
-4. Write, confirm, and render a broader set of supported uncommon chord symbols.
-5. Export a PDF whose key signatures, rhythms, chord spellings, and visible
-   chart metadata match the in-app chart.
+1. Create a chart with a chosen key and see the key signature at the front of
+   chart stanzas in the editor and exported PDF.
+2. Change the chart key and add a modulation that changes the active key at the
+   intended musical location.
+3. See chord spellings respond to the active key while preserving explicit
+   chord-spelling overrides.
+4. Tap a rendered chord and choose an alternate enharmonic spelling.
+5. Transpose or modulate a chart and see new-key chord spellings remain coherent.
+6. Generate the internal chord-coverage printout and confirm every newly
+   supported chord family appears in it.
+7. Write, confirm, render, save, reopen, and export a broader set of supported
+   uncommon chord symbols.
+
+## V1.2 Parking Lot
+
+Select-input rhythm notation is now planned for V1.2. The V1.2 rhythm work
+should remain deterministic: users choose rhythm values, rests, dots, ties, and
+beamed groupings instead of relying on ink shape recognition.
+
+Free-Write remains the reliable V1.1 path for personal rhythm ink, cues,
+articulations, and markings.
