@@ -698,6 +698,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+        XCTAssertTrue(libraryText.contains("IChartHomeUpdateStamp"))
+        XCTAssertTrue(libraryText.contains("v1.1 - Aug 6, 2026"))
+        XCTAssertTrue(libraryText.contains("Version 1.1, August 6, 2026"))
     }
 
     func testEditorDelayedAndContinuationActionsShowVisualFeedback() throws {

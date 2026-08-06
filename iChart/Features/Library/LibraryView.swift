@@ -4589,7 +4589,11 @@ private struct IChartHomeSidebar: View {
 
             Spacer()
 
-            IChartHomeAppearanceModeSwitch(selectedMode: $appearanceMode)
+            VStack(alignment: isCollapsed ? .center : .leading, spacing: 10) {
+                IChartHomeAppearanceModeSwitch(selectedMode: $appearanceMode)
+
+                IChartHomeUpdateStamp(isCollapsed: isCollapsed)
+            }
                 .padding(.horizontal, isCollapsed ? 10 : 12)
                 .padding(.bottom, 20)
         }
@@ -4636,6 +4640,20 @@ private struct IChartHomeSidebar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isCollapsed ? "Open sidebar" : "Collapse sidebar")
+    }
+}
+
+private struct IChartHomeUpdateStamp: View {
+    let isCollapsed: Bool
+
+    var body: some View {
+        Text(isCollapsed ? "v1.1" : "v1.1 - Aug 6, 2026")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(IChartHomeBrand.paper.opacity(0.62))
+            .lineLimit(1)
+            .minimumScaleFactor(0.80)
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .accessibilityLabel("Version 1.1, August 6, 2026")
     }
 }
 
