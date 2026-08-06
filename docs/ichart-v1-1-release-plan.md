@@ -90,6 +90,8 @@ cues, articulations, and working-musician shorthand.
    modulation, chord edits, save/reopen, and PDF export.
 8. Package V1.1 only after the release gate proves the three scoped pillars
    together.
+9. Create the next App Store version metadata update with the canonical search
+   package from `docs/app-store-testflight-metadata-draft.md`.
 
 ## Version Discipline
 
@@ -97,10 +99,30 @@ Keep release versions tight and focused:
 
 - Each PR should name the slice it proves.
 - Avoid unrelated UI redesign, marketing copy, Supabase changes, and App Store
-  metadata changes unless the slice explicitly requires them.
+  metadata changes during implementation PRs unless the slice explicitly
+  requires them.
+- Treat the App Store search metadata update as a final V1.1 release-packaging
+  step, after the binary scope is proven.
 - Do not mix V1.2 rhythm-input work into V1.1 branches.
 - If a release problem appears, the V1.1 history should make it clear whether
   the likely source is key data, modulation, chord spelling, or chord coverage.
+
+## App Store Metadata Handoff
+
+When V1.1 is ready for App Store submission, update the product page metadata
+with this canonical discoverability package:
+
+- App name: `iChart: Music Notation`
+- Subtitle: `Handwritten charts for iPad`
+- Keywords: `chord,lead sheet,pdf,band,setlist,gig,musician,pencil,teacher,horn,wedding,transpose,rehearsal`
+
+Keep the live Promotional Text aligned with the same positioning:
+
+> Handwrite reusable music charts on iPad, then transpose, organize, and export when the gig changes.
+
+This metadata change belongs with the next app version because the released
+V1.0 product-page name, subtitle, description, and keywords are locked in App
+Store Connect.
 
 ## Release Gates
 

@@ -2,12 +2,14 @@ import SwiftUI
 
 struct InkToolModeTab: View {
     @Binding var mode: EditorInkToolMode
+    var onModeSelected: (EditorInkToolMode) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(EditorInkToolMode.allCases, id: \.self) { toolMode in
                 Button {
                     mode = toolMode
+                    onModeSelected(toolMode)
                 } label: {
                     Label(toolMode.accessibilityLabel, systemImage: toolMode.systemImageName)
                         .labelStyle(.iconOnly)

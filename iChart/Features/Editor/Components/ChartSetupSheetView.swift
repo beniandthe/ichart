@@ -5,6 +5,9 @@ struct ChartSetupSheetView: View {
     @Binding private var chart: Chart
     let onOperationStarted: (String) -> Void
     let onOperationFinished: () -> Void
+    let isCreateActionHighlighted: Bool
+    let showsCreateTourBanner: Bool
+    let onSkipTour: () -> Void
 
     @State private var numerator: Int
     @State private var denominator: Int
@@ -16,10 +19,16 @@ struct ChartSetupSheetView: View {
 
     init(
         chart: Binding<Chart>,
+        isCreateActionHighlighted: Bool = false,
+        showsCreateTourBanner: Bool = false,
+        onSkipTour: @escaping () -> Void = {},
         onOperationStarted: @escaping (String) -> Void = { _ in },
         onOperationFinished: @escaping () -> Void = {}
     ) {
         self._chart = chart
+        self.isCreateActionHighlighted = isCreateActionHighlighted
+        self.showsCreateTourBanner = showsCreateTourBanner
+        self.onSkipTour = onSkipTour
         self.onOperationStarted = onOperationStarted
         self.onOperationFinished = onOperationFinished
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
@@ -44,6 +53,10 @@ struct ChartSetupSheetView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if showsCreateTourBanner && !chart.hasCompletedInitialSetup {
+                        createTourBanner
+                    }
+
                     layoutSection
                     if setupPolicy.includesKeySelection {
                         keySection
@@ -90,9 +103,66 @@ struct ChartSetupSheetView: View {
                         }
                     }
                     .disabled(isApplyingSetup)
+                    .tourActionHighlight(
+                        isActive: isCreateActionHighlighted && !chart.hasCompletedInitialSetup,
+                        cornerRadius: 8,
+                        tint: .blue
+                    )
                 }
             }
         }
+    }
+
+    private var createTourBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.orange)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Create The Page")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(IChartTourStyle.navy)
+
+                    Text("Choose the key, time signature, starting measure count, and sheet style.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 10) {
+                Label("Tap Create Blank Page", systemImage: "hand.tap")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(IChartTourStyle.orangeSoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(IChartTourStyle.orange.opacity(0.72), lineWidth: 1.4)
+                    }
+
+                Spacer(minLength: 0)
+
+                Button("Skip Tour", action: onSkipTour)
+                    .buttonStyle(.bordered)
+                    .tint(IChartTourStyle.navy)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(IChartTourStyle.paper)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(IChartTourStyle.navy.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
+        }
+        .shadow(color: IChartTourStyle.navy.opacity(0.16), radius: 14, y: 7)
     }
 
     private var setupPolicy: ChartLayoutSetupPolicy {

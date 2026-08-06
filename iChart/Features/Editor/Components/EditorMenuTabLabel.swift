@@ -5,24 +5,31 @@ struct EditorMenuTabLabel: View {
     let systemImage: String
     var isSelected: Bool = false
     var selectedColor = Color(red: 0.16, green: 0.38, blue: 0.82)
+    var isTourHighlighted = false
 
     var body: some View {
         Label(title, systemImage: systemImage)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .foregroundStyle(isSelected ? Color.white : (isTourHighlighted ? IChartTourStyle.navy : Color.primary))
             .background(
                 isSelected
                 ? selectedColor
-                : Color(uiColor: .secondarySystemBackground)
+                : (isTourHighlighted ? IChartTourStyle.orangeSoft : Color(uiColor: .secondarySystemBackground))
             )
             .clipShape(Capsule())
+            .tourActionHighlight(
+                isActive: isTourHighlighted,
+                cornerRadius: 18,
+                tint: IChartTourStyle.orange
+            )
     }
 }
 
 struct EditorCodaTabLabel: View {
     var isSelected: Bool = false
+    var isTourHighlighted = false
 
     var body: some View {
         codaGlyph
@@ -33,14 +40,22 @@ struct EditorCodaTabLabel: View {
             .background(
                 isSelected
                 ? Color(red: 0.16, green: 0.38, blue: 0.82)
-                : Color(uiColor: .secondarySystemBackground)
+                : (
+                    isTourHighlighted
+                    ? IChartTourStyle.orangeSoft
+                    : Color(uiColor: .secondarySystemBackground)
+                )
             )
             .clipShape(Capsule())
+            .tourActionHighlight(
+                isActive: isTourHighlighted,
+                cornerRadius: 18
+            )
             .accessibilityLabel("Coda")
     }
 
     private var symbolColor: Color {
-        isSelected ? Color.white : Color.primary
+        isSelected ? Color.white : (isTourHighlighted ? IChartTourStyle.navy : Color.primary)
     }
 
     private var codaGlyph: some View {

@@ -129,6 +129,7 @@ struct PendingChordCorrection: Identifiable {
 
 struct ChordInkBatchConfirmationSheetView: View {
     let batch: PendingChordInkBatchConfirmation
+    let highlightsForwardActions: Bool
     let onAcceptAll: ([UUID: String]) -> Void
     let onClearAndRewrite: () -> Void
     @State private var candidateTextByID: [UUID: String]
@@ -136,10 +137,12 @@ struct ChordInkBatchConfirmationSheetView: View {
 
     init(
         batch: PendingChordInkBatchConfirmation,
+        highlightsForwardActions: Bool = false,
         onAcceptAll: @escaping ([UUID: String]) -> Void,
         onClearAndRewrite: @escaping () -> Void
     ) {
         self.batch = batch
+        self.highlightsForwardActions = highlightsForwardActions
         self.onAcceptAll = onAcceptAll
         self.onClearAndRewrite = onClearAndRewrite
         _candidateTextByID = State(
@@ -186,6 +189,10 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canRenderAll)
                     .frame(maxWidth: .infinity)
+                    .tourActionHighlight(
+                        isActive: highlightsForwardActions && canRenderAll,
+                        cornerRadius: 10
+                    )
                 }
             }
             .frame(maxWidth: 520)
@@ -250,6 +257,10 @@ struct ChordInkBatchConfirmationSheetView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .tourActionHighlight(
+                            isActive: highlightsForwardActions,
+                            cornerRadius: 8
+                        )
                     }
                 }
             }
@@ -412,6 +423,7 @@ enum ChordInkFixtureCopyResult: Equatable {
 struct ChordInkConfirmationSheetView: View {
     let confirmation: PendingChordInkConfirmation
     let showsFixtureCaptureTools: Bool
+    let highlightsForwardActions: Bool
     let onAcceptCandidate: (String) -> Void
     let onCopyFixtureJSON: (String) -> ChordInkFixtureCopyResult
     let onClearAndRewrite: () -> Void
@@ -422,12 +434,14 @@ struct ChordInkConfirmationSheetView: View {
     init(
         confirmation: PendingChordInkConfirmation,
         showsFixtureCaptureTools: Bool = false,
+        highlightsForwardActions: Bool = false,
         onAcceptCandidate: @escaping (String) -> Void,
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
         onClearAndRewrite: @escaping () -> Void
     ) {
         self.confirmation = confirmation
         self.showsFixtureCaptureTools = showsFixtureCaptureTools
+        self.highlightsForwardActions = highlightsForwardActions
         self.onAcceptCandidate = onAcceptCandidate
         self.onCopyFixtureJSON = onCopyFixtureJSON
         self.onClearAndRewrite = onClearAndRewrite
@@ -518,6 +532,10 @@ struct ChordInkConfirmationSheetView: View {
                             manualCandidateText = candidate
                             isManualEntryFocused = false
                         }
+                        .tourActionHighlight(
+                            isActive: highlightsForwardActions,
+                            cornerRadius: 9
+                        )
                         .accessibilityLabel("Use suggestion \(index + 1), \(candidate)")
                     }
                 }
@@ -541,6 +559,10 @@ struct ChordInkConfirmationSheetView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(trimmedCandidateText.isEmpty)
+            .tourActionHighlight(
+                isActive: highlightsForwardActions && !trimmedCandidateText.isEmpty,
+                cornerRadius: 10
+            )
 
             Button(role: .destructive) {
                 onClearAndRewrite()
@@ -612,7 +634,7 @@ struct ChordCorrectionSheetView: View {
     let onAcceptCandidate: (String) -> Void
     let onCancel: () -> Void
     @State private var candidateText: String
-    @State private var isCandidateFocused = false
+    @FocusState private var isManualEntryFocused: Bool
 
     init(
         correction: PendingChordCorrection,
@@ -622,84 +644,95 @@ struct ChordCorrectionSheetView: View {
         self.correction = correction
         self.onAcceptCandidate = onAcceptCandidate
         self.onCancel = onCancel
-        _candidateText = State(initialValue: "")
+        _candidateText = State(initialValue: correction.currentDisplayText)
     }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Update Chord")
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                    .frame(maxWidth: .infinity, alignment: .center)
+        NavigationStack {
+            VStack(spacing: 18) {
+                Text("Enter Chord")
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
-                correctionCandidates
-                correctionEntry
-                correctionActions
+                TextField("Type chord", text: $candidateText)
+                    .font(.system(.title2, design: .rounded).weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($isManualEntryFocused)
+                    .submitLabel(.done)
+                    .animation(nil, value: candidateText)
+                    .onSubmit {
+                        acceptTrimmedCandidate()
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                    }
+                    .accessibilityLabel("Manual chord entry")
+
+                shortcutButtons
+                actionButtons
             }
             .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 24)
             .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .background(Color(uiColor: .systemGroupedBackground))
         .presentationDetents([.medium])
-        .task {
-            isCandidateFocused = true
+        .interactiveDismissDisabled(true)
+        .task(id: correction.id) {
+            guard shouldFocusManualEntry else {
+                return
+            }
+
+            isManualEntryFocused = true
         }
     }
 
-    private var correctionCandidates: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Quick Choices")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var shortcutButtons: some View {
+        let candidates = Array(quickShortcutTexts.prefix(3))
 
-            FlowLayout(spacing: 8, rowSpacing: 8) {
-                ForEach(correction.quickChoiceTexts, id: \.self) { candidate in
-                    Button {
-                        candidateText = candidate
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(candidate)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-
-                            if candidate == trimmedCandidateText {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.caption.weight(.semibold))
-                            }
+        return VStack(spacing: 10) {
+            if !candidates.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(Array(candidates.enumerated()), id: \.element) { index, candidate in
+                        compactButton(title: candidate) {
+                            candidateText = candidate
+                            isManualEntryFocused = false
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(candidate == trimmedCandidateText ? Color.blue.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground))
-                        )
-                        .foregroundStyle(candidate == trimmedCandidateText ? Color.blue : Color.primary)
+                        .accessibilityLabel("Use suggestion \(index + 1), \(candidate)")
                     }
-                    .buttonStyle(.plain)
                 }
             }
+
+            compactButton(title: "Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)") {
+                candidateText = ChordInkManualEntryShortcut.chordRepeatText
+                isManualEntryFocused = false
+            }
+            .accessibilityLabel("Use chord repeat symbol")
         }
     }
 
-    private var correctionEntry: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ChordInkScopedScribbleTextField(
-                placeholder: "Type chord",
-                text: $candidateText,
-                isFocused: isCandidateFocused,
-                allowsScribble: false,
-                onFocusChanged: { isCandidateFocused = $0 }
-            )
-            .frame(height: 54)
-            .accessibilityLabel("Updated chord entry")
-        }
-    }
-
-    private var correctionActions: some View {
+    private var actionButtons: some View {
         HStack(spacing: 10) {
+            Button {
+                acceptTrimmedCandidate()
+            } label: {
+                Text("Confirm")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(trimmedCandidateText.isEmpty)
+
             Button {
                 onCancel()
             } label: {
@@ -707,16 +740,27 @@ struct ChordCorrectionSheetView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-
-            Button {
-                acceptTrimmedCandidate()
-            } label: {
-                Text("Update")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(trimmedCandidateText.isEmpty)
         }
+    }
+
+    private func compactButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .frame(maxWidth: .infinity, minHeight: 42)
+                .padding(.horizontal, 10)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private var quickShortcutTexts: [String] {
+        correction.quickChoiceTexts.filter { $0 != ChordInkManualEntryShortcut.chordRepeatText }
+    }
+
+    private var shouldFocusManualEntry: Bool {
+        quickShortcutTexts.isEmpty
     }
 
     private var trimmedCandidateText: String {

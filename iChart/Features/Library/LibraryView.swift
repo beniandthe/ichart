@@ -896,7 +896,7 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .welcome:
-            "Write the chart. Share with the band. Take a quick tour, or jump straight into the app."
+            "Let’s build your first clean chart together. You’ll create a Simple Chord Sheet, write and confirm a chord, try the structure tools, and see where export and page controls live."
         case .charts:
             "Tap Charts in the sidebar. This is where your charts and new chart creation live."
         case .newChart:
@@ -909,7 +909,7 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var primaryActionTitle: String? {
         switch self {
         case .welcome:
-            "Start Tour"
+            "Take The Tour"
         case .charts, .newChart, .simpleChart:
             nil
         }
@@ -1086,24 +1086,12 @@ struct LibraryView: View {
                 .fill(Color.white.opacity(0.08))
                 .frame(width: 1)
 
-            selectedHomeContent
+            libraryContentWithTour
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(IChartLibraryBackground(mode: homeAppearanceMode).ignoresSafeArea())
         .tint(IChartHomeBrand.blue)
         .toolbar(.hidden, for: .navigationBar)
-        .overlay(alignment: .topTrailing) {
-            if let guidedTourStep, guidedTourStep != .simpleChart {
-                IChartGuidedTourPrompt(
-                    step: guidedTourStep,
-                    theme: homeTheme,
-                    onPrimaryAction: beginGuidedTour,
-                    onSkip: finishGuidedTour
-                )
-                .padding(.top, 28)
-                .padding(.trailing, 28)
-            }
-        }
         .overlay {
             if let activeLibraryOperation {
                 IChartLibraryOperationOverlay(message: activeLibraryOperation.message)
@@ -1326,6 +1314,31 @@ struct LibraryView: View {
         }
     }
 
+    private var libraryContentWithTour: some View {
+        VStack(spacing: 0) {
+            if let guidedTourStep, guidedTourStep != .simpleChart {
+                IChartGuidedTourPrompt(
+                    step: guidedTourStep,
+                    theme: homeTheme,
+                    onPrimaryAction: beginGuidedTour,
+                    onSkip: finishGuidedTour
+                )
+                .padding(.horizontal, 24)
+                .padding(.vertical, guidedTourStep == .welcome ? 22 : 12)
+                .background(.regularMaterial)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                        .overlay(homeTheme.panelBorder)
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            selectedHomeContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.easeOut(duration: 0.16), value: guidedTourStep)
+    }
+
     @ViewBuilder
     private var selectedHomeContent: some View {
         switch selectedHomeTab {
@@ -1363,6 +1376,7 @@ struct LibraryView: View {
                 chartUsageText: chartUsageText,
                 canCreateChart: store.canCreateChart,
                 theme: homeTheme,
+                isTourHighlighted: guidedTourStep == .newChart,
                 onCreateChart: {
                     requestNewChart(projectID: nil)
                 }
@@ -1848,7 +1862,7 @@ struct LibraryView: View {
                 pendingSimpleChartTour = true
             }
 
-            onOpenChart(chartID, startsGuidedSimpleChartTour ? .chordEntry : .browse)
+            onOpenChart(chartID, .browse)
             IChartPerformanceTrace.end(traceSpan, metadata: ["result": "opened"])
         }
     }
@@ -2127,6 +2141,8 @@ private struct NewChartLayoutPickerView: View {
                     }
 
                     ForEach(ChartLayoutStyle.v1NewChartOptions) { layoutStyle in
+                        let isTourTarget = tourStep == .simpleChart && layoutStyle == .simpleChordSheet
+
                         Button {
                             onSelect(layoutStyle)
                         } label: {
@@ -2156,10 +2172,19 @@ private struct NewChartLayoutPickerView: View {
                             }
                             .padding(16)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(IChartHomeBrand.paper.opacity(0.82))
+                            .background(
+                                isTourTarget
+                                    ? IChartHomeBrand.blueSoft.opacity(0.72)
+                                    : IChartHomeBrand.paper.opacity(0.82)
+                            )
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        .tourActionHighlight(
+                            isActive: isTourTarget,
+                            cornerRadius: 10,
+                            tint: IChartHomeBrand.blue
+                        )
                     }
                 }
                 .padding(20)
@@ -2185,58 +2210,132 @@ private struct IChartGuidedTourPrompt: View {
     let onSkip: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
+            if step == .welcome {
+                grandWelcome
+            } else {
+                compactRail
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var tourTitleColor: Color {
+        theme.isDark ? Color.white : IChartTourStyle.navy
+    }
+
+    private var tourMessageColor: Color {
+        theme.isDark ? Color.white.opacity(0.82) : theme.panelSecondary
+    }
+
+    private var tourPanelBackground: Color {
+        theme.isDark ? IChartTourStyle.navy.opacity(0.76) : IChartTourStyle.paper
+    }
+
+    private var tourBorderColor: Color {
+        theme.isDark ? IChartTourStyle.orange.opacity(0.82) : IChartTourStyle.navy.opacity(0.90)
+    }
+
+    private var grandWelcome: some View {
+        HStack(alignment: .center, spacing: 20) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(IChartTourStyle.orangeSoft.opacity(theme.isDark ? 0.22 : 1))
+
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 42, weight: .semibold))
+                    .foregroundStyle(IChartTourStyle.orange)
+            }
+            .frame(width: 86, height: 86)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(step.title)
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(tourTitleColor)
+
+                Text(step.message)
+                    .font(.title3)
+                    .foregroundStyle(tourMessageColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            actionButtons
+                .fixedSize()
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tourPanelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
+        }
+        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
+    }
+
+    private var compactRail: some View {
+        HStack(alignment: .center, spacing: 14) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.orange)
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(step.title)
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(theme.panelTitle)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(tourTitleColor)
 
                     Text(step.message)
                         .font(.subheadline)
-                        .foregroundStyle(theme.panelSecondary)
+                        .foregroundStyle(tourMessageColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if let targetText = step.targetText {
                 Label(targetText, systemImage: "hand.tap")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .frame(width: 210, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.16 : 0.76))
+                    .background(IChartTourStyle.orangeSoft.opacity(theme.isDark ? 0.86 : 1))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(IChartTourStyle.orange.opacity(0.72), lineWidth: 1.4)
+                    }
             }
 
-            HStack(spacing: 10) {
-                if let primaryActionTitle = step.primaryActionTitle {
-                    Button(primaryActionTitle, action: onPrimaryAction)
-                        .buttonStyle(.borderedProminent)
-                        .tint(IChartHomeBrand.blue)
-                }
-
-                Button("Skip Tour", action: onSkip)
-                    .buttonStyle(.bordered)
-                    .tint(IChartHomeBrand.blue)
-            }
+            actionButtons
+                .fixedSize()
         }
         .padding(16)
-        .frame(width: 360, alignment: .leading)
-        .background(theme.panelBackground)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tourPanelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.panelBorder, lineWidth: 1)
+                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: theme.panelShadow, radius: 16, y: 8)
-        .accessibilityElement(children: .contain)
+        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 10) {
+            if let primaryActionTitle = step.primaryActionTitle {
+                Button(primaryActionTitle, action: onPrimaryAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(IChartTourStyle.orange)
+            }
+
+            Button("Skip Tour", action: onSkip)
+                .buttonStyle(.bordered)
+                .tint(IChartTourStyle.navy)
+        }
     }
 }
 
@@ -2246,8 +2345,8 @@ private struct IChartGuidedTourSheetCallout: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(step.title, systemImage: "hand.tap")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.ink)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(IChartTourStyle.navy)
 
             Text(step.message)
                 .font(.subheadline)
@@ -2256,12 +2355,13 @@ private struct IChartGuidedTourSheetCallout: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(IChartHomeBrand.blueSoft.opacity(0.82))
+        .background(IChartTourStyle.paper)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(IChartHomeBrand.blue.opacity(0.16), lineWidth: 1)
+                .stroke(IChartTourStyle.navy.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
         }
+        .shadow(color: IChartTourStyle.navy.opacity(0.14), radius: 12, y: 6)
         .accessibilityElement(children: .combine)
     }
 }
@@ -6511,6 +6611,7 @@ private struct IChartNewChartControl: View {
     let chartUsageText: String?
     let canCreateChart: Bool
     let theme: IChartHomeTheme
+    var isTourHighlighted = false
     let onCreateChart: () -> Void
 
     var body: some View {
@@ -6525,6 +6626,11 @@ private struct IChartNewChartControl: View {
             .controlSize(.large)
             .tint(IChartHomeBrand.blue)
             .disabled(!canCreateChart)
+            .tourActionHighlight(
+                isActive: isTourHighlighted && canCreateChart,
+                cornerRadius: 11,
+                tint: IChartHomeBrand.blue
+            )
 
             if let chartUsageText {
                 Text(chartUsageText)
