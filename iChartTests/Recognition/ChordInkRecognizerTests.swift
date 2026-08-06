@@ -20,7 +20,7 @@ final class ChordInkRecognizerTests: XCTestCase {
             "E8",
             "E10",
             "Db7(b9)(b9)",
-            "Csus7"
+            "Cø9"
         ].enumerated().map { index, text in
             ChordInkCandidate(
                 text: text,

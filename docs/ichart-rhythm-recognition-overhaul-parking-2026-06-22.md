@@ -38,9 +38,9 @@ Park handwritten rhythm recognition as research and keep the shipping rhythm-ent
 - Template crop ownership as a runtime recognition authority.
 - One-off diagnostic helpers that bypass the current glyph OCR decision contract.
 
-## V1.1 Build Direction
+## V1.2 Build Direction
 
-Build select input for rhythm notation as the V1.1 path before reconsidering
+Build select input for rhythm notation as the V1.2 path before reconsidering
 any handwriting-based rhythm recognizer:
 
 1. Keep Free-Write as the reliable rhythm-entry path for launch.

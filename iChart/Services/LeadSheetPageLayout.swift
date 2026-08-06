@@ -25,6 +25,8 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var staffLineYPositions: [CGFloat]
     var clefFrame: CGRect?
     var keySignatureLayouts: [LeadSheetKeySignatureLayout]
+    var keyTextFrame: CGRect?
+    var keyText: String?
     var timeSignatureFrame: CGRect?
     var sectionTextFrame: CGRect?
     var sectionText: String?
@@ -63,6 +65,10 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
 }
 
 extension LeadSheetMeasureLayout {
+    var leadingBarlineX: CGFloat {
+        staffFrame.minX
+    }
+
     var chordWritingFrame: CGRect {
         if chordBandFrame.minY >= staffFrame.minY {
             return frame.insetBy(dx: 2, dy: 2)
@@ -74,9 +80,9 @@ extension LeadSheetMeasureLayout {
             max(staffFrame.minY + 18, chordBandFrame.maxY)
         )
         return CGRect(
-            x: frame.minX + 2,
+            x: staffFrame.minX + 2,
             y: topY,
-            width: max(1, frame.width - 4),
+            width: max(1, staffFrame.width - 4),
             height: max(1, bottomY - topY)
         )
     }
@@ -286,8 +292,8 @@ enum LeadSheetPageLayoutEngine {
         var headerTitleHeight: CGFloat { 54 }
         var headerMetadataTopSpacing: CGFloat { 6 }
         var headerMetadataHeight: CGFloat { 20 }
-        var simpleLeadingMeterGutterWidth: CGFloat { 42 }
-        var rhythmLeadingSignatureWidth: CGFloat { max(56, metrics.firstSystemSignatureWidth - 22) }
+        var simpleLeadingMeterGutterWidth: CGFloat { 58 }
+        var rhythmLeadingSignatureWidth: CGFloat { max(120, metrics.firstSystemSignatureWidth + 42) }
         var simpleTitleFrameHeight: CGFloat { 36 }
         var simpleMetadataHeight: CGFloat { 24 }
         var simpleChordHorizontalInset: CGFloat { 6 }
@@ -298,7 +304,7 @@ enum LeadSheetPageLayoutEngine {
             }
 
             return CGRect(
-                x: frame.minX,
+                x: frame.minX + 8,
                 y: staffFrame.midY - 29,
                 width: 24,
                 height: 54
@@ -489,26 +495,15 @@ enum LeadSheetPageLayoutEngine {
             styleNoteFrame = nil
         }
 
-        let centerMetadataWidth: CGFloat = chart.layoutStyle.profile.setupPolicy.includesKeySelection ? 150 : 88
+        let centerMetadataWidth: CGFloat = 88
         let centerMetadataX = frame.midX - centerMetadataWidth / 2
-        let keyFrame: CGRect?
-        if chart.layoutStyle.profile.setupPolicy.includesKeySelection {
-            keyFrame = CGRect(
-                x: centerMetadataX,
-                y: metadataY,
-                width: 78,
-                height: metadataHeight
-            )
-        } else {
-            keyFrame = nil
-        }
+        let keyFrame: CGRect? = nil
         let meterFrame: CGRect?
         if visualPolicy.showsHeaderMeter {
-            let meterX = keyFrame == nil ? centerMetadataX : centerMetadataX + 88
             meterFrame = CGRect(
-                x: meterX,
+                x: centerMetadataX,
                 y: metadataY,
-                width: keyFrame == nil ? centerMetadataWidth : 62,
+                width: centerMetadataWidth,
                 height: metadataHeight
             )
         } else {
@@ -597,26 +592,37 @@ enum LeadSheetPageLayoutEngine {
             width: frame.width,
             height: isSimpleChordSheet ? simpleChordGridHeight : lineSpacing * 4 + 4
         )
-        let measureStartX = frame.minX + plan.leadingSignatureWidth
+        let measureStartX = isRhythmSectionSheet
+            ? frame.minX
+            : frame.minX + plan.leadingSignatureWidth
 
-        let shouldShowLeadingNotation = index == 0 && !isSimpleChordSheet
+        let shouldShowLeadingNotation = !isSimpleChordSheet
+        let shouldShowLeadingTimeSignature = index == 0 && !isSimpleChordSheet
         let shouldShowSimpleTimeSignature = index == 0 && isSimpleChordSheet
+        let activeKey = plan.measures
+            .compactMap(\.measure)
+            .first
+            .map { chart.displayedEffectiveKey(for: $0) }
+            ?? chart.displayedDocumentKey
         let clefFrame = shouldShowLeadingNotation
             ? visualPolicy.leadingClefFrame(in: frame, staffFrame: staffFrame)
             : nil
-        let keyLayouts = shouldShowLeadingNotation && chart.layoutStyle == .leadSheet
+        let keyLayouts = shouldShowLeadingNotation
             ? keySignatureLayouts(
-                for: chart,
+                for: activeKey,
+                clef: chart.renderedClef,
                 staffLineYPositions: staffLineYPositions,
                 startX: (clefFrame?.maxX ?? frame.minX) + 6,
                 staffSpace: lineSpacing
             )
             : []
+        let keyTextFrame: CGRect? = nil
+        let keyText: String? = nil
         let timeSignatureX = isRhythmSectionSheet
-            ? (clefFrame?.maxX ?? frame.minX) + 4
+            ? keyLayouts.last.map { $0.frame.maxX + 6 } ?? (clefFrame?.maxX ?? frame.minX) + 4
             : keyLayouts.last.map { $0.frame.maxX + 7 } ?? (frame.minX + 28)
         let timeSignatureFrame: CGRect?
-        if shouldShowLeadingNotation {
+        if shouldShowLeadingTimeSignature {
             timeSignatureFrame = visualPolicy.leadingTimeSignatureFrame(
                 in: frame,
                 staffFrame: staffFrame,
@@ -672,26 +678,31 @@ enum LeadSheetPageLayoutEngine {
 
         var measureX = measureStartX
         let measures = plan.measures.enumerated().map { offset, measurePlan in
+            let leadingSignatureExtension = isRhythmSectionSheet && offset == 0
+                ? plan.leadingSignatureWidth
+                : 0
+            let measureFrame = CGRect(
+                x: measureX,
+                y: frame.minY,
+                width: measurePlan.width + leadingSignatureExtension,
+                height: frame.height
+            )
+            let measureStaffFrame = CGRect(
+                x: measureX + leadingSignatureExtension,
+                y: staffFrame.minY,
+                width: measurePlan.width,
+                height: staffFrame.height
+            )
             defer {
-                measureX += measurePlan.width
+                measureX += measureFrame.width
             }
 
             return measureLayout(
                 for: measurePlan.measure,
                 chart: chart,
                 index: offset,
-                frame: CGRect(
-                    x: measureX,
-                    y: frame.minY,
-                    width: measurePlan.width,
-                    height: frame.height
-                ),
-                staffFrame: CGRect(
-                    x: measureX,
-                    y: staffFrame.minY,
-                    width: measurePlan.width,
-                    height: staffFrame.height
-                ),
+                frame: measureFrame,
+                staffFrame: measureStaffFrame,
                 chordBandHeight: chordBandHeight,
                 roadmapTopReserveHeight: roadmapTopReserveHeight,
                 staffLineYPositions: staffLineYPositions,
@@ -720,6 +731,8 @@ enum LeadSheetPageLayoutEngine {
             staffLineYPositions: staffLineYPositions,
             clefFrame: clefFrame,
             keySignatureLayouts: keyLayouts,
+            keyTextFrame: keyTextFrame,
+            keyText: keyText,
             timeSignatureFrame: timeSignatureFrame,
             sectionTextFrame: sectionTextFrame,
             sectionText: sectionText,
@@ -1189,30 +1202,42 @@ enum LeadSheetPageLayoutEngine {
         }
         let metrics = visualPolicy.metrics
         if chart.layoutStyle == .rhythmSectionSheet {
-            return visualPolicy.rhythmLeadingSignatureWidth
+            return max(
+                visualPolicy.rhythmLeadingSignatureWidth,
+                visualPolicy.metrics.firstSystemSignatureWidth
+                    + maxKeySignatureAccidentalCount(for: chart) * 10
+            )
         }
-        guard systemIndex == 0 else { return metrics.continuationSystemSignatureWidth }
 
-        let keySignatureWidth = chart.layoutStyle == .leadSheet
-            ? CGFloat(keySignatureAccidentalCount(for: chart.documentKey.transposed(for: chart.defaultTranspositionView))) * 10
-            : 0
-        return metrics.firstSystemSignatureWidth + keySignatureWidth
+        let keySignatureWidth = maxKeySignatureAccidentalCount(for: chart) * 10
+        if systemIndex == 0 {
+            return metrics.firstSystemSignatureWidth + keySignatureWidth
+        }
+
+        return max(metrics.continuationSystemSignatureWidth, 42 + keySignatureWidth)
+    }
+
+    private static func maxKeySignatureAccidentalCount(for chart: Chart) -> CGFloat {
+        let keys = [chart.documentKey] + chart.keyChanges.map(\.key)
+        let maxCount = keys
+            .map { $0.transposed(for: chart.defaultTranspositionView).keySignature?.count ?? 0 }
+            .max() ?? 0
+        return CGFloat(maxCount)
     }
 
     private static func keySignatureLayouts(
-        for chart: Chart,
+        for key: DocumentKey,
+        clef: ChartClef,
         staffLineYPositions: [CGFloat],
         startX: CGFloat,
         staffSpace: CGFloat
     ) -> [LeadSheetKeySignatureLayout] {
-        guard let accidentalGroup = keySignatureAccidentals(
-            for: chart.documentKey.transposed(for: chart.defaultTranspositionView)
-        ),
+        guard let accidentalGroup = key.keySignature,
             let topStaffLineY = staffLineYPositions.first else {
             return []
         }
 
-        let offsets = keySignatureStaffOffsets(kind: accidentalGroup.kind, clef: chart.defaultClef)
+        let offsets = keySignatureStaffOffsets(kind: accidentalGroup.kind, clef: clef)
         let symbol: NotationGlyphCatalog.Symbol = accidentalGroup.kind == .sharps
             ? .accidentalSharp
             : .accidentalFlat
@@ -1222,7 +1247,9 @@ enum LeadSheetPageLayoutEngine {
 
         return (0..<accidentalGroup.count).map { index in
             let staffOffset = offsets[index]
-            let centerY = topStaffLineY + staffOffset * staffSpace
+            let frameCenterStaffOffset = staffOffset
+                + keySignatureFrameCenterAdjustment(kind: accidentalGroup.kind, clef: clef)
+            let centerY = topStaffLineY + frameCenterStaffOffset * staffSpace
             return LeadSheetKeySignatureLayout(
                 symbol: symbol,
                 frame: CGRect(
@@ -1237,82 +1264,27 @@ enum LeadSheetPageLayoutEngine {
         }
     }
 
-    private static func keySignatureAccidentalCount(for key: DocumentKey) -> Int {
-        keySignatureAccidentals(for: key)?.count ?? 0
-    }
-
-    private static func keySignatureAccidentals(
-        for key: DocumentKey
-    ) -> (kind: LeadSheetKeySignatureAccidentalKind, count: Int)? {
-        let keyName = "\(key.tonic.rawValue)\(key.accidental.rawValue)"
-        let modeName = key.mode == .minor ? "minor" : "major"
-
-        let count: Int
-        let kind: LeadSheetKeySignatureAccidentalKind
-        switch (keyName, modeName) {
-        case ("C", "major"), ("A", "minor"):
-            return nil
-
-        case ("G", "major"), ("E", "minor"):
-            kind = .sharps
-            count = 1
-        case ("D", "major"), ("B", "minor"):
-            kind = .sharps
-            count = 2
-        case ("A", "major"), ("F#", "minor"):
-            kind = .sharps
-            count = 3
-        case ("E", "major"), ("C#", "minor"):
-            kind = .sharps
-            count = 4
-        case ("B", "major"), ("G#", "minor"):
-            kind = .sharps
-            count = 5
-        case ("F#", "major"), ("D#", "minor"):
-            kind = .sharps
-            count = 6
-        case ("C#", "major"), ("A#", "minor"):
-            kind = .sharps
-            count = 7
-
-        case ("F", "major"), ("D", "minor"):
-            kind = .flats
-            count = 1
-        case ("Bb", "major"), ("G", "minor"):
-            kind = .flats
-            count = 2
-        case ("Eb", "major"), ("C", "minor"):
-            kind = .flats
-            count = 3
-        case ("Ab", "major"), ("F", "minor"):
-            kind = .flats
-            count = 4
-        case ("Db", "major"), ("Bb", "minor"):
-            kind = .flats
-            count = 5
-        case ("Gb", "major"), ("Eb", "minor"):
-            kind = .flats
-            count = 6
-        case ("Cb", "major"), ("Ab", "minor"):
-            kind = .flats
-            count = 7
-
+    private static func keySignatureFrameCenterAdjustment(
+        kind: KeySignatureAccidentalKind,
+        clef: ChartClef
+    ) -> CGFloat {
+        switch (kind, clef) {
+        case (.flats, _):
+            return -0.5
         default:
-            return nil
+            return 0
         }
-
-        return (kind: kind, count: count)
     }
 
     private static func keySignatureStaffOffsets(
-        kind: LeadSheetKeySignatureAccidentalKind,
+        kind: KeySignatureAccidentalKind,
         clef: ChartClef
     ) -> [CGFloat] {
         switch (kind, clef) {
         case (.sharps, .treble):
             return [0, 1.5, -0.5, 1, 2.5, 0.5, 2]
         case (.flats, .treble):
-            return [2, 4, 2.5, 1, 3, 1.5, 0]
+            return [2, 0.5, 2.5, 1, 3, 1.5, 3.5]
         case (.sharps, .bass):
             return [1, 2.5, 4, 2, 0, 1.5, 3]
         case (.flats, .bass):
@@ -1363,21 +1335,27 @@ enum LeadSheetPageLayoutEngine {
         meterChange: Meter?
     ) -> LeadSheetMeasureLayout {
         let isSimpleChordSheet = layoutStyle == .simpleChordSheet
+        let measureContentFrame = layoutStyle == .rhythmSectionSheet ? CGRect(
+            x: staffFrame.minX,
+            y: frame.minY,
+            width: staffFrame.width,
+            height: frame.height
+        ) : frame
         let chordBandFrame = isSimpleChordSheet ? CGRect(
             x: staffFrame.minX + 8,
             y: staffFrame.minY + 4,
             width: max(1, staffFrame.width - 16),
             height: max(1, staffFrame.height - 8)
         ) : CGRect(
-            x: frame.minX + 3,
-            y: frame.minY + roadmapTopReserveHeight,
-            width: frame.width - 6,
+            x: measureContentFrame.minX + 3,
+            y: measureContentFrame.minY + roadmapTopReserveHeight,
+            width: measureContentFrame.width - 6,
             height: max(1, chordBandHeight - 4 - roadmapTopReserveHeight)
         )
         let writableFrame = isSimpleChordSheet ? staffFrame.insetBy(dx: 2, dy: 2) : CGRect(
-            x: frame.minX + 2,
+            x: measureContentFrame.minX + 2,
             y: chordBandFrame.minY,
-            width: frame.width - 4,
+            width: measureContentFrame.width - 4,
             height: staffFrame.maxY - chordBandFrame.minY + 8
         )
         let trailingBarlineFrame = CGRect(
@@ -1387,7 +1365,7 @@ enum LeadSheetPageLayoutEngine {
             height: staffFrame.height
         )
         let meterChangeFrame = meterChange.map { _ in
-            visualPolicy.inlineMeterChangeFrame(in: frame, staffFrame: staffFrame)
+            visualPolicy.inlineMeterChangeFrame(in: measureContentFrame, staffFrame: staffFrame)
         }
 
         guard let measure else {
@@ -1430,6 +1408,7 @@ enum LeadSheetPageLayoutEngine {
                 meter: meter,
                 chordBandFrame: chordBandFrame,
                 staffFrame: staffFrame,
+                measureID: measure.id,
                 visualPolicy: visualPolicy
             )
         }
@@ -1484,9 +1463,10 @@ enum LeadSheetPageLayoutEngine {
         meter: Meter,
         chordBandFrame: CGRect,
         staffFrame: CGRect,
+        measureID: UUID,
         visualPolicy: VisualPolicy
     ) -> LeadSheetChordLayout {
-        let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent)
+        let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measureID)
         let displayedText = displayedSymbol.displayText
         let usableWidth = staffFrame.width - 16
         let attackCenterX = beatAttackCenterX(
@@ -3132,11 +3112,6 @@ private struct LeadSheetEngravingMetrics {
     var chordBandHeight: CGFloat
     var firstSystemSignatureWidth: CGFloat
     var continuationSystemSignatureWidth: CGFloat
-}
-
-private enum LeadSheetKeySignatureAccidentalKind {
-    case sharps
-    case flats
 }
 
 private extension EngravingPreset {

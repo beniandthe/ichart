@@ -274,7 +274,8 @@ extension Chart {
         key: DocumentKey = .cMajor,
         layoutStyle: ChartLayoutStyle = .leadSheet
     ) -> Chart {
-        Chart(
+        let setupPolicy = layoutStyle.profile.setupPolicy
+        return Chart(
             id: UUID(),
             title: title,
             chartType: .chordChart,
@@ -284,6 +285,7 @@ extension Chart {
             defaultTranspositionView: .concert,
             defaultMeter: Meter(numerator: 4, denominator: 4),
             staffStyle: .fiveLine,
+            defaultClef: setupPolicy.creationDefaultClef,
             hasCompletedInitialSetup: false,
             systems: [],
             sectionLabels: [],
@@ -304,6 +306,7 @@ extension Chart {
     ) -> Chart {
         let normalizedMeasureCount = max(1, measureCount)
         let measureDefaults = layoutStyle.profile.measureDefaults
+        let setupPolicy = layoutStyle.profile.setupPolicy
         let measures = (1...normalizedMeasureCount).map { index in
             Measure(
                 id: UUID(),
@@ -335,6 +338,8 @@ extension Chart {
             defaultTranspositionView: .concert,
             defaultMeter: Meter(numerator: 4, denominator: 4),
             staffStyle: .fiveLine,
+            defaultClef: setupPolicy.creationDefaultClef,
+            hasExplicitClefSelection: setupPolicy.allowsInitialClefSelection,
             hasCompletedInitialSetup: true,
             systems: [system],
             sectionLabels: [],
@@ -346,20 +351,4 @@ extension Chart {
             updatedAt: .now
         )
     }
-}
-
-extension DocumentKey {
-    static let cMajor = DocumentKey(tonic: .c, accidental: .natural, mode: .major)
-    static let fMajor = DocumentKey(tonic: .f, accidental: .natural, mode: .major)
-    static let bFlatMajor = DocumentKey(tonic: .b, accidental: .flat, mode: .major)
-    static let eFlatMajor = DocumentKey(tonic: .e, accidental: .flat, mode: .major)
-    static let gMajor = DocumentKey(tonic: .g, accidental: .natural, mode: .major)
-
-    static let commonCreationKeys: [DocumentKey] = [
-        .cMajor,
-        .fMajor,
-        .bFlatMajor,
-        .eFlatMajor,
-        .gMajor
-    ]
 }

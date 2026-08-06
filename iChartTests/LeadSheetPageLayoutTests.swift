@@ -27,18 +27,17 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
 
         let styleNoteFrame = try XCTUnwrap(layout.header.styleNoteFrame)
-        let keyFrame = try XCTUnwrap(layout.header.keyFrame)
         let meterFrame = try XCTUnwrap(layout.header.meterFrame)
         let composerFrame = try XCTUnwrap(layout.header.composerFrame)
-        let centerMetadataFrame = keyFrame.union(meterFrame)
 
+        XCTAssertNil(layout.header.keyFrame)
         XCTAssertEqual(layout.header.titleFrame.midX, layout.paperFrame.midX, accuracy: 0.001)
         XCTAssertGreaterThan(styleNoteFrame.minY, layout.header.titleFrame.maxY)
         XCTAssertEqual(styleNoteFrame.midY, composerFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(centerMetadataFrame.midY, composerFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(centerMetadataFrame.midX, layout.header.frame.midX, accuracy: 0.001)
-        XCTAssertLessThan(styleNoteFrame.maxX, centerMetadataFrame.minX)
-        XCTAssertLessThan(centerMetadataFrame.maxX, composerFrame.minX)
+        XCTAssertEqual(meterFrame.midY, composerFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(meterFrame.midX, layout.header.frame.midX, accuracy: 0.001)
+        XCTAssertLessThan(styleNoteFrame.maxX, meterFrame.minX)
+        XCTAssertLessThan(meterFrame.maxX, composerFrame.minX)
     }
 
     func testSimpleChordSheetHeaderUsesCompactChartTitleTreatment() throws {
@@ -140,10 +139,11 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let lastLandscapeMeasure = try XCTUnwrap(landscapeSystem.measures.last)
 
         XCTAssertEqual(landscapeSystem.frame.width, landscapeLayout.paperFrame.width - 68, accuracy: 0.001)
-        XCTAssertGreaterThan(firstLandscapeMeasure.frame.width, portraitMeasure.frame.width)
-        XCTAssertGreaterThan(firstLandscapeMeasure.frame.width, 250)
+        XCTAssertGreaterThan(firstLandscapeMeasure.staffFrame.width, portraitMeasure.staffFrame.width)
+        XCTAssertGreaterThan(firstLandscapeMeasure.staffFrame.width, 250)
+        XCTAssertGreaterThan(firstLandscapeMeasure.frame.width, firstLandscapeMeasure.staffFrame.width)
+        XCTAssertEqual(firstLandscapeMeasure.staffFrame.width, lastLandscapeMeasure.frame.width, accuracy: 0.001)
         XCTAssertEqual(lastLandscapeMeasure.frame.maxX, landscapeSystem.frame.maxX - 6, accuracy: 0.001)
-        XCTAssertEqual(firstLandscapeMeasure.staffFrame.width, firstLandscapeMeasure.frame.width, accuracy: 0.001)
     }
 
     func testRhythmSectionChordWritingFrameCoversFullAboveStaffLane() throws {
@@ -375,7 +375,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(timeSignatureFrame.height, 56)
         XCTAssertGreaterThan(firstMeasure.frame.minX, firstSystem.frame.minX)
         XCTAssertLessThan(timeSignatureFrame.maxX, firstMeasure.frame.minX)
-        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 42, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 58, accuracy: 0.001)
         XCTAssertTrue(firstMeasure.staffFrame.contains(firstMeasure.chordBandFrame))
         XCTAssertGreaterThanOrEqual(firstMeasure.staffFrame.height, 56)
         XCTAssertGreaterThan(firstMeasure.staffFrame.height, firstMeasure.chordBandFrame.height)
@@ -729,8 +729,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(secondSystem.measures.count, 2)
         XCTAssertNotNil(firstSystem.timeSignatureFrame)
         XCTAssertNil(secondSystem.timeSignatureFrame)
-        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 42, accuracy: 0.001)
-        XCTAssertEqual(secondRowFirstMeasure.frame.minX - secondSystem.frame.minX, 42, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 58, accuracy: 0.001)
+        XCTAssertEqual(secondRowFirstMeasure.frame.minX - secondSystem.frame.minX, 58, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.frame.minX, secondRowFirstMeasure.frame.minX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.frame.width, secondRowFirstMeasure.frame.width, accuracy: 0.001)
     }
@@ -845,7 +845,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(layout.systems.allSatisfy { $0.staffLineYPositions.isEmpty })
     }
 
-    func testRhythmSectionSheetLayoutOmitsKeyHeaderButKeepsStaffSystem() throws {
+    func testRhythmSectionSheetLayoutOmitsKeyHeaderAndKeepsStaffContext() throws {
         let chart = Chart.blank(title: "Pocket", measureCount: 4, layoutStyle: .rhythmSectionSheet)
 
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -863,12 +863,22 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(timeSignatureFrame.height, 56)
         XCTAssertTrue(firstSystem.keySignatureLayouts.isEmpty)
         let firstMeasure = try XCTUnwrap(firstSystem.measures.first)
-        XCTAssertEqual(firstMeasure.frame.minX - firstSystem.frame.minX, 60, accuracy: 0.001)
+        let secondMeasure = try XCTUnwrap(firstSystem.measures.dropFirst().first)
+        let leadingExtensionWidth = firstMeasure.staffFrame.minX - firstMeasure.frame.minX
+        XCTAssertEqual(firstMeasure.frame.minX, firstSystem.frame.minX, accuracy: 0.001)
+        XCTAssertEqual(leadingExtensionWidth, 124, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.frame.width, firstMeasure.staffFrame.width + leadingExtensionWidth, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.staffFrame.width, secondMeasure.frame.width, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.leadingBarlineX, firstMeasure.staffFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(clefFrame.minX - firstMeasure.frame.minX, 8, accuracy: 0.001)
         XCTAssertEqual(clefFrame.midY + 2, firstMeasure.staffFrame.midY, accuracy: 0.001)
         XCTAssertEqual(timeSignatureFrame.midY, firstMeasure.staffFrame.midY, accuracy: 0.001)
-        XCTAssertGreaterThanOrEqual(firstMeasure.frame.minX - timeSignatureFrame.maxX, 6)
-        XCTAssertLessThanOrEqual(firstMeasure.frame.minX - timeSignatureFrame.maxX, 10)
+        XCTAssertGreaterThanOrEqual(firstMeasure.staffFrame.minX - timeSignatureFrame.maxX, 6)
+        XCTAssertLessThan(timeSignatureFrame.maxX, firstMeasure.leadingBarlineX)
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(firstMeasure.chordBandFrame.minX, firstMeasure.staffFrame.minX)
+        XCTAssertEqual(firstMeasure.chordWritingFrame.minX, firstMeasure.staffFrame.minX + 2, accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.chordWritingFrame.width, firstMeasure.staffFrame.width - 4, accuracy: 0.001)
     }
 
     func testRhythmSectionManualSystemBreakControlsRenderedRows() throws {
@@ -901,7 +911,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             secondRowLastMeasure.trailingBarlineFrame.midX,
             accuracy: 0.001
         )
-        XCTAssertNil(layout.systems[1].clefFrame)
+        XCTAssertNotNil(layout.systems[1].clefFrame)
         XCTAssertNil(layout.systems[1].timeSignatureFrame)
     }
 
@@ -918,16 +928,17 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         let firstSystem = try XCTUnwrap(layout.systems.first)
         let secondSystem = try XCTUnwrap(layout.systems.dropFirst().first)
-        let standardWidth = try XCTUnwrap(firstSystem.measures.first?.frame.width)
+        let standardWidth = try XCTUnwrap(firstSystem.measures.first?.staffFrame.width)
         let shortRowMeasure = try XCTUnwrap(secondSystem.measures.first)
 
         XCTAssertEqual(firstSystem.measures.count, 3)
         XCTAssertEqual(secondSystem.measures.count, 1)
         XCTAssertTrue(
-            firstSystem.measures.allSatisfy { abs($0.frame.width - standardWidth) <= 0.001 },
+            firstSystem.measures.allSatisfy { abs($0.staffFrame.width - standardWidth) <= 0.001 },
             "The first Rhythm Section system establishes the default measure width."
         )
-        XCTAssertEqual(shortRowMeasure.frame.width, standardWidth, accuracy: 0.001)
+        XCTAssertEqual(shortRowMeasure.staffFrame.width, standardWidth, accuracy: 0.001)
+        XCTAssertGreaterThan(shortRowMeasure.frame.width, standardWidth)
         XCTAssertLessThan(
             shortRowMeasure.trailingBarlineFrame.midX,
             firstSystem.measures.last?.trailingBarlineFrame.midX ?? .zero,
@@ -1551,7 +1562,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertFalse(cueTextLayout.frame.intersects(secondMeasure.staffFrame))
     }
 
-    func testLeadSheetLayoutKeepsKeyHeaderAndLeadingNotation() throws {
+    func testLeadSheetLayoutOmitsKeyHeaderAndKeepsLeadingNotation() throws {
         let chart = Chart.blank(title: "Lead", measureCount: 4, layoutStyle: .leadSheet)
 
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1561,7 +1572,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         let firstSystem = try XCTUnwrap(layout.systems.first)
 
-        XCTAssertNotNil(layout.header.keyFrame)
+        XCTAssertNil(layout.header.keyFrame)
         XCTAssertNotNil(layout.header.meterFrame)
         XCTAssertEqual(firstSystem.staffLineYPositions.count, 5)
         XCTAssertNotNil(firstSystem.clefFrame)
@@ -1591,6 +1602,156 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(firstSystem.keySignatureLayouts.first).frame.minX, clefFrame.maxX)
         XCTAssertLessThan(try XCTUnwrap(firstSystem.keySignatureLayouts.last).frame.maxX, timeSignatureFrame.minX)
         XCTAssertLessThan(timeSignatureFrame.maxX, firstMeasure.frame.minX)
+    }
+
+    func testInstrumentTranspositionDrivesDisplayedKeySignatureWithoutRowText() throws {
+        var leadChart = Chart.blank(
+            title: "Transposed Lead Key",
+            key: .cMajor,
+            measureCount: 4,
+            layoutStyle: .leadSheet
+        )
+        leadChart.setInstrumentTranspositionView(.bb)
+
+        let leadLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: leadChart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let leadSystem = try XCTUnwrap(leadLayout.systems.first)
+
+        XCTAssertEqual(leadChart.displayedDocumentKey, .dMajor)
+        XCTAssertEqual(leadSystem.keySignatureLayouts.map(\.symbol), [.accidentalSharp, .accidentalSharp])
+
+        var simpleChart = Chart.blank(
+            title: "Transposed Simple Key",
+            key: .bFlatMajor,
+            measureCount: 4,
+            layoutStyle: .simpleChordSheet
+        )
+        simpleChart.setInstrumentTranspositionView(.bb)
+
+        let simpleLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: simpleChart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertEqual(simpleChart.displayedDocumentKey, .cMajor)
+        XCTAssertNil(simpleLayout.systems.first?.keyText)
+        XCTAssertNil(simpleLayout.systems.first?.keyTextFrame)
+    }
+
+    func testDisplayedChordLayoutsFollowKeyAndInstrumentChanges() throws {
+        var chart = Chart.blank(
+            title: "Displayed Chords",
+            key: .dMajor,
+            measureCount: 1,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7/F"),
+                rawInput: "Db7/F",
+                to: measureID,
+                atFraction: 0.1
+            )
+        )
+
+        var layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["C#7/F"])
+
+        XCTAssertTrue(chart.setDisplayedDocumentKey(.eFlatMajor))
+        layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["D7/Gb"])
+
+        chart.setInstrumentTranspositionView(.bb)
+        layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        XCTAssertEqual(chart.displayedDocumentKey, .fMajor)
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["E7/Ab"])
+    }
+
+    func testSimpleChordSheetOmitsKeyTextAtEveryRowStart() throws {
+        var chart = Chart.blank(
+            title: "Simple Keys",
+            key: .bFlatMajor,
+            measureCount: 6,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.dMajor, atStartOf: measureIDs[3]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertEqual(layout.systems.count, 2)
+        XCTAssertTrue(layout.systems.allSatisfy { $0.keyText == nil })
+        XCTAssertTrue(layout.systems.allSatisfy { $0.keyTextFrame == nil })
+        XCTAssertTrue(layout.systems.allSatisfy(\.keySignatureLayouts.isEmpty))
+        XCTAssertEqual(layout.systems[0].measures.first?.sourceMeasureID, measureIDs[0])
+        XCTAssertEqual(layout.systems[1].measures.first?.sourceMeasureID, measureIDs[3])
+    }
+
+    func testRhythmSectionShowsKeySignatureAtEveryRowAndModulationStartsNewRow() throws {
+        var chart = Chart.blank(
+            title: "Rhythm Keys",
+            key: .dMajor,
+            measureCount: 6,
+            layoutStyle: .rhythmSectionSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[3]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let secondSystem = try XCTUnwrap(layout.systems.dropFirst().first)
+
+        XCTAssertEqual(firstSystem.measures.first?.sourceMeasureID, measureIDs[0])
+        XCTAssertEqual(secondSystem.measures.first?.sourceMeasureID, measureIDs[3])
+        XCTAssertEqual(firstSystem.keySignatureLayouts.map(\.symbol), [.accidentalSharp, .accidentalSharp])
+        XCTAssertEqual(
+            secondSystem.keySignatureLayouts.map(\.symbol),
+            [.accidentalFlat, .accidentalFlat, .accidentalFlat]
+        )
+        XCTAssertNotNil(firstSystem.clefFrame)
+        XCTAssertNotNil(secondSystem.clefFrame)
+        XCTAssertNil(firstSystem.keyText)
+        XCTAssertNil(secondSystem.keyText)
+    }
+
+    func testLeadSheetContinuationSystemsCarryActiveKeySignature() throws {
+        let chart = Chart.blank(
+            title: "Lead Continuation Keys",
+            key: .bFlatMajor,
+            measureCount: 8,
+            layoutStyle: .leadSheet
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        XCTAssertGreaterThan(layout.systems.count, 1)
+        XCTAssertTrue(layout.systems.allSatisfy { $0.clefFrame != nil })
+        XCTAssertTrue(layout.systems.allSatisfy { $0.keySignatureLayouts.map(\.symbol) == [.accidentalFlat, .accidentalFlat] })
+        XCTAssertNotNil(layout.systems.first?.timeSignatureFrame)
+        XCTAssertTrue(layout.systems.dropFirst().allSatisfy { $0.timeSignatureFrame == nil })
     }
 
     func testLeadSheetBassClefKeySignatureUsesBassPositions() throws {
@@ -1631,6 +1792,105 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(trebleSharp.staffOffset, 0, accuracy: 0.001)
         XCTAssertEqual(bassSharp.staffOffset, 1, accuracy: 0.001)
         XCTAssertGreaterThan(bassSharp.frame.midY, trebleSharp.frame.midY)
+    }
+
+    func testRhythmSectionTrebleClefSetupUsesTrebleKeySignaturePositions() throws {
+        let key = DocumentKey(tonic: .d, accidental: .natural, mode: .major)
+        var chart = Chart.draft(title: "Treble Rhythm", key: key, layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Treble Rhythm",
+            key: key,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 4,
+            clef: .treble
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstSharp = try XCTUnwrap(layout.systems.first?.keySignatureLayouts.first)
+
+        XCTAssertEqual(chart.renderedClef, .treble)
+        XCTAssertEqual(firstSharp.symbol, .accidentalSharp)
+        XCTAssertEqual(firstSharp.staffOffset, 0, accuracy: 0.001)
+    }
+
+    func testRhythmSectionTrebleClefFlatKeySignatureUsesTreblePositions() throws {
+        let key = DocumentKey(tonic: .e, accidental: .flat, mode: .major)
+        var chart = Chart.draft(title: "Treble Flats", key: key, layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Treble Flats",
+            key: key,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 4,
+            clef: .treble
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let flats = try XCTUnwrap(layout.systems.first?.keySignatureLayouts)
+        let topLineY = try XCTUnwrap(layout.systems.first?.staffLineYPositions.first)
+
+        XCTAssertEqual(chart.renderedClef, .treble)
+        XCTAssertEqual(flats.map(\.symbol), [.accidentalFlat, .accidentalFlat, .accidentalFlat])
+        XCTAssertEqual(flats.map(\.staffOffset), [2, 0.5, 2.5])
+        zip(
+            flats.map { ($0.frame.midY - topLineY) / $0.staffSpace },
+            [CGFloat(1.5), 0, 2]
+        ).forEach { actual, expected in
+            XCTAssertEqual(actual, expected, accuracy: 0.001)
+        }
+        XCTAssertLessThan(flats[1].frame.midY, flats[0].frame.midY)
+    }
+
+    func testRhythmSectionKeySignaturePositionsCoverAllAccidentalCountsInBothClefs() throws {
+        let sharpKeys: [DocumentKey] = [
+            .gMajor, .dMajor, .aMajor, .eMajor, .bMajor, .fSharpMajor, .cSharpMajor
+        ]
+        let flatKeys: [DocumentKey] = [
+            .fMajor, .bFlatMajor, .eFlatMajor, .aFlatMajor, .dFlatMajor, .gFlatMajor, .cFlatMajor
+        ]
+
+        let expected: [(clef: ChartClef, sharps: [CGFloat], flats: [CGFloat])] = [
+            (
+                clef: .treble,
+                sharps: [0, 1.5, -0.5, 1, 2.5, 0.5, 2],
+                flats: [2, 0.5, 2.5, 1, 3, 1.5, 3.5]
+            ),
+            (
+                clef: .bass,
+                sharps: [1, 2.5, 4, 2, 0, 1.5, 3],
+                flats: [3, 1.5, 0, 2, 4, 2.5, 1]
+            )
+        ]
+
+        for clefExpectation in expected {
+            for (index, key) in sharpKeys.enumerated() {
+                try assertRhythmSectionKeySignature(
+                    key: key,
+                    clef: clefExpectation.clef,
+                    expectedSymbol: .accidentalSharp,
+                    expectedStaffOffsets: Array(clefExpectation.sharps.prefix(index + 1)),
+                    expectedFrameCenterOffsets: Array(clefExpectation.sharps.prefix(index + 1))
+                )
+            }
+
+            for (index, key) in flatKeys.enumerated() {
+                let staffOffsets = Array(clefExpectation.flats.prefix(index + 1))
+                try assertRhythmSectionKeySignature(
+                    key: key,
+                    clef: clefExpectation.clef,
+                    expectedSymbol: .accidentalFlat,
+                    expectedStaffOffsets: staffOffsets,
+                    expectedFrameCenterOffsets: staffOffsets.map { $0 - 0.5 }
+                )
+            }
+        }
     }
 
     func testEngravingPresetChangesDefaultMeasureSpacing() throws {
@@ -2283,6 +2543,50 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let outsidePaperLasso = CGRect(x: 10, y: 10, width: 40, height: 40)
 
         XCTAssertNil(layout.noteSelection(in: outsidePaperLasso))
+    }
+
+    private func assertRhythmSectionKeySignature(
+        key: DocumentKey,
+        clef: ChartClef,
+        expectedSymbol: NotationGlyphCatalog.Symbol,
+        expectedStaffOffsets: [CGFloat],
+        expectedFrameCenterOffsets: [CGFloat],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        var chart = Chart.draft(title: "Key Signature", key: key, layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Key Signature",
+            key: key,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 4,
+            clef: clef
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let system = try XCTUnwrap(layout.systems.first, file: file, line: line)
+        let keySignatureLayouts = system.keySignatureLayouts
+        let topLineY = try XCTUnwrap(system.staffLineYPositions.first, file: file, line: line)
+
+        XCTAssertEqual(keySignatureLayouts.count, expectedStaffOffsets.count, file: file, line: line)
+        XCTAssertEqual(
+            keySignatureLayouts.map(\.symbol),
+            Array(repeating: expectedSymbol, count: expectedStaffOffsets.count),
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(keySignatureLayouts.map(\.staffOffset), expectedStaffOffsets, file: file, line: line)
+
+        zip(
+            keySignatureLayouts.map { ($0.frame.midY - topLineY) / $0.staffSpace },
+            expectedFrameCenterOffsets
+        ).forEach { actual, expected in
+            XCTAssertEqual(actual, expected, accuracy: 0.001, file: file, line: line)
+        }
     }
 
     private func appendChord(

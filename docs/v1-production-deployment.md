@@ -292,8 +292,8 @@ Possible additions:
 - chart templates
 - chart library polish
 - improved roadmap symbol coverage
-- V1.1 roadmap: key signatures, select-input rhythm notation, enharmonic
-  transposition/preferences, and additional chord coverage
+- V1.1 roadmap: key signatures, key-aware enharmonic chord spelling, and
+  additional chord coverage; select-input rhythm notation moves to V1.2
 - better manual layout controls
 - evaluate iPhone companion scope
 

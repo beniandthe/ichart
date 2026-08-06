@@ -443,7 +443,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(parkingPlanText.contains("V1 ships without the dedicated Rhythm tool"))
         XCTAssertTrue(parkingPlanText.contains("Keep Active"))
         XCTAssertTrue(parkingPlanText.contains("Free-Write page ink for rhythm notation"))
-        XCTAssertTrue(parkingPlanText.contains("Build select input for rhythm notation as the V1.1 path before reconsidering"))
+        XCTAssertTrue(parkingPlanText.contains("Build select input for rhythm notation as the V1.2 path before reconsidering"))
     }
 
     func testRhythmToolClearActionIsDormantWhileDedicatedToolIsRetired() throws {
@@ -747,9 +747,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(termsText.contains("Do not upload unlawful, infringing, abusive, misleading, private, or harmful material"))
         XCTAssertTrue(verifyText.contains("ichart://auth-callback"))
         XCTAssertTrue(verifyText.contains("flow_nonce"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^support/?$ support.html [L]"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy/?$ privacy.html [L]"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms/?$ terms.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support/$ /support.html [R=301,L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support$ support.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy/$ /privacy.html [R=301,L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy$ privacy.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms/$ /terms.html [R=301,L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms$ terms.html [L]"))
         XCTAssertTrue(htaccessText.contains("RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]"))
     }
 
@@ -886,8 +889,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("starting " + "ke" + "y"))
         XCTAssertFalse(libraryText.contains("cle" + "f, and starting measure count"))
         XCTAssertFalse(libraryText.contains("K" + "ey, Time, And Cle" + "f"))
-        XCTAssertFalse(setupSheetText.contains("Text(\"K" + "ey\")"))
-        XCTAssertFalse(setupSheetText.contains("Picker(\"Cle" + "f\""))
+        XCTAssertTrue(setupSheetText.contains("Text(\"K" + "ey\")"))
+        XCTAssertTrue(setupSheetText.contains("Picker(\"Cle" + "f\""))
+        XCTAssertTrue(setupSheetText.contains("!chart.hasCompletedInitialSetup && setupPolicy.allowsInitialClefSelection"))
         XCTAssertFalse(libraryText.contains("rushing the player"))
         XCTAssertFalse(libraryText.contains("Repeat controls stay out"))
         XCTAssertFalse(libraryText.contains("so chart structure stays consistent"))
@@ -1026,7 +1030,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("Add repeat barlines, endings, DC"))
         XCTAssertFalse(editorText.contains("Link Roadmap Marker at Selected Measure"))
         XCTAssertTrue(chartModelText.contains("var renderedClef: ChartClef"))
-        XCTAssertTrue(chartModelText.contains("layoutStyle == .rhythmSectionSheet ? .bass : defaultClef"))
+        XCTAssertTrue(chartModelText.contains("layoutStyle == .rhythmSectionSheet && !hasExplicitClefSelection"))
         XCTAssertTrue(notationRendererText.contains("chart.renderedClef == .bass ? .bassClef : .trebleClef"))
         XCTAssertTrue(editorMenuTabLabelText.contains(".accessibilityLabel(\"Coda\")"))
         XCTAssertFalse(editorMenuTabLabelText.contains(".accessibilityLabel(\"Roadmap\")"))

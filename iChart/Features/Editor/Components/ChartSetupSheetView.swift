@@ -8,6 +8,8 @@ struct ChartSetupSheetView: View {
 
     @State private var numerator: Int
     @State private var denominator: Int
+    @State private var selectedKey: DocumentKey
+    @State private var selectedClef: ChartClef
     @State private var startingMeasureCount: Int
     @State private var selectedStylePreset: StylePreset
     @State private var isApplyingSetup = false
@@ -21,8 +23,15 @@ struct ChartSetupSheetView: View {
         self.onOperationStarted = onOperationStarted
         self.onOperationFinished = onOperationFinished
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
+        let setupPolicy = chart.wrappedValue.layoutStyle.profile.setupPolicy
         _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
         _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
+        _selectedKey = State(initialValue: chart.wrappedValue.displayedDocumentKey)
+        _selectedClef = State(
+            initialValue: chart.wrappedValue.hasCompletedInitialSetup
+                ? chart.wrappedValue.defaultClef
+                : setupPolicy.creationDefaultClef
+        )
         _selectedStylePreset = State(initialValue: chart.wrappedValue.stylePreset)
         _startingMeasureCount = State(
             initialValue: chart.wrappedValue.hasCompletedInitialSetup
@@ -36,6 +45,12 @@ struct ChartSetupSheetView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     layoutSection
+                    if setupPolicy.includesKeySelection {
+                        keySection
+                    }
+                    if shouldShowClefSection {
+                        clefSection
+                    }
                     if setupPolicy.includesTimeSignatureSelection {
                         meterSection
                     }
@@ -86,6 +101,10 @@ struct ChartSetupSheetView: View {
 
     private var operationMessage: String {
         chart.hasCompletedInitialSetup ? "Updating page setup..." : "Creating blank page..."
+    }
+
+    private var shouldShowClefSection: Bool {
+        !chart.hasCompletedInitialSetup && setupPolicy.allowsInitialClefSelection
     }
 
     private var layoutSection: some View {
@@ -162,6 +181,50 @@ struct ChartSetupSheetView: View {
                     .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
                 }
             }
+        }
+    }
+
+    private var keySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Key")
+                .font(.headline)
+
+            Picker("Key", selection: $selectedKey) {
+                Section("Major") {
+                    ForEach(DocumentKey.standardMajorKeys) { key in
+                        Text(key.titleDisplayText).tag(key)
+                    }
+                }
+
+                Section("Minor") {
+                    ForEach(DocumentKey.standardMinorKeys) { key in
+                        Text(key.titleDisplayText).tag(key)
+                    }
+                }
+            }
+            .pickerStyle(.navigationLink)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var clefSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Clef")
+                .font(.headline)
+
+            Picker("Clef", selection: $selectedClef) {
+                ForEach(setupPolicy.clefOptions) { clef in
+                    Text(clef.displayText).tag(clef)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -250,6 +313,8 @@ struct ChartSetupSheetView: View {
         [
             "layoutStyle": chart.layoutStyle.rawValue,
             "completedBefore": chart.hasCompletedInitialSetup ? "true" : "false",
+            "key": selectedKey.displayText,
+            "clef": selectedClef.rawValue,
             "meter": "\(numerator)/\(denominator)",
             "startingMeasureCount": "\(startingMeasureCount)",
             "stylePreset": selectedStylePreset.rawValue
@@ -266,11 +331,13 @@ struct ChartSetupSheetView: View {
 
         chart.completeInitialSetup(
             title: chart.title,
-            key: chart.documentKey,
+            key: setupPolicy.includesKeySelection
+                ? selectedKey.concertKey(for: chart.defaultTranspositionView)
+                : chart.documentKey,
             meter: resolvedMeter,
             staffStyle: .fiveLine,
             startingMeasureCount: startingMeasureCount,
-            clef: chart.defaultClef,
+            clef: shouldShowClefSection ? selectedClef : chart.defaultClef,
             stylePreset: selectedStylePreset
         )
     }

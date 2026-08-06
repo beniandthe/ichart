@@ -80,6 +80,7 @@ struct PendingChordCorrection: Identifiable {
     let currentText: String
     let rawInput: String?
     let candidateTexts: [String]
+    let enharmonicChoiceTexts: [String]
 
     var displayMeasureNumber: Int {
         measureIndex + 1
@@ -93,7 +94,8 @@ struct PendingChordCorrection: Identifiable {
         var blockedTexts = Set([currentText, rawInput].compactMap(Self.normalizedDisplayText))
         blockedTexts.insert(currentDisplayText)
 
-        var texts = candidateTexts.reduce(into: [String]()) { result, candidateText in
+        let preferredTexts = enharmonicChoiceTexts + candidateTexts
+        var texts = preferredTexts.reduce(into: [String]()) { result, candidateText in
             guard let displayText = Self.normalizedDisplayText(for: candidateText),
                   !blockedTexts.contains(displayText),
                   !result.contains(displayText) else {
