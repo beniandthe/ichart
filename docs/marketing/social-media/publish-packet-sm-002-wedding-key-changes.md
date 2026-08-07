@@ -1,9 +1,9 @@
 # iChart Publish Packet: SM-002 Wedding Gig Key Changes
 
-Status: Draft/proof master only until the App Store end card is regenerated or
-a live App Store URL is verified; native preview required
+Status: Instagram published 2026-08-06; TikTok deferred pending mobile upload;
+live App Store URL verified 2026-08-06
 Date: 2026-07-18
-Campaign: Beta Proof
+Campaign: Public Launch
 Primary audience: wedding/corporate/event gig musicians and bandleaders
 Source brief: `docs/marketing/social-media/brief-sm-002-wedding-gig-key-changes.md`
 Assembly notes: `docs/marketing/social-media/post-capture-sm-002-wedding-key-changes-assembly.md`
@@ -15,13 +15,13 @@ SM-002 should launch as a last-minute key-change workflow proof. The point is no
 Primary upload candidate:
 
 - `assets/sm-002-wedding-key-changes/editions/sm-002-vertical-edition-vJ-sm001-style-lifted-01.mp4`
-- Use for TikTok and Instagram Reels native draft preview.
+- Use for TikTok mobile upload if resumed. Instagram Reels published from this
+  candidate on 2026-08-06 after native preview.
 - Rationale: keeps the approved SM-001 vertical treatment, removes workflow header pop-up cards, keeps spoken word-reveal captions below the app, and lifts/tightens the app-captions stack so the captions clear modeled TikTok/Reels bottom UI.
 - 2026-07-20 final-touch note: vJ was regenerated with the launch end card (`Follow @useichart`, `TikTok + Instagram`, `useichart.com`, `Available on the App Store`) and the bottom progress rail removed.
-- 2026-07-23 release-gate note: because the public App Store product/pre-order
-  URL is not yet verified, vJ remains a draft/proof asset only. Before posting
-  publicly, either replace the end card with prelaunch-safe launch-update
-  wording or confirm and link the live App Store page.
+- 2026-08-06 release-gate note: `https://useichart.com` and the public App
+  Store listing both returned `200`. Available-now language is approved for
+  Instagram and for TikTok if the deferred mobile upload is resumed.
 
 Full-size SM-001-style alternate:
 
@@ -120,14 +120,15 @@ Avoid:
 
 ## Landing Paths
 
-Use these placeholders until the live beta/App Store path is confirmed:
+Use the website as the social landing page so profile traffic can route to the
+App Store, support, privacy, terms, and socials:
 
 - TikTok: `https://useichart.com?utm_source=tiktok&utm_medium=social&utm_campaign=sm002_wedding_key_changes`
 - Instagram: `https://useichart.com?utm_source=instagram&utm_medium=social&utm_campaign=sm002_wedding_key_changes`
+- App Store: `https://apps.apple.com/us/app/ichart-quick-notation-charts/id6782173484`
 
-If the landing page does not yet have a clear beta/update action on publish day, keep the CTA soft: "Follow for iPad testing updates."
-
-Do not say "Download on the App Store" unless the public App Store listing is live and the official badge/link are ready.
+Use "Download on the App Store" because the live website and App Store listing
+are verified.
 
 ## Cover Candidates
 
@@ -162,15 +163,15 @@ Hook:
 
 Caption:
 
-> Wedding and corporate gigs always find a way to change keys at the last minute. iChart lets you keep the original chart, duplicate it, transpose the copy, and store the new key with the set. Testing on iPad now.
+> Wedding and corporate gigs always find a way to change keys at the last minute. iChart lets you keep the original chart, duplicate it, transpose the copy, and store the new key with the set. Available now for iPad.
 
 CTA:
 
-> Follow for iPad testing updates.
+> Download iChart on the App Store at useichart.com.
 
 Pinned comment:
 
-> What is the most last-minute key change you have had to deal with on a gig?
+> iChart is live for iPad. What is the most last-minute key change you have had to deal with on a gig?
 
 Hashtag set:
 
@@ -200,11 +201,11 @@ Caption:
 >
 > In iChart, you can keep the original, duplicate the chart, transpose the copy, and store the updated key with the rest of the project.
 >
-> Testing on iPad now.
+> Available now for iPad.
 
 CTA:
 
-> Follow for beta updates and more gig-chart workflow demos.
+> Download iChart on the App Store at useichart.com.
 
 Hashtag set:
 

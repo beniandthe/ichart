@@ -1,12 +1,12 @@
 # iChart Platform Account Setup Checklist
 
-Status: account setup required before native TikTok/Instagram draft preview
-Date: 2026-07-19
-Applies to: TikTok, Instagram, later Meta Business Suite/Buffer connection
+Status: TikTok, Instagram, and Threads accounts created; setup still needs 2FA and approved growth actions
+Updated: 2026-08-06
+Applies to: TikTok, Instagram, Threads, later Meta Business Suite/Buffer connection
 
 ## Goal
 
-Create the public iChart social accounts and make them ready for SM-001 and SM-002 native draft preview, posting, and measurement.
+Create the public iChart social accounts and make them ready for SM-001 and SM-002 native draft preview, posting, measurement, and musician-facing discovery.
 
 ## Handle Priority
 
@@ -138,6 +138,21 @@ Prepared profile assets:
 - [ ] Confirm Reels drafts, cover selection, and Story repost tools are available.
 - [ ] Add SM-001 as a private/draft preview.
 - [ ] Add SM-002 as a private/draft preview.
+
+## Threads Setup
+
+- [x] Create or reserve the selected handle: `@useichart`.
+- [x] Set display name to `iChart`.
+- [x] Add bio: `Handwrite clean, editable music charts at paper speed. Built for gigging musicians, bandleaders, teachers, and working players.`
+- [x] Add `useichart.com` link.
+- [x] Use imported Instagram profile image: `docs/marketing/social-media/profile-assets/ichart-avatar-full-logo-square-tight-1080.png`.
+- [x] Keep profile public.
+- [x] Show Instagram badge.
+- [x] Add interests: `Music Threads`, `Musicians of Threads`.
+- [x] Publish first thread after approval:
+  `https://www.threads.com/@useichart/post/DbtZHd3j4QJ`.
+- [ ] Follow relevant musician, bandleader, music director, teacher, wedding-band, and iPad-music accounts only through the approval-gated curated follow workflow.
+- [ ] Secure the account with a unique password and 2FA through the shared Meta/Instagram account flow.
 
 ## Account Safety And Ownership
 
