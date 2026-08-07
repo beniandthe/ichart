@@ -103,6 +103,9 @@ Keep release versions tight and focused:
   requires them.
 - Treat the App Store search metadata update as a final V1.1 release-packaging
   step, after the binary scope is proven.
+- Include a build-specific App Store/TestFlight update note for every submitted
+  build so users and testers can see the fixes, patches, and active update
+  focus represented by that build.
 - Do not mix V1.2 rhythm-input work into V1.1 branches.
 - If a release problem appears, the V1.1 history should make it clear whether
   the likely source is key data, modulation, chord spelling, or chord coverage.
@@ -123,6 +126,11 @@ Keep the live Promotional Text aligned with the same positioning:
 This metadata change belongs with the next app version because the released
 V1.0 product-page name, subtitle, description, and keywords are locked in App
 Store Connect.
+
+Before sending a build to App Store Connect, also update the per-build release
+notes in `docs/app-store-testflight-metadata-draft.md`. Build 37 / V1.1 should
+ship with its public "What's New" text plus TestFlight/review-facing notes for
+the key-signature, modulation, chord editing, tutorial, and home-stamp updates.
 
 ## Release Gates
 

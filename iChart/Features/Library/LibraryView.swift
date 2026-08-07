@@ -5623,25 +5623,34 @@ private struct IChartAccountSettings: View {
     }
 
     private var verificationRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task {
-                    await authStore.resendVerificationEmail()
-                }
-            } label: {
-                Label("Resend Email", systemImage: "envelope.badge")
-            }
-            .buttonStyle(.bordered)
-            .disabled(authStore.isWorking)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Open the newest verification email on this iPad. iChart should open and show Verified automatically. If it opens in a browser, tap Open iChart and Verify on that page.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Button {
-                authStore.returnToSignIn()
-            } label: {
-                Label("Sign In", systemImage: "person.crop.circle")
+            VStack(spacing: 10) {
+                Button {
+                    Task {
+                        await authStore.resendVerificationEmail()
+                    }
+                } label: {
+                    Label("Send New Verification Email", systemImage: "envelope.badge")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(authStore.isWorking)
+
+                Button {
+                    authStore.returnToSignIn()
+                } label: {
+                    Label("I Verified, Sign In", systemImage: "person.crop.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(IChartHomeBrand.blue)
+                .disabled(authStore.isWorking)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(IChartHomeBrand.blue)
-            .disabled(authStore.isWorking)
         }
     }
 
@@ -5917,7 +5926,7 @@ private struct IChartAccountSettings: View {
 
             return "Using local charts. Reconnect to back up."
         case .pendingEmailVerification(let email):
-            return "Open the verification link sent to \(email), then sign in."
+            return "Open the verification link sent to \(email) on this iPad."
         case .passwordRecovery(let session):
             if let email = session.email {
                 return "Enter a new password for \(email)."

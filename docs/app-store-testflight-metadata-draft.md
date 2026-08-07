@@ -106,6 +106,41 @@ chord,lead sheet,pdf,band,setlist,gig,musician,pencil,teacher,horn,wedding,trans
 
 > iChart V1.1 adds official key signatures, chart modulations, key-aware enharmonic chord spelling, expanded chord-symbol coverage, a refreshed first-run tour, and chord editing polish.
 
+## Per-Build App Store Update Notes
+
+Every App Store Connect submission should include a concise user-facing update
+note for that specific build. Use this section to track the public "What's New"
+copy plus any TestFlight-facing fix/patch notes so users and testers can see
+what changed and what is being actively tightened.
+
+Rules:
+
+- Keep each build entry factual and scoped to shipped or testable changes.
+- Separate public App Store "What's New" copy from TestFlight fix/patch notes
+  when the patch detail is useful for testers but too granular for the public
+  product page.
+- Do not list future roadmap work as shipped. Planned work belongs in roadmap
+  docs unless the build actually includes it.
+- For patch-only builds, name the user-visible fix, crash fix, performance fix,
+  or review-facing correction that changed.
+
+### Build 37 / V1.1
+
+Public App Store "What's New":
+
+> iChart V1.1 adds official key signatures, chart modulations, key-aware enharmonic chord spelling, expanded chord-symbol coverage, a refreshed first-run tour, and chord editing polish.
+
+TestFlight / review-facing update notes:
+
+- Adds V1.1 key-signature and modulation support across chart setup, rendering,
+  chord spelling, and export.
+- Tightens chord editing by aligning the update-chord flow with the confirm-chord
+  flow.
+- Refreshes the first-run tutorial so tool guidance is clearer and less likely
+  to cover the controls being taught.
+- Adds the home-screen V1.1/date stamp so testers can confirm they are on the
+  active update build.
+
 ## TestFlight Beta Description
 
 Please test the core iChart loop:

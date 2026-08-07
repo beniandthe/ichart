@@ -27,16 +27,20 @@ Required production settings:
 - Secure password changes are enabled.
 - Leaked-password protection is enabled when available on the active Supabase plan.
 - MFA advisor warnings are tracked as a post-V1 account UX follow-up unless a complete MFA/passkey flow is added.
-- URL Configuration allows `ichart://auth-callback`.
-- `ichart://auth-callback` remains the TestFlight custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
-- Password reset and signup confirmation redirects use `ichart://auth-callback`.
-- `https://useichart.com/verify.html` is hosted as the stable browser fallback for email verification and password recovery links. The extensionless `https://useichart.com/verify` route is also rewritten by `.htaccess`, but dashboard/email settings should prefer the explicit `.html` URL to avoid host directory-routing drift.
-- If Supabase Auth emails are changed to land on `https://useichart.com/verify.html`, add that exact URL to the Supabase redirect allow list and make the email template preserve the token/hash, callback `type`, and pending-flow `flow_nonce` either as top-level URL parameters or through a trusted `redirect_to=ichart://auth-callback?...` value.
+- URL Configuration Site URL is `https://useichart.com/verify.html`.
+- URL Configuration redirect allow list includes exactly the production handoff URLs that the app and site use: `ichart://auth-callback`, `https://useichart.com/verify.html`, and `https://useichart.com/verify`.
+- `ichart://auth-callback` remains the installed-app custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
+- Signup confirmation and password recovery emails land on `https://useichart.com/verify.html`, preserve `token_hash`, callback `type`, account `email`, and `redirect_to={{ .RedirectTo }}`, then the hosted page opens `ichart://auth-callback` with the pending `flow_nonce`.
+- `https://useichart.com/verify.html` is the stable browser handoff for email verification and password recovery links. The extensionless `https://useichart.com/verify` route is rewritten by root `.htaccess`; the accidental trailing-slash form `/verify/` is covered by `verify/index.html`, which redirects to `/verify.html` while preserving query/hash values. Do not leave empty same-named route directories on IONOS.
 - The app stores a pending auth-flow record before sending signup/resend/password-reset email and rejects callbacks without the matching flow type and `flow_nonce`.
 - Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
-- After custom SMTP unlocks hosted template editing, Reset password template uses a direct app recovery link, not the default prefetch-prone hosted verify link:
+- Hosted Confirm sign up template:
   ```html
-  <a href="ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery">Reset password in iChart</a>
+  <a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Verify email in iChart</a>
+  ```
+- Hosted Reset password template:
+  ```html
+  <a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=recovery&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Reset password in iChart</a>
   ```
 - Custom SMTP is configured before relying on branded production emails, custom hosted Auth templates, or high-volume QA.
 - No service-role key, database password, JWT secret, or Stripe secret is copied into Xcode settings, `.env.example`, docs, or app code.

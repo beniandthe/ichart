@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Email Verification - iChart</title>
-  <meta name="description" content="Open iChart after email verification or password recovery.">
-  <link rel="stylesheet" href="styles.css">
+  <title>Secure Account Verification - iChart</title>
+  <meta name="description" content="Open iChart to complete secure email verification or password recovery.">
+  <link rel="stylesheet" href="styles.css?v=20260806-trust">
 </head>
 <body class="auth-landing">
   <header class="auth-header shell">
@@ -22,21 +22,24 @@
   <main class="auth-shell">
     <section class="auth-panel" aria-labelledby="auth-title">
       <p class="eyebrow">iChart Account</p>
-      <h1 id="auth-title" data-auth-title>Email Verification</h1>
-      <p class="auth-status" data-auth-status>Return to iChart to finish verifying your account.</p>
+      <p class="auth-result" data-auth-result>Secure account link received</p>
+      <h1 id="auth-title" data-auth-title>Open iChart to Finish</h1>
+      <p class="auth-status" data-auth-status aria-live="polite">For your security, iChart completes verification inside the app. Opening iChart should verify your email and sign you in.</p>
 
       <div class="auth-actions" aria-label="Verification actions">
-        <a class="primary-action" id="open-app-link" href="ichart://auth-callback">Open iChart</a>
+        <a class="primary-action" id="open-app-link" href="ichart://auth-callback">Open iChart and Verify</a>
         <a class="secondary-action" href="/support.html">Get Help</a>
       </div>
 
+      <p class="auth-trust" data-auth-trust>What should happen next: iChart opens, the Account panel shows Verified, and you can close this browser tab.</p>
+
       <ol class="auth-steps" data-auth-steps>
-        <li>If iChart opens automatically, return to the app and sign in with the same email address.</li>
-        <li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li>
-        <li>If the link is expired or already used, request a fresh verification email from iChart.</li>
+        <li>This page will try to open iChart automatically. If it does not, tap Open iChart and Verify.</li>
+        <li>Use the same iPad where you created the account so iChart can match the secure verification request.</li>
+        <li>If iChart asks you to sign in, use the same email address and password.</li>
       </ol>
 
-      <p class="auth-fine-print">For security, this page never displays verification token values. Do not forward verification or recovery links.</p>
+      <p class="auth-fine-print">This page never displays or stores verification token values. Do not forward verification or recovery links.</p>
 
       <noscript>
         <p class="auth-fine-print">JavaScript is required to pass the verification link safely into iChart. Enable JavaScript, reopen the email link, or contact support.</p>
@@ -98,51 +101,118 @@
         return callbackURL + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value) + fragment;
       }
 
+      function hasCallbackPayload() {
+        return [
+          "redirect_to",
+          "redirectTo",
+          "flow_nonce",
+          "token_hash",
+          "token",
+          "access_token",
+          "refresh_token",
+          "code"
+        ].some(function (name) {
+          return Boolean(valueFor(name));
+        });
+      }
+
       var type = valueFor("type");
       var error = valueFor("error");
+      var result = document.querySelector("[data-auth-result]");
       var title = document.querySelector("[data-auth-title]");
       var status = document.querySelector("[data-auth-status]");
+      var trust = document.querySelector("[data-auth-trust]");
       var steps = document.querySelector("[data-auth-steps]");
       var openLink = document.getElementById("open-app-link");
       var callbackURL = callbackTarget();
+      var openButtonText = openLink.textContent;
 
-      ["flow_nonce", "token_hash", "token", "type", "email"].forEach(function (name) {
+      [
+        "flow_nonce",
+        "token_hash",
+        "token",
+        "type",
+        "email",
+        "access_token",
+        "refresh_token",
+        "expires_at",
+        "expires_in",
+        "token_type",
+        "provider_token",
+        "provider_refresh_token",
+        "code"
+      ].forEach(function (name) {
         callbackURL = appendCallbackParam(callbackURL, name);
       });
 
-      openLink.addEventListener("click", function (event) {
-        event.preventDefault();
+      openLink.href = callbackURL;
+
+      function setDisabledOpenLink(text) {
+        openLink.classList.add("is-disabled");
+        openLink.setAttribute("aria-disabled", "true");
+        openLink.textContent = text;
+      }
+
+      function openApp() {
         if (document.body.classList.contains("auth-error")) {
           return;
         }
+
+        status.textContent = "Opening iChart now. If iChart opens and shows Verified, you can close this tab. If nothing happens, return here and tap the button again.";
+        openLink.textContent = "Opening iChart...";
         window.location.href = callbackURL;
+        window.setTimeout(function () {
+          openLink.textContent = openButtonText;
+          status.textContent = "If iChart did not open, tap " + openButtonText + " from this iPad. Contact support if a fresh email still does not arrive.";
+        }, 2400);
+      }
+
+      openLink.addEventListener("click", function (event) {
+        event.preventDefault();
+        openApp();
       });
 
       if (type === "recovery") {
-        title.textContent = "Password Reset";
-        status.textContent = "Return to iChart to finish resetting your password.";
-        steps.innerHTML = "<li>If iChart opens automatically, enter your new password in the app.</li><li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li><li>If the link is expired or already used, request a fresh password reset email from iChart.</li>";
+        result.textContent = "Secure password reset link received";
+        title.textContent = "Open iChart to Reset Password";
+        status.textContent = "iChart completes password reset inside the app. Opening iChart should show the new password screen.";
+        openButtonText = "Open iChart to Reset Password";
+        openLink.textContent = openButtonText;
+        trust.textContent = "What should happen next: iChart opens, asks for a new password, and signs you in after you save it.";
+        steps.innerHTML = "<li>This page will try to open iChart automatically. If it does not, tap Open iChart to Reset Password.</li><li>Enter and save the new password inside iChart.</li><li>If the link is expired or already used, request a fresh password reset email from iChart.</li>";
       } else if (type === "email_change") {
-        title.textContent = "Email Change";
-        status.textContent = "Return to iChart to finish confirming your email change.";
-        steps.innerHTML = "<li>If iChart opens automatically, return to the app to finish the email change.</li><li>If nothing opens, tap Open iChart above from the iPad where iChart is installed.</li><li>If the link is expired or already used, request a fresh email-change confirmation from iChart.</li>";
+        result.textContent = "Secure email change link received";
+        title.textContent = "Open iChart to Confirm Email";
+        status.textContent = "iChart completes email changes inside the app so your account stays protected.";
+        openButtonText = "Open iChart to Confirm Email";
+        openLink.textContent = openButtonText;
+        trust.textContent = "What should happen next: iChart opens, confirms the email change, and returns you to your account.";
+        steps.innerHTML = "<li>This page will try to open iChart automatically. If it does not, tap Open iChart to Confirm Email.</li><li>Finish the email-change confirmation inside iChart.</li><li>If the link is expired or already used, request a fresh email-change confirmation from iChart.</li>";
       }
 
       if (error) {
         document.body.classList.add("auth-error");
+        result.textContent = "Fresh link needed";
+        title.textContent = "Verification Link Needs a Refresh";
         status.textContent = "This link could not be completed. It may be expired, already used, or opened from the wrong device.";
-        steps.innerHTML = "<li>Return to iChart and request a fresh verification or password recovery email.</li><li>If the problem continues, contact support from the email tied to your iChart account.</li>";
-        openLink.classList.add("is-disabled");
-        openLink.setAttribute("aria-disabled", "true");
-        openLink.textContent = "Link Expired";
+        trust.textContent = "No account changes were made from this page.";
+        steps.innerHTML = "<li>Return to iChart and request a fresh verification or password recovery email.</li><li>Open only the newest iChart email from the same iPad where you started.</li><li>If the problem continues, contact support from the email tied to your iChart account.</li>";
+        setDisabledOpenLink("Link Expired");
         return;
       }
 
-      if (query || hash) {
-        window.setTimeout(function () {
-          window.location.href = callbackURL;
-        }, 700);
+      if (!hasCallbackPayload()) {
+        document.body.classList.add("auth-info");
+        result.textContent = "Verification email needed";
+        title.textContent = "Open Your iChart Email Link";
+        status.textContent = "This page is the secure handoff for links from iChart account emails. Open the newest verification or password email from this iPad so iChart can finish safely.";
+        trust.textContent = "No verification token was included in this browser page.";
+        steps.innerHTML = "<li>Return to the newest iChart email and tap its verification link.</li><li>If you cannot find it, return to iChart and request a fresh verification email.</li><li>Contact support if a fresh email does not arrive within a few minutes.</li>";
+        setDisabledOpenLink("Open Email Link First");
+        return;
       }
+
+      window.setTimeout(openApp, 650);
     }());
   </script>
 </body>
