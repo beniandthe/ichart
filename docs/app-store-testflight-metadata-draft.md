@@ -104,7 +104,7 @@ chord,lead sheet,pdf,band,setlist,gig,musician,pencil,teacher,horn,wedding,trans
 
 ## What's New / Release Notes Template
 
-> Initial TestFlight build for iChart V1: local chart creation, handwritten editing, PDF export, account sign-in, Pro subscription restore, cloud backup, Projects, and Forums access.
+> iChart V1.1 adds official key signatures, chart modulations, key-aware enharmonic chord spelling, expanded chord-symbol coverage, a refreshed first-run tour, and chord editing polish.
 
 ## TestFlight Beta Description
 
@@ -117,16 +117,11 @@ Please test the core iChart loop:
 - Close and reopen the app to confirm charts persist.
 - If you have Pro enabled, test restore purchases, cloud backup, Projects, and Forums.
 
-Known V1 boundaries:
+Known V1.1 boundaries:
 
 - iChart is focused on reusable chord charts and practical gig charts, not full notation engraving.
 - Chord recognition will still need correction on some handwriting styles.
 - V1.2 roadmap note: dedicated rhythm notation input is planned as a select-input workflow. Do not describe V1.0 or V1.1 as shipping handwritten rhythm recognition or rendered rhythm notation.
-- Key signatures and key-aware enharmonic chord spelling are V1.1 roadmap
-  items, not V1.0 launch promises.
-- Additional obscure/less-common chord coverage is a V1.1 roadmap item; V1.0
-  should be described around the supported chord families that are already
-  working.
 - Forums publish reviewed PDF snapshots, not editable chart source files.
 - Cloud backup and Forums require active Pro.
 
