@@ -65,11 +65,14 @@ Required before resubmission:
   `docs/ichart-v1-final-release-gate.md`.
 - [x] Replace the email verification placeholder source with a branded
   `https://useichart.com/verify.html` browser fallback that never displays token
-  values and can pass callback parameters into iChart.
+  values and passes only one-time verification/exchange parameters into iChart,
+  never bearer session or provider tokens.
 - [x] Deploy and cache-bust verify `https://useichart.com/verify.html` after this
   branch merges.
   - 2026-07-30: live route returned `200`, preserved the `Open iChart`
     handoff, and served the refreshed public-site support/privacy/home links.
+  - 2026-08-07: live route was redeployed from local source and cache-bust
+    verified with no bearer session or provider token parameter names.
 - [x] Deploy and cache-bust verify the 2026-07-31 public-site repair before
   resubmission.
   - 2026-07-31: `https://useichart.com/support.html`,

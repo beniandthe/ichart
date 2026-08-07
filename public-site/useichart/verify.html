@@ -108,8 +108,6 @@
           "flow_nonce",
           "token_hash",
           "token",
-          "access_token",
-          "refresh_token",
           "code"
         ].some(function (name) {
           return Boolean(valueFor(name));
@@ -133,13 +131,6 @@
         "token",
         "type",
         "email",
-        "access_token",
-        "refresh_token",
-        "expires_at",
-        "expires_in",
-        "token_type",
-        "provider_token",
-        "provider_refresh_token",
         "code"
       ].forEach(function (name) {
         callbackURL = appendCallbackParam(callbackURL, name);

@@ -81,6 +81,7 @@ Do not commit `.env`, service-role keys, JWT secrets, Stripe secrets, or dashboa
   <p><a href="ichart://auth-callback?token_hash={{ .TokenHash }}&type=recovery">Reset password in iChart</a></p>
   <p>If you did not request this, you can safely ignore this email.</p>
   ```
+- Do not use implicit-flow links that place full session or provider tokens in the app callback URL. The hosted handoff and custom scheme should carry token-hash/code style exchange values only.
 - During simulator QA, the verification link may open a blank browser page if it redirects to `ichart://auth-callback` outside the simulator. After opening the link, return to iChart and sign in with the same email/password.
 - During password-reset QA, use the direct app recovery link. Settings should show `Set new password` before saving the replacement password.
 - Temporary hosted-link fallback: if a reset email still contains the default `https://.../auth/v1/verify?token=...&type=recovery` link while the dashboard template is being updated, do not open it in a desktop browser first. Extract the `token` value, open `ichart://auth-callback?token=<token>&type=recovery` in the simulator, and let iChart verify it through Supabase Auth.
