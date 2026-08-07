@@ -29,11 +29,12 @@ Intent:
 
 App Store Connect status checked 2026-08-06:
 
-- Live version 1.0 still shows the released name/subtitle/description/keywords
-  until a new app version is created.
-- Promotional text was updated on the live product page to the draft line below.
-- Apply the app name, subtitle, description, and keyword package with the next
-  version metadata update.
+- Live version 1.0 remains the public App Store version until V1.1 is reviewed
+  and released.
+- V1.1 exists in App Store Connect as `1.1 Prepare for Submission`.
+- The V1.1 draft has the canonical app name, subtitle, promotional text,
+  description, keywords, What's New text, App Review notes, and iPad screenshot
+  package applied.
 
 ## Subtitle Options
 
@@ -140,6 +141,18 @@ TestFlight / review-facing update notes:
   to cover the controls being taught.
 - Adds the home-screen V1.1/date stamp so testers can confirm they are on the
   active update build.
+
+App Store screenshot package:
+
+- Use `docs/app-store/media/v1-1-build-38-key-signatures/ipad-13-portrait/`
+  for the three V1.1 key-signature screenshots.
+- App Store Connect iPad 13-inch display order keeps the inherited V1 first
+  seven screenshots, then uses these V1.1 shots in slots 8-10: new chart
+  key/clef setup, rendered rhythm chart key signatures, and page key-change
+  menu.
+- Social-safe originals are preserved in
+  `docs/app-store/media/v1-1-build-38-key-signatures/originals/`; the social
+  handoff note is `docs/marketing/social-media/v1-1-key-signature-screenshot-handoff.md`.
 
 ## TestFlight Beta Description
 
