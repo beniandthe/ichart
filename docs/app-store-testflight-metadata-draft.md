@@ -124,7 +124,7 @@ Rules:
 - For patch-only builds, name the user-visible fix, crash fix, performance fix,
   or review-facing correction that changed.
 
-### Build 37 / V1.1
+### Build 38 / V1.1
 
 Public App Store "What's New":
 

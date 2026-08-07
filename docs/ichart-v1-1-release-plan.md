@@ -128,7 +128,7 @@ V1.0 product-page name, subtitle, description, and keywords are locked in App
 Store Connect.
 
 Before sending a build to App Store Connect, also update the per-build release
-notes in `docs/app-store-testflight-metadata-draft.md`. Build 37 / V1.1 should
+notes in `docs/app-store-testflight-metadata-draft.md`. Build 38 / V1.1 should
 ship with its public "What's New" text plus TestFlight/review-facing notes for
 the key-signature, modulation, chord editing, tutorial, and home-stamp updates.
 
