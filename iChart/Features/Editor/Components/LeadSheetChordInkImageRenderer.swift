@@ -15,6 +15,7 @@ enum LeadSheetChordInkImageRenderer {
     }
 
     static func ocrImage(for drawing: PKDrawing) -> CGImage? {
+        let drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(drawing)
         let inkBounds = renderBounds(for: drawing)
         guard !inkBounds.isNull,
               inkBounds.width > 1,

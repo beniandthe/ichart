@@ -2,6 +2,76 @@
 import PencilKit
 import UIKit
 
+enum LeadSheetPersistentInkColorPolicy {
+    static let inkColor = UIColor(white: 0.06, alpha: 1)
+
+    private static let componentTolerance: CGFloat = 0.015
+
+    static func inkingTool(width: CGFloat) -> PKInkingTool {
+        PKInkingTool(.pen, color: inkColor, width: width)
+    }
+
+    static func normalizedDrawing(_ drawing: PKDrawing) -> PKDrawing {
+        guard needsNormalization(drawing) else {
+            return drawing
+        }
+
+        return PKDrawing(strokes: drawing.strokes.map(normalizedStroke))
+    }
+
+    static func normalizedDrawingData(_ drawingData: Data?) -> Data? {
+        guard let drawingData,
+              let drawing = try? PKDrawing(data: drawingData) else {
+            return drawingData
+        }
+
+        let normalizedDrawing = normalizedDrawing(drawing)
+        return normalizedDrawing.strokes.isEmpty ? nil : normalizedDrawing.dataRepresentation()
+    }
+
+    static func persistentDrawingData(for drawing: PKDrawing) -> Data? {
+        let normalizedDrawing = normalizedDrawing(drawing)
+        return normalizedDrawing.strokes.isEmpty ? nil : normalizedDrawing.dataRepresentation()
+    }
+
+    static func needsNormalization(_ drawing: PKDrawing) -> Bool {
+        drawing.strokes.contains(where: needsNormalization)
+    }
+
+    private static func normalizedStroke(_ stroke: PKStroke) -> PKStroke {
+        PKStroke(
+            ink: PKInk(.pen, color: inkColor),
+            path: stroke.path,
+            transform: stroke.transform,
+            mask: stroke.mask
+        )
+    }
+
+    private static func needsNormalization(_ stroke: PKStroke) -> Bool {
+        stroke.ink.inkType != .pen || !matchesPersistentInkColor(stroke.ink.color)
+    }
+
+    private static func matchesPersistentInkColor(_ color: UIColor) -> Bool {
+        matchesPersistentInkComponents(color)
+    }
+
+    private static func matchesPersistentInkComponents(_ color: UIColor) -> Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return false
+        }
+
+        return abs(red - 0.06) <= componentTolerance
+            && abs(green - 0.06) <= componentTolerance
+            && abs(blue - 0.06) <= componentTolerance
+            && alpha >= 0.98
+    }
+}
+
 struct LeadSheetInteractionModeStatePolicy {
     var selectionTapEnabled: Bool
     var inkSelectionTapEnabled: Bool
@@ -66,14 +136,10 @@ struct LeadSheetInteractionModeStatePolicy {
         }
 
         if interactionMode.allowsChordInkEditing {
-            return PKInkingTool(
-                .pen,
-                color: UIColor(red: 0.04, green: 0.05, blue: 0.06, alpha: 1),
-                width: 2.5
-            )
+            return LeadSheetPersistentInkColorPolicy.inkingTool(width: 2.5)
         }
 
-        return PKInkingTool(.pen, color: UIColor(white: 0.06, alpha: 1), width: 2.8)
+        return LeadSheetPersistentInkColorPolicy.inkingTool(width: 2.8)
     }
 
     private static func drawingPolicy(for interactionMode: EditorCanvasMode) -> PKCanvasViewDrawingPolicy {

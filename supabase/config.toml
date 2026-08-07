@@ -14,8 +14,12 @@ major_version = 15
 
 [auth]
 enabled = true
-site_url = "ichart://auth-callback"
-additional_redirect_urls = ["ichart://auth-callback"]
+site_url = "https://useichart.com/verify.html"
+additional_redirect_urls = [
+  "ichart://auth-callback",
+  "https://useichart.com/verify.html",
+  "https://useichart.com/verify",
+]
 jwt_expiry = 3600
 enable_signup = true
 

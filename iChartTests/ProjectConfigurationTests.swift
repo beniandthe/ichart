@@ -177,7 +177,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("App Store subscriptions and billing are managed by Apple"))
         XCTAssertTrue(libraryText.contains("title: \"Email\""))
         XCTAssertTrue(libraryText.contains("title: \"Name\""))
-        XCTAssertTrue(libraryText.contains("Resend Email"))
+        XCTAssertTrue(libraryText.contains("Send New Verification Email"))
+        XCTAssertTrue(libraryText.contains("I Verified, Sign In"))
         XCTAssertTrue(libraryText.contains("Open the verification link"))
     }
 
@@ -734,6 +735,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let verifyText = try String(contentsOf: siteRoot.appendingPathComponent("verify.html"))
         let indexText = try String(contentsOf: siteRoot.appendingPathComponent("index.html"))
         let htaccessText = try String(contentsOf: siteRoot.appendingPathComponent(".htaccess"))
+        let rewrittenRouteFallbacks = [
+            ("privacy", "/privacy.html", "Privacy Policy - iChart"),
+            ("support", "/support.html", "Support - iChart"),
+            ("terms", "/terms.html", "Terms of Use - iChart"),
+            ("verify", "/verify.html", "Secure Account Verification - iChart"),
+        ]
 
         XCTAssertTrue(supportText.contains("<title>Support - iChart</title>"))
         XCTAssertTrue(supportText.contains("mailto:support@useichart.com"))
@@ -741,6 +748,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(supportText.contains("Settings &gt; Account &gt; Delete Account"))
         XCTAssertTrue(supportText.contains("What To Include"))
         XCTAssertTrue(supportText.contains("What Not To Send"))
+        XCTAssertTrue(supportText.contains("iChart should show Verified after the handoff completes."))
         XCTAssertTrue(supportText.contains("<a href=\"/privacy.html\">Privacy Policy</a>"))
         XCTAssertTrue(supportText.contains("<a href=\"/\">iChart Home</a>"))
 
@@ -754,10 +762,37 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(termsText.contains("Do not upload unlawful, infringing, abusive, misleading, private, or harmful material"))
         XCTAssertTrue(verifyText.contains("ichart://auth-callback"))
         XCTAssertTrue(verifyText.contains("flow_nonce"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^support/?$ support.html [L]"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy/?$ privacy.html [L]"))
-        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms/?$ terms.html [L]"))
+        XCTAssertTrue(verifyText.contains("Secure account link received"))
+        XCTAssertTrue(verifyText.contains("Open iChart to Finish"))
+        XCTAssertTrue(verifyText.contains("Open iChart and Verify"))
+        XCTAssertTrue(verifyText.contains("What should happen next: iChart opens, the Account panel shows Verified"))
+        XCTAssertTrue(verifyText.contains("hasCallbackPayload"))
+        XCTAssertTrue(verifyText.contains("access_token"))
+        XCTAssertTrue(verifyText.contains("window.setTimeout(openApp, 650)"))
+        XCTAssertTrue(verifyText.contains("Verification Link Needs a Refresh"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support$ support.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy$ privacy.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms$ terms.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^verify$ verify.html [L]"))
         XCTAssertTrue(htaccessText.contains("RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]"))
+        for (route, canonicalPath, expectedTitle) in rewrittenRouteFallbacks {
+            var isDirectory: ObjCBool = false
+            let routeDirectoryExists = FileManager.default.fileExists(
+                atPath: siteRoot.appendingPathComponent(route).path,
+                isDirectory: &isDirectory
+            )
+            XCTAssertTrue(routeDirectoryExists && isDirectory.boolValue)
+
+            let routeFallbackText = try String(
+                contentsOf: siteRoot
+                    .appendingPathComponent(route)
+                    .appendingPathComponent("index.html")
+            )
+            XCTAssertTrue(routeFallbackText.contains("<title>\(expectedTitle)</title>"))
+            XCTAssertTrue(routeFallbackText.contains("<meta http-equiv=\"refresh\" content=\"0; url=\(canonicalPath)\">"))
+            XCTAssertTrue(routeFallbackText.contains("<link rel=\"canonical\" href=\"\(canonicalPath)\">"))
+            XCTAssertTrue(routeFallbackText.contains("window.location.search + window.location.hash"))
+        }
     }
 
     func testHelpSurfaceIncludesTutorialWalkthrough() throws {
@@ -1242,7 +1277,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"37\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"38\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))
@@ -1923,6 +1958,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(runbookText.contains("docs/supabase-production-readiness-checklist.md"))
         XCTAssertTrue(productionReadinessText.contains("Auth email/password provider is enabled"))
         XCTAssertTrue(productionReadinessText.contains("ichart://auth-callback"))
+        XCTAssertTrue(productionReadinessText.contains("https://useichart.com/verify.html"))
+        XCTAssertTrue(productionReadinessText.contains("token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}"))
+        XCTAssertTrue(productionReadinessText.contains("token_hash={{ .TokenHash }}&type=recovery&email={{ .Email }}&redirect_to={{ .RedirectTo }}"))
         XCTAssertTrue(productionReadinessText.contains("Email templates keep a confirmation link flow"))
         XCTAssertTrue(productionReadinessText.contains("service-role keys"))
         XCTAssertTrue(productionReadinessText.contains("Back Up Now"))
@@ -1937,7 +1975,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessText.contains("Forum PDF publication records service-owned storage object ID, byte size, and SHA-256 provenance"))
         XCTAssertTrue(productionReadinessText.contains("patching visible post status/provenance columns alone must not make a PDF downloadable"))
         XCTAssertTrue(supabaseConfigText.contains("project_id = \"ichart\""))
-        XCTAssertTrue(supabaseConfigText.contains("additional_redirect_urls = [\"ichart://auth-callback\"]"))
+        XCTAssertTrue(supabaseConfigText.contains("site_url = \"https://useichart.com/verify.html\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"ichart://auth-callback\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"https://useichart.com/verify.html\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"https://useichart.com/verify\""))
         XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
         XCTAssertTrue(supabaseConfigText.contains("secure_password_change = true"))
         XCTAssertTrue(supabaseConfigText.contains("max_frequency = \"1m\""))

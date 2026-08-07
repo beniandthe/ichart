@@ -71,7 +71,9 @@ enum LeadSheetChordInkRecognitionTargeting {
                 return nil
             }
 
-            let clusterDrawing = PKDrawing(strokes: strokePairs.map(\.0))
+            let clusterDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(
+                PKDrawing(strokes: strokePairs.map(\.0))
+            )
             return LeadSheetChordInkRecognitionBatchTarget(
                 measureID: target.measureID,
                 fraction: target.fraction,

@@ -87,11 +87,11 @@ enum IChartAuthError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidAuthCallback:
-            return "This sign-in link is not an iChart account callback."
+            return "This link is not an iChart account verification link."
         case .unexpectedAuthCallback:
-            return "Open the latest iChart account email from this device."
+            return "Open the newest iChart account email on the iPad where you started, or request a fresh verification email."
         case .expiredAuthCallback:
-            return "This account link expired. Request a new email from iChart."
+            return "This account link expired. Request a fresh email from iChart and open the newest link on this iPad."
         case .missingAccountName:
             return "Enter first and last name to finish account identity."
         case .profileUnavailable:
@@ -229,7 +229,7 @@ final class IChartAuthStore: ObservableObject {
         firstName: String? = nil,
         lastName: String? = nil
     ) async {
-        await run("Account created. Check your email to finish verification.") {
+        await run("Account created. Check your email, then open the verification link on this iPad.") {
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             let nextState: IChartAuthState
             do {
@@ -320,7 +320,7 @@ final class IChartAuthStore: ObservableObject {
             return
         }
 
-        await run("Verification email sent.") {
+        await run("Verification email sent. Open the newest link on this iPad.") {
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             do {
                 try await service.resendVerificationEmail(
@@ -354,7 +354,11 @@ final class IChartAuthStore: ObservableObject {
             return
         }
 
-        await run("Account session refreshed.") {
+        let successMessage = pendingAuthFlowKind(from: url) == .signup
+            ? "Email verified. You're signed in."
+            : "Account link verified."
+
+        await run(successMessage) {
             try validatePendingAuthFlow(for: url)
             let nextState = try await service.handleAuthCallback(url: url)
             try await applyAuthState(nextState)

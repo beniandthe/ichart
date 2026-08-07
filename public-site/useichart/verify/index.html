@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="0; url=/verify.html">
+  <link rel="canonical" href="/verify.html">
+  <title>Secure Account Verification - iChart</title>
+  <script>
+    (function () {
+      var destination = "/verify.html" + window.location.search + window.location.hash;
+      window.location.replace(destination);
+    }());
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Opening secure iChart verification</h1>
+    <p><a id="continue-link" href="/verify.html">Continue to verification</a></p>
+  </main>
+  <script>
+    document.getElementById("continue-link").href = "/verify.html" + window.location.search + window.location.hash;
+  </script>
+</body>
+</html>

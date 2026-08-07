@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import PencilKit
+import UIKit
 import XCTest
 @testable import iChart
 
@@ -9,6 +10,60 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.inkTool.inkType, .pen)
         XCTAssertEqual(policy.inkTool.width, 2.5, accuracy: 0.001)
+    }
+
+    func testPersistentInkToolsUseFixedVisibleInk() {
+        let chordPolicy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
+        let freeWritePolicy = LeadSheetInteractionModeStatePolicy.resolve(for: .freeHand)
+
+        assertPersistentInkColor(chordPolicy.inkTool.color)
+        assertPersistentInkColor(freeWritePolicy.inkTool.color)
+    }
+
+    func testPersistentInkNormalizationRecolorsWhiteInkWithoutChangingGeometry() throws {
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 2, y: 3),
+                    CGPoint(x: 18, y: 14),
+                    CGPoint(x: 25, y: 9)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40),
+                color: .white
+            )
+        ])
+        let sourceSnapshot = try XCTUnwrap(LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
+
+        XCTAssertTrue(LeadSheetPersistentInkColorPolicy.needsNormalization(sourceDrawing))
+
+        let normalizedDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(sourceDrawing)
+        let normalizedSnapshot = try XCTUnwrap(LeadSheetInkDrawingSnapshot(drawing: normalizedDrawing))
+
+        XCTAssertEqual(sourceSnapshot, normalizedSnapshot)
+        XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(normalizedDrawing))
+        XCTAssertEqual(normalizedDrawing.strokes.first?.ink.inkType, .pen)
+        assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
+    }
+
+    func testPersistentInkNormalizationUpdatesSerializedWhiteInk() throws {
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 4, y: 5),
+                    CGPoint(x: 30, y: 18)
+                ],
+                creationDate: Date(timeIntervalSince1970: 50),
+                color: .white
+            )
+        ])
+
+        let normalizedData = try XCTUnwrap(
+            LeadSheetPersistentInkColorPolicy.normalizedDrawingData(sourceDrawing.dataRepresentation())
+        )
+        let normalizedDrawing = try PKDrawing(data: normalizedData)
+
+        XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(normalizedDrawing))
+        assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
     }
 
     func testInkToolPolicyUsesEraserForFreeWriteEraseMode() {
@@ -1465,7 +1520,24 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    private func stroke(points: [CGPoint], creationDate: Date) -> PKStroke {
+    private func assertPersistentInkColor(_ color: UIColor, file: StaticString = #filePath, line: UInt = #line) {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha), file: file, line: line)
+        XCTAssertEqual(red, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertEqual(green, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertEqual(blue, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(alpha, 0.98, file: file, line: line)
+    }
+
+    private func stroke(
+        points: [CGPoint],
+        creationDate: Date,
+        color: UIColor = .black
+    ) -> PKStroke {
         let controlPoints = points.enumerated().map { index, point in
             PKStrokePoint(
                 location: point,
@@ -1478,7 +1550,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             )
         }
         return PKStroke(
-            ink: PKInk(.pen, color: .black),
+            ink: PKInk(.pen, color: color),
             path: PKStrokePath(controlPoints: controlPoints, creationDate: creationDate)
         )
     }
