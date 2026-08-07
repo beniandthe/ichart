@@ -5229,18 +5229,10 @@ private struct IChartFirstRunAccountLandingView: View {
                             }
 
                             if authStore.state.isVerifiedSignedIn && authStore.hasCompleteAccountIdentity {
-                                Button {
-                                    withAnimation(.easeOut(duration: 0.18)) {
-                                        isLaunchAnimationVisible = true
-                                    }
-                                } label: {
-                                    Label("Continue", systemImage: "arrow.right")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.large)
-                                .tint(IChartHomeBrand.blue)
-                                .disabled(isLaunchAnimationVisible)
+                                Label("Verification complete. Opening iChart...", systemImage: "checkmark.circle")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(theme.panelSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
                         .frame(maxWidth: 640)
@@ -5266,6 +5258,27 @@ private struct IChartFirstRunAccountLandingView: View {
                 .transition(.opacity)
                 .zIndex(2)
             }
+        }
+        .task {
+            startLaunchAnimationIfReady()
+        }
+        .onChange(of: authStore.state) { _, _ in
+            startLaunchAnimationIfReady()
+        }
+        .onChange(of: authStore.hasCompleteAccountIdentity) { _, _ in
+            startLaunchAnimationIfReady()
+        }
+    }
+
+    private func startLaunchAnimationIfReady() {
+        guard authStore.state.isVerifiedSignedIn,
+              authStore.hasCompleteAccountIdentity,
+              !isLaunchAnimationVisible else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.18)) {
+            isLaunchAnimationVisible = true
         }
     }
 }
@@ -5393,11 +5406,6 @@ private struct IChartAccountSettings: View {
     private var canSubmitCredentials: Bool {
         hasSignInCredentials
             && !authStore.isWorking
-    }
-
-    private var canCreateAccount: Bool {
-        canSubmitCredentials
-            && (!requiresNameForSignup || (!trimmed(firstName).isEmpty && !trimmed(lastName).isEmpty))
     }
 
     private var canRequestPasswordReset: Bool {
@@ -5582,6 +5590,11 @@ private struct IChartAccountSettings: View {
 
     private var createAccountButton: some View {
         Button {
+            guard validateCreateAccountInputs() else {
+                return
+            }
+
+            accountEntryPrompt = nil
             Task {
                 await authStore.createAccount(
                     email: email,
@@ -5596,7 +5609,7 @@ private struct IChartAccountSettings: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(IChartHomeBrand.blue)
-        .disabled(!canCreateAccount)
+        .disabled(authStore.isWorking)
     }
 
     @ViewBuilder
@@ -5623,32 +5636,60 @@ private struct IChartAccountSettings: View {
     }
 
     private var verificationRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Open the newest verification email on this iPad. iChart should open and show Verified automatically. If it opens in a browser, tap Open iChart and Verify on that page.")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("This page will stay here until iChart confirms your email link.")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("1. Open Mail on this iPad.", systemImage: "1.circle")
+                Label("2. Open the newest email from iChart.", systemImage: "2.circle")
+                Label("3. Tap Verify iChart Account.", systemImage: "3.circle")
+                Label("4. Tap Return to iChart on the browser page.", systemImage: "4.circle")
+            }
+            .font(.caption)
+            .foregroundStyle(theme.panelSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Label(
+                "Do not use old iChart emails. If you send a new email, older links may stop working.",
+                systemImage: "exclamationmark.triangle"
+            )
                 .font(.caption)
-                .foregroundStyle(theme.panelSecondary)
+                .foregroundStyle(Color(red: 0.62, green: 0.18, blue: 0.12))
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+
+                    Text("Waiting for email verification...")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.panelSecondary)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.panelBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.panelBorder, lineWidth: 1)
+                }
+
                 Button {
                     Task {
                         await authStore.resendVerificationEmail()
                     }
                 } label: {
-                    Label("Send New Verification Email", systemImage: "envelope.badge")
+                    Label("Send One New Email", systemImage: "envelope.badge")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .disabled(authStore.isWorking)
-
-                Button {
-                    authStore.returnToSignIn()
-                } label: {
-                    Label("I Verified, Sign In", systemImage: "person.crop.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(IChartHomeBrand.blue)
                 .disabled(authStore.isWorking)
             }
         }
@@ -5926,7 +5967,7 @@ private struct IChartAccountSettings: View {
 
             return "Using local charts. Reconnect to back up."
         case .pendingEmailVerification(let email):
-            return "Open the verification link sent to \(email) on this iPad."
+            return "Waiting for \(email). Open the newest iChart email and tap Verify iChart Account."
         case .passwordRecovery(let session):
             if let email = session.email {
                 return "Enter a new password for \(email)."
@@ -5959,6 +6000,34 @@ private struct IChartAccountSettings: View {
         case .unconfigured, .temporarilyOffline, .pendingEmailVerification, .signedIn:
             break
         }
+    }
+
+    private func validateCreateAccountInputs() -> Bool {
+        if requiresNameForSignup && trimmed(firstName).isEmpty {
+            accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
+            focusedField = .firstName
+            return false
+        }
+
+        if requiresNameForSignup && trimmed(lastName).isEmpty {
+            accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
+            focusedField = .lastName
+            return false
+        }
+
+        if trimmed(email).isEmpty {
+            accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
+            focusedField = .email
+            return false
+        }
+
+        if password.count < 8 {
+            accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
+            focusedField = .password
+            return false
+        }
+
+        return true
     }
 
     private func prefillAccountIdentityFieldsIfNeeded() {

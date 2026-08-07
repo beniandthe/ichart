@@ -30,14 +30,23 @@ Required production settings:
 - URL Configuration Site URL is `https://useichart.com/verify.html`.
 - URL Configuration redirect allow list includes exactly the production handoff URLs that the app and site use: `ichart://auth-callback`, `https://useichart.com/verify.html`, and `https://useichart.com/verify`.
 - `ichart://auth-callback` remains the installed-app custom-scheme callback; universal links are the production follow-up once an associated domain is selected.
-- Signup confirmation and password recovery emails land on `https://useichart.com/verify.html`, preserve `token_hash`, callback `type`, account `email`, and `redirect_to={{ .RedirectTo }}`, then the hosted page opens `ichart://auth-callback` with the pending `flow_nonce`.
+- Signup confirmation and password recovery emails land on `https://useichart.com/verify.html`, preserve `token_hash`, callback `type`, account `email`, and `redirect_to={{ .RedirectTo }}`, then the hosted page offers `ichart://auth-callback` with the pending `flow_nonce` only as an app handoff. The browser page must never claim the account is verified before iChart consumes the token.
 - The hosted verification page may pass only one-time exchange values such as `token_hash`, legacy `token`, `code`, `type`, `email`, and `flow_nonce` into `ichart://auth-callback`; it must not forward bearer/session or provider token parameters from an implicit-flow URL into the custom scheme.
 - `https://useichart.com/verify.html` is the stable browser handoff for email verification and password recovery links. The extensionless `https://useichart.com/verify` route is rewritten by root `.htaccess`; the accidental trailing-slash form `/verify/` is covered by `verify/index.html`, which redirects to `/verify.html` while preserving query/hash values. Do not leave empty same-named route directories on IONOS.
 - The app stores a pending auth-flow record before sending signup/resend/password-reset email and rejects callbacks without the matching flow type and `flow_nonce`.
-- Email templates keep a confirmation link flow unless the app adds a deliberate OTP/code-entry screen.
-- Hosted Confirm sign up template:
+- Email templates use the direct token-hash handoff link, not Supabase's `{{ .ConfirmationURL }}`, unless the app adds a deliberate OTP/code-entry screen.
+- Hosted Confirm sign up subject is `Verify your iChart account`; hosted Confirm sign up template:
   ```html
-  <a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Verify email in iChart</a>
+  <h2>Verify your iChart account</h2>
+
+  <p>You created an iChart account. To finish setup, use the same iPad where you created the account.</p>
+  <a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Verify iChart Account Here</a>
+
+  <p>This opens a browser page first. On that page, tap Return to iChart.</p>
+  <p>Your account is not verified until iChart opens and confirms the link.</p>
+  <p>If this opens on a phone or computer, do not continue there. Open the newest iChart email on the iPad where you created the account and tap Verify iChart Account Here again.</p>
+  <p>If you requested more than one email, use only the newest iChart email. Older links may stop working.</p>
+  <p>If you did not create an iChart account, you can ignore this email.</p>
   ```
 - Hosted Reset password template:
   ```html

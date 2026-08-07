@@ -26,7 +26,7 @@ enum IChartAuthState: Equatable {
         case .temporarilyOffline:
             return "Temporarily offline"
         case .pendingEmailVerification:
-            return "Verify email"
+            return "Email Verification Sent"
         case .passwordRecovery:
             return "Set new password"
         case .signedIn(let session):
@@ -81,6 +81,8 @@ enum IChartAuthError: LocalizedError {
     case invalidAuthCallback
     case unexpectedAuthCallback
     case expiredAuthCallback
+    case emailNotConfirmed
+    case verificationEmailRateLimited
     case missingAccountName
     case profileUnavailable
 
@@ -89,9 +91,13 @@ enum IChartAuthError: LocalizedError {
         case .invalidAuthCallback:
             return "This link is not an iChart account verification link."
         case .unexpectedAuthCallback:
-            return "Open the newest iChart account email on the iPad where you started, or request a fresh verification email."
+            return "That was not the newest iChart email link. Open Mail on this iPad, open the newest email from iChart, and tap Verify iChart Account."
         case .expiredAuthCallback:
-            return "This account link expired. Request a fresh email from iChart and open the newest link on this iPad."
+            return "That email link expired. Send one new iChart email, then open Mail and tap Verify iChart Account in the newest email only."
+        case .emailNotConfirmed:
+            return "Email is not verified yet. Do this: open Mail, open the newest email from iChart, and tap Verify iChart Account. Do not use old links."
+        case .verificationEmailRateLimited:
+            return "Too many verification emails were requested. Wait about one minute, then send one new email and use only the newest iChart email."
         case .missingAccountName:
             return "Enter first and last name to finish account identity."
         case .profileUnavailable:
@@ -229,7 +235,8 @@ final class IChartAuthStore: ObservableObject {
         firstName: String? = nil,
         lastName: String? = nil
     ) async {
-        await run("Account created. Check your email, then open the verification link on this iPad.") {
+        await run("Email verification sent. Open Mail and tap Verify iChart Account in the newest iChart email.") {
+            let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             let nextState: IChartAuthState
             do {
@@ -241,7 +248,13 @@ final class IChartAuthStore: ObservableObject {
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
             } catch {
-                clearPendingAuthFlow()
+                restorePendingAuthFlow(previousFlow)
+                if Self.isVerificationEmailRateLimitError(error) {
+                    state = .pendingEmailVerification(email: sanitized(email) ?? email)
+                    profile = nil
+                    rememberPendingVerificationEmailIfNeeded()
+                    throw IChartAuthError.verificationEmailRateLimited
+                }
                 throw error
             }
             try await applyAuthState(nextState)
@@ -255,7 +268,18 @@ final class IChartAuthStore: ObservableObject {
 
     func signIn(email: String, password: String) async {
         await run("Signed in.") {
-            let nextState = try await service.signIn(email: email, password: password)
+            let nextState: IChartAuthState
+            do {
+                nextState = try await service.signIn(email: email, password: password)
+            } catch {
+                if Self.isEmailNotConfirmedError(error) {
+                    state = .pendingEmailVerification(email: sanitized(email) ?? email)
+                    profile = nil
+                    rememberPendingVerificationEmailIfNeeded()
+                    throw IChartAuthError.emailNotConfirmed
+                }
+                throw error
+            }
             try await applyAuthState(nextState)
             clearPendingAuthFlow()
         }
@@ -320,7 +344,8 @@ final class IChartAuthStore: ObservableObject {
             return
         }
 
-        await run("Verification email sent. Open the newest link on this iPad.") {
+        await run("New email sent. Open Mail and tap Verify iChart Account in the newest iChart email.") {
+            let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             do {
                 try await service.resendVerificationEmail(
@@ -328,7 +353,10 @@ final class IChartAuthStore: ObservableObject {
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
             } catch {
-                clearPendingAuthFlow()
+                restorePendingAuthFlow(previousFlow)
+                if Self.isVerificationEmailRateLimitError(error) {
+                    throw IChartAuthError.verificationEmailRateLimited
+                }
                 throw error
             }
         }
@@ -355,7 +383,7 @@ final class IChartAuthStore: ObservableObject {
         }
 
         let successMessage = pendingAuthFlowKind(from: url) == .signup
-            ? "Email verified. You're signed in."
+            ? "Verification complete."
             : "Account link verified."
 
         await run(successMessage) {
@@ -496,6 +524,14 @@ final class IChartAuthStore: ObservableObject {
         try? pendingVerificationEmailStorage.remove(key: Self.pendingAuthFlowKey)
     }
 
+    private func restorePendingAuthFlow(_ flow: IChartPendingAuthFlow?) {
+        if let flow {
+            try? storePendingAuthFlow(flow)
+        } else {
+            clearPendingAuthFlow()
+        }
+    }
+
     private func validatePendingAuthFlow(for url: URL) throws {
         guard let flow = try loadedPendingAuthFlow() else {
             throw IChartAuthError.unexpectedAuthCallback
@@ -507,19 +543,16 @@ final class IChartAuthStore: ObservableObject {
         }
 
         guard callbackFlowNonce(from: url) == flow.nonce else {
-            clearPendingAuthFlow()
             throw IChartAuthError.unexpectedAuthCallback
         }
 
         guard pendingAuthFlowKind(from: url) == flow.kind else {
-            clearPendingAuthFlow()
             throw IChartAuthError.unexpectedAuthCallback
         }
 
         if let expectedEmail = flow.expectedEmail,
            let callbackEmail = callbackEmail(from: url),
            callbackEmail.caseInsensitiveCompare(expectedEmail) != .orderedSame {
-            clearPendingAuthFlow()
             throw IChartAuthError.unexpectedAuthCallback
         }
     }
@@ -608,6 +641,36 @@ final class IChartAuthStore: ObservableObject {
         }
 
         return UUID(uuidString: fragmentNonce)
+    }
+
+    static func isEmailNotConfirmedError(_ error: Error) -> Bool {
+        if let authError = error as? AuthError {
+            return authError.errorCode == .emailNotConfirmed
+        }
+
+        let text = authErrorText(error)
+        return text.contains("email_not_confirmed")
+            || text.contains("email not confirmed")
+            || text.contains("email has not been confirmed")
+            || (text.contains("email hasn") && text.contains("verified"))
+    }
+
+    static func isVerificationEmailRateLimitError(_ error: Error) -> Bool {
+        if let authError = error as? AuthError {
+            return authError.errorCode == .overEmailSendRateLimit
+                || authError.errorCode == .overRequestRateLimit
+        }
+
+        let text = authErrorText(error)
+        return text.contains("over_email_send_rate_limit")
+            || text.contains("over_request_rate_limit")
+            || text.contains("email send rate limit")
+            || text.contains("only request this after")
+            || text.contains("requested too recently")
+    }
+
+    private static func authErrorText(_ error: Error) -> String {
+        "\(error) \(error.localizedDescription)".lowercased()
     }
 }
 
