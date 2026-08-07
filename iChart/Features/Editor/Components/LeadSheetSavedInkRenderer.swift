@@ -34,8 +34,12 @@ enum LeadSheetSavedInkRenderer {
 
     private static func drawInk(_ drawingData: Data?, in frame: CGRect) {
         guard let drawingData,
-              let drawing = try? PKDrawing(data: drawingData),
-              !drawing.strokes.isEmpty else {
+              let savedDrawing = try? PKDrawing(data: drawingData) else {
+            return
+        }
+
+        let drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(savedDrawing)
+        guard !drawing.strokes.isEmpty else {
             return
         }
 

@@ -1347,7 +1347,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.alwaysBounceVertical = false
         pageInkCanvasView.alwaysBounceHorizontal = false
         pageInkCanvasView.drawingPolicy = .anyInput
-        pageInkCanvasView.tool = PKInkingTool(.pen, color: UIColor(white: 0.06, alpha: 1), width: 2.8)
+        pageInkCanvasView.tool = LeadSheetPersistentInkColorPolicy.inkingTool(width: 2.8)
         inkSelectionTapRecognizer.delegate = self
         inkSelectionTapRecognizer.cancelsTouchesInView = false
         pageInkCanvasView.addGestureRecognizer(inkSelectionTapRecognizer)
@@ -2356,7 +2356,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        normalizePersistentInkCanvasIfNeeded()
         updateChordInkConfirmOverlayVisibility()
+
+        guard !isSyncingInkCanvasFromModel else {
+            return
+        }
 
         let activeRole = activeInkAuthoringSessionRole()
         if let role = activeRole {
@@ -2986,6 +2991,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.contentSize = activeInkScope.frame.size
         pageInkCanvasView.localInputFrames = activeInkScope.localInputFrames
         updateChordInkConfirmOverlayVisibility()
+        normalizePersistentInkCanvasIfNeeded(activeInkScope: activeInkScope)
 
         let desiredData = activeInkScope.drawingData(in: chart)
         let currentData = currentCanvasDrawingData()
@@ -3015,7 +3021,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         isSyncingInkCanvasFromModel = true
         if let desiredData,
            let drawing = try? PKDrawing(data: desiredData) {
-            pageInkCanvasView.drawing = drawing
+            pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(drawing)
         } else {
             pageInkCanvasView.drawing = PKDrawing()
         }
@@ -3153,7 +3159,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let activeInkRole = LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope)
 
-        let drawingData = currentCanvasDrawingData()
+        let drawingData = currentCanvasDrawingData(activeInkScope: activeInkScope)
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
             clearDirtyInkAuthoringRole(activeInkRole)
             return
@@ -3872,12 +3878,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func currentCanvasDrawingData() -> Data? {
-        let drawing = pageInkCanvasView.drawing
-        return drawing.strokes.isEmpty ? nil : drawing.dataRepresentation()
+        currentCanvasDrawingData(activeInkScope: activeInkScope())
+    }
+
+    private func currentCanvasDrawingData(activeInkScope: LeadSheetActiveInkScope?) -> Data? {
+        guard let activeInkScope,
+              LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope) != nil else {
+            let drawing = pageInkCanvasView.drawing
+            return drawing.strokes.isEmpty ? nil : drawing.dataRepresentation()
+        }
+
+        return LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: pageInkCanvasView.drawing)
     }
 
     private func currentCanvasInkSnapshot() -> LeadSheetInkDrawingSnapshot? {
         LeadSheetInkDrawingSnapshot(drawing: pageInkCanvasView.drawing)
+    }
+
+    private func normalizePersistentInkCanvasIfNeeded(activeInkScope explicitActiveInkScope: LeadSheetActiveInkScope? = nil) {
+        guard let activeInkScope = explicitActiveInkScope ?? activeInkScope(),
+              LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope) != nil,
+              LeadSheetPersistentInkColorPolicy.needsNormalization(pageInkCanvasView.drawing) else {
+            return
+        }
+
+        isSyncingInkCanvasFromModel = true
+        pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(pageInkCanvasView.drawing)
+        isSyncingInkCanvasFromModel = false
     }
 
     private func updateInteractionMode() {
