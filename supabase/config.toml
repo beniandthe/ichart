@@ -17,11 +17,13 @@ enabled = true
 site_url = "https://useichart.com/verify.html"
 additional_redirect_urls = [
   "ichart://auth-callback",
+  "ichart://auth-callback**",
   "https://useichart.com/verify.html",
   "https://useichart.com/verify",
 ]
 jwt_expiry = 3600
 enable_signup = true
+minimum_password_length = 8
 
 [auth.email]
 enable_signup = true

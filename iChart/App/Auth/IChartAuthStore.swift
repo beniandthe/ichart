@@ -182,9 +182,7 @@ final class IChartAuthStore: ObservableObject {
 
     private init(
         service: IChartAccountServicing,
-        pendingVerificationEmailStorage: any AuthLocalStorage = IChartSupabaseAuthLocalStorage(
-            allowsInsecureFallback: false
-        )
+        pendingVerificationEmailStorage: any AuthLocalStorage = IChartSupabaseAuthLocalStorage()
     ) {
         self.service = service
         self.pendingVerificationEmailStorage = pendingVerificationEmailStorage
@@ -542,17 +540,21 @@ final class IChartAuthStore: ObservableObject {
             throw IChartAuthError.expiredAuthCallback
         }
 
-        guard callbackFlowNonce(from: url) == flow.nonce else {
-            throw IChartAuthError.unexpectedAuthCallback
-        }
-
         guard pendingAuthFlowKind(from: url) == flow.kind else {
             throw IChartAuthError.unexpectedAuthCallback
         }
 
+        let callbackEmail = callbackEmail(from: url)
         if let expectedEmail = flow.expectedEmail,
-           let callbackEmail = callbackEmail(from: url),
-           callbackEmail.caseInsensitiveCompare(expectedEmail) != .orderedSame {
+           callbackEmail?.caseInsensitiveCompare(expectedEmail) != .orderedSame {
+            throw IChartAuthError.unexpectedAuthCallback
+        }
+
+        if let callbackNonce = callbackFlowNonce(from: url) {
+            guard callbackNonce == flow.nonce else {
+                throw IChartAuthError.unexpectedAuthCallback
+            }
+        } else if callbackEmail == nil {
             throw IChartAuthError.unexpectedAuthCallback
         }
     }
