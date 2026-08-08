@@ -58,22 +58,38 @@
         return queryParams.get(name) || hashParams.get(name);
       }
 
+      var callbackParamNames = [
+        "flow_nonce",
+        "token_hash",
+        "token",
+        "type",
+        "email",
+        "code"
+      ];
+
+      function baseCallbackTarget() {
+        return "ichart://auth-callback";
+      }
+
       function callbackTarget() {
         var redirectTo = valueFor("redirect_to") || valueFor("redirectTo");
         if (!redirectTo) {
-          return "ichart://auth-callback";
+          return baseCallbackTarget();
         }
 
         try {
           var decoded = decodeURIComponent(redirectTo);
-          if (decoded.indexOf("ichart://auth-callback") === 0) {
-            return decoded;
+          var redirectURL = new URL(decoded);
+          if (redirectURL.protocol === "ichart:" && redirectURL.host === "auth-callback") {
+            return callbackParamNames.reduce(function (sanitizedURL, name) {
+              return appendKnownCallbackParam(sanitizedURL, name, redirectURL.searchParams.get(name));
+            }, baseCallbackTarget());
           }
         } catch (_error) {
-          return "ichart://auth-callback";
+          return baseCallbackTarget();
         }
 
-        return "ichart://auth-callback";
+        return baseCallbackTarget();
       }
 
       function callbackHasParam(callbackURL, name) {
@@ -84,8 +100,7 @@
         }
       }
 
-      function appendCallbackParam(callbackURL, name) {
-        var value = valueFor(name);
+      function appendKnownCallbackParam(callbackURL, name, value) {
         if (!value || callbackHasParam(callbackURL, name)) {
           return callbackURL;
         }
@@ -99,6 +114,10 @@
 
         var separator = callbackURL.indexOf("?") === -1 ? "?" : "&";
         return callbackURL + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value) + fragment;
+      }
+
+      function appendCallbackParam(callbackURL, name) {
+        return appendKnownCallbackParam(callbackURL, name, valueFor(name));
       }
 
       function hasCallbackCredential() {
@@ -136,14 +155,7 @@
       var callbackURL = callbackTarget();
       var openButtonText = openLink.textContent;
 
-      [
-        "flow_nonce",
-        "token_hash",
-        "token",
-        "type",
-        "email",
-        "code"
-      ].forEach(function (name) {
+      callbackParamNames.forEach(function (name) {
         callbackURL = appendCallbackParam(callbackURL, name);
       });
 
