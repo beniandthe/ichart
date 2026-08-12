@@ -611,7 +611,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenNotationDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenNotationData != normalizedData else {
             return false
         }
@@ -623,7 +623,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenHeaderDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenHeaderData != normalizedData else {
             return false
         }
@@ -635,7 +635,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenChordDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenChordData != normalizedData else {
             return false
         }
@@ -654,7 +654,7 @@ extension Chart {
             return false
         }
 
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != normalizedData else {
             return false
         }
@@ -675,7 +675,7 @@ extension Chart {
             return false
         }
 
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         let normalizedMap = values.map {
             MeasureRhythmMap(
                 values: $0,
@@ -757,7 +757,7 @@ extension Chart {
             LeadSheetPitchedNoteEvent(
                 rhythmSlotIndex: note.rhythmSlotIndex,
                 staffPosition: note.staffPosition,
-                sourceInkData: note.sourceInkData?.isEmpty == true ? nil : note.sourceInkData
+                sourceInkData: normalizedPersistentInkDrawingData(note.sourceInkData)
             )
         }
         guard measure.rhythmMap != rhythmMap || measure.pitchedNoteEvents != pitchedNoteEvents else {

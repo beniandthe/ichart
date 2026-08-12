@@ -52,7 +52,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.tieOut = tieOut
         self.hitStyle = hitStyle
         self.rawInput = rawInput
-        self.sourceInkData = sourceInkData
+        self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
         self.sourceCandidateSignature = sourceCandidateSignature
     }
 
@@ -96,7 +96,9 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         tieOut = try container.decode(Bool.self, forKey: .tieOut)
         hitStyle = try container.decode(HitStyle.self, forKey: .hitStyle)
         rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
-        sourceInkData = try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
+        sourceInkData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
+        )
         sourceCandidateSignature = try container.decodeIfPresent([String].self, forKey: .sourceCandidateSignature) ?? []
     }
 

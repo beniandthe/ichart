@@ -36,7 +36,7 @@ struct LeadSheetPitchedNoteEvent: Identifiable, Codable, Hashable {
         self.id = id
         self.rhythmSlotIndex = rhythmSlotIndex
         self.staffPosition = staffPosition
-        self.sourceInkData = sourceInkData
+        self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
     }
 }
 
@@ -52,7 +52,7 @@ struct LeadSheetPitchedNoteInput: Hashable {
     ) {
         self.rhythmValue = rhythmValue
         self.staffPosition = staffPosition
-        self.sourceInkData = sourceInkData
+        self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
     }
 }
 
@@ -68,7 +68,7 @@ struct LeadSheetPitchedNoteSlotInput: Hashable {
     ) {
         self.rhythmSlotIndex = rhythmSlotIndex
         self.staffPosition = staffPosition
-        self.sourceInkData = sourceInkData
+        self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
     }
 }
 
@@ -112,7 +112,7 @@ struct Measure: Identifiable, Codable, Hashable {
         self.rhythmMap = rhythmMap
         self.pitchedNoteEvents = pitchedNoteEvents
         self.manualLayoutWidth = manualLayoutWidth
-        self.handwrittenRhythmicNotationData = handwrittenRhythmicNotationData
+        self.handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(handwrittenRhythmicNotationData)
         self.barlineAfter = barlineAfter
         self.chordEvents = chordEvents
         self.cueTextIDs = cueTextIDs
@@ -145,7 +145,9 @@ struct Measure: Identifiable, Codable, Hashable {
         rhythmMap = try container.decodeIfPresent(MeasureRhythmMap.self, forKey: .rhythmMap)
         pitchedNoteEvents = try container.decodeIfPresent([LeadSheetPitchedNoteEvent].self, forKey: .pitchedNoteEvents) ?? []
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
-        handwrittenRhythmicNotationData = try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
+        handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
+        )
         barlineAfter = try container.decode(BarlineType.self, forKey: .barlineAfter)
         chordEvents = try container.decode([ChordEvent].self, forKey: .chordEvents)
         cueTextIDs = try container.decode([UUID].self, forKey: .cueTextIDs)

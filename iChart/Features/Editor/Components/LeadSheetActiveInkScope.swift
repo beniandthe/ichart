@@ -188,23 +188,19 @@ enum LeadSheetActiveInkScope {
 
         switch self {
         case .page:
-            guard chart.pageHandwrittenNotationData != drawingData,
-                  updatedChart.setPageHandwrittenNotationDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenNotationDrawing(drawingData) else {
                 return nil
             }
         case .header:
-            guard chart.pageHandwrittenHeaderData != drawingData,
-                  updatedChart.setPageHandwrittenHeaderDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenHeaderDrawing(drawingData) else {
                 return nil
             }
         case .chords:
-            guard chart.pageHandwrittenChordData != drawingData,
-                  updatedChart.setPageHandwrittenChordDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenChordDrawing(drawingData) else {
                 return nil
             }
         case .rhythmicMeasure(let measureID, _):
-            guard chart.measure(id: measureID)?.handwrittenRhythmicNotationData != drawingData,
-                  updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
+            guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
                 return nil
             }
         case .noteSelection:

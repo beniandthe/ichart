@@ -3882,13 +3882,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func currentCanvasDrawingData(activeInkScope: LeadSheetActiveInkScope?) -> Data? {
-        guard let activeInkScope,
-              LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope) != nil else {
-            let drawing = pageInkCanvasView.drawing
-            return drawing.strokes.isEmpty ? nil : drawing.dataRepresentation()
+        let drawing = pageInkCanvasView.drawing
+        guard !drawing.strokes.isEmpty else {
+            return nil
         }
 
-        return LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: pageInkCanvasView.drawing)
+        if case .noteSelection? = activeInkScope {
+            return drawing.dataRepresentation()
+        }
+
+        return LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing)
     }
 
     private func currentCanvasInkSnapshot() -> LeadSheetInkDrawingSnapshot? {

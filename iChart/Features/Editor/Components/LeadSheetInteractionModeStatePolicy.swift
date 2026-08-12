@@ -25,6 +25,10 @@ enum LeadSheetPersistentInkColorPolicy {
             return drawingData
         }
 
+        guard !drawing.strokes.isEmpty else {
+            return drawingData == PKDrawing().dataRepresentation() ? nil : drawingData
+        }
+
         let normalizedDrawing = normalizedDrawing(drawing)
         return normalizedDrawing.strokes.isEmpty ? nil : normalizedDrawing.dataRepresentation()
     }

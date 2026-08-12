@@ -1,4 +1,8 @@
 import XCTest
+#if canImport(UIKit)
+import PencilKit
+import UIKit
+#endif
 @testable import iChart
 
 final class ChartEditingTests: XCTestCase {
@@ -2067,6 +2071,85 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(chart.measure(id: measureID)?.handwrittenRhythmicNotationData)
     }
 
+    #if canImport(UIKit)
+    func testPersistentInkSettersNormalizeWhitePencilKitInkAcrossChartFields() throws {
+        var chart = Chart.blank(title: "Ink Safety", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let whiteData = whiteInkDrawingData()
+
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(whiteData))
+        XCTAssertTrue(chart.setPageHandwrittenHeaderDrawing(whiteData))
+        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(whiteData))
+        XCTAssertTrue(chart.setMeasureHandwrittenRhythmicNotationDrawing(whiteData, for: measureID))
+        XCTAssertTrue(
+            chart.setMeasureRhythmMap(
+                [.quarter, .quarter, .quarter, .quarter],
+                drawingData: whiteData,
+                for: measureID
+            )
+        )
+        XCTAssertTrue(
+            chart.appendRecognizedChord(
+                try ChordSymbolParser.parse("C7"),
+                rawInput: "C7",
+                to: measureID,
+                atFraction: 0.1,
+                sourceInkData: whiteData
+            )
+        )
+
+        try assertPersistentInkDataIsDark(chart.pageHandwrittenNotationData)
+        try assertPersistentInkDataIsDark(chart.pageHandwrittenHeaderData)
+        try assertPersistentInkDataIsDark(chart.pageHandwrittenChordData)
+        try assertPersistentInkDataIsDark(chart.measure(id: measureID)?.handwrittenRhythmicNotationData)
+        try assertPersistentInkDataIsDark(chart.measure(id: measureID)?.rhythmMap?.drawingData)
+        try assertPersistentInkDataIsDark(chart.measure(id: measureID)?.chordEvents.first?.sourceInkData)
+    }
+
+    func testDecodedChartNormalizesLegacyWhitePencilKitInkAcrossPersistentFields() throws {
+        var chart = Chart.blank(title: "Legacy White Ink", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let whiteData = whiteInkDrawingData()
+
+        chart.pageHandwrittenNotationData = whiteData
+        chart.pageHandwrittenHeaderData = whiteData
+        chart.pageHandwrittenChordData = whiteData
+        chart.systems[0].measures[0].handwrittenRhythmicNotationData = whiteData
+        var rhythmMap = MeasureRhythmMap(values: [.quarter, .quarter, .quarter, .quarter])
+        rhythmMap.drawingData = whiteData
+        chart.systems[0].measures[0].rhythmMap = rhythmMap
+        _ = chart.appendRecognizedChord(
+            try ChordSymbolParser.parse("F7"),
+            rawInput: "F7",
+            to: measureID,
+            atFraction: 0.25
+        )
+        chart.systems[0].measures[0].chordEvents[0].sourceInkData = whiteData
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+
+        try assertPersistentInkDataIsDark(decodedChart.pageHandwrittenNotationData)
+        try assertPersistentInkDataIsDark(decodedChart.pageHandwrittenHeaderData)
+        try assertPersistentInkDataIsDark(decodedChart.pageHandwrittenChordData)
+        try assertPersistentInkDataIsDark(decodedChart.measure(id: measureID)?.handwrittenRhythmicNotationData)
+        try assertPersistentInkDataIsDark(decodedChart.measure(id: measureID)?.rhythmMap?.drawingData)
+        try assertPersistentInkDataIsDark(decodedChart.measure(id: measureID)?.chordEvents.first?.sourceInkData)
+    }
+
+    func testActiveInkScopePersistsNormalizationOnlyChangeForLegacyWhiteInk() throws {
+        var chart = Chart.blank(title: "Normalize Existing Ink", measureCount: 1)
+        let whiteData = whiteInkDrawingData()
+        chart.pageHandwrittenNotationData = whiteData
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetActiveInkScope.page(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+                .chartByPersistingDrawingData(whiteData, in: chart)
+        )
+
+        try assertPersistentInkDataIsDark(updatedChart.pageHandwrittenNotationData)
+    }
+    #endif
+
     func testInsertMeasureAtBeginningReindexesWithoutDroppingExistingMeasures() throws {
         var chart = Chart.blank(title: "Pocket", measureCount: 2, layoutStyle: .rhythmSectionSheet)
         let originalFirstID = try XCTUnwrap(chart.measures.first?.id)
@@ -2922,4 +3005,57 @@ final class ChartEditingTests: XCTestCase {
             rawInput: nil
         )
     }
+
+    #if canImport(UIKit)
+    private func whiteInkDrawingData() -> Data {
+        PKDrawing(strokes: [
+            testStroke(color: .white)
+        ]).dataRepresentation()
+    }
+
+    private func assertPersistentInkDataIsDark(
+        _ drawingData: Data?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let drawingData = try XCTUnwrap(drawingData, file: file, line: line)
+        let drawing = try PKDrawing(data: drawingData)
+        XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(drawing), file: file, line: line)
+        let color = try XCTUnwrap(drawing.strokes.first?.ink.color, file: file, line: line)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha), file: file, line: line)
+        XCTAssertEqual(red, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertEqual(green, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertEqual(blue, 0.06, accuracy: 0.015, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(alpha, 0.98, file: file, line: line)
+    }
+
+    private func testStroke(color: UIColor) -> PKStroke {
+        let controlPoints = [
+            CGPoint(x: 3, y: 6),
+            CGPoint(x: 12, y: 16),
+            CGPoint(x: 22, y: 9)
+        ].enumerated().map { index, point in
+            PKStrokePoint(
+                location: point,
+                timeOffset: TimeInterval(index) * 0.05,
+                size: CGSize(width: 2, height: 2),
+                opacity: 1,
+                force: 1,
+                azimuth: 0,
+                altitude: .pi / 2
+            )
+        }
+
+        return PKStroke(
+            ink: PKInk(.pen, color: color),
+            path: PKStrokePath(controlPoints: controlPoints, creationDate: Date(timeIntervalSince1970: 20))
+        )
+    }
+    #endif
 }
