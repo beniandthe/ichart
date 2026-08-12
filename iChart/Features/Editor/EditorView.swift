@@ -960,7 +960,7 @@ struct EditorView: View {
                 pendingTimeSignaturePlacement = nil
             }
         } message: {
-            Text("Apply the new time signature after the selected measure.")
+            Text("Apply the new time signature starting at the selected measure.")
         }
         .sheet(item: $pendingTimeSignaturePlacement) { placement in
             TimeSignatureScopeSheetView(
@@ -969,21 +969,21 @@ struct EditorView: View {
                 onApplyCount: { additionalMeasureCount in
                     handleTimeSignatureSelection(
                         placement.meter,
-                        after: placement.sourceMeasureID,
+                        startingAt: placement.sourceMeasureID,
                         scope: .fixedMeasureCount(additionalMeasureCount)
                     )
                 },
                 onApplyToEndOfPiece: {
                     handleTimeSignatureSelection(
                         placement.meter,
-                        after: placement.sourceMeasureID,
+                        startingAt: placement.sourceMeasureID,
                         scope: .toEndOfPiece
                     )
                 },
                 onApplyToNextTimeSignature: {
                     handleTimeSignatureSelection(
                         placement.meter,
-                        after: placement.sourceMeasureID,
+                        startingAt: placement.sourceMeasureID,
                         scope: .toNextTimeSignature
                     )
                 }
@@ -3527,10 +3527,10 @@ struct EditorView: View {
 
     private func handleTimeSignatureSelection(
         _ meter: Meter,
-        after sourceMeasureID: UUID,
+        startingAt sourceMeasureID: UUID,
         scope: TimeSignatureApplicationScope
     ) {
-        let appliedMeasureID = chart.applyMeterChange(meter, after: sourceMeasureID, scope: scope)
+        let appliedMeasureID = chart.applyMeterChange(meter, startingAt: sourceMeasureID, scope: scope)
         selectedMeasureID = appliedMeasureID ?? sourceMeasureID
         selectedNoteSelection = nil
         pendingTimeSignatureSourceMeasureID = nil
@@ -5427,7 +5427,7 @@ private struct TimeSignatureScopeSheetView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Add measures in this time signature?")
                         .font(.headline)
-                    Text("The new \(meter.displayText) starts on the next measure.")
+                    Text("The new \(meter.displayText) starts on the selected measure.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

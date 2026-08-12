@@ -91,13 +91,13 @@ enum IChartAuthError: LocalizedError {
         case .invalidAuthCallback:
             return "This link is not an iChart account verification link."
         case .unexpectedAuthCallback:
-            return "That was not the newest iChart email link. Open Mail on this iPad, open the newest email from iChart, and tap Verify iChart Account."
+            return "That verification link does not match this signup. Return to iChart and send a verification email from this screen."
         case .expiredAuthCallback:
-            return "That email link expired. Send one new iChart email, then open Mail and tap Verify iChart Account in the newest email only."
+            return "That verification link expired. Return to iChart and send a verification email from this screen."
         case .emailNotConfirmed:
-            return "Email is not verified yet. Do this: open Mail, open the newest email from iChart, and tap Verify iChart Account. Do not use old links."
+            return "Email is not verified yet. Open Mail, find the iChart verification email, and tap Verify iChart Account. If you already verified, sign in."
         case .verificationEmailRateLimited:
-            return "Too many verification emails were requested. Wait about one minute, then send one new email and use only the newest iChart email."
+            return "A verification email was requested recently. Wait about one minute before sending a replacement email."
         case .missingAccountName:
             return "Enter first and last name to finish account identity."
         case .profileUnavailable:
@@ -220,7 +220,7 @@ final class IChartAuthStore: ObservableObject {
         await run(successMessage) {
             var restoredState = try await service.restoreSession()
             if case .signedOut = restoredState,
-               let email = rememberedPendingVerificationEmail {
+               let email = restorablePendingVerificationEmail() {
                 restoredState = .pendingEmailVerification(email: email)
             }
             try await applyAuthState(restoredState)
@@ -233,7 +233,7 @@ final class IChartAuthStore: ObservableObject {
         firstName: String? = nil,
         lastName: String? = nil
     ) async {
-        await run("Email verification sent. Open Mail and tap Verify iChart Account in the newest iChart email.") {
+        await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             let nextState: IChartAuthState
@@ -334,6 +334,7 @@ final class IChartAuthStore: ObservableObject {
         profile = nil
         statusMessage = nil
         errorMessage = nil
+        clearPendingAuthFlow()
         rememberPendingVerificationEmailIfNeeded()
     }
 
@@ -342,7 +343,7 @@ final class IChartAuthStore: ObservableObject {
             return
         }
 
-        await run("New email sent. Open Mail and tap Verify iChart Account in the newest iChart email.") {
+        await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             do {
@@ -491,9 +492,41 @@ final class IChartAuthStore: ObservableObject {
             )
             UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         } else {
-            try? pendingVerificationEmailStorage.remove(key: Self.pendingVerificationEmailKey)
-            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+            clearRememberedPendingVerificationEmail()
         }
+    }
+
+    private func restorablePendingVerificationEmail() -> String? {
+        guard let flow = try? loadedPendingAuthFlow() else {
+            clearRememberedPendingVerificationEmail()
+            return nil
+        }
+
+        guard flow.kind == .signup,
+              Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime,
+              let flowEmail = sanitized(flow.expectedEmail ?? "")?.lowercased()
+        else {
+            clearPendingAuthFlow()
+            clearRememberedPendingVerificationEmail()
+            return nil
+        }
+
+        if let rememberedEmail = rememberedPendingVerificationEmail,
+           rememberedEmail.caseInsensitiveCompare(flowEmail) == .orderedSame {
+            return rememberedEmail
+        }
+
+        try? pendingVerificationEmailStorage.store(
+            key: Self.pendingVerificationEmailKey,
+            value: Data(flowEmail.utf8)
+        )
+        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+        return flowEmail
+    }
+
+    private func clearRememberedPendingVerificationEmail() {
+        try? pendingVerificationEmailStorage.remove(key: Self.pendingVerificationEmailKey)
+        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
     }
 
     @discardableResult

@@ -2842,6 +2842,56 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(chart.timeSignatureChanges.allSatisfy { $0.afterMeasureID == firstMeasureID })
     }
 
+    func testApplyMeterChangeStartingAtSelectedMeasureTargetsSelectedMeasure() throws {
+        var chart = Chart.draft(title: "Selected Time Change")
+        chart.completeInitialSetup(
+            title: "Selected Time Change",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine
+        )
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let secondMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+        let thirdMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+
+        let changedMeasureID = try XCTUnwrap(
+            chart.applyMeterChange(
+                Meter(numerator: 3, denominator: 4),
+                startingAt: secondMeasureID,
+                scope: .toNextTimeSignature
+            )
+        )
+
+        XCTAssertEqual(changedMeasureID, secondMeasureID)
+        XCTAssertNil(chart.measure(id: firstMeasureID)?.meterOverride)
+        XCTAssertEqual(chart.measure(id: secondMeasureID)?.meterOverride, Meter(numerator: 3, denominator: 4))
+        XCTAssertEqual(chart.measure(id: thirdMeasureID)?.meterOverride, Meter(numerator: 3, denominator: 4))
+        XCTAssertEqual(chart.timeSignatureChanges.first?.afterMeasureID, firstMeasureID)
+    }
+
+    func testApplyMeterChangeStartingAtFirstMeasureRestoresPreviousMeterAfterFixedSpan() throws {
+        var chart = Chart.blank(title: "First Measure Time", measureCount: 3, layoutStyle: .simpleChordSheet)
+        let firstMeasureID = chart.measures[0].id
+        let secondMeasureID = chart.measures[1].id
+        let thirdMeasureID = chart.measures[2].id
+
+        let changedMeasureID = try XCTUnwrap(
+            chart.applyMeterChange(
+                Meter(numerator: 3, denominator: 4),
+                startingAt: firstMeasureID,
+                scope: .fixedMeasureCount(1)
+            )
+        )
+
+        XCTAssertEqual(changedMeasureID, firstMeasureID)
+        XCTAssertEqual(chart.defaultMeter, Meter(numerator: 3, denominator: 4))
+        XCTAssertNil(chart.measure(id: firstMeasureID)?.meterOverride)
+        XCTAssertNil(chart.measure(id: secondMeasureID)?.meterOverride)
+        XCTAssertEqual(chart.measure(id: thirdMeasureID)?.meterOverride, Meter(numerator: 4, denominator: 4))
+        XCTAssertEqual(chart.timeSignatureChanges.first?.afterMeasureID, secondMeasureID)
+        XCTAssertEqual(chart.timeSignatureChanges.first?.meter, Meter(numerator: 4, denominator: 4))
+    }
+
     private func makeMeasure(
         index: Int,
         barlineAfter: BarlineType = .single,

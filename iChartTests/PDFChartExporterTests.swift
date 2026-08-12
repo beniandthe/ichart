@@ -91,6 +91,11 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertTrue(documentText.contains("F"))
         XCTAssertTrue(documentText.contains("G/B"))
         XCTAssertTrue(documentText.contains("freely"))
+        XCTAssertTrue(documentText.contains("1."))
+        XCTAssertPDFExtractedTextContains(
+            documentText,
+            visibleNotationText: "To \u{E048}"
+        )
         XCTAssertTrue(documentText.contains("FINE"))
         XCTAssertFalse(documentText.contains("C MAJOR"))
         XCTAssertFalse(documentText.contains("Tap the measure in the editor"))
@@ -118,6 +123,7 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "F7")
         XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "G7sus")
         XCTAssertTrue(documentText.contains("stop time"))
+        XCTAssertTrue(documentText.contains("1."))
         XCTAssertPDFExtractedTextContains(
             documentText,
             visibleNotationText: "D.S. al \u{E048}"
@@ -304,6 +310,9 @@ final class PDFChartExporterTests: XCTestCase {
         )
         _ = try XCTUnwrap(
             chart.addEndingSpan(.ending1, startMeasureID: measureIDs[0], endMeasureID: measureIDs[1])
+        )
+        _ = try XCTUnwrap(
+            chart.addPointRoadmapMarker(.toCoda, anchorMeasureID: measureIDs[2])
         )
         _ = try XCTUnwrap(
             chart.addPointRoadmapMarker(.fine, anchorMeasureID: measureIDs[3])

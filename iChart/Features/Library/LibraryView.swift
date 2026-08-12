@@ -4647,13 +4647,13 @@ private struct IChartHomeUpdateStamp: View {
     let isCollapsed: Bool
 
     var body: some View {
-        Text(isCollapsed ? "v1.1" : "v1.1 - Aug 6, 2026")
+        Text(isCollapsed ? "v1.1.1" : "v1.1.1 - Aug 12, 2026")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(IChartHomeBrand.paper.opacity(0.62))
             .lineLimit(1)
             .minimumScaleFactor(0.80)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .accessibilityLabel("Version 1.1, August 6, 2026")
+            .accessibilityLabel("Version 1.1.1, August 12, 2026")
     }
 }
 
@@ -5224,7 +5224,8 @@ private struct IChartFirstRunAccountLandingView: View {
                                     authStore: authStore,
                                     theme: theme,
                                     requiresNameForSignup: true,
-                                    showsSignedInActions: false
+                                    showsSignedInActions: false,
+                                    initialEntryMode: .createAccount
                                 )
                             }
 
@@ -5386,17 +5387,33 @@ private enum IChartAccountEntryMode: String, CaseIterable {
 private struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
-    var requiresNameForSignup = true
-    var showsSignedInActions = true
-    @State private var entryMode: IChartAccountEntryMode = .signIn
+    var requiresNameForSignup: Bool
+    var showsSignedInActions: Bool
+    @State private var entryMode: IChartAccountEntryMode
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var email = ""
     @State private var password = ""
     @State private var newPassword = ""
     @State private var accountEntryPrompt: String?
+    @State private var isShowingVerificationRecovery = false
+    @State private var didSendVerificationRecoveryEmail = false
     @State private var isShowingDeleteAccountConfirmation = false
     @FocusState private var focusedField: IChartAccountInputField?
+
+    init(
+        authStore: IChartAuthStore,
+        theme: IChartHomeTheme,
+        requiresNameForSignup: Bool = true,
+        showsSignedInActions: Bool = true,
+        initialEntryMode: IChartAccountEntryMode = .signIn
+    ) {
+        self.authStore = authStore
+        self.theme = theme
+        self.requiresNameForSignup = requiresNameForSignup
+        self.showsSignedInActions = showsSignedInActions
+        _entryMode = State(initialValue: initialEntryMode)
+    }
 
     private var hasSignInCredentials: Bool {
         !trimmed(email).isEmpty
@@ -5595,6 +5612,7 @@ private struct IChartAccountSettings: View {
             }
 
             accountEntryPrompt = nil
+            resetVerificationRecoveryState()
             Task {
                 await authStore.createAccount(
                     email: email,
@@ -5644,7 +5662,7 @@ private struct IChartAccountSettings: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Label("1. Open Mail on this iPad.", systemImage: "1.circle")
-                Label("2. Open the newest email from iChart.", systemImage: "2.circle")
+                Label("2. Find the iChart verification email.", systemImage: "2.circle")
                 Label("3. Tap Verify iChart Account.", systemImage: "3.circle")
                 Label("4. Tap Return to iChart on the browser page.", systemImage: "4.circle")
             }
@@ -5652,12 +5670,9 @@ private struct IChartAccountSettings: View {
             .foregroundStyle(theme.panelSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            Label(
-                "Do not use old iChart emails. If you send a new email, older links may stop working.",
-                systemImage: "exclamationmark.triangle"
-            )
+            Text("Do not tap anything else here after opening the email. iChart will move forward when the link is confirmed.")
                 .font(.caption)
-                .foregroundStyle(Color(red: 0.62, green: 0.18, blue: 0.12))
+                .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 10) {
@@ -5681,18 +5696,101 @@ private struct IChartAccountSettings: View {
                         .stroke(theme.panelBorder, lineWidth: 1)
                 }
 
-                Button {
-                    Task {
-                        await authStore.resendVerificationEmail()
+                verificationRecoveryRow
+
+                HStack(spacing: 10) {
+                    Button {
+                        authStore.returnToSignIn()
+                        resetVerificationRecoveryState()
+                        entryMode = .signIn
+                        password = ""
+                        accountEntryPrompt = "If your email is verified, sign in with that email and password."
+                        focusedField = .email
+                    } label: {
+                        Label("Already Verified? Sign In", systemImage: "checkmark.circle")
+                            .frame(maxWidth: .infinity)
                     }
-                } label: {
-                    Label("Send One New Email", systemImage: "envelope.badge")
-                        .frame(maxWidth: .infinity)
+                    .buttonStyle(.bordered)
+                    .disabled(authStore.isWorking)
+
+                    Button {
+                        authStore.returnToSignIn()
+                        resetVerificationRecoveryState()
+                        entryMode = .createAccount
+                        email = ""
+                        password = ""
+                        accountEntryPrompt = "Enter the email address you want to use, then tap Create Account."
+                        focusedField = .email
+                    } label: {
+                        Label("Use a Different Email", systemImage: "arrow.uturn.left")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(authStore.isWorking)
                 }
-                .buttonStyle(.bordered)
-                .disabled(authStore.isWorking)
             }
         }
+    }
+
+    private var verificationRecoveryRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isShowingVerificationRecovery.toggle()
+                }
+            } label: {
+                Label("Email Didn't Arrive?", systemImage: "questionmark.circle")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(IChartHomeBrand.blue)
+            .disabled(authStore.isWorking)
+
+            if isShowingVerificationRecovery {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Use this only if no iChart email arrived after a few minutes. It sends one replacement email to the same address.")
+                        .font(.caption)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        didSendVerificationRecoveryEmail = true
+                        Task {
+                            await authStore.resendVerificationEmail()
+                        }
+                    } label: {
+                        Label(
+                            didSendVerificationRecoveryEmail ? "Replacement Email Sent" : "Send Replacement Email",
+                            systemImage: didSendVerificationRecoveryEmail ? "checkmark.circle" : "envelope.badge"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(authStore.isWorking || didSendVerificationRecoveryEmail)
+
+                    if didSendVerificationRecoveryEmail {
+                        Text("Open Mail and tap Verify iChart Account. If the replacement email still does not arrive, contact support.")
+                            .font(.caption)
+                            .foregroundStyle(theme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.panelBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.panelBorder, lineWidth: 1)
+                }
+            }
+        }
+    }
+
+    private func resetVerificationRecoveryState() {
+        isShowingVerificationRecovery = false
+        didSendVerificationRecoveryEmail = false
     }
 
     private var passwordRecoveryRow: some View {
@@ -5967,7 +6065,7 @@ private struct IChartAccountSettings: View {
 
             return "Using local charts. Reconnect to back up."
         case .pendingEmailVerification(let email):
-            return "Waiting for \(email). Open the newest iChart email and tap Verify iChart Account."
+            return "Waiting for \(email). Open the iChart verification email and tap Verify iChart Account."
         case .passwordRecovery(let session):
             if let email = session.email {
                 return "Enter a new password for \(email)."
