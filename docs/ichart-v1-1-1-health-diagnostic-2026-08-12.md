@@ -206,9 +206,80 @@ Packaging pass:
   - ContentDelivery log reported: `UPLOAD SUCCEEDED with no errors`
   - build upload id: `4cb64c15-924a-49f7-8c83-7babb2ef9869`
 
-Remaining App Store gate: wait for Apple processing to finish, then attach
-build `1.1.1` / `40` to the intended App Store/TestFlight lane and submit or
-release through App Store Connect.
+Build 40 was superseded by build 41 after a support escalation showed persistent
+handwritten ink could still survive as near-white/white data in saved chart
+fields.
+
+## Build 41 Emergency White-Ink Submission
+
+Fix commit:
+
+- commit: `8c1908e`
+- branch: `codex/v1-1-1-trust-bugfixes`
+- pushed to `origin/codex/v1-1-1-trust-bugfixes`
+
+Fix scope:
+
+- normalizes persistent PencilKit drawing data at chart/model init, decode, and
+  setter boundaries
+- covers page handwriting, header handwriting, chord handwriting, measure
+  handwriting, rhythm map drawings, chord source ink, and pitched-note source
+  ink
+- allows normalization-only saves for legacy white ink instead of skipping when
+  the raw incoming drawing bytes match the stored bytes
+- preserves temporary note-selection/lasso UI ink
+
+Verification:
+
+- `git diff --check`: pass
+- focused white-ink/config tests: pass
+- full simulator suite:
+  - destination: `C95FB514-9CA7-4A50-B9FB-794F1934A087`
+  - executed: `798`
+  - skipped: `38`
+  - failures: `0`
+
+Packaging:
+
+- archive: `/tmp/iChart-v1.1.1-build41-20260812121036.xcarchive`
+  - version: `1.1.1`
+  - build: `41`
+  - bundle id: `com.ichart.app`
+  - team: `N6G8X4K46U`
+  - signing identity: `Apple Distribution: Benjamin Rossman (N6G8X4K46U)`
+  - provisioning profile: `iChart App Store`
+- export: `/tmp/iChart-v1.1.1-build41-export-20260812121153/iChart.ipa`
+  - App Store Connect export succeeded
+  - IPA size: 10 MB
+
+Upload:
+
+- started: 2026-08-12 12:13 PM PT
+- completed: 2026-08-12 12:14 PM PT
+- App Store Connect reported: uploaded package is processing
+- Xcode reported: `Upload succeeded`
+- TestFlight build URL id: `ae45460a-6634-463f-a254-d9531a36aa83`
+
+TestFlight:
+
+- build `1.1.1` / `41` attached to `Internal QA`
+- build `1.1.1` / `41` attached to `Outside QA`
+- external TestFlight status: `Waiting for Review`
+- What to Test note asks testers to verify dark/readable handwritten ink on
+  existing charts, new charts, duplicated/transposed charts, preview, and PDF
+  export
+
+App Store review:
+
+- created public iOS App Version `1.1.1`
+- attached build `41`
+- updated What's New with the handwritten ink visibility fix
+- updated App Review notes to identify review build `1.1.1 (41)` and the
+  handwritten ink verification path
+- release setting observed: automatically release this version after App Review
+- submitted: 2026-08-12 12:23 PM PT
+- status: `Waiting for Review`
+- submission id: `e01b94e3-ed4d-404e-8983-aa417f9a0a70`
 
 Expected skips:
 
@@ -267,17 +338,17 @@ Yellow:
 
 ## Required Next Actions
 
-1. Upload `public-site/useichart/verify.html` and
-   `public-site/useichart/support.html` to IONOS, overwrite live files, and
-   re-check cache-busted content for `Email Didn't Arrive?` and `Send
-   Replacement Email`.
-2. Keep the release metadata target as V1.1.1 build 40 unless App Store Connect
-   rejects build 40 as already used.
-3. Decide whether to remove the production QA account now or keep it briefly as
+1. Monitor App Store Connect for build `1.1.1 (41)` App Review and external
+   TestFlight review outcomes.
+2. When build `41` is available to testers/users, immediately verify on a real
+   iPad with both a new chart and an existing white-ink affected chart.
+3. Email the affected support user as soon as build `41` is available, ask them
+   to update, and request a screenshot if any ink remains white.
+4. Decide whether to remove the production QA account now or keep it briefly as
    evidence. If removed, use an explicit cleanup pass and re-check counts.
-4. Stage only the intended V1.1.1 release files. Do not accidentally include
+5. Stage only the intended V1.1.1 release files. Do not accidentally include
    unrelated social launch docs unless they are part of this commit.
-5. Do one final manual visual QA pass on simulator/device for:
+6. Do one final manual visual QA pass on simulator/device for:
    - account pending verification screen and replacement drawer
    - simple chord sheet late beat placement
    - time signature selected-measure targeting
