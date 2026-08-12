@@ -186,6 +186,30 @@ Build 40 pass after V1.1.1 version bump:
   - screenshot: `/tmp/ichart-v111-build40-launch-after5.png`
   - visible footer: `v1.1.1 - Aug 12, 2026`
 
+## Build 40 Packaging And Upload
+
+Packaging pass:
+
+- archive: `/tmp/iChart-v1.1.1-build40-20260812110630.xcarchive`
+  - version: `1.1.1`
+  - build: `40`
+  - bundle id: `com.ichart.app`
+  - team: `N6G8X4K46U`
+  - signing identity: `Apple Distribution: Benjamin Rossman (N6G8X4K46U)`
+- export: `/tmp/iChart-v1.1.1-build40-export-20260812110846/iChart.ipa`
+  - App Store Connect export succeeded
+  - IPA size: 10 MB
+- upload:
+  - started: 2026-08-12 11:09:35 PT
+  - completed: 2026-08-12 11:10:47 PT
+  - App Store Connect reported: uploaded package is processing
+  - ContentDelivery log reported: `UPLOAD SUCCEEDED with no errors`
+  - build upload id: `4cb64c15-924a-49f7-8c83-7babb2ef9869`
+
+Remaining App Store gate: wait for Apple processing to finish, then attach
+build `1.1.1` / `40` to the intended App Store/TestFlight lane and submit or
+release through App Store Connect.
+
 Expected skips:
 
 - live Supabase integration tests require `ICHART_SUPABASE_INTEGRATION=1`
