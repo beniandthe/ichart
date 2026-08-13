@@ -837,8 +837,7 @@ struct LeadSheetNotationRenderer {
         )
         let fittingHorizontalScale = min(1, chordLayout.frame.width / totalWidth)
         let horizontalScale = min(requestedHorizontalScale, fittingHorizontalScale)
-        let renderedWidth = totalWidth * horizontalScale
-        let startX = chordLayout.frame.minX + max(0, (chordLayout.frame.width - renderedWidth) / 2)
+        let startX = chordLayout.frame.minX
         let rootHeight = runs
             .filter { $0.role == .primaryText }
             .map(\.size.height)

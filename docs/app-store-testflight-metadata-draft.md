@@ -158,7 +158,7 @@ App Store screenshot package:
 
 Public App Store "What's New":
 
-> This update tightens account verification recovery so replacement verification emails only show as sent after iChart confirms the request, while keeping password-reset recovery links intact if the app relaunches before the email is opened.
+> This update tightens account verification recovery and Simple Chord Sheet chord spacing. Replacement verification emails now only show as sent after iChart confirms the request, password-reset links stay intact across app relaunch, and Simple Chord Sheet chords use clearer beat lanes.
 
 TestFlight / review-facing update notes:
 
@@ -168,8 +168,12 @@ TestFlight / review-facing update notes:
 - Shows "Replacement Email Sent" only after the resend request succeeds, and
   keeps the replacement-email button in a sending state while the request is in
   flight.
+- Updates Simple Chord Sheet chord layout so chords anchor to their beat lanes
+  and use the available measure space more predictably.
 - Adds `ProjectConfigurationTests` coverage for the pending-flow preservation
   and resend-success UI contract.
+- Adds `LeadSheetPageLayoutTests` coverage for the Simple Chord Sheet spacing
+  contract.
 
 ## TestFlight Beta Description
 

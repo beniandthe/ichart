@@ -414,15 +414,17 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
         let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
 
-        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX + 6, accuracy: 0.001)
-        XCTAssertGreaterThan(chordLayout.fitFrame.width, firstMeasure.chordBandFrame.width * 0.9)
-        XCTAssertLessThan(chordLayout.frame.width, chordLayout.fitFrame.width * 0.55)
+        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.height, chordLayout.fitFrame.height, accuracy: 0.001)
+        XCTAssertLessThan(chordLayout.frame.width, chordLayout.fitFrame.width * 0.5)
+        XCTAssertGreaterThan(chordLayout.frame.width, chordLayout.fitFrame.height * 0.9)
+        XCTAssertEqual(chordLayout.snapGuideTarget.x, chordLayout.fitFrame.minX, accuracy: 0.001)
         XCTAssertLessThanOrEqual(chordLayout.frame.maxX, firstMeasure.chordBandFrame.maxX)
     }
 
-    func testSimpleChordSheetSingleLongChordLeavesBeatThreeWritingSpace() throws {
+    func testSimpleChordSheetSingleLongChordKeepsFullMeasureLaneAndTightVisibleFrame() throws {
         var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 4, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         try appendChord("Bb△7", to: measureID, in: &chart, atFraction: 0.05)
@@ -434,14 +436,13 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
         let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
-        let trailingWritingWidth = firstMeasure.chordBandFrame.maxX - chordLayout.frame.maxX
 
-        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX + 6, accuracy: 0.001)
-        XCTAssertGreaterThan(chordLayout.fitFrame.width, firstMeasure.chordBandFrame.width * 0.9)
-        XCTAssertLessThanOrEqual(chordLayout.frame.maxX, firstMeasure.chordBandFrame.midX + 20)
+        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
-        XCTAssertGreaterThan(trailingWritingWidth, firstMeasure.chordBandFrame.width * 0.38)
-        XCTAssertGreaterThan(chordLayout.frame.width, CGFloat(30))
+        XCTAssertLessThan(chordLayout.frame.maxX, firstMeasure.chordBandFrame.midX)
+        XCTAssertLessThan(chordLayout.frame.width, chordLayout.fitFrame.width * 0.45)
+        XCTAssertGreaterThan(chordLayout.frame.width, CGFloat(40))
     }
 
     func testSimpleChordSheetMultipleChordsFitMeasureSegments() throws {
@@ -461,14 +462,16 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         XCTAssertEqual(chordLayouts.map(\.text), ["C", "D7"])
         XCTAssertEqual(chordEvents.map(\.startPosition.displayText), ["1", "3"])
-        XCTAssertLessThanOrEqual(chordLayouts[0].fitFrame.maxX, firstMeasure.chordBandFrame.midX)
-        XCTAssertGreaterThanOrEqual(chordLayouts[1].fitFrame.minX, firstMeasure.chordBandFrame.midX)
+        XCTAssertEqual(chordLayouts[0].fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[0].fitFrame.maxX, firstMeasure.chordBandFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[1].fitFrame.minX, firstMeasure.chordBandFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[1].fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertGreaterThan(chordLayouts[0].fitFrame.width, CGFloat(44))
         XCTAssertGreaterThan(chordLayouts[1].fitFrame.width, CGFloat(44))
-        XCTAssertLessThan(chordLayouts[0].frame.width, chordLayouts[0].fitFrame.width)
-        XCTAssertLessThan(chordLayouts[1].frame.width, chordLayouts[1].fitFrame.width)
         for chordLayout in chordLayouts {
             XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
+            XCTAssertLessThan(chordLayout.frame.width, chordLayout.fitFrame.width)
+            XCTAssertLessThanOrEqual(chordLayout.frame.maxX, chordLayout.fitFrame.maxX)
         }
     }
 
@@ -606,10 +609,10 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(movedChordLayouts[0].frame.minX, movedChordLayouts[0].fitFrame.minX, accuracy: 0.001)
         XCTAssertEqual(movedChordLayouts[1].frame.minX, movedChordLayouts[1].fitFrame.minX, accuracy: 0.001)
         XCTAssertLessThan(movedChordLayouts[0].frame.width, initialChordLayouts[0].frame.width)
-        XCTAssertGreaterThan(movedChordLayouts[1].frame.minX, movedChordLayouts[0].frame.maxX)
+        XCTAssertGreaterThanOrEqual(movedChordLayouts[1].frame.minX, movedChordLayouts[0].frame.maxX)
     }
 
-    func testSimpleChordSheetAdjacentLongChordCollisionBalancesCompression() throws {
+    func testSimpleChordSheetAdjacentLongChordsUseBeatSegmentsWithoutOverlap() throws {
         var chart = Chart.blank(title: "Balanced Chord Collision", measureCount: 6, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let chordText = "Db7(#11)/F#"
@@ -627,12 +630,13 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let chordLayouts = measure.chordLayouts
 
         XCTAssertEqual(chordLayouts.map(\.text), [chordText, chordText])
-        XCTAssertGreaterThan(chordLayouts[1].frame.minX, chordLayouts[0].frame.maxX)
-        XCTAssertGreaterThanOrEqual(chordLayouts[1].frame.minX - chordLayouts[0].frame.maxX, 6)
-        XCTAssertEqual(chordLayouts[0].frame.width, chordLayouts[1].frame.width, accuracy: 1.5)
+        XCTAssertEqual(chordLayouts[0].fitFrame.maxX, chordLayouts[1].fitFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[0].frame.maxX, chordLayouts[1].frame.minX, accuracy: 0.001)
+        XCTAssertGreaterThan(chordLayouts[1].frame.width, chordLayouts[0].frame.width)
+        XCTAssertLessThanOrEqual(chordLayouts[1].frame.maxX, measure.chordBandFrame.maxX)
     }
 
-    func testSimpleChordSheetAdjacentUnevenChordCollisionWeightsCompressionByChordSize() throws {
+    func testSimpleChordSheetAdjacentUnevenChordsUseBeatSegmentsWithoutBackExpansion() throws {
         var chart = Chart.blank(title: "Weighted Chord Collision", measureCount: 6, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         try appendChord("Db7#11/F#", to: measureID, in: &chart, atFraction: 0.05)
@@ -649,13 +653,10 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let movedChordLayouts = movedMeasure.chordLayouts
 
         XCTAssertEqual(movedChordLayouts.map(\.text), ["Db7(#11)/F#", "C-7"])
-        XCTAssertGreaterThan(movedChordLayouts[1].frame.minX, movedChordLayouts[0].frame.maxX)
-        XCTAssertGreaterThanOrEqual(movedChordLayouts[1].frame.minX - movedChordLayouts[0].frame.maxX, 6)
-        XCTAssertGreaterThan(movedChordLayouts[0].frame.width, movedChordLayouts[1].frame.width)
-
-        let visualWidthRatio = movedChordLayouts[0].frame.width / movedChordLayouts[1].frame.width
-        XCTAssertGreaterThan(visualWidthRatio, 1.25)
-        XCTAssertGreaterThan(movedChordLayouts[1].frame.width, 18)
+        XCTAssertEqual(movedChordLayouts[0].fitFrame.maxX, movedChordLayouts[1].fitFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(movedChordLayouts[0].frame.maxX, movedChordLayouts[1].frame.minX, accuracy: 0.001)
+        XCTAssertGreaterThan(movedChordLayouts[1].frame.width, movedChordLayouts[0].frame.width)
+        XCTAssertGreaterThan(movedChordLayouts[0].frame.width, 18)
     }
 
     func testSimpleChordSheetChordFramesUseUniversalTypographyAcrossChordFonts() throws {
@@ -717,7 +718,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         for (index, chordLayout) in chordLayouts.enumerated() {
             XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
             if index > 0 {
-                XCTAssertGreaterThan(chordLayout.frame.minX, chordLayouts[index - 1].frame.maxX)
+                XCTAssertGreaterThanOrEqual(chordLayout.frame.minX, chordLayouts[index - 1].frame.maxX)
             }
         }
         let lastChordID = try XCTUnwrap(chordEvents.last?.id)

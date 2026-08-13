@@ -297,7 +297,6 @@ enum LeadSheetPageLayoutEngine {
         var rhythmContinuationSignatureWidth: CGFloat { 40 }
         var simpleTitleFrameHeight: CGFloat { 36 }
         var simpleMetadataHeight: CGFloat { 24 }
-        var simpleChordHorizontalInset: CGFloat { 6 }
 
         func leadingClefFrame(in frame: CGRect, staffFrame: CGRect) -> CGRect {
             guard layoutStyle == .rhythmSectionSheet else {
@@ -1363,9 +1362,9 @@ enum LeadSheetPageLayoutEngine {
             visualPolicy.inlineMeterChangeFrame(in: measureContentFrame, staffFrame: staffFrame)
         }
         let baseChordBandFrame = isSimpleChordSheet ? CGRect(
-            x: staffFrame.minX + 8,
+            x: staffFrame.minX + 4,
             y: staffFrame.minY + 4,
-            width: max(1, staffFrame.width - 16),
+            width: max(1, staffFrame.width - 8),
             height: max(1, staffFrame.height - 8)
         ) : CGRect(
             x: measureContentFrame.minX + 3,
@@ -1504,11 +1503,8 @@ enum LeadSheetPageLayoutEngine {
             let fitFrame = simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
-                symbol: displayedSymbol,
-                text: displayedText,
                 meter: meter,
-                chordBandFrame: chordBandFrame,
-                visualPolicy: visualPolicy
+                chordBandFrame: chordBandFrame
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
@@ -1517,16 +1513,10 @@ enum LeadSheetPageLayoutEngine {
                 frame: simpleChordDisplayFrame(
                     symbol: displayedSymbol,
                     text: displayedText,
-                    fitFrame: fitFrame,
-                    horizontalCompressionScale: 1,
-                    reservesTrailingWritingSpace: simpleChordReservesTrailingWritingSpace(
-                        placement: placement,
-                        nextPlacement: nextPlacement,
-                        meter: meter
-                    )
+                    fitFrame: fitFrame
                 ),
                 fitFrame: fitFrame,
-                snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
+                snapGuideTarget: CGPoint(x: fitFrame.minX, y: staffFrame.midY)
             )
         }
 
@@ -1584,7 +1574,7 @@ enum LeadSheetPageLayoutEngine {
             return chordLayouts
         }
 
-        let minimumGap: CGFloat = 7
+        let minimumGap: CGFloat = 0
         var resolvedLayouts = [LeadSheetChordLayout]()
         resolvedLayouts.reserveCapacity(chordLayouts.count)
 
@@ -1624,6 +1614,7 @@ enum LeadSheetPageLayoutEngine {
             }
 
             if let previousIndex = resolvedLayouts.indices.last,
+               resolvedLayout.frame.minX < resolvedLayouts[previousIndex].frame.maxX,
                let redistributedPair = redistributedTightSimpleChordPair(
                     previous: resolvedLayouts[previousIndex],
                     current: resolvedLayout,
@@ -1861,11 +1852,8 @@ enum LeadSheetPageLayoutEngine {
     private static func simpleChordFitFrame(
         for placement: MeasureChordPlacement,
         nextPlacement: MeasureChordPlacement?,
-        symbol: ChordSymbol?,
-        text: String,
         meter: Meter,
-        chordBandFrame: CGRect,
-        visualPolicy: VisualPolicy
+        chordBandFrame: CGRect
     ) -> CGRect {
         let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
         let startOffset = min(
@@ -1883,106 +1871,38 @@ enum LeadSheetPageLayoutEngine {
         )
         let startFraction = startOffset / measureLength
         let endFraction = max(startFraction, endOffset / measureLength)
-        var rawMinX = chordBandFrame.minX + chordBandFrame.width * CGFloat(startFraction)
-        var rawMaxX = chordBandFrame.minX + chordBandFrame.width * CGFloat(endFraction)
-        let visibleWidth = min(
-            chordBandFrame.width - visualPolicy.simpleChordHorizontalInset * 2,
-            max(
-                chordBandFrame.height * 1.1,
-                estimatedSimpleChordTextWidth(
-                    for: symbol,
-                    fallbackText: text,
-                    fontSize: preferredSimpleChordFontSize()
-                ) + 8
-            )
-        )
-        let desiredRawWidth = min(
-            chordBandFrame.width,
-            visibleWidth + visualPolicy.simpleChordHorizontalInset * 2
-        )
-        if nextPlacement != nil,
-           rawMaxX - rawMinX < desiredRawWidth {
-            rawMaxX = min(chordBandFrame.maxX, max(rawMaxX, rawMinX + desiredRawWidth))
-        } else if nextPlacement == nil {
-            let minimumTrailingRawWidth = min(
-                desiredRawWidth,
-                max(
-                    visualPolicy.simpleChordHorizontalInset * 2 + 24,
-                    chordBandFrame.width * 0.18
-                )
-            )
-            if rawMaxX - rawMinX < minimumTrailingRawWidth {
-                rawMinX = max(chordBandFrame.minX, rawMaxX - minimumTrailingRawWidth)
-            }
-        }
-        let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, (rawMaxX - rawMinX) / 4))
-        let minX = rawMinX + inset
-        let maxX = max(minX + 1, rawMaxX - inset)
+        let rawMinX = chordBandFrame.minX + chordBandFrame.width * CGFloat(startFraction)
+        let rawMaxX = chordBandFrame.minX + chordBandFrame.width * CGFloat(endFraction)
 
         return CGRect(
-            x: minX,
+            x: rawMinX,
             y: chordBandFrame.minY,
-            width: max(1, maxX - minX),
+            width: max(1, rawMaxX - rawMinX),
             height: chordBandFrame.height
         )
     }
 
     private static func simpleChordDisplayFrame(
-        symbol: ChordSymbol? = nil,
+        symbol: ChordSymbol?,
         text: String,
-        fitFrame: CGRect,
-        horizontalCompressionScale: CGFloat,
-        reservesTrailingWritingSpace: Bool
+        fitFrame: CGRect
     ) -> CGRect {
-        let visualSlotFrame = reservesTrailingWritingSpace
-            ? simpleChordPrimaryBeatVisualSlot(in: fitFrame)
-            : fitFrame
-        let fontSize = estimatedSimpleChordFontSize(fitting: visualSlotFrame, text: text)
+        let fontSize = preferredSimpleChordFontSize()
         let estimatedWidth = max(
             1,
-            estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize)
-                * max(0.01, min(1, horizontalCompressionScale)) + 2
+            estimatedSimpleChordTextWidth(for: symbol, fallbackText: text, fontSize: fontSize) + 2
         )
-        let frameWidth = min(
-            max(estimatedWidth, fitFrame.height * 0.92),
-            visualSlotFrame.width
-        )
-        return CGRect(
-            x: visualSlotFrame.minX,
-            y: fitFrame.minY,
-            width: frameWidth,
-            height: fitFrame.height
-        )
-    }
-
-    private static func simpleChordReservesTrailingWritingSpace(
-        placement: MeasureChordPlacement,
-        nextPlacement: MeasureChordPlacement?,
-        meter: Meter
-    ) -> Bool {
-        guard nextPlacement == nil,
-              let startOffset = placement.startPosition.startOffset(in: meter) else {
-            return false
-        }
-
-        return startOffset <= meter.beatUnitWholeNoteLength * 0.05
-    }
-
-    private static func simpleChordPrimaryBeatVisualSlot(in fitFrame: CGRect) -> CGRect {
-        let cappedWidth = min(
+        let visibleWidth = min(
             fitFrame.width,
-            max(54, fitFrame.width * 0.62)
+            max(estimatedWidth, fitFrame.height * 0.92)
         )
+
         return CGRect(
             x: fitFrame.minX,
             y: fitFrame.minY,
-            width: cappedWidth,
+            width: max(1, visibleWidth),
             height: fitFrame.height
         )
-    }
-
-    private static func estimatedSimpleChordFontSize(fitting frame: CGRect, text: String) -> CGFloat {
-        preferredSimpleChordFontSize()
     }
 
     private static func preferredSimpleChordFontSize() -> CGFloat {
