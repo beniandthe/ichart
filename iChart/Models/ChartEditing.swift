@@ -423,6 +423,68 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func applyMeterChange(
+        _ meter: Meter,
+        startingAt measureID: UUID,
+        scope: TimeSignatureApplicationScope
+    ) -> UUID? {
+        guard let location = measureLocation(id: measureID) else {
+            return nil
+        }
+
+        let selectedIndex = flattenedMeasureIndex(for: location)
+        guard selectedIndex > 0 else {
+            return applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
+        }
+
+        let refreshedMeasures = measures
+        let previousMeasureID = refreshedMeasures[selectedIndex - 1].id
+        return applyMeterChange(meter, after: previousMeasureID, scope: scope)
+    }
+
+    @discardableResult
+    private mutating func applyMeterChangeStartingAtFirstMeasure(
+        _ meter: Meter,
+        scope: TimeSignatureApplicationScope
+    ) -> UUID? {
+        let sourceMeter = defaultMeter
+        let requiredAffectedMeasures: Int
+        switch scope {
+        case .fixedMeasureCount(let additionalMeasureCount):
+            requiredAffectedMeasures = max(1, additionalMeasureCount + 1)
+        case .toEndOfPiece, .toNextTimeSignature:
+            requiredAffectedMeasures = 1
+        }
+
+        ensureMeasuresExist(startingAtFirstMeasureWithCount: requiredAffectedMeasures)
+        guard !measures.isEmpty else {
+            return nil
+        }
+
+        defaultMeter = meter
+
+        switch scope {
+        case .toNextTimeSignature:
+            break
+        case .toEndOfPiece:
+            timeSignatureChanges.removeAll()
+        case .fixedMeasureCount(let additionalMeasureCount):
+            let lastAffectedIndex = min(additionalMeasureCount, measures.count - 1)
+            removeTimeSignatureChanges(afterMeasureIndexIn: 0..<lastAffectedIndex)
+
+            let lastAffectedMeasureID = measures[lastAffectedIndex].id
+            let existingBoundaryChange = timeSignatureChange(after: lastAffectedMeasureID)
+            if existingBoundaryChange?.meter == meter || existingBoundaryChange == nil {
+                setTimeSignatureChange(after: lastAffectedMeasureID, meter: sourceMeter)
+            }
+        }
+
+        rebuildSystems(using: measures)
+        updatedAt = .now
+        return measures.first?.id
+    }
+
+    @discardableResult
     mutating func appendMeasure(
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
@@ -549,7 +611,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenNotationDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenNotationData != normalizedData else {
             return false
         }
@@ -561,7 +623,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenHeaderDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenHeaderData != normalizedData else {
             return false
         }
@@ -573,7 +635,7 @@ extension Chart {
 
     @discardableResult
     mutating func setPageHandwrittenChordDrawing(_ drawingData: Data?) -> Bool {
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard pageHandwrittenChordData != normalizedData else {
             return false
         }
@@ -592,7 +654,7 @@ extension Chart {
             return false
         }
 
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         guard systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != normalizedData else {
             return false
         }
@@ -613,7 +675,7 @@ extension Chart {
             return false
         }
 
-        let normalizedData = drawingData?.isEmpty == true ? nil : drawingData
+        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
         let normalizedMap = values.map {
             MeasureRhythmMap(
                 values: $0,
@@ -695,7 +757,7 @@ extension Chart {
             LeadSheetPitchedNoteEvent(
                 rhythmSlotIndex: note.rhythmSlotIndex,
                 staffPosition: note.staffPosition,
-                sourceInkData: note.sourceInkData?.isEmpty == true ? nil : note.sourceInkData
+                sourceInkData: normalizedPersistentInkDrawingData(note.sourceInkData)
             )
         }
         guard measure.rhythmMap != rhythmMap || measure.pitchedNoteEvents != pitchedNoteEvents else {
@@ -2447,6 +2509,21 @@ extension Chart {
         }
 
         while measures.count - sourceIndex - 1 < requiredFollowingMeasures {
+            if let lastMeasure = measures.last,
+               lastMeasure.authoringState == .open {
+                _ = commitOpenMeasure()
+            } else {
+                _ = appendMeasure(authoringState: .open)
+            }
+        }
+    }
+
+    private mutating func ensureMeasuresExist(startingAtFirstMeasureWithCount requiredMeasureCount: Int) {
+        guard requiredMeasureCount > 0 else {
+            return
+        }
+
+        while measures.count < requiredMeasureCount {
             if let lastMeasure = measures.last,
                lastMeasure.authoringState == .open {
                 _ = commitOpenMeasure()

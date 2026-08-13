@@ -340,14 +340,12 @@ final class ChordInkFixtureExporterTests: XCTestCase {
     }
 
     func testFixtureExportRejectsUnsupportedOrEmptyFixtures() {
-        XCTAssertThrowsError(
-            try ChordInkFixtureExporter.fixtureDocument(
-                expectedDisplayText: "CM7",
-                strokes: [InkStroke(points: [InkPoint(x: 0, y: 0, timeOffset: nil)])]
-            )
-        ) { error in
-            XCTAssertEqual(error as? ChordInkFixtureExportError, .unsupportedChord("CM7"))
-        }
+        let majorSeventh = try? ChordInkFixtureExporter.fixtureDocument(
+            expectedDisplayText: "CM7",
+            strokes: [InkStroke(points: [InkPoint(x: 0, y: 0, timeOffset: nil)])]
+        )
+
+        XCTAssertEqual(majorSeventh?.expectedDisplayText, "C△7")
 
         XCTAssertThrowsError(
             try ChordInkFixtureExporter.fixtureDocument(

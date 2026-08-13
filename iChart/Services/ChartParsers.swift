@@ -421,7 +421,31 @@ enum ChordSymbolParser {
             return prefix.count
         }
 
+        if descriptor.first == "M",
+           uppercaseMajorPrefixHasSupportedExtension(in: descriptor) {
+            return 1
+        }
+
         return nil
+    }
+
+    private static func uppercaseMajorPrefixHasSupportedExtension(in descriptor: String) -> Bool {
+        guard descriptor.first == "M" else {
+            return false
+        }
+
+        var index = descriptor.index(after: descriptor.startIndex)
+        while index < descriptor.endIndex, descriptor[index].isWhitespace {
+            index = descriptor.index(after: index)
+        }
+
+        var extensionText = ""
+        while index < descriptor.endIndex, descriptor[index].isNumber {
+            extensionText.append(descriptor[index])
+            index = descriptor.index(after: index)
+        }
+
+        return isSupportedExtension(extensionText, quality: "△")
     }
 
     private static func normalizeDiminishedAliases(

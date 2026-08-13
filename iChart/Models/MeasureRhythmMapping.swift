@@ -11,7 +11,7 @@ struct MeasureRhythmMap: Codable, Hashable {
         tieOutSlotIndices: Set<Int> = []
     ) {
         self.values = values
-        self.drawingData = drawingData
+        self.drawingData = normalizedPersistentInkDrawingData(drawingData)
         self.tieOutSlotIndices = tieOutSlotIndices
     }
 
@@ -24,7 +24,9 @@ struct MeasureRhythmMap: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         values = try container.decode([RhythmValue].self, forKey: .values)
-        drawingData = try container.decodeIfPresent(Data.self, forKey: .drawingData)
+        drawingData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .drawingData)
+        )
         tieOutSlotIndices = try container.decodeIfPresent(Set<Int>.self, forKey: .tieOutSlotIndices) ?? []
     }
 
@@ -493,7 +495,7 @@ extension Measure {
     ) {
         rhythmMap = MeasureRhythmMap(
             values: values,
-            drawingData: drawingData,
+            drawingData: normalizedPersistentInkDrawingData(drawingData),
             tieOutSlotIndices: tieOutSlotIndices
         )
     }

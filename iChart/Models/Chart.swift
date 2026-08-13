@@ -1,5 +1,18 @@
 import Foundation
 
+func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
+    guard let drawingData,
+          !drawingData.isEmpty else {
+        return nil
+    }
+
+    #if canImport(UIKit)
+    return LeadSheetPersistentInkColorPolicy.normalizedDrawingData(drawingData)
+    #else
+    return drawingData
+    #endif
+}
+
 enum ChartCloudBackupIntent: String, Codable, Hashable {
     case included
     case legacyLocal
@@ -182,9 +195,9 @@ struct Chart: Identifiable, Codable, Hashable {
         self.freehandSymbols = []
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
-        self.pageHandwrittenNotationData = pageHandwrittenNotationData
-        self.pageHandwrittenHeaderData = pageHandwrittenHeaderData
-        self.pageHandwrittenChordData = pageHandwrittenChordData
+        self.pageHandwrittenNotationData = normalizedPersistentInkDrawingData(pageHandwrittenNotationData)
+        self.pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(pageHandwrittenHeaderData)
+        self.pageHandwrittenChordData = normalizedPersistentInkDrawingData(pageHandwrittenChordData)
         self.cloudBackupStatus = cloudBackupStatus
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -271,9 +284,15 @@ struct Chart: Identifiable, Codable, Hashable {
         freehandSymbols = []
         stylePreset = try container.decode(StylePreset.self, forKey: .stylePreset)
         engravingPreset = try container.decodeIfPresent(EngravingPreset.self, forKey: .engravingPreset) ?? .balanced
-        pageHandwrittenNotationData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
-        pageHandwrittenHeaderData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
-        pageHandwrittenChordData = try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenChordData)
+        pageHandwrittenNotationData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
+        )
+        pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
+        )
+        pageHandwrittenChordData = normalizedPersistentInkDrawingData(
+            try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenChordData)
+        )
         cloudBackupStatus = try container.decodeIfPresent(ChartCloudBackupStatus.self, forKey: .cloudBackupStatus)
             ?? .legacyLocal
         createdAt = try container.decode(Date.self, forKey: .createdAt)

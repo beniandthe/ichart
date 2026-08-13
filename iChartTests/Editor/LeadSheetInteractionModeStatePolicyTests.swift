@@ -66,6 +66,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
     }
 
+    func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
+        let sourceData = Data("ink-C".utf8)
+
+        XCTAssertEqual(
+            LeadSheetPersistentInkColorPolicy.normalizedDrawingData(sourceData),
+            sourceData
+        )
+    }
+
     func testInkToolPolicyUsesEraserForFreeWriteEraseMode() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(
             for: .freeHand,

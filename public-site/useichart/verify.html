@@ -177,7 +177,7 @@
         window.location.href = callbackURL;
         window.setTimeout(function () {
           openLink.textContent = openButtonText;
-          status.textContent = "If iChart did not open, tap " + openButtonText + " from the iPad where you created the account. Use only the newest iChart email link.";
+          status.textContent = "If iChart did not open, tap " + openButtonText + " from the iPad where you created the account.";
         }, 2400);
       }
 
@@ -210,7 +210,7 @@
         title.textContent = "Use a New iChart Email";
         status.textContent = "This link could not be completed. It may be expired, already used, or opened from the wrong device.";
         trust.textContent = "No account changes were made from this page.";
-        steps.innerHTML = "<li>Return to iChart and request one fresh account email.</li><li>Open only the newest iChart email from the same iPad where you started.</li><li>If the problem continues, contact support from the email tied to your iChart account.</li>";
+        steps.innerHTML = "<li>Return to iChart on the iPad where you created the account.</li><li>Tap Email Didn't Arrive?.</li><li>Tap Send Replacement Email.</li><li>Open Mail and tap Verify iChart Account.</li><li>If you already verified, sign in with that email and password.</li>";
         setDisabledOpenLink("Link Expired");
         return;
       }
@@ -219,9 +219,9 @@
         document.body.classList.add("auth-info");
         result.textContent = "Fresh link needed";
         title.textContent = "Use a New iChart Email";
-        status.textContent = "This page does not include the secure iChart email token. Return to iChart, send one new account email, then open the newest email on this iPad.";
+        status.textContent = "This page does not include the secure iChart email token. Return to iChart, tap Email Didn't Arrive?, then tap Send Replacement Email.";
         trust.textContent = "No account changes were made from this page.";
-        steps.innerHTML = "<li>Return to iChart.</li><li>Tap Send One New Email.</li><li>Open Mail on this iPad, open the newest iChart email, and tap Verify iChart Account.</li>";
+        steps.innerHTML = "<li>Return to iChart.</li><li>Tap Email Didn't Arrive?.</li><li>Tap Send Replacement Email.</li><li>Open Mail and tap Verify iChart Account.</li>";
         setDisabledOpenLink("New Email Needed");
         return;
       }
@@ -230,9 +230,9 @@
         document.body.classList.add("auth-info");
         result.textContent = "Opened on another device";
         title.textContent = "Use Your iPad to Finish";
-        status.textContent = "No verification happened here. Open the newest iChart email on the iPad where you created the account.";
-        trust.textContent = "This page did not verify or use the email token. The same newest email link can still be opened on your iPad.";
-        steps.innerHTML = "<li>Do not continue from this phone or computer.</li><li>On the iPad where you created the account, open Mail.</li><li>Open the newest iChart email and tap Verify iChart Account Here.</li><li>Then tap Return to iChart from that iPad.</li>";
+        status.textContent = "No verification happened here. Use the iPad where you created the account to open the iChart verification email.";
+        trust.textContent = "This page did not verify or use the email token.";
+        steps.innerHTML = "<li>Do not continue from this phone or computer.</li><li>On the iPad where you created the account, open Mail.</li><li>Open the iChart verification email and tap Verify iChart Account Here.</li><li>Then tap Return to iChart from that iPad.</li>";
         setDisabledOpenLink("Use Original iPad");
         return;
       }

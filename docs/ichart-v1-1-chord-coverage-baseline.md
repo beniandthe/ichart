@@ -28,7 +28,7 @@ This section mirrors `ChordRecognitionCompendium.supportedChordTypePrintout`.
 | --- | --- |
 | major triads | C, F#, Bb |
 | minor triads | C-, Cmin, Cm |
-| major seventh and extended major | C△7, Cmaj7, Cmajor9 |
+| major seventh and extended major | C△7, Cmaj7, CM7, C major 7, Cmajor9 |
 | dominant sixth/seventh/ninth/eleventh/thirteenth | C6, C7, C9, C11, C13 |
 | six-nine | C6/9, C-6/9 |
 | add chords | Cadd2, Cadd9, Cadd11 |
@@ -93,9 +93,9 @@ compendium entries.
 | Added-tone chords | Cadd2, Cadd4, Cadd9, Cadd11 | Added-tone forms are major-rooted in V1.1. |
 | Dominant alterations | C7(b5), C7(#5), C7(b9), C7(#9), C7(#11), C7(b13) | Alterations can be written directly or in parentheses. |
 | Multiple dominant alterations | C7(b9)(#5) | Duplicate alterations are rejected. |
-| Minor extensions | Cm6, C-7, C-9, C-11, C-13 | `m6` displays as `Cm6`; other minor extensions display with `-`. |
+| Minor extensions | Cm6, C-7, Cm7, Cmin7, C minor 7, C-9, C-11, C-13 | `m6` displays as `Cm6`; other minor extensions display with `-`. |
 | Minor seventh flat five | Cø7 | `Cm7b5`, `Cmin7b5`, and `C-7b5` normalize to half-diminished. |
-| Major triangle and major aliases | C△, C△7, C△9, C△13, Cmaj7, Cmajor9 | `△`, `Δ`, `∆`, `maj`, and `major` display as `△` when followed by a supported extension. Bare `maj`/`major` remains unsupported. |
+| Major triangle and major aliases | C△, C△7, C△9, C△13, Cmaj7, CM7, C major 7, Cmajor9 | `△`, `Δ`, `∆`, `maj`, uppercase `M`, and `major` display as `△` when followed by a supported extension. Bare `M`/`maj`/`major` remains unsupported. |
 | Minor-major forms | C-△7, C-△9, C-△11, C-△13 | The minor-major quality supports the common seventh and extended forms. |
 | Suspended forms | Csus, Csus2, Csus4, C7sus, C9sus, C13sus | `Csus7` and `C7sus4` normalize to `C7sus`; extended suspended chords display as `Csus9` and `Csus13`. |
 | Altered suspended dominants | C7sus(b9), C9sus(#11) | Suspended alterations require a supported extension. |
@@ -120,8 +120,6 @@ compendium entries.
 These are current boundaries, not necessarily permanent product decisions:
 
 - Bare major suffix aliases: `CM`, `Cmaj`, `Cmajor`, `C major`.
-- Uppercase `M` major aliases such as `CM7`; V1.1 keeps this unsupported to
-  avoid OCR confusion with minor `m`.
 - Diminished ninth and half-diminished ninth forms such as `C°9` and `Cø9`.
 - Half-diminished with extra flat-five text after normalization, such as
   `Cø7b5`.

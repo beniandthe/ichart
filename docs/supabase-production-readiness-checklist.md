@@ -40,12 +40,12 @@ Required production settings:
   <h2>Verify your iChart account</h2>
 
   <p>You created an iChart account. To finish setup, use the same iPad where you created the account.</p>
-  <a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Verify iChart Account Here</a>
+  <p><a href="{{ .SiteURL }}?token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}">Verify iChart Account Here</a></p>
 
   <p>This opens a browser page first. On that page, tap Return to iChart.</p>
   <p>Your account is not verified until iChart opens and confirms the link.</p>
-  <p>If this opens on a phone or computer, do not continue there. Open the newest iChart email on the iPad where you created the account and tap Verify iChart Account Here again.</p>
-  <p>If you requested more than one email, use only the newest iChart email. Older links may stop working.</p>
+  <p>If this opens on a phone or computer, no verification happened there. Open this email on the iPad where you created the account and tap Verify iChart Account Here.</p>
+  <p>If you already verified, open iChart and sign in.</p>
   <p>If you did not create an iChart account, you can ignore this email.</p>
   ```
 - Hosted Reset password template:

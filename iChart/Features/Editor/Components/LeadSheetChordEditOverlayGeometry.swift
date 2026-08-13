@@ -323,7 +323,7 @@ enum LeadSheetRoadmapMarkerEditOverlayGeometry {
         let horizontalPadding: CGFloat = markerLayout.type.isStandaloneNotationMarker ? 3 : 4
         let verticalPadding: CGFloat = 2
         let minimumWidth: CGFloat = markerLayout.type.isStandaloneNotationMarker ? 44 : 28
-        let minimumHeight: CGFloat = markerLayout.type.containsNotationMarkerGlyph ? 40 : 24
+        let minimumHeight: CGFloat = markerLayout.type.containsNotationMarkerGlyph ? 44 : 24
         let paddedFrame = markerLayout.frame.insetBy(dx: -horizontalPadding, dy: -verticalPadding)
         let width = max(minimumWidth, paddedFrame.width)
         let height = max(minimumHeight, paddedFrame.height)

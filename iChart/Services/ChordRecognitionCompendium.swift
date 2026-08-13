@@ -126,7 +126,7 @@ enum ChordRecognitionCompendium {
             return false
         }
 
-        if (suffix == "M" || suffix.dropFirst().allSatisfy(\.isNumber)),
+        if suffix == "M",
            text.contains("M"),
            !text.contains("m") {
             return true
@@ -144,8 +144,8 @@ enum ChordRecognitionCompendium {
 
     private static let supportedChordTypeFamilies: [ChordCoverageFamily] = [
         ChordCoverageFamily(name: "major triads", examples: ["C", "F#", "Bb"]),
-        ChordCoverageFamily(name: "minor triads", examples: ["C-", "Cmin", "Cm"]),
-        ChordCoverageFamily(name: "major seventh and extended major", examples: ["C△7", "Cmaj7", "Cmajor9"]),
+        ChordCoverageFamily(name: "minor triads and sevenths", examples: ["C-", "Cm", "Cmin", "C-7", "Cm7", "Cmin7"]),
+        ChordCoverageFamily(name: "major seventh and extended major", examples: ["C△7", "Cmaj7", "CM7", "C major 7", "Cmajor9"]),
         ChordCoverageFamily(name: "dominant sixth/seventh/ninth/eleventh/thirteenth", examples: ["C6", "C7", "C9", "C11", "C13"]),
         ChordCoverageFamily(name: "six-nine", examples: ["C6/9", "C-6/9"]),
         ChordCoverageFamily(name: "add chords", examples: ["Cadd2", "Cadd9", "Cadd11"]),

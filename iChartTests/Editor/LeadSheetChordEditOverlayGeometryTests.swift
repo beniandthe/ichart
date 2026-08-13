@@ -252,8 +252,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
 
     func testRoadmapMarkerEditFrameIsTightToMarkerNotMeasure() {
         let markerLayout = roadmapMarkerLayout(
-            frame: CGRect(x: 126, y: 72, width: 42, height: 40),
-            movementFrame: CGRect(x: 120, y: 69, width: 180, height: 40)
+            frame: CGRect(x: 126, y: 72, width: 42, height: 44),
+            movementFrame: CGRect(x: 120, y: 69, width: 180, height: 44)
         )
 
         let editFrame = LeadSheetRoadmapMarkerEditOverlayGeometry.editFrame(for: markerLayout)

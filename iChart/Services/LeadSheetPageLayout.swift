@@ -293,7 +293,8 @@ enum LeadSheetPageLayoutEngine {
         var headerMetadataTopSpacing: CGFloat { 6 }
         var headerMetadataHeight: CGFloat { 20 }
         var simpleLeadingMeterGutterWidth: CGFloat { 58 }
-        var rhythmLeadingSignatureWidth: CGFloat { max(120, metrics.firstSystemSignatureWidth + 42) }
+        var rhythmFirstSystemSignatureWidth: CGFloat { max(metrics.firstSystemSignatureWidth, 66) }
+        var rhythmContinuationSignatureWidth: CGFloat { 40 }
         var simpleTitleFrameHeight: CGFloat { 36 }
         var simpleMetadataHeight: CGFloat { 24 }
         var simpleChordHorizontalInset: CGFloat { 6 }
@@ -659,9 +660,9 @@ enum LeadSheetPageLayoutEngine {
         } else {
             let structuredRoadmapReserveHeight: CGFloat
             if hasPointMarkerLayouts && hasEndingLayouts {
-                structuredRoadmapReserveHeight = 34
+                structuredRoadmapReserveHeight = 38
             } else if hasPointMarkerLayouts || hasEndingLayouts {
-                structuredRoadmapReserveHeight = 20
+                structuredRoadmapReserveHeight = 24
             } else {
                 structuredRoadmapReserveHeight = 0
             }
@@ -812,9 +813,9 @@ enum LeadSheetPageLayoutEngine {
                 let endX = lastSegmentMeasure.layout.staffFrame.maxX - 4
                 let frame = CGRect(
                     x: startX,
-                    y: systemFrame.minY + 3 + topOffset,
+                    y: systemFrame.minY + 2 + topOffset,
                     width: max(1, endX - startX),
-                    height: 16
+                    height: 20
                 )
                 let text = roadmapObject.displayText
                     ?? roadmapObject.type.compactEndingDisplayText
@@ -861,11 +862,11 @@ enum LeadSheetPageLayoutEngine {
                 let baseMarkerHeight: CGFloat
                 let baseMarkerTopOffset: CGFloat
                 if isSimpleChordSheet {
-                    baseMarkerHeight = containsNotationGlyph ? 40 : 34
-                    baseMarkerTopOffset = containsNotationGlyph ? -17 : -14
+                    baseMarkerHeight = containsNotationGlyph ? 44 : 34
+                    baseMarkerTopOffset = containsNotationGlyph ? -19 : -14
                 } else {
-                    baseMarkerHeight = containsNotationGlyph ? 28 : 24
-                    baseMarkerTopOffset = containsNotationGlyph ? -8 : -5
+                    baseMarkerHeight = containsNotationGlyph ? 32 : 24
+                    baseMarkerTopOffset = containsNotationGlyph ? -10 : -5
                 }
                 let markerScale = CGFloat(roadmapObject.resolvedScale)
                 let markerHeight = baseMarkerHeight * markerScale
@@ -1206,10 +1207,23 @@ enum LeadSheetPageLayoutEngine {
         }
         let metrics = visualPolicy.metrics
         if chart.layoutStyle == .rhythmSectionSheet {
+            let keySignatureWidth = maxKeySignatureAccidentalCount(for: chart) * 10
+            let clefRightEdge = CGFloat(32)
+            let keySignatureRightEdge = clefRightEdge
+                + (keySignatureWidth > 0 ? 6 + keySignatureWidth : 0)
+            if systemIndex == 0 {
+                let leadingTimeSignatureRightEdge = keySignatureRightEdge
+                    + (keySignatureWidth > 0 ? 6 : 4)
+                    + 24
+                return max(
+                    visualPolicy.rhythmFirstSystemSignatureWidth,
+                    leadingTimeSignatureRightEdge + 8
+                )
+            }
+
             return max(
-                visualPolicy.rhythmLeadingSignatureWidth,
-                visualPolicy.metrics.firstSystemSignatureWidth
-                    + maxKeySignatureAccidentalCount(for: chart) * 10
+                visualPolicy.rhythmContinuationSignatureWidth,
+                keySignatureRightEdge + 8
             )
         }
 
@@ -1345,7 +1359,10 @@ enum LeadSheetPageLayoutEngine {
             width: staffFrame.width,
             height: frame.height
         ) : frame
-        let chordBandFrame = isSimpleChordSheet ? CGRect(
+        let meterChangeFrame = meterChange.map { _ in
+            visualPolicy.inlineMeterChangeFrame(in: measureContentFrame, staffFrame: staffFrame)
+        }
+        let baseChordBandFrame = isSimpleChordSheet ? CGRect(
             x: staffFrame.minX + 8,
             y: staffFrame.minY + 4,
             width: max(1, staffFrame.width - 16),
@@ -1355,6 +1372,11 @@ enum LeadSheetPageLayoutEngine {
             y: measureContentFrame.minY + roadmapTopReserveHeight,
             width: measureContentFrame.width - 6,
             height: max(1, chordBandHeight - 4 - roadmapTopReserveHeight)
+        )
+        let chordBandFrame = chordBandFrameByReservingInlineMeterChange(
+            baseChordBandFrame,
+            meterChangeFrame: meterChangeFrame,
+            visualPolicy: visualPolicy
         )
         let writableFrame = isSimpleChordSheet ? staffFrame.insetBy(dx: 2, dy: 2) : CGRect(
             x: measureContentFrame.minX + 2,
@@ -1368,9 +1390,6 @@ enum LeadSheetPageLayoutEngine {
             width: 1.6,
             height: staffFrame.height
         )
-        let meterChangeFrame = meterChange.map { _ in
-            visualPolicy.inlineMeterChangeFrame(in: measureContentFrame, staffFrame: staffFrame)
-        }
 
         guard let measure else {
             return LeadSheetMeasureLayout(
@@ -1533,6 +1552,28 @@ enum LeadSheetPageLayoutEngine {
                 height: chordBandFrame.height
             ),
             snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
+        )
+    }
+
+    private static func chordBandFrameByReservingInlineMeterChange(
+        _ chordBandFrame: CGRect,
+        meterChangeFrame: CGRect?,
+        visualPolicy: VisualPolicy
+    ) -> CGRect {
+        guard let meterChangeFrame else {
+            return chordBandFrame
+        }
+
+        let gap = visualPolicy.layoutStyle == .simpleChordSheet ? CGFloat(8) : CGFloat(6)
+        let reservedMinX = min(
+            chordBandFrame.maxX - 1,
+            max(chordBandFrame.minX, meterChangeFrame.maxX + gap)
+        )
+        return CGRect(
+            x: reservedMinX,
+            y: chordBandFrame.minY,
+            width: max(1, chordBandFrame.maxX - reservedMinX),
+            height: chordBandFrame.height
         )
     }
 
@@ -1859,11 +1900,19 @@ enum LeadSheetPageLayoutEngine {
             chordBandFrame.width,
             visibleWidth + visualPolicy.simpleChordHorizontalInset * 2
         )
-        if rawMaxX - rawMinX < desiredRawWidth {
-            if nextPlacement == nil {
-                rawMinX = max(chordBandFrame.minX, min(rawMinX, rawMaxX - desiredRawWidth))
-            } else {
-                rawMaxX = min(chordBandFrame.maxX, max(rawMaxX, rawMinX + desiredRawWidth))
+        if nextPlacement != nil,
+           rawMaxX - rawMinX < desiredRawWidth {
+            rawMaxX = min(chordBandFrame.maxX, max(rawMaxX, rawMinX + desiredRawWidth))
+        } else if nextPlacement == nil {
+            let minimumTrailingRawWidth = min(
+                desiredRawWidth,
+                max(
+                    visualPolicy.simpleChordHorizontalInset * 2 + 24,
+                    chordBandFrame.width * 0.18
+                )
+            )
+            if rawMaxX - rawMinX < minimumTrailingRawWidth {
+                rawMinX = max(chordBandFrame.minX, rawMaxX - minimumTrailingRawWidth)
             }
         }
         let inset = min(visualPolicy.simpleChordHorizontalInset, max(0, (rawMaxX - rawMinX) / 4))
