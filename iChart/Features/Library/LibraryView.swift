@@ -526,18 +526,18 @@ private struct IChartTutorialSection: Identifiable {
         IChartTutorialSection(
             id: "rhythm-entry",
             title: "Rhythm Entry",
-            summary: "Use Free-Write for rhythm notation in this version.",
+            summary: "Use Free-Write for page-level handwritten rhythm notes in this version.",
             systemImageName: "pencil.and.scribble",
             steps: [
                 IChartTutorialStep(
                     id: "availability",
                     title: "Current Workflow",
-                    detail: "Rhythm Section charts keep the staff, measure layout, chords, repeats, text, and export systems. Handwritten rhythm notation is entered with Free-Write."
+                    detail: "Rhythm Section charts keep the staff, measure layout, chords, repeats, text, and export systems. Handwritten rhythm marks can be written with Free-Write as page-level ink; they are not attached to individual measures yet."
                 ),
                 IChartTutorialStep(
                     id: "write-rhythm",
                     title: "Write",
-                    detail: "Tap Free-Write, choose Write, and draw rhythms directly on the page. The ink stays exactly as written and exports with the chart."
+                    detail: "Tap Free-Write, choose Write, and draw rhythm cues directly on the page. The ink stays exactly where you write it and exports with the chart."
                 ),
                 IChartTutorialStep(
                     id: "erase-rhythm",
@@ -547,7 +547,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "future-input",
                     title: "Literal Input",
-                    detail: "A dedicated literal rhythm input method will come later. For this version, Free-Write is the reliable rhythm-entry path."
+                    detail: "A dedicated literal rhythm input method will come later. For this version, Free-Write is the reliable page-level handwriting path."
                 )
             ]
         ),
@@ -4750,13 +4750,44 @@ private struct IChartHomeUpdateStamp: View {
     let isCollapsed: Bool
 
     var body: some View {
-        Text(isCollapsed ? "v1.1.2" : "v1.1.2 - Aug 13, 2026")
+        Text(isCollapsed ? IChartBuildIdentity.collapsedStamp : IChartBuildIdentity.expandedStamp)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(IChartHomeBrand.paper.opacity(0.62))
             .lineLimit(1)
             .minimumScaleFactor(0.80)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .accessibilityLabel("Version 1.1.2, August 13, 2026")
+            .accessibilityLabel(IChartBuildIdentity.accessibilityLabel)
+    }
+}
+
+private enum IChartBuildIdentity {
+    static var collapsedStamp: String {
+        "v\(version) (\(buildNumber))"
+    }
+
+    static var expandedStamp: String {
+        "v\(version) (\(buildNumber)) - Aug 13, 2026"
+    }
+
+    static var accessibilityLabel: String {
+        "Version \(version), build \(buildNumber), August 13, 2026"
+    }
+
+    private static var version: String {
+        bundleValue(for: "CFBundleShortVersionString", fallback: "unknown")
+    }
+
+    private static var buildNumber: String {
+        bundleValue(for: "CFBundleVersion", fallback: "unknown")
+    }
+
+    private static func bundleValue(for key: String, fallback: String) -> String {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !value.isEmpty else {
+            return fallback
+        }
+
+        return value
     }
 }
 

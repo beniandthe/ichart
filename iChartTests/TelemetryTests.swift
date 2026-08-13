@@ -8,6 +8,9 @@ final class TelemetryTests: XCTestCase {
         let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
             "layout_style": .string("leadSheet"),
             "duration_ms": .double(12.34567),
+            "rendered_ink_median_luminance": .double(0.06123),
+            "stroke_color_median_luminance": .double(0.05999),
+            "tool_ink_type": .string("pen"),
             "user_signed_in": .bool(true),
             "chart_title": .string("Do Not Collect"),
             "raw_chord_text": .string("C7")
@@ -15,6 +18,9 @@ final class TelemetryTests: XCTestCase {
 
         XCTAssertEqual(sanitized["layout_style"], .string("leadSheet"))
         XCTAssertEqual(sanitized["duration_ms"], .double(12.346))
+        XCTAssertEqual(sanitized["rendered_ink_median_luminance"], .double(0.061))
+        XCTAssertEqual(sanitized["stroke_color_median_luminance"], .double(0.06))
+        XCTAssertEqual(sanitized["tool_ink_type"], .string("pen"))
         XCTAssertEqual(sanitized["user_signed_in"], .bool(true))
         XCTAssertNil(sanitized["chart_title"])
         XCTAssertNil(sanitized["raw_chord_text"])

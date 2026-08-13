@@ -3158,7 +3158,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let activeInkRole = LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope)
-        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: pageInkCanvasView.drawing)
+        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(
+            drawing: pageInkCanvasView.drawing,
+            canvasView: pageInkCanvasView
+        )
 
         let drawingData = currentCanvasDrawingData(activeInkScope: activeInkScope)
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
@@ -3925,7 +3928,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: pageInkCanvasView.drawing)
+        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(
+            drawing: pageInkCanvasView.drawing,
+            canvasView: pageInkCanvasView
+        )
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(pageInkCanvasView.drawing)
         isSyncingInkCanvasFromModel = false

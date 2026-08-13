@@ -33,6 +33,17 @@ function validEvent(overrides = {}) {
       median_opacity: 1,
       max_opacity: 1,
       light_stroke_count: 0,
+      stroke_color_min_luminance: 0.06,
+      stroke_color_median_luminance: 0.06,
+      stroke_color_max_luminance: 0.06,
+      tool_ink_type: "pen",
+      tool_color_luminance: 0.06,
+      canvas_user_interface_style: "light",
+      canvas_background_alpha: 0,
+      canvas_is_opaque: false,
+      rendered_ink_median_luminance: 0.06,
+      rendered_ink_light_pixel_ratio: 0,
+      rendered_ink_sample_count: 112,
       has_mask: false,
       normalization_needed: true,
       normalized_before_save: true,
@@ -62,6 +73,9 @@ test("telemetry row sanitizes event context and allowlisted properties", () => {
   assert.equal(row.app_version, "1.1.2");
   assert.equal(row.properties.scope, "freehand");
   assert.equal(row.properties.duration_ms, 10.123);
+  assert.equal(row.properties.tool_ink_type, "pen");
+  assert.equal(row.properties.rendered_ink_sample_count, 112);
+  assert.equal(row.properties.canvas_is_opaque, false);
   assert.equal(row.properties.raw_chord_text, undefined);
   assert.equal(row.properties.chart_title, undefined);
   assert.equal(row.properties.error_message, undefined);

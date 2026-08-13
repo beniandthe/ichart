@@ -475,7 +475,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("clearRenderedRhythm(in measureID: UUID)"))
         XCTAssertTrue(editorText.contains("clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true)"))
         XCTAssertTrue(editorText.contains("guard isDedicatedRhythmToolAvailable else"))
-        XCTAssertTrue(editorText.contains("Use Free-Write for rhythm entry in this version."))
+        XCTAssertTrue(editorText.contains("Use Free-Write for page-level handwritten rhythm notes in this version."))
     }
 
     func testRhythmRecognitionReferenceIsBackendOnly() throws {
@@ -748,8 +748,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
         XCTAssertTrue(libraryText.contains("IChartHomeUpdateStamp"))
-        XCTAssertTrue(libraryText.contains("v1.1.2 - Aug 13, 2026"))
-        XCTAssertTrue(libraryText.contains("Version 1.1.2, August 13, 2026"))
+        XCTAssertTrue(libraryText.contains("IChartBuildIdentity"))
+        XCTAssertTrue(libraryText.contains("\"v\\(version) (\\(buildNumber)) - Aug 13, 2026\""))
+        XCTAssertTrue(libraryText.contains("\"Version \\(version), build \\(buildNumber), August 13, 2026\""))
+        XCTAssertTrue(libraryText.contains("CFBundleVersion"))
     }
 
     func testEditorDelayedAndContinuationActionsShowVisualFeedback() throws {
@@ -962,7 +964,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Coda for roadmap marks like Coda, Segno, Fine, D.S., and D.C."))
         XCTAssertTrue(libraryText.contains("Use Text for cues, feel notes, section labels, and rehearsal reminders."))
         XCTAssertTrue(libraryText.contains("Use Time for meter changes inside the chart."))
-        XCTAssertTrue(libraryText.contains("Use Free-Write for rhythm notation in this version."))
+        XCTAssertTrue(libraryText.contains("Use Free-Write for page-level handwritten rhythm notes in this version."))
+        XCTAssertTrue(libraryText.contains("they are not attached to individual measures yet"))
         XCTAssertTrue(libraryText.contains("Use Chord when iChart should read handwritten chord symbols and render them cleanly."))
         XCTAssertTrue(libraryText.contains("Use Free-Write for persistent raw ink that iChart never reads or interprets."))
         XCTAssertTrue(libraryText.contains("Tap Done Before Switching"))

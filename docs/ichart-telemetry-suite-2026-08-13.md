@@ -106,11 +106,15 @@ For `ink.persisted`, `ink.normalization_applied`, and `ink.visibility_probe`, th
 - `stroke_count`
 - `point_count`
 - `light_stroke_count`
+- `stroke_color_min_luminance`, `stroke_color_median_luminance`, `stroke_color_max_luminance`
 - `min_opacity`, `median_opacity`, `max_opacity`
 - `min_width`, `median_width`, `max_width`
 - `has_mask`
 - `normalization_needed`
 - `normalized_before_save`
+- `tool_ink_type`, `tool_color_luminance`
+- `canvas_user_interface_style`, `canvas_background_alpha`, `canvas_is_opaque`
+- `rendered_ink_median_luminance`, `rendered_ink_light_pixel_ratio`, `rendered_ink_sample_count`
 
 This distinguishes:
 

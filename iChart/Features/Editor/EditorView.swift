@@ -3367,7 +3367,7 @@ struct EditorView: View {
     @discardableResult
     private func clearRenderedRhythm(in measureID: UUID) -> Bool {
         guard isDedicatedRhythmToolAvailable else {
-            noteEditErrorMessage = "Use Free-Write for rhythm entry in this version."
+            noteEditErrorMessage = "Use Free-Write for page-level handwritten rhythm notes in this version."
             showingNoteEditError = true
             return false
         }
