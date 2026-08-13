@@ -281,6 +281,40 @@ App Store review:
 - status: `Waiting for Review`
 - submission id: `e01b94e3-ed4d-404e-8983-aa417f9a0a70`
 
+Public App Store follow-up check:
+
+- probe time: 2026-08-12 17:07 PT
+- public US App Store lookup reported version `1.1.1`
+- current version release date: 2026-08-12 22:39:35Z
+- release notes: "This update fixes a handwritten ink visibility issue so saved
+  charts, existing charts, previews, and PDF exports keep handwriting dark and
+  readable."
+- public App Store page also showed `Version 1.1.1`
+
+Finding: green for public binary availability. Public Apple metadata does not
+expose `CFBundleVersion`, so build `41` availability is inferred from the
+recorded App Store Connect submission/attachment evidence plus the matching
+public `1.1.1` release notes.
+
+## Hosted Auth Page Follow-Up Check
+
+Probe time: 2026-08-12 17:07 PT
+
+Yellow/red hosted sync finding:
+
+- local `public-site/useichart/verify.html` contains the corrected recovery copy
+  `Email Didn't Arrive?` / `Send Replacement Email`
+- live `https://useichart.com/verify.html` still contains stale recovery copy:
+  `Tap Send Verification Email`
+- local `public-site/useichart/support.html` contains the corrected recovery
+  copy
+- live `https://useichart.com/support.html` still says to open iChart and tap
+  `Send Verification Email`
+
+Required hosted action: upload/overwrite the corrected `verify.html` and
+`support.html` files in IONOS, then verify the cache-busted live page text
+matches local source before calling the full auth/web flow live.
+
 Expected skips:
 
 - live Supabase integration tests require `ICHART_SUPABASE_INTEGRATION=1`
@@ -333,22 +367,18 @@ Yellow:
   - `docs/marketing/social-media/social-launch-watch-state.md`
   - `docs/marketing/social-media/social-listening-response-queue.md`
   - untracked social launch analysis docs
-- V1.1.1/V1.2/V1.3 roadmap docs are untracked and need to be intentionally
-  staged for the release commit.
 
 ## Required Next Actions
 
-1. Monitor App Store Connect for build `1.1.1 (41)` App Review and external
-   TestFlight review outcomes.
-2. When build `41` is available to testers/users, immediately verify on a real
+1. Upload/overwrite corrected `verify.html` and `support.html` in IONOS, then
+   verify cache-busted live text.
+2. Because public App Store `1.1.1` is live, immediately verify on a real
    iPad with both a new chart and an existing white-ink affected chart.
-3. Email the affected support user as soon as build `41` is available, ask them
+3. Email the affected support user to update to `1.1.1`, ask them
    to update, and request a screenshot if any ink remains white.
 4. Decide whether to remove the production QA account now or keep it briefly as
    evidence. If removed, use an explicit cleanup pass and re-check counts.
-5. Stage only the intended V1.1.1 release files. Do not accidentally include
-   unrelated social launch docs unless they are part of this commit.
-6. Do one final manual visual QA pass on simulator/device for:
+5. Do one final manual visual QA pass on simulator/device for:
    - account pending verification screen and replacement drawer
    - simple chord sheet late beat placement
    - time signature selected-measure targeting
