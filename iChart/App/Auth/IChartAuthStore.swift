@@ -233,6 +233,7 @@ final class IChartAuthStore: ObservableObject {
         firstName: String? = nil,
         lastName: String? = nil
     ) async {
+        IChartTelemetry.record("auth.signup_started", properties: ["source": .string("account_gate")])
         await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
@@ -262,9 +263,11 @@ final class IChartAuthStore: ObservableObject {
                 clearPendingAuthFlow()
             }
         }
+        recordAuthOutcome(successEvent: "auth.signup_completed", failureEvent: "auth.signup_failed")
     }
 
     func signIn(email: String, password: String) async {
+        IChartTelemetry.record("auth.signin_started", properties: ["source": .string("account_gate")])
         await run("Signed in.") {
             let nextState: IChartAuthState
             do {
@@ -281,6 +284,7 @@ final class IChartAuthStore: ObservableObject {
             try await applyAuthState(nextState)
             clearPendingAuthFlow()
         }
+        recordAuthOutcome(successEvent: "auth.signin_completed", failureEvent: "auth.signin_failed")
     }
 
     func signOut() async {
@@ -291,6 +295,12 @@ final class IChartAuthStore: ObservableObject {
             clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
         }
+        if errorMessage == nil {
+            IChartTelemetry.record(
+                "auth.signout_completed",
+                properties: ["auth_state": .string(state.telemetryValue)]
+            )
+        }
     }
 
     func deleteAccount() async {
@@ -300,6 +310,12 @@ final class IChartAuthStore: ObservableObject {
             profile = nil
             clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
+        }
+        if errorMessage == nil {
+            IChartTelemetry.record(
+                "auth.account_deleted",
+                properties: ["auth_state": .string(state.telemetryValue)]
+            )
         }
     }
 
@@ -344,6 +360,10 @@ final class IChartAuthStore: ObservableObject {
             return false
         }
 
+        IChartTelemetry.record(
+            "auth.verification_email_requested",
+            properties: ["source": .string("pending_email_recovery")]
+        )
         var didSend = false
         await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
             let previousFlow = try? loadedPendingAuthFlow()
@@ -363,10 +383,20 @@ final class IChartAuthStore: ObservableObject {
             }
         }
 
+        if errorMessage != nil {
+            IChartTelemetry.record(
+                "auth.verification_email_failed",
+                properties: telemetryFailureProperties()
+            )
+        }
         return didSend && errorMessage == nil
     }
 
     func requestPasswordReset(email: String) async {
+        IChartTelemetry.record(
+            "auth.password_reset_requested",
+            properties: ["source": .string("account_gate")]
+        )
         await run("Password reset email sent.") {
             let pendingFlow = try storePendingAuthFlow(kind: .recovery, expectedEmail: email)
             do {
@@ -378,6 +408,12 @@ final class IChartAuthStore: ObservableObject {
                 clearPendingAuthFlow()
                 throw error
             }
+        }
+        if errorMessage != nil {
+            IChartTelemetry.record(
+                "auth.password_reset_failed",
+                properties: telemetryFailureProperties()
+            )
         }
     }
 
@@ -396,6 +432,7 @@ final class IChartAuthStore: ObservableObject {
             try await applyAuthState(nextState)
             clearPendingAuthFlow()
         }
+        recordAuthOutcome(successEvent: "auth.callback_completed", failureEvent: "auth.callback_failed")
     }
 
     func updatePassword(_ password: String) async {
@@ -459,6 +496,50 @@ final class IChartAuthStore: ObservableObject {
         }
 
         isWorking = false
+    }
+
+    private func recordAuthOutcome(successEvent: String, failureEvent: String) {
+        if errorMessage == nil {
+            IChartTelemetry.record(
+                successEvent,
+                properties: [
+                    "auth_state": .string(state.telemetryValue),
+                    "user_signed_in": .bool(state.signedInSession != nil)
+                ]
+            )
+        } else {
+            IChartTelemetry.record(failureEvent, properties: telemetryFailureProperties())
+        }
+    }
+
+    private func telemetryFailureProperties() -> IChartTelemetryProperties {
+        [
+            "auth_state": .string(state.telemetryValue),
+            "error_code": .string(Self.telemetryErrorCode(from: errorMessage))
+        ]
+    }
+
+    private static func telemetryErrorCode(from message: String?) -> String {
+        let text = message?.lowercased() ?? ""
+        if text.contains("rate limit") || text.contains("wait about one minute") {
+            return "rate_limited"
+        }
+        if text.contains("expired") {
+            return "expired_link"
+        }
+        if text.contains("does not match") {
+            return "unexpected_link"
+        }
+        if text.contains("not verified") || text.contains("not confirmed") {
+            return "email_not_confirmed"
+        }
+        if text.contains("password") {
+            return "password_error"
+        }
+        if text.contains("offline") {
+            return "offline"
+        }
+        return "auth_error"
     }
 
     private func sanitized(_ value: String) -> String? {
@@ -719,6 +800,25 @@ final class IChartAuthStore: ObservableObject {
 
     private static func authErrorText(_ error: Error) -> String {
         "\(error) \(error.localizedDescription)".lowercased()
+    }
+}
+
+extension IChartAuthState {
+    var telemetryValue: String {
+        switch self {
+        case .unconfigured:
+            return "unconfigured"
+        case .signedOut:
+            return "signed_out"
+        case .temporarilyOffline:
+            return "temporarily_offline"
+        case .pendingEmailVerification:
+            return "pending_email_verification"
+        case .passwordRecovery:
+            return "password_recovery"
+        case .signedIn:
+            return "signed_in"
+        }
     }
 }
 

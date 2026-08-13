@@ -83,6 +83,15 @@ struct AppRootView: View {
         guard store.canOpenChartsForEditing else {
             store.selectedChartID = nil
             projectPath.removeAll()
+            IChartTelemetry.record(
+                "app.open_chart",
+                properties: [
+                    "result": .string("locked"),
+                    "to_mode": .string(initialCanvasMode.telemetryValue),
+                    "chart_count": .int(store.charts.count),
+                    "local_chart_limit": .int(store.localChartLimit ?? -1)
+                ]
+            )
             return
         }
 
@@ -112,6 +121,15 @@ struct AppRootView: View {
 
             guard activeOperationID == operationID else {
                 IChartPerformanceTrace.end(traceSpan, metadata: ["result": "cancelled"])
+                IChartTelemetry.record(
+                    "app.open_chart",
+                    properties: [
+                        "result": .string("cancelled"),
+                        "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
+                        "measure_count": .int(chart?.measures.count ?? 0),
+                        "to_mode": .string(initialCanvasMode.telemetryValue)
+                    ]
+                )
                 return
             }
 
@@ -120,12 +138,28 @@ struct AppRootView: View {
                 projectPath.removeAll()
                 activeOperationMessage = nil
                 IChartPerformanceTrace.end(traceSpan, metadata: ["result": "locked"])
+                IChartTelemetry.record(
+                    "app.open_chart",
+                    properties: [
+                        "result": .string("locked"),
+                        "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
+                        "measure_count": .int(chart?.measures.count ?? 0),
+                        "to_mode": .string(initialCanvasMode.telemetryValue)
+                    ]
+                )
                 return
             }
 
             guard store.charts.contains(where: { $0.id == chartID }) else {
                 activeOperationMessage = nil
                 IChartPerformanceTrace.end(traceSpan, metadata: ["result": "missing"])
+                IChartTelemetry.record(
+                    "app.open_chart",
+                    properties: [
+                        "result": .string("missing"),
+                        "to_mode": .string(initialCanvasMode.telemetryValue)
+                    ]
+                )
                 return
             }
 
@@ -135,11 +169,29 @@ struct AppRootView: View {
             try? await Task.sleep(nanoseconds: 900_000_000)
             guard activeOperationID == operationID else {
                 IChartPerformanceTrace.end(traceSpan, metadata: ["result": "superseded"])
+                IChartTelemetry.record(
+                    "app.open_chart",
+                    properties: [
+                        "result": .string("superseded"),
+                        "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
+                        "measure_count": .int(chart?.measures.count ?? 0),
+                        "to_mode": .string(initialCanvasMode.telemetryValue)
+                    ]
+                )
                 return
             }
 
             activeOperationMessage = nil
             IChartPerformanceTrace.end(traceSpan, metadata: ["result": "opened"])
+            IChartTelemetry.record(
+                "app.open_chart",
+                properties: [
+                    "result": .string("opened"),
+                    "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
+                    "measure_count": .int(chart?.measures.count ?? 0),
+                    "to_mode": .string(initialCanvasMode.telemetryValue)
+                ]
+            )
         }
     }
 

@@ -14,6 +14,15 @@ struct IChartApp: App {
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
+        IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))
+        IChartTelemetry.record(
+            "app.launched",
+            properties: [
+                "app_phase": .string("init"),
+                "chart_count": .int(libraryStore.charts.count),
+                "project_count": .int(libraryStore.projects.count)
+            ]
+        )
         libraryStore.onSnapshotSaved = nil
         _store = StateObject(wrappedValue: libraryStore)
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
@@ -46,24 +55,58 @@ struct IChartApp: App {
                     applySubscriptionState(subscriptionStore.entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
                     IChartPerformanceTrace.end(bootstrapSpan)
+                    IChartTelemetry.record(
+                        "app.bootstrap_completed",
+                        properties: [
+                            "auth_state": .string(authStore.state.telemetryValue),
+                            "plan": .string(subscriptionStore.entitlement.effectivePlan.rawValue),
+                            "subscription_status": .string(subscriptionStore.entitlement.status.rawValue)
+                        ]
+                    )
+                    IChartTelemetry.flush()
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
+                    IChartTelemetry.record(
+                        "subscription.entitlement_changed",
+                        properties: [
+                            "plan": .string(entitlement.effectivePlan.rawValue),
+                            "subscription_status": .string(entitlement.status.rawValue)
+                        ]
+                    )
                 }
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)
+                    IChartTelemetry.record(
+                        "auth.state_changed",
+                        properties: [
+                            "auth_state": .string(state.telemetryValue),
+                            "user_signed_in": .bool(state.signedInSession != nil)
+                        ]
+                    )
                     Task {
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
+                        IChartTelemetry.flush()
                     }
                 }
                 .onOpenURL { url in
+                    if IChartSupabaseClientFactory.isAuthCallbackURL(url) {
+                        IChartTelemetry.record(
+                            "auth.callback_received",
+                            properties: [
+                                "flow": .string(url.telemetryAuthFlow),
+                                "source": .string("url_open")
+                            ]
+                        )
+                    }
                     Task {
                         await authStore.handleAuthCallback(url: url)
                         cloudSyncStore.authStateChanged(authStore.state)
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
+                        IChartTelemetry.flush()
                     }
                 }
         }
@@ -75,5 +118,20 @@ struct IChartApp: App {
         )
         store.applySubscriptionState(resolvedEntitlement)
         pdfLibraryStore.removeForumDownloadsIfInactive(for: resolvedEntitlement)
+    }
+}
+
+private extension URL {
+    var telemetryAuthFlow: String {
+        if let type = URLComponents(url: self, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "type" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !type.isEmpty {
+            return type
+        }
+
+        return "unknown"
     }
 }

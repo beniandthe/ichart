@@ -60,3 +60,8 @@ entrypoint = "./functions/forum-post-actions/index.mjs"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/account-deletion/index.mjs"
+
+[functions.app-telemetry-ingest]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/app-telemetry-ingest/index.mjs"

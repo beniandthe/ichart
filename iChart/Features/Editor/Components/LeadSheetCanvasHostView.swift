@@ -3158,6 +3158,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let activeInkRole = LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope)
+        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: pageInkCanvasView.drawing)
 
         let drawingData = currentCanvasDrawingData(activeInkScope: activeInkScope)
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
@@ -3167,6 +3168,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         chart = updatedChart
         onChartChanged?(updatedChart)
+        if telemetrySnapshot.strokeCount > 0,
+           activeInkRole != nil {
+            IChartTelemetry.record(
+                "ink.persisted",
+                properties: telemetrySnapshot.telemetryProperties(
+                    scope: activeInkScope,
+                    normalizedBeforeSave: activeInkScope.telemetryValue != "note_selection"
+                )
+            )
+            if telemetrySnapshot.normalizationNeeded {
+                IChartTelemetry.record(
+                    "ink.visibility_probe",
+                    properties: telemetrySnapshot.telemetryProperties(
+                        scope: activeInkScope,
+                        normalizedBeforeSave: true
+                    )
+                )
+            }
+        }
         clearDirtyInkAuthoringRole(activeInkRole)
     }
 
@@ -3905,9 +3925,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: pageInkCanvasView.drawing)
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(pageInkCanvasView.drawing)
         isSyncingInkCanvasFromModel = false
+        if telemetrySnapshot.strokeCount > 0 {
+            IChartTelemetry.record(
+                "ink.normalization_applied",
+                properties: telemetrySnapshot.telemetryProperties(
+                    scope: activeInkScope,
+                    normalizedBeforeSave: false
+                )
+            )
+        }
     }
 
     private func updateInteractionMode() {

@@ -1741,6 +1741,18 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/subscription-retention-jobs/index.mjs")
         )
+        let telemetryFunctionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/app-telemetry-ingest/index.mjs")
+        )
+        let telemetryIngestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/telemetry_ingest.mjs")
+        )
+        let telemetryIngestTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/telemetry_ingest.test.mjs")
+        )
         let retentionJobText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/subscription_retention_jobs.mjs")
@@ -1798,11 +1810,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/storekit-subscription-claims/index.mjs\""))
         XCTAssertTrue(supabaseConfigText.contains("[functions.subscription-retention-jobs]"))
         XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/subscription-retention-jobs/index.mjs\""))
+        XCTAssertTrue(supabaseConfigText.contains("[functions.app-telemetry-ingest]"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/app-telemetry-ingest/index.mjs\""))
         XCTAssertFalse(supabaseConfigText.contains("app-store-server-notifications/index.ts"))
         XCTAssertFalse(supabaseConfigText.contains("@supabase/server"))
         XCTAssertTrue(functionText.contains("handleAppStoreServerNotificationRequest"))
         XCTAssertTrue(claimFunctionText.contains("handleStoreKitSubscriptionClaimRequest"))
         XCTAssertTrue(retentionFunctionText.contains("handleSubscriptionRetentionJobRequest"))
+        XCTAssertTrue(telemetryFunctionText.contains("handleTelemetryIngestRequest"))
         XCTAssertTrue(functionText.contains("createAppStoreSignedDataVerifiers"))
         XCTAssertTrue(claimFunctionText.contains("createAppStoreSignedDataVerifiers"))
         XCTAssertTrue(functionText.contains("createSupabaseSubscriptionAuthorityDependencies"))
@@ -1868,6 +1883,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(retentionJobTestText.contains("retention job requires configured secret"))
         XCTAssertTrue(retentionJobTestText.contains("retention job dispatches claimed email events and marks successes"))
         XCTAssertTrue(retentionJobTestText.contains("retention job marks email provider failures"))
+        XCTAssertTrue(telemetryIngestText.contains("allowedEventNames"))
+        XCTAssertTrue(telemetryIngestText.contains("allowedPropertyKeys"))
+        XCTAssertTrue(telemetryIngestText.contains("validateClientAPIKey"))
+        XCTAssertTrue(telemetryIngestText.contains("SUPABASE_ANON_KEY"))
+        XCTAssertFalse(telemetryIngestText.contains("\"chart_title\""))
+        XCTAssertFalse(telemetryIngestText.contains("\"raw_chord_text\""))
+        XCTAssertTrue(telemetryIngestText.contains("/rest/v1/telemetry_events"))
+        XCTAssertTrue(telemetryIngestTestText.contains("raw_chord_text"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest rejects invalid client api keys when configured"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest stores valid signed-out telemetry batches"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest attaches owner id when bearer session resolves"))
         XCTAssertTrue(signedVerifierText.contains("@apple/app-store-server-library@3.1.0"))
         XCTAssertTrue(signedVerifierText.contains("SignedDataVerifier"))
         XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeNotification"))
@@ -2160,6 +2186,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(productionReadinessScriptText.contains("scan_for_secrets"))
         XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
         XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/telemetry_ingest.test.mjs"))
         XCTAssertTrue(productionReadinessScriptText.contains("ICHART_RUN_LOCAL_SUPABASE_QA"))
         XCTAssertTrue(productionReadinessScriptText.contains("scripts/run_supabase_local_qa.sh"))
         XCTAssertTrue(productionReadinessScriptText.contains("ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests"))

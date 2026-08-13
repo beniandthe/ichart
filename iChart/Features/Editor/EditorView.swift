@@ -1014,12 +1014,24 @@ struct EditorView: View {
                 isNoteEditMenuPresented = true
             }
         }
-        .onChange(of: canvasMode) { _, mode in
+        .onChange(of: canvasMode) { previousMode, mode in
             guard mode != .rhythmicNotationEdit || isDedicatedRhythmToolAvailable else {
                 latestRhythmPreview = nil
                 rhythmPreviewConfirmationRequestID = nil
                 canvasMode = .browse
                 return
+            }
+            if previousMode != mode {
+                IChartTelemetry.record(
+                    "editor.mode_changed",
+                    properties: [
+                        "from_mode": .string(previousMode.telemetryValue),
+                        "to_mode": .string(mode.telemetryValue),
+                        "layout_style": .string(chart.layoutStyle.rawValue),
+                        "measure_count": .int(chart.measures.count),
+                        "ink_tool_mode": .string(inkToolMode.rawValue)
+                    ]
+                )
             }
             if mode != .noteEdit {
                 isNoteEditMenuPresented = false
@@ -1033,7 +1045,17 @@ struct EditorView: View {
             }
             advanceEditorGuidedTourIfNeeded(for: mode)
         }
-        .onChange(of: chart) { _, updatedChart in
+        .onChange(of: chart) { previousChart, updatedChart in
+            if !previousChart.hasCompletedInitialSetup,
+               updatedChart.hasCompletedInitialSetup {
+                IChartTelemetry.record(
+                    "editor.chart_setup_completed",
+                    properties: [
+                        "layout_style": .string(updatedChart.layoutStyle.rawValue),
+                        "measure_count": .int(updatedChart.measures.count)
+                    ]
+                )
+            }
             scheduleChordEntryDiagnosticReconciliation(for: updatedChart)
             advanceEditorGuidedTourAfterSetupIfNeeded(updatedChart)
             #if DEBUG && targetEnvironment(simulator)
@@ -1043,8 +1065,24 @@ struct EditorView: View {
         .onDisappear {
             pendingChordDiagnosticReconciliationWorkItem?.cancel()
             pendingChordDiagnosticReconciliationWorkItem = nil
+            IChartTelemetry.record(
+                "editor.closed",
+                properties: [
+                    "mode": .string(canvasMode.telemetryValue),
+                    "layout_style": .string(chart.layoutStyle.rawValue),
+                    "measure_count": .int(chart.measures.count)
+                ]
+            )
         }
         .task {
+            IChartTelemetry.record(
+                "editor.opened",
+                properties: [
+                    "mode": .string(canvasMode.telemetryValue),
+                    "layout_style": .string(chart.layoutStyle.rawValue),
+                    "measure_count": .int(chart.measures.count)
+                ]
+            )
             startPendingSimpleChartTourIfNeeded()
 
             if chart.staffStyle != .fiveLine {
@@ -2407,6 +2445,15 @@ struct EditorView: View {
     private func handleExportTapped() {
         let chartToExport = chart
         isExporting = true
+        let exportStartedAt = Date()
+        IChartTelemetry.record(
+            "pdf.export_started",
+            properties: [
+                "layout_style": .string(chartToExport.layoutStyle.rawValue),
+                "measure_count": .int(chartToExport.measures.count),
+                "mode": .string(canvasMode.telemetryValue)
+            ]
+        )
 
         Task {
             do {
@@ -2415,12 +2462,31 @@ struct EditorView: View {
                     let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
                     activeSheet = .export(libraryPDF)
                     isExporting = false
+                    IChartTelemetry.record(
+                        "pdf.export_succeeded",
+                        properties: [
+                            "layout_style": .string(chartToExport.layoutStyle.rawValue),
+                            "measure_count": .int(chartToExport.measures.count),
+                            "page_count": .int(exportedPDF.pageCount),
+                            "pdf_size_bucket": .string(Self.pdfSizeBucket(exportedPDF.fileSizeBytes)),
+                            "duration_ms": .double(Date().timeIntervalSince(exportStartedAt) * 1_000)
+                        ]
+                    )
                 }
             } catch {
                 await MainActor.run {
                     exportAlertMessage = "Couldn’t generate the PDF right now. \(error.localizedDescription)"
                     showingExportAlert = true
                     isExporting = false
+                    IChartTelemetry.record(
+                        "pdf.export_failed",
+                        properties: [
+                            "layout_style": .string(chartToExport.layoutStyle.rawValue),
+                            "measure_count": .int(chartToExport.measures.count),
+                            "duration_ms": .double(Date().timeIntervalSince(exportStartedAt) * 1_000),
+                            "error_code": .string("export_error")
+                        ]
+                    )
                 }
             }
         }
@@ -2443,6 +2509,80 @@ struct EditorView: View {
         }
 
         return measure.rhythmMap != nil || measure.handwrittenRhythmicNotationData != nil
+    }
+
+    private static func pdfSizeBucket(_ byteCount: Int) -> String {
+        switch byteCount {
+        case ..<100_000:
+            return "lt_100kb"
+        case ..<500_000:
+            return "100kb_500kb"
+        case ..<1_000_000:
+            return "500kb_1mb"
+        case ..<5_000_000:
+            return "1mb_5mb"
+        default:
+            return "gt_5mb"
+        }
+    }
+
+    private static func chordTelemetryProperties(
+        confirmation: PendingChordInkConfirmation,
+        resolution: ChordEntryDiagnosticResolution,
+        errorCode: String? = nil
+    ) -> IChartTelemetryProperties {
+        var properties = chordTelemetryProperties(
+            result: confirmation.result,
+            candidateCount: confirmation.candidateTexts.count,
+            decision: confirmation.decision,
+            timing: confirmation.recognitionTiming,
+            flow: .tapToConfirm
+        )
+        properties["decision"] = .string(resolution.rawValue)
+        properties["result"] = .string(errorCode == nil ? "committed" : "failed")
+        if let errorCode {
+            properties["error_code"] = .string(errorCode)
+        }
+        return properties
+    }
+
+    private static func chordTelemetryProperties(
+        result: ChordInkRecognitionResult,
+        candidateCount: Int,
+        decision: ChordInkRecognitionDecision,
+        timing: ChordInkRecognitionTiming?,
+        flow: ChordInkRecognitionFlow
+    ) -> IChartTelemetryProperties {
+        var properties: IChartTelemetryProperties = [
+            "candidate_count": .int(candidateCount),
+            "confidence_bucket": .string(confidenceBucket(result.confidence)),
+            "decision": .string(decision.action.rawValue),
+            "flow": .string(flow.telemetryValue),
+            "render_action": .string(decision.action.rawValue),
+            "result": .string(result.match == nil ? "unmatched" : "matched"),
+            "stroke_count": .int(result.metrics.strokeCount)
+        ]
+
+        if let timing {
+            properties["recognition_ms"] = .double(timing.recognitionMilliseconds)
+        }
+
+        return properties
+    }
+
+    private static func confidenceBucket(_ confidence: Double) -> String {
+        switch confidence {
+        case ..<1:
+            return "lt_1"
+        case ..<2:
+            return "1_2"
+        case ..<3:
+            return "2_3"
+        case ..<4:
+            return "3_4"
+        default:
+            return "gte_4"
+        }
     }
 
     private var canRemoveRepeatAtSelectedMeasure: Bool {
@@ -3624,6 +3764,16 @@ struct EditorView: View {
             decisionMilliseconds: proposalDecisionMilliseconds
         )
         #endif
+        IChartTelemetry.record(
+            "chord.recognition_proposed",
+            properties: Self.chordTelemetryProperties(
+                result: result,
+                candidateCount: resolution.candidateTexts.count,
+                decision: resolution.decision,
+                timing: timing,
+                flow: flow
+            )
+        )
 
         handleTapConfirmedChordRecognition(confirmation)
     }
@@ -3682,6 +3832,16 @@ struct EditorView: View {
         }
 
         let batch = PendingChordInkBatchConfirmation(confirmations: confirmations)
+        IChartTelemetry.record(
+            "chord.recognition_proposed",
+            properties: [
+                "batch_size": .int(confirmations.count),
+                "flow": .string(flow.telemetryValue),
+                "result": .string("batch"),
+                "layout_style": .string(chart.layoutStyle.rawValue),
+                "measure_count": .int(chart.measures.count)
+            ]
+        )
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
         let autoRenderTextsByID = Dictionary(
@@ -3706,6 +3866,13 @@ struct EditorView: View {
         }
 
         pendingChordInkBatchConfirmation = batch
+        IChartTelemetry.record(
+            "chord.confirmation_presented",
+            properties: [
+                "batch_size": .int(confirmations.count),
+                "result": .string("batch_confirmation")
+            ]
+        )
     }
 
     private func handleChordInkBatchAccepted(
@@ -3801,6 +3968,13 @@ struct EditorView: View {
         }
 
         pendingChordInkConfirmation = confirmation
+        IChartTelemetry.record(
+            "chord.confirmation_presented",
+            properties: Self.chordTelemetryProperties(
+                confirmation: confirmation,
+                resolution: .confirmedSuggestion
+            )
+        )
     }
 
     private func handleChordInkCandidateAccepted(
@@ -3857,6 +4031,14 @@ struct EditorView: View {
         guard let match = ChordRecognitionCompendium.match(candidateText) else {
             chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
             showingChordInkError = true
+            IChartTelemetry.record(
+                "chord.recognition_failed",
+                properties: Self.chordTelemetryProperties(
+                    confirmation: confirmation,
+                    resolution: resolution,
+                    errorCode: "unsupported_candidate"
+                )
+            )
             return false
         }
 
@@ -3873,6 +4055,14 @@ struct EditorView: View {
         ) else {
             chordInkErrorMessage = "That measure is no longer available. Keep the ink and try again."
             showingChordInkError = true
+            IChartTelemetry.record(
+                "chord.recognition_failed",
+                properties: Self.chordTelemetryProperties(
+                    confirmation: confirmation,
+                    resolution: resolution,
+                    errorCode: "missing_measure"
+                )
+            )
             return false
         }
 
@@ -3910,6 +4100,13 @@ struct EditorView: View {
         )
         #endif
 
+        IChartTelemetry.record(
+            resolution == .manualCorrection ? "chord.correction_applied" : "chord.recognition_committed",
+            properties: Self.chordTelemetryProperties(
+                confirmation: confirmation,
+                resolution: resolution
+            )
+        )
         return true
     }
 
@@ -3938,6 +4135,14 @@ struct EditorView: View {
         guard acceptedCandidates.count == batch.confirmations.count else {
             chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
             showingChordInkError = true
+            IChartTelemetry.record(
+                "chord.recognition_failed",
+                properties: [
+                    "batch_size": .int(batch.confirmations.count),
+                    "result": .string("batch_failed"),
+                    "error_code": .string("unsupported_candidate")
+                ]
+            )
             return false
         }
 
@@ -3959,6 +4164,14 @@ struct EditorView: View {
             ) else {
                 chordInkErrorMessage = "One of those measures is no longer available. Keep the ink and try again."
                 showingChordInkError = true
+                IChartTelemetry.record(
+                    "chord.recognition_failed",
+                    properties: [
+                        "batch_size": .int(batch.confirmations.count),
+                        "result": .string("batch_failed"),
+                        "error_code": .string("missing_measure")
+                    ]
+                )
                 return false
             }
 
@@ -4000,6 +4213,14 @@ struct EditorView: View {
         completeEditorGuidedTourStep(.chordWrite)
         completeEditorGuidedTourStep(.chordConfirm)
 
+        IChartTelemetry.record(
+            "chord.batch_committed",
+            properties: [
+                "batch_size": .int(committedEvents.count),
+                "decision": .string(resolution.rawValue),
+                "result": .string("committed")
+            ]
+        )
         return true
     }
 

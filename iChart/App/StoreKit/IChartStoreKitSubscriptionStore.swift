@@ -212,6 +212,11 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     func purchase(_ product: Product) async {
         state = .purchasing
+        let startedAt = Date()
+        IChartTelemetry.record(
+            "subscription.purchase_started",
+            properties: ["target": .string(product.id)]
+        )
 
         do {
             let purchaseOptions = try await storeKitPurchaseOptions()
@@ -222,23 +227,72 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 guard case .verified(let transaction) = verification else {
                     entitlement = .unavailable
                     state = .unavailable("Purchase could not be verified.")
+                    IChartTelemetry.record(
+                        "subscription.purchase_failed",
+                        properties: [
+                            "target": .string(product.id),
+                            "error_code": .string("unverified_transaction"),
+                            "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                        ]
+                    )
                     return
                 }
 
                 let signedTransactionInfo = verification.jwsRepresentation
                 await transaction.finish()
                 await refreshEntitlements(preferredSignedTransactionInfo: signedTransactionInfo)
+                IChartTelemetry.record(
+                    "subscription.purchase_succeeded",
+                    properties: [
+                        "target": .string(product.id),
+                        "plan": .string(entitlement.effectivePlan.rawValue),
+                        "subscription_status": .string(entitlement.status.rawValue),
+                        "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                    ]
+                )
             case .pending:
                 state = .unavailable("Purchase is pending approval.")
+                IChartTelemetry.record(
+                    "subscription.purchase_failed",
+                    properties: [
+                        "target": .string(product.id),
+                        "error_code": .string("pending"),
+                        "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                    ]
+                )
             case .userCancelled:
                 state = .ready
+                IChartTelemetry.record(
+                    "subscription.purchase_failed",
+                    properties: [
+                        "target": .string(product.id),
+                        "error_code": .string("user_cancelled"),
+                        "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                    ]
+                )
             @unknown default:
                 entitlement = .unavailable
                 state = .unavailable("Purchase status is unavailable.")
+                IChartTelemetry.record(
+                    "subscription.purchase_failed",
+                    properties: [
+                        "target": .string(product.id),
+                        "error_code": .string("unknown_result"),
+                        "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                    ]
+                )
             }
         } catch {
             entitlement = .unavailable
             state = .unavailable("Purchase failed. Try again from Settings.")
+            IChartTelemetry.record(
+                "subscription.purchase_failed",
+                properties: [
+                    "target": .string(product.id),
+                    "error_code": .string("purchase_error"),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                ]
+            )
         }
     }
 
@@ -259,13 +313,30 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     func restorePurchases() async {
         state = .restoring
+        let startedAt = Date()
+        IChartTelemetry.record("subscription.restore_started")
 
         do {
             try await AppStore.sync()
             await refreshEntitlements(preferredSignedTransactionInfo: nil)
+            IChartTelemetry.record(
+                "subscription.restore_succeeded",
+                properties: [
+                    "plan": .string(entitlement.effectivePlan.rawValue),
+                    "subscription_status": .string(entitlement.status.rawValue),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                ]
+            )
         } catch {
             entitlement = .unavailable
             state = .unavailable("Restore failed. Try again when you are online.")
+            IChartTelemetry.record(
+                "subscription.restore_failed",
+                properties: [
+                    "error_code": .string("restore_error"),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                ]
+            )
         }
     }
 

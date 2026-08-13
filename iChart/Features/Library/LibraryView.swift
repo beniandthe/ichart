@@ -819,6 +819,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Local charts stay on the device unless you use cloud backup or publish a forum PDF.",
                 "Account information supports sign-in, email verification, password recovery, subscription identity, and support.",
+                "Privacy-limited diagnostics may include app/build/device context, workflow results, counts, timings, error categories, and aggregate ink appearance statistics, but not chart titles, emails, raw chord text, drawings, PDFs, screenshots, or chart documents.",
                 "Forum posts, comments, votes, reports, downloads, and moderation events are handled by the community service."
             ]
         ),
@@ -1147,7 +1148,17 @@ struct LibraryView: View {
                 saveTitle: "Create",
                 theme: homeTheme
             ) { title in
-                store.createProject(title: title)
+                let projectCountBefore = store.projects.count
+                if store.createProject(title: title) != nil {
+                    IChartTelemetry.record(
+                        "library.project_created",
+                        properties: [
+                            "project_count": .int(projectCountBefore + 1),
+                            "chart_count": .int(store.charts.count),
+                            "result": .string("created")
+                        ]
+                    )
+                }
             }
         }
         .sheet(item: $renameRequest) { request in
@@ -1179,12 +1190,23 @@ struct LibraryView: View {
                 request: request,
                 theme: homeTheme
             ) { chartID, projectID, title, transpositionView in
-                store.duplicateChart(
+                let chartCountBefore = store.charts.count
+                let duplicateID = store.duplicateChart(
                     id: chartID,
                     title: title,
                     transpositionView: transpositionView,
                     projectID: projectID
                 )
+                IChartTelemetry.record(
+                    "library.chart_duplicated",
+                    properties: [
+                        "chart_count_before": .int(chartCountBefore),
+                        "chart_count_after": .int(store.charts.count),
+                        "result": .string(duplicateID == nil ? "blocked" : "duplicated"),
+                        "source": .string("project_variant")
+                    ]
+                )
+                return duplicateID
             }
         }
         .sheet(item: $forumPublishRequest) { request in
@@ -1302,7 +1324,17 @@ struct LibraryView: View {
         ) { request in
             Button("Delete", role: .destructive) {
                 runLibraryOperation(.deletingChart(request.title)) {
-                    store.deleteChart(id: request.chartID)
+                    let chartCountBefore = store.charts.count
+                    let didDelete = store.deleteChart(id: request.chartID)
+                    IChartTelemetry.record(
+                        "library.chart_deleted",
+                        properties: [
+                            "chart_count_before": .int(chartCountBefore),
+                            "chart_count_after": .int(store.charts.count),
+                            "result": .string(didDelete ? "deleted" : "blocked"),
+                            "source": .string("delete_confirmation")
+                        ]
+                    )
                 }
                 deleteRequest = nil
             }
@@ -1448,7 +1480,17 @@ struct LibraryView: View {
                                     renameProjectRequest = ChartProjectRenameRequest(project: project)
                                 },
                                 onDeleteProject: { projectID in
-                                    store.deleteProject(id: projectID)
+                                    let projectCountBefore = store.projects.count
+                                    let didDelete = store.deleteProject(id: projectID)
+                                    IChartTelemetry.record(
+                                        "library.project_deleted",
+                                        properties: [
+                                            "project_count": .int(store.projects.count),
+                                            "result": .string(didDelete ? "deleted" : "blocked"),
+                                            "chart_count": .int(store.charts.count),
+                                            "chart_count_before": .int(projectCountBefore)
+                                        ]
+                                    )
                                 }
                             )
                         }
@@ -1482,6 +1524,14 @@ struct LibraryView: View {
                     items: pdfLibraryStore.visibleItems(for: store.subscriptionState),
                     theme: homeTheme,
                     onOpen: { item in
+                        IChartTelemetry.record(
+                            "library.pdf_library_opened",
+                            properties: [
+                                "source": .string(item.source.rawValue),
+                                "page_count": .int(item.pageCount),
+                                "pdf_size_bucket": .string(Self.pdfSizeBucket(item.fileSizeBytes))
+                            ]
+                        )
                         selectedPDFLibraryItem = item
                     },
                     onDelete: { item in
@@ -1740,7 +1790,17 @@ struct LibraryView: View {
                             },
                             onDuplicate: {
                                 runLibraryOperation(.duplicatingChart(chart.title)) {
-                                    store.duplicateChart(id: chart.id)
+                                    let chartCountBefore = store.charts.count
+                                    let duplicateID = store.duplicateChart(id: chart.id)
+                                    IChartTelemetry.record(
+                                        "library.chart_duplicated",
+                                        properties: [
+                                            "chart_count_before": .int(chartCountBefore),
+                                            "chart_count_after": .int(store.charts.count),
+                                            "result": .string(duplicateID == nil ? "blocked" : "duplicated"),
+                                            "source": .string("chart_row")
+                                        ]
+                                    )
                                 }
                             },
                             onShareToForum: {
@@ -1778,6 +1838,15 @@ struct LibraryView: View {
         }
 
         if tab == .forums {
+            IChartTelemetry.record(
+                "forum.opened",
+                properties: [
+                    "auth_state": .string(authStore.state.telemetryValue),
+                    "user_signed_in": .bool(authStore.state.signedInSession != nil),
+                    "plan": .string(store.subscriptionState.effectivePlan.rawValue),
+                    "subscription_status": .string(store.subscriptionState.status.rawValue)
+                ]
+            )
             forumStore.resumePendingUploads(
                 charts: store.charts,
                 currentUserID: authStore.state.signedInSession?.id
@@ -1851,6 +1920,15 @@ struct LibraryView: View {
             guard store.createBlankChart(layoutStyle: layoutStyle, projectID: targetProjectID),
                   let chartID = store.selectedChartID else {
                 IChartPerformanceTrace.end(traceSpan, metadata: ["result": "blocked"])
+                IChartTelemetry.record(
+                    "library.chart_created",
+                    properties: [
+                        "layout_style": .string(layoutStyle.rawValue),
+                        "chart_count": .int(store.charts.count),
+                        "result": .string("blocked"),
+                        "source": .string(targetProjectID == nil ? "library" : "project")
+                    ]
+                )
                 return
             }
 
@@ -1864,6 +1942,16 @@ struct LibraryView: View {
 
             onOpenChart(chartID, .browse)
             IChartPerformanceTrace.end(traceSpan, metadata: ["result": "opened"])
+            IChartTelemetry.record(
+                "library.chart_created",
+                properties: [
+                    "layout_style": .string(layoutStyle.rawValue),
+                    "chart_count": .int(store.charts.count),
+                    "measure_count": .int(store.charts.first(where: { $0.id == chartID })?.measures.count ?? 0),
+                    "result": .string("created"),
+                    "source": .string(targetProjectID == nil ? "library" : "project")
+                ]
+            )
         }
     }
 
@@ -1881,6 +1969,21 @@ struct LibraryView: View {
             }
 
             activeLibraryOperation = nil
+        }
+    }
+
+    private static func pdfSizeBucket(_ byteCount: Int) -> String {
+        switch byteCount {
+        case ..<100_000:
+            return "lt_100kb"
+        case ..<500_000:
+            return "100kb_500kb"
+        case ..<1_000_000:
+            return "500kb_1mb"
+        case ..<5_000_000:
+            return "1mb_5mb"
+        default:
+            return "gt_5mb"
         }
     }
 

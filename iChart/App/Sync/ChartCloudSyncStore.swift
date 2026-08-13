@@ -147,6 +147,14 @@ final class ChartCloudSyncStore: ObservableObject {
         isWorking = true
         lastSyncAttemptAt = Date()
         state = .syncing
+        let startedAt = Date()
+        IChartTelemetry.record(
+            "cloud.restore_started",
+            properties: [
+                "chart_count": .int(snapshot.charts.count),
+                "result": .string("started")
+            ]
+        )
 
         do {
             let result = try await service.restoreFromCloud(localSnapshot: snapshot)
@@ -163,8 +171,25 @@ final class ChartCloudSyncStore: ObservableObject {
             if queuedUploadTask == nil {
                 state = .synced(Date())
             }
+            IChartTelemetry.record(
+                "cloud.restore_succeeded",
+                properties: [
+                    "chart_count": .int(result.snapshot.charts.count),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
+                    "result": .string("synced")
+                ]
+            )
         } catch {
             state = Self.failureState(for: error)
+            IChartTelemetry.record(
+                "cloud.restore_failed",
+                properties: [
+                    "chart_count": .int(snapshot.charts.count),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
+                    "error_code": .string(Self.telemetryErrorCode(for: state)),
+                    "result": .string("failed")
+                ]
+            )
         }
 
         isWorking = false
@@ -179,6 +204,14 @@ final class ChartCloudSyncStore: ObservableObject {
         isWorking = true
         lastSyncAttemptAt = Date()
         state = .syncing
+        let startedAt = Date()
+        IChartTelemetry.record(
+            "cloud.push_started",
+            properties: [
+                "chart_count": .int(snapshot.charts.count),
+                "result": .string("started")
+            ]
+        )
 
         do {
             let result = try await service.pushLocalSnapshot(snapshot)
@@ -195,8 +228,26 @@ final class ChartCloudSyncStore: ObservableObject {
             )
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
+            IChartTelemetry.record(
+                "cloud.push_succeeded",
+                properties: [
+                    "chart_count": .int(snapshot.charts.count),
+                    "cloud_backed_up_count": .int(result.backedUpChartIDs.count),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
+                    "result": .string("synced")
+                ]
+            )
         } catch {
             state = Self.failureState(for: error)
+            IChartTelemetry.record(
+                "cloud.push_failed",
+                properties: [
+                    "chart_count": .int(snapshot.charts.count),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
+                    "error_code": .string(Self.telemetryErrorCode(for: state)),
+                    "result": .string("failed")
+                ]
+            )
         }
 
         isWorking = false
@@ -249,6 +300,21 @@ final class ChartCloudSyncStore: ObservableObject {
         }
 
         return failureState(forNormalizedText: normalizedErrorText(error.localizedDescription))
+    }
+
+    private nonisolated static func telemetryErrorCode(for state: ChartSyncState) -> String {
+        switch state {
+        case .offline:
+            return "offline"
+        case .requiresPro:
+            return "requires_pro"
+        case .unconfigured:
+            return "unconfigured"
+        case .signedOut:
+            return "signed_out"
+        default:
+            return "sync_error"
+        }
     }
 
     private nonisolated static func failureState(forNormalizedText text: String) -> ChartSyncState {

@@ -150,6 +150,10 @@ final class IChartForumStore: ObservableObject {
     func enqueuePublish(chart: Chart, draft: ForumPublishDraft, ownerID: UUID?) {
         guard let ownerID else {
             errorMessage = "Sign in before posting to Forums."
+            IChartTelemetry.record(
+                "forum.post_failed",
+                properties: ["error_code": .string("signed_out")]
+            )
             return
         }
 
@@ -158,6 +162,14 @@ final class IChartForumStore: ObservableObject {
         let validationErrors = publishDraft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
             errorMessage = validationErrors.map(\.message).joined(separator: " ")
+            IChartTelemetry.record(
+                "forum.post_failed",
+                properties: [
+                    "error_code": .string("validation_error"),
+                    "layout_style": .string(chart.layoutStyle.rawValue),
+                    "measure_count": .int(chart.measures.count)
+                ]
+            )
             return
         }
 
@@ -182,6 +194,14 @@ final class IChartForumStore: ObservableObject {
         persistUploadQueue()
         statusMessage = "Forum upload queued."
         errorMessage = nil
+        IChartTelemetry.record(
+            "forum.post_started",
+            properties: [
+                "layout_style": .string(chart.layoutStyle.rawValue),
+                "measure_count": .int(chart.measures.count),
+                "result": .string("queued")
+            ]
+        )
 
         Task {
             await processUpload(itemID: item.id, chart: chart, draft: publishDraft)
@@ -313,10 +333,30 @@ final class IChartForumStore: ObservableObject {
     @discardableResult
     func downloadPDF(for detail: IChartForumPostDetail) async -> ExportedPDF? {
         var downloadedPDF: ExportedPDF?
+        let startedAt = Date()
+        IChartTelemetry.record("forum.pdf_download_started")
         await run {
             let pdf = try await activeService.downloadPDF(for: detail.post)
             self.downloadedPDF = pdf
             downloadedPDF = pdf
+        }
+        if let downloadedPDF {
+            IChartTelemetry.record(
+                "forum.pdf_download_succeeded",
+                properties: [
+                    "page_count": .int(downloadedPDF.pageCount),
+                    "pdf_size_bucket": .string(Self.pdfSizeBucket(downloadedPDF.fileSizeBytes)),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                ]
+            )
+        } else {
+            IChartTelemetry.record(
+                "forum.pdf_download_failed",
+                properties: [
+                    "error_code": .string("download_error"),
+                    "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
+                ]
+            )
         }
         return downloadedPDF
     }
@@ -372,6 +412,14 @@ final class IChartForumStore: ObservableObject {
             updateUploadQueueItem(itemID, stage: .published, errorMessage: nil)
             statusMessage = "Forum chart published."
             errorMessage = nil
+            IChartTelemetry.record(
+                "forum.post_succeeded",
+                properties: [
+                    "layout_style": .string(chart.layoutStyle.rawValue),
+                    "measure_count": .int(chart.measures.count),
+                    "result": .string("published")
+                ]
+            )
             if activeService.isConfigured {
                 do {
                     state = .loaded(try await activeService.loadHome(query: lastQuery))
@@ -382,6 +430,14 @@ final class IChartForumStore: ObservableObject {
         } catch {
             updateUploadQueueItem(itemID, stage: .failed, errorMessage: Self.displayText(for: error))
             errorMessage = Self.displayText(for: error)
+            IChartTelemetry.record(
+                "forum.post_failed",
+                properties: [
+                    "layout_style": .string(chart.layoutStyle.rawValue),
+                    "measure_count": .int(chart.measures.count),
+                    "error_code": .string("publish_error")
+                ]
+            )
         }
     }
 
@@ -463,6 +519,21 @@ final class IChartForumStore: ObservableObject {
         #else
         service
         #endif
+    }
+
+    private static func pdfSizeBucket(_ byteCount: Int) -> String {
+        switch byteCount {
+        case ..<100_000:
+            return "lt_100kb"
+        case ..<500_000:
+            return "100kb_500kb"
+        case ..<1_000_000:
+            return "500kb_1mb"
+        case ..<5_000_000:
+            return "1mb_5mb"
+        default:
+            return "gt_5mb"
+        }
     }
 
     private static func displayText(for error: Error) -> String {

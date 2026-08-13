@@ -12,6 +12,31 @@ enum EditorCanvasMode: Hashable {
     case freeHand
     case textEdit
 
+    var telemetryValue: String {
+        switch self {
+        case .browse:
+            return "browse"
+        case .measureEdit:
+            return "measure_edit"
+        case .repeatEdit:
+            return "repeat_edit"
+        case .timeSignatureEdit:
+            return "time_signature_edit"
+        case .rhythmicNotationEdit:
+            return "rhythmic_notation_edit"
+        case .headerEntry:
+            return "header_entry"
+        case .chordEntry:
+            return "chord_entry"
+        case .noteEdit:
+            return "note_edit"
+        case .freeHand:
+            return "free_hand"
+        case .textEdit:
+            return "text_edit"
+        }
+    }
+
     var freeHandTabTitle: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,

@@ -158,7 +158,7 @@ App Store screenshot package:
 
 Public App Store "What's New":
 
-> This update tightens account verification recovery and Simple Chord Sheet chord spacing. Replacement verification emails now only show as sent after iChart confirms the request, password-reset links stay intact across app relaunch, and Simple Chord Sheet chords use clearer beat lanes.
+> This update tightens account verification recovery, Simple Chord Sheet chord spacing, and support diagnostics. Replacement verification emails now only show as sent after iChart confirms the request, password-reset links stay intact across app relaunch, Simple Chord Sheet chords use clearer beat lanes, and privacy-limited diagnostics help us investigate reliability issues without collecting chart content.
 
 TestFlight / review-facing update notes:
 
@@ -170,8 +170,16 @@ TestFlight / review-facing update notes:
   flight.
 - Updates Simple Chord Sheet chord layout so chords anchor to their beat lanes
   and use the available measure space more predictably.
+- Adds privacy-limited telemetry for launch/auth/library/editor/export/cloud/
+  subscription/forum outcomes, plus aggregate ink visibility diagnostics for
+  support cases. Telemetry does not collect chart titles, emails, raw chord
+  text, drawings, PDFs, screenshots, or chart documents.
+- Adds Supabase `telemetry_events` storage, `app-telemetry-ingest`, protected
+  rollup views, retention helper, and client/server allowlist sanitizers.
+- Updates hosted and in-app privacy copy for the new diagnostics boundary.
 - Adds `ProjectConfigurationTests` coverage for the pending-flow preservation
-  and resend-success UI contract.
+  and resend-success UI contract, telemetry backend wiring, and telemetry
+  privacy guardrails.
 - Adds `LeadSheetPageLayoutTests` coverage for the Simple Chord Sheet spacing
   contract.
 

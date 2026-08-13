@@ -83,6 +83,21 @@ enum LeadSheetActiveInkScope {
         }
     }
 
+    var telemetryValue: String {
+        switch self {
+        case .page:
+            return "page"
+        case .header:
+            return "header"
+        case .chords:
+            return "chords"
+        case .rhythmicMeasure:
+            return "rhythmic_measure"
+        case .noteSelection:
+            return "note_selection"
+        }
+    }
+
     static func resolve(
         interactionMode: EditorCanvasMode,
         chartLayoutStyle: ChartLayoutStyle,
