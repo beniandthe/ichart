@@ -748,8 +748,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
         XCTAssertTrue(libraryText.contains("IChartHomeUpdateStamp"))
-        XCTAssertTrue(libraryText.contains("v1.1.1 - Aug 12, 2026"))
-        XCTAssertTrue(libraryText.contains("Version 1.1.1, August 12, 2026"))
+        XCTAssertTrue(libraryText.contains("v1.1.2 - Aug 13, 2026"))
+        XCTAssertTrue(libraryText.contains("Version 1.1.2, August 13, 2026"))
     }
 
     func testEditorDelayedAndContinuationActionsShowVisualFeedback() throws {
@@ -1360,8 +1360,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1.1\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"41\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1.2\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"42\""))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
         XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
         XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))

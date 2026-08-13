@@ -4647,13 +4647,13 @@ private struct IChartHomeUpdateStamp: View {
     let isCollapsed: Bool
 
     var body: some View {
-        Text(isCollapsed ? "v1.1.1" : "v1.1.1 - Aug 12, 2026")
+        Text(isCollapsed ? "v1.1.2" : "v1.1.2 - Aug 13, 2026")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(IChartHomeBrand.paper.opacity(0.62))
             .lineLimit(1)
             .minimumScaleFactor(0.80)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .accessibilityLabel("Version 1.1.1, August 12, 2026")
+            .accessibilityLabel("Version 1.1.2, August 13, 2026")
     }
 }
 
