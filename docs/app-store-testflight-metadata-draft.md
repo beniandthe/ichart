@@ -154,6 +154,23 @@ App Store screenshot package:
   `docs/app-store/media/v1-1-build-38-key-signatures/originals/`; the social
   handoff note is `docs/marketing/social-media/v1-1-key-signature-screenshot-handoff.md`.
 
+### Build 42 / V1.1.2
+
+Public App Store "What's New":
+
+> This update tightens account verification recovery so replacement verification emails only show as sent after iChart confirms the request, while keeping password-reset recovery links intact if the app relaunches before the email is opened.
+
+TestFlight / review-facing update notes:
+
+- Includes the PR #44 auth recovery follow-up on top of the V1.1.1 trust patch.
+- Preserves pending password-reset recovery flows during app restoration instead
+  of clearing them while checking for a restorable signup-verification email.
+- Shows "Replacement Email Sent" only after the resend request succeeds, and
+  keeps the replacement-email button in a sending state while the request is in
+  flight.
+- Adds `ProjectConfigurationTests` coverage for the pending-flow preservation
+  and resend-success UI contract.
+
 ## TestFlight Beta Description
 
 Please test the core iChart loop:
