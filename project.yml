@@ -91,6 +91,7 @@ targets:
       base:
         PRODUCT_NAME: iChartTests
         PRODUCT_BUNDLE_IDENTIFIER: com.ichart.tests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iChart.app/iChart"
         BUNDLE_LOADER: "$(TEST_HOST)"
     sources:
