@@ -338,11 +338,13 @@ final class IChartAuthStore: ObservableObject {
         rememberPendingVerificationEmailIfNeeded()
     }
 
-    func resendVerificationEmail() async {
+    @discardableResult
+    func resendVerificationEmail() async -> Bool {
         guard case .pendingEmailVerification(let email) = state else {
-            return
+            return false
         }
 
+        var didSend = false
         await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
@@ -351,6 +353,7 @@ final class IChartAuthStore: ObservableObject {
                     email: email,
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
+                didSend = true
             } catch {
                 restorePendingAuthFlow(previousFlow)
                 if Self.isVerificationEmailRateLimitError(error) {
@@ -359,6 +362,8 @@ final class IChartAuthStore: ObservableObject {
                 throw error
             }
         }
+
+        return didSend && errorMessage == nil
     }
 
     func requestPasswordReset(email: String) async {
@@ -502,10 +507,18 @@ final class IChartAuthStore: ObservableObject {
             return nil
         }
 
-        guard flow.kind == .signup,
-              Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime,
-              let flowEmail = sanitized(flow.expectedEmail ?? "")?.lowercased()
-        else {
+        guard Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime else {
+            clearPendingAuthFlow()
+            clearRememberedPendingVerificationEmail()
+            return nil
+        }
+
+        guard flow.kind == .signup else {
+            clearRememberedPendingVerificationEmail()
+            return nil
+        }
+
+        guard let flowEmail = sanitized(flow.expectedEmail ?? "")?.lowercased() else {
             clearPendingAuthFlow()
             clearRememberedPendingVerificationEmail()
             return nil

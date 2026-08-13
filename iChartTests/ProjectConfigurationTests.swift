@@ -648,6 +648,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Send Replacement Email"))
         XCTAssertTrue(libraryText.contains("Replacement Email Sent"))
         XCTAssertTrue(libraryText.contains("didSendVerificationRecoveryEmail"))
+        XCTAssertTrue(libraryText.contains("isSendingVerificationRecoveryEmail"))
+        XCTAssertTrue(libraryText.contains("didSendVerificationRecoveryEmail = await authStore.resendVerificationEmail()"))
+        XCTAssertFalse(libraryText.contains("didSendVerificationRecoveryEmail = true\n                        Task"))
         XCTAssertTrue(libraryText.contains("Already Verified? Sign In"))
         XCTAssertTrue(libraryText.contains("Use a Different Email"))
         XCTAssertTrue(libraryText.contains("Use this only if no iChart email arrived after a few minutes."))
@@ -696,9 +699,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
         XCTAssertTrue(authStoreText.contains("let email = restorablePendingVerificationEmail()"))
         XCTAssertTrue(authStoreText.contains("private func restorablePendingVerificationEmail() -> String?"))
+        XCTAssertTrue(authStoreText.contains("@discardableResult\n    func resendVerificationEmail() async -> Bool"))
+        XCTAssertTrue(authStoreText.contains("var didSend = false"))
+        XCTAssertTrue(authStoreText.contains("didSend = true"))
+        XCTAssertTrue(authStoreText.contains("return didSend && errorMessage == nil"))
         XCTAssertTrue(authStoreText.contains("flow.kind == .signup"))
         XCTAssertTrue(authStoreText.contains("Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime"))
         XCTAssertTrue(authStoreText.contains("clearRememberedPendingVerificationEmail()"))
+        let restorablePendingEmailText = try XCTUnwrap(
+            authStoreText
+                .components(separatedBy: "private func restorablePendingVerificationEmail() -> String? {")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "private func clearRememberedPendingVerificationEmail()")
+                .first
+        )
+        XCTAssertTrue(restorablePendingEmailText.contains("guard flow.kind == .signup else {\n            clearRememberedPendingVerificationEmail()\n            return nil\n        }"))
+        XCTAssertFalse(restorablePendingEmailText.contains("flow.kind == .signup,\n              Date().timeIntervalSince"))
         XCTAssertFalse(authStoreText.contains("firstName = profile.firstName"))
         XCTAssertFalse(authStoreText.contains("lastName = profile.lastName"))
         XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists first_name text"))

@@ -5398,6 +5398,7 @@ private struct IChartAccountSettings: View {
     @State private var accountEntryPrompt: String?
     @State private var isShowingVerificationRecovery = false
     @State private var didSendVerificationRecoveryEmail = false
+    @State private var isSendingVerificationRecoveryEmail = false
     @State private var isShowingDeleteAccountConfirmation = false
     @FocusState private var focusedField: IChartAccountInputField?
 
@@ -5754,19 +5755,24 @@ private struct IChartAccountSettings: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Button {
-                        didSendVerificationRecoveryEmail = true
-                        Task {
-                            await authStore.resendVerificationEmail()
+                        guard !isSendingVerificationRecoveryEmail else {
+                            return
+                        }
+
+                        isSendingVerificationRecoveryEmail = true
+                        Task { @MainActor in
+                            didSendVerificationRecoveryEmail = await authStore.resendVerificationEmail()
+                            isSendingVerificationRecoveryEmail = false
                         }
                     } label: {
                         Label(
-                            didSendVerificationRecoveryEmail ? "Replacement Email Sent" : "Send Replacement Email",
-                            systemImage: didSendVerificationRecoveryEmail ? "checkmark.circle" : "envelope.badge"
+                            verificationRecoveryButtonTitle,
+                            systemImage: verificationRecoveryButtonSystemImage
                         )
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(authStore.isWorking || didSendVerificationRecoveryEmail)
+                    .disabled(authStore.isWorking || isSendingVerificationRecoveryEmail || didSendVerificationRecoveryEmail)
 
                     if didSendVerificationRecoveryEmail {
                         Text("Open Mail and tap Verify iChart Account. If the replacement email still does not arrive, contact support.")
@@ -5791,6 +5797,23 @@ private struct IChartAccountSettings: View {
     private func resetVerificationRecoveryState() {
         isShowingVerificationRecovery = false
         didSendVerificationRecoveryEmail = false
+        isSendingVerificationRecoveryEmail = false
+    }
+
+    private var verificationRecoveryButtonTitle: String {
+        if isSendingVerificationRecoveryEmail {
+            return "Sending Replacement Email..."
+        }
+
+        return didSendVerificationRecoveryEmail ? "Replacement Email Sent" : "Send Replacement Email"
+    }
+
+    private var verificationRecoveryButtonSystemImage: String {
+        if isSendingVerificationRecoveryEmail {
+            return "hourglass"
+        }
+
+        return didSendVerificationRecoveryEmail ? "checkmark.circle" : "envelope.badge"
     }
 
     private var passwordRecoveryRow: some View {
