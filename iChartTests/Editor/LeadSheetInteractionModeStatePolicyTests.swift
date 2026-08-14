@@ -66,6 +66,61 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
     }
 
+    func testSavedInkRendererKeepsPersistentInkDarkWhenCurrentTraitIsDark() throws {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 4, y: 18),
+                    CGPoint(x: 18, y: 4),
+                    CGPoint(x: 34, y: 28)
+                ],
+                creationDate: Date(timeIntervalSince1970: 60),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+        let drawingData = try XCTUnwrap(
+            LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing)
+        )
+        var renderedImage: UIImage?
+
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            renderedImage = LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                size: CGSize(width: 40, height: 40),
+                scale: 1
+            )
+        }
+
+        let medianLuminance = try XCTUnwrap(
+            medianVisiblePixelLuminance(in: try XCTUnwrap(renderedImage).cgImage)
+        )
+        XCTAssertLessThan(medianLuminance, 0.25)
+    }
+
+    func testInkTelemetryRenderDiagnosticsStayDarkWhenCurrentTraitIsDark() throws {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 8, y: 26),
+                    CGPoint(x: 22, y: 8),
+                    CGPoint(x: 38, y: 34)
+                ],
+                creationDate: Date(timeIntervalSince1970: 75),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+        var snapshot: LeadSheetInkTelemetrySnapshot?
+
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            snapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: drawing)
+        }
+
+        let telemetrySnapshot = try XCTUnwrap(snapshot)
+        XCTAssertGreaterThan(telemetrySnapshot.renderedInkSampleCount, 0)
+        XCTAssertLessThan(telemetrySnapshot.renderedInkMedianLuminance, 0.25)
+        XCTAssertLessThan(telemetrySnapshot.renderedInkLightPixelRatio, 0.1)
+    }
+
     func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
         let sourceData = Data("ink-C".utf8)
 
@@ -1540,6 +1595,55 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(green, 0.06, accuracy: 0.015, file: file, line: line)
         XCTAssertEqual(blue, 0.06, accuracy: 0.015, file: file, line: line)
         XCTAssertGreaterThanOrEqual(alpha, 0.98, file: file, line: line)
+    }
+
+    private func medianVisiblePixelLuminance(in cgImage: CGImage?) -> Double? {
+        guard let cgImage else {
+            return nil
+        }
+
+        let width = max(1, cgImage.width)
+        let height = max(1, cgImage.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let didDraw = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else {
+            return nil
+        }
+
+        let luminances = stride(from: 0, to: pixels.count, by: 4).compactMap { index -> Double? in
+            let alpha = Double(pixels[index + 3]) / 255.0
+            guard alpha > 0.05 else {
+                return nil
+            }
+
+            let red = min(1, Double(pixels[index]) / 255.0 / alpha)
+            let green = min(1, Double(pixels[index + 1]) / 255.0 / alpha)
+            let blue = min(1, Double(pixels[index + 2]) / 255.0 / alpha)
+            return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        }.sorted()
+
+        guard !luminances.isEmpty else {
+            return nil
+        }
+
+        return luminances[luminances.count / 2]
     }
 
     private func stroke(

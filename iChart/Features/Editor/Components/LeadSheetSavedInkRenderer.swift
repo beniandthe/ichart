@@ -32,22 +32,52 @@ enum LeadSheetSavedInkRenderer {
         )
     }
 
+    static func renderedInkImage(
+        _ drawingData: Data?,
+        size: CGSize,
+        scale: CGFloat = UIScreen.main.scale
+    ) -> UIImage? {
+        renderedInkImage(
+            drawingData,
+            in: CGRect(origin: .zero, size: size),
+            scale: scale
+        )
+    }
+
+    static func renderedInkImage(
+        _ drawingData: Data?,
+        in bounds: CGRect,
+        scale: CGFloat = UIScreen.main.scale
+    ) -> UIImage? {
+        guard let drawing = normalizedDrawing(for: drawingData),
+              bounds.width > 0,
+              bounds.height > 0 else {
+            return nil
+        }
+
+        var image: UIImage?
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            image = drawing.image(from: bounds, scale: scale)
+        }
+        return image ?? drawing.image(from: bounds, scale: scale)
+    }
+
     private static func drawInk(_ drawingData: Data?, in frame: CGRect) {
+        guard let image = renderedInkImage(drawingData, size: frame.size) else {
+            return
+        }
+
+        image.draw(in: frame)
+    }
+
+    private static func normalizedDrawing(for drawingData: Data?) -> PKDrawing? {
         guard let drawingData,
               let savedDrawing = try? PKDrawing(data: drawingData) else {
-            return
+            return nil
         }
 
         let drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(savedDrawing)
-        guard !drawing.strokes.isEmpty else {
-            return
-        }
-
-        let image = drawing.image(
-            from: CGRect(origin: .zero, size: frame.size),
-            scale: UIScreen.main.scale
-        )
-        image.draw(in: frame)
+        return drawing.strokes.isEmpty ? nil : drawing
     }
 }
 #endif

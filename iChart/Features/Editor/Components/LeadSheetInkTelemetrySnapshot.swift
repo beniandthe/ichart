@@ -211,7 +211,12 @@ struct LeadSheetInkTelemetrySnapshot {
         }
 
         let paddedBounds = renderBounds.insetBy(dx: -2, dy: -2)
-        guard let cgImage = drawing.image(from: paddedBounds, scale: 1).cgImage else {
+        guard let drawingData = LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing),
+              let cgImage = LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                in: paddedBounds,
+                scale: 1
+              )?.cgImage else {
             return (-1, 0, 0)
         }
 
