@@ -59,7 +59,29 @@ enum LeadSheetSavedInkRenderer {
         UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
             image = drawing.image(from: bounds, scale: scale)
         }
-        return image ?? drawing.image(from: bounds, scale: scale)
+        let renderedImage = image ?? drawing.image(from: bounds, scale: scale)
+        return imageByForcingPersistentInkColor(renderedImage, scale: scale)
+    }
+
+    static func imageByForcingPersistentInkColor(
+        _ image: UIImage,
+        scale: CGFloat = UIScreen.main.scale
+    ) -> UIImage {
+        let imageBounds = CGRect(origin: .zero, size: image.size)
+        guard imageBounds.width > 0,
+              imageBounds.height > 0 else {
+            return image
+        }
+
+        let rendererFormat = UIGraphicsImageRendererFormat()
+        rendererFormat.scale = scale > 0 ? scale : image.scale
+        rendererFormat.opaque = false
+
+        return UIGraphicsImageRenderer(size: image.size, format: rendererFormat).image { _ in
+            LeadSheetPersistentInkColorPolicy.inkColor.setFill()
+            UIBezierPath(rect: imageBounds).fill()
+            image.draw(in: imageBounds, blendMode: .destinationIn, alpha: 1)
+        }
     }
 
     private static func drawInk(_ drawingData: Data?, in frame: CGRect) {

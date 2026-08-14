@@ -97,6 +97,27 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(medianLuminance, 0.25)
     }
 
+    func testSavedInkRendererForcesAdaptiveWhitePixelsToPersistentInkColor() throws {
+        let adaptiveWhiteImage = strokeImage(
+            color: .white,
+            size: CGSize(width: 40, height: 40),
+            scale: 1
+        )
+
+        let forcedImage = LeadSheetSavedInkRenderer.imageByForcingPersistentInkColor(
+            adaptiveWhiteImage,
+            scale: 1
+        )
+
+        let medianLuminance = try XCTUnwrap(
+            medianVisiblePixelLuminance(in: forcedImage.cgImage)
+        )
+        let pixelCoverage = try XCTUnwrap(visiblePixelCoverage(in: forcedImage.cgImage))
+        XCTAssertLessThan(medianLuminance, 0.25)
+        XCTAssertGreaterThan(pixelCoverage, 0)
+        XCTAssertLessThan(pixelCoverage, 0.5)
+    }
+
     func testInkTelemetryRenderDiagnosticsStayDarkWhenCurrentTraitIsDark() throws {
         let drawing = PKDrawing(strokes: [
             stroke(
@@ -1644,6 +1665,59 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         }
 
         return luminances[luminances.count / 2]
+    }
+
+    private func visiblePixelCoverage(in cgImage: CGImage?) -> Double? {
+        guard let cgImage else {
+            return nil
+        }
+
+        let width = max(1, cgImage.width)
+        let height = max(1, cgImage.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let didDraw = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else {
+            return nil
+        }
+
+        let visiblePixelCount = stride(from: 0, to: pixels.count, by: 4).filter { index in
+            Double(pixels[index + 3]) / 255.0 > 0.05
+        }.count
+        return Double(visiblePixelCount) / Double(width * height)
+    }
+
+    private func strokeImage(color: UIColor, size: CGSize, scale: CGFloat) -> UIImage {
+        let rendererFormat = UIGraphicsImageRendererFormat()
+        rendererFormat.scale = scale
+        rendererFormat.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: rendererFormat).image { _ in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 6, y: size.height - 8))
+            path.addLine(to: CGPoint(x: size.width / 2, y: 6))
+            path.addLine(to: CGPoint(x: size.width - 6, y: size.height - 10))
+            path.lineWidth = 5
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            color.setStroke()
+            path.stroke()
+        }
     }
 
     private func stroke(
