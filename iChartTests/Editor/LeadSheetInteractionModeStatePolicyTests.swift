@@ -142,6 +142,29 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(telemetrySnapshot.renderedInkLightPixelRatio, 0.1)
     }
 
+    func testChordOCRImageKeepsPersistentInkDarkWhenCurrentTraitIsDark() throws {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 8, y: 34),
+                    CGPoint(x: 22, y: 8),
+                    CGPoint(x: 40, y: 34)
+                ],
+                creationDate: Date(timeIntervalSince1970: 80),
+                color: LeadSheetPersistentInkColorPolicy.inkColor,
+                size: CGSize(width: 8, height: 8)
+            )
+        ])
+        var ocrImage: CGImage?
+
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            ocrImage = LeadSheetChordInkImageRenderer.ocrImage(for: drawing)
+        }
+
+        let darkCoverage = try XCTUnwrap(darkPixelCoverage(in: ocrImage))
+        XCTAssertGreaterThan(darkCoverage, 0)
+    }
+
     func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
         let sourceData = Data("ink-C".utf8)
 
@@ -1703,6 +1726,51 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         return Double(visiblePixelCount) / Double(width * height)
     }
 
+    private func darkPixelCoverage(in cgImage: CGImage?) -> Double? {
+        guard let cgImage else {
+            return nil
+        }
+
+        let width = max(1, cgImage.width)
+        let height = max(1, cgImage.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let didDraw = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else {
+            return nil
+        }
+
+        let darkPixelCount = stride(from: 0, to: pixels.count, by: 4).filter { index in
+            let alpha = Double(pixels[index + 3]) / 255.0
+            guard alpha > 0.05 else {
+                return false
+            }
+
+            let red = min(1, Double(pixels[index]) / 255.0 / alpha)
+            let green = min(1, Double(pixels[index + 1]) / 255.0 / alpha)
+            let blue = min(1, Double(pixels[index + 2]) / 255.0 / alpha)
+            let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            return luminance < 0.25
+        }.count
+        return Double(darkPixelCount) / Double(width * height)
+    }
+
     private func strokeImage(color: UIColor, size: CGSize, scale: CGFloat) -> UIImage {
         let rendererFormat = UIGraphicsImageRendererFormat()
         rendererFormat.scale = scale
@@ -1723,13 +1791,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     private func stroke(
         points: [CGPoint],
         creationDate: Date,
-        color: UIColor = .black
+        color: UIColor = .black,
+        size: CGSize = CGSize(width: 2, height: 2)
     ) -> PKStroke {
         let controlPoints = points.enumerated().map { index, point in
             PKStrokePoint(
                 location: point,
                 timeOffset: TimeInterval(index) * 0.05,
-                size: CGSize(width: 2, height: 2),
+                size: size,
                 opacity: 1,
                 force: 1,
                 azimuth: 0,
