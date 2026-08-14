@@ -1364,7 +1364,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1.2\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"42\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"43\""))
         XCTAssertTrue(projectText.contains("PRODUCT_BUNDLE_IDENTIFIER: com.ichart.tests"))
         XCTAssertTrue(projectText.contains("GENERATE_INFOPLIST_FILE: YES"))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
