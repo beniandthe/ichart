@@ -2992,6 +2992,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         pageInkCanvasView.isHidden = false
         pageInkCanvasView.isUserInteractionEnabled = true
         pageInkCanvasView.frame = activeInkScope.frame
@@ -3966,6 +3967,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordMovePanRecognizer.isEnabled = policy.chordMovePanEnabled
         chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
         chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled
+        LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
         pageInkCanvasView.drawingPolicy = policy.drawingPolicy
         pageInkCanvasView.tool = policy.canvasTool
