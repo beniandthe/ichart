@@ -33,6 +33,64 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(canvasView.isOpaque)
     }
 
+    func testInkTelemetryCapturesLiveCanvasCompositingState() throws {
+        let canvasView = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        canvasView.contentScaleFactor = 2
+        canvasView.drawingPolicy = .anyInput
+        canvasView.tool = LeadSheetPersistentInkColorPolicy.inkingTool(width: 3.5)
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 8, y: 26),
+                    CGPoint(x: 22, y: 8),
+                    CGPoint(x: 38, y: 34)
+                ],
+                creationDate: Date(timeIntervalSince1970: 35),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+        var snapshot: LeadSheetInkTelemetrySnapshot?
+
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            LeadSheetLiveInkCanvasAppearancePolicy.configure(canvasView)
+            snapshot = LeadSheetInkTelemetrySnapshot.capture(
+                drawing: drawing,
+                canvasView: canvasView
+            )
+        }
+
+        let telemetrySnapshot = try XCTUnwrap(snapshot)
+        XCTAssertEqual(telemetrySnapshot.canvasUserInterfaceStyle, "light")
+        XCTAssertEqual(telemetrySnapshot.canvasOverrideUserInterfaceStyle, "light")
+        XCTAssertEqual(telemetrySnapshot.canvasSuperviewUserInterfaceStyle, "unknown")
+        XCTAssertEqual(telemetrySnapshot.canvasWindowUserInterfaceStyle, "unknown")
+        XCTAssertEqual(telemetrySnapshot.canvasDrawingPolicy, "any_input")
+        XCTAssertEqual(telemetrySnapshot.canvasAlpha, 1, accuracy: 0.001)
+        XCTAssertEqual(telemetrySnapshot.canvasBackgroundAlpha, 0, accuracy: 0.001)
+        XCTAssertFalse(telemetrySnapshot.canvasIsOpaque)
+        XCTAssertFalse(telemetrySnapshot.canvasIsHidden)
+        XCTAssertTrue(telemetrySnapshot.canvasUserInteractionEnabled)
+        XCTAssertFalse(telemetrySnapshot.canvasIsFirstResponder)
+        XCTAssertEqual(telemetrySnapshot.canvasContentScale, 2, accuracy: 0.001)
+        XCTAssertEqual(telemetrySnapshot.canvasBoundsWidth, 320, accuracy: 0.001)
+        XCTAssertEqual(telemetrySnapshot.canvasBoundsHeight, 240, accuracy: 0.001)
+        XCTAssertTrue(telemetrySnapshot.liveCanvasLightTraitGuardEnabled)
+        XCTAssertTrue(telemetrySnapshot.toolIsInking)
+        XCTAssertTrue(telemetrySnapshot.toolMatchesPersistentInk)
+        XCTAssertEqual(telemetrySnapshot.toolWidth, 3.5, accuracy: 0.001)
+        XCTAssertLessThan(telemetrySnapshot.toolColorLuminance, 0.25)
+
+        let properties = telemetrySnapshot.telemetryProperties(
+            scope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 240)),
+            normalizedBeforeSave: true
+        )
+        XCTAssertEqual(properties["canvas_override_user_interface_style"], .string("light"))
+        XCTAssertEqual(properties["canvas_drawing_policy"], .string("any_input"))
+        XCTAssertEqual(properties["live_canvas_light_trait_guard_enabled"], .bool(true))
+        XCTAssertEqual(properties["tool_matches_persistent_ink"], .bool(true))
+        XCTAssertEqual(properties["tool_width"], .double(3.5))
+    }
+
     func testPersistentInkNormalizationRecolorsWhiteInkWithoutChangingGeometry() throws {
         let sourceDrawing = PKDrawing(strokes: [
             stroke(

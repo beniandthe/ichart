@@ -55,7 +55,7 @@ enum LeadSheetPersistentInkColorPolicy {
         stroke.ink.inkType != .pen || !matchesPersistentInkColor(stroke.ink.color)
     }
 
-    private static func matchesPersistentInkColor(_ color: UIColor) -> Bool {
+    static func matchesPersistentInkColor(_ color: UIColor) -> Bool {
         matchesPersistentInkComponents(color)
     }
 

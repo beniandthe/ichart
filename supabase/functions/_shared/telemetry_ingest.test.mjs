@@ -38,9 +38,24 @@ function validEvent(overrides = {}) {
       stroke_color_max_luminance: 0.06,
       tool_ink_type: "pen",
       tool_color_luminance: 0.06,
+      tool_is_inking: true,
+      tool_matches_persistent_ink: true,
+      tool_width: 2.5,
+      canvas_alpha: 1,
       canvas_user_interface_style: "light",
+      canvas_override_user_interface_style: "light",
+      canvas_superview_user_interface_style: "dark",
+      canvas_window_user_interface_style: "dark",
+      canvas_drawing_policy: "pencil_only",
       canvas_background_alpha: 0,
       canvas_is_opaque: false,
+      canvas_is_hidden: false,
+      canvas_user_interaction_enabled: true,
+      canvas_is_first_responder: false,
+      canvas_content_scale: 2,
+      canvas_bounds_width: 1024,
+      canvas_bounds_height: 768,
+      live_canvas_light_trait_guard_enabled: true,
       rendered_ink_median_luminance: 0.06,
       rendered_ink_light_pixel_ratio: 0,
       rendered_ink_sample_count: 112,
@@ -74,6 +89,14 @@ test("telemetry row sanitizes event context and allowlisted properties", () => {
   assert.equal(row.properties.scope, "freehand");
   assert.equal(row.properties.duration_ms, 10.123);
   assert.equal(row.properties.tool_ink_type, "pen");
+  assert.equal(row.properties.tool_matches_persistent_ink, true);
+  assert.equal(row.properties.tool_width, 2.5);
+  assert.equal(row.properties.canvas_override_user_interface_style, "light");
+  assert.equal(row.properties.canvas_superview_user_interface_style, "dark");
+  assert.equal(row.properties.canvas_window_user_interface_style, "dark");
+  assert.equal(row.properties.canvas_drawing_policy, "pencil_only");
+  assert.equal(row.properties.canvas_user_interaction_enabled, true);
+  assert.equal(row.properties.live_canvas_light_trait_guard_enabled, true);
   assert.equal(row.properties.rendered_ink_sample_count, 112);
   assert.equal(row.properties.canvas_is_opaque, false);
   assert.equal(row.properties.raw_chord_text, undefined);

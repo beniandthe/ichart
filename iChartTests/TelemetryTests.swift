@@ -10,7 +10,13 @@ final class TelemetryTests: XCTestCase {
             "duration_ms": .double(12.34567),
             "rendered_ink_median_luminance": .double(0.06123),
             "stroke_color_median_luminance": .double(0.05999),
+            "canvas_override_user_interface_style": .string("light"),
+            "canvas_drawing_policy": .string("any_input"),
+            "live_canvas_light_trait_guard_enabled": .bool(true),
             "tool_ink_type": .string("pen"),
+            "tool_is_inking": .bool(true),
+            "tool_matches_persistent_ink": .bool(true),
+            "tool_width": .double(3.4567),
             "user_signed_in": .bool(true),
             "chart_title": .string("Do Not Collect"),
             "raw_chord_text": .string("C7")
@@ -20,7 +26,13 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(sanitized["duration_ms"], .double(12.346))
         XCTAssertEqual(sanitized["rendered_ink_median_luminance"], .double(0.061))
         XCTAssertEqual(sanitized["stroke_color_median_luminance"], .double(0.06))
+        XCTAssertEqual(sanitized["canvas_override_user_interface_style"], .string("light"))
+        XCTAssertEqual(sanitized["canvas_drawing_policy"], .string("any_input"))
+        XCTAssertEqual(sanitized["live_canvas_light_trait_guard_enabled"], .bool(true))
         XCTAssertEqual(sanitized["tool_ink_type"], .string("pen"))
+        XCTAssertEqual(sanitized["tool_is_inking"], .bool(true))
+        XCTAssertEqual(sanitized["tool_matches_persistent_ink"], .bool(true))
+        XCTAssertEqual(sanitized["tool_width"], .double(3.457))
         XCTAssertEqual(sanitized["user_signed_in"], .bool(true))
         XCTAssertNil(sanitized["chart_title"])
         XCTAssertNil(sanitized["raw_chord_text"])
