@@ -20,6 +20,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         assertPersistentInkColor(freeWritePolicy.inkTool.color)
     }
 
+    func testLiveInkCanvasForcesLightTraitForPencilKitCompositing() {
+        let canvasView = PKCanvasView()
+
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            LeadSheetLiveInkCanvasAppearancePolicy.configure(canvasView)
+        }
+
+        XCTAssertEqual(canvasView.overrideUserInterfaceStyle, .light)
+        XCTAssertEqual(canvasView.traitCollection.userInterfaceStyle, .light)
+        XCTAssertEqual(canvasView.backgroundColor, .clear)
+        XCTAssertFalse(canvasView.isOpaque)
+    }
+
     func testPersistentInkNormalizationRecolorsWhiteInkWithoutChangingGeometry() throws {
         let sourceDrawing = PKDrawing(strokes: [
             stroke(

@@ -985,6 +985,14 @@ struct LeadSheetRhythmicNotationEraseRecovery {
     }
 }
 
+enum LeadSheetLiveInkCanvasAppearancePolicy {
+    static func configure(_ canvasView: PKCanvasView) {
+        canvasView.overrideUserInterfaceStyle = .light
+        canvasView.backgroundColor = .clear
+        canvasView.isOpaque = false
+    }
+}
+
 final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
     var chart: Chart = .draft(title: "Preview") {
         didSet {
@@ -1339,8 +1347,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectionTapRecognizer.require(toFail: measureResizePanRecognizer)
         addGestureRecognizer(measureResizePanRecognizer)
 
-        pageInkCanvasView.backgroundColor = .clear
-        pageInkCanvasView.isOpaque = false
+        LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         pageInkCanvasView.delegate = self
         pageInkCanvasView.isScrollEnabled = false
         pageInkCanvasView.bounces = false
