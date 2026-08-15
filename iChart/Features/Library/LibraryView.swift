@@ -4766,11 +4766,11 @@ private enum IChartBuildIdentity {
     }
 
     static var expandedStamp: String {
-        "v\(version) (\(buildNumber)) - Aug 13, 2026"
+        "v\(version) (\(buildNumber)) - Aug 14, 2026"
     }
 
     static var accessibilityLabel: String {
-        "Version \(version), build \(buildNumber), August 13, 2026"
+        "Version \(version), build \(buildNumber), August 14, 2026"
     }
 
     private static var version: String {
