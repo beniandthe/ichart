@@ -1156,6 +1156,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testInkCanvasSyncPolicyDoesNotPreserveDirtyPassiveInkAfterScopeSwitch() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
+                activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
+                interactionMode: .headerEntry,
+                sessionState: dirtyInkSessionState(.passive),
+                currentDrawingData: Data([0x01]),
+                desiredDrawingData: Data([0x02]),
+                didSwitchInkScope: true
+            )
+        )
+    }
+
     func testInkCanvasSyncPolicyAllowsPassiveInkReloadWhenCleanOrSynced() {
         XCTAssertFalse(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
