@@ -7,12 +7,23 @@ enum LeadSheetSavedInkRenderer {
     static func drawPageInk(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        chart: Chart? = nil,
         in pageLayout: LeadSheetPageLayout
     ) {
+        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: pageLayout)
         drawInk(
             drawingData,
-            sourceCoordinateSpace: coordinateSpace,
-            in: LeadSheetActiveInkScope.pageWritingFrame(for: pageLayout)
+            sourceCoordinateSpace: chart.map {
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                    coordinateSpace,
+                    chart: $0
+                )
+            } ?? coordinateSpace,
+            targetCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: pageLayout,
+                relativeTo: frame
+            ),
+            in: frame
         )
     }
 
@@ -56,12 +67,14 @@ enum LeadSheetSavedInkRenderer {
         _ drawingData: Data?,
         size: CGSize,
         sourceCoordinateSpace: PersistentInkCoordinateSpace? = nil,
+        targetCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         scale: CGFloat = UIScreen.main.scale
     ) -> UIImage? {
         renderedInkImage(
             drawingData,
             in: CGRect(origin: .zero, size: size),
             sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace,
             scale: scale
         )
     }
@@ -70,11 +83,13 @@ enum LeadSheetSavedInkRenderer {
         _ drawingData: Data?,
         in bounds: CGRect,
         sourceCoordinateSpace: PersistentInkCoordinateSpace? = nil,
+        targetCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         scale: CGFloat = UIScreen.main.scale
     ) -> UIImage? {
         guard let drawing = normalizedDrawing(
             for: drawingData,
             sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace,
             targetFrame: bounds
         ),
               bounds.width > 0,
@@ -114,12 +129,14 @@ enum LeadSheetSavedInkRenderer {
     private static func drawInk(
         _ drawingData: Data?,
         sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        targetCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         in frame: CGRect
     ) {
         guard let image = renderedInkImage(
             drawingData,
             size: frame.size,
-            sourceCoordinateSpace: sourceCoordinateSpace
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
         ) else {
             return
         }
@@ -130,12 +147,14 @@ enum LeadSheetSavedInkRenderer {
     private static func normalizedDrawing(
         for drawingData: Data?,
         sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        targetCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         targetFrame: CGRect
     ) -> PKDrawing? {
         guard let drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
             from: drawingData,
             sourceCoordinateSpace: sourceCoordinateSpace,
-            targetFrame: targetFrame
+            targetCoordinateSpace: targetCoordinateSpace
+                ?? LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: targetFrame)
         ) else {
             return nil
         }

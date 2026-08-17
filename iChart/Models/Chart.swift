@@ -17,13 +17,26 @@ func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
 struct PersistentInkCoordinateSpace: Codable, Hashable {
     var width: Double
     var height: Double
+    var measureAnchors: [PersistentInkMeasureAnchor]?
+    var chordAnchors: [PersistentInkChordAnchor]?
 
-    init(width: Double, height: Double) {
+    init(
+        width: Double,
+        height: Double,
+        measureAnchors: [PersistentInkMeasureAnchor]? = nil,
+        chordAnchors: [PersistentInkChordAnchor]? = nil
+    ) {
         self.width = width
         self.height = height
+        self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
+        self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
     }
 
-    init?(size: CGSize) {
+    init?(
+        size: CGSize,
+        measureAnchors: [PersistentInkMeasureAnchor]? = nil,
+        chordAnchors: [PersistentInkChordAnchor]? = nil
+    ) {
         guard size.width > 0,
               size.height > 0,
               size.width.isFinite,
@@ -33,10 +46,95 @@ struct PersistentInkCoordinateSpace: Codable, Hashable {
 
         self.width = Double(size.width)
         self.height = Double(size.height)
+        self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
+        self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
     }
 
     var size: CGSize {
         CGSize(width: width, height: height)
+    }
+}
+
+struct PersistentInkFrame: Codable, Hashable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    init?(rect: CGRect) {
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.width > 0,
+              rect.height > 0,
+              rect.width.isFinite,
+              rect.height.isFinite else {
+            return nil
+        }
+
+        x = Double(rect.minX)
+        y = Double(rect.minY)
+        width = Double(rect.width)
+        height = Double(rect.height)
+    }
+
+    var rect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+}
+
+struct PersistentInkPoint: Codable, Hashable {
+    var x: Double
+    var y: Double
+
+    init?(point: CGPoint) {
+        guard point.x.isFinite,
+              point.y.isFinite else {
+            return nil
+        }
+
+        x = Double(point.x)
+        y = Double(point.y)
+    }
+
+    var point: CGPoint {
+        CGPoint(x: x, y: y)
+    }
+}
+
+struct PersistentInkMeasureAnchor: Codable, Hashable {
+    var measureID: UUID
+    var frame: PersistentInkFrame
+
+    init?(measureID: UUID, frame: CGRect) {
+        guard let persistentFrame = PersistentInkFrame(rect: frame) else {
+            return nil
+        }
+
+        self.measureID = measureID
+        self.frame = persistentFrame
+    }
+}
+
+struct PersistentInkChordAnchor: Codable, Hashable {
+    var measureID: UUID
+    var chordID: UUID
+    var frame: PersistentInkFrame
+    var registrationPoint: PersistentInkPoint?
+
+    init?(
+        measureID: UUID,
+        chordID: UUID,
+        frame: CGRect,
+        registrationPoint: CGPoint? = nil
+    ) {
+        guard let persistentFrame = PersistentInkFrame(rect: frame) else {
+            return nil
+        }
+
+        self.measureID = measureID
+        self.chordID = chordID
+        self.frame = persistentFrame
+        self.registrationPoint = registrationPoint.flatMap(PersistentInkPoint.init(point:))
     }
 }
 

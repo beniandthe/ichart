@@ -47,6 +47,14 @@ enum LeadSheetRhythmicNotationInkCapturePolicy {
 }
 
 enum LeadSheetActiveInkScope {
+    enum Identity: Hashable {
+        case page
+        case header
+        case chords
+        case rhythmicMeasure(UUID)
+        case noteSelection
+    }
+
     case page(frame: CGRect)
     case header(frame: CGRect)
     case chords(frame: CGRect, inputFrames: [CGRect])
@@ -107,6 +115,21 @@ enum LeadSheetActiveInkScope {
             return true
         case .noteSelection:
             return false
+        }
+    }
+
+    var identity: Identity {
+        switch self {
+        case .page:
+            return .page
+        case .header:
+            return .header
+        case .chords:
+            return .chords
+        case .rhythmicMeasure(let measureID, _):
+            return .rhythmicMeasure(measureID)
+        case .noteSelection:
+            return .noteSelection
         }
     }
 

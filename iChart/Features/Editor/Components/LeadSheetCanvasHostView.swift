@@ -1211,6 +1211,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingInkInputCoalescingWorkItem: DispatchWorkItem?
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
+    private var activeCanvasScopeIdentity: LeadSheetActiveInkScope.Identity?
     private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
     private var chordObjectEditingSuppressedUntil: Date?
     private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
@@ -1899,6 +1900,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         LeadSheetSavedInkRenderer.drawPageInk(
             chart.pageHandwrittenNotationData,
             coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+            chart: chart,
             in: pageLayout
         )
     }
@@ -2995,6 +2997,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 pageInkCanvasView.isHidden = true
                 pageInkCanvasView.isUserInteractionEnabled = false
                 pageInkCanvasView.localInputFrames = []
+                activeCanvasScopeIdentity = nil
+                activeCanvasCoordinateSpace = nil
                 updateChordInkConfirmOverlayVisibility()
                 return
             }
@@ -3002,18 +3006,28 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             persistActiveInkIfNeeded()
             pageInkCanvasView.isHidden = true
             pageInkCanvasView.localInputFrames = []
+            activeCanvasScopeIdentity = nil
+            activeCanvasCoordinateSpace = nil
             updateChordInkConfirmOverlayVisibility()
             return
         }
 
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
+        let targetScopeIdentity = activeInkScope.identity
+        let switchedInkScope = activeCanvasScopeIdentity != nil
+            && activeCanvasScopeIdentity != targetScopeIdentity
         let targetCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
-            for: activeInkScope.frame
+            for: activeInkScope,
+            pageLayout: pageLayout
         )
-        reprojectActiveCanvasDrawingIfNeeded(
-            activeInkScope: activeInkScope,
-            to: targetCoordinateSpace
-        )
+        if switchedInkScope {
+            activeCanvasCoordinateSpace = nil
+        } else {
+            reprojectActiveCanvasDrawingIfNeeded(
+                activeInkScope: activeInkScope,
+                to: targetCoordinateSpace
+            )
+        }
         pageInkCanvasView.isHidden = false
         pageInkCanvasView.isUserInteractionEnabled = true
         pageInkCanvasView.frame = activeInkScope.frame
@@ -3024,10 +3038,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let desiredData = activeInkScope.drawingData(in: chart)
         let desiredCoordinateSpace = activeInkScope.drawingCoordinateSpace(in: chart)
+        let sourceCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.sourceCoordinateSpace(
+            desiredCoordinateSpace,
+            for: activeInkScope,
+            chart: chart
+        )
         let desiredCanvasData = LeadSheetPersistentInkCoordinateSpacePolicy.persistentDrawingData(
             from: desiredData,
-            sourceCoordinateSpace: desiredCoordinateSpace,
-            targetFrame: activeInkScope.frame
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
         )
         let currentData = currentCanvasDrawingData()
         if LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
@@ -3037,11 +3056,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             currentDrawingData: currentData,
             desiredDrawingData: desiredCanvasData
         ) {
+            activeCanvasScopeIdentity = targetScopeIdentity
             pageInkCanvasView.becomeFirstResponder()
             return
         }
 
         guard currentData != desiredCanvasData else {
+            activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasCoordinateSpace = targetCoordinateSpace
             return
         }
@@ -3050,6 +3071,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             currentInkSnapshot: currentCanvasInkSnapshot(),
             desiredDrawingData: desiredCanvasData
         ) {
+            activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasCoordinateSpace = targetCoordinateSpace
             pageInkCanvasView.becomeFirstResponder()
             return
@@ -3058,14 +3080,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         isSyncingInkCanvasFromModel = true
         if let drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
             from: desiredData,
-            sourceCoordinateSpace: desiredCoordinateSpace,
-            targetFrame: activeInkScope.frame
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
         ) {
             pageInkCanvasView.drawing = drawing
         } else {
             pageInkCanvasView.drawing = PKDrawing()
         }
         isSyncingInkCanvasFromModel = false
+        activeCanvasScopeIdentity = targetScopeIdentity
         activeCanvasCoordinateSpace = targetCoordinateSpace
         updateChordInkConfirmOverlayVisibility()
         pageInkCanvasView.becomeFirstResponder()
@@ -3268,7 +3291,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let drawingData = currentCanvasDrawingData(activeInkScope: activeInkScope)
         let coordinateSpace = activeInkScope.persistsDrawingData
             ? activeCanvasCoordinateSpace
-                ?? LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: activeInkScope.frame)
+                ?? LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
+                    for: activeInkScope,
+                    pageLayout: pageLayout
+                )
             : nil
         guard let updatedChart = activeInkScope.chartByPersistingDrawingData(
             drawingData,

@@ -163,6 +163,358 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(transformedBounds.height, sourceBounds.height * 2, accuracy: 3)
     }
 
+    func testPersistentInkCoordinateSpaceAnchorsStrokesToMatchingMeasureAcrossLayouts() throws {
+        let measureID = UUID()
+        let sourceMeasureFrame = CGRect(x: 100, y: 40, width: 120, height: 80)
+        let targetMeasureFrame = CGRect(x: 210, y: 52, width: 180, height: 96)
+        let sourceCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 500,
+            height: 300,
+            measureAnchors: [
+                try XCTUnwrap(PersistentInkMeasureAnchor(measureID: measureID, frame: sourceMeasureFrame))
+            ]
+        )
+        let targetCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 700,
+            height: 300,
+            measureAnchors: [
+                try XCTUnwrap(PersistentInkMeasureAnchor(measureID: measureID, frame: targetMeasureFrame))
+            ]
+        )
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: sourceMeasureFrame.minX + 38, y: sourceMeasureFrame.minY + 24),
+                    CGPoint(x: sourceMeasureFrame.minX + 58, y: sourceMeasureFrame.minY + 34)
+                ],
+                creationDate: Date(timeIntervalSince1970: 56),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let expectedMidX = targetMeasureFrame.minX
+            + (sourceBounds.midX - sourceMeasureFrame.minX)
+                * targetMeasureFrame.width / sourceMeasureFrame.width
+        let expectedMidY = targetMeasureFrame.minY
+            + (sourceBounds.midY - sourceMeasureFrame.minY)
+                * targetMeasureFrame.height / sourceMeasureFrame.height
+        let pageScaledMidX = sourceBounds.midX * targetCoordinateSpace.size.width / sourceCoordinateSpace.size.width
+
+        XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
+        XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertGreaterThan(abs(transformedBounds.midX - pageScaledMidX), 20)
+    }
+
+    func testPersistentInkCoordinateSpaceAnchorsSimpleChordInkAboveMeasureFrame() throws {
+        let measureID = UUID()
+        let sourceMeasureFrame = CGRect(x: 250, y: 148, width: 186, height: 120)
+        let targetMeasureFrame = CGRect(x: 310, y: 132, width: 240, height: 126)
+        let sourceCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 724,
+            height: 1120,
+            measureAnchors: [
+                try XCTUnwrap(PersistentInkMeasureAnchor(measureID: measureID, frame: sourceMeasureFrame))
+            ]
+        )
+        let targetCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 1020,
+            height: 724,
+            measureAnchors: [
+                try XCTUnwrap(PersistentInkMeasureAnchor(measureID: measureID, frame: targetMeasureFrame))
+            ]
+        )
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: sourceMeasureFrame.minX + 34, y: sourceMeasureFrame.minY - 31),
+                    CGPoint(x: sourceMeasureFrame.minX + 38, y: sourceMeasureFrame.minY - 8)
+                ],
+                creationDate: Date(timeIntervalSince1970: 57),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let expectedMidX = targetMeasureFrame.minX
+            + (sourceBounds.midX - sourceMeasureFrame.minX)
+                * targetMeasureFrame.width / sourceMeasureFrame.width
+        let expectedMidY = targetMeasureFrame.minY
+            + (sourceBounds.midY - sourceMeasureFrame.minY)
+                * targetMeasureFrame.height / sourceMeasureFrame.height
+        let pageScaledMidY = sourceBounds.midY * targetCoordinateSpace.size.height / sourceCoordinateSpace.size.height
+
+        XCTAssertLessThan(sourceBounds.midY, sourceMeasureFrame.minY)
+        XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
+        XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertGreaterThan(abs(transformedBounds.midY - pageScaledMidY), 20)
+    }
+
+    func testPageInkCoordinateSpaceCapturesChordAnchorsRelativeToPageFrame() throws {
+        let chart = try simpleChordFreeWriteRotationReproChart()
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 792, height: 1200)
+        )
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let coordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
+                for: .page(frame: pageFrame),
+                pageLayout: layout
+            )
+        )
+        let measures = try XCTUnwrap(layout.systems.first?.measures)
+        XCTAssertGreaterThan(measures.count, 1)
+        let secondMeasure = measures[1]
+        let firstChordLayout = try XCTUnwrap(secondMeasure.chordLayouts.first)
+        let firstChordAnchor = try XCTUnwrap(
+            coordinateSpace.chordAnchors?.first { $0.chordID == firstChordLayout.id }
+        )
+        let registrationPoint = try XCTUnwrap(firstChordAnchor.registrationPoint?.point)
+
+        XCTAssertEqual(coordinateSpace.chordAnchors?.count, 2)
+        XCTAssertGreaterThan(chart.measures.count, 1)
+        XCTAssertEqual(firstChordAnchor.measureID, chart.measures[1].id)
+        XCTAssertEqual(
+            firstChordAnchor.frame.rect.minX,
+            firstChordLayout.frame.minX - pageFrame.minX,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            firstChordAnchor.frame.rect.minY,
+            firstChordLayout.frame.minY - pageFrame.minY,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            registrationPoint.x,
+            firstChordLayout.snapGuideTarget.x - pageFrame.minX,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            registrationPoint.y,
+            firstChordLayout.snapGuideTarget.y - pageFrame.minY,
+            accuracy: 0.001
+        )
+    }
+
+    func testChordAnchoredPageInkPreservesStrokeSizeWhenChordFrameWidens() throws {
+        let measureID = UUID()
+        let chordID = UUID()
+        let sourceCoordinateSpace = try XCTUnwrap(
+            PersistentInkCoordinateSpace(
+                width: 320,
+                height: 220,
+                chordAnchors: [
+                    try XCTUnwrap(
+                        PersistentInkChordAnchor(
+                            measureID: measureID,
+                            chordID: chordID,
+                            frame: CGRect(x: 100, y: 80, width: 40, height: 32),
+                            registrationPoint: CGPoint(x: 100, y: 120)
+                        )
+                    )
+                ]
+            )
+        )
+        let targetCoordinateSpace = try XCTUnwrap(
+            PersistentInkCoordinateSpace(
+                width: 480,
+                height: 220,
+                chordAnchors: [
+                    try XCTUnwrap(
+                        PersistentInkChordAnchor(
+                            measureID: measureID,
+                            chordID: chordID,
+                            frame: CGRect(x: 160, y: 80, width: 88, height: 32),
+                            registrationPoint: CGPoint(x: 160, y: 120)
+                        )
+                    )
+                ]
+            )
+        )
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 148, y: 50),
+                    CGPoint(x: 160, y: 62)
+                ],
+                creationDate: Date(timeIntervalSince1970: 59),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let scaledMidX = 160 + (sourceBounds.midX - 100) * (88 / 40)
+
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX + 60, accuracy: 1)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertGreaterThan(abs(transformedBounds.midX - scaledMidX), 20)
+    }
+
+    func testLegacySimpleChordPageInkUsesInferredChordAnchorsAcrossRotation() throws {
+        let chart = try simpleChordFreeWriteRotationReproChart()
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 792, height: 1200)
+        )
+        let targetLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 980, height: 1200)
+        )
+        let sourcePageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: sourceLayout)
+        let targetPageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: targetLayout)
+        let sourceMeasures = try XCTUnwrap(sourceLayout.systems.first?.measures)
+        let targetMeasures = try XCTUnwrap(targetLayout.systems.first?.measures)
+        XCTAssertGreaterThan(sourceMeasures.count, 1)
+        XCTAssertGreaterThan(targetMeasures.count, 1)
+        let sourceMeasure = sourceMeasures[1]
+        let targetMeasure = targetMeasures[1]
+        let sourceDMinor = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.text == "D-11" })
+        let targetDMinor = try XCTUnwrap(targetMeasure.chordLayouts.first { $0.id == sourceDMinor.id })
+        let sourceDMinorAnchorFrame = relativeFrame(sourceDMinor.frame, to: sourcePageFrame)
+        let targetDMinorAnchorFrame = relativeFrame(targetDMinor.frame, to: targetPageFrame)
+        let sourceMeasureAnchorFrame = relativeFrame(sourceMeasure.chordWritingFrame, to: sourcePageFrame)
+        let targetMeasureAnchorFrame = relativeFrame(targetMeasure.chordWritingFrame, to: targetPageFrame)
+        let legacySourceCoordinateSpace = try XCTUnwrap(
+            PersistentInkCoordinateSpace(
+                size: sourcePageFrame.size,
+                measureAnchors: LeadSheetPersistentInkCoordinateSpacePolicy.measureAnchors(
+                    in: sourceLayout,
+                    relativeTo: sourcePageFrame
+                )
+            )
+        )
+        let sourceCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                legacySourceCoordinateSpace,
+                chart: chart
+            )
+        )
+        let targetCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: targetLayout,
+                relativeTo: targetPageFrame
+            )
+        )
+        let sourceDMinorAnchor = try XCTUnwrap(
+            sourceCoordinateSpace.chordAnchors?.first { $0.chordID == sourceDMinor.id }
+        )
+        let targetDMinorAnchor = try XCTUnwrap(
+            targetCoordinateSpace.chordAnchors?.first { $0.chordID == sourceDMinor.id }
+        )
+        let sourceRegistrationPoint = sourceDMinorAnchor.registrationPoint?.point
+            ?? sourceDMinorAnchorFrame.origin
+        let targetRegistrationPoint = targetDMinorAnchor.registrationPoint?.point
+            ?? targetDMinorAnchorFrame.origin
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(
+                        x: sourceDMinorAnchorFrame.minX + 18,
+                        y: sourceDMinorAnchorFrame.minY - 42
+                    ),
+                    CGPoint(
+                        x: sourceDMinorAnchorFrame.minX + 26,
+                        y: sourceDMinorAnchorFrame.minY - 8
+                    )
+                ],
+                creationDate: Date(timeIntervalSince1970: 58),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let expectedChordAnchoredMidX = targetRegistrationPoint.x
+            + sourceBounds.midX - sourceRegistrationPoint.x
+        let measureScaledMidX = targetMeasureAnchorFrame.minX
+            + (sourceBounds.midX - sourceMeasureAnchorFrame.minX)
+                * targetMeasureAnchorFrame.width / sourceMeasureAnchorFrame.width
+
+        XCTAssertNil(legacySourceCoordinateSpace.chordAnchors)
+        XCTAssertEqual(sourceCoordinateSpace.chordAnchors?.count, 2)
+        XCTAssertLessThan(sourceBounds.midY, sourceDMinorAnchorFrame.minY)
+        XCTAssertEqual(transformedBounds.midX, expectedChordAnchoredMidX, accuracy: 4)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertGreaterThan(abs(transformedBounds.midX - measureScaledMidX), 6)
+    }
+
+    func testPageInkCoordinateSpaceCapturesMeasureAnchorsRelativeToPageFrame() throws {
+        let chart = Chart.blank(title: "Simple", measureCount: 3, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 820, height: 1180)
+        )
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let coordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
+                for: .page(frame: pageFrame),
+                pageLayout: layout
+            )
+        )
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let firstAnchor = try XCTUnwrap(coordinateSpace.measureAnchors?.first)
+
+        XCTAssertEqual(coordinateSpace.measureAnchors?.count, chart.measures.count)
+        XCTAssertEqual(firstAnchor.measureID, try XCTUnwrap(chart.measures.first?.id))
+        XCTAssertEqual(
+            firstAnchor.frame.rect.minX,
+            firstMeasure.chordWritingFrame.minX - pageFrame.minX,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            firstAnchor.frame.rect.minY,
+            firstMeasure.chordWritingFrame.minY - pageFrame.minY,
+            accuracy: 0.001
+        )
+    }
+
+    func testInkScopeIdentitySeparatesFreeWriteFromOtherCanvasScopes() {
+        let measureID = UUID()
+
+        XCTAssertEqual(
+            LeadSheetActiveInkScope.page(frame: CGRect(x: 0, y: 0, width: 700, height: 1000)).identity,
+            .page
+        )
+        XCTAssertNotEqual(
+            LeadSheetActiveInkScope.page(frame: CGRect(x: 0, y: 0, width: 700, height: 1000)).identity,
+            LeadSheetActiveInkScope.chords(
+                frame: CGRect(x: 10, y: 20, width: 500, height: 120),
+                inputFrames: []
+            ).identity
+        )
+        XCTAssertEqual(
+            LeadSheetActiveInkScope.rhythmicMeasure(
+                measureID: measureID,
+                frame: CGRect(x: 20, y: 40, width: 180, height: 80)
+            ).identity,
+            .rhythmicMeasure(measureID)
+        )
+    }
+
     func testSavedInkRendererKeepsPersistentInkDarkWhenCurrentTraitIsDark() throws {
         let drawing = PKDrawing(strokes: [
             stroke(
@@ -1883,6 +2235,78 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             color.setStroke()
             path.stroke()
         }
+    }
+
+    private func simpleChordFreeWriteRotationReproChart() throws -> Chart {
+        var chart = Chart.blank(title: "Free Write Rotation", measureCount: 3, layoutStyle: .simpleChordSheet)
+        XCTAssertGreaterThanOrEqual(chart.systems.count, 1)
+        XCTAssertGreaterThanOrEqual(chart.systems[0].measures.count, 2)
+        let measureID = chart.systems[0].measures[1].id
+        chart.systems[0].measures[1].chordEvents = [
+            chordEvent(
+                id: UUID(),
+                symbol: ChordSymbol(
+                    root: .a,
+                    accidental: .natural,
+                    quality: "",
+                    extensions: ["7"],
+                    alterations: [],
+                    slashBass: nil
+                ),
+                rawInput: "A7",
+                beat: 1,
+                subdivision: 0,
+                subdivisionsPerBeat: 1
+            ),
+            chordEvent(
+                id: UUID(),
+                symbol: ChordSymbol(
+                    root: .d,
+                    accidental: .natural,
+                    quality: "-",
+                    extensions: ["11"],
+                    alterations: [],
+                    slashBass: nil
+                ),
+                rawInput: "D-11",
+                beat: 2,
+                subdivision: 1,
+                subdivisionsPerBeat: 2
+            )
+        ]
+        XCTAssertEqual(chart.systems[0].measures[1].id, measureID)
+        return chart
+    }
+
+    private func chordEvent(
+        id: UUID,
+        symbol: ChordSymbol,
+        rawInput: String,
+        beat: Int,
+        subdivision: Int,
+        subdivisionsPerBeat: Int
+    ) -> ChordEvent {
+        ChordEvent(
+            id: id,
+            symbol: symbol,
+            spellingIntent: .explicit,
+            spellingOverrideSource: .userSelection,
+            startPosition: BeatPosition(
+                beat: beat,
+                subdivision: subdivision,
+                subdivisionsPerBeat: subdivisionsPerBeat
+            ),
+            duration: .quarter,
+            rhythmPlacement: .inline,
+            tieOut: false,
+            hitStyle: .none,
+            rawInput: rawInput,
+            sourceCandidateSignature: [rawInput]
+        )
+    }
+
+    private func relativeFrame(_ frame: CGRect, to parentFrame: CGRect) -> CGRect {
+        frame.offsetBy(dx: -parentFrame.minX, dy: -parentFrame.minY)
     }
 
     private func stroke(
