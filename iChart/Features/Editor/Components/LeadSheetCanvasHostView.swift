@@ -340,9 +340,14 @@ enum LeadSheetInkCanvasSyncPolicy {
         interactionMode: EditorCanvasMode,
         sessionState: LeadSheetInkAuthoringSessionState,
         currentDrawingData: Data?,
-        desiredDrawingData: Data?
+        desiredDrawingData: Data?,
+        didSwitchInkScope: Bool = false
     ) -> Bool {
-        LeadSheetInkAuthoringSessionPolicy.shouldPreserveActiveCanvas(
+        guard !didSwitchInkScope else {
+            return false
+        }
+
+        return LeadSheetInkAuthoringSessionPolicy.shouldPreserveActiveCanvas(
             activeInkScope: activeInkScope,
             interactionMode: interactionMode,
             sessionState: sessionState,
@@ -1212,6 +1217,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
     private var activeCanvasScopeIdentity: LeadSheetActiveInkScope.Identity?
+    private var activeCanvasScope: LeadSheetActiveInkScope?
     private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
     private var chordObjectEditingSuppressedUntil: Date?
     private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
@@ -2998,6 +3004,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 pageInkCanvasView.isUserInteractionEnabled = false
                 pageInkCanvasView.localInputFrames = []
                 activeCanvasScopeIdentity = nil
+                activeCanvasScope = nil
                 activeCanvasCoordinateSpace = nil
                 updateChordInkConfirmOverlayVisibility()
                 return
@@ -3007,6 +3014,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageInkCanvasView.isHidden = true
             pageInkCanvasView.localInputFrames = []
             activeCanvasScopeIdentity = nil
+            activeCanvasScope = nil
             activeCanvasCoordinateSpace = nil
             updateChordInkConfirmOverlayVisibility()
             return
@@ -3014,6 +3022,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         let targetScopeIdentity = activeInkScope.identity
+        let outgoingCanvasScope = activeCanvasScope
         let switchedInkScope = activeCanvasScopeIdentity != nil
             && activeCanvasScopeIdentity != targetScopeIdentity
         let targetCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
@@ -3021,6 +3030,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageLayout: pageLayout
         )
         if switchedInkScope {
+            if let outgoingCanvasScope {
+                persistActiveInkIfNeeded(activeInkScope: outgoingCanvasScope)
+            }
             activeCanvasCoordinateSpace = nil
         } else {
             reprojectActiveCanvasDrawingIfNeeded(
@@ -3054,15 +3066,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             interactionMode: interactionMode,
             sessionState: inkAuthoringSessionState,
             currentDrawingData: currentData,
-            desiredDrawingData: desiredCanvasData
+            desiredDrawingData: desiredCanvasData,
+            didSwitchInkScope: switchedInkScope
         ) {
             activeCanvasScopeIdentity = targetScopeIdentity
+            activeCanvasScope = activeInkScope
             pageInkCanvasView.becomeFirstResponder()
             return
         }
 
         guard currentData != desiredCanvasData else {
             activeCanvasScopeIdentity = targetScopeIdentity
+            activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
             return
         }
@@ -3072,6 +3087,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             desiredDrawingData: desiredCanvasData
         ) {
             activeCanvasScopeIdentity = targetScopeIdentity
+            activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
             pageInkCanvasView.becomeFirstResponder()
             return
@@ -3089,6 +3105,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         isSyncingInkCanvasFromModel = false
         activeCanvasScopeIdentity = targetScopeIdentity
+        activeCanvasScope = activeInkScope
         activeCanvasCoordinateSpace = targetCoordinateSpace
         updateChordInkConfirmOverlayVisibility()
         pageInkCanvasView.becomeFirstResponder()
