@@ -4,6 +4,50 @@ import UIKit
 
 struct ActiveChordMoveDrag {
     var chordID: UUID
+    var sourcePageLayout: LeadSheetPageLayout
+    var initialFrame: CGRect
+    var currentFrame: CGRect
+    var startLocation: CGPoint
+}
+
+enum LeadSheetChordMoveDragPolicy {
+    static func previewFrame(
+        for drag: ActiveChordMoveDrag,
+        at location: CGPoint,
+        boundedBy movementFrame: CGRect
+    ) -> CGRect {
+        let proposedFrame = drag.initialFrame.offsetBy(
+            dx: location.x - drag.startLocation.x,
+            dy: location.y - drag.startLocation.y
+        )
+        let resolvedWidth = min(max(1, proposedFrame.width), max(1, movementFrame.width))
+        let resolvedHeight = min(max(1, proposedFrame.height), max(1, movementFrame.height))
+        let resolvedX = min(
+            max(proposedFrame.minX, movementFrame.minX),
+            max(movementFrame.minX, movementFrame.maxX - resolvedWidth)
+        )
+        let resolvedY = min(
+            max(proposedFrame.minY, movementFrame.minY),
+            max(movementFrame.minY, movementFrame.maxY - resolvedHeight)
+        )
+
+        return CGRect(
+            x: resolvedX,
+            y: resolvedY,
+            width: resolvedWidth,
+            height: resolvedHeight
+        )
+    }
+
+    static func target(
+        at location: CGPoint,
+        for drag: ActiveChordMoveDrag
+    ) -> (measureID: UUID, fraction: Double)? {
+        LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+            at: location,
+            in: drag.sourcePageLayout
+        )
+    }
 }
 
 enum LeadSheetCanvasInteractionTargeting {

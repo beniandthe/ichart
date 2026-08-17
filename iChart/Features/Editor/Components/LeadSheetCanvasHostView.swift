@@ -1658,11 +1658,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
             for chordLayout in measure.chordLayouts {
-                renderer.drawChord(chordLayout)
+                let chordLayoutForDisplay = displayChordLayout(for: chordLayout)
+                renderer.drawChord(chordLayoutForDisplay)
                 if interactionMode.allowsChordObjectEditing,
                    measure.sourceMeasureID != nil,
-                   shouldDrawChordEditOverlay(for: chordLayout) {
-                    drawChordEditOverlay(for: chordLayout, using: renderer)
+                   shouldDrawChordEditOverlay(for: chordLayoutForDisplay) {
+                    drawChordEditOverlay(for: chordLayoutForDisplay, using: renderer)
                 }
             }
 
@@ -2038,6 +2039,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
+    private func displayChordLayout(for chordLayout: LeadSheetChordLayout) -> LeadSheetChordLayout {
+        guard let activeChordMoveDrag,
+              activeChordMoveDrag.chordID == chordLayout.id else {
+            return chordLayout
+        }
+
+        var previewLayout = chordLayout
+        previewLayout.frame = activeChordMoveDrag.currentFrame
+        previewLayout.fitFrame = activeChordMoveDrag.currentFrame
+        previewLayout.snapGuideTarget = CGPoint(
+            x: activeChordMoveDrag.currentFrame.midX,
+            y: activeChordMoveDrag.currentFrame.maxY + 1
+        )
+        return previewLayout
+    }
+
     private func drawChordEditOverlay(
         for chordLayout: LeadSheetChordLayout,
         using renderer: LeadSheetNotationRenderer
@@ -2094,6 +2111,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             y: chordLayout.frame.maxY + 1
         )
         let endPoint = chordLayout.snapGuideTarget
+        let deltaX = endPoint.x - startPoint.x
+        let deltaY = endPoint.y - startPoint.y
+        guard (deltaX * deltaX + deltaY * deltaY).squareRoot() > 4 else {
+            return
+        }
+
         let guidePath = UIBezierPath()
         guidePath.move(to: startPoint)
         guidePath.addLine(to: endPoint)
@@ -2808,22 +2831,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         switch recognizer.state {
         case .began:
-            guard let hitTarget = chordMoveHitTarget(at: location) else {
+            let startLocation = panStartLocation(for: recognizer)
+            guard let pageLayout,
+                  let hitTarget = chordMoveHitTarget(at: startLocation),
+                  let chordLayout = chordLayout(
+                    for: hitTarget.chordID,
+                    in: pageLayout
+                  ) else {
                 activeChordMoveDrag = nil
                 setNeedsDisplay()
                 return
             }
 
             selectedChordID = hitTarget.chordID
-            activeChordMoveDrag = ActiveChordMoveDrag(chordID: hitTarget.chordID)
+            activeChordMoveDrag = ActiveChordMoveDrag(
+                chordID: hitTarget.chordID,
+                sourcePageLayout: pageLayout,
+                initialFrame: chordLayout.frame,
+                currentFrame: chordLayout.frame,
+                startLocation: startLocation
+            )
             lockParentScrollForChordMove()
             setNeedsDisplay()
         case .changed, .ended:
-            guard let activeChordMoveDrag,
-                  let target = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
-                    at: recognizer.location(in: self),
-                    in: pageLayout
-                  ) else {
+            guard var activeChordMoveDrag,
+                  let pageLayout else {
                 if recognizer.state == .ended {
                     self.activeChordMoveDrag = nil
                     unlockParentScrollForChordMove()
@@ -2832,22 +2864,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            var updatedChart = chart
-            guard updatedChart.moveChordEvent(
-                activeChordMoveDrag.chordID,
-                to: target.measureID,
-                atFraction: target.fraction
-            ) else {
-                return
-            }
-
-            chart = updatedChart
-            onChartChanged?(updatedChart)
+            activeChordMoveDrag.currentFrame = LeadSheetChordMoveDragPolicy.previewFrame(
+                for: activeChordMoveDrag,
+                at: location,
+                boundedBy: pageLayout.paperFrame
+            )
+            self.activeChordMoveDrag = activeChordMoveDrag
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                commitChordMove(activeChordMoveDrag, at: location)
                 self.activeChordMoveDrag = nil
                 unlockParentScrollForChordMove()
+                setNeedsDisplay()
             }
         case .cancelled, .failed:
             activeChordMoveDrag = nil
@@ -2856,6 +2885,40 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         default:
             break
         }
+    }
+
+    private func chordLayout(
+        for chordID: UUID,
+        in pageLayout: LeadSheetPageLayout
+    ) -> LeadSheetChordLayout? {
+        pageLayout.systems
+            .flatMap(\.measures)
+            .flatMap(\.chordLayouts)
+            .first { $0.id == chordID }
+    }
+
+    private func commitChordMove(
+        _ activeChordMoveDrag: ActiveChordMoveDrag,
+        at location: CGPoint
+    ) {
+        guard let target = LeadSheetChordMoveDragPolicy.target(
+            at: location,
+            for: activeChordMoveDrag
+        ) else {
+            return
+        }
+
+        var updatedChart = chart
+        guard updatedChart.moveChordEvent(
+            activeChordMoveDrag.chordID,
+            to: target.measureID,
+            atFraction: target.fraction
+        ) else {
+            return
+        }
+
+        chart = updatedChart
+        onChartChanged?(updatedChart)
     }
 
     private func handleCueTextMovePan(_ recognizer: UIPanGestureRecognizer) {

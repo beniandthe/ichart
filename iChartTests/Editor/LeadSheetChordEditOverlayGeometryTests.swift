@@ -250,6 +250,22 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         XCTAssertEqual(editFrame.maxX, chordLayout.frame.maxX + 6, accuracy: 0.001)
     }
 
+    func testEditFrameWrapsVisibleChordHeightNotTallRhythmLane() {
+        let chordLayout = LeadSheetChordLayout(
+            id: UUID(),
+            text: "Eb△7",
+            frame: CGRect(x: 180, y: 102, width: 58, height: 32),
+            fitFrame: CGRect(x: 180, y: 94, width: 58, height: 52),
+            snapGuideTarget: CGPoint(x: 196, y: 156)
+        )
+
+        let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
+
+        XCTAssertLessThan(editFrame.height, chordLayout.fitFrame.height)
+        XCTAssertEqual(editFrame.midY, chordLayout.frame.midY, accuracy: 0.001)
+        XCTAssertTrue(editFrame.contains(chordLayout.frame))
+    }
+
     func testRoadmapMarkerEditFrameIsTightToMarkerNotMeasure() {
         let markerLayout = roadmapMarkerLayout(
             frame: CGRect(x: 126, y: 72, width: 42, height: 44),

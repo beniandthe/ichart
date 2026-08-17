@@ -1080,7 +1080,9 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(sectionTextFrame.height, 20, accuracy: 0.001)
         XCTAssertLessThanOrEqual(sectionTextFrame.maxY, firstMeasure.chordBandFrame.minY)
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY + 22, accuracy: 0.001)
-        XCTAssertEqual(chordLayout.frame.minY, firstMeasure.chordBandFrame.minY + expectedChordRenderOffset, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.fitFrame.minY, firstMeasure.chordBandFrame.minY + expectedChordRenderOffset, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.frame.midY, chordLayout.fitFrame.midY, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(chordLayout.frame.height, chordLayout.fitFrame.height)
         XCTAssertLessThan(firstMeasure.chordBandFrame.maxY, firstMeasure.staffFrame.minY)
         XCTAssertGreaterThan(firstMeasure.staffFrame.minY - firstMeasure.chordBandFrame.maxY, 5)
         XCTAssertGreaterThanOrEqual(chordLayout.frame.minY, firstMeasure.chordBandFrame.minY)
@@ -1562,13 +1564,51 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(firstSystem.keySignatureLayouts.isEmpty)
         XCTAssertLessThan(firstMeasure.chordBandFrame.maxY, firstMeasure.staffFrame.minY)
         XCTAssertEqual(firstMeasure.chordBandFrame.minY, firstMeasure.frame.minY, accuracy: 0.001)
-        XCTAssertEqual(firstMeasure.chordLayouts[0].frame.minY, firstMeasure.chordBandFrame.minY + CGFloat(16.0 / 3.0), accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.chordLayouts[0].fitFrame.minY, firstMeasure.chordBandFrame.minY + CGFloat(16.0 / 3.0), accuracy: 0.001)
+        XCTAssertEqual(firstMeasure.chordLayouts[0].frame.midY, firstMeasure.chordLayouts[0].fitFrame.midY, accuracy: 0.001)
+        XCTAssertLessThan(firstMeasure.chordLayouts[0].frame.height, firstMeasure.chordLayouts[0].fitFrame.height)
         XCTAssertEqual(firstMeasure.noteLayouts.count, 4)
         XCTAssertEqual(firstMeasure.chordLayouts.map(\.text), ["C", "G"])
         XCTAssertEqual(firstMeasure.chordLayouts[0].frame.midX, firstMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[1].frame.midX, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[0].snapGuideTarget.x, firstMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
         XCTAssertEqual(firstMeasure.chordLayouts[1].snapGuideTarget.x, firstMeasure.noteLayouts[2].noteheadFrame.midX, accuracy: 0.001)
+    }
+
+    func testRhythmSectionDenseOpeningChordsClearBarlineAndEachOther() throws {
+        var chart = Chart.blank(title: "Be Blessed", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measureID))
+        try appendChord("Ab△7", to: measureID, in: &chart, atFraction: 0.03)
+        try appendChord("Eb△7", to: measureID, in: &chart, atFraction: 0.30)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordLayouts = firstMeasure.chordLayouts
+
+        XCTAssertEqual(chordLayouts.map(\.text), ["Ab△7", "Eb△7"])
+        XCTAssertGreaterThanOrEqual(
+            chordLayouts[0].frame.minX - firstMeasure.leadingBarlineX,
+            16,
+            "A wide beat-one Rhythm Section chord should not visually crowd the opening barline."
+        )
+        XCTAssertGreaterThanOrEqual(
+            chordLayouts[1].frame.minX - chordLayouts[0].frame.maxX,
+            10,
+            "Dense opening Rhythm Section chords should keep a readable visual gap."
+        )
+        XCTAssertLessThanOrEqual(chordLayouts[1].frame.maxX, firstMeasure.chordBandFrame.maxX)
+        XCTAssertEqual(chordLayouts[0].snapGuideTarget.x, firstMeasure.noteLayouts[0].noteheadFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[1].snapGuideTarget.x, firstMeasure.noteLayouts[1].noteheadFrame.midX, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            chordLayouts[0].frame.midX,
+            chordLayouts[0].snapGuideTarget.x,
+            "The visible chord may shift right to stay readable while the rhythm snap remains on beat one."
+        )
     }
 
     func testRhythmSectionSheetRendersOneTimeAppliedChordTranspositionWithoutMovingSnaps() throws {

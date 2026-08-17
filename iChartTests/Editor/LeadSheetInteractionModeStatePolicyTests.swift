@@ -700,6 +700,81 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testChordMoveDragUsesFrozenLayoutTargetWhilePreviewMoves() throws {
+        var chart = Chart.blank(title: "Drag Reflow", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureID,
+                atFraction: 0.03
+            )
+        )
+        let movedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D"),
+                rawInput: "D",
+                to: measureID,
+                atFraction: 0.30
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("A7"),
+                rawInput: "A7",
+                to: measureID,
+                atFraction: 0.62
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D-11"),
+                rawInput: "D-11",
+                to: measureID,
+                atFraction: 0.86
+            )
+        )
+
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == movedChordID })
+        let startLocation = CGPoint(x: sourceChordLayout.frame.midX, y: sourceChordLayout.frame.midY)
+        let drag = ActiveChordMoveDrag(
+            chordID: movedChordID,
+            sourcePageLayout: sourceLayout,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: startLocation
+        )
+        let movedLocation = CGPoint(
+            x: startLocation.x + sourceMeasure.chordBandFrame.width * 0.18,
+            y: startLocation.y
+        )
+
+        let previewFrame = LeadSheetChordMoveDragPolicy.previewFrame(
+            for: drag,
+            at: movedLocation,
+            boundedBy: sourceLayout.paperFrame
+        )
+        let target = try XCTUnwrap(
+            LeadSheetChordMoveDragPolicy.target(
+                at: movedLocation,
+                for: drag
+            )
+        )
+        let expectedFrozenFraction = (movedLocation.x - sourceMeasure.chordBandFrame.minX)
+            / max(1, sourceMeasure.chordBandFrame.width)
+
+        XCTAssertEqual(previewFrame.minX, sourceChordLayout.frame.minX + sourceMeasure.chordBandFrame.width * 0.18, accuracy: 0.001)
+        XCTAssertEqual(previewFrame.minY, sourceChordLayout.frame.minY, accuracy: 0.001)
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertEqual(target.fraction, Double(min(max(expectedFrozenFraction, 0), 0.9999)), accuracy: 0.0001)
+    }
+
     func testBrowseModeKeepsCueTextEditable() {
         XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
     }

@@ -275,6 +275,9 @@ enum LeadSheetPageLayoutEngine {
     private static let systemTrailingPadding: CGFloat = 6
     private static let minimumPaperWidth: CGFloat = 640
     private static let rhythmSectionChordRenderOffset: CGFloat = 16 / 3
+    private static let rhythmSectionChordLeadingInset: CGFloat = 16
+    private static let rhythmSectionChordMinimumFrameGap: CGFloat = 10
+    private static let rhythmSectionChordVisibleFrameHeight: CGFloat = 32
     private static let simpleChordMinimumFrameGap: CGFloat = 16
 
     private struct VisualPolicy {
@@ -1587,9 +1590,17 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy
             )
         }
-        let chordLayouts = isSimpleChordSheet
-            ? resolvedSimpleChordCollisions(in: rawChordLayouts)
-            : rawChordLayouts
+        let chordLayouts: [LeadSheetChordLayout]
+        if isSimpleChordSheet {
+            chordLayouts = resolvedSimpleChordCollisions(in: rawChordLayouts)
+        } else if layoutStyle == .rhythmSectionSheet {
+            chordLayouts = resolvedRhythmSectionChordCollisions(
+                in: rawChordLayouts,
+                chordBandFrame: chordBandFrame
+            )
+        } else {
+            chordLayouts = rawChordLayouts
+        }
         let noteLayouts = isSimpleChordSheet ? [] : noteLayouts(
             for: measure,
             chart: chart,
@@ -1674,26 +1685,39 @@ enum LeadSheetPageLayoutEngine {
         }
 
         let textWidth = estimatedChordTextWidth(for: displayedText)
+        let minimumChordX = visualPolicy.layoutStyle == .rhythmSectionSheet
+            ? staffFrame.minX + rhythmSectionChordLeadingInset
+            : chordBandFrame.minX + 1
         let chordX = min(
-            max(chordBandFrame.minX + 1, attackCenterX - textWidth / 2),
+            max(minimumChordX, attackCenterX - textWidth / 2),
             chordBandFrame.maxX - textWidth
         )
-        let resolvedChordX = max(chordBandFrame.minX + 1, chordX)
+        let resolvedChordX = max(minimumChordX, chordX)
         let resolvedWidth = min(textWidth, max(1, chordBandFrame.maxX - resolvedChordX))
 
         let structuredChordRenderOffset = visualPolicy.layoutStyle == .rhythmSectionSheet
             ? rhythmSectionChordRenderOffset
             : 0
+        let fitFrame = CGRect(
+            x: resolvedChordX,
+            y: chordBandFrame.minY + structuredChordRenderOffset,
+            width: resolvedWidth,
+            height: chordBandFrame.height
+        )
+        let visibleFrameHeight = visualPolicy.layoutStyle == .rhythmSectionSheet
+            ? min(chordBandFrame.height, rhythmSectionChordVisibleFrameHeight)
+            : chordBandFrame.height
         return LeadSheetChordLayout(
             id: placement.chordEvent.id,
             text: displayedText,
             symbol: displayedSymbol,
             frame: CGRect(
                 x: resolvedChordX,
-                y: chordBandFrame.minY + structuredChordRenderOffset,
+                y: fitFrame.midY - visibleFrameHeight / 2,
                 width: resolvedWidth,
-                height: chordBandFrame.height
+                height: visibleFrameHeight
             ),
+            fitFrame: fitFrame,
             snapGuideTarget: CGPoint(x: attackCenterX, y: staffFrame.midY)
         )
     }
@@ -1718,6 +1742,56 @@ enum LeadSheetPageLayoutEngine {
             width: max(1, chordBandFrame.maxX - reservedMinX),
             height: chordBandFrame.height
         )
+    }
+
+    private static func resolvedRhythmSectionChordCollisions(
+        in chordLayouts: [LeadSheetChordLayout],
+        chordBandFrame: CGRect
+    ) -> [LeadSheetChordLayout] {
+        guard chordLayouts.count > 1 else {
+            return chordLayouts
+        }
+
+        var resolvedLayouts = [LeadSheetChordLayout]()
+        resolvedLayouts.reserveCapacity(chordLayouts.count)
+
+        for chordLayout in chordLayouts {
+            var resolvedLayout = chordLayout
+            if let previousLayout = resolvedLayouts.last {
+                let minimumMinX = previousLayout.frame.maxX + rhythmSectionChordMinimumFrameGap
+                if resolvedLayout.frame.minX < minimumMinX {
+                    resolvedLayout = rhythmSectionChordLayout(
+                        resolvedLayout,
+                        byMovingVisibleMinXTo: minimumMinX,
+                        boundedBy: chordBandFrame
+                    )
+                }
+            }
+
+            resolvedLayouts.append(resolvedLayout)
+        }
+
+        return resolvedLayouts
+    }
+
+    private static func rhythmSectionChordLayout(
+        _ chordLayout: LeadSheetChordLayout,
+        byMovingVisibleMinXTo proposedMinX: CGFloat,
+        boundedBy chordBandFrame: CGRect
+    ) -> LeadSheetChordLayout {
+        let boundedMinX = min(
+            max(chordBandFrame.minX + 1, proposedMinX),
+            max(chordBandFrame.minX + 1, chordBandFrame.maxX - chordLayout.frame.width)
+        )
+        let deltaX = boundedMinX - chordLayout.frame.minX
+        guard abs(deltaX) > 0.001 else {
+            return chordLayout
+        }
+
+        var resolvedLayout = chordLayout
+        resolvedLayout.frame = chordLayout.frame.offsetBy(dx: deltaX, dy: 0)
+        resolvedLayout.fitFrame = chordLayout.fitFrame.offsetBy(dx: deltaX, dy: 0)
+        return resolvedLayout
     }
 
     private static func resolvedSimpleChordCollisions(
