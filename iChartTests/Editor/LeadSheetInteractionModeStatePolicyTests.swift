@@ -137,6 +137,32 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
     }
 
+    func testPersistentInkCoordinateSpaceTransformsLandscapeDrawingIntoPortraitFrame() throws {
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 200, y: 100),
+                    CGPoint(x: 240, y: 120)
+                ],
+                creationDate: Date(timeIntervalSince1970: 55),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: PersistentInkCoordinateSpace(width: 1000, height: 500),
+            targetCoordinateSpace: PersistentInkCoordinateSpace(width: 500, height: 1000)
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+
+        XCTAssertEqual(transformedBounds.minX, sourceBounds.minX * 0.5, accuracy: 3)
+        XCTAssertEqual(transformedBounds.minY, sourceBounds.minY * 2, accuracy: 3)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width * 0.5, accuracy: 3)
+        XCTAssertEqual(transformedBounds.height, sourceBounds.height * 2, accuracy: 3)
+    }
+
     func testSavedInkRendererKeepsPersistentInkDarkWhenCurrentTraitIsDark() throws {
         let drawing = PKDrawing(strokes: [
             stroke(

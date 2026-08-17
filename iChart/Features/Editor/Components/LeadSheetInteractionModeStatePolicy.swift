@@ -76,6 +76,74 @@ enum LeadSheetPersistentInkColorPolicy {
     }
 }
 
+enum LeadSheetPersistentInkCoordinateSpacePolicy {
+    static func coordinateSpace(for frame: CGRect) -> PersistentInkCoordinateSpace? {
+        PersistentInkCoordinateSpace(size: frame.size)
+    }
+
+    static func drawing(
+        from drawingData: Data?,
+        sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        targetFrame: CGRect
+    ) -> PKDrawing? {
+        guard let drawingData,
+              let drawing = try? PKDrawing(data: drawingData) else {
+            return nil
+        }
+
+        let normalizedDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(drawing)
+        return Self.drawing(
+            normalizedDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: coordinateSpace(for: targetFrame)
+        )
+    }
+
+    static func drawing(
+        _ drawing: PKDrawing,
+        sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        targetCoordinateSpace: PersistentInkCoordinateSpace?
+    ) -> PKDrawing {
+        guard let sourceCoordinateSpace,
+              let targetCoordinateSpace,
+              sourceCoordinateSpace != targetCoordinateSpace else {
+            return drawing
+        }
+
+        let sourceSize = sourceCoordinateSpace.size
+        let targetSize = targetCoordinateSpace.size
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              targetSize.width > 0,
+              targetSize.height > 0 else {
+            return drawing
+        }
+
+        return drawing.transformed(
+            using: CGAffineTransform(
+                scaleX: targetSize.width / sourceSize.width,
+                y: targetSize.height / sourceSize.height
+            )
+        )
+    }
+
+    static func persistentDrawingData(
+        from drawingData: Data?,
+        sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        targetFrame: CGRect
+    ) -> Data? {
+        guard let drawing = drawing(
+            from: drawingData,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetFrame: targetFrame
+        ) else {
+            return nil
+        }
+
+        return LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing)
+    }
+}
+
 struct LeadSheetInteractionModeStatePolicy {
     var selectionTapEnabled: Bool
     var inkSelectionTapEnabled: Bool

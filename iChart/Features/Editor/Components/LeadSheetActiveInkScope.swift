@@ -98,6 +98,18 @@ enum LeadSheetActiveInkScope {
         }
     }
 
+    var persistsDrawingData: Bool {
+        switch self {
+        case .page,
+             .header,
+             .chords,
+             .rhythmicMeasure:
+            return true
+        case .noteSelection:
+            return false
+        }
+    }
+
     static func resolve(
         interactionMode: EditorCanvasMode,
         chartLayoutStyle: ChartLayoutStyle,
@@ -198,24 +210,56 @@ enum LeadSheetActiveInkScope {
         }
     }
 
-    func chartByPersistingDrawingData(_ drawingData: Data?, in chart: Chart) -> Chart? {
+    func drawingCoordinateSpace(in chart: Chart) -> PersistentInkCoordinateSpace? {
+        switch self {
+        case .page:
+            return chart.pageHandwrittenNotationCoordinateSpace
+        case .header:
+            return chart.pageHandwrittenHeaderCoordinateSpace
+        case .chords:
+            return chart.pageHandwrittenChordCoordinateSpace
+        case .rhythmicMeasure(let measureID, _):
+            return chart.measure(id: measureID)?.handwrittenRhythmicNotationCoordinateSpace
+        case .noteSelection:
+            return nil
+        }
+    }
+
+    func chartByPersistingDrawingData(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        in chart: Chart
+    ) -> Chart? {
         var updatedChart = chart
 
         switch self {
         case .page:
-            guard updatedChart.setPageHandwrittenNotationDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenNotationDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .header:
-            guard updatedChart.setPageHandwrittenHeaderDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenHeaderDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .chords:
-            guard updatedChart.setPageHandwrittenChordDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenChordDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .rhythmicMeasure(let measureID, _):
-            guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
+            guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace,
+                for: measureID
+            ) else {
                 return nil
             }
         case .noteSelection:

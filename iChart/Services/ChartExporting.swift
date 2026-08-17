@@ -228,15 +228,27 @@ private struct ChartPDFRenderer {
         renderer.drawPaper(pageLayout.paperFrame, in: context, showsShadow: false)
         renderer.drawHeader(pageLayout.header)
         if chart.headerInputMode == .handwritten {
-            LeadSheetSavedInkRenderer.drawHeaderInk(chart.pageHandwrittenHeaderData, in: pageLayout)
+            LeadSheetSavedInkRenderer.drawHeaderInk(
+                chart.pageHandwrittenHeaderData,
+                coordinateSpace: chart.pageHandwrittenHeaderCoordinateSpace,
+                in: pageLayout
+            )
         }
 
         for system in pageLayout.systems {
             drawSystem(system, using: renderer)
         }
 
-        LeadSheetSavedInkRenderer.drawPageInk(chart.pageHandwrittenNotationData, in: pageLayout)
-        LeadSheetSavedInkRenderer.drawChordInk(chart.pageHandwrittenChordData, in: pageLayout)
+        LeadSheetSavedInkRenderer.drawPageInk(
+            chart.pageHandwrittenNotationData,
+            coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+            in: pageLayout
+        )
+        LeadSheetSavedInkRenderer.drawChordInk(
+            chart.pageHandwrittenChordData,
+            coordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
+            in: pageLayout
+        )
     }
 
     private func drawSystem(_ system: LeadSheetSystemLayout, using renderer: LeadSheetNotationRenderer) {
@@ -371,8 +383,10 @@ private struct ChartPDFRenderer {
             return
         }
 
+        let sourceMeasure = chart.measure(id: sourceMeasureID)
         LeadSheetSavedInkRenderer.drawRhythmicNotationInk(
-            chart.measure(id: sourceMeasureID)?.handwrittenRhythmicNotationData,
+            sourceMeasure?.handwrittenRhythmicNotationData,
+            coordinateSpace: sourceMeasure?.handwrittenRhythmicNotationCoordinateSpace,
             in: measure
         )
     }

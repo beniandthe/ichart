@@ -104,6 +104,38 @@ test("telemetry row sanitizes event context and allowlisted properties", () => {
   assert.equal(row.properties.error_message, undefined);
 });
 
+test("telemetry row allows coordinate reprojection diagnostics", () => {
+  const row = telemetryRowFromEvent(
+    validEvent({
+      event_name: "ink.coordinate_space_reprojected",
+      properties: {
+        scope: "freehand",
+        stroke_count: 2,
+        source_coordinate_width: 1366,
+        source_coordinate_height: 1024,
+        target_coordinate_width: 1024,
+        target_coordinate_height: 1366,
+        canvas_bounds_width: 1024,
+        canvas_bounds_height: 1366,
+        chart_title: "should never pass through",
+      },
+    }),
+    validContext
+  );
+
+  assert.ok(row);
+  assert.equal(row.event_name, "ink.coordinate_space_reprojected");
+  assert.equal(row.properties.scope, "freehand");
+  assert.equal(row.properties.stroke_count, 2);
+  assert.equal(row.properties.source_coordinate_width, 1366);
+  assert.equal(row.properties.source_coordinate_height, 1024);
+  assert.equal(row.properties.target_coordinate_width, 1024);
+  assert.equal(row.properties.target_coordinate_height, 1366);
+  assert.equal(row.properties.canvas_bounds_width, 1024);
+  assert.equal(row.properties.canvas_bounds_height, 1366);
+  assert.equal(row.properties.chart_title, undefined);
+});
+
 test("telemetry row rejects unknown event names and malformed ids", () => {
   assert.equal(
     telemetryRowFromEvent(validEvent({ event_name: "chart.content_uploaded" }), validContext),

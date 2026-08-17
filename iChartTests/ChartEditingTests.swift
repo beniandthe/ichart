@@ -2018,6 +2018,25 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(chart.pageHandwrittenNotationData)
     }
 
+    func testSetPageHandwrittenNotationDrawingStoresAndClearsCoordinateSpace() {
+        var chart = Chart.draft(title: "New Chart")
+        let drawingData = Data([4, 3, 2, 1])
+        let coordinateSpace = PersistentInkCoordinateSpace(width: 1024, height: 720)
+
+        XCTAssertTrue(
+            chart.setPageHandwrittenNotationDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            )
+        )
+
+        XCTAssertEqual(chart.pageHandwrittenNotationData, drawingData)
+        XCTAssertEqual(chart.pageHandwrittenNotationCoordinateSpace, coordinateSpace)
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(nil))
+        XCTAssertNil(chart.pageHandwrittenNotationData)
+        XCTAssertNil(chart.pageHandwrittenNotationCoordinateSpace)
+    }
+
     func testSetPageHandwrittenChordDrawingStoresSeparatelyFromFreeHandInk() {
         var chart = Chart.draft(title: "New Chart")
         let freeHandData = Data([4, 3, 2, 1])
@@ -2139,14 +2158,20 @@ final class ChartEditingTests: XCTestCase {
     func testActiveInkScopePersistsNormalizationOnlyChangeForLegacyWhiteInk() throws {
         var chart = Chart.blank(title: "Normalize Existing Ink", measureCount: 1)
         let whiteData = whiteInkDrawingData()
+        let coordinateSpace = PersistentInkCoordinateSpace(width: 1024, height: 720)
         chart.pageHandwrittenNotationData = whiteData
 
         let updatedChart = try XCTUnwrap(
             LeadSheetActiveInkScope.page(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
-                .chartByPersistingDrawingData(whiteData, in: chart)
+                .chartByPersistingDrawingData(
+                    whiteData,
+                    coordinateSpace: coordinateSpace,
+                    in: chart
+                )
         )
 
         try assertPersistentInkDataIsDark(updatedChart.pageHandwrittenNotationData)
+        XCTAssertEqual(updatedChart.pageHandwrittenNotationCoordinateSpace, coordinateSpace)
     }
     #endif
 

@@ -3,21 +3,28 @@ import Foundation
 struct MeasureRhythmMap: Codable, Hashable {
     var values: [RhythmValue]
     var drawingData: Data? = nil
+    var drawingCoordinateSpace: PersistentInkCoordinateSpace? = nil
     var tieOutSlotIndices: Set<Int> = []
 
     init(
         values: [RhythmValue],
         drawingData: Data? = nil,
+        drawingCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         tieOutSlotIndices: Set<Int> = []
     ) {
         self.values = values
         self.drawingData = normalizedPersistentInkDrawingData(drawingData)
+        self.drawingCoordinateSpace = Self.coordinateSpace(
+            drawingCoordinateSpace,
+            for: self.drawingData
+        )
         self.tieOutSlotIndices = tieOutSlotIndices
     }
 
     private enum CodingKeys: String, CodingKey {
         case values
         case drawingData
+        case drawingCoordinateSpace
         case tieOutSlotIndices
     }
 
@@ -27,6 +34,10 @@ struct MeasureRhythmMap: Codable, Hashable {
         drawingData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .drawingData)
         )
+        drawingCoordinateSpace = Self.coordinateSpace(
+            try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .drawingCoordinateSpace),
+            for: drawingData
+        )
         tieOutSlotIndices = try container.decodeIfPresent(Set<Int>.self, forKey: .tieOutSlotIndices) ?? []
     }
 
@@ -34,9 +45,17 @@ struct MeasureRhythmMap: Codable, Hashable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(values, forKey: .values)
         try container.encodeIfPresent(drawingData, forKey: .drawingData)
+        try container.encodeIfPresent(drawingCoordinateSpace, forKey: .drawingCoordinateSpace)
         if !tieOutSlotIndices.isEmpty {
             try container.encode(tieOutSlotIndices, forKey: .tieOutSlotIndices)
         }
+    }
+
+    private static func coordinateSpace(
+        _ coordinateSpace: PersistentInkCoordinateSpace?,
+        for drawingData: Data?
+    ) -> PersistentInkCoordinateSpace? {
+        drawingData == nil ? nil : coordinateSpace
     }
 
     var totalWholeNoteLength: Double {
@@ -491,11 +510,13 @@ extension Measure {
     mutating func setRhythmMap(
         _ values: [RhythmValue],
         drawingData: Data? = nil,
+        drawingCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         tieOutSlotIndices: Set<Int> = []
     ) {
         rhythmMap = MeasureRhythmMap(
             values: values,
             drawingData: normalizedPersistentInkDrawingData(drawingData),
+            drawingCoordinateSpace: drawingCoordinateSpace,
             tieOutSlotIndices: tieOutSlotIndices
         )
     }

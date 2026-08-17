@@ -1211,6 +1211,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingInkInputCoalescingWorkItem: DispatchWorkItem?
     private var pendingInkPersistWorkItem: DispatchWorkItem?
     private var rhythmicNotationEraseRecovery = LeadSheetRhythmicNotationEraseRecovery()
+    private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
     private var chordObjectEditingSuppressedUntil: Date?
     private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
     private var rhythmicNotationPreviewState: LeadSheetRhythmicNotationPreviewState? {
@@ -1895,7 +1896,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        LeadSheetSavedInkRenderer.drawPageInk(chart.pageHandwrittenNotationData, in: pageLayout)
+        LeadSheetSavedInkRenderer.drawPageInk(
+            chart.pageHandwrittenNotationData,
+            coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+            in: pageLayout
+        )
     }
 
     private func drawSavedHeaderInk() {
@@ -1903,7 +1908,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        LeadSheetSavedInkRenderer.drawHeaderInk(chart.pageHandwrittenHeaderData, in: pageLayout)
+        LeadSheetSavedInkRenderer.drawHeaderInk(
+            chart.pageHandwrittenHeaderData,
+            coordinateSpace: chart.pageHandwrittenHeaderCoordinateSpace,
+            in: pageLayout
+        )
     }
 
     private func drawSavedChordInk() {
@@ -1911,7 +1920,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        LeadSheetSavedInkRenderer.drawChordInk(chart.pageHandwrittenChordData, in: pageLayout)
+        LeadSheetSavedInkRenderer.drawChordInk(
+            chart.pageHandwrittenChordData,
+            coordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
+            in: pageLayout
+        )
     }
 
     private func drawChordWritingLanes(_ pageLayout: LeadSheetPageLayout) {
@@ -2104,6 +2117,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         LeadSheetSavedInkRenderer.drawRhythmicNotationInk(
             sourceMeasure.handwrittenRhythmicNotationData,
+            coordinateSpace: sourceMeasure.handwrittenRhythmicNotationCoordinateSpace,
             in: measure
         )
     }
@@ -2993,6 +3007,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
+        let targetCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
+            for: activeInkScope.frame
+        )
+        reprojectActiveCanvasDrawingIfNeeded(
+            activeInkScope: activeInkScope,
+            to: targetCoordinateSpace
+        )
         pageInkCanvasView.isHidden = false
         pageInkCanvasView.isUserInteractionEnabled = true
         pageInkCanvasView.frame = activeInkScope.frame
@@ -3002,40 +3023,113 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         normalizePersistentInkCanvasIfNeeded(activeInkScope: activeInkScope)
 
         let desiredData = activeInkScope.drawingData(in: chart)
+        let desiredCoordinateSpace = activeInkScope.drawingCoordinateSpace(in: chart)
+        let desiredCanvasData = LeadSheetPersistentInkCoordinateSpacePolicy.persistentDrawingData(
+            from: desiredData,
+            sourceCoordinateSpace: desiredCoordinateSpace,
+            targetFrame: activeInkScope.frame
+        )
         let currentData = currentCanvasDrawingData()
         if LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
             activeInkScope: activeInkScope,
             interactionMode: interactionMode,
             sessionState: inkAuthoringSessionState,
             currentDrawingData: currentData,
-            desiredDrawingData: desiredData
+            desiredDrawingData: desiredCanvasData
         ) {
             pageInkCanvasView.becomeFirstResponder()
             return
         }
 
-        guard currentData != desiredData else {
+        guard currentData != desiredCanvasData else {
+            activeCanvasCoordinateSpace = targetCoordinateSpace
             return
         }
 
         if LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
             currentInkSnapshot: currentCanvasInkSnapshot(),
-            desiredDrawingData: desiredData
+            desiredDrawingData: desiredCanvasData
         ) {
+            activeCanvasCoordinateSpace = targetCoordinateSpace
             pageInkCanvasView.becomeFirstResponder()
             return
         }
 
         isSyncingInkCanvasFromModel = true
-        if let desiredData,
-           let drawing = try? PKDrawing(data: desiredData) {
-            pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(drawing)
+        if let drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: desiredData,
+            sourceCoordinateSpace: desiredCoordinateSpace,
+            targetFrame: activeInkScope.frame
+        ) {
+            pageInkCanvasView.drawing = drawing
         } else {
             pageInkCanvasView.drawing = PKDrawing()
         }
         isSyncingInkCanvasFromModel = false
+        activeCanvasCoordinateSpace = targetCoordinateSpace
         updateChordInkConfirmOverlayVisibility()
         pageInkCanvasView.becomeFirstResponder()
+    }
+
+    private func reprojectActiveCanvasDrawingIfNeeded(
+        activeInkScope: LeadSheetActiveInkScope,
+        to targetCoordinateSpace: PersistentInkCoordinateSpace?
+    ) {
+        guard let targetCoordinateSpace else {
+            activeCanvasCoordinateSpace = nil
+            return
+        }
+
+        let sourceCoordinateSpace = activeCanvasCoordinateSpace
+            ?? PersistentInkCoordinateSpace(size: pageInkCanvasView.bounds.size)
+        guard let sourceCoordinateSpace,
+              sourceCoordinateSpace != targetCoordinateSpace,
+              !pageInkCanvasView.drawing.strokes.isEmpty else {
+            activeCanvasCoordinateSpace = targetCoordinateSpace
+            return
+        }
+
+        let strokeCount = pageInkCanvasView.drawing.strokes.count
+        isSyncingInkCanvasFromModel = true
+        pageInkCanvasView.drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            pageInkCanvasView.drawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        isSyncingInkCanvasFromModel = false
+        activeCanvasCoordinateSpace = targetCoordinateSpace
+        recordInkCoordinateSpaceReprojection(
+            activeInkScope: activeInkScope,
+            strokeCount: strokeCount,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+    }
+
+    private func recordInkCoordinateSpaceReprojection(
+        activeInkScope: LeadSheetActiveInkScope,
+        strokeCount: Int,
+        sourceCoordinateSpace: PersistentInkCoordinateSpace,
+        targetCoordinateSpace: PersistentInkCoordinateSpace
+    ) {
+        guard strokeCount > 0,
+              activeInkScope.persistsDrawingData else {
+            return
+        }
+
+        IChartTelemetry.record(
+            "ink.coordinate_space_reprojected",
+            properties: [
+                "scope": .string(activeInkScope.telemetryValue),
+                "stroke_count": .int(strokeCount),
+                "source_coordinate_width": .double(sourceCoordinateSpace.width),
+                "source_coordinate_height": .double(sourceCoordinateSpace.height),
+                "target_coordinate_width": .double(targetCoordinateSpace.width),
+                "target_coordinate_height": .double(targetCoordinateSpace.height),
+                "canvas_bounds_width": .double(Double(pageInkCanvasView.bounds.width)),
+                "canvas_bounds_height": .double(Double(pageInkCanvasView.bounds.height))
+            ]
+        )
     }
 
     private func updateChordInkConfirmOverlayVisibility() {
@@ -3172,7 +3266,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         let drawingData = currentCanvasDrawingData(activeInkScope: activeInkScope)
-        guard let updatedChart = activeInkScope.chartByPersistingDrawingData(drawingData, in: chart) else {
+        let coordinateSpace = activeInkScope.persistsDrawingData
+            ? activeCanvasCoordinateSpace
+                ?? LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: activeInkScope.frame)
+            : nil
+        guard let updatedChart = activeInkScope.chartByPersistingDrawingData(
+            drawingData,
+            coordinateSpace: coordinateSpace,
+            in: chart
+        ) else {
             clearDirtyInkAuthoringRole(activeInkRole)
             return
         }
@@ -3185,7 +3287,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 "ink.persisted",
                 properties: telemetrySnapshot.telemetryProperties(
                     scope: activeInkScope,
-                    normalizedBeforeSave: activeInkScope.telemetryValue != "note_selection"
+                    normalizedBeforeSave: activeInkScope.persistsDrawingData
                 )
             )
             if telemetrySnapshot.normalizationNeeded {
@@ -3371,10 +3473,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func finalizeRhythmicNotationIfNeeded(for measureID: UUID) -> Bool {
         let liveDrawingData = currentCanvasDrawingData()
+        let liveDrawingCoordinateSpace = activeCanvasCoordinateSpace
         var workingChart = chart
         if interactionMode.allowsDirectRhythmicNotationInk,
            let updatedChart = LeadSheetRhythmicNotationFinalization.chartByPersistingLiveDrawing(
                liveDrawingData,
+               coordinateSpace: liveDrawingCoordinateSpace,
                for: measureID,
                in: workingChart
            ) {
@@ -3426,6 +3530,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if let updatedChart = LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
                 proposal.values,
                 drawingData: drawingData,
+                drawingCoordinateSpace: measure.handwrittenRhythmicNotationCoordinateSpace,
                 tieOutSlotIndices: proposal.tieOutSlotIndices,
                 for: measureID,
                 measureLayout: measureLayout,
@@ -3473,6 +3578,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if let updatedChart = LeadSheetRhythmicNotationFinalization.chartByPersistingLiveDrawing(
             currentCanvasDrawingData(),
+            coordinateSpace: activeCanvasCoordinateSpace,
             for: measureID,
             in: chart
         ) {
@@ -3563,6 +3669,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               let updatedChart = LeadSheetRhythmicNotationFinalization.chartByApplyingQuantizedRhythmMap(
                 feedback.values,
                 drawingData: drawingData,
+                drawingCoordinateSpace: activeCanvasCoordinateSpace,
                 tieOutSlotIndices: feedback.tieOutSlotIndices,
                 for: feedback.measureID,
                 measureLayout: measureLayout,
@@ -3729,6 +3836,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = PKDrawing()
         isSyncingInkCanvasFromModel = false
+        activeCanvasCoordinateSpace = nil
         clearDirtyInkAuthoringRole(.rhythm)
     }
 
@@ -4003,6 +4111,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = PKDrawing()
         isSyncingInkCanvasFromModel = false
+        activeCanvasCoordinateSpace = nil
     }
 
     private func clearNoteSelectionInkAfterPencilKitSettles() {

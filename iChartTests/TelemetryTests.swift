@@ -12,6 +12,10 @@ final class TelemetryTests: XCTestCase {
             "stroke_color_median_luminance": .double(0.05999),
             "canvas_override_user_interface_style": .string("light"),
             "canvas_drawing_policy": .string("any_input"),
+            "source_coordinate_width": .double(1366),
+            "source_coordinate_height": .double(1024),
+            "target_coordinate_width": .double(1024),
+            "target_coordinate_height": .double(1366),
             "live_canvas_light_trait_guard_enabled": .bool(true),
             "tool_ink_type": .string("pen"),
             "tool_is_inking": .bool(true),
@@ -28,6 +32,10 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(sanitized["stroke_color_median_luminance"], .double(0.06))
         XCTAssertEqual(sanitized["canvas_override_user_interface_style"], .string("light"))
         XCTAssertEqual(sanitized["canvas_drawing_policy"], .string("any_input"))
+        XCTAssertEqual(sanitized["source_coordinate_width"], .double(1366))
+        XCTAssertEqual(sanitized["source_coordinate_height"], .double(1024))
+        XCTAssertEqual(sanitized["target_coordinate_width"], .double(1024))
+        XCTAssertEqual(sanitized["target_coordinate_height"], .double(1366))
         XCTAssertEqual(sanitized["live_canvas_light_trait_guard_enabled"], .bool(true))
         XCTAssertEqual(sanitized["tool_ink_type"], .string("pen"))
         XCTAssertEqual(sanitized["tool_is_inking"], .bool(true))
