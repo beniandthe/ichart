@@ -275,6 +275,7 @@ enum LeadSheetPageLayoutEngine {
     private static let systemTrailingPadding: CGFloat = 6
     private static let minimumPaperWidth: CGFloat = 640
     private static let rhythmSectionChordRenderOffset: CGFloat = 16 / 3
+    private static let simpleChordMinimumFrameGap: CGFloat = 16
 
     private struct VisualPolicy {
         let chart: Chart
@@ -1132,26 +1133,32 @@ enum LeadSheetPageLayoutEngine {
 
         func appendPlan(for measures: [Measure], id: UUID) {
             let weights = measures.map {
-                simpleChordSheetMeasureWeight(for: $0, metrics: metrics)
+                simpleChordSheetMeasureWeight(for: $0, chart: chart, metrics: metrics)
             }
             let measurePlans: [PackedLeadSheetMeasurePlan]
             let rowBodyWidth: CGFloat
-            let totalWeight = max(1, weights.reduce(0, +))
+            let targetWidths = weights.map { standardMeasureWidth * $0 }
+            let resolvedWidths = simpleChordSheetReadableRowWidths(
+                targetWidths,
+                weights: weights,
+                maxBodyWidth: bodyWidth
+            )
+            let resolvedBodyWidth = resolvedWidths.reduce(0, +)
 
-            if measures.count <= preferredMeasuresPerSystem,
-               totalWeight <= CGFloat(preferredMeasuresPerSystem) {
-                measurePlans = zip(measures, weights).map { measure, weight in
+            if resolvedBodyWidth <= bodyWidth + 0.001 {
+                measurePlans = zip(measures, resolvedWidths).map { measure, width in
                     PackedLeadSheetMeasurePlan(
                         measure: measure,
-                        width: standardMeasureWidth * weight
+                        width: width
                     )
                 }
-                rowBodyWidth = measurePlans.map(\.width).reduce(0, +)
+                rowBodyWidth = resolvedBodyWidth
             } else {
-                measurePlans = zip(measures, weights).map { measure, weight in
+                let totalWidth = max(1, resolvedBodyWidth)
+                measurePlans = zip(measures, resolvedWidths).map { measure, width in
                     PackedLeadSheetMeasurePlan(
                         measure: measure,
-                        width: bodyWidth * weight / totalWeight
+                        width: bodyWidth * width / totalWidth
                     )
                 }
                 rowBodyWidth = bodyWidth
@@ -1184,16 +1191,162 @@ enum LeadSheetPageLayoutEngine {
         return plans
     }
 
+    private static func simpleChordSheetReadableRowWidths(
+        _ targetWidths: [CGFloat],
+        weights: [CGFloat],
+        maxBodyWidth: CGFloat
+    ) -> [CGFloat] {
+        guard !targetWidths.isEmpty else {
+            return []
+        }
+
+        let targetBodyWidth = targetWidths.reduce(0, +)
+        guard targetBodyWidth > maxBodyWidth else {
+            return targetWidths
+        }
+
+        var resolvedWidths = targetWidths
+        var remainingOverflow = targetBodyWidth - maxBodyWidth
+        let minimumWidth = max(
+            20,
+            min(Measure.minimumManualLayoutWidth, maxBodyWidth / CGFloat(targetWidths.count))
+        )
+        let simpleMeasureIndices = weights.indices.filter {
+            weights[$0] <= 1.001
+        }
+        remainingOverflow = reduceSimpleChordRowWidths(
+            &resolvedWidths,
+            overflow: remainingOverflow,
+            reducibleIndices: simpleMeasureIndices,
+            minimumWidth: minimumWidth
+        )
+
+        if remainingOverflow > 0.001 {
+            remainingOverflow = reduceSimpleChordRowWidths(
+                &resolvedWidths,
+                overflow: remainingOverflow,
+                reducibleIndices: resolvedWidths.indices.map { $0 },
+                minimumWidth: minimumWidth
+            )
+        }
+
+        if remainingOverflow > 0.001 {
+            let totalWidth = max(1, resolvedWidths.reduce(0, +))
+            resolvedWidths = resolvedWidths.map {
+                max(1, $0 * maxBodyWidth / totalWidth)
+            }
+        }
+
+        return resolvedWidths
+    }
+
+    private static func reduceSimpleChordRowWidths(
+        _ widths: inout [CGFloat],
+        overflow: CGFloat,
+        reducibleIndices: [Int],
+        minimumWidth: CGFloat
+    ) -> CGFloat {
+        var remainingOverflow = overflow
+        var activeIndices = reducibleIndices.filter {
+            widths.indices.contains($0) && widths[$0] > minimumWidth
+        }
+
+        while remainingOverflow > 0.001, !activeIndices.isEmpty {
+            let reductionPerMeasure = remainingOverflow / CGFloat(activeIndices.count)
+            var nextActiveIndices = [Int]()
+
+            for index in activeIndices {
+                let capacity = max(0, widths[index] - minimumWidth)
+                let reduction = min(capacity, reductionPerMeasure)
+                widths[index] -= reduction
+                remainingOverflow -= reduction
+
+                if widths[index] > minimumWidth + 0.001 {
+                    nextActiveIndices.append(index)
+                }
+            }
+
+            guard nextActiveIndices.count < activeIndices.count || reductionPerMeasure > 0 else {
+                break
+            }
+            activeIndices = nextActiveIndices
+        }
+
+        return remainingOverflow
+    }
+
     private static func simpleChordSheetMeasureWeight(
         for measure: Measure,
+        chart: Chart,
         metrics: LeadSheetEngravingMetrics
     ) -> CGFloat {
         guard let manualLayoutWidth = measure.manualLayoutWidth else {
-            return 1
+            return automaticSimpleChordSheetMeasureWeight(for: measure, chart: chart, metrics: metrics)
         }
 
         let defaultWidth = preferredCommittedMeasureWidth * metrics.measureWidthScale
         return max(0.25, CGFloat(manualLayoutWidth) / max(1, defaultWidth))
+    }
+
+    private static func automaticSimpleChordSheetMeasureWeight(
+        for measure: Measure,
+        chart: Chart,
+        metrics: LeadSheetEngravingMetrics
+    ) -> CGFloat {
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
+        let placements = measure.renderedChordPlacements(defaultMeter: chart.defaultMeter)
+            .sorted {
+                ($0.startPosition.startOffset(in: meter) ?? 0) <
+                    ($1.startPosition.startOffset(in: meter) ?? 0)
+            }
+        guard !placements.isEmpty else {
+            return 1
+        }
+
+        let fontSize = preferredSimpleChordFontSize()
+        let defaultWidth = max(1, preferredCommittedMeasureWidth * metrics.measureWidthScale)
+        let minimumDisplayWidth = metrics.chordBandHeight * 0.92
+        var requiredMeasureWidth = defaultWidth
+
+        for (index, placement) in placements.enumerated() {
+            let startOffset = min(
+                measureLength,
+                max(0, placement.startPosition.startOffset(in: meter) ?? 0)
+            )
+            let nextOffset = index + 1 < placements.count
+                ? placements[index + 1].startPosition.startOffset(in: meter)
+                : nil
+            let proposedEndOffset = nextOffset ?? measureLength
+            let endOffset = min(
+                measureLength,
+                max(
+                    startOffset + measureLength * 0.03,
+                    proposedEndOffset > startOffset
+                        ? proposedEndOffset
+                        : startOffset + meter.beatUnitWholeNoteLength
+                )
+            )
+            let segmentFraction = max(0.03, (endOffset - startOffset) / measureLength)
+            let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measure.id)
+            let displayedText = displayedSymbol.displayText
+            let desiredWidth = max(
+                minimumDisplayWidth,
+                estimatedSimpleChordTextWidth(
+                    for: displayedSymbol,
+                    fallbackText: displayedText,
+                    fontSize: fontSize
+                ) + 2
+            )
+            let internalGapShare = simpleChordMinimumFrameGap
+                * CGFloat((index == 0 ? 0 : 0.5) + (index == placements.count - 1 ? 0 : 0.5))
+            requiredMeasureWidth = max(
+                requiredMeasureWidth,
+                (desiredWidth + internalGapShare) / CGFloat(segmentFraction)
+            )
+        }
+
+        return min(2.6, max(1, requiredMeasureWidth / defaultWidth))
     }
 
     private static func leadingSignatureWidth(
@@ -1574,7 +1727,7 @@ enum LeadSheetPageLayoutEngine {
             return chordLayouts
         }
 
-        let minimumGap: CGFloat = 0
+        let minimumGap = simpleChordMinimumFrameGap
         var resolvedLayouts = [LeadSheetChordLayout]()
         resolvedLayouts.reserveCapacity(chordLayouts.count)
 

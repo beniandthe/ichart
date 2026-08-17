@@ -47,6 +47,14 @@ enum LeadSheetRhythmicNotationInkCapturePolicy {
 }
 
 enum LeadSheetActiveInkScope {
+    enum Identity: Hashable {
+        case page
+        case header
+        case chords
+        case rhythmicMeasure(UUID)
+        case noteSelection
+    }
+
     case page(frame: CGRect)
     case header(frame: CGRect)
     case chords(frame: CGRect, inputFrames: [CGRect])
@@ -95,6 +103,33 @@ enum LeadSheetActiveInkScope {
             return "rhythmic_measure"
         case .noteSelection:
             return "note_selection"
+        }
+    }
+
+    var persistsDrawingData: Bool {
+        switch self {
+        case .page,
+             .header,
+             .chords,
+             .rhythmicMeasure:
+            return true
+        case .noteSelection:
+            return false
+        }
+    }
+
+    var identity: Identity {
+        switch self {
+        case .page:
+            return .page
+        case .header:
+            return .header
+        case .chords:
+            return .chords
+        case .rhythmicMeasure(let measureID, _):
+            return .rhythmicMeasure(measureID)
+        case .noteSelection:
+            return .noteSelection
         }
     }
 
@@ -198,24 +233,56 @@ enum LeadSheetActiveInkScope {
         }
     }
 
-    func chartByPersistingDrawingData(_ drawingData: Data?, in chart: Chart) -> Chart? {
+    func drawingCoordinateSpace(in chart: Chart) -> PersistentInkCoordinateSpace? {
+        switch self {
+        case .page:
+            return chart.pageHandwrittenNotationCoordinateSpace
+        case .header:
+            return chart.pageHandwrittenHeaderCoordinateSpace
+        case .chords:
+            return chart.pageHandwrittenChordCoordinateSpace
+        case .rhythmicMeasure(let measureID, _):
+            return chart.measure(id: measureID)?.handwrittenRhythmicNotationCoordinateSpace
+        case .noteSelection:
+            return nil
+        }
+    }
+
+    func chartByPersistingDrawingData(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        in chart: Chart
+    ) -> Chart? {
         var updatedChart = chart
 
         switch self {
         case .page:
-            guard updatedChart.setPageHandwrittenNotationDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenNotationDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .header:
-            guard updatedChart.setPageHandwrittenHeaderDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenHeaderDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .chords:
-            guard updatedChart.setPageHandwrittenChordDrawing(drawingData) else {
+            guard updatedChart.setPageHandwrittenChordDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace
+            ) else {
                 return nil
             }
         case .rhythmicMeasure(let measureID, _):
-            guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(drawingData, for: measureID) else {
+            guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
+                drawingData,
+                coordinateSpace: coordinateSpace,
+                for: measureID
+            ) else {
                 return nil
             }
         case .noteSelection:

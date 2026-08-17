@@ -19,9 +19,24 @@ struct LeadSheetInkTelemetrySnapshot {
     var normalizationNeeded: Bool
     var toolInkType: String
     var toolColorLuminance: Double
+    var toolIsInking: Bool
+    var toolMatchesPersistentInk: Bool
+    var toolWidth: Double
     var canvasUserInterfaceStyle: String
+    var canvasOverrideUserInterfaceStyle: String
+    var canvasSuperviewUserInterfaceStyle: String
+    var canvasWindowUserInterfaceStyle: String
+    var canvasDrawingPolicy: String
+    var canvasAlpha: Double
     var canvasBackgroundAlpha: Double
     var canvasIsOpaque: Bool
+    var canvasIsHidden: Bool
+    var canvasUserInteractionEnabled: Bool
+    var canvasIsFirstResponder: Bool
+    var canvasContentScale: Double
+    var canvasBoundsWidth: Double
+    var canvasBoundsHeight: Double
+    var liveCanvasLightTraitGuardEnabled: Bool
     var renderedInkMedianLuminance: Double
     var renderedInkLightPixelRatio: Double
     var renderedInkSampleCount: Int
@@ -76,9 +91,24 @@ struct LeadSheetInkTelemetrySnapshot {
             normalizationNeeded: LeadSheetPersistentInkColorPolicy.needsNormalization(drawing),
             toolInkType: toolDiagnostics.inkType,
             toolColorLuminance: toolDiagnostics.colorLuminance,
+            toolIsInking: toolDiagnostics.isInking,
+            toolMatchesPersistentInk: toolDiagnostics.matchesPersistentInk,
+            toolWidth: toolDiagnostics.width,
             canvasUserInterfaceStyle: canvasDiagnostics.userInterfaceStyle,
+            canvasOverrideUserInterfaceStyle: canvasDiagnostics.overrideUserInterfaceStyle,
+            canvasSuperviewUserInterfaceStyle: canvasDiagnostics.superviewUserInterfaceStyle,
+            canvasWindowUserInterfaceStyle: canvasDiagnostics.windowUserInterfaceStyle,
+            canvasDrawingPolicy: canvasDiagnostics.drawingPolicy,
+            canvasAlpha: canvasDiagnostics.alpha,
             canvasBackgroundAlpha: canvasDiagnostics.backgroundAlpha,
             canvasIsOpaque: canvasDiagnostics.isOpaque,
+            canvasIsHidden: canvasDiagnostics.isHidden,
+            canvasUserInteractionEnabled: canvasDiagnostics.userInteractionEnabled,
+            canvasIsFirstResponder: canvasDiagnostics.isFirstResponder,
+            canvasContentScale: canvasDiagnostics.contentScale,
+            canvasBoundsWidth: canvasDiagnostics.boundsWidth,
+            canvasBoundsHeight: canvasDiagnostics.boundsHeight,
+            liveCanvasLightTraitGuardEnabled: canvasDiagnostics.liveLightTraitGuardEnabled,
             renderedInkMedianLuminance: renderedDiagnostics.medianLuminance,
             renderedInkLightPixelRatio: renderedDiagnostics.lightPixelRatio,
             renderedInkSampleCount: renderedDiagnostics.sampleCount
@@ -105,9 +135,24 @@ struct LeadSheetInkTelemetrySnapshot {
             "normalized_before_save": .bool(normalizedBeforeSave),
             "tool_ink_type": .string(toolInkType),
             "tool_color_luminance": .double(toolColorLuminance),
+            "tool_is_inking": .bool(toolIsInking),
+            "tool_matches_persistent_ink": .bool(toolMatchesPersistentInk),
+            "tool_width": .double(toolWidth),
             "canvas_user_interface_style": .string(canvasUserInterfaceStyle),
+            "canvas_override_user_interface_style": .string(canvasOverrideUserInterfaceStyle),
+            "canvas_superview_user_interface_style": .string(canvasSuperviewUserInterfaceStyle),
+            "canvas_window_user_interface_style": .string(canvasWindowUserInterfaceStyle),
+            "canvas_drawing_policy": .string(canvasDrawingPolicy),
+            "canvas_alpha": .double(canvasAlpha),
             "canvas_background_alpha": .double(canvasBackgroundAlpha),
             "canvas_is_opaque": .bool(canvasIsOpaque),
+            "canvas_is_hidden": .bool(canvasIsHidden),
+            "canvas_user_interaction_enabled": .bool(canvasUserInteractionEnabled),
+            "canvas_is_first_responder": .bool(canvasIsFirstResponder),
+            "canvas_content_scale": .double(canvasContentScale),
+            "canvas_bounds_width": .double(canvasBoundsWidth),
+            "canvas_bounds_height": .double(canvasBoundsHeight),
+            "live_canvas_light_trait_guard_enabled": .bool(liveCanvasLightTraitGuardEnabled),
             "rendered_ink_median_luminance": .double(renderedInkMedianLuminance),
             "rendered_ink_light_pixel_ratio": .double(renderedInkLightPixelRatio),
             "rendered_ink_sample_count": .int(renderedInkSampleCount)
@@ -147,33 +192,96 @@ struct LeadSheetInkTelemetrySnapshot {
         return Double(alpha)
     }
 
-    private static func toolDiagnostics(for canvasView: PKCanvasView?) -> (
-        inkType: String,
-        colorLuminance: Double
-    ) {
+    private struct ToolDiagnostics {
+        var inkType: String
+        var colorLuminance: Double
+        var isInking: Bool
+        var matchesPersistentInk: Bool
+        var width: Double
+    }
+
+    private struct CanvasDiagnostics {
+        var userInterfaceStyle: String
+        var overrideUserInterfaceStyle: String
+        var superviewUserInterfaceStyle: String
+        var windowUserInterfaceStyle: String
+        var drawingPolicy: String
+        var alpha: Double
+        var backgroundAlpha: Double
+        var isOpaque: Bool
+        var isHidden: Bool
+        var userInteractionEnabled: Bool
+        var isFirstResponder: Bool
+        var contentScale: Double
+        var boundsWidth: Double
+        var boundsHeight: Double
+        var liveLightTraitGuardEnabled: Bool
+    }
+
+    private static func toolDiagnostics(for canvasView: PKCanvasView?) -> ToolDiagnostics {
         guard let tool = canvasView?.tool as? PKInkingTool else {
-            return ("non_inking", -1)
+            return ToolDiagnostics(
+                inkType: "non_inking",
+                colorLuminance: -1,
+                isInking: false,
+                matchesPersistentInk: false,
+                width: -1
+            )
         }
 
-        return (
-            String(describing: tool.inkType),
-            colorLuminance(tool.color) ?? -1
+        return ToolDiagnostics(
+            inkType: String(describing: tool.inkType),
+            colorLuminance: colorLuminance(tool.color) ?? -1,
+            isInking: true,
+            matchesPersistentInk: LeadSheetPersistentInkColorPolicy.matchesPersistentInkColor(tool.color),
+            width: Double(tool.width)
         )
     }
 
-    private static func canvasDiagnostics(for canvasView: PKCanvasView?) -> (
-        userInterfaceStyle: String,
-        backgroundAlpha: Double,
-        isOpaque: Bool
-    ) {
+    private static func canvasDiagnostics(for canvasView: PKCanvasView?) -> CanvasDiagnostics {
         guard let canvasView else {
-            return ("unknown", -1, false)
+            return CanvasDiagnostics(
+                userInterfaceStyle: "unknown",
+                overrideUserInterfaceStyle: "unknown",
+                superviewUserInterfaceStyle: "unknown",
+                windowUserInterfaceStyle: "unknown",
+                drawingPolicy: "unknown",
+                alpha: -1,
+                backgroundAlpha: -1,
+                isOpaque: false,
+                isHidden: false,
+                userInteractionEnabled: false,
+                isFirstResponder: false,
+                contentScale: -1,
+                boundsWidth: -1,
+                boundsHeight: -1,
+                liveLightTraitGuardEnabled: false
+            )
         }
 
-        return (
-            userInterfaceStyleDescription(canvasView.traitCollection.userInterfaceStyle),
-            colorAlpha(canvasView.backgroundColor ?? .clear) ?? -1,
-            canvasView.isOpaque
+        let effectiveStyle = canvasView.traitCollection.userInterfaceStyle
+        let overrideStyle = canvasView.overrideUserInterfaceStyle
+
+        return CanvasDiagnostics(
+            userInterfaceStyle: userInterfaceStyleDescription(effectiveStyle),
+            overrideUserInterfaceStyle: userInterfaceStyleDescription(overrideStyle),
+            superviewUserInterfaceStyle: canvasView.superview.map {
+                userInterfaceStyleDescription($0.traitCollection.userInterfaceStyle)
+            } ?? "unknown",
+            windowUserInterfaceStyle: canvasView.window.map {
+                userInterfaceStyleDescription($0.traitCollection.userInterfaceStyle)
+            } ?? "unknown",
+            drawingPolicy: drawingPolicyDescription(canvasView.drawingPolicy),
+            alpha: Double(canvasView.alpha),
+            backgroundAlpha: colorAlpha(canvasView.backgroundColor ?? .clear) ?? -1,
+            isOpaque: canvasView.isOpaque,
+            isHidden: canvasView.isHidden,
+            userInteractionEnabled: canvasView.isUserInteractionEnabled,
+            isFirstResponder: canvasView.isFirstResponder,
+            contentScale: Double(canvasView.contentScaleFactor),
+            boundsWidth: Double(canvasView.bounds.width),
+            boundsHeight: Double(canvasView.bounds.height),
+            liveLightTraitGuardEnabled: overrideStyle == .light && effectiveStyle == .light
         )
     }
 
@@ -185,6 +293,19 @@ struct LeadSheetInkTelemetrySnapshot {
             return "dark"
         case .unspecified:
             return "unspecified"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private static func drawingPolicyDescription(_ policy: PKCanvasViewDrawingPolicy) -> String {
+        switch policy {
+        case .default:
+            return "default"
+        case .anyInput:
+            return "any_input"
+        case .pencilOnly:
+            return "pencil_only"
         @unknown default:
             return "unknown"
         }
@@ -211,7 +332,12 @@ struct LeadSheetInkTelemetrySnapshot {
         }
 
         let paddedBounds = renderBounds.insetBy(dx: -2, dy: -2)
-        guard let cgImage = drawing.image(from: paddedBounds, scale: 1).cgImage else {
+        guard let drawingData = LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing),
+              let cgImage = LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                in: paddedBounds,
+                scale: 1
+              )?.cgImage else {
             return (-1, 0, 0)
         }
 

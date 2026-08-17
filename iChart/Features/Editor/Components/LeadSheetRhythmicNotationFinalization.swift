@@ -43,11 +43,16 @@ enum LeadSheetRhythmicNotationFinalization {
 
     static func chartByPersistingLiveDrawing(
         _ liveDrawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
         for measureID: UUID,
         in chart: Chart
     ) -> Chart? {
         var updatedChart = chart
-        guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(liveDrawingData, for: measureID) else {
+        guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
+            liveDrawingData,
+            coordinateSpace: coordinateSpace,
+            for: measureID
+        ) else {
             return nil
         }
 
@@ -96,6 +101,7 @@ enum LeadSheetRhythmicNotationFinalization {
     static func chartByApplyingQuantizedRhythmMap(
         _ values: [RhythmValue],
         drawingData: Data,
+        drawingCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         tieOutSlotIndices: Set<Int> = [],
         for measureID: UUID,
         measureLayout: LeadSheetMeasureLayout? = nil,
@@ -134,6 +140,7 @@ enum LeadSheetRhythmicNotationFinalization {
         let appliedRhythmMap = updatedChart.setMeasureRhythmMap(
             values,
             drawingData: drawingData,
+            drawingCoordinateSpace: drawingCoordinateSpace,
             tieOutSlotIndices: tieOutSlotIndices,
             for: measureID
         )

@@ -630,8 +630,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let chordLayouts = measure.chordLayouts
 
         XCTAssertEqual(chordLayouts.map(\.text), [chordText, chordText])
-        XCTAssertEqual(chordLayouts[0].fitFrame.maxX, chordLayouts[1].fitFrame.minX, accuracy: 0.001)
-        XCTAssertEqual(chordLayouts[0].frame.maxX, chordLayouts[1].frame.minX, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(chordLayouts[1].fitFrame.minX - chordLayouts[0].fitFrame.maxX, 8)
+        XCTAssertGreaterThanOrEqual(chordLayouts[1].frame.minX - chordLayouts[0].frame.maxX, 8)
         XCTAssertGreaterThan(chordLayouts[1].frame.width, chordLayouts[0].frame.width)
         XCTAssertLessThanOrEqual(chordLayouts[1].frame.maxX, measure.chordBandFrame.maxX)
     }
@@ -653,8 +653,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let movedChordLayouts = movedMeasure.chordLayouts
 
         XCTAssertEqual(movedChordLayouts.map(\.text), ["Db7(#11)/F#", "C-7"])
-        XCTAssertEqual(movedChordLayouts[0].fitFrame.maxX, movedChordLayouts[1].fitFrame.minX, accuracy: 0.001)
-        XCTAssertEqual(movedChordLayouts[0].frame.maxX, movedChordLayouts[1].frame.minX, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(movedChordLayouts[1].fitFrame.minX - movedChordLayouts[0].fitFrame.maxX, 8)
+        XCTAssertGreaterThanOrEqual(movedChordLayouts[1].frame.minX - movedChordLayouts[0].frame.maxX, 8)
         XCTAssertGreaterThan(movedChordLayouts[1].frame.width, movedChordLayouts[0].frame.width)
         XCTAssertGreaterThan(movedChordLayouts[0].frame.width, 18)
     }
@@ -718,7 +718,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         for (index, chordLayout) in chordLayouts.enumerated() {
             XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
             if index > 0 {
-                XCTAssertGreaterThanOrEqual(chordLayout.frame.minX, chordLayouts[index - 1].frame.maxX)
+                XCTAssertGreaterThanOrEqual(chordLayout.frame.minX - chordLayouts[index - 1].frame.maxX, 8)
             }
         }
         let lastChordID = try XCTUnwrap(chordEvents.last?.id)
@@ -735,6 +735,48 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         for chordLayout in movedChordLayouts {
             XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
         }
+    }
+
+    func testSimpleChordSheetDenseSlashChordMeasureKeepsReadableGaps() throws {
+        var chart = Chart.blank(title: "Be Blessed", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        try appendChord("Abmaj7", to: measureID, in: &chart, atFraction: 0.05)
+        try appendChord("Eb/G", to: measureID, in: &chart, atFraction: 0.38)
+        try appendChord("F-7", to: measureID, in: &chart, atFraction: 0.62)
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 760, height: 1400)
+        )
+
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let secondMeasure = try XCTUnwrap(layout.systems.first?.measures.dropFirst().first)
+        let chordLayouts = measure.chordLayouts
+
+        XCTAssertEqual(chordLayouts.map(\.text), ["Ab△7", "Eb/G", "F-7"])
+        XCTAssertEqual(chordLayouts.count, 3)
+        XCTAssertGreaterThan(
+            measure.frame.width,
+            secondMeasure.frame.width * 1.5,
+            "Dense Simple Chord Sheet measures should automatically get more row width before chord text is squeezed."
+        )
+        XCTAssertTrue(chordLayouts.allSatisfy { $0.frame.minX >= measure.chordBandFrame.minX })
+        XCTAssertTrue(chordLayouts.allSatisfy { $0.frame.maxX <= measure.chordBandFrame.maxX })
+        XCTAssertGreaterThanOrEqual(
+            chordLayouts.map(\.frame.width).min() ?? 0,
+            CGFloat(44),
+            "Dense Simple Chord Sheet chords should keep enough frame width to render at a consistent handwritten size."
+        )
+
+        let internalGaps = simpleChordMeasureGaps(
+            for: chordLayouts,
+            in: measure.chordBandFrame
+        ).dropFirst().dropLast()
+        XCTAssertEqual(internalGaps.count, 2)
+        XCTAssertTrue(
+            internalGaps.allSatisfy { $0 >= 16 },
+            "Dense simple-chord measures should leave visible space between adjacent chord labels."
+        )
     }
 
     func testSimpleChordSheetLaterBeatAppendRendersAfterExistingChord() throws {

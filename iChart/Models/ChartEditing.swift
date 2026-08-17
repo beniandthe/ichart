@@ -2,6 +2,13 @@ import CoreGraphics
 import Foundation
 
 extension Chart {
+    private func persistentInkCoordinateSpace(
+        _ coordinateSpace: PersistentInkCoordinateSpace?,
+        for drawingData: Data?
+    ) -> PersistentInkCoordinateSpace? {
+        drawingData == nil ? nil : coordinateSpace
+    }
+
     func resolvedAuthoringMeasureID(preferredMeasureID: UUID? = nil) -> UUID? {
         if let preferredMeasureID,
            measure(id: preferredMeasureID) != nil {
@@ -610,37 +617,55 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func setPageHandwrittenNotationDrawing(_ drawingData: Data?) -> Bool {
+    mutating func setPageHandwrittenNotationDrawing(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil
+    ) -> Bool {
         let normalizedData = normalizedPersistentInkDrawingData(drawingData)
-        guard pageHandwrittenNotationData != normalizedData else {
+        let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
+        guard pageHandwrittenNotationData != normalizedData
+            || pageHandwrittenNotationCoordinateSpace != normalizedCoordinateSpace else {
             return false
         }
 
         pageHandwrittenNotationData = normalizedData
+        pageHandwrittenNotationCoordinateSpace = normalizedCoordinateSpace
         updatedAt = .now
         return true
     }
 
     @discardableResult
-    mutating func setPageHandwrittenHeaderDrawing(_ drawingData: Data?) -> Bool {
+    mutating func setPageHandwrittenHeaderDrawing(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil
+    ) -> Bool {
         let normalizedData = normalizedPersistentInkDrawingData(drawingData)
-        guard pageHandwrittenHeaderData != normalizedData else {
+        let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
+        guard pageHandwrittenHeaderData != normalizedData
+            || pageHandwrittenHeaderCoordinateSpace != normalizedCoordinateSpace else {
             return false
         }
 
         pageHandwrittenHeaderData = normalizedData
+        pageHandwrittenHeaderCoordinateSpace = normalizedCoordinateSpace
         updatedAt = .now
         return true
     }
 
     @discardableResult
-    mutating func setPageHandwrittenChordDrawing(_ drawingData: Data?) -> Bool {
+    mutating func setPageHandwrittenChordDrawing(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil
+    ) -> Bool {
         let normalizedData = normalizedPersistentInkDrawingData(drawingData)
-        guard pageHandwrittenChordData != normalizedData else {
+        let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
+        guard pageHandwrittenChordData != normalizedData
+            || pageHandwrittenChordCoordinateSpace != normalizedCoordinateSpace else {
             return false
         }
 
         pageHandwrittenChordData = normalizedData
+        pageHandwrittenChordCoordinateSpace = normalizedCoordinateSpace
         updatedAt = .now
         return true
     }
@@ -648,6 +673,7 @@ extension Chart {
     @discardableResult
     mutating func setMeasureHandwrittenRhythmicNotationDrawing(
         _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
         for measureID: UUID
     ) -> Bool {
         guard let location = measureLocation(id: measureID) else {
@@ -655,11 +681,14 @@ extension Chart {
         }
 
         let normalizedData = normalizedPersistentInkDrawingData(drawingData)
-        guard systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != normalizedData else {
+        let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
+        guard systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != normalizedData
+            || systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationCoordinateSpace != normalizedCoordinateSpace else {
             return false
         }
 
         systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData = normalizedData
+        systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationCoordinateSpace = normalizedCoordinateSpace
         updatedAt = .now
         return true
     }
@@ -668,6 +697,7 @@ extension Chart {
     mutating func setMeasureRhythmMap(
         _ values: [RhythmValue]?,
         drawingData: Data? = nil,
+        drawingCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         tieOutSlotIndices: Set<Int> = [],
         for measureID: UUID
     ) -> Bool {
@@ -680,6 +710,7 @@ extension Chart {
             MeasureRhythmMap(
                 values: $0,
                 drawingData: normalizedData,
+                drawingCoordinateSpace: drawingCoordinateSpace,
                 tieOutSlotIndices: tieOutSlotIndices
             )
         }
@@ -767,6 +798,7 @@ extension Chart {
         measure.rhythmMap = rhythmMap
         measure.pitchedNoteEvents = pitchedNoteEvents
         measure.handwrittenRhythmicNotationData = nil
+        measure.handwrittenRhythmicNotationCoordinateSpace = nil
         measure.clearInvalidRhythmSlotAssignments(defaultMeter: defaultMeter)
         systems[location.systemIndex].measures[location.measureIndex] = measure
         updatedAt = .now
@@ -1175,8 +1207,10 @@ extension Chart {
         }
 
         var didChange = false
-        if systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != nil {
+        if systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != nil
+            || systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationCoordinateSpace != nil {
             systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData = nil
+            systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationCoordinateSpace = nil
             didChange = true
         }
 

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
     guard let drawingData,
@@ -11,6 +12,130 @@ func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
     #else
     return drawingData
     #endif
+}
+
+struct PersistentInkCoordinateSpace: Codable, Hashable {
+    var width: Double
+    var height: Double
+    var measureAnchors: [PersistentInkMeasureAnchor]?
+    var chordAnchors: [PersistentInkChordAnchor]?
+
+    init(
+        width: Double,
+        height: Double,
+        measureAnchors: [PersistentInkMeasureAnchor]? = nil,
+        chordAnchors: [PersistentInkChordAnchor]? = nil
+    ) {
+        self.width = width
+        self.height = height
+        self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
+        self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
+    }
+
+    init?(
+        size: CGSize,
+        measureAnchors: [PersistentInkMeasureAnchor]? = nil,
+        chordAnchors: [PersistentInkChordAnchor]? = nil
+    ) {
+        guard size.width > 0,
+              size.height > 0,
+              size.width.isFinite,
+              size.height.isFinite else {
+            return nil
+        }
+
+        self.width = Double(size.width)
+        self.height = Double(size.height)
+        self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
+        self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
+    }
+
+    var size: CGSize {
+        CGSize(width: width, height: height)
+    }
+}
+
+struct PersistentInkFrame: Codable, Hashable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    init?(rect: CGRect) {
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.width > 0,
+              rect.height > 0,
+              rect.width.isFinite,
+              rect.height.isFinite else {
+            return nil
+        }
+
+        x = Double(rect.minX)
+        y = Double(rect.minY)
+        width = Double(rect.width)
+        height = Double(rect.height)
+    }
+
+    var rect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+}
+
+struct PersistentInkPoint: Codable, Hashable {
+    var x: Double
+    var y: Double
+
+    init?(point: CGPoint) {
+        guard point.x.isFinite,
+              point.y.isFinite else {
+            return nil
+        }
+
+        x = Double(point.x)
+        y = Double(point.y)
+    }
+
+    var point: CGPoint {
+        CGPoint(x: x, y: y)
+    }
+}
+
+struct PersistentInkMeasureAnchor: Codable, Hashable {
+    var measureID: UUID
+    var frame: PersistentInkFrame
+
+    init?(measureID: UUID, frame: CGRect) {
+        guard let persistentFrame = PersistentInkFrame(rect: frame) else {
+            return nil
+        }
+
+        self.measureID = measureID
+        self.frame = persistentFrame
+    }
+}
+
+struct PersistentInkChordAnchor: Codable, Hashable {
+    var measureID: UUID
+    var chordID: UUID
+    var frame: PersistentInkFrame
+    var registrationPoint: PersistentInkPoint?
+
+    init?(
+        measureID: UUID,
+        chordID: UUID,
+        frame: CGRect,
+        registrationPoint: CGPoint? = nil
+    ) {
+        guard let persistentFrame = PersistentInkFrame(rect: frame) else {
+            return nil
+        }
+
+        self.measureID = measureID
+        self.chordID = chordID
+        self.frame = persistentFrame
+        self.registrationPoint = registrationPoint.flatMap(PersistentInkPoint.init(point:))
+    }
 }
 
 enum ChartCloudBackupIntent: String, Codable, Hashable {
@@ -110,8 +235,11 @@ struct Chart: Identifiable, Codable, Hashable {
     var stylePreset: StylePreset
     var engravingPreset: EngravingPreset
     var pageHandwrittenNotationData: Data?
+    var pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenHeaderData: Data?
+    var pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenChordData: Data?
+    var pageHandwrittenChordCoordinateSpace: PersistentInkCoordinateSpace?
     var cloudBackupStatus: ChartCloudBackupStatus
     var createdAt: Date
     var updatedAt: Date
@@ -158,8 +286,11 @@ struct Chart: Identifiable, Codable, Hashable {
         stylePreset: StylePreset,
         engravingPreset: EngravingPreset = .balanced,
         pageHandwrittenNotationData: Data? = nil,
+        pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenHeaderData: Data? = nil,
+        pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenChordData: Data? = nil,
+        pageHandwrittenChordCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         cloudBackupStatus: ChartCloudBackupStatus = .included,
         createdAt: Date,
         updatedAt: Date
@@ -196,8 +327,20 @@ struct Chart: Identifiable, Codable, Hashable {
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
         self.pageHandwrittenNotationData = normalizedPersistentInkDrawingData(pageHandwrittenNotationData)
+        self.pageHandwrittenNotationCoordinateSpace = Self.coordinateSpace(
+            pageHandwrittenNotationCoordinateSpace,
+            for: self.pageHandwrittenNotationData
+        )
         self.pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(pageHandwrittenHeaderData)
+        self.pageHandwrittenHeaderCoordinateSpace = Self.coordinateSpace(
+            pageHandwrittenHeaderCoordinateSpace,
+            for: self.pageHandwrittenHeaderData
+        )
         self.pageHandwrittenChordData = normalizedPersistentInkDrawingData(pageHandwrittenChordData)
+        self.pageHandwrittenChordCoordinateSpace = Self.coordinateSpace(
+            pageHandwrittenChordCoordinateSpace,
+            for: self.pageHandwrittenChordData
+        )
         self.cloudBackupStatus = cloudBackupStatus
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -233,8 +376,11 @@ struct Chart: Identifiable, Codable, Hashable {
         case stylePreset
         case engravingPreset
         case pageHandwrittenNotationData
+        case pageHandwrittenNotationCoordinateSpace
         case pageHandwrittenHeaderData
+        case pageHandwrittenHeaderCoordinateSpace
         case pageHandwrittenChordData
+        case pageHandwrittenChordCoordinateSpace
         case cloudBackupStatus
         case createdAt
         case updatedAt
@@ -287,16 +433,35 @@ struct Chart: Identifiable, Codable, Hashable {
         pageHandwrittenNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
         )
+        pageHandwrittenNotationCoordinateSpace = Self.coordinateSpace(
+            try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenNotationCoordinateSpace),
+            for: pageHandwrittenNotationData
+        )
         pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
         )
+        pageHandwrittenHeaderCoordinateSpace = Self.coordinateSpace(
+            try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenHeaderCoordinateSpace),
+            for: pageHandwrittenHeaderData
+        )
         pageHandwrittenChordData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenChordData)
+        )
+        pageHandwrittenChordCoordinateSpace = Self.coordinateSpace(
+            try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenChordCoordinateSpace),
+            for: pageHandwrittenChordData
         )
         cloudBackupStatus = try container.decodeIfPresent(ChartCloudBackupStatus.self, forKey: .cloudBackupStatus)
             ?? .legacyLocal
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+
+    private static func coordinateSpace(
+        _ coordinateSpace: PersistentInkCoordinateSpace?,
+        for drawingData: Data?
+    ) -> PersistentInkCoordinateSpace? {
+        drawingData == nil ? nil : coordinateSpace
     }
 }
 

@@ -24,7 +24,14 @@ enum LeadSheetChordInkImageRenderer {
         }
 
         let cropBounds = inkBounds.insetBy(dx: -18, dy: -18)
-        let inkImage = drawing.image(from: cropBounds, scale: 3)
+        guard let drawingData = LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing),
+              let inkImage = LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                in: cropBounds,
+                scale: 3
+              ) else {
+            return nil
+        }
         let rendererFormat = UIGraphicsImageRendererFormat.default()
         rendererFormat.opaque = true
         rendererFormat.scale = 1

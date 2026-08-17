@@ -84,6 +84,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var pitchedNoteEvents: [LeadSheetPitchedNoteEvent]
     var manualLayoutWidth: Double? = nil
     var handwrittenRhythmicNotationData: Data? = nil
+    var handwrittenRhythmicNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil
     var barlineAfter: BarlineType
     var chordEvents: [ChordEvent]
     var cueTextIDs: [UUID]
@@ -99,6 +100,7 @@ struct Measure: Identifiable, Codable, Hashable {
         pitchedNoteEvents: [LeadSheetPitchedNoteEvent] = [],
         manualLayoutWidth: Double? = nil,
         handwrittenRhythmicNotationData: Data? = nil,
+        handwrittenRhythmicNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         barlineAfter: BarlineType,
         chordEvents: [ChordEvent],
         cueTextIDs: [UUID],
@@ -113,6 +115,10 @@ struct Measure: Identifiable, Codable, Hashable {
         self.pitchedNoteEvents = pitchedNoteEvents
         self.manualLayoutWidth = manualLayoutWidth
         self.handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(handwrittenRhythmicNotationData)
+        self.handwrittenRhythmicNotationCoordinateSpace = Self.coordinateSpace(
+            handwrittenRhythmicNotationCoordinateSpace,
+            for: self.handwrittenRhythmicNotationData
+        )
         self.barlineAfter = barlineAfter
         self.chordEvents = chordEvents
         self.cueTextIDs = cueTextIDs
@@ -129,6 +135,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case pitchedNoteEvents
         case manualLayoutWidth
         case handwrittenRhythmicNotationData
+        case handwrittenRhythmicNotationCoordinateSpace
         case barlineAfter
         case chordEvents
         case cueTextIDs
@@ -147,6 +154,13 @@ struct Measure: Identifiable, Codable, Hashable {
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
         handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
+        )
+        handwrittenRhythmicNotationCoordinateSpace = Self.coordinateSpace(
+            try container.decodeIfPresent(
+                PersistentInkCoordinateSpace.self,
+                forKey: .handwrittenRhythmicNotationCoordinateSpace
+            ),
+            for: handwrittenRhythmicNotationData
         )
         barlineAfter = try container.decode(BarlineType.self, forKey: .barlineAfter)
         chordEvents = try container.decode([ChordEvent].self, forKey: .chordEvents)
@@ -167,6 +181,10 @@ struct Measure: Identifiable, Codable, Hashable {
         }
         try container.encodeIfPresent(manualLayoutWidth, forKey: .manualLayoutWidth)
         try container.encodeIfPresent(handwrittenRhythmicNotationData, forKey: .handwrittenRhythmicNotationData)
+        try container.encodeIfPresent(
+            handwrittenRhythmicNotationCoordinateSpace,
+            forKey: .handwrittenRhythmicNotationCoordinateSpace
+        )
         try container.encode(barlineAfter, forKey: .barlineAfter)
         try container.encode(chordEvents, forKey: .chordEvents)
         try container.encode(cueTextIDs, forKey: .cueTextIDs)
@@ -176,6 +194,13 @@ struct Measure: Identifiable, Codable, Hashable {
 
     func resolvedMeter(defaultMeter: Meter) -> Meter {
         meterOverride ?? defaultMeter
+    }
+
+    private static func coordinateSpace(
+        _ coordinateSpace: PersistentInkCoordinateSpace?,
+        for drawingData: Data?
+    ) -> PersistentInkCoordinateSpace? {
+        drawingData == nil ? nil : coordinateSpace
     }
 
     func resolvedLayoutWidth(defaultWidth: CGFloat) -> CGFloat {

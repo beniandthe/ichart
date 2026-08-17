@@ -749,8 +749,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
         XCTAssertTrue(libraryText.contains("IChartHomeUpdateStamp"))
         XCTAssertTrue(libraryText.contains("IChartBuildIdentity"))
-        XCTAssertTrue(libraryText.contains("\"v\\(version) (\\(buildNumber)) - Aug 13, 2026\""))
-        XCTAssertTrue(libraryText.contains("\"Version \\(version), build \\(buildNumber), August 13, 2026\""))
+        XCTAssertTrue(libraryText.contains("\"v\\(version) (\\(buildNumber)) - Aug 14, 2026\""))
+        XCTAssertTrue(libraryText.contains("\"Version \\(version), build \\(buildNumber), August 14, 2026\""))
         XCTAssertTrue(libraryText.contains("CFBundleVersion"))
     }
 
@@ -1363,8 +1363,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1.2\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"42\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.1.5\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"46\""))
         XCTAssertTrue(projectText.contains("PRODUCT_BUNDLE_IDENTIFIER: com.ichart.tests"))
         XCTAssertTrue(projectText.contains("GENERATE_INFOPLIST_FILE: YES"))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
