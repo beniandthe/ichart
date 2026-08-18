@@ -733,6 +733,7 @@ struct EditorView: View {
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
     @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
+    @State private var chordPreviewState = ChordPreviewState()
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
@@ -2000,6 +2001,10 @@ struct EditorView: View {
                     rhythmDiagnosticStatusChip
                 }
 
+                if canvasMode == .chordEntry {
+                    chordDraftActiveToolActions
+                }
+
                 Button {
                     activateSelectTool()
                 } label: {
@@ -2206,6 +2211,29 @@ struct EditorView: View {
         }
     }
 
+    private var chordDraftActiveToolActions: some View {
+        HStack(spacing: 5) {
+            activeToolButton(
+                title: "Render Chords",
+                systemImage: "checkmark.circle",
+                isDisabled: !canRenderChordDrafts,
+                action: handleRenderChordDrafts
+            )
+
+            activeToolButton(
+                title: "Discard",
+                systemImage: "xmark.circle",
+                isDestructive: true,
+                isDisabled: chordPreviewState.isEmpty,
+                action: handleDiscardChordDrafts
+            )
+        }
+    }
+
+    private var canRenderChordDrafts: Bool {
+        chordPreviewState.canRenderAny && chordPreviewState.unresolvedChordCount == 0
+    }
+
     private func handleActiveToolDoneTapped() {
         let completedStep = editorGuidedTourStep
         activateSelectTool()
@@ -2307,10 +2335,13 @@ struct EditorView: View {
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
             recognizesChordInk: true,
+            chordPreviewState: chordPreviewState,
             inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
+            onChordInkDraftPreviewChanged: handleChordInkDraftPreviewChanged,
+            onChordInkDraftBarlinesChanged: handleChordInkDraftBarlinesChanged,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
@@ -3711,6 +3742,140 @@ struct EditorView: View {
         canvasMode = .browse
     }
 
+    private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
+        guard canvasMode == .chordEntry,
+              pendingChordInkConfirmation == nil,
+              pendingChordInkBatchConfirmation == nil,
+              pendingChordCorrection == nil else {
+            return
+        }
+
+        let inputs = payloads.compactMap { payload -> ChordInkDraftInput? in
+            guard let measure = chart.measure(id: payload.target.measureID) else {
+                return nil
+            }
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: payload.drawingData,
+                correctionMemory: chordInkUserCorrectionMemory
+            )
+            return ChordInkDraftInput(
+                measureID: payload.target.measureID,
+                measureIndex: measure.index,
+                targetFraction: payload.target.fraction,
+                drawingData: payload.drawingData,
+                candidateTexts: resolution.candidateTexts,
+                bestCandidateText: resolution.decision.acceptedText ?? payload.result.match?.displayText,
+                confidence: payload.result.confidence,
+                strokeCount: payload.timing.strokeCount
+            )
+        }
+
+        var updatedPreviewState = chordPreviewState
+        updatedPreviewState.replaceDraftChords(with: inputs)
+        chordPreviewState = updatedPreviewState
+
+        IChartTelemetry.record(
+            "chord.preview_updated",
+            properties: [
+                "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
+                "draft_count": .int(updatedPreviewState.draftChords.count),
+                "unresolved_count": .int(updatedPreviewState.unresolvedChordCount),
+                "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
+                "layout_style": .string(chart.layoutStyle.rawValue)
+            ]
+        )
+    }
+
+    private func handleChordInkDraftBarlinesChanged(_ barlines: [DraftBarline]) {
+        guard canvasMode == .chordEntry else {
+            return
+        }
+
+        let previousCount = chordPreviewState.draftBarlines.count
+        var updatedPreviewState = chordPreviewState
+        updatedPreviewState.replaceDraftBarlines(with: barlines)
+        chordPreviewState = updatedPreviewState
+
+        if barlines.count > previousCount {
+            IChartTelemetry.record(
+                "chord.draft_barline_added",
+                properties: [
+                    "barline_count": .int(barlines.count),
+                    "draft_count": .int(updatedPreviewState.draftChords.count),
+                    "unresolved_count": .int(updatedPreviewState.unresolvedBarlineCount),
+                    "layout_style": .string(chart.layoutStyle.rawValue)
+                ]
+            )
+        }
+    }
+
+    private func handleRenderChordDrafts() {
+        guard canRenderChordDrafts else {
+            if chordPreviewState.unresolvedChordCount > 0 {
+                chordInkErrorMessage = "One or more draft chords need a supported read before rendering."
+                showingChordInkError = true
+            }
+            return
+        }
+
+        var updatedChart = chart
+        let renderResult = updatedChart.commitChordInkDraftBatch(chordPreviewState)
+        guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
+            chordInkErrorMessage = "No draft chords were ready to render yet."
+            showingChordInkError = true
+            return
+        }
+
+        chart = updatedChart
+        selectedMeasureID = updatedChart.measures.last(where: { !$0.chordEvents.isEmpty })?.id ?? selectedMeasureID
+        selectedNoteSelection = nil
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        pendingChordCorrection = nil
+        chordPreviewState.discard()
+        chordInkAutomaticRewriteFailures.reset()
+        completeEditorGuidedTourStep(.chordWrite)
+        completeEditorGuidedTourStep(.chordConfirm)
+
+        IChartTelemetry.record(
+            "chord.preview_rendered",
+            properties: [
+                "draft_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount),
+                "rendered_count": .int(renderResult.renderedChordCount),
+                "barline_count": .int(renderResult.renderedBarlineCount),
+                "unresolved_count": .int(renderResult.unresolvedDraftIDs.count),
+                "layout_style": .string(updatedChart.layoutStyle.rawValue)
+            ]
+        )
+    }
+
+    private func handleDiscardChordDrafts() {
+        guard !chordPreviewState.isEmpty || chart.pageHandwrittenChordData != nil else {
+            return
+        }
+
+        let discardedDraftCount = chordPreviewState.draftChords.count
+        let discardedBarlineCount = chordPreviewState.draftBarlines.count
+        var updatedChart = chart
+        _ = updatedChart.setPageHandwrittenChordDrawing(nil)
+        chart = updatedChart
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        pendingChordCorrection = nil
+        chordPreviewState.discard()
+
+        IChartTelemetry.record(
+            "chord.preview_discarded",
+            properties: [
+                "draft_count": .int(discardedDraftCount),
+                "barline_count": .int(discardedBarlineCount),
+                "layout_style": .string(updatedChart.layoutStyle.rawValue)
+            ]
+        )
+    }
+
     private func handleChordInkRecognitionProposal(
         measureID: UUID,
         result: ChordInkRecognitionResult,
@@ -4562,6 +4727,7 @@ struct EditorView: View {
         chart = updatedChart
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
+        chordPreviewState.discard()
         canvasMode = .chordEntry
     }
 

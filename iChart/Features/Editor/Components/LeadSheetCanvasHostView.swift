@@ -13,10 +13,13 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     let interactionMode: EditorCanvasMode
     let inkToolMode: EditorInkToolMode
     var recognizesChordInk: Bool = true
+    var chordPreviewState: ChordPreviewState = ChordPreviewState()
     var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
+    var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)? = nil
+    var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
@@ -58,6 +61,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.interactionMode = interactionMode
         view.inkToolMode = inkToolMode
         view.recognizesChordInk = recognizesChordInk
+        view.chordPreviewState = chordPreviewState
         view.inkResponsivenessValue = inkResponsivenessValue
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
         view.onMeasureSelectionChanged = { measureID in
@@ -76,6 +80,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onTimeSignatureTargetRequested = onTimeSignatureTargetRequested
         view.onChordInkRecognitionProposal = onChordInkRecognitionProposal
         view.onChordInkBatchRecognitionProposal = onChordInkBatchRecognitionProposal
+        view.onChordInkDraftPreviewChanged = onChordInkDraftPreviewChanged
+        view.onChordInkDraftBarlinesChanged = onChordInkDraftBarlinesChanged
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
@@ -1048,6 +1054,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             updateChordInkConfirmOverlayVisibility()
         }
     }
+    var chordPreviewState = ChordPreviewState() {
+        didSet {
+            guard oldValue != chordPreviewState else {
+                return
+            }
+
+            setNeedsDisplay()
+        }
+    }
     var selectedMeasureID: UUID? {
         didSet {
             guard oldValue != selectedMeasureID else {
@@ -1142,6 +1157,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onTimeSignatureTargetRequested: ((UUID) -> Void)?
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)?
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)?
+    var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)?
+    var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
@@ -1334,6 +1351,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if interactionMode.allowsChordInkEditing {
             drawChordWritingLanes(pageLayout)
+            drawChordDraftPreview(pageLayout)
         }
 
         if interactionMode.showsMeasureResizeHandles {
@@ -1946,6 +1964,105 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             lanePath.setLineDash([5, 4], count: 2, phase: 0)
             lanePath.stroke()
         }
+    }
+
+    private func drawChordDraftPreview(_ pageLayout: LeadSheetPageLayout) {
+        guard !chordPreviewState.isEmpty else {
+            return
+        }
+
+        let measureLayoutByID = Dictionary(
+            uniqueKeysWithValues: pageLayout.systems
+                .flatMap(\.measures)
+                .compactMap { measure -> (UUID, LeadSheetMeasureLayout)? in
+                    guard let measureID = measure.sourceMeasureID else {
+                        return nil
+                    }
+
+                    return (measureID, measure)
+                }
+        )
+
+        for barline in chordPreviewState.draftBarlines {
+            guard let measure = measureLayoutByID[barline.measureID] else {
+                continue
+            }
+
+            drawDraftBarline(barline, in: measure)
+        }
+
+        for draft in chordPreviewState.draftChords {
+            guard let measure = measureLayoutByID[draft.measureID] else {
+                continue
+            }
+
+            drawDraftChordPreview(draft, in: measure)
+        }
+    }
+
+    private func drawDraftBarline(_ barline: DraftBarline, in measure: LeadSheetMeasureLayout) {
+        let laneFrame = measure.chordWritingFrame.insetBy(dx: 1, dy: 2)
+        let x = measure.chordBandFrame.minX + measure.chordBandFrame.width * CGFloat(barline.fraction)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: x, y: laneFrame.minY))
+        path.addLine(to: CGPoint(x: x, y: laneFrame.maxY))
+        let color = barline.isRenderable
+            ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.72)
+            : UIColor(red: 0.9, green: 0.46, blue: 0.12, alpha: 0.64)
+        color.setStroke()
+        path.lineWidth = 2
+        path.lineCapStyle = .round
+        path.setLineDash([6, 3], count: 2, phase: 0)
+        path.stroke()
+    }
+
+    private func drawDraftChordPreview(_ draft: ChordInkDraft, in measure: LeadSheetMeasureLayout) {
+        let displayText = draft.previewText ?? "?"
+        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: draft.isRenderable
+                ? UIColor(red: 0.06, green: 0.18, blue: 0.38, alpha: 1)
+                : UIColor(red: 0.44, green: 0.22, blue: 0.05, alpha: 1)
+        ]
+        let textSize = (displayText as NSString).size(withAttributes: textAttributes)
+        let laneFrame = measure.chordWritingFrame.insetBy(dx: 4, dy: 4)
+        let previewWidth = min(max(42, textSize.width + 16), max(42, laneFrame.width))
+        let previewHeight = CGFloat(28)
+        let anchorX = measure.chordBandFrame.minX
+            + measure.chordBandFrame.width * CGFloat(draft.targetFraction ?? 0)
+        let previewX = min(
+            max(anchorX - previewWidth / 2, laneFrame.minX),
+            max(laneFrame.minX, laneFrame.maxX - previewWidth)
+        )
+        let previewY = min(
+            max(laneFrame.minY, measure.chordBandFrame.minY + 2),
+            max(laneFrame.minY, laneFrame.maxY - previewHeight)
+        )
+        let previewFrame = CGRect(
+            x: previewX,
+            y: previewY,
+            width: previewWidth,
+            height: previewHeight
+        )
+        let path = UIBezierPath(roundedRect: previewFrame, cornerRadius: 7)
+        let fillColor = draft.isRenderable
+            ? UIColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.92)
+            : UIColor(red: 1, green: 0.88, blue: 0.72, alpha: 0.94)
+        fillColor.setFill()
+        path.fill()
+        let strokeColor = draft.isRenderable
+            ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.5)
+            : UIColor(red: 0.88, green: 0.44, blue: 0.08, alpha: 0.56)
+        strokeColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+
+        let textFrame = previewFrame.insetBy(dx: 8, dy: 5)
+        (displayText as NSString).draw(
+            in: textFrame,
+            withAttributes: textAttributes
+        )
     }
 
     private func drawPageScrollDragAreas(_ pageLayout: LeadSheetPageLayout) {
@@ -3246,7 +3363,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func schedulePersistActiveInk() {
         switch activeInkAuthoringSessionRole() {
         case .chord:
-            cancelPendingInkSessionScheduledWork()
+            pendingInkPersistWorkItem?.cancel()
+            let scheduledInkSnapshot = currentCanvasInkSnapshot()
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.startDraftChordInkPreviewIfStable(
+                    scheduledInkSnapshot: scheduledInkSnapshot
+                )
+            }
+            pendingInkPersistWorkItem = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + ChordInkDraftPreviewPolicy.recognitionDelay,
+                execute: workItem
+            )
             return
 
         case .rhythm:
@@ -3342,6 +3470,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             requestedDelay: 0,
             scheduledInkSnapshot: scheduledInkSnapshot,
             flow: .tapToConfirm
+        )
+    }
+
+    private func startDraftChordInkPreviewIfStable(
+        scheduledInkSnapshot: LeadSheetInkDrawingSnapshot?
+    ) {
+        pendingInkPersistWorkItem?.cancel()
+        pendingInkPersistWorkItem = nil
+
+        let requestID = UUID()
+        let scheduledAt = Date()
+        chordInkRecognitionRequestState.beginRequest(requestID)
+        recognizeChordInkIfNeeded(
+            requestID: requestID,
+            scheduledAt: scheduledAt,
+            requestedDelay: ChordInkDraftPreviewPolicy.recognitionDelay,
+            scheduledInkSnapshot: scheduledInkSnapshot,
+            flow: .draftPreview
         )
     }
 
@@ -3441,13 +3587,42 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 persistActiveInkIfNeeded(cancelPendingRecognition: false)
             }
             chordInkRecognitionRequestState.clearActiveRequest()
+            if flow == .draftPreview {
+                onChordInkDraftPreviewChanged?([])
+                onChordInkDraftBarlinesChanged?([])
+            }
             return
         }
 
         persistActiveInkIfNeeded(cancelPendingRecognition: false)
+        let sourceDrawing = pageInkCanvasView.drawing
+        let sourceStrokes = PencilKitInkAdapter.inkStrokes(from: sourceDrawing)
+        let barlineRecognition = flow == .draftPreview
+            ? ChordDraftBarlineRecognizer.recognize(
+                strokes: sourceStrokes,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
+            : ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
+        if flow == .draftPreview {
+            onChordInkDraftBarlinesChanged?(barlineRecognition.barlines)
+        }
+        let recognitionDrawing = flow == .draftPreview
+            ? sourceDrawing.removingStrokes(at: barlineRecognition.strokeIndices)
+            : sourceDrawing
+        let recognitionDrawingData = flow == .draftPreview
+            ? LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: recognitionDrawing)
+            : drawingData
+        guard let recognitionDrawingData else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            if flow == .draftPreview {
+                onChordInkDraftPreviewChanged?([])
+            }
+            return
+        }
 
         let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
-            for: pageInkCanvasView.drawing,
+            for: recognitionDrawing,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
@@ -3475,22 +3650,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         guard let target = LeadSheetChordInkRecognitionTargeting.target(
-            for: pageInkCanvasView.drawing,
+            for: recognitionDrawing,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         ) else {
             chordInkRecognitionRequestState.clearActiveRequest()
+            if flow == .draftPreview {
+                onChordInkDraftPreviewChanged?([])
+            }
             return
         }
-        let strokes = PencilKitInkAdapter.inkStrokes(from: pageInkCanvasView.drawing)
-        let drawingForOCR = pageInkCanvasView.drawing
+        let strokes = PencilKitInkAdapter.inkStrokes(from: recognitionDrawing)
+        let drawingForOCR = recognitionDrawing
 
         let sessionRequest = ChordInkRecognitionSessionRequest(
             requestID: requestID,
             scheduledAt: scheduledAt,
             requestedDelay: requestedDelay,
             strokes: strokes,
-            drawingData: drawingData,
+            drawingData: recognitionDrawingData,
             target: target,
             options: chordInkRecognitionOptions,
             ocrImageProvider: { [weak self, drawingForOCR] in
@@ -3515,6 +3693,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
+
+        if flow == .draftPreview {
+            onChordInkDraftPreviewChanged?(payload.result.rawCandidates.isEmpty ? [] : [payload])
+            return
+        }
 
         guard interactionMode.allowsChordInkEditing,
               recognizesChordInk,
@@ -3543,6 +3726,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         for payload in payloads {
             LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
+        }
+
+        if flow == .draftPreview {
+            onChordInkDraftPreviewChanged?(payloads.filter { !$0.result.rawCandidates.isEmpty })
+            return
         }
 
         guard interactionMode.allowsChordInkEditing,
@@ -4438,6 +4626,19 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
 
     deinit {
         uninstall()
+    }
+}
+
+private extension PKDrawing {
+    func removingStrokes(at indices: Set<Int>) -> PKDrawing {
+        guard !indices.isEmpty else {
+            return self
+        }
+
+        let retainedStrokes = strokes.enumerated().compactMap { index, stroke in
+            indices.contains(index) ? nil : stroke
+        }
+        return PKDrawing(strokes: retainedStrokes)
     }
 }
 
