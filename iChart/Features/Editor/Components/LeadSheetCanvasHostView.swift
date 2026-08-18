@@ -20,6 +20,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)? = nil
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)? = nil
+    var onChordInkDraftSelected: ((UUID) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
@@ -82,6 +83,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onChordInkBatchRecognitionProposal = onChordInkBatchRecognitionProposal
         view.onChordInkDraftPreviewChanged = onChordInkDraftPreviewChanged
         view.onChordInkDraftBarlinesChanged = onChordInkDraftBarlinesChanged
+        view.onChordInkDraftSelected = onChordInkDraftSelected
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onChordDeleted = onChordDeleted
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
@@ -1159,6 +1161,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)?
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)?
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)?
+    var onChordInkDraftSelected: ((UUID) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
@@ -2002,7 +2005,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawDraftBarline(_ barline: DraftBarline, in measure: LeadSheetMeasureLayout) {
         let laneFrame = measure.chordWritingFrame.insetBy(dx: 1, dy: 2)
-        let x = measure.chordBandFrame.minX + measure.chordBandFrame.width * CGFloat(barline.fraction)
+        let rawX = measure.chordBandFrame.minX + measure.chordBandFrame.width * CGFloat(barline.fraction)
+        let x = min(max(rawX + 4, laneFrame.minX + 2), laneFrame.maxX - 2)
         let path = UIBezierPath()
         path.move(to: CGPoint(x: x, y: laneFrame.minY))
         path.addLine(to: CGPoint(x: x, y: laneFrame.maxY))
@@ -2014,37 +2018,26 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         path.lineCapStyle = .round
         path.setLineDash([6, 3], count: 2, phase: 0)
         path.stroke()
+
+        let markerFrame = CGRect(x: x - 5, y: laneFrame.minY - 1, width: 10, height: 10)
+        let markerPath = UIBezierPath(ovalIn: markerFrame)
+        UIColor.white.withAlphaComponent(0.95).setFill()
+        markerPath.fill()
+        color.setStroke()
+        markerPath.lineWidth = 2
+        markerPath.stroke()
     }
 
     private func drawDraftChordPreview(_ draft: ChordInkDraft, in measure: LeadSheetMeasureLayout) {
-        let displayText = draft.previewText ?? "?"
-        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let displayText = draftChordPreviewDisplayText(for: draft)
+        let font = UIFont.systemFont(ofSize: 14, weight: .bold)
         let textAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: draft.isRenderable
                 ? UIColor(red: 0.06, green: 0.18, blue: 0.38, alpha: 1)
                 : UIColor(red: 0.44, green: 0.22, blue: 0.05, alpha: 1)
         ]
-        let textSize = (displayText as NSString).size(withAttributes: textAttributes)
-        let laneFrame = measure.chordWritingFrame.insetBy(dx: 4, dy: 4)
-        let previewWidth = min(max(42, textSize.width + 16), max(42, laneFrame.width))
-        let previewHeight = CGFloat(28)
-        let anchorX = measure.chordBandFrame.minX
-            + measure.chordBandFrame.width * CGFloat(draft.targetFraction ?? 0)
-        let previewX = min(
-            max(anchorX - previewWidth / 2, laneFrame.minX),
-            max(laneFrame.minX, laneFrame.maxX - previewWidth)
-        )
-        let previewY = min(
-            max(laneFrame.minY, measure.chordBandFrame.minY + 2),
-            max(laneFrame.minY, laneFrame.maxY - previewHeight)
-        )
-        let previewFrame = CGRect(
-            x: previewX,
-            y: previewY,
-            width: previewWidth,
-            height: previewHeight
-        )
+        let previewFrame = draftChordPreviewFrame(for: draft, in: measure)
         let path = UIBezierPath(roundedRect: previewFrame, cornerRadius: 7)
         let fillColor = draft.isRenderable
             ? UIColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.92)
@@ -2062,6 +2055,35 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         (displayText as NSString).draw(
             in: textFrame,
             withAttributes: textAttributes
+        )
+    }
+
+    private func draftChordPreviewDisplayText(for draft: ChordInkDraft) -> String {
+        "Read: \(draft.previewText ?? "?")"
+    }
+
+    private func draftChordPreviewFrame(for draft: ChordInkDraft, in measure: LeadSheetMeasureLayout) -> CGRect {
+        let displayText = draftChordPreviewDisplayText(for: draft)
+        let font = UIFont.systemFont(ofSize: 14, weight: .bold)
+        let textSize = (displayText as NSString).size(withAttributes: [.font: font])
+        let laneFrame = measure.chordWritingFrame.insetBy(dx: 4, dy: 4)
+        let previewWidth = min(max(82, textSize.width + 20), max(82, laneFrame.width))
+        let previewHeight = CGFloat(30)
+        let anchorX = measure.chordBandFrame.minX
+            + measure.chordBandFrame.width * CGFloat(draft.targetFraction ?? 0)
+        let previewX = min(
+            max(anchorX - previewWidth / 2, laneFrame.minX),
+            max(laneFrame.minX, laneFrame.maxX - previewWidth)
+        )
+        let previewY = min(
+            max(laneFrame.minY + 4, measure.chordBandFrame.minY - 4),
+            max(laneFrame.minY, laneFrame.maxY - previewHeight)
+        )
+        return CGRect(
+            x: previewX,
+            y: previewY,
+            width: previewWidth,
+            height: previewHeight
         )
     }
 
@@ -2727,6 +2749,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if let draft = draftChordPreviewHitTarget(at: location, in: pageLayout) {
+            onChordInkDraftSelected?(draft.id)
+            return
+        }
+
         if let hitTarget = chordEditHitTarget(at: location) {
             switch hitTarget.action {
             case .select:
@@ -2756,6 +2783,41 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         confirmChordInkFromUserTapIfNeeded()
+    }
+
+    private func draftChordPreviewHitTarget(
+        at location: CGPoint,
+        in pageLayout: LeadSheetPageLayout
+    ) -> ChordInkDraft? {
+        guard !chordPreviewState.draftChords.isEmpty else {
+            return nil
+        }
+
+        let measureLayoutByID = Dictionary(
+            uniqueKeysWithValues: pageLayout.systems
+                .flatMap(\.measures)
+                .compactMap { measure -> (UUID, LeadSheetMeasureLayout)? in
+                    guard let measureID = measure.sourceMeasureID else {
+                        return nil
+                    }
+
+                    return (measureID, measure)
+                }
+        )
+
+        for draft in chordPreviewState.draftChords.reversed() {
+            guard let measure = measureLayoutByID[draft.measureID] else {
+                continue
+            }
+
+            if draftChordPreviewFrame(for: draft, in: measure)
+                .insetBy(dx: -10, dy: -8)
+                .contains(location) {
+                return draft
+            }
+        }
+
+        return nil
     }
 
     @objc

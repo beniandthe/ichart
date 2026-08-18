@@ -127,6 +127,143 @@ struct PendingChordCorrection: Identifiable {
     }
 }
 
+struct PendingDraftChordCorrection: Identifiable {
+    let id = UUID()
+    let draftID: UUID
+    let measureID: UUID
+    let measureIndex: Int
+    let currentText: String
+    let candidateTexts: [String]
+
+    var displayMeasureNumber: Int {
+        measureIndex + 1
+    }
+
+    var visibleCandidateTexts: [String] {
+        var seen = Set<String>()
+        return ([currentText] + candidateTexts).compactMap { candidateText in
+            guard let displayText = Self.normalizedDisplayText(for: candidateText),
+                  !seen.contains(displayText) else {
+                return nil
+            }
+
+            seen.insert(displayText)
+            return displayText
+        }
+    }
+
+    private static func normalizedDisplayText(for text: String?) -> String? {
+        guard let text else {
+            return nil
+        }
+
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            return nil
+        }
+
+        return ChordRecognitionCompendium.match(trimmedText)?.displayText ?? trimmedText
+    }
+}
+
+struct DraftChordCorrectionSheetView: View {
+    let correction: PendingDraftChordCorrection
+    let onAcceptCandidate: (String) -> Void
+    let onDeleteDraft: () -> Void
+    let onCancel: () -> Void
+    @State private var manualCandidateText: String
+    @FocusState private var isManualEntryFocused: Bool
+
+    init(
+        correction: PendingDraftChordCorrection,
+        onAcceptCandidate: @escaping (String) -> Void,
+        onDeleteDraft: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.correction = correction
+        self.onAcceptCandidate = onAcceptCandidate
+        self.onDeleteDraft = onDeleteDraft
+        self.onCancel = onCancel
+        _manualCandidateText = State(initialValue: correction.currentText)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                VStack(spacing: 4) {
+                    Text("Edit Draft Chord")
+                        .font(.title2.weight(.bold))
+
+                    Text("Measure \(correction.displayMeasureNumber)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                ChordInkScopedScribbleTextField(
+                    placeholder: "Chord",
+                    text: $manualCandidateText,
+                    isFocused: isManualEntryFocused,
+                    onFocusChanged: { isFocused in
+                        isManualEntryFocused = isFocused
+                    }
+                )
+                .frame(minHeight: 52)
+                .accessibilityLabel("Draft chord entry")
+
+                if !correction.visibleCandidateTexts.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(Array(correction.visibleCandidateTexts.prefix(4)), id: \.self) { candidateText in
+                            Button(candidateText) {
+                                manualCandidateText = candidateText
+                                isManualEntryFocused = false
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+
+                    Button("Update Preview") {
+                        onAcceptCandidate(manualCandidateText)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(trimmedCandidateText.isEmpty)
+                    .frame(maxWidth: .infinity)
+                }
+
+                Button(role: .destructive) {
+                    onDeleteDraft()
+                } label: {
+                    Text("Remove Draft")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: 520)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .presentationDetents([.medium])
+        .task(id: correction.id) {
+            isManualEntryFocused = correction.currentText.isEmpty
+        }
+    }
+
+    private var trimmedCandidateText: String {
+        manualCandidateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct ChordInkBatchConfirmationSheetView: View {
     let batch: PendingChordInkBatchConfirmation
     let highlightsForwardActions: Bool
