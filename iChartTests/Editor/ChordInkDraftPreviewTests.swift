@@ -101,37 +101,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNil(chart.pageHandwrittenChordData)
     }
 
-    func testDraftBatchRenderCommitsSelectedEditedPreviewText() throws {
-        var chart = Chart.draft(title: "Edited Draft Chord")
-        chart.completeInitialSetup(
-            title: "Edited Draft Chord",
-            key: .cMajor,
-            meter: Meter(numerator: 4, denominator: 4),
-            staffStyle: .fiveLine,
-            startingMeasureCount: 1
-        )
-        let measureID = chart.measures[0].id
-
-        var state = ChordPreviewState()
-        state.replaceDraftChords(with: [
-            draftInput(
-                measureID: measureID,
-                measureIndex: 0,
-                fraction: 0.1,
-                bestCandidateText: "A",
-                drawingData: Data("ink-A7".utf8)
-            )
-        ])
-        state.draftChords[0].selectedText = "A7"
-
-        let result = chart.commitChordInkDraftBatch(state)
-
-        XCTAssertEqual(result.renderedChordCount, 1)
-        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
-        XCTAssertEqual(chart.measures[0].chordEvents.first?.symbol.displayText, "A7")
-        XCTAssertEqual(chart.measures[0].chordEvents.first?.sourceInkData, Data("ink-A7".utf8))
-    }
-
     func testTelemetryAllowsOnlyAggregateDraftPreviewProperties() {
         let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
             "draft_count": .int(2),
@@ -149,7 +118,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNil(sanitized["raw_chord_text"])
         XCTAssertNil(sanitized["drawing_payload"])
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_updated"))
-        XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_edited"))
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_rendered"))
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_discarded"))
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.draft_barline_added"))

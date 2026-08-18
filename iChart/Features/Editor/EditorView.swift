@@ -733,7 +733,6 @@ struct EditorView: View {
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
     @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
-    @State private var pendingDraftChordCorrection: PendingDraftChordCorrection?
     @State private var chordPreviewState = ChordPreviewState()
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
@@ -930,20 +929,6 @@ struct EditorView: View {
                 },
                 onCancel: {
                     pendingChordCorrection = nil
-                }
-            )
-        }
-        .sheet(item: $pendingDraftChordCorrection) { correction in
-            DraftChordCorrectionSheetView(
-                correction: correction,
-                onAcceptCandidate: { candidateText in
-                    handleDraftChordCorrectionAccepted(candidateText, correction: correction)
-                },
-                onDeleteDraft: {
-                    handleDraftChordDeleted(correction)
-                },
-                onCancel: {
-                    pendingDraftChordCorrection = nil
                 }
             )
         }
@@ -2357,7 +2342,6 @@ struct EditorView: View {
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
             onChordInkDraftPreviewChanged: handleChordInkDraftPreviewChanged,
             onChordInkDraftBarlinesChanged: handleChordInkDraftBarlinesChanged,
-            onChordInkDraftSelected: handleChordInkDraftSelected,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
@@ -3762,8 +3746,7 @@ struct EditorView: View {
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
-              pendingChordCorrection == nil,
-              pendingDraftChordCorrection == nil else {
+              pendingChordCorrection == nil else {
             return
         }
 
@@ -3828,88 +3811,6 @@ struct EditorView: View {
         }
     }
 
-    private func handleChordInkDraftSelected(_ draftID: UUID) {
-        guard canvasMode == .chordEntry,
-              pendingChordInkConfirmation == nil,
-              pendingChordInkBatchConfirmation == nil,
-              pendingChordCorrection == nil,
-              pendingDraftChordCorrection == nil,
-              let draft = chordPreviewState.draftChords.first(where: { $0.id == draftID }) else {
-            return
-        }
-
-        pendingDraftChordCorrection = PendingDraftChordCorrection(
-            draftID: draft.id,
-            measureID: draft.measureID,
-            measureIndex: draft.measureIndex,
-            currentText: draft.previewText ?? "",
-            candidateTexts: draft.candidateTexts
-        )
-    }
-
-    private func handleDraftChordCorrectionAccepted(
-        _ candidateText: String,
-        correction: PendingDraftChordCorrection
-    ) {
-        let trimmedText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let match = ChordRecognitionCompendium.match(trimmedText) else {
-            chordInkErrorMessage = "Use a supported chord symbol before updating the preview."
-            showingChordInkError = true
-            return
-        }
-
-        var updatedPreviewState = chordPreviewState
-        guard let draftIndex = updatedPreviewState.draftChords.firstIndex(where: { $0.id == correction.draftID }) else {
-            chordInkErrorMessage = "That draft chord is no longer available."
-            showingChordInkError = true
-            pendingDraftChordCorrection = nil
-            return
-        }
-
-        let displayText = match.displayText
-        updatedPreviewState.draftChords[draftIndex].selectedText = displayText
-        if !updatedPreviewState.draftChords[draftIndex].candidateTexts.contains(displayText) {
-            updatedPreviewState.draftChords[draftIndex].candidateTexts.append(displayText)
-        }
-        updatedPreviewState.updatedAt = .now
-        chordPreviewState = updatedPreviewState
-        pendingDraftChordCorrection = nil
-
-        IChartTelemetry.record(
-            "chord.preview_edited",
-            properties: [
-                "candidate_count": .int(updatedPreviewState.draftChords[draftIndex].candidateTexts.count),
-                "draft_count": .int(updatedPreviewState.draftChords.count),
-                "unresolved_count": .int(updatedPreviewState.unresolvedChordCount),
-                "layout_style": .string(chart.layoutStyle.rawValue)
-            ]
-        )
-    }
-
-    private func handleDraftChordDeleted(_ correction: PendingDraftChordCorrection) {
-        var updatedPreviewState = chordPreviewState
-        let previousDraftCount = updatedPreviewState.draftChords.count
-        updatedPreviewState.draftChords.removeAll { $0.id == correction.draftID }
-        guard updatedPreviewState.draftChords.count != previousDraftCount else {
-            pendingDraftChordCorrection = nil
-            return
-        }
-
-        updatedPreviewState.updatedAt = .now
-        chordPreviewState = updatedPreviewState
-        pendingDraftChordCorrection = nil
-
-        IChartTelemetry.record(
-            "chord.preview_discarded",
-            properties: [
-                "draft_count": .int(1),
-                "barline_count": .int(0),
-                "unresolved_count": .int(updatedPreviewState.unresolvedChordCount),
-                "layout_style": .string(chart.layoutStyle.rawValue)
-            ]
-        )
-    }
-
     private func handleRenderChordDrafts() {
         guard canRenderChordDrafts else {
             if chordPreviewState.unresolvedChordCount > 0 {
@@ -3933,7 +3834,6 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
-        pendingDraftChordCorrection = nil
         chordPreviewState.discard()
         chordInkAutomaticRewriteFailures.reset()
         completeEditorGuidedTourStep(.chordWrite)
@@ -3964,7 +3864,6 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
-        pendingDraftChordCorrection = nil
         chordPreviewState.discard()
 
         IChartTelemetry.record(
@@ -3992,7 +3891,6 @@ struct EditorView: View {
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
-              pendingDraftChordCorrection == nil,
               let measure = chart.measure(id: measureID),
               flow.canRenderChord else {
             return
@@ -4056,7 +3954,6 @@ struct EditorView: View {
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
-              pendingDraftChordCorrection == nil,
               flow.canRenderChord,
               payloads.count > 1 else {
             return
@@ -4497,7 +4394,6 @@ struct EditorView: View {
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
-              pendingDraftChordCorrection == nil,
               let chordEvent = chart.chordEvent(id: chordEventID),
               let measure = chart.measureContainingChordEvent(id: chordEventID) else {
             return
@@ -4831,7 +4727,6 @@ struct EditorView: View {
         chart = updatedChart
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
-        pendingDraftChordCorrection = nil
         chordPreviewState.discard()
         canvasMode = .chordEntry
     }

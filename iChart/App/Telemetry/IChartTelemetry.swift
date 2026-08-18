@@ -484,7 +484,6 @@ enum IChartTelemetryPrivacy {
         "chord.correction_applied",
         "chord.batch_committed",
         "chord.preview_updated",
-        "chord.preview_edited",
         "chord.preview_rendered",
         "chord.preview_discarded",
         "chord.draft_barline_added",
