@@ -1337,6 +1337,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawSavedHeaderInk()
         }
 
+        if interactionMode.allowsChordInkEditing {
+            drawChordWritingLanes(pageLayout)
+        }
+
         for system in pageLayout.systems {
             drawSystem(system, using: renderer)
         }
@@ -1350,7 +1354,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if interactionMode.allowsChordInkEditing {
-            drawChordWritingLanes(pageLayout)
             drawChordDraftPreview(pageLayout)
         }
 

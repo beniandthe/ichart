@@ -401,6 +401,31 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         }
     }
 
+    func testFreshSimpleChordSheetKeepsOpenLaneWithoutRightBarline() throws {
+        var chart = Chart.draft(title: "Open Chord Lane", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Chord Lane",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+
+        XCTAssertEqual(firstMeasure.leadingBarline, .double)
+        XCTAssertTrue(firstMeasure.isOpen)
+        XCTAssertFalse(
+            LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                after: firstMeasure,
+                before: nil
+            )
+        )
+    }
+
     func testSimpleChordSheetSingleChordUsesMeasureFitFrame() throws {
         var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)

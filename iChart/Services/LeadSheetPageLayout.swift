@@ -195,7 +195,7 @@ enum LeadSheetRepeatBoundaryPolicy {
         after measure: LeadSheetMeasureLayout,
         before nextMeasure: LeadSheetMeasureLayout?
     ) -> Bool {
-        repeatMarkers(after: measure, before: nextMeasure).isEmpty
+        !measure.isOpen && repeatMarkers(after: measure, before: nextMeasure).isEmpty
     }
 
     static func markerIDs(_ repeatMarkers: [LeadSheetRepeatMarkerLayout]) -> Set<String> {
