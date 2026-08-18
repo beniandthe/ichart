@@ -236,10 +236,7 @@ enum LeadSheetActiveInkScope {
                 partialFrame.union(laneFrame)
             }
         let leadingX = max(paperBounds.minX, firstLane.minX - 4)
-        let trailingX = min(
-            paperBounds.maxX,
-            max(system.frame.maxX - 2, (measureLanes.last?.maxX ?? firstLane.maxX) + 4)
-        )
+        let trailingX = paperBounds.maxX
         guard trailingX > leadingX else {
             return nil
         }

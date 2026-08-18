@@ -3613,7 +3613,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
             for: recognitionDrawing,
             chordFrame: chordFrame,
-            pageLayout: pageLayout
+            pageLayout: pageLayout,
+            draftBarlines: flow == .draftPreview ? barlineRecognition.barlines : []
         )
         if batchTargets.count > 1 {
             let sessionRequests = batchTargets.map { batchTarget in

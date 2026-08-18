@@ -893,6 +893,70 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(targets.map(\.measureID), measureIDs)
     }
 
+    func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
+        let chart = Chart.blank(title: "Draft Boundary Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.54
+        let barlineX = laneFrame.minX + laneFrame.width * CGFloat(barlineFraction)
+        let y = laneFrame.midY
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: barlineX - 20 - chordFrame.minX, y: y - chordFrame.minY),
+                    CGPoint(x: barlineX - 10 - chordFrame.minX, y: y + 5 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: barlineX + 10 - chordFrame.minX, y: y - chordFrame.minY),
+                    CGPoint(x: barlineX + 20 - chordFrame.minX, y: y + 5 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        XCTAssertTrue(
+            LeadSheetChordInkRecognitionTargeting.batchTargets(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: layout
+            ).isEmpty
+        )
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets.map(\.measureID), [measureID, measureID])
+        XCTAssertEqual(targets.map(\.strokes.count), [1, 1])
+        XCTAssertLessThan(targets[0].fraction, targets[1].fraction)
+    }
+
     func testChordActiveInkScopeUsesExpandedChordLanesInsteadOfWholePage() throws {
         let chart = Chart.blank(title: "Scoped Chord Lane", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -917,7 +981,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
         XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
         XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
-        XCTAssertTrue(inputFrames.contains { $0.maxX > firstMeasure.chordWritingFrame.maxX })
+        XCTAssertEqual(try XCTUnwrap(inputFrames.first).maxX, layout.paperFrame.insetBy(dx: 14, dy: 0).maxX)
         XCTAssertFalse(
             inputFrames.contains {
                 $0.contains(CGPoint(x: firstMeasure.frame.minX + 16, y: firstMeasure.chordWritingFrame.midY))

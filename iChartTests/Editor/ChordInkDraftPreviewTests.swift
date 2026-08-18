@@ -26,9 +26,9 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let measureID = UUID()
         let pageLayout = Self.pageLayout(measureID: measureID)
         let verticalStroke = InkStroke(points: [
-            InkPoint(x: 150, y: 104, timeOffset: 0),
-            InkPoint(x: 151, y: 130, timeOffset: 0.1),
-            InkPoint(x: 150, y: 164, timeOffset: 0.2)
+            InkPoint(x: 150, y: 94, timeOffset: 0),
+            InkPoint(x: 151, y: 118, timeOffset: 0.1),
+            InkPoint(x: 150, y: 141, timeOffset: 0.2)
         ])
         let slashStroke = InkStroke(points: [
             InkPoint(x: 190, y: 110, timeOffset: 0),
@@ -51,19 +51,19 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let measureID = UUID()
         let pageLayout = Self.pageLayout(measureID: measureID)
         let openLaneStroke = InkStroke(points: [
-            InkPoint(x: 312, y: 104, timeOffset: 0),
-            InkPoint(x: 313, y: 130, timeOffset: 0.1),
-            InkPoint(x: 312, y: 164, timeOffset: 0.2)
+            InkPoint(x: 360, y: 94, timeOffset: 0),
+            InkPoint(x: 361, y: 118, timeOffset: 0.1),
+            InkPoint(x: 360, y: 141, timeOffset: 0.2)
         ])
 
         XCTAssertFalse(
             pageLayout.systems[0].measures[0].chordWritingFrame.contains(
-                CGPoint(x: 312, y: 130)
+                CGPoint(x: 360, y: 118)
             )
         )
         XCTAssertTrue(
             LeadSheetActiveInkScope.chordWritingInputFrames(for: pageLayout)[0].contains(
-                CGPoint(x: 312, y: 130)
+                CGPoint(x: 360, y: 118)
             )
         )
 
@@ -76,6 +76,25 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(recognition.barlines.count, 1)
         XCTAssertEqual(recognition.barlines[0].measureID, measureID)
         XCTAssertGreaterThan(recognition.barlines[0].fraction, 0.9)
+    }
+
+    func testDraftBarlineRecognizerRejectsChordLikeVerticalStrokeInsideLane() {
+        let measureID = UUID()
+        let pageLayout = Self.pageLayout(measureID: measureID)
+        let chordStemStroke = InkStroke(points: [
+            InkPoint(x: 150, y: 108, timeOffset: 0),
+            InkPoint(x: 151, y: 122, timeOffset: 0.1),
+            InkPoint(x: 150, y: 136, timeOffset: 0.2)
+        ])
+
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [chordStemStroke],
+            chordFrame: .zero,
+            pageLayout: pageLayout
+        )
+
+        XCTAssertTrue(recognition.barlines.isEmpty)
+        XCTAssertTrue(recognition.strokeIndices.isEmpty)
     }
 
     func testDraftBatchRenderCommitsOnlyOnExplicitRender() throws {

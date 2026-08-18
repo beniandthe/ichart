@@ -292,7 +292,9 @@ enum ChordDraftBarlineRecognizer {
 
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
-        guard laneCoverage >= 0.42 else {
+        guard laneCoverage >= 0.72,
+              bounds.minY <= laneFrame.minY + 12,
+              bounds.maxY >= laneFrame.maxY - 12 else {
             return nil
         }
 
