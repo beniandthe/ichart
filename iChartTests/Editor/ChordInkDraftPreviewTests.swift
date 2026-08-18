@@ -47,6 +47,37 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(recognition.barlines[0].isRenderable)
     }
 
+    func testDraftBarlineRecognizerAcceptsOpenLaneStrokeBeyondRenderedMeasureBox() {
+        let measureID = UUID()
+        let pageLayout = Self.pageLayout(measureID: measureID)
+        let openLaneStroke = InkStroke(points: [
+            InkPoint(x: 312, y: 104, timeOffset: 0),
+            InkPoint(x: 313, y: 130, timeOffset: 0.1),
+            InkPoint(x: 312, y: 164, timeOffset: 0.2)
+        ])
+
+        XCTAssertFalse(
+            pageLayout.systems[0].measures[0].chordWritingFrame.contains(
+                CGPoint(x: 312, y: 130)
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetActiveInkScope.chordWritingInputFrames(for: pageLayout)[0].contains(
+                CGPoint(x: 312, y: 130)
+            )
+        )
+
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [openLaneStroke],
+            chordFrame: .zero,
+            pageLayout: pageLayout
+        )
+
+        XCTAssertEqual(recognition.barlines.count, 1)
+        XCTAssertEqual(recognition.barlines[0].measureID, measureID)
+        XCTAssertGreaterThan(recognition.barlines[0].fraction, 0.9)
+    }
+
     func testDraftBatchRenderCommitsOnlyOnExplicitRender() throws {
         var chart = Chart.draft(title: "Draft Chords")
         chart.completeInitialSetup(

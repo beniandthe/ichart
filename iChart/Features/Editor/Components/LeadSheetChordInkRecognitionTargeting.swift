@@ -108,15 +108,15 @@ enum LeadSheetChordInkRecognitionTargeting {
             score(inkBoundsInView, center: inkCenter, for: lhs)
                 < score(inkBoundsInView, center: inkCenter, for: rhs)
         }
-        guard let targetMeasure,
-              let measureID = targetMeasure.sourceMeasureID,
-              score(inkBoundsInView, center: inkCenter, for: targetMeasure) > 0 else {
-            return nil
+        if let targetMeasure,
+           let measureID = targetMeasure.sourceMeasureID,
+           score(inkBoundsInView, center: inkCenter, for: targetMeasure) > 0 {
+            let fraction = (inkCenter.x - targetMeasure.chordBandFrame.minX)
+                / max(1, targetMeasure.chordBandFrame.width)
+            return (measureID, Double(min(max(fraction, 0), 0.9999)))
         }
 
-        let fraction = (inkCenter.x - targetMeasure.chordBandFrame.minX)
-            / max(1, targetMeasure.chordBandFrame.width)
-        return (measureID, Double(min(max(fraction, 0), 0.9999)))
+        return openLaneFallbackTarget(at: inkCenter, in: pageLayout)
     }
 
     private static func score(
@@ -130,6 +130,35 @@ enum LeadSheetChordInkRecognitionTargeting {
         let centerBonus: CGFloat = generousBandFrame.contains(center) ? 10_000 : 0
 
         return intersectionArea + centerBonus
+    }
+
+    private static func openLaneFallbackTarget(
+        at center: CGPoint,
+        in pageLayout: LeadSheetPageLayout
+    ) -> (measureID: UUID, fraction: Double)? {
+        for system in pageLayout.systems {
+            let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
+                guard measure.sourceMeasureID != nil else {
+                    return nil
+                }
+
+                return measure
+            }
+            guard let targetMeasure = measures.last,
+                  let measureID = targetMeasure.sourceMeasureID,
+                  let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                    for: system,
+                    paperFrame: pageLayout.paperFrame
+                  ),
+                  laneFrame.insetBy(dx: -8, dy: -8).contains(center) else {
+                continue
+            }
+
+            let fraction = (center.x - laneFrame.minX) / max(1, laneFrame.width)
+            return (measureID, Double(min(max(fraction, 0), 0.9999)))
+        }
+
+        return nil
     }
 
     private static func measureLaneClusters(

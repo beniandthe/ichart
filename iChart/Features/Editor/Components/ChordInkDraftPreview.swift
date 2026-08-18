@@ -283,29 +283,20 @@ enum ChordDraftBarlineRecognizer {
         }
 
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        guard let measure = pageLayout.systems
-            .flatMap(\.measures)
-            .compactMap({ measure -> LeadSheetMeasureLayout? in
-                guard measure.sourceMeasureID != nil else {
-                    return nil
-                }
-
-                return measure
-            })
-            .first(where: { measure in
-                measure.chordWritingFrame.insetBy(dx: -8, dy: -8).contains(center)
-            }),
-              let measureID = measure.sourceMeasureID else {
+        guard let target = draftBarlineTarget(
+            at: center,
+            in: pageLayout
+        ) else {
             return nil
         }
 
-        let laneFrame = measure.chordWritingFrame
+        let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         guard laneCoverage >= 0.42 else {
             return nil
         }
 
-        let rawFraction = (center.x - measure.chordBandFrame.minX) / max(1, measure.chordBandFrame.width)
+        let rawFraction = (center.x - laneFrame.minX) / max(1, laneFrame.width)
         let metrics = DraftBarlineGestureMetrics(
             height: Double(bounds.height),
             width: Double(bounds.width),
@@ -314,11 +305,45 @@ enum ChordDraftBarlineRecognizer {
             laneCoverage: laneCoverage
         )
         return DraftBarline(
-            measureID: measureID,
-            measureIndex: measure.index,
+            measureID: target.measureID,
+            measureIndex: target.measureIndex,
             fraction: Double(rawFraction),
             metrics: metrics
         )
+    }
+
+    private static func draftBarlineTarget(
+        at center: CGPoint,
+        in pageLayout: LeadSheetPageLayout
+    ) -> (measureID: UUID, measureIndex: Int, laneFrame: CGRect)? {
+        for system in pageLayout.systems {
+            guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: pageLayout.paperFrame
+            ),
+                  laneFrame.insetBy(dx: -8, dy: -8).contains(center) else {
+                continue
+            }
+
+            let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
+                guard measure.sourceMeasureID != nil else {
+                    return nil
+                }
+
+                return measure
+            }
+            let measure = measures.first { measure in
+                measure.chordWritingFrame.insetBy(dx: -8, dy: -8).contains(center)
+            } ?? measures.last
+            guard let measure,
+                  let measureID = measure.sourceMeasureID else {
+                return nil
+            }
+
+            return (measureID, measure.index, laneFrame)
+        }
+
+        return nil
     }
 
     private static func removeVeryCloseBarlines(

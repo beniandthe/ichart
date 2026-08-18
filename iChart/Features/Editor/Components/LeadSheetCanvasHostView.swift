@@ -1956,13 +1956,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawChordWritingLanes(_ pageLayout: LeadSheetPageLayout) {
         for laneFrame in LeadSheetActiveInkScope.chordWritingInputFrames(for: pageLayout) {
+            let maskPath = UIBezierPath(rect: laneFrame.insetBy(dx: -1, dy: -1))
+            chordLanePaperFillColor.setFill()
+            maskPath.fill()
+
             let lanePath = UIBezierPath(roundedRect: laneFrame, cornerRadius: 7)
-            UIColor(red: 0.18, green: 0.36, blue: 0.78, alpha: 0.06).setFill()
+            UIColor(red: 0.18, green: 0.36, blue: 0.78, alpha: 0.08).setFill()
             lanePath.fill()
-            UIColor(red: 0.18, green: 0.36, blue: 0.78, alpha: 0.18).setStroke()
-            lanePath.lineWidth = 1
-            lanePath.setLineDash([5, 4], count: 2, phase: 0)
-            lanePath.stroke()
+
+            let railPath = UIBezierPath()
+            railPath.move(to: CGPoint(x: laneFrame.minX, y: laneFrame.minY))
+            railPath.addLine(to: CGPoint(x: laneFrame.maxX, y: laneFrame.minY))
+            railPath.move(to: CGPoint(x: laneFrame.minX, y: laneFrame.maxY))
+            railPath.addLine(to: CGPoint(x: laneFrame.maxX, y: laneFrame.maxY))
+            UIColor(red: 0.18, green: 0.36, blue: 0.78, alpha: 0.22).setStroke()
+            railPath.lineWidth = 1
+            railPath.setLineDash([5, 4], count: 2, phase: 0)
+            railPath.stroke()
+
+            let leftGuidePath = UIBezierPath()
+            leftGuidePath.move(to: CGPoint(x: laneFrame.minX, y: laneFrame.minY))
+            leftGuidePath.addLine(to: CGPoint(x: laneFrame.minX, y: laneFrame.maxY))
+            UIColor(red: 0.13, green: 0.34, blue: 0.78, alpha: 0.58).setStroke()
+            leftGuidePath.lineWidth = 2
+            leftGuidePath.lineCapStyle = .round
+            leftGuidePath.stroke()
         }
     }
 
@@ -1971,38 +1989,38 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        let measureLayoutByID = Dictionary(
+        let laneFrameByMeasureID = Dictionary(
             uniqueKeysWithValues: pageLayout.systems
-                .flatMap(\.measures)
-                .compactMap { measure -> (UUID, LeadSheetMeasureLayout)? in
-                    guard let measureID = measure.sourceMeasureID else {
-                        return nil
+                .flatMap { system -> [(UUID, CGRect)] in
+                    guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                        for: system,
+                        paperFrame: pageLayout.paperFrame
+                    ) else {
+                        return []
                     }
 
-                    return (measureID, measure)
+                    return system.measures.compactMap { measure -> (UUID, CGRect)? in
+                        guard let measureID = measure.sourceMeasureID else {
+                            return nil
+                        }
+
+                        return (measureID, laneFrame)
+                    }
                 }
         )
 
         for barline in chordPreviewState.draftBarlines {
-            guard let measure = measureLayoutByID[barline.measureID] else {
+            guard let laneFrame = laneFrameByMeasureID[barline.measureID] else {
                 continue
             }
 
-            drawDraftBarline(barline, in: measure)
-        }
-
-        for draft in chordPreviewState.draftChords {
-            guard let measure = measureLayoutByID[draft.measureID] else {
-                continue
-            }
-
-            drawDraftChordPreview(draft, in: measure)
+            drawDraftBarline(barline, in: laneFrame)
         }
     }
 
-    private func drawDraftBarline(_ barline: DraftBarline, in measure: LeadSheetMeasureLayout) {
-        let laneFrame = measure.chordWritingFrame.insetBy(dx: 1, dy: 2)
-        let x = measure.chordBandFrame.minX + measure.chordBandFrame.width * CGFloat(barline.fraction)
+    private func drawDraftBarline(_ barline: DraftBarline, in laneFrame: CGRect) {
+        let laneFrame = laneFrame.insetBy(dx: 1, dy: 2)
+        let x = laneFrame.minX + laneFrame.width * CGFloat(barline.fraction)
         let path = UIBezierPath()
         path.move(to: CGPoint(x: x, y: laneFrame.minY))
         path.addLine(to: CGPoint(x: x, y: laneFrame.maxY))
@@ -2016,53 +2034,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         path.stroke()
     }
 
-    private func drawDraftChordPreview(_ draft: ChordInkDraft, in measure: LeadSheetMeasureLayout) {
-        let displayText = draft.previewText ?? "?"
-        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: draft.isRenderable
-                ? UIColor(red: 0.06, green: 0.18, blue: 0.38, alpha: 1)
-                : UIColor(red: 0.44, green: 0.22, blue: 0.05, alpha: 1)
-        ]
-        let textSize = (displayText as NSString).size(withAttributes: textAttributes)
-        let laneFrame = measure.chordWritingFrame.insetBy(dx: 4, dy: 4)
-        let previewWidth = min(max(42, textSize.width + 16), max(42, laneFrame.width))
-        let previewHeight = CGFloat(28)
-        let anchorX = measure.chordBandFrame.minX
-            + measure.chordBandFrame.width * CGFloat(draft.targetFraction ?? 0)
-        let previewX = min(
-            max(anchorX - previewWidth / 2, laneFrame.minX),
-            max(laneFrame.minX, laneFrame.maxX - previewWidth)
-        )
-        let previewY = min(
-            max(laneFrame.minY, measure.chordBandFrame.minY + 2),
-            max(laneFrame.minY, laneFrame.maxY - previewHeight)
-        )
-        let previewFrame = CGRect(
-            x: previewX,
-            y: previewY,
-            width: previewWidth,
-            height: previewHeight
-        )
-        let path = UIBezierPath(roundedRect: previewFrame, cornerRadius: 7)
-        let fillColor = draft.isRenderable
-            ? UIColor(red: 0.82, green: 0.9, blue: 1, alpha: 0.92)
-            : UIColor(red: 1, green: 0.88, blue: 0.72, alpha: 0.94)
-        fillColor.setFill()
-        path.fill()
-        let strokeColor = draft.isRenderable
-            ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.5)
-            : UIColor(red: 0.88, green: 0.44, blue: 0.08, alpha: 0.56)
-        strokeColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
-
-        let textFrame = previewFrame.insetBy(dx: 8, dy: 5)
-        (displayText as NSString).draw(
-            in: textFrame,
-            withAttributes: textAttributes
-        )
+    private var chordLanePaperFillColor: UIColor {
+        switch chart.layoutStyle {
+        case .simpleChordSheet, .leadSheet:
+            switch chart.stylePreset {
+            case .cleanStudio:
+                return UIColor(red: 1.0, green: 0.976, blue: 0.892, alpha: 1)
+            case .gigSheet:
+                return UIColor(red: 0.988, green: 0.965, blue: 0.906, alpha: 1)
+            case .plainWhite, .rehearsalDraft:
+                return UIColor(white: 1.0, alpha: 1)
+            }
+        case .rhythmSectionSheet:
+            switch chart.stylePreset {
+            case .cleanStudio:
+                return UIColor(red: 0.992, green: 0.975, blue: 0.922, alpha: 1)
+            case .gigSheet:
+                return UIColor(red: 0.962, green: 0.986, blue: 0.982, alpha: 1)
+            case .plainWhite:
+                return UIColor(white: 1.0, alpha: 1)
+            case .rehearsalDraft:
+                return UIColor(red: 0.988, green: 0.992, blue: 0.996, alpha: 1)
+            }
+        }
     }
 
     private func drawPageScrollDragAreas(_ pageLayout: LeadSheetPageLayout) {

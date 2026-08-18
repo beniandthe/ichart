@@ -2003,6 +2003,7 @@ struct EditorView: View {
 
                 if canvasMode == .chordEntry {
                     chordDraftActiveToolActions
+                    chordDiagnosticStatusChip
                 }
 
                 Button {
@@ -2460,6 +2461,64 @@ struct EditorView: View {
             ? "needs confirmation"
             : preview.isCertain ? "ready to render" : "reading"
         return "Rhythm preview, \(preview.values.map(\.displayText).joined(separator: ", ")), \(statusText)"
+    }
+
+    private var chordDiagnosticStatusChip: some View {
+        let isReady = canRenderChordDrafts
+        let hasDrafts = !chordPreviewState.isEmpty
+        let tint = hasDrafts && !isReady
+            ? Color.orange
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return HStack(spacing: 8) {
+            Image(systemName: isReady ? "checkmark.circle.fill" : "waveform.path.ecg")
+                .font(.caption.weight(.bold))
+                .frame(width: 15)
+
+            ChordDiagnosticPreviewStrip(
+                chordTexts: chordPreviewState.draftChords.map { $0.previewText ?? "?" },
+                barlineCount: chordPreviewState.draftBarlines.count
+            )
+
+            Text(chordPreviewStatusText)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .frame(width: ChordDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .frame(height: 50)
+        .background(tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(chordPreviewAccessibilityLabel)
+    }
+
+    private var chordPreviewStatusText: String {
+        guard !chordPreviewState.isEmpty else {
+            return "Waiting for ink"
+        }
+
+        if canRenderChordDrafts {
+            return "Ready to render"
+        }
+
+        return "Previewing"
+    }
+
+    private var chordPreviewAccessibilityLabel: String {
+        guard !chordPreviewState.isEmpty else {
+            return "Chord preview, waiting for ink"
+        }
+
+        let chordText = chordPreviewState.draftChords
+            .map { $0.previewText ?? "unresolved" }
+            .joined(separator: ", ")
+        let barlineText = chordPreviewState.draftBarlines.isEmpty
+            ? "no draft barlines"
+            : "\(chordPreviewState.draftBarlines.count) draft barlines"
+        return "Chord preview, \(chordText), \(barlineText), \(chordPreviewStatusText)"
     }
 
     private func exitEditor() {
@@ -4890,6 +4949,64 @@ private enum EditorSheet: Identifiable {
             return "export-\(exportedPDF.id.absoluteString)"
         }
     }
+}
+
+private struct ChordDiagnosticPreviewStrip: View {
+    let chordTexts: [String]
+    let barlineCount: Int
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: ChordDiagnosticPreviewMetrics.itemSpacing) {
+                if chordTexts.isEmpty && barlineCount == 0 {
+                    Text("-")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: ChordDiagnosticPreviewMetrics.placeholderWidth)
+                } else {
+                    ForEach(Array(chordTexts.enumerated()), id: \.offset) { _, chordText in
+                        Text(chordText)
+                            .font(.caption.weight(.bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: ChordDiagnosticPreviewMetrics.chordMinWidth, minHeight: 28)
+                            .background(Color.primary.opacity(0.055))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+
+                    ForEach(0..<barlineCount, id: \.self) { _ in
+                        Text("|")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
+                    }
+                }
+            }
+            .padding(.horizontal, ChordDiagnosticPreviewMetrics.horizontalInset)
+            .frame(minWidth: ChordDiagnosticPreviewMetrics.stripWidth, alignment: .leading)
+        }
+        .scrollDisabled(chordTexts.count + barlineCount <= ChordDiagnosticPreviewMetrics.nonScrollingItemCount)
+        .frame(
+            width: ChordDiagnosticPreviewMetrics.stripWidth,
+            height: ChordDiagnosticPreviewMetrics.stripHeight,
+            alignment: .leading
+        )
+        .background(Color.primary.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .foregroundStyle(Color.primary)
+    }
+}
+
+private enum ChordDiagnosticPreviewMetrics {
+    static let stripWidth: CGFloat = 216
+    static let stripHeight: CGFloat = 42
+    static let chordMinWidth: CGFloat = 32
+    static let placeholderWidth: CGFloat = 32
+    static let barlineWidth: CGFloat = 16
+    static let itemSpacing: CGFloat = 8
+    static let horizontalInset: CGFloat = 7
+    static let nonScrollingItemCount = 5
+    static let statusWidth: CGFloat = 136
 }
 
 private struct RhythmDiagnosticPreviewStrip: View {

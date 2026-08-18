@@ -64,10 +64,9 @@ enum LeadSheetCanvasInteractionTargeting {
         _ location: CGPoint,
         in pageLayout: LeadSheetPageLayout
     ) -> Bool {
-        pageLayout.systems
-            .flatMap(\.measures)
-            .contains { measure in
-                measure.chordWritingFrame.insetBy(dx: -4, dy: -4).contains(location)
+        LeadSheetActiveInkScope.chordWritingInputFrames(for: pageLayout)
+            .contains { frame in
+                frame.insetBy(dx: -4, dy: -4).contains(location)
             }
     }
 

@@ -917,6 +917,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
         XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
         XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
+        XCTAssertTrue(inputFrames.contains { $0.maxX > firstMeasure.chordWritingFrame.maxX })
         XCTAssertFalse(
             inputFrames.contains {
                 $0.contains(CGPoint(x: firstMeasure.frame.minX + 16, y: firstMeasure.chordWritingFrame.midY))
