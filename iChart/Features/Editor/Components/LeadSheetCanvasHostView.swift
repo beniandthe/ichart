@@ -2542,11 +2542,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             recordRhythmicNotationDrawingChange()
         }
 
-        if activeRole == .chord {
-            cancelPendingInkSessionScheduledWork()
-            return
-        }
-
         scheduleInkSessionWorkAfterDrawingChange()
     }
 
