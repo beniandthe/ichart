@@ -608,7 +608,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(movedChordLayouts.allSatisfy { $0.horizontalCompressionScale == 1 })
         XCTAssertEqual(movedChordLayouts[0].frame.minX, movedChordLayouts[0].fitFrame.minX, accuracy: 0.001)
         XCTAssertEqual(movedChordLayouts[1].frame.minX, movedChordLayouts[1].fitFrame.minX, accuracy: 0.001)
-        XCTAssertLessThan(movedChordLayouts[0].frame.width, initialChordLayouts[0].frame.width)
+        XCTAssertEqual(movedChordLayouts[0].frame.width, initialChordLayouts[0].frame.width, accuracy: 0.001)
         XCTAssertGreaterThanOrEqual(movedChordLayouts[1].frame.minX, movedChordLayouts[0].frame.maxX)
     }
 
@@ -632,7 +632,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(chordLayouts.map(\.text), [chordText, chordText])
         XCTAssertGreaterThanOrEqual(chordLayouts[1].fitFrame.minX - chordLayouts[0].fitFrame.maxX, 8)
         XCTAssertGreaterThanOrEqual(chordLayouts[1].frame.minX - chordLayouts[0].frame.maxX, 8)
-        XCTAssertGreaterThan(chordLayouts[1].frame.width, chordLayouts[0].frame.width)
+        XCTAssertEqual(chordLayouts[1].frame.width, chordLayouts[0].frame.width, accuracy: 0.001)
+        XCTAssertGreaterThan(chordLayouts.map(\.frame.width).min() ?? 0, 96)
         XCTAssertLessThanOrEqual(chordLayouts[1].frame.maxX, measure.chordBandFrame.maxX)
     }
 
@@ -655,8 +656,39 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(movedChordLayouts.map(\.text), ["Db7(#11)/F#", "C-7"])
         XCTAssertGreaterThanOrEqual(movedChordLayouts[1].fitFrame.minX - movedChordLayouts[0].fitFrame.maxX, 8)
         XCTAssertGreaterThanOrEqual(movedChordLayouts[1].frame.minX - movedChordLayouts[0].frame.maxX, 8)
-        XCTAssertGreaterThan(movedChordLayouts[1].frame.width, movedChordLayouts[0].frame.width)
-        XCTAssertGreaterThan(movedChordLayouts[0].frame.width, 18)
+        XCTAssertGreaterThan(movedChordLayouts[0].frame.width, movedChordLayouts[1].frame.width)
+        XCTAssertGreaterThan(movedChordLayouts[1].frame.width, 44)
+    }
+
+    func testSimpleChordSheetAdjacentShortChordsDoNotInflateMeasureLane() throws {
+        var chart = Chart.blank(title: "Adjacent Short Chords", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        try appendChord("B-", to: measureID, in: &chart, atFraction: 0.05)
+        try appendChord("C7", to: measureID, in: &chart, atFraction: 0.86)
+        let secondChordID = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.last?.id)
+
+        XCTAssertTrue(chart.moveChordEvent(secondChordID, to: measureID, atFraction: 0.13))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 760, height: 1400)
+        )
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let firstMeasure = try XCTUnwrap(firstSystem.measures.first)
+        let secondMeasure = try XCTUnwrap(firstSystem.measures.dropFirst().first)
+        let chordLayouts = firstMeasure.chordLayouts
+        let chordEvents = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
+
+        XCTAssertEqual(chordEvents.map(\.startPosition.displayText), ["1", "1&"])
+        XCTAssertEqual(chordLayouts.map(\.text), ["B-", "C7"])
+        XCTAssertLessThan(
+            firstMeasure.frame.width,
+            secondMeasure.frame.width * 1.25,
+            "Dragging short adjacent chords together should not make the Simple Chord Sheet measure lane expand dramatically."
+        )
+        XCTAssertGreaterThanOrEqual(chordLayouts[1].frame.minX - chordLayouts[0].frame.maxX, 8)
+        XCTAssertGreaterThanOrEqual(chordLayouts.map(\.frame.width).min() ?? 0, CGFloat(34))
+        XCTAssertLessThanOrEqual(chordLayouts[1].frame.maxX, firstMeasure.chordBandFrame.maxX)
     }
 
     func testSimpleChordSheetChordFramesUseUniversalTypographyAcrossChordFonts() throws {

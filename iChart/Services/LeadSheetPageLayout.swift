@@ -279,6 +279,7 @@ enum LeadSheetPageLayoutEngine {
     private static let rhythmSectionChordMinimumFrameGap: CGFloat = 10
     private static let rhythmSectionChordVisibleFrameHeight: CGFloat = 32
     private static let simpleChordMinimumFrameGap: CGFloat = 16
+    private static let simpleChordMeasureContentPadding: CGFloat = 24
 
     private struct VisualPolicy {
         let chart: Chart
@@ -1210,10 +1211,7 @@ enum LeadSheetPageLayoutEngine {
 
         var resolvedWidths = targetWidths
         var remainingOverflow = targetBodyWidth - maxBodyWidth
-        let minimumWidth = max(
-            20,
-            min(Measure.minimumManualLayoutWidth, maxBodyWidth / CGFloat(targetWidths.count))
-        )
+        let minimumWidth = CGFloat(20)
         let simpleMeasureIndices = weights.indices.filter {
             weights[$0] <= 1.001
         }
@@ -1297,7 +1295,6 @@ enum LeadSheetPageLayoutEngine {
         metrics: LeadSheetEngravingMetrics
     ) -> CGFloat {
         let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
-        let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
         let placements = measure.renderedChordPlacements(defaultMeter: chart.defaultMeter)
             .sorted {
                 ($0.startPosition.startOffset(in: meter) ?? 0) <
@@ -1310,30 +1307,10 @@ enum LeadSheetPageLayoutEngine {
         let fontSize = preferredSimpleChordFontSize()
         let defaultWidth = max(1, preferredCommittedMeasureWidth * metrics.measureWidthScale)
         let minimumDisplayWidth = metrics.chordBandHeight * 0.92
-        var requiredMeasureWidth = defaultWidth
-
-        for (index, placement) in placements.enumerated() {
-            let startOffset = min(
-                measureLength,
-                max(0, placement.startPosition.startOffset(in: meter) ?? 0)
-            )
-            let nextOffset = index + 1 < placements.count
-                ? placements[index + 1].startPosition.startOffset(in: meter)
-                : nil
-            let proposedEndOffset = nextOffset ?? measureLength
-            let endOffset = min(
-                measureLength,
-                max(
-                    startOffset + measureLength * 0.03,
-                    proposedEndOffset > startOffset
-                        ? proposedEndOffset
-                        : startOffset + meter.beatUnitWholeNoteLength
-                )
-            )
-            let segmentFraction = max(0.03, (endOffset - startOffset) / measureLength)
+        let readableChordWidths = placements.map { placement in
             let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measure.id)
             let displayedText = displayedSymbol.displayText
-            let desiredWidth = max(
+            return max(
                 minimumDisplayWidth,
                 estimatedSimpleChordTextWidth(
                     for: displayedSymbol,
@@ -1341,13 +1318,13 @@ enum LeadSheetPageLayoutEngine {
                     fontSize: fontSize
                 ) + 2
             )
-            let internalGapShare = simpleChordMinimumFrameGap
-                * CGFloat((index == 0 ? 0 : 0.5) + (index == placements.count - 1 ? 0 : 0.5))
-            requiredMeasureWidth = max(
-                requiredMeasureWidth,
-                (desiredWidth + internalGapShare) / CGFloat(segmentFraction)
-            )
         }
+        let requiredMeasureWidth = max(
+            defaultWidth,
+            readableChordWidths.reduce(0, +)
+                + simpleChordMinimumFrameGap * CGFloat(max(0, readableChordWidths.count - 1))
+                + simpleChordMeasureContentPadding
+        )
 
         return min(2.6, max(1, requiredMeasureWidth / defaultWidth))
     }
@@ -1592,7 +1569,10 @@ enum LeadSheetPageLayoutEngine {
         }
         let chordLayouts: [LeadSheetChordLayout]
         if isSimpleChordSheet {
-            chordLayouts = resolvedSimpleChordCollisions(in: rawChordLayouts)
+            chordLayouts = resolvedSimpleChordCollisions(
+                in: rawChordLayouts,
+                chordBandFrame: chordBandFrame
+            )
         } else if layoutStyle == .rhythmSectionSheet {
             chordLayouts = resolvedRhythmSectionChordCollisions(
                 in: rawChordLayouts,
@@ -1664,11 +1644,20 @@ enum LeadSheetPageLayoutEngine {
         )
 
         if visualPolicy.layoutStyle == .simpleChordSheet {
+            let minimumFitFrameWidth = max(
+                chordBandFrame.height * 0.92,
+                estimatedSimpleChordTextWidth(
+                    for: displayedSymbol,
+                    fallbackText: displayedText,
+                    fontSize: preferredSimpleChordFontSize()
+                ) + 2
+            )
             let fitFrame = simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
                 meter: meter,
-                chordBandFrame: chordBandFrame
+                chordBandFrame: chordBandFrame,
+                minimumWidth: minimumFitFrameWidth
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
@@ -1795,7 +1784,8 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func resolvedSimpleChordCollisions(
-        in chordLayouts: [LeadSheetChordLayout]
+        in chordLayouts: [LeadSheetChordLayout],
+        chordBandFrame: CGRect
     ) -> [LeadSheetChordLayout] {
         guard chordLayouts.count > 1 else {
             return chordLayouts
@@ -1809,33 +1799,42 @@ enum LeadSheetPageLayoutEngine {
             var resolvedLayout = chordLayout
             if let previousLayout = resolvedLayouts.last,
                resolvedLayout.frame.minX < previousLayout.frame.maxX + minimumGap {
-                let collisionWidth = previousLayout.frame.maxX + minimumGap - resolvedLayout.frame.minX
-                let reductions = weightedSimpleChordCollisionReductions(
-                    collisionWidth: collisionWidth,
-                    previousFrame: previousLayout.frame,
-                    currentFrame: resolvedLayout.frame
-                )
-
-                if let previousIndex = resolvedLayouts.indices.last {
-                    resolvedLayouts[previousIndex] = chordLayoutByReducingTrailingEdge(
-                        of: previousLayout,
-                        by: reductions.previous
+                let minimumMinX = previousLayout.frame.maxX + minimumGap
+                if let shiftedLayout = simpleChordLayout(
+                    resolvedLayout,
+                    byMovingVisibleMinXTo: minimumMinX,
+                    boundedBy: chordBandFrame
+                ) {
+                    resolvedLayout = shiftedLayout
+                } else {
+                    let collisionWidth = previousLayout.frame.maxX + minimumGap - resolvedLayout.frame.minX
+                    let reductions = weightedSimpleChordCollisionReductions(
+                        collisionWidth: collisionWidth,
+                        previousFrame: previousLayout.frame,
+                        currentFrame: resolvedLayout.frame
                     )
-                }
 
-                resolvedLayout = chordLayoutByReducingLeadingEdge(
-                    of: resolvedLayout,
-                    by: reductions.current
-                )
-
-                if let balancedPreviousLayout = resolvedLayouts.last {
-                    let minimumMinX = balancedPreviousLayout.frame.maxX + minimumGap
-                    let remainingOverlap = minimumMinX - resolvedLayout.frame.minX
-                    if remainingOverlap > 0 {
-                        resolvedLayout = chordLayoutByReducingLeadingEdge(
-                            of: resolvedLayout,
-                            by: remainingOverlap
+                    if let previousIndex = resolvedLayouts.indices.last {
+                        resolvedLayouts[previousIndex] = chordLayoutByReducingTrailingEdge(
+                            of: previousLayout,
+                            by: reductions.previous
                         )
+                    }
+
+                    resolvedLayout = chordLayoutByReducingLeadingEdge(
+                        of: resolvedLayout,
+                        by: reductions.current
+                    )
+
+                    if let balancedPreviousLayout = resolvedLayouts.last {
+                        let minimumMinX = balancedPreviousLayout.frame.maxX + minimumGap
+                        let remainingOverlap = minimumMinX - resolvedLayout.frame.minX
+                        if remainingOverlap > 0 {
+                            resolvedLayout = chordLayoutByReducingLeadingEdge(
+                                of: resolvedLayout,
+                                by: remainingOverlap
+                            )
+                        }
                     }
                 }
             }
@@ -1855,6 +1854,42 @@ enum LeadSheetPageLayoutEngine {
         }
 
         return resolvedLayouts
+    }
+
+    private static func simpleChordLayout(
+        _ chordLayout: LeadSheetChordLayout,
+        byMovingVisibleMinXTo proposedMinX: CGFloat,
+        boundedBy chordBandFrame: CGRect
+    ) -> LeadSheetChordLayout? {
+        let resolvedWidth = min(chordLayout.frame.width, max(1, chordBandFrame.width))
+        let maximumMinX = chordBandFrame.maxX - resolvedWidth
+        guard proposedMinX <= maximumMinX + 0.001 else {
+            return nil
+        }
+
+        let boundedMinX = max(chordBandFrame.minX, proposedMinX)
+        let deltaX = boundedMinX - chordLayout.frame.minX
+        guard abs(deltaX) > 0.001 else {
+            return chordLayout
+        }
+
+        var resolvedLayout = chordLayout
+        resolvedLayout.frame = CGRect(
+            x: boundedMinX,
+            y: chordLayout.frame.minY,
+            width: resolvedWidth,
+            height: chordLayout.frame.height
+        )
+        resolvedLayout.fitFrame = CGRect(
+            x: chordLayout.fitFrame.minX + deltaX,
+            y: chordLayout.fitFrame.minY,
+            width: min(
+                max(chordLayout.fitFrame.width, resolvedWidth),
+                max(1, chordBandFrame.maxX - boundedMinX)
+            ),
+            height: chordLayout.fitFrame.height
+        )
+        return resolvedLayout
     }
 
     private static func redistributedTightSimpleChordPair(
@@ -2080,7 +2115,8 @@ enum LeadSheetPageLayoutEngine {
         for placement: MeasureChordPlacement,
         nextPlacement: MeasureChordPlacement?,
         meter: Meter,
-        chordBandFrame: CGRect
+        chordBandFrame: CGRect,
+        minimumWidth: CGFloat
     ) -> CGRect {
         let measureLength = max(0.0001, meter.measureLengthInWholeNotes)
         let startOffset = min(
@@ -2104,7 +2140,10 @@ enum LeadSheetPageLayoutEngine {
         return CGRect(
             x: rawMinX,
             y: chordBandFrame.minY,
-            width: max(1, rawMaxX - rawMinX),
+            width: min(
+                max(1, rawMaxX - rawMinX, minimumWidth),
+                max(1, chordBandFrame.maxX - rawMinX)
+            ),
             height: chordBandFrame.height
         )
     }
