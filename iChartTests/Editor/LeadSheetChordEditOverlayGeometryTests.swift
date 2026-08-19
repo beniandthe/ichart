@@ -539,6 +539,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         let measure = LeadSheetMeasureLayout(
             id: UUID(),
             sourceMeasureID: measureID,
+            chordInkTargetMeasureID: measureID,
             index: 1,
             frame: CGRect(x: 100, y: 80, width: 180, height: 90),
             staffFrame: CGRect(x: 108, y: 116, width: 164, height: 34),

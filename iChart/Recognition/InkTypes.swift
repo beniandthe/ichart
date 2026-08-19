@@ -111,7 +111,7 @@ struct ChordInkBatchCluster: Hashable {
 }
 
 enum ChordInkBatchClusterer {
-    static let maximumClusterCount = 4
+    static let maximumClusterCount = 12
 
     static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
         let indexedStrokes = strokes.enumerated()
@@ -321,7 +321,13 @@ struct ChordOCRCandidate: Codable, Hashable {
 }
 
 struct ChordInkRecognitionOptions: Hashable {
+    enum OCRRequestPolicy: Hashable {
+        case trustGated
+        case always
+    }
+
     var includesSymbolLedgerDiagnostics: Bool = false
+    var ocrRequestPolicy: OCRRequestPolicy = .trustGated
 
     static let live = ChordInkRecognitionOptions()
     static let includingSymbolLedgerDiagnostics = ChordInkRecognitionOptions(

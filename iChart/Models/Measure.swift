@@ -74,7 +74,7 @@ struct LeadSheetPitchedNoteSlotInput: Hashable {
 
 struct Measure: Identifiable, Codable, Hashable {
     static let minimumManualLayoutWidth: CGFloat = 96
-    static let maximumManualLayoutWidth: CGFloat = 420
+    static let maximumManualLayoutWidth: CGFloat = 900
 
     var id: UUID
     var index: Int

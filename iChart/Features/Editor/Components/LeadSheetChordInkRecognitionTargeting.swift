@@ -6,6 +6,8 @@ import UIKit
 struct LeadSheetChordInkRecognitionBatchTarget {
     var measureID: UUID
     var fraction: Double
+    var visualOrder: Double
+    var laneLocation: ChordInkDraftLaneLocation?
     var strokes: [InkStroke]
     var drawingData: Data
     var drawing: PKDrawing
@@ -14,6 +16,17 @@ struct LeadSheetChordInkRecognitionBatchTarget {
 private struct DraftBarlineLaneClusterKey: Hashable {
     var systemIndex: Int
     var segmentIndex: Int
+}
+
+private struct MeasureLaneClusterKey: Hashable {
+    var systemIndex: Int
+    var measureID: UUID
+}
+
+private struct MeasureLaneStrokeTarget {
+    var originalIndex: Int
+    var stroke: InkStroke
+    var key: MeasureLaneClusterKey
 }
 
 enum LeadSheetChordInkRecognitionTargeting {
@@ -89,9 +102,21 @@ enum LeadSheetChordInkRecognitionTargeting {
             let clusterDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(
                 PKDrawing(strokes: strokePairs.map(\.0))
             )
+            let laneLocation = laneLocation(
+                forInkBounds: cluster.bounds.cgRect,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
             return LeadSheetChordInkRecognitionBatchTarget(
                 measureID: target.measureID,
                 fraction: target.fraction,
+                visualOrder: laneLocation?.visualOrder
+                    ?? visualOrder(
+                        forInkBounds: cluster.bounds.cgRect,
+                        chordFrame: chordFrame,
+                        pageLayout: pageLayout
+                    ),
+                laneLocation: laneLocation,
                 strokes: strokePairs.map(\.1),
                 drawingData: clusterDrawing.dataRepresentation(),
                 drawing: clusterDrawing
@@ -212,7 +237,7 @@ enum LeadSheetChordInkRecognitionTargeting {
         in pageLayout: LeadSheetPageLayout
     ) -> (systemIndex: Int, laneFrame: CGRect)? {
         for system in pageLayout.systems {
-            guard system.measures.contains(where: { $0.sourceMeasureID == measureID }),
+            guard system.measures.contains(where: { $0.chordInkTargetMeasureID == measureID }),
                   let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
                     paperFrame: pageLayout.paperFrame
@@ -256,6 +281,72 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
     }
 
+    static func visualOrder(
+        for drawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> Double? {
+        laneLocation(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )?.visualOrder
+    }
+
+    static func laneLocation(
+        for drawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> ChordInkDraftLaneLocation? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        let inkBounds = LeadSheetChordInkImageRenderer.renderBounds(for: drawing)
+        guard !inkBounds.isNull,
+              inkBounds.width >= 4 || inkBounds.height >= 4 else {
+            return nil
+        }
+
+        return laneLocation(
+            forInkBounds: inkBounds,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )
+    }
+
+    private static func visualOrder(
+        forInkBounds inkBounds: CGRect,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> Double {
+        laneLocation(
+            forInkBounds: inkBounds,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )?.visualOrder ?? {
+            let boundsInView = inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
+            return Double(boundsInView.midY * 10_000 + boundsInView.midX)
+        }()
+    }
+
+    private static func laneLocation(
+        forInkBounds inkBounds: CGRect,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> ChordInkDraftLaneLocation? {
+        let boundsInView = inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
+        if let match = laneMatch(for: boundsInView, in: pageLayout) {
+            let normalizedX = (boundsInView.midX - match.laneFrame.minX) / max(1, match.laneFrame.width)
+            return ChordInkDraftLaneLocation(
+                systemIndex: match.systemIndex,
+                fraction: Double(normalizedX)
+            )
+        }
+
+        return nil
+    }
+
     private static func target(
         forInkBounds inkBounds: CGRect,
         chordFrame: CGRect,
@@ -269,7 +360,7 @@ enum LeadSheetChordInkRecognitionTargeting {
         let inkBoundsInView = inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
         let inkCenter = CGPoint(x: inkBoundsInView.midX, y: inkBoundsInView.midY)
         let candidateMeasures = pageLayout.systems.flatMap(\.measures).compactMap { measure -> LeadSheetMeasureLayout? in
-            guard measure.sourceMeasureID != nil else {
+            guard measure.chordInkTargetMeasureID != nil else {
                 return nil
             }
 
@@ -281,7 +372,7 @@ enum LeadSheetChordInkRecognitionTargeting {
                 < score(inkBoundsInView, center: inkCenter, for: rhs)
         }
         if let targetMeasure,
-           let measureID = targetMeasure.sourceMeasureID,
+           let measureID = targetMeasure.chordInkTargetMeasureID,
            score(inkBoundsInView, center: inkCenter, for: targetMeasure) > 0 {
             let fraction = (inkCenter.x - targetMeasure.chordBandFrame.minX)
                 / max(1, targetMeasure.chordBandFrame.width)
@@ -310,14 +401,14 @@ enum LeadSheetChordInkRecognitionTargeting {
     ) -> (measureID: UUID, fraction: Double)? {
         for system in pageLayout.systems {
             let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
-                guard measure.sourceMeasureID != nil else {
+                guard measure.chordInkTargetMeasureID != nil else {
                     return nil
                 }
 
                 return measure
             }
             guard let targetMeasure = measures.last,
-                  let measureID = targetMeasure.sourceMeasureID,
+                  let measureID = targetMeasure.chordInkTargetMeasureID,
                   let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
                     paperFrame: pageLayout.paperFrame
@@ -338,66 +429,83 @@ enum LeadSheetChordInkRecognitionTargeting {
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout
     ) -> [ChordInkBatchCluster] {
-        let indexedStrokes = strokes.enumerated()
+        let usableStrokes = strokes.enumerated()
             .filter { _, stroke in
                 stroke.bounds.width >= 1 || stroke.bounds.height >= 1
             }
-            .sorted { lhs, rhs in
-                if lhs.element.bounds.minX == rhs.element.bounds.minX {
-                    return lhs.offset < rhs.offset
+        let strokeTargets = usableStrokes
+            .compactMap { index, stroke -> MeasureLaneStrokeTarget? in
+                guard let target = target(
+                    forInkBounds: stroke.bounds.cgRect,
+                    chordFrame: chordFrame,
+                    pageLayout: pageLayout
+                ),
+                      let laneLocation = laneLocation(
+                        forInkBounds: stroke.bounds.cgRect,
+                        chordFrame: chordFrame,
+                        pageLayout: pageLayout
+                      ) else {
+                    return nil
                 }
 
-                return lhs.element.bounds.minX < rhs.element.bounds.minX
+                return MeasureLaneStrokeTarget(
+                    originalIndex: index,
+                    stroke: stroke,
+                    key: MeasureLaneClusterKey(
+                        systemIndex: laneLocation.systemIndex,
+                        measureID: target.measureID
+                    )
+                )
             }
 
-        guard indexedStrokes.count > 1 else {
+        guard strokeTargets.count == usableStrokes.count,
+              strokeTargets.count > 1 else {
             return []
         }
 
-        var clusters = [ChordInkBatchCluster]()
-        var currentMeasureID: UUID?
-        var currentIndices = [Int]()
-        var currentBounds: InkBounds?
+        let groupedTargets = Dictionary(grouping: strokeTargets, by: \.key)
+        let clusters = groupedTargets.flatMap { key, group -> [(key: MeasureLaneClusterKey, cluster: ChordInkBatchCluster)] in
+            let orderedGroup = group.sorted { lhs, rhs in
+                if lhs.stroke.bounds.minX == rhs.stroke.bounds.minX {
+                    return lhs.originalIndex < rhs.originalIndex
+                }
 
-        for indexedStroke in indexedStrokes {
-            let stroke = indexedStroke.element
-            guard let target = target(
-                forInkBounds: stroke.bounds.cgRect,
-                chordFrame: chordFrame,
-                pageLayout: pageLayout
-            ) else {
-                return []
+                return lhs.stroke.bounds.minX < rhs.stroke.bounds.minX
             }
 
-            if let measureID = currentMeasureID,
-               measureID != target.measureID,
-               let bounds = currentBounds {
-                clusters.append(
-                    ChordInkBatchCluster(
-                        strokeIndices: currentIndices,
-                        bounds: bounds
+            return ChordInkBatchClusterer.clusters(for: orderedGroup.map(\.stroke))
+                .compactMap { localCluster -> (key: MeasureLaneClusterKey, cluster: ChordInkBatchCluster)? in
+                    let originalIndices = localCluster.strokeIndices.compactMap { localIndex -> Int? in
+                        guard orderedGroup.indices.contains(localIndex) else {
+                            return nil
+                        }
+
+                        return orderedGroup[localIndex].originalIndex
+                    }
+                    guard !originalIndices.isEmpty else {
+                        return nil
+                    }
+
+                    return (
+                        key: key,
+                        cluster: ChordInkBatchCluster(
+                            strokeIndices: originalIndices,
+                            bounds: localCluster.bounds
+                        )
                     )
-                )
-                currentMeasureID = target.measureID
-                currentIndices = [indexedStroke.offset]
-                currentBounds = stroke.bounds
-            } else {
-                currentMeasureID = target.measureID
-                currentIndices.append(indexedStroke.offset)
-                currentBounds = currentBounds?.union(stroke.bounds) ?? stroke.bounds
+                }
+        }
+
+        return clusters
+            .sorted { lhs, rhs in
+                if lhs.key.systemIndex == rhs.key.systemIndex {
+                    return lhs.cluster.bounds.minX < rhs.cluster.bounds.minX
+                }
+
+                return lhs.key.systemIndex < rhs.key.systemIndex
             }
-        }
-
-        if let currentBounds {
-            clusters.append(
-                ChordInkBatchCluster(
-                    strokeIndices: currentIndices,
-                    bounds: currentBounds
-                )
-            )
-        }
-
-        return clusters.filter(\.isUsable)
+            .map(\.cluster)
+            .filter(\.isUsable)
     }
 }
 

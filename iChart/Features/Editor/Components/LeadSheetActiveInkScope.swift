@@ -220,7 +220,7 @@ enum LeadSheetActiveInkScope {
     ) -> CGRect? {
         let paperBounds = paperFrame.insetBy(dx: 14, dy: 0)
         let measureLanes = system.measures.compactMap { measure -> CGRect? in
-            guard measure.sourceMeasureID != nil else {
+            guard measure.chordInkTargetMeasureID != nil else {
                 return nil
             }
 

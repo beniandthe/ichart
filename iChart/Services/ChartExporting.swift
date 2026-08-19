@@ -236,7 +236,7 @@ private struct ChartPDFRenderer {
         }
 
         for system in pageLayout.systems {
-            drawSystem(system, using: renderer)
+            drawSystem(system, paperFrame: pageLayout.paperFrame, using: renderer)
         }
 
         LeadSheetSavedInkRenderer.drawPageInk(
@@ -251,7 +251,11 @@ private struct ChartPDFRenderer {
         )
     }
 
-    private func drawSystem(_ system: LeadSheetSystemLayout, using renderer: LeadSheetNotationRenderer) {
+    private func drawSystem(
+        _ system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        using renderer: LeadSheetNotationRenderer
+    ) {
         if let sectionTextFrame = system.sectionTextFrame,
            let sectionText = system.sectionText {
             renderer.drawSectionText(sectionText, in: sectionTextFrame)
@@ -315,6 +319,8 @@ private struct ChartPDFRenderer {
                 using: renderer
             )
         }
+
+        renderer.drawSimpleChordStanzaTerminalBarline(for: system, paperFrame: paperFrame)
     }
 
     private func drawMeasure(

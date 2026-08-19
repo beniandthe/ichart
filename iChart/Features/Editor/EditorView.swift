@@ -760,9 +760,20 @@ struct EditorView: View {
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
     @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
+    @AppStorage("iChartChordDraftBarlineSpacingMode")
+    private var chordDraftBarlineSpacingModeRaw = ChordDraftBarlineSpacingMode.drawn.rawValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
     private let onExit: (() -> Void)?
+
+    private var chordDraftBarlineSpacingMode: ChordDraftBarlineSpacingMode {
+        get {
+            ChordDraftBarlineSpacingMode(rawValue: chordDraftBarlineSpacingModeRaw) ?? .drawn
+        }
+        nonmutating set {
+            chordDraftBarlineSpacingModeRaw = newValue.rawValue
+        }
+    }
 
     private static func releaseSafeInitialCanvasMode(_ mode: EditorCanvasMode) -> EditorCanvasMode {
         guard mode != .rhythmicNotationEdit
@@ -1430,11 +1441,6 @@ struct EditorView: View {
 
     private var activeToolExplainer: (text: String, color: Color)? {
         switch canvasMode {
-        case .chordEntry:
-            return (
-                "Read and render chords. Want handwritten notation? Use Free-Write.",
-                EditorToolAccent.semanticRead
-            )
         case .freeHand:
             return (
                 "Persistent-ink mode. This ink is never read or interpreted by iChart.",
@@ -1663,6 +1669,24 @@ struct EditorView: View {
             }
         } label: {
             Label("Engraving", systemImage: "slider.horizontal.3")
+        }
+
+        Menu {
+            ForEach(ChordDraftBarlineSpacingMode.allCases) { mode in
+                Button {
+                    chordDraftBarlineSpacingMode = mode
+                } label: {
+                    notationMenuLabel(
+                        mode.displayText,
+                        isSelected: chordDraftBarlineSpacingMode == mode
+                    )
+                }
+            }
+        } label: {
+            Label(
+                "Chord Barlines (\(chordDraftBarlineSpacingMode.displayText))",
+                systemImage: "rectangle.split.3x1"
+            )
         }
     }
 
@@ -2379,7 +2403,7 @@ struct EditorView: View {
             "measureCount": "\(chart.measures.count)",
             "canvasMode": canvasMode.activeToolTitle,
             "inkToolMode": inkToolMode.rawValue,
-            "chordToolInputMode": "readOnly"
+            "chordToolInputMode": "draftPreview"
         ]
     }
 
@@ -3823,6 +3847,9 @@ struct EditorView: View {
                 measureID: payload.target.measureID,
                 measureIndex: measure.index,
                 targetFraction: payload.target.fraction,
+                visualOrder: payload.visualOrder,
+                laneLocation: payload.laneLocation,
+                layoutPageSize: payload.layoutPageSize,
                 drawingData: payload.drawingData,
                 candidateTexts: resolution.candidateTexts,
                 bestCandidateText: resolution.decision.acceptedText ?? payload.result.match?.displayText,
@@ -3880,7 +3907,10 @@ struct EditorView: View {
         }
 
         var updatedChart = chart
-        let renderResult = updatedChart.commitChordInkDraftBatch(chordPreviewState)
+        let renderResult = updatedChart.commitChordInkDraftBatch(
+            chordPreviewState,
+            barlineSpacingMode: chordDraftBarlineSpacingMode
+        )
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
             chordInkErrorMessage = "No draft chords were ready to render yet."
             showingChordInkError = true

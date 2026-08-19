@@ -17,6 +17,4 @@ enum ChordInkTapConfirmGesturePolicy {
     }
 }
 
-@available(*, deprecated, renamed: "ChordInkTapConfirmGesturePolicy")
-typealias LeadSheetChordInkCommitGesturePolicy = ChordInkTapConfirmGesturePolicy
 #endif

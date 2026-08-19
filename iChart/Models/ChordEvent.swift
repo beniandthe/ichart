@@ -10,6 +10,11 @@ enum ChordSpellingOverrideSource: String, Codable, Hashable {
 }
 
 struct ChordEvent: Identifiable, Codable, Hashable {
+    static let minimumManualDisplayWidth: Double = 18
+    static let maximumManualDisplayWidth: Double = 360
+    static let minimumManualLaneFraction: Double = 0
+    static let maximumManualLaneFraction: Double = 0.9999
+
     var id: UUID
     var symbol: ChordSymbol
     var spellingIntent: ChordSpellingIntent
@@ -23,6 +28,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var rawInput: String?
     var sourceInkData: Data? = nil
     var sourceCandidateSignature: [String] = []
+    var manualDisplayWidth: Double? = nil
+    var manualLaneFraction: Double? = nil
 
     init(
         id: UUID,
@@ -37,7 +44,9 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         hitStyle: HitStyle,
         rawInput: String?,
         sourceInkData: Data? = nil,
-        sourceCandidateSignature: [String] = []
+        sourceCandidateSignature: [String] = [],
+        manualDisplayWidth: Double? = nil,
+        manualLaneFraction: Double? = nil
     ) {
         self.id = id
         self.symbol = symbol
@@ -54,6 +63,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.rawInput = rawInput
         self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
         self.sourceCandidateSignature = sourceCandidateSignature
+        self.manualDisplayWidth = manualDisplayWidth.map(Self.clampedManualDisplayWidth)
+        self.manualLaneFraction = manualLaneFraction.map(Self.clampedManualLaneFraction)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -70,6 +81,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case rawInput
         case sourceInkData
         case sourceCandidateSignature
+        case manualDisplayWidth
+        case manualLaneFraction
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +113,10 @@ struct ChordEvent: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
         )
         sourceCandidateSignature = try container.decodeIfPresent([String].self, forKey: .sourceCandidateSignature) ?? []
+        manualDisplayWidth = try container.decodeIfPresent(Double.self, forKey: .manualDisplayWidth)
+            .map(Self.clampedManualDisplayWidth)
+        manualLaneFraction = try container.decodeIfPresent(Double.self, forKey: .manualLaneFraction)
+            .map(Self.clampedManualLaneFraction)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -121,6 +138,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         if !sourceCandidateSignature.isEmpty {
             try container.encode(sourceCandidateSignature, forKey: .sourceCandidateSignature)
         }
+        try container.encodeIfPresent(manualDisplayWidth, forKey: .manualDisplayWidth)
+        try container.encodeIfPresent(manualLaneFraction, forKey: .manualLaneFraction)
     }
 
     var displaySummary: String {
@@ -152,6 +171,22 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         duration = suggestion.duration
         rhythmPlacement = suggestion.isRhythmMapped ? .aboveChord : .inline
         mappedRhythmSlotIndex = suggestion.mappedRhythmSlotIndex
+    }
+
+    static func clampedManualDisplayWidth(_ width: Double) -> Double {
+        guard width.isFinite else {
+            return minimumManualDisplayWidth
+        }
+
+        return min(max(width, minimumManualDisplayWidth), maximumManualDisplayWidth)
+    }
+
+    static func clampedManualLaneFraction(_ fraction: Double) -> Double {
+        guard fraction.isFinite else {
+            return minimumManualLaneFraction
+        }
+
+        return min(max(fraction, minimumManualLaneFraction), maximumManualLaneFraction)
     }
 }
 
