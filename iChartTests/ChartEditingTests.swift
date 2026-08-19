@@ -2942,6 +2942,51 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertFalse(chart.canDeleteCommittedSimpleChordBarline(after: leftMeasureID))
     }
 
+    func testDeleteCommittedSimpleChordBarlineRejectsRightMeasureKeyChange() throws {
+        var chart = Chart.draft(title: "Key Change Boundary", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Key Change Boundary",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let leftMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let rightMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+
+        XCTAssertTrue(chart.setKeyChange(.dMajor, atStartOf: rightMeasureID))
+        XCTAssertFalse(chart.canDeleteCommittedSimpleChordBarline(after: leftMeasureID))
+        XCTAssertFalse(chart.deleteCommittedSimpleChordBarline(after: leftMeasureID))
+        XCTAssertEqual(chart.measures.map(\.id), [leftMeasureID, rightMeasureID])
+        XCTAssertEqual(chart.keyChange(atStartOf: rightMeasureID)?.key, .dMajor)
+    }
+
+    func testDeleteCommittedSimpleChordBarlineRejectsRightMeasureMeterChange() throws {
+        var chart = Chart.draft(title: "Meter Boundary", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Meter Boundary",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let leftMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let rightMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+
+        XCTAssertEqual(
+            chart.applyMeterChange(
+                Meter(numerator: 3, denominator: 4),
+                startingAt: rightMeasureID,
+                scope: .toNextTimeSignature
+            ),
+            rightMeasureID
+        )
+        XCTAssertFalse(chart.canDeleteCommittedSimpleChordBarline(after: leftMeasureID))
+        XCTAssertFalse(chart.deleteCommittedSimpleChordBarline(after: leftMeasureID))
+        XCTAssertEqual(chart.measures.map(\.id), [leftMeasureID, rightMeasureID])
+        XCTAssertEqual(chart.measure(id: rightMeasureID)?.meterOverride, Meter(numerator: 3, denominator: 4))
+    }
+
     func testSplitSimpleChordMeasureCreatesCommittedBoundaryAndDistributesChords() throws {
         var chart = Chart.blank(title: "Split Chord Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)

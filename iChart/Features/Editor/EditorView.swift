@@ -734,6 +734,7 @@ struct EditorView: View {
     @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
     @State private var chordPreviewState = ChordPreviewState()
+    @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
@@ -2376,6 +2377,7 @@ struct EditorView: View {
             onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
+            chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
                 : nil,
@@ -3832,6 +3834,9 @@ struct EditorView: View {
               pendingChordCorrection == nil else {
             return
         }
+        guard payloads.isEmpty || chart.pageHandwrittenChordData != nil else {
+            return
+        }
 
         let inputs = payloads.compactMap { payload -> ChordInkDraftInput? in
             guard let measure = chart.measure(id: payload.target.measureID) else {
@@ -3923,6 +3928,7 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
+        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         chordInkAutomaticRewriteFailures.reset()
         completeEditorGuidedTourStep(.chordWrite)
