@@ -12,6 +12,7 @@ Package intent: internal TestFlight distribution after PR #52 and PR #53 landed 
   - `codex/post-1.1.6-next-build`
   - `codex/chord-lane-draft-barlines`
 - Left `codex/fix-rhythm-section-chord-spacing-boxes` in place because it still tracks `origin/codex/fix-rhythm-section-chord-spacing-boxes`.
+- Deleted the superseded remote `origin/codex/1.1.6-build49-testflight` after `origin/codex/1.1.7-build49-testflight` was pushed.
 
 ## Warnings to carry forward
 
