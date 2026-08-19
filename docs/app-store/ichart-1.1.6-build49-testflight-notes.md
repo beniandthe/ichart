@@ -24,3 +24,30 @@ Package intent: internal TestFlight distribution after PR #52 and PR #53 landed 
 
 - Previous Apple-submitted build: `1.1.6 (48)`.
 - This TestFlight package bumps only the build number to `1.1.6 (49)`.
+
+## Validation evidence
+
+- `xcodegen generate`: pass, no tracked project diff.
+- `git diff --check`: pass.
+- `swift test --filter ProjectConfigurationTests`: 29 tests, 0 failures.
+- `swift test`: 710 tests, 38 skipped, 0 failures.
+- `scripts/run_supabase_production_readiness.sh`: non-mutating checks passed with full SwiftPM run skipped only because it was run separately.
+- `xcodebuild test -project iChart.xcodeproj -scheme iChart`: succeeded on simulator `4C1D2CA2-5E1C-4CF1-95EE-F16EA7343384` with 870 tests, 38 skipped, 0 failures.
+- Release device compile with signing disabled: pass.
+
+## Packaging evidence
+
+- Signing identity: `Apple Distribution: Benjamin Rossman (N6G8X4K46U)`.
+- Provisioning profile: `iChart App Store`, bundle `N6G8X4K46U.com.ichart.app`, expires `2027-06-20`.
+- Archive: `/Users/benirossman/Library/Developer/Xcode/Archives/2026-08-19/iChart-1.1.6-build49-20260819-091310.xcarchive`.
+- Archive metadata: bundle `com.ichart.app`, version `1.1.6`, build `49`, team `N6G8X4K46U`.
+- Exported IPA: `/tmp/ichart-build49-export-20260819-091413/iChart.ipa`.
+- Local App Store Connect export: succeeded.
+
+## Upload status
+
+- Command-line App Store Connect upload did not complete because Xcode has no usable App Store Connect account credential on this machine.
+- Xcode error: `exportArchive Failed to Use Accounts`.
+- `altool --list-providers` also reports that JWT or username/app-password authentication is required.
+- No local `AuthKey_*.p8` App Store Connect API key was found in the standard altool search paths, and Apple Transporter is not installed.
+- The build artifact is ready for upload once a valid Xcode account, Transporter sign-in, or App Store Connect API key is available.
