@@ -25,6 +25,58 @@ struct LeadSheetSimpleRowGroupAffordance {
     var guideY: CGFloat
 }
 
+enum LeadSheetSimpleChordTerminalBarlineGeometry {
+    static func barlineFrame(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGRect? {
+        guard layoutStyle == .simpleChordSheet,
+              let referenceMeasure = system.measures.last,
+              let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: paperFrame
+              ) else {
+            return nil
+        }
+
+        return referenceMeasure.trailingBarlineFrame.offsetBy(
+            dx: laneFrame.maxX - 1 - referenceMeasure.trailingBarlineFrame.midX,
+            dy: 0
+        )
+    }
+
+    static func displayMeasure(
+        _ measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> LeadSheetMeasureLayout {
+        guard system.measures.last?.id == measure.id,
+              let terminalFrame = barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ) else {
+            return measure
+        }
+
+        let terminalX = terminalFrame.midX
+        guard terminalX > measure.frame.maxX else {
+            return measure
+        }
+
+        var displayMeasure = measure
+        let addedWidth = terminalX - measure.frame.maxX
+        displayMeasure.frame.size.width += addedWidth
+        displayMeasure.staffFrame.size.width += addedWidth
+        displayMeasure.chordBandFrame.size.width += addedWidth
+        displayMeasure.writableFrame.size.width += addedWidth
+        displayMeasure.trailingBarlineFrame = terminalFrame
+        return displayMeasure
+    }
+}
+
 enum LeadSheetMeasureResizeGeometry {
     static func handleFrames(for measure: LeadSheetMeasureLayout) -> LeadSheetMeasureResizeHandleFrames {
         let handleSize = CGSize(width: 18, height: 34)
@@ -99,9 +151,17 @@ enum LeadSheetSimpleRowGroupAffordanceGeometry {
                 return nil
             }
 
-            let groupFrame = groupedMeasures
+            let displayMeasures = groupedMeasures.map { measure in
+                LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                    measure,
+                    in: system,
+                    paperFrame: pageLayout.paperFrame,
+                    layoutStyle: layoutStyle
+                )
+            }
+            let groupFrame = displayMeasures
                 .dropFirst()
-                .reduce(firstMeasure.frame) { partialFrame, measure in
+                .reduce(displayMeasures.first?.frame ?? firstMeasure.frame) { partialFrame, measure in
                     partialFrame.union(measure.frame)
                 }
             let guideY = max(system.frame.minY + 10, groupFrame.minY - 11)

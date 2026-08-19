@@ -4,6 +4,8 @@ import UIKit
 
 struct LeadSheetChordEditControlFrames {
     let delete: CGRect
+    let leadingResize: CGRect
+    let trailingResize: CGRect
 }
 
 struct ChordEditHitTarget {
@@ -12,6 +14,8 @@ struct ChordEditHitTarget {
         case delete
         case move
         case review
+        case resizeLeading
+        case resizeTrailing
     }
 
     var measureID: UUID
@@ -42,8 +46,58 @@ enum LeadSheetChordEditOverlayGeometry {
                 y: originY,
                 width: controlSize,
                 height: controlSize
+            ),
+            leadingResize: CGRect(
+                x: editFrame.minX - controlSize / 2,
+                y: editFrame.midY - controlSize / 2,
+                width: controlSize,
+                height: controlSize
+            ),
+            trailingResize: CGRect(
+                x: editFrame.maxX - controlSize / 2,
+                y: editFrame.midY - controlSize / 2,
+                width: controlSize,
+                height: controlSize
             )
         )
+    }
+
+    static func resizeHitTarget(
+        at location: CGPoint,
+        in pageLayout: LeadSheetPageLayout,
+        selectedChordID: UUID?
+    ) -> ChordEditHitTarget? {
+        guard let selectedChordID else {
+            return nil
+        }
+
+        let measures = pageLayout.systems.flatMap(\.measures)
+        for measure in measures.reversed() {
+            guard let measureID = measure.sourceMeasureID else {
+                continue
+            }
+
+            for chordLayout in measure.chordLayouts.reversed() where chordLayout.id == selectedChordID {
+                let controls = controlFrames(for: chordLayout)
+                if controls.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .resizeLeading
+                    )
+                }
+
+                if controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .resizeTrailing
+                    )
+                }
+            }
+        }
+
+        return nil
     }
 
     static func moveHitTarget(
@@ -59,6 +113,10 @@ enum LeadSheetChordEditOverlayGeometry {
             for chordLayout in measure.chordLayouts.reversed() {
                 let controls = controlFrames(for: chordLayout)
                 if controls.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    continue
+                }
+                if controls.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location)
+                    || controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     continue
                 }
 
@@ -94,6 +152,20 @@ enum LeadSheetChordEditOverlayGeometry {
                         measureID: measureID,
                         chordID: chordLayout.id,
                         action: .delete
+                    )
+                }
+                if controlFrames.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .resizeLeading
+                    )
+                }
+                if controlFrames.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                    return ChordEditHitTarget(
+                        measureID: measureID,
+                        chordID: chordLayout.id,
+                        action: .resizeTrailing
                     )
                 }
 

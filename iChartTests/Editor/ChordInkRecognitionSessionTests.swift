@@ -143,6 +143,226 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
         wait(for: [expectation], timeout: 2)
     }
 
+    func testSessionAlwaysOCRPolicyRequestsOCRWhenPrimaryRecognizerHasNoRawCandidates() {
+        let ocrCandidate = ChordOCRCandidate.normalized(
+            rawText: "Dmaj7",
+            confidence: 0.86,
+            source: .testDouble
+        )
+        let ocrProvider = StubChordOCRCandidateProvider(candidates: [ocrCandidate])
+        let session = ChordInkRecognitionSession(
+            queue: DispatchQueue(label: "com.ichart.tests.chord-session.ocr-empty-primary"),
+            recognizer: StubChordInkRecognizer(
+                result: ChordInkRecognitionResult(
+                    rawCandidates: [],
+                    glyphCandidates: [],
+                    match: nil,
+                    confidence: 0
+                )
+            ),
+            ocrCandidateProvider: ocrProvider
+        )
+        let expectation = expectation(description: "ocr-only payload")
+
+        session.start(
+            request: ChordInkRecognitionSessionRequest(
+                requestID: UUID(),
+                scheduledAt: Date(),
+                requestedDelay: 0.1,
+                strokes: [],
+                drawingData: Data(),
+                target: (measureID: UUID(), fraction: 0),
+                options: ChordInkRecognitionOptions(ocrRequestPolicy: .always),
+                ocrImageProvider: Self.makeTestImage
+            )
+        ) { payload in
+            XCTAssertEqual(ocrProvider.recognizeCallCount, 1)
+            XCTAssertEqual(payload.result.ocrCandidates, [ocrCandidate])
+            XCTAssertEqual(payload.result.rawCandidates, ["D△7"])
+            XCTAssertEqual(payload.timing.ocrCandidateCount, 1)
+
+            let decision = ChordRecognitionTrustArbiter.decision(for: payload.result)
+            XCTAssertEqual(decision.acceptedText, "D△7")
+            XCTAssertEqual(decision.trustSource, .ocrSupportedCandidate)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2)
+    }
+
+    func testSessionAlwaysOCRPolicyBuildsRootHybridCandidateFromPrimarySuffix() {
+        let ocrCandidate = ChordOCRCandidate.normalized(
+            rawText: "D",
+            confidence: 0.88,
+            source: .testDouble
+        )
+        let ocrProvider = StubChordOCRCandidateProvider(candidates: [ocrCandidate])
+        let session = ChordInkRecognitionSession(
+            queue: DispatchQueue(label: "com.ichart.tests.chord-session.ocr-root-hybrid"),
+            recognizer: StubChordInkRecognizer(
+                result: ChordInkRecognitionResult(
+                    rawCandidates: ["Bmaj7"],
+                    glyphCandidates: [],
+                    match: ChordRecognitionCompendium.match("Bmaj7"),
+                    confidence: 4.5,
+                    candidateScores: [
+                        ChordInkCandidateScore(
+                            text: "Bmaj7",
+                            displayText: ChordRecognitionCompendium.match("Bmaj7")?.displayText,
+                            confidence: 4.5
+                        )
+                    ]
+                )
+            ),
+            ocrCandidateProvider: ocrProvider
+        )
+        let expectation = expectation(description: "ocr root hybrid payload")
+
+        session.start(
+            request: ChordInkRecognitionSessionRequest(
+                requestID: UUID(),
+                scheduledAt: Date(),
+                requestedDelay: 0.1,
+                strokes: [],
+                drawingData: Data(),
+                target: (measureID: UUID(), fraction: 0),
+                options: ChordInkRecognitionOptions(ocrRequestPolicy: .always),
+                ocrImageProvider: Self.makeTestImage
+            )
+        ) { payload in
+            XCTAssertEqual(ocrProvider.recognizeCallCount, 1)
+            XCTAssertEqual(payload.result.match?.displayText, "D△7")
+            XCTAssertTrue(payload.result.rawCandidates.starts(with: ["D△7"]))
+            XCTAssertLessThan(payload.result.confidence, ChordInkRecognitionPolicy.autoRenderMinimumConfidence)
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: Data(),
+                correctionMemory: ChordInkUserCorrectionMemory()
+            )
+            XCTAssertEqual(resolution.decision.acceptedText, "D△7")
+            XCTAssertTrue(resolution.candidateTexts.contains("D△7"))
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2)
+    }
+
+    func testSessionAlwaysOCRPolicyPrefersSupportedOCRChordOverConflictingPrimaryRead() {
+        let ocrCandidate = ChordOCRCandidate.normalized(
+            rawText: "Dmaj7",
+            confidence: 0.90,
+            source: .testDouble
+        )
+        let ocrProvider = StubChordOCRCandidateProvider(candidates: [ocrCandidate])
+        let session = ChordInkRecognitionSession(
+            queue: DispatchQueue(label: "com.ichart.tests.chord-session.ocr-supported-preferred"),
+            recognizer: StubChordInkRecognizer(
+                result: ChordInkRecognitionResult(
+                    rawCandidates: ["Bmaj7"],
+                    glyphCandidates: [],
+                    match: ChordRecognitionCompendium.match("Bmaj7"),
+                    confidence: 4.5,
+                    candidateScores: [
+                        ChordInkCandidateScore(
+                            text: "Bmaj7",
+                            displayText: ChordRecognitionCompendium.match("Bmaj7")?.displayText,
+                            confidence: 4.5
+                        )
+                    ]
+                )
+            ),
+            ocrCandidateProvider: ocrProvider
+        )
+        let expectation = expectation(description: "supported ocr preferred payload")
+
+        session.start(
+            request: ChordInkRecognitionSessionRequest(
+                requestID: UUID(),
+                scheduledAt: Date(),
+                requestedDelay: 0.1,
+                strokes: [],
+                drawingData: Data(),
+                target: (measureID: UUID(), fraction: 0),
+                options: ChordInkRecognitionOptions(ocrRequestPolicy: .always),
+                ocrImageProvider: Self.makeTestImage
+            )
+        ) { payload in
+            XCTAssertEqual(payload.result.match?.displayText, "D△7")
+            XCTAssertTrue(payload.result.rawCandidates.starts(with: ["D△7"]))
+            XCTAssertLessThan(payload.result.confidence, ChordInkRecognitionPolicy.autoRenderMinimumConfidence)
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: Data(),
+                correctionMemory: ChordInkUserCorrectionMemory()
+            )
+            XCTAssertEqual(resolution.decision.acceptedText, "D△7")
+            XCTAssertTrue(resolution.candidateTexts.contains("B△7"))
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2)
+    }
+
+    func testSessionAlwaysOCRPolicyPrefersBareOCRRootOverConflictingPrimaryRoot() {
+        let ocrCandidate = ChordOCRCandidate.normalized(
+            rawText: "D",
+            confidence: 0.91,
+            source: .testDouble
+        )
+        let ocrProvider = StubChordOCRCandidateProvider(candidates: [ocrCandidate])
+        let session = ChordInkRecognitionSession(
+            queue: DispatchQueue(label: "com.ichart.tests.chord-session.ocr-root-preferred"),
+            recognizer: StubChordInkRecognizer(
+                result: ChordInkRecognitionResult(
+                    rawCandidates: ["B"],
+                    glyphCandidates: [],
+                    match: ChordRecognitionCompendium.match("B"),
+                    confidence: 4.5,
+                    candidateScores: [
+                        ChordInkCandidateScore(
+                            text: "B",
+                            displayText: ChordRecognitionCompendium.match("B")?.displayText,
+                            confidence: 4.5
+                        )
+                    ]
+                )
+            ),
+            ocrCandidateProvider: ocrProvider
+        )
+        let expectation = expectation(description: "bare ocr root preferred payload")
+
+        session.start(
+            request: ChordInkRecognitionSessionRequest(
+                requestID: UUID(),
+                scheduledAt: Date(),
+                requestedDelay: 0.1,
+                strokes: [],
+                drawingData: Data(),
+                target: (measureID: UUID(), fraction: 0),
+                options: ChordInkRecognitionOptions(ocrRequestPolicy: .always),
+                ocrImageProvider: Self.makeTestImage
+            )
+        ) { payload in
+            XCTAssertEqual(payload.result.match?.displayText, "D")
+            XCTAssertTrue(payload.result.rawCandidates.starts(with: ["D"]))
+            XCTAssertTrue(payload.result.rawCandidates.contains("B"))
+            XCTAssertLessThan(payload.result.confidence, ChordInkRecognitionPolicy.autoRenderMinimumConfidence)
+
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: payload.result,
+                drawingData: Data(),
+                correctionMemory: ChordInkUserCorrectionMemory()
+            )
+            XCTAssertEqual(resolution.decision.acceptedText, "D")
+            XCTAssertTrue(resolution.candidateTexts.contains("B"))
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2)
+    }
+
     private static func makeTestImage() -> CGImage {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let context = CGContext(

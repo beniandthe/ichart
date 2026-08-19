@@ -1053,6 +1053,21 @@ struct LeadSheetNotationRenderer {
         }
     }
 
+    func drawSimpleChordStanzaTerminalBarline(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect
+    ) {
+        guard let terminalFrame = LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: chart.layoutStyle
+        ) else {
+            return
+        }
+
+        drawBarline(.single, in: terminalFrame)
+    }
+
     func drawLeadingBarline(_ barline: BarlineType, at x: CGFloat, from startY: CGFloat, to endY: CGFloat) {
         switch barline {
         case .single:

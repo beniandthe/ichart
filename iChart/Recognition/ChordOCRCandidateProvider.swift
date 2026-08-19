@@ -34,8 +34,8 @@ final class VisionChordOCRCandidateProvider: ChordOCRCandidateProviding {
     var minimumConfidence: Double
 
     init(
-        maximumCandidatesPerObservation: Int = 3,
-        minimumConfidence: Double = 0.12
+        maximumCandidatesPerObservation: Int = 5,
+        minimumConfidence: Double = 0.08
     ) {
         self.maximumCandidatesPerObservation = maximumCandidatesPerObservation
         self.minimumConfidence = minimumConfidence
@@ -43,9 +43,10 @@ final class VisionChordOCRCandidateProvider: ChordOCRCandidateProviding {
 
     func recognizeCandidates(in image: CGImage) -> [ChordOCRCandidate] {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
+        request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        request.minimumTextHeight = 0.05
+        request.minimumTextHeight = 0.02
+        request.customWords = Self.customWords
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
@@ -71,6 +72,12 @@ final class VisionChordOCRCandidateProvider: ChordOCRCandidateProviding {
 
         return uniqueCandidates(candidates)
     }
+
+    private static let customWords: [String] = {
+        let words = ChordRecognitionCompendium.recognitionWords
+            + ChordRecognitionCompendium.supportedMatches.map(\.displayText)
+        return Array(Set(words)).sorted()
+    }()
 
     private func uniqueCandidates(_ candidates: [ChordOCRCandidate]) -> [ChordOCRCandidate] {
         var bestByKey: [String: ChordOCRCandidate] = [:]

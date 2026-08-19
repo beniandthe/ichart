@@ -614,6 +614,26 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(darkCoverage, 0)
     }
 
+    func testChordOCRImageKeepsSingleRootReadableCanvasResolution() throws {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 8, y: 8),
+                    CGPoint(x: 18, y: 20),
+                    CGPoint(x: 8, y: 34)
+                ],
+                creationDate: Date(timeIntervalSince1970: 82),
+                color: LeadSheetPersistentInkColorPolicy.inkColor,
+                size: CGSize(width: 7, height: 7)
+            )
+        ])
+
+        let ocrImage = try XCTUnwrap(LeadSheetChordInkImageRenderer.ocrImage(for: drawing))
+
+        XCTAssertGreaterThanOrEqual(ocrImage.width, 384)
+        XCTAssertGreaterThanOrEqual(ocrImage.height, 384)
+    }
+
     func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
         let sourceData = Data("ink-C".utf8)
 
@@ -698,6 +718,481 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 startsOnMoveTarget: false
             )
         )
+    }
+
+    func testChordMoveDragUsesFrozenLayoutTargetWhilePreviewMoves() throws {
+        var chart = Chart.blank(title: "Drag Reflow", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureID,
+                atFraction: 0.03
+            )
+        )
+        let movedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D"),
+                rawInput: "D",
+                to: measureID,
+                atFraction: 0.30
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("A7"),
+                rawInput: "A7",
+                to: measureID,
+                atFraction: 0.62
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D-11"),
+                rawInput: "D-11",
+                to: measureID,
+                atFraction: 0.86
+            )
+        )
+
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == movedChordID })
+        let startLocation = CGPoint(x: sourceChordLayout.frame.midX, y: sourceChordLayout.frame.midY)
+        let drag = ActiveChordMoveDrag(
+            chordID: movedChordID,
+            sourcePageLayout: sourceLayout,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: startLocation
+        )
+        let movedLocation = CGPoint(
+            x: startLocation.x + sourceMeasure.chordBandFrame.width * 0.18,
+            y: startLocation.y
+        )
+
+        let previewFrame = LeadSheetChordMoveDragPolicy.previewFrame(
+            for: drag,
+            at: movedLocation,
+            boundedBy: sourceLayout.paperFrame
+        )
+        var resolvedDrag = drag
+        resolvedDrag.currentFrame = previewFrame
+        let target = try XCTUnwrap(
+            LeadSheetChordMoveDragPolicy.target(
+                at: movedLocation,
+                for: resolvedDrag
+            )
+        )
+        let expectedFrozenFraction = (previewFrame.minX - sourceMeasure.chordBandFrame.minX)
+            / max(1, sourceMeasure.chordBandFrame.width)
+
+        XCTAssertEqual(previewFrame.minX, sourceChordLayout.frame.minX + sourceMeasure.chordBandFrame.width * 0.18, accuracy: 0.001)
+        XCTAssertEqual(previewFrame.minY, sourceChordLayout.frame.minY, accuracy: 0.001)
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertEqual(target.fraction, Double(min(max(expectedFrozenFraction, 0), 0.9999)), accuracy: 0.0001)
+    }
+
+    func testChordMoveDragUsesTouchLocationForNeighborMeasureWhenGrabbedOffCenter() throws {
+        var chart = Chart.blank(title: "Off Center Cross Measure Drag", measureCount: 2, layoutStyle: .simpleChordSheet)
+        let sourceMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let targetMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7(b9)"),
+                rawInput: "Db7(b9)",
+                to: sourceMeasureID,
+                atFraction: 0.18
+            )
+        )
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let targetMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.dropFirst().first)
+        let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
+        let startLocation = CGPoint(
+            x: sourceChordLayout.frame.maxX - 2,
+            y: sourceChordLayout.frame.midY
+        )
+        let drag = ActiveChordMoveDrag(
+            chordID: chordID,
+            sourcePageLayout: sourceLayout,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: startLocation
+        )
+        let movedLocation = CGPoint(
+            x: targetMeasure.chordBandFrame.minX + 10,
+            y: startLocation.y
+        )
+
+        let previewFrame = LeadSheetChordMoveDragPolicy.previewFrame(
+            for: drag,
+            at: movedLocation,
+            boundedBy: sourceLayout.paperFrame
+        )
+        var resolvedDrag = drag
+        resolvedDrag.currentFrame = previewFrame
+
+        XCTAssertLessThan(previewFrame.midX, targetMeasure.chordBandFrame.minX)
+
+        let target = try XCTUnwrap(
+            LeadSheetChordMoveDragPolicy.target(
+                at: movedLocation,
+                for: resolvedDrag
+            )
+        )
+
+        XCTAssertEqual(target.measureID, targetMeasureID)
+        XCTAssertEqual(target.fraction, 0, accuracy: 0.0001)
+    }
+
+    func testChordMoveTargetPrefersVisibleChordBandSegmentOverOverlappingMeasureFrame() throws {
+        let leftMeasureID = UUID()
+        let rightMeasureID = UUID()
+        let leftMeasure = LeadSheetMeasureLayout(
+            id: leftMeasureID,
+            sourceMeasureID: leftMeasureID,
+            chordInkTargetMeasureID: leftMeasureID,
+            index: 1,
+            frame: CGRect(x: 100, y: 180, width: 300, height: 78),
+            staffFrame: CGRect(x: 100, y: 188, width: 120, height: 58),
+            chordBandFrame: CGRect(x: 104, y: 194, width: 112, height: 46),
+            writableFrame: CGRect(x: 102, y: 182, width: 296, height: 74),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: .double,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: 220, y: 188, width: 1.6, height: 58),
+            isOpen: false
+        )
+        let rightMeasure = LeadSheetMeasureLayout(
+            id: rightMeasureID,
+            sourceMeasureID: rightMeasureID,
+            chordInkTargetMeasureID: rightMeasureID,
+            index: 2,
+            frame: CGRect(x: 220, y: 180, width: 126, height: 78),
+            staffFrame: CGRect(x: 220, y: 188, width: 126, height: 58),
+            chordBandFrame: CGRect(x: 224, y: 194, width: 118, height: 46),
+            writableFrame: CGRect(x: 222, y: 182, width: 122, height: 74),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: nil,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: 346, y: 188, width: 1.6, height: 58),
+            isOpen: false
+        )
+        let layout = LeadSheetPageLayout(
+            pageBounds: CGRect(x: 0, y: 0, width: 500, height: 500),
+            paperFrame: CGRect(x: 80, y: 80, width: 340, height: 340),
+            header: LeadSheetHeaderLayout(
+                frame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                handwrittenFrame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                titleFrame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                composerFrame: nil,
+                styleNoteFrame: nil,
+                keyFrame: nil,
+                meterFrame: nil
+            ),
+            systems: [
+                LeadSheetSystemLayout(
+                    id: UUID(),
+                    index: 0,
+                    frame: CGRect(x: 100, y: 170, width: 260, height: 96),
+                    staffLineYPositions: [],
+                    clefFrame: nil,
+                    keySignatureLayouts: [],
+                    keyTextFrame: nil,
+                    keyText: nil,
+                    timeSignatureFrame: nil,
+                    sectionTextFrame: nil,
+                    sectionText: nil,
+                    roadmapTextFrame: nil,
+                    roadmapText: nil,
+                    roadmapMarkerLayouts: [],
+                    endingLayouts: [],
+                    measures: [leftMeasure, rightMeasure]
+                )
+            ]
+        )
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: CGPoint(x: 236, y: 218),
+                fractionAnchorX: 228,
+                in: layout
+            )
+        )
+
+        XCTAssertTrue(leftMeasure.frame.contains(CGPoint(x: 236, y: 218)))
+        XCTAssertTrue(rightMeasure.chordBandFrame.contains(CGPoint(x: 236, y: 218)))
+        XCTAssertEqual(target.measureID, rightMeasureID)
+        XCTAssertEqual(target.fraction, (228 - 224) / 118.0, accuracy: 0.0001)
+    }
+
+    func testChordMoveTargetUsesMeasureLocalFractionInMultiMeasureLaneGap() throws {
+        let leftMeasureID = UUID()
+        let rightMeasureID = UUID()
+        let leftMeasure = LeadSheetMeasureLayout(
+            id: leftMeasureID,
+            sourceMeasureID: leftMeasureID,
+            chordInkTargetMeasureID: leftMeasureID,
+            index: 1,
+            frame: CGRect(x: 100, y: 180, width: 140, height: 78),
+            staffFrame: CGRect(x: 100, y: 188, width: 140, height: 58),
+            chordBandFrame: CGRect(x: 104, y: 194, width: 90, height: 46),
+            writableFrame: CGRect(x: 102, y: 182, width: 136, height: 74),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: .double,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: 240, y: 188, width: 1.6, height: 58),
+            isOpen: false
+        )
+        let rightMeasure = LeadSheetMeasureLayout(
+            id: rightMeasureID,
+            sourceMeasureID: rightMeasureID,
+            chordInkTargetMeasureID: rightMeasureID,
+            index: 2,
+            frame: CGRect(x: 240, y: 180, width: 120, height: 78),
+            staffFrame: CGRect(x: 240, y: 188, width: 120, height: 58),
+            chordBandFrame: CGRect(x: 264, y: 194, width: 80, height: 46),
+            writableFrame: CGRect(x: 242, y: 182, width: 116, height: 74),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: nil,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: 360, y: 188, width: 1.6, height: 58),
+            isOpen: false
+        )
+        let layout = LeadSheetPageLayout(
+            pageBounds: CGRect(x: 0, y: 0, width: 500, height: 500),
+            paperFrame: CGRect(x: 80, y: 80, width: 340, height: 340),
+            header: LeadSheetHeaderLayout(
+                frame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                handwrittenFrame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                titleFrame: CGRect(x: 100, y: 90, width: 280, height: 40),
+                composerFrame: nil,
+                styleNoteFrame: nil,
+                keyFrame: nil,
+                meterFrame: nil
+            ),
+            systems: [
+                LeadSheetSystemLayout(
+                    id: UUID(),
+                    index: 0,
+                    frame: CGRect(x: 100, y: 170, width: 260, height: 96),
+                    staffLineYPositions: [],
+                    clefFrame: nil,
+                    keySignatureLayouts: [],
+                    keyTextFrame: nil,
+                    keyText: nil,
+                    timeSignatureFrame: nil,
+                    sectionTextFrame: nil,
+                    sectionText: nil,
+                    roadmapTextFrame: nil,
+                    roadmapText: nil,
+                    roadmapMarkerLayouts: [],
+                    endingLayouts: [],
+                    measures: [leftMeasure, rightMeasure]
+                )
+            ]
+        )
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: CGPoint(x: 252, y: 218),
+                fractionAnchorX: 270,
+                in: layout
+            )
+        )
+
+        XCTAssertFalse(rightMeasure.chordBandFrame.contains(CGPoint(x: 252, y: 218)))
+        XCTAssertEqual(target.measureID, rightMeasureID)
+        XCTAssertEqual(target.fraction, (270 - 264) / 80.0, accuracy: 0.0001)
+    }
+
+    func testChordMoveDragTargetsFullWidthOpenChordLane() throws {
+        var chart = Chart.draft(title: "Open Lane Drag", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane Drag",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureID,
+                atFraction: 0.05
+            )
+        )
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: sourceLayout).first)
+        let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
+        let startLocation = CGPoint(x: sourceChordLayout.frame.midX, y: sourceChordLayout.frame.midY)
+        let drag = ActiveChordMoveDrag(
+            chordID: chordID,
+            sourcePageLayout: sourceLayout,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: startLocation
+        )
+        let openLaneLocation = CGPoint(
+            x: laneFrame.maxX - 28,
+            y: laneFrame.midY
+        )
+
+        let target = try XCTUnwrap(
+            LeadSheetChordMoveDragPolicy.target(
+                at: openLaneLocation,
+                for: drag
+            )
+        )
+
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertGreaterThan(target.fraction, 0.85)
+    }
+
+    func testCommittedChordBarlineOverlaySelectsThenDeletesSelectedLine() throws {
+        let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let lineFrame = LeadSheetCommittedChordBarlineOverlayGeometry.lineFrame(for: measure)
+
+        let selectTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
+            at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
+            measures: [measure],
+            selectedMeasureID: nil
+        )
+        XCTAssertEqual(selectTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
+
+        let deleteByLineTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
+            at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
+            measures: [measure],
+            selectedMeasureID: measureID
+        )
+        XCTAssertEqual(deleteByLineTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
+
+        let deleteFrame = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(for: measure).delete
+        let deleteByControlTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
+            at: CGPoint(x: deleteFrame.midX, y: deleteFrame.midY),
+            measures: [measure],
+            selectedMeasureID: measureID
+        )
+        XCTAssertEqual(deleteByControlTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
+    }
+
+    func testChordResizeHandlesRequireSelectedChordAndPreviewSideDrag() throws {
+        var chart = Chart.blank(title: "Resize Chord", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Cmaj7"),
+                rawInput: "Cmaj7",
+                to: measureID,
+                atFraction: 0.05
+            )
+        )
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
+        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: sourceChordLayout)
+
+        XCTAssertNil(
+            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+                at: CGPoint(x: controlFrames.trailingResize.midX, y: controlFrames.trailingResize.midY),
+                in: sourceLayout,
+                selectedChordID: nil
+            )
+        )
+
+        let trailingTarget = try XCTUnwrap(
+            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+                at: CGPoint(x: controlFrames.trailingResize.midX, y: controlFrames.trailingResize.midY),
+                in: sourceLayout,
+                selectedChordID: chordID
+            )
+        )
+        XCTAssertEqual(trailingTarget.chordID, chordID)
+        XCTAssertEqual(trailingTarget.action, .resizeTrailing)
+
+        let trailingDrag = ActiveChordResizeDrag(
+            chordID: chordID,
+            sourcePageLayout: sourceLayout,
+            edge: .trailing,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: CGPoint(x: controlFrames.trailingResize.midX, y: controlFrames.trailingResize.midY)
+        )
+        let widenedFrame = LeadSheetChordResizeDragPolicy.previewFrame(
+            for: trailingDrag,
+            at: CGPoint(x: controlFrames.trailingResize.midX + 48, y: controlFrames.trailingResize.midY),
+            boundedBy: sourceLayout.paperFrame
+        )
+        XCTAssertEqual(widenedFrame.minX, sourceChordLayout.frame.minX, accuracy: 0.001)
+        XCTAssertEqual(widenedFrame.width, sourceChordLayout.frame.width + 48, accuracy: 0.001)
+
+        let leadingTarget = try XCTUnwrap(
+            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+                at: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY),
+                in: sourceLayout,
+                selectedChordID: chordID
+            )
+        )
+        XCTAssertEqual(leadingTarget.action, .resizeLeading)
+
+        let leadingDrag = ActiveChordResizeDrag(
+            chordID: chordID,
+            sourcePageLayout: sourceLayout,
+            edge: .leading,
+            initialFrame: sourceChordLayout.frame,
+            currentFrame: sourceChordLayout.frame,
+            startLocation: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY)
+        )
+        let narrowedFrame = LeadSheetChordResizeDragPolicy.previewFrame(
+            for: leadingDrag,
+            at: CGPoint(x: controlFrames.leadingResize.midX + 10, y: controlFrames.leadingResize.midY),
+            boundedBy: sourceLayout.paperFrame
+        )
+        XCTAssertEqual(narrowedFrame.maxX, sourceChordLayout.frame.maxX, accuracy: 0.001)
+        XCTAssertEqual(narrowedFrame.width, sourceChordLayout.frame.width - 10, accuracy: 0.001)
     }
 
     func testBrowseModeKeepsCueTextEditable() {
@@ -818,6 +1313,71 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(targets.map(\.measureID), measureIDs)
     }
 
+    func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
+        let chart = Chart.blank(title: "Draft Boundary Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.54
+        let barlineX = laneFrame.minX + laneFrame.width * CGFloat(barlineFraction)
+        let y = laneFrame.midY
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: barlineX - 20 - chordFrame.minX, y: y - chordFrame.minY),
+                    CGPoint(x: barlineX - 10 - chordFrame.minX, y: y + 5 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: barlineX + 10 - chordFrame.minX, y: y - chordFrame.minY),
+                    CGPoint(x: barlineX + 20 - chordFrame.minX, y: y + 5 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        XCTAssertTrue(
+            LeadSheetChordInkRecognitionTargeting.batchTargets(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: layout
+            ).isEmpty
+        )
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets.map(\.measureID), [measureID, measureID])
+        XCTAssertEqual(targets.map(\.strokes.count), [1, 1])
+        XCTAssertLessThan(targets[0].fraction, targets[1].fraction)
+        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
     func testChordActiveInkScopeUsesExpandedChordLanesInsteadOfWholePage() throws {
         let chart = Chart.blank(title: "Scoped Chord Lane", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -842,6 +1402,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
         XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
         XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
+        XCTAssertEqual(try XCTUnwrap(inputFrames.first).maxX, layout.paperFrame.insetBy(dx: 14, dy: 0).maxX)
         XCTAssertFalse(
             inputFrames.contains {
                 $0.contains(CGPoint(x: firstMeasure.frame.minX + 16, y: firstMeasure.chordWritingFrame.midY))
@@ -1447,11 +2008,17 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let lastGroupedMeasure = try XCTUnwrap(
             layout.systems[0].measures.first { $0.sourceMeasureID == measureIDs[3] }
         )
+        let displayedLastGroupedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+            lastGroupedMeasure,
+            in: layout.systems[0],
+            paperFrame: layout.paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
 
         XCTAssertEqual(affordance.selectedMeasureID, measureIDs[1])
         XCTAssertEqual(affordance.groupedMeasureIDs, Array(measureIDs[1..<4]))
         XCTAssertEqual(affordance.groupFrame.minX, selectedMeasure.frame.minX, accuracy: 0.001)
-        XCTAssertEqual(affordance.groupFrame.maxX, lastGroupedMeasure.frame.maxX, accuracy: 0.001)
+        XCTAssertEqual(affordance.groupFrame.maxX, displayedLastGroupedMeasure.frame.maxX, accuracy: 0.001)
         XCTAssertLessThan(affordance.guideY, affordance.groupFrame.midY)
     }
 

@@ -189,17 +189,7 @@ enum LeadSheetActiveInkScope {
     }
 
     static func chordWritingRegion(for pageLayout: LeadSheetPageLayout) -> LeadSheetActiveInkRegion {
-        let laneFrames = pageLayout.systems
-            .flatMap(\.measures)
-            .compactMap { measure -> CGRect? in
-                guard measure.sourceMeasureID != nil else {
-                    return nil
-                }
-
-                let expandedLane = measure.chordWritingFrame.insetBy(dx: -4, dy: -4)
-                let boundedLane = expandedLane.intersection(pageLayout.paperFrame)
-                return boundedLane.isNull || boundedLane.isEmpty ? nil : boundedLane
-            }
+        let laneFrames = chordWritingSystemLaneFrames(for: pageLayout)
 
         guard let firstFrame = laneFrames.first else {
             let fallbackFrame = pageWritingFrame(for: pageLayout)
@@ -216,6 +206,49 @@ enum LeadSheetActiveInkScope {
 
         let resolvedFrame = frame.isNull || frame.isEmpty ? firstFrame : frame
         return LeadSheetActiveInkRegion(frame: resolvedFrame, inputFrames: laneFrames)
+    }
+
+    static func chordWritingSystemLaneFrames(for pageLayout: LeadSheetPageLayout) -> [CGRect] {
+        pageLayout.systems.compactMap { system in
+            chordWritingSystemLaneFrame(for: system, paperFrame: pageLayout.paperFrame)
+        }
+    }
+
+    static func chordWritingSystemLaneFrame(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect
+    ) -> CGRect? {
+        let paperBounds = paperFrame.insetBy(dx: 14, dy: 0)
+        let measureLanes = system.measures.compactMap { measure -> CGRect? in
+            guard measure.chordInkTargetMeasureID != nil else {
+                return nil
+            }
+
+            return measure.chordWritingFrame
+        }
+        guard let firstLane = measureLanes.first else {
+            return nil
+        }
+
+        let verticalLane = measureLanes
+            .dropFirst()
+            .reduce(firstLane) { partialFrame, laneFrame in
+                partialFrame.union(laneFrame)
+            }
+        let leadingX = max(paperBounds.minX, firstLane.minX - 4)
+        let trailingX = paperBounds.maxX
+        guard trailingX > leadingX else {
+            return nil
+        }
+
+        let laneFrame = CGRect(
+            x: leadingX,
+            y: verticalLane.minY - 4,
+            width: trailingX - leadingX,
+            height: verticalLane.height + 8
+        )
+        let boundedLane = laneFrame.intersection(paperFrame)
+        return boundedLane.isNull || boundedLane.isEmpty ? nil : boundedLane
     }
 
     func drawingData(in chart: Chart) -> Data? {

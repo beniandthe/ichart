@@ -616,6 +616,167 @@ extension Chart {
         return true
     }
 
+    func canDeleteCommittedSimpleChordBarline(after measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet,
+              let leftLocation = measureLocation(id: measureID) else {
+            return false
+        }
+
+        let leftIndex = flattenedMeasureIndex(for: leftLocation)
+        let flattenedMeasures = measures
+        guard flattenedMeasures.indices.contains(leftIndex),
+              flattenedMeasures.indices.contains(leftIndex + 1) else {
+            return false
+        }
+
+        let leftMeasure = flattenedMeasures[leftIndex]
+        return leftMeasure.authoringState == .committed
+            && leftMeasure.barlineAfter == .single
+    }
+
+    @discardableResult
+    mutating func deleteCommittedSimpleChordBarline(after measureID: UUID) -> Bool {
+        guard canDeleteCommittedSimpleChordBarline(after: measureID),
+              let leftLocation = measureLocation(id: measureID) else {
+            return false
+        }
+
+        var flattenedMeasures = measures
+        let leftIndex = flattenedMeasureIndex(for: leftLocation)
+        let rightIndex = leftIndex + 1
+        guard flattenedMeasures.indices.contains(leftIndex),
+              flattenedMeasures.indices.contains(rightIndex) else {
+            return false
+        }
+
+        var leftMeasure = flattenedMeasures[leftIndex]
+        let rightMeasure = flattenedMeasures[rightIndex]
+        let leftWeight = max(0.0001, leftMeasure.manualLayoutWidth ?? 1)
+        let rightWeight = max(0.0001, rightMeasure.manualLayoutWidth ?? 1)
+        let totalWeight = max(0.0001, leftWeight + rightWeight)
+        let leftScale = leftWeight / totalWeight
+        let rightScale = rightWeight / totalWeight
+        let mergedMeter = leftMeasure.resolvedMeter(defaultMeter: defaultMeter)
+
+        let mergedChordEvents = (
+            leftMeasure.chordEvents.map { event in
+                let fraction = simpleChordLaneFraction(for: event, meter: mergedMeter) * leftScale
+                return simpleChordLanePositionedChordEvent(event, at: fraction, meter: mergedMeter)
+            } + rightMeasure.chordEvents.map { event in
+                let fraction = leftScale + simpleChordLaneFraction(for: event, meter: mergedMeter) * rightScale
+                return simpleChordLanePositionedChordEvent(event, at: fraction, meter: mergedMeter)
+            }
+        )
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsFraction = simpleChordLaneFraction(for: lhs.element, meter: mergedMeter)
+                let rhsFraction = simpleChordLaneFraction(for: rhs.element, meter: mergedMeter)
+                if abs(lhsFraction - rhsFraction) > 0.0001 {
+                    return lhsFraction < rhsFraction
+                }
+
+                return lhs.offset < rhs.offset
+            }
+            .map { $0.element }
+
+        leftMeasure.chordEvents = mergedChordEvents
+        leftMeasure.barlineAfter = rightMeasure.barlineAfter
+        leftMeasure.authoringState = rightMeasure.authoringState == .open ? .open : .committed
+        leftMeasure.cueTextIDs.append(contentsOf: rightMeasure.cueTextIDs.filter { !leftMeasure.cueTextIDs.contains($0) })
+        leftMeasure.roadmapObjectIDs.append(contentsOf: rightMeasure.roadmapObjectIDs.filter {
+            !leftMeasure.roadmapObjectIDs.contains($0)
+        })
+        if leftMeasure.manualLayoutWidth != nil || rightMeasure.manualLayoutWidth != nil {
+            leftMeasure.manualLayoutWidth = Double(
+                Measure.clampedManualLayoutWidth(CGFloat(leftWeight + rightWeight))
+            )
+        }
+
+        reanchorAnnotations(from: rightMeasure.id, to: leftMeasure.id)
+        flattenedMeasures[leftIndex] = leftMeasure
+        flattenedMeasures.remove(at: rightIndex)
+        rebuildSystems(using: flattenedMeasures)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func splitSimpleChordMeasure(
+        _ measureID: UUID,
+        atFraction fraction: Double,
+        barlineAfter: BarlineType = .single
+    ) -> UUID? {
+        guard layoutStyle == .simpleChordSheet,
+              let location = measureLocation(id: measureID) else {
+            return nil
+        }
+
+        let flattenedIndex = flattenedMeasureIndex(for: location)
+        var flattenedMeasures = measures
+        guard flattenedMeasures.indices.contains(flattenedIndex) else {
+            return nil
+        }
+
+        let originalMeasure = flattenedMeasures[flattenedIndex]
+        guard originalMeasure.rhythmMap == nil else {
+            return nil
+        }
+
+        let splitFraction = min(max(fraction, 0.0001), 0.9999)
+        let meter = originalMeasure.resolvedMeter(defaultMeter: defaultMeter)
+        var leftMeasure = originalMeasure
+        var rightMeasure = originalMeasure
+        rightMeasure.id = UUID()
+        rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.chordEvents = []
+        rightMeasure.cueTextIDs = []
+        rightMeasure.roadmapObjectIDs = []
+        rightMeasure.handwrittenRhythmicNotationData = nil
+        rightMeasure.handwrittenRhythmicNotationCoordinateSpace = nil
+
+        leftMeasure.barlineAfter = barlineAfter
+        if originalMeasure.authoringState == .open {
+            leftMeasure.authoringState = .committed
+            rightMeasure.authoringState = .open
+        } else {
+            leftMeasure.authoringState = .committed
+            rightMeasure.authoringState = .committed
+        }
+
+        leftMeasure.chordEvents = []
+        for event in originalMeasure.chordEvents {
+            let sourceFraction = simpleChordLaneFraction(for: event, meter: meter)
+            if sourceFraction < splitFraction {
+                leftMeasure.chordEvents.append(
+                    simpleChordLanePositionedChordEvent(
+                        event,
+                        at: sourceFraction / splitFraction,
+                        meter: meter
+                    )
+                )
+            } else {
+                rightMeasure.chordEvents.append(
+                    simpleChordLanePositionedChordEvent(
+                        event,
+                        at: (sourceFraction - splitFraction) / max(0.0001, 1 - splitFraction),
+                        meter: meter
+                    )
+                )
+            }
+        }
+
+        if let manualLayoutWidth = originalMeasure.manualLayoutWidth {
+            leftMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(splitFraction)))
+            rightMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(1 - splitFraction)))
+        }
+
+        flattenedMeasures[flattenedIndex] = leftMeasure
+        flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
+        rebuildSystems(using: flattenedMeasures)
+        updatedAt = .now
+        return rightMeasure.id
+    }
+
     @discardableResult
     mutating func setPageHandwrittenNotationDrawing(
         _ drawingData: Data?,
@@ -912,7 +1073,6 @@ extension Chart {
             sourceInkData: sourceInkData,
             sourceCandidateSignature: sourceCandidateSignature
         )
-
         systems[location.systemIndex].measures[location.measureIndex] = measure
         updatedAt = .now
         return chordEventID
@@ -988,6 +1148,50 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func setChordEventManualDisplayWidth(_ width: Double?, for chordEventID: UUID) -> Double? {
+        guard let location = chordEventLocation(id: chordEventID) else {
+            return nil
+        }
+
+        let normalizedWidth = width.map(ChordEvent.clampedManualDisplayWidth)
+        guard systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayWidth != normalizedWidth else {
+            return normalizedWidth
+        }
+
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayWidth = normalizedWidth
+        updatedAt = .now
+        return normalizedWidth
+    }
+
+    @discardableResult
+    mutating func setChordEventManualLaneFraction(_ fraction: Double?, for chordEventID: UUID) -> Double? {
+        guard let location = chordEventLocation(id: chordEventID) else {
+            return nil
+        }
+
+        let normalizedFraction = fraction.map(ChordEvent.clampedManualLaneFraction)
+        guard systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualLaneFraction != normalizedFraction else {
+            return normalizedFraction
+        }
+
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualLaneFraction = normalizedFraction
+        updatedAt = .now
+        return normalizedFraction
+    }
+
+    @discardableResult
     mutating func deleteChordEvent(_ chordEventID: UUID) -> Bool {
         for systemIndex in systems.indices {
             for measureIndex in systems[systemIndex].measures.indices {
@@ -1052,6 +1256,183 @@ extension Chart {
         systems[targetLocation.systemIndex].measures[targetLocation.measureIndex] = targetMeasure
         updatedAt = .now
         return true
+    }
+
+    @discardableResult
+    mutating func moveChordEventInCommittedChordLane(
+        _ chordEventID: UUID,
+        to targetMeasureID: UUID,
+        atFraction fraction: Double?
+    ) -> Bool {
+        guard layoutStyle == .simpleChordSheet,
+              let sourceLocation = chordEventLocation(id: chordEventID),
+              let targetLocation = measureLocation(id: targetMeasureID),
+              systems[targetLocation.systemIndex].measures[targetLocation.measureIndex].rhythmMap == nil else {
+            return moveChordEvent(chordEventID, to: targetMeasureID, atFraction: fraction)
+        }
+
+        let targetMeter = systems[targetLocation.systemIndex].measures[targetLocation.measureIndex]
+            .resolvedMeter(defaultMeter: defaultMeter)
+        var movedChord = systems[sourceLocation.systemIndex]
+            .measures[sourceLocation.measureIndex]
+            .chordEvents[sourceLocation.chordIndex]
+        let targetFraction = clampedLaneFraction(
+            fraction ?? simpleChordLaneFraction(for: movedChord, meter: targetMeter)
+        )
+
+        if sourceLocation.systemIndex == targetLocation.systemIndex,
+           sourceLocation.measureIndex == targetLocation.measureIndex {
+            var measure = systems[targetLocation.systemIndex].measures[targetLocation.measureIndex]
+            measure.chordEvents.remove(at: sourceLocation.chordIndex)
+            measure.chordEvents = simpleChordLaneOrderedChordEvents(
+                existingEvents: measure.chordEvents,
+                movedEvent: movedChord,
+                movedFraction: targetFraction,
+                meter: targetMeter
+            )
+            systems[targetLocation.systemIndex].measures[targetLocation.measureIndex] = measure
+            updatedAt = .now
+            return true
+        }
+
+        systems[sourceLocation.systemIndex]
+            .measures[sourceLocation.measureIndex]
+            .chordEvents
+            .remove(at: sourceLocation.chordIndex)
+
+        movedChord.mappedRhythmSlotIndex = nil
+        var targetMeasure = systems[targetLocation.systemIndex].measures[targetLocation.measureIndex]
+        targetMeasure.chordEvents = simpleChordLaneOrderedChordEvents(
+            existingEvents: targetMeasure.chordEvents,
+            movedEvent: movedChord,
+            movedFraction: targetFraction,
+            meter: targetMeter
+        )
+        systems[targetLocation.systemIndex].measures[targetLocation.measureIndex] = targetMeasure
+        updatedAt = .now
+        return true
+    }
+
+    private struct SimpleChordLaneOrderingEntry {
+        var event: ChordEvent
+        var fraction: Double
+        var originalIndex: Int
+        var isMovedEvent: Bool
+    }
+
+    private static let simpleChordLaneEdgeInsertionTolerance = 0.035
+
+    private func simpleChordLaneOrderedChordEvents(
+        existingEvents: [ChordEvent],
+        movedEvent: ChordEvent,
+        movedFraction: Double,
+        meter: Meter
+    ) -> [ChordEvent] {
+        let positionedMovedEvent = simpleChordLanePositionedChordEvent(
+            movedEvent,
+            at: movedFraction,
+            meter: meter
+        )
+
+        let entries = (
+            existingEvents.enumerated().map { index, event in
+                SimpleChordLaneOrderingEntry(
+                    event: event,
+                    fraction: simpleChordLaneFraction(for: event, meter: meter),
+                    originalIndex: index,
+                    isMovedEvent: false
+                )
+            } + [
+                SimpleChordLaneOrderingEntry(
+                    event: positionedMovedEvent,
+                    fraction: movedFraction,
+                    originalIndex: existingEvents.count,
+                    isMovedEvent: true
+                )
+            ]
+        )
+            .sorted { lhs, rhs in
+                if lhs.isMovedEvent != rhs.isMovedEvent {
+                    if movedFraction <= Self.simpleChordLaneEdgeInsertionTolerance,
+                       lhs.fraction <= Self.simpleChordLaneEdgeInsertionTolerance
+                            || rhs.fraction <= Self.simpleChordLaneEdgeInsertionTolerance {
+                        return lhs.isMovedEvent
+                    }
+
+                    if movedFraction >= 1 - Self.simpleChordLaneEdgeInsertionTolerance,
+                       lhs.fraction >= 1 - Self.simpleChordLaneEdgeInsertionTolerance
+                            || rhs.fraction >= 1 - Self.simpleChordLaneEdgeInsertionTolerance {
+                        return !lhs.isMovedEvent
+                    }
+                }
+
+                if abs(lhs.fraction - rhs.fraction) > 0.0001 {
+                    return lhs.fraction < rhs.fraction
+                }
+
+                if lhs.isMovedEvent != rhs.isMovedEvent {
+                    return !lhs.isMovedEvent
+                }
+
+                return lhs.originalIndex < rhs.originalIndex
+            }
+
+        return entries.map(\.event)
+    }
+
+    private func simpleChordLanePositionedChordEvent(
+        _ event: ChordEvent,
+        at fraction: Double,
+        meter: Meter
+    ) -> ChordEvent {
+        let normalizedFraction = clampedLaneFraction(fraction)
+        var event = event
+        event.apply(
+            suggestion: MeasureChordInsertionSuggestion(
+                startPosition: simpleChordLanePrecisePosition(for: normalizedFraction, meter: meter),
+                duration: .quarter,
+                mappedRhythmSlotIndex: nil
+            )
+        )
+        event.manualLaneFraction = normalizedFraction
+        return event
+    }
+
+    private func simpleChordLanePrecisePosition(for fraction: Double, meter: Meter) -> BeatPosition {
+        let beatCount = max(1, meter.numerator)
+        let subdivisionsPerBeat = 64
+        let slotCount = beatCount * subdivisionsPerBeat
+        let slot = min(
+            max(0, Int((clampedLaneFraction(fraction) * Double(slotCount)).rounded())),
+            slotCount - 1
+        )
+        return BeatPosition(
+            beat: min(beatCount, slot / subdivisionsPerBeat + 1),
+            subdivision: slot % subdivisionsPerBeat,
+            subdivisionsPerBeat: subdivisionsPerBeat
+        )
+    }
+
+    private func simpleChordLaneFraction(for event: ChordEvent, meter: Meter) -> Double {
+        if let manualLaneFraction = event.manualLaneFraction {
+            return ChordEvent.clampedManualLaneFraction(manualLaneFraction)
+        }
+
+        guard let startOffset = event.startPosition.startOffset(in: meter),
+              meter.measureLengthInWholeNotes > 0 else {
+            return 0
+        }
+
+        return clampedLaneFraction(startOffset / meter.measureLengthInWholeNotes)
+    }
+
+    private func clampedLaneFraction(_ fraction: Double?) -> Double {
+        guard let fraction,
+              fraction.isFinite else {
+            return 0
+        }
+
+        return min(max(fraction, 0), 0.9999)
     }
 
     private enum ChordInsertionMode: Equatable {
@@ -2298,6 +2679,26 @@ extension Chart {
         for measureIndex in remainingMeasures.indices {
             remainingMeasures[measureIndex].cueTextIDs.removeAll { removedCueTextIDs.contains($0) }
             remainingMeasures[measureIndex].roadmapObjectIDs.removeAll { removedRoadmapObjectIDs.contains($0) }
+        }
+    }
+
+    private mutating func reanchorAnnotations(from sourceMeasureID: UUID, to targetMeasureID: UUID) {
+        for sectionLabelIndex in sectionLabels.indices
+            where sectionLabels[sectionLabelIndex].anchorMeasureID == sourceMeasureID {
+            sectionLabels[sectionLabelIndex].anchorMeasureID = targetMeasureID
+        }
+
+        for cueTextIndex in cueTexts.indices where cueTexts[cueTextIndex].anchorMeasureID == sourceMeasureID {
+            cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
+        }
+
+        for roadmapObjectIndex in roadmapObjects.indices {
+            if roadmapObjects[roadmapObjectIndex].startMeasureID == sourceMeasureID {
+                roadmapObjects[roadmapObjectIndex].startMeasureID = targetMeasureID
+            }
+            if roadmapObjects[roadmapObjectIndex].endMeasureID == sourceMeasureID {
+                roadmapObjects[roadmapObjectIndex].endMeasureID = targetMeasureID
+            }
         }
     }
 

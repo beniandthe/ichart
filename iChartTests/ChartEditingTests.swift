@@ -2585,6 +2585,129 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(movedChord.mappedRhythmSlotIndex)
     }
 
+    func testSimpleChordSheetCommittedLaneMoveStoresFreeLaneFractionWithoutReassigningOtherChords() throws {
+        var chart = Chart.blank(title: "Simple Lane Move", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let firstChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("B-9"),
+                rawInput: "B-9",
+                to: measureID,
+                atFraction: 0.05
+            )
+        )
+        let movedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("G7"),
+                rawInput: "G7",
+                to: measureID,
+                atFraction: 0.42
+            )
+        )
+        let lastChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("A7sus"),
+                rawInput: "A7sus",
+                to: measureID,
+                atFraction: 0.68
+            )
+        )
+        let originalFirstStart = try XCTUnwrap(chart.chordEvent(id: firstChordID)?.startPosition)
+        let originalLastStart = try XCTUnwrap(chart.chordEvent(id: lastChordID)?.startPosition)
+
+        XCTAssertTrue(
+            chart.moveChordEventInCommittedChordLane(
+                movedChordID,
+                to: measureID,
+                atFraction: 0.92
+            )
+        )
+
+        let placements = try XCTUnwrap(chart.measure(id: measureID)?.renderedChordPlacements(defaultMeter: chart.defaultMeter))
+            .sorted {
+                ($0.startPosition.startOffset(in: chart.defaultMeter) ?? 0)
+                    < ($1.startPosition.startOffset(in: chart.defaultMeter) ?? 0)
+            }
+        let chords = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
+
+        XCTAssertEqual(placements.map { $0.chordEvent.symbol.displayText }, ["B-9", "A7sus", "G7"])
+        XCTAssertEqual(chords.map(\.symbol.displayText), ["B-9", "A7sus", "G7"])
+        XCTAssertEqual(placements.map(\.startPosition), chords.map(\.startPosition))
+        XCTAssertEqual(try XCTUnwrap(chart.chordEvent(id: movedChordID)?.manualLaneFraction), 0.92, accuracy: 0.0001)
+        XCTAssertEqual(chart.chordEvent(id: firstChordID)?.startPosition, originalFirstStart)
+        XCTAssertEqual(chart.chordEvent(id: lastChordID)?.startPosition, originalLastStart)
+        XCTAssertNil(chart.chordEvent(id: firstChordID)?.manualLaneFraction)
+        XCTAssertNil(chart.chordEvent(id: lastChordID)?.manualLaneFraction)
+        XCTAssertTrue(chords.allSatisfy { $0.mappedRhythmSlotIndex == nil })
+    }
+
+    func testSimpleChordSheetCommittedLaneMoveCanRetargetAnotherMeasure() throws {
+        var chart = Chart.blank(title: "Cross Measure Move", measureCount: 2, layoutStyle: .simpleChordSheet)
+        let sourceMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let targetMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
+        let movedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D-7"),
+                rawInput: "D-7",
+                to: sourceMeasureID,
+                atFraction: 0.18
+            )
+        )
+
+        XCTAssertTrue(
+            chart.moveChordEventInCommittedChordLane(
+                movedChordID,
+                to: targetMeasureID,
+                atFraction: 0.12
+            )
+        )
+
+        let sourceChords = try XCTUnwrap(chart.measure(id: sourceMeasureID)?.chordEvents)
+        let targetChords = try XCTUnwrap(chart.measure(id: targetMeasureID)?.chordEvents)
+
+        XCTAssertTrue(sourceChords.isEmpty)
+        XCTAssertEqual(targetChords.map(\.id), [movedChordID])
+        XCTAssertEqual(targetChords.map(\.symbol.displayText), ["D-7"])
+        XCTAssertEqual(try XCTUnwrap(targetChords.first?.manualLaneFraction), 0.12, accuracy: 0.0001)
+        XCTAssertNil(targetChords.first?.mappedRhythmSlotIndex)
+    }
+
+    func testSimpleChordSheetCommittedLaneMoveCanBecomeLeftmostAtBarlineEdge() throws {
+        var chart = Chart.blank(title: "Simple Lane Edge Move", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let firstChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureID,
+                atFraction: 0.05
+            )
+        )
+        let movedChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("D-7"),
+                rawInput: "D-7",
+                to: measureID,
+                atFraction: 0.42
+            )
+        )
+
+        XCTAssertTrue(
+            chart.moveChordEventInCommittedChordLane(
+                movedChordID,
+                to: measureID,
+                atFraction: 0.01
+            )
+        )
+
+        let chords = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents)
+
+        XCTAssertEqual(chords.map(\.id), [movedChordID, firstChordID])
+        XCTAssertEqual(chords.map(\.symbol.displayText), ["D-7", "C"])
+        XCTAssertEqual(try XCTUnwrap(chart.chordEvent(id: movedChordID)?.manualLaneFraction), 0.01, accuracy: 0.0001)
+        XCTAssertNil(chart.chordEvent(id: firstChordID)?.manualLaneFraction)
+    }
+
     func testMoveChordEventSnapsExistingChordToRhythmSlot() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(
@@ -2685,7 +2808,7 @@ final class ChartEditingTests: XCTestCase {
         )
         let measureID = try XCTUnwrap(chart.measures.first?.id)
 
-        let appliedLargeWidth = try XCTUnwrap(chart.setMeasureManualLayoutWidth(680, for: measureID))
+        let appliedLargeWidth = try XCTUnwrap(chart.setMeasureManualLayoutWidth(1200, for: measureID))
         XCTAssertEqual(appliedLargeWidth, Measure.maximumManualLayoutWidth)
         XCTAssertEqual(chart.measure(id: measureID)?.manualLayoutWidth, Double(Measure.maximumManualLayoutWidth))
 
@@ -2695,6 +2818,62 @@ final class ChartEditingTests: XCTestCase {
 
         _ = chart.setMeasureManualLayoutWidth(nil, for: measureID)
         XCTAssertNil(chart.measure(id: measureID)?.manualLayoutWidth)
+    }
+
+    func testSetChordEventManualDisplayWidthStoresClampedOverride() throws {
+        var chart = Chart.blank(title: "Chord Width", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Cmaj7"),
+                rawInput: "Cmaj7",
+                to: measureID,
+                atFraction: 0.1
+            )
+        )
+
+        let appliedLargeWidth = try XCTUnwrap(
+            chart.setChordEventManualDisplayWidth(999, for: chordID)
+        )
+        XCTAssertEqual(appliedLargeWidth, ChordEvent.maximumManualDisplayWidth)
+        XCTAssertEqual(chart.chordEvent(id: chordID)?.manualDisplayWidth, ChordEvent.maximumManualDisplayWidth)
+
+        let appliedSmallWidth = try XCTUnwrap(
+            chart.setChordEventManualDisplayWidth(4, for: chordID)
+        )
+        XCTAssertEqual(appliedSmallWidth, ChordEvent.minimumManualDisplayWidth)
+        XCTAssertEqual(chart.chordEvent(id: chordID)?.manualDisplayWidth, ChordEvent.minimumManualDisplayWidth)
+
+        _ = chart.setChordEventManualDisplayWidth(nil, for: chordID)
+        XCTAssertNil(chart.chordEvent(id: chordID)?.manualDisplayWidth)
+    }
+
+    func testSetChordEventManualLaneFractionStoresClampedOverride() throws {
+        var chart = Chart.blank(title: "Chord Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Cmaj7"),
+                rawInput: "Cmaj7",
+                to: measureID,
+                atFraction: 0.1
+            )
+        )
+
+        let appliedLargeFraction = try XCTUnwrap(
+            chart.setChordEventManualLaneFraction(2.4, for: chordID)
+        )
+        XCTAssertEqual(appliedLargeFraction, ChordEvent.maximumManualLaneFraction)
+        XCTAssertEqual(chart.chordEvent(id: chordID)?.manualLaneFraction, ChordEvent.maximumManualLaneFraction)
+
+        let appliedSmallFraction = try XCTUnwrap(
+            chart.setChordEventManualLaneFraction(-0.5, for: chordID)
+        )
+        XCTAssertEqual(appliedSmallFraction, ChordEvent.minimumManualLaneFraction)
+        XCTAssertEqual(chart.chordEvent(id: chordID)?.manualLaneFraction, ChordEvent.minimumManualLaneFraction)
+
+        _ = chart.setChordEventManualLaneFraction(nil, for: chordID)
+        XCTAssertNil(chart.chordEvent(id: chordID)?.manualLaneFraction)
     }
 
     func testCommitOpenMeasureMarksCurrentMeasureCommittedAndAppendsNextOpenMeasure() {
@@ -2713,6 +2892,94 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures[0].authoringState, .committed)
         XCTAssertEqual(chart.measures[1].authoringState, .open)
         XCTAssertEqual(chart.measures[1].index, 2)
+    }
+
+    func testDeleteCommittedSimpleChordBarlineMergesRightMeasureIntoLeftLane() throws {
+        var chart = Chart.draft(title: "Merged Chord Lane", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Merged Chord Lane",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let leftMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let rightMeasureID = try XCTUnwrap(chart.commitOpenMeasure())
+        let leftChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: leftMeasureID,
+                atFraction: 0.1
+            )
+        )
+        let rightChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("F7"),
+                rawInput: "F7",
+                to: rightMeasureID,
+                atFraction: 0.8
+            )
+        )
+        _ = chart.setMeasureManualLayoutWidth(120, for: leftMeasureID)
+        _ = chart.setMeasureManualLayoutWidth(240, for: rightMeasureID)
+        _ = chart.setChordEventManualLaneFraction(0.1, for: leftChordID)
+        _ = chart.setChordEventManualLaneFraction(0.8, for: rightChordID)
+
+        XCTAssertTrue(chart.canDeleteCommittedSimpleChordBarline(after: leftMeasureID))
+        XCTAssertTrue(chart.deleteCommittedSimpleChordBarline(after: leftMeasureID))
+
+        let mergedMeasure = try XCTUnwrap(chart.measures.first)
+        let mergedChords = mergedMeasure.chordEvents
+
+        XCTAssertEqual(chart.measures.count, 1)
+        XCTAssertEqual(mergedMeasure.id, leftMeasureID)
+        XCTAssertEqual(mergedMeasure.authoringState, .open)
+        XCTAssertEqual(mergedMeasure.manualLayoutWidth, 360)
+        XCTAssertEqual(mergedChords.map { $0.symbol.displayText }, ["C", "F7"])
+        XCTAssertEqual(try XCTUnwrap(mergedChords[0].manualLaneFraction), 0.1 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(mergedChords[1].manualLaneFraction), 0.333333 + 0.8 * 0.666667, accuracy: 0.0002)
+        XCTAssertFalse(chart.canDeleteCommittedSimpleChordBarline(after: leftMeasureID))
+    }
+
+    func testSplitSimpleChordMeasureCreatesCommittedBoundaryAndDistributesChords() throws {
+        var chart = Chart.blank(title: "Split Chord Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let leftChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: measureID,
+                atFraction: 0.2
+            )
+        )
+        let rightChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("G7"),
+                rawInput: "G7",
+                to: measureID,
+                atFraction: 0.8
+            )
+        )
+        _ = chart.setChordEventManualLaneFraction(0.2, for: leftChordID)
+        _ = chart.setChordEventManualLaneFraction(0.8, for: rightChordID)
+        _ = chart.setMeasureManualLayoutWidth(240, for: measureID)
+
+        let rightMeasureID = try XCTUnwrap(chart.splitSimpleChordMeasure(measureID, atFraction: 0.5))
+
+        let leftMeasure = try XCTUnwrap(chart.measure(id: measureID))
+        let rightMeasure = try XCTUnwrap(chart.measure(id: rightMeasureID))
+
+        XCTAssertEqual(chart.measures.count, 2)
+        XCTAssertEqual(leftMeasure.authoringState, .committed)
+        XCTAssertEqual(rightMeasure.authoringState, .committed)
+        XCTAssertEqual(leftMeasure.barlineAfter, .single)
+        XCTAssertEqual(leftMeasure.manualLayoutWidth, 120)
+        XCTAssertEqual(rightMeasure.manualLayoutWidth, 120)
+        XCTAssertEqual(leftMeasure.chordEvents.map { $0.symbol.displayText }, ["C"])
+        XCTAssertEqual(rightMeasure.chordEvents.map { $0.symbol.displayText }, ["G7"])
+        XCTAssertEqual(try XCTUnwrap(leftMeasure.chordEvents.first?.manualLaneFraction), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(rightMeasure.chordEvents.first?.manualLaneFraction), 0.6, accuracy: 0.0001)
     }
 
     func testResolvedAuthoringMeasurePreservesValidPreferredMeasure() throws {

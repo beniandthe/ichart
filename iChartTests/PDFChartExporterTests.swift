@@ -226,7 +226,7 @@ final class PDFChartExporterTests: XCTestCase {
         let exportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let exporter = PDFChartExporter(exportDirectory: exportDirectory)
-        var chart = Chart.blank(
+        let chart = Chart.blank(
             title: #"Almost Like / Being: In Love?"#,
             measureCount: 4,
             layoutStyle: .simpleChordSheet
