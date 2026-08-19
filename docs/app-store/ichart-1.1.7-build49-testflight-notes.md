@@ -1,7 +1,7 @@
-# iChart 1.1.6 Build 49 TestFlight Notes
+# iChart 1.1.7 Build 49 TestFlight Notes
 
 Date: 2026-08-19
-Branch: `codex/1.1.6-build49-testflight`
+Branch: `codex/1.1.7-build49-testflight`
 Base commit: `1cd8872378a856ee32a27d18980734364d91528f`
 Package intent: internal TestFlight distribution after PR #52 and PR #53 landed on `main`.
 
@@ -23,7 +23,8 @@ Package intent: internal TestFlight distribution after PR #52 and PR #53 landed 
 ## Build metadata
 
 - Previous Apple-submitted build: `1.1.6 (48)`.
-- This TestFlight package bumps only the build number to `1.1.6 (49)`.
+- The first TestFlight attempt used `1.1.6 (49)`, but App Store Connect rejected it because the `1.1.6` train is closed after approval.
+- This TestFlight package advances the marketing version to `1.1.7 (49)`.
 
 ## Validation evidence
 
@@ -39,15 +40,12 @@ Package intent: internal TestFlight distribution after PR #52 and PR #53 landed 
 
 - Signing identity: `Apple Distribution: Benjamin Rossman (N6G8X4K46U)`.
 - Provisioning profile: `iChart App Store`, bundle `N6G8X4K46U.com.ichart.app`, expires `2027-06-20`.
-- Archive: `/Users/benirossman/Library/Developer/Xcode/Archives/2026-08-19/iChart-1.1.6-build49-20260819-091310.xcarchive`.
-- Archive metadata: bundle `com.ichart.app`, version `1.1.6`, build `49`, team `N6G8X4K46U`.
-- Exported IPA: `/tmp/ichart-build49-export-20260819-091413/iChart.ipa`.
-- Local App Store Connect export: succeeded.
+- First archive attempt: `/Users/benirossman/Library/Developer/Xcode/Archives/2026-08-19/iChart-1.1.6-build49-20260819-091310.xcarchive`.
+- First archive metadata: bundle `com.ichart.app`, version `1.1.6`, build `49`, team `N6G8X4K46U`.
+- First exported IPA: `/tmp/ichart-build49-export-20260819-091413/iChart.ipa`.
+- First local App Store Connect export: succeeded.
 
 ## Upload status
 
-- Command-line App Store Connect upload did not complete because Xcode has no usable App Store Connect account credential on this machine.
-- Xcode error: `exportArchive Failed to Use Accounts`.
-- `altool --list-providers` also reports that JWT or username/app-password authentication is required.
-- No local `AuthKey_*.p8` App Store Connect API key was found in the standard altool search paths, and Apple Transporter is not installed.
-- The build artifact is ready for upload once a valid Xcode account, Transporter sign-in, or App Store Connect API key is available.
+- Initial command-line App Store Connect upload did not complete because Xcode had no usable App Store Connect account credential on this machine.
+- After Xcode sign-in, App Store Connect rejected `1.1.6 (49)` with code `90062` and code `90186`: the `1.1.6` train is closed for new build submissions.
