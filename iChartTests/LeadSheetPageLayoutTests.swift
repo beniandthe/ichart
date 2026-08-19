@@ -428,6 +428,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(firstMeasure.chordBandFrame.maxX, layout.paperFrame.maxX - 52)
     }
 
+    #if canImport(UIKit)
     func testSimpleChordSheetTerminalDisplayFrameExtendsLastCommittedMeasureToLaneStop() throws {
         let chart = Chart.blank(title: "Terminal Chord Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -511,6 +512,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(inputFrames.count, chordToolLayout.systems.count)
         XCTAssertGreaterThan(inputFrames.last?.minY ?? 0, inputFrames.first?.maxY ?? 0)
     }
+    #endif
 
     func testSimpleChordSheetCommittedChordCanMoveAcrossOpenLane() throws {
         var chart = Chart.draft(title: "Open Lane Move", layoutStyle: .simpleChordSheet)
