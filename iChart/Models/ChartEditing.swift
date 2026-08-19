@@ -630,8 +630,11 @@ extension Chart {
         }
 
         let leftMeasure = flattenedMeasures[leftIndex]
+        let rightMeasure = flattenedMeasures[leftIndex + 1]
         return leftMeasure.authoringState == .committed
             && leftMeasure.barlineAfter == .single
+            && keyChange(atStartOf: rightMeasure.id) == nil
+            && effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure)
     }
 
     @discardableResult

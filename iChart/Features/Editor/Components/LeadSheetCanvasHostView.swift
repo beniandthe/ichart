@@ -29,6 +29,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onCueTextEditRequested: ((UUID) -> Void)? = nil
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
+    var chordDraftRenderInvalidationRequestID: UUID? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)? = nil
@@ -90,6 +91,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onCueTextEditRequested = onCueTextEditRequested
         view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
+        view.handleChordDraftRenderInvalidationRequest(chordDraftRenderInvalidationRequestID)
         view.onRhythmicNotationPreviewChanged = onRhythmicNotationPreviewChanged
         view.onRhythmicNotationDiagnostic = onRhythmicNotationDiagnostic
         view.handleRhythmicNotationPreviewConfirmationRequest(rhythmicNotationPreviewConfirmationRequestID)
@@ -1248,6 +1250,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeCanvasScope: LeadSheetActiveInkScope?
     private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
     private var chordObjectEditingSuppressedUntil: Date?
+    private var lastHandledChordDraftRenderInvalidationRequestID: UUID?
     private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
     private var rhythmicNotationPreviewState: LeadSheetRhythmicNotationPreviewState? {
         didSet {
@@ -4067,7 +4070,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         persistActiveInkIfNeeded(cancelPendingRecognition: false)
         let sourceDrawing = pageInkCanvasView.drawing
         let sourceStrokes = PencilKitInkAdapter.inkStrokes(from: sourceDrawing)
-        var barlineRecognition = flow == .draftPreview
+        let barlineRecognition = flow == .draftPreview
             ? ChordDraftBarlineRecognizer.recognize(
                 strokes: sourceStrokes,
                 chordFrame: chordFrame,
@@ -4075,10 +4078,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             : ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
         if flow == .draftPreview {
-            barlineRecognition = autoCommitDraftBarlinesIfNeeded(
-                barlineRecognition,
-                sourceDrawing: sourceDrawing
-            )
             onChordInkDraftBarlinesChanged?(barlineRecognition.barlines)
         }
         let recognitionDrawing = flow == .draftPreview
@@ -4167,65 +4166,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkRecognitionSession.start(request: sessionRequest) { [weak self] payload in
             self?.finishChordInkRecognition(payload, flow: flow)
         }
-    }
-
-    private func autoCommitDraftBarlinesIfNeeded(
-        _ recognition: ChordDraftBarlineRecognition,
-        sourceDrawing: PKDrawing
-    ) -> ChordDraftBarlineRecognition {
-        let renderableBarlines = recognition.barlines.filter(\.isRenderable)
-        guard !renderableBarlines.isEmpty else {
-            return recognition
-        }
-
-        var updatedChart = chart
-        let renderedBarlineIDs = Set(
-            updatedChart.commitChordInkDraftBarlines(
-                renderableBarlines,
-                layoutPageSize: pageLayout?.pageBounds.size
-            )
-        )
-        guard !renderedBarlineIDs.isEmpty else {
-            return recognition
-        }
-
-        let committedBarlines = renderableBarlines.filter { renderedBarlineIDs.contains($0.id) }
-        let committedStrokeIndices = Set(committedBarlines.compactMap(\.sourceStrokeIndex))
-        if !committedStrokeIndices.isEmpty {
-            isSyncingInkCanvasFromModel = true
-            pageInkCanvasView.drawing = sourceDrawing.removingStrokes(at: committedStrokeIndices)
-            isSyncingInkCanvasFromModel = false
-
-            let activeInkScope = activeInkScope()
-            let coordinateSpace = activeCanvasCoordinateSpace
-                ?? activeInkScope.flatMap {
-                    LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
-                        for: $0,
-                        pageLayout: pageLayout
-                    )
-                }
-            _ = updatedChart.setPageHandwrittenChordDrawing(
-                currentCanvasDrawingData(activeInkScope: activeInkScope),
-                coordinateSpace: coordinateSpace
-            )
-            updateChordInkConfirmOverlayVisibility()
-        }
-
-        selectedDraftBarlineID = nil
-        selectedChordID = nil
-        selectedCommittedBarlineMeasureID = committedBarlines
-            .map(\.measureID)
-            .last(where: { updatedChart.canDeleteCommittedSimpleChordBarline(after: $0) })
-        chordPreviewState.draftBarlines.removeAll { renderedBarlineIDs.contains($0.id) }
-        chart = updatedChart
-        onChartChanged?(updatedChart)
-        setNeedsDisplay()
-
-        let remainingBarlines = recognition.barlines.filter { !renderedBarlineIDs.contains($0.id) }
-        return ChordDraftBarlineRecognition(
-            barlines: remainingBarlines,
-            strokeIndices: recognition.strokeIndices
-        )
     }
 
     private func finishChordInkRecognition(
@@ -4572,6 +4512,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         confirmRhythmicNotationFeedback(rhythmicNotationPreviewState)
+    }
+
+    func handleChordDraftRenderInvalidationRequest(_ requestID: UUID?) {
+        guard let requestID,
+              lastHandledChordDraftRenderInvalidationRequestID != requestID else {
+            return
+        }
+
+        lastHandledChordDraftRenderInvalidationRequestID = requestID
+        cancelPendingInkSessionScheduledWork()
     }
 
     private func recordRhythmicNotationDiagnostic(
