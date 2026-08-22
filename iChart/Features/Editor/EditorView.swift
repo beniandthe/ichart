@@ -1843,7 +1843,7 @@ struct EditorView: View {
                     handleActiveToolDoneTapped()
                 } label: {
                     EditorMenuTabLabel(
-                        title: "Select",
+                        title: "Edit",
                         systemImage: "cursorarrow",
                         isSelected: canvasMode == .browse
                             && selectedCueTextID == nil

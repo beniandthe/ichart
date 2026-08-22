@@ -1709,7 +1709,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
+    func testBrowseEditModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
         XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
@@ -1722,7 +1722,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
-    func testBrowseSelectModeRoutesHeaderTapsToHeaderAuthoring() {
+    func testBrowseEditModeRoutesHeaderTapsToHeaderAuthoring() {
         let chart = Chart.blank(title: "Header Tap", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
@@ -1802,7 +1802,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testActiveToolMetadataMatchesPrimaryEditorModes() {
-        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Select")
+        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Edit")
         XCTAssertEqual(EditorCanvasMode.measureEdit.activeToolTitle, "Measures")
         XCTAssertEqual(EditorCanvasMode.repeatEdit.activeToolTitle, "Repeats")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")

@@ -67,7 +67,7 @@ enum EditorCanvasMode: Hashable {
     var activeToolTitle: String {
         switch self {
         case .browse:
-            return "Select"
+            return "Edit"
         case .measureEdit:
             return "Measures"
         case .repeatEdit:
