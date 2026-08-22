@@ -2724,6 +2724,80 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    private func renderedEditSelectionState() -> RenderedEditSelectionState {
+        if let selectedCommittedBarlineMeasureID {
+            return RenderedEditSelectionState(
+                selectedObjectID: .committedChordBarline(afterMeasureID: selectedCommittedBarlineMeasureID)
+            )
+        }
+
+        if let selectedCueTextID {
+            return RenderedEditSelectionState(selectedObjectID: .cueText(selectedCueTextID))
+        }
+
+        if let selectedRoadmapMarkerID {
+            return RenderedEditSelectionState(selectedObjectID: .roadmapMarker(selectedRoadmapMarkerID))
+        }
+
+        if let selectedChordID {
+            return RenderedEditSelectionState(selectedObjectID: .chord(selectedChordID))
+        }
+
+        if let selectedMeasureID {
+            return RenderedEditSelectionState(selectedObjectID: .measure(selectedMeasureID))
+        }
+
+        return RenderedEditSelectionState()
+    }
+
+    private func renderedEditTapProviders() -> [any RenderedEditHitTargetProvider] {
+        var providers = [any RenderedEditHitTargetProvider]()
+
+        if interactionMode.allowsChordInkEditing || interactionMode.allowsChordObjectEditing {
+            providers.append(CommittedChordBarlineRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsCueTextEditing {
+            providers.append(CueTextRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode == .browse {
+            providers.append(RoadmapMarkerRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsChordObjectEditing,
+           !isChordObjectEditingTemporarilySuppressed() {
+            providers.append(ChordRenderedEditHitTargetProvider())
+        }
+
+        return providers
+    }
+
+    private func renderedEditContext() -> RenderedEditContext? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        let committedBarlineMeasures = (interactionMode.allowsChordInkEditing || interactionMode.allowsChordObjectEditing)
+            ? committedSimpleChordBarlineMeasures(in: pageLayout)
+            : []
+
+        return RenderedEditContext(
+            pageLayout: pageLayout,
+            selection: renderedEditSelectionState(),
+            committedChordBarlineMeasures: committedBarlineMeasures
+        )
+    }
+
+    private func renderedEditTapTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        guard let context = renderedEditContext() else {
+            return nil
+        }
+
+        return RenderedEditRouter(providers: renderedEditTapProviders())
+            .tapTarget(at: location, in: context)
+    }
+
     private func chordMoveHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
               !isChordObjectEditingTemporarilySuppressed(),
@@ -2765,11 +2839,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private enum EditableOverlayHitTarget {
-        case cueText(CueTextEditHitTarget)
-        case roadmap(RoadmapMarkerEditHitTarget)
-        case chord(ChordEditHitTarget)
         case draftBarline(ChordDraftBarlineHitTarget)
-        case committedBarline(CommittedChordBarlineHitTarget)
+        case rendered(RenderedEditHitTarget)
     }
 
     private func editableOverlayHitTarget(at location: CGPoint) -> EditableOverlayHitTarget? {
@@ -2777,20 +2848,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return .draftBarline(draftBarlineTarget)
         }
 
-        if let committedBarlineTarget = committedChordBarlineHitTarget(at: location) {
-            return .committedBarline(committedBarlineTarget)
-        }
-
-        if let cueTextTarget = cueTextEditHitTarget(at: location) {
-            return .cueText(cueTextTarget)
-        }
-
-        if let roadmapTarget = roadmapMarkerEditHitTarget(at: location) {
-            return .roadmap(roadmapTarget)
-        }
-
-        if let chordTarget = chordEditHitTarget(at: location) {
-            return .chord(chordTarget)
+        if let renderedTarget = renderedEditTapTarget(at: location) {
+            return .rendered(renderedTarget)
         }
 
         return nil
@@ -3078,6 +3137,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         updateSelectedRoadmapMarkerID(markerLayout.id)
         selectedCueTextID = nil
         selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedNoteSelection = nil
         applyTapSelection(markerLayout.anchorMeasureID)
         onRoadmapMarkerSelectedFromCanvas?(markerLayout.id)
@@ -3093,6 +3153,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectedCueTextID = cueText.id
         updateSelectedRoadmapMarkerID(nil)
         selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedNoteSelection = nil
         applyTapSelection(cueText.anchorMeasureID)
         onCueTextSelectedFromCanvas?(cueText.id)
@@ -3106,53 +3167,115 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: chordEditHitOverlayView)
-        if let hitTarget = cueTextEditHitTarget(at: location) {
-            handleCueTextEditTap(hitTarget)
-            return
-        }
-
-        if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
-            handleRoadmapMarkerEditTap(hitTarget)
-            return
-        }
-
         if let hitTarget = chordDraftBarlineHitTarget(at: location) {
             handleDraftBarlineTap(hitTarget)
             return
         }
 
-        if let hitTarget = committedChordBarlineHitTarget(at: location) {
-            handleCommittedBarlineTap(hitTarget)
-            return
+        if let hitTarget = renderedEditTapTarget(at: location) {
+            handleRenderedEditTap(hitTarget)
         }
+    }
 
-        guard let hitTarget = chordEditHitTarget(at: location) else {
-            return
-        }
-
-        switch hitTarget.action {
-        case .select:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            if interactionMode == .browse {
-                onChordSelectedFromCanvas?(hitTarget.chordID)
+    private func handleRenderedEditTap(_ hitTarget: RenderedEditHitTarget) {
+        switch hitTarget.objectID {
+        case .chord(let chordID):
+            handleRenderedChordTap(chordID: chordID, action: hitTarget.action)
+        case .committedChordBarline(let measureID):
+            handleRenderedCommittedBarlineTap(measureID: measureID, action: hitTarget.action)
+        case .cueText(let cueTextID):
+            handleRenderedCueTextTap(cueTextID: cueTextID, action: hitTarget.action)
+        case .roadmapMarker(let markerID):
+            handleRenderedRoadmapMarkerTap(markerID: markerID, action: hitTarget.action)
+        case .header:
+            if hitTarget.action == .openInspector {
+                onHeaderAuthoringRequested?()
             }
-            setNeedsDisplay()
-        case .delete:
-            deleteChordEvent(hitTarget.chordID)
-        case .move:
+        case .measure(let measureID):
+            guard interactionMode.allowsMeasureSelection else {
+                return
+            }
+            applyTapSelection(measureID)
+            if interactionMode == .browse {
+                onMeasureSelectedFromCanvas?(measureID)
+            }
+        case .repeatSpan, .endingSpan, .timeSignatureChange, .keyChange:
             break
-        case .resizeLeading, .resizeTrailing:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            setNeedsDisplay()
-        case .review:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            if interactionMode == .browse {
-                onChordSelectedFromCanvas?(hitTarget.chordID)
+        }
+    }
+
+    private func handleRenderedChordTap(chordID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .delete:
+            deleteChordEvent(chordID)
+        case .select, .move, .resizeLeading, .resizeTrailing, .correctChord:
+            selectRenderedChordFromCanvas(chordID)
+        case .resizeLeft, .resizeRight, .grow, .shrink, .editText, .openInspector:
+            break
+        }
+    }
+
+    private func selectRenderedChordFromCanvas(_ chordID: UUID) {
+        selectedChordID = chordID
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        if interactionMode == .browse {
+            onChordSelectedFromCanvas?(chordID)
+        }
+        setNeedsDisplay()
+    }
+
+    private func handleRenderedCommittedBarlineTap(measureID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .select:
+            handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
+        case .delete:
+            handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
+        case .move, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+             .grow, .shrink, .editText, .correctChord, .openInspector:
+            break
+        }
+    }
+
+    private func handleRenderedCueTextTap(cueTextID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .select, .move:
+            guard let cueText = chart.cueText(id: cueTextID) else {
+                return
             }
+            selectCueTextFromCanvas(cueText)
+        case .editText:
+            selectedCueTextID = cueTextID
+            updateSelectedRoadmapMarkerID(nil)
+            selectedChordID = nil
+            selectedCommittedBarlineMeasureID = nil
+            selectedNoteSelection = nil
+            onCueTextEditRequested?(cueTextID)
             setNeedsDisplay()
+        case .shrink:
+            selectedCommittedBarlineMeasureID = nil
+            resizeCueText(cueTextID, by: -CueText.scaleStep)
+        case .grow:
+            selectedCommittedBarlineMeasureID = nil
+            resizeCueText(cueTextID, by: CueText.scaleStep)
+        case .delete:
+            deleteCueText(cueTextID)
+        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight, .correctChord, .openInspector:
+            break
+        }
+    }
+
+    private func handleRenderedRoadmapMarkerTap(markerID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .delete:
+            handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .delete))
+        case .select, .move:
+            handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .select))
+        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+             .grow, .shrink, .editText, .correctChord, .openInspector:
+            break
         }
     }
 
@@ -3218,30 +3341,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if let hitTarget = committedChordBarlineHitTarget(at: location) {
-            handleCommittedBarlineTap(hitTarget)
-            return
-        }
-
-        if let hitTarget = chordEditHitTarget(at: location) {
-            switch hitTarget.action {
-            case .select:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            case .delete:
-                deleteChordEvent(hitTarget.chordID)
-            case .move:
-                break
-            case .resizeLeading, .resizeTrailing:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            case .review:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            }
+        if let hitTarget = renderedEditTapTarget(at: location) {
+            handleRenderedEditTap(hitTarget)
             return
         }
 
@@ -3276,6 +3377,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             selectedCommittedBarlineMeasureID = hitTarget.measureID
             selectedDraftBarlineID = nil
             selectedChordID = nil
+            selectedCueTextID = nil
+            updateSelectedRoadmapMarkerID(nil)
+            selectedNoteSelection = nil
             setNeedsDisplay()
         case .delete:
             deleteCommittedBarline(after: hitTarget.measureID)
