@@ -127,10 +127,10 @@ enum RhythmicNotationQuantizer {
             return retiredDecision
         }
 
-        let glyphOCRDecision = retiredDecision
+        let retiredGlyphDecision = retiredDecision
 
         let meterCheckedDecision = decisionByApplyingMeterValidityRules(
-            glyphOCRDecision,
+            retiredGlyphDecision,
             meter: meter
         )
         let contextCheckedDecision = decisionByApplyingContextRules(
@@ -148,7 +148,7 @@ enum RhythmicNotationQuantizer {
             meter: meter
         )
         return tieAwareDecision.addingReasoningPaths([
-            glyphOCRDecision.reasoningPath(kind: .glyphOCR),
+            retiredGlyphDecision.reasoningPath(kind: .retiredGlyphInput),
             contextPath
         ])
     }
@@ -170,7 +170,7 @@ enum RhythmicNotationQuantizer {
                 passesCompendium: false,
                 reasoningPaths: [
                     RhythmRecognitionReasoningPath(
-                        kind: .glyphOCR,
+                        kind: .retiredGlyphInput,
                         outcome: .unavailable,
                         values: [],
                         reason: .unsupported,

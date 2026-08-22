@@ -129,16 +129,22 @@ def value(attempt: Attempt, key: str, default: str = "") -> str:
     return default
 
 
+def first_value(attempt: Attempt, keys: tuple[str, ...], default: str = "") -> str:
+    for key in keys:
+        resolved = value(attempt, key)
+        if resolved:
+            return resolved
+    return default
+
+
 def row_for_attempt(index: int, attempt: Attempt) -> dict[str, str]:
     return {
         "attempt": str(index),
         "best": value(attempt, "best"),
         "accepted": value(attempt, "accepted"),
         "confidence": value(attempt, "confidence"),
-        "primaryAction": value(attempt, "primaryAction"),
-        "finalAction": value(attempt, "finalAction"),
-        "trust": value(attempt, "trust"),
-        "agreement": value(attempt, "agreement"),
+        "primaryAction": first_value(attempt, ("primaryAction", "action")),
+        "finalAction": first_value(attempt, ("finalAction", "action")),
         "closeRace": value(attempt, "closeRace"),
         "gap": value(attempt, "gap"),
         "delayMs": value(attempt, "delay"),
@@ -148,8 +154,6 @@ def row_for_attempt(index: int, attempt: Attempt) -> dict[str, str]:
         "proposalMs": value(attempt, "decisionMs"),
         "commitMs": value(attempt, "commitMs"),
         "renderHandoffMs": value(attempt, "renderHandoffMs"),
-        "ocrCount": value(attempt, "ocr"),
-        "ocrMs": value(attempt, "ocrMs"),
         "reason": value(attempt, "reason"),
     }
 
@@ -170,8 +174,6 @@ def write_markdown(rows: list[dict[str, str]]) -> None:
         "confidence",
         "primaryAction",
         "finalAction",
-        "trust",
-        "agreement",
         "closeRace",
         "gap",
         "delayMs",
@@ -181,8 +183,6 @@ def write_markdown(rows: list[dict[str, str]]) -> None:
         "proposalMs",
         "commitMs",
         "renderHandoffMs",
-        "ocrCount",
-        "ocrMs",
         "reason",
     ]
     print("| " + " | ".join(columns) + " |")
@@ -196,7 +196,7 @@ def write_markdown(rows: list[dict[str, str]]) -> None:
     print("- High recognitionMs/totalMs points at recognizer compute or candidate conflict.")
     print("- Low recognition/proposal/commit with visible lag points at render/update handoff.")
     print("- High renderHandoffMs points at SwiftUI update/render handoff after chart mutation.")
-    print("- Low confidence plus confirm/ambiguous final action points at trust/ink interpretation.")
+    print("- Low confidence plus confirm/ambiguous final action points at ink interpretation.")
 
 
 def write_csv(rows: list[dict[str, str]]) -> None:

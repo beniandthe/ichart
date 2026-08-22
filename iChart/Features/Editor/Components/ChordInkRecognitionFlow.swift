@@ -6,10 +6,8 @@ enum ChordInkRecognitionFlow: Equatable {
 
     var canRenderChord: Bool {
         switch self {
-        case .draftPreview:
+        case .draftPreview, .tapToConfirm:
             return false
-        case .tapToConfirm:
-            return true
         }
     }
 

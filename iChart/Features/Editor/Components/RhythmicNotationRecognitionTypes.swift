@@ -93,7 +93,7 @@ enum RhythmPhraseSource: String, Hashable {
 }
 
 enum RhythmRecognitionReasoningPathKind: String, Hashable {
-    case glyphOCR
+    case retiredGlyphInput
     case contextRules
 }
 

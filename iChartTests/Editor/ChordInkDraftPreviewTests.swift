@@ -5,6 +5,238 @@ import XCTest
 @testable import iChart
 
 final class ChordInkDraftPreviewTests: XCTestCase {
+    func testDraftPreviewRecognitionLoadPolicyRejectsOversizedSingleDraftTarget() {
+        XCTAssertTrue(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokeCount: ChordInkDraftPreviewPolicy.maximumSingleTargetStrokeCount,
+                flow: .draftPreview
+            )
+        )
+        XCTAssertFalse(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokeCount: ChordInkDraftPreviewPolicy.maximumSingleTargetStrokeCount + 1,
+                flow: .draftPreview
+            )
+        )
+        XCTAssertTrue(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokeCount: ChordInkDraftPreviewPolicy.maximumSingleTargetStrokeCount + 1,
+                flow: .tapToConfirm
+            )
+        )
+    }
+
+    func testDraftPreviewRecognitionLoadPolicyRejectsWeakGeometryDraftTargets() {
+        let chordLikeStrokes = [
+            InkStroke(
+                points: [
+                    InkPoint(x: 0, y: 0, timeOffset: nil),
+                    InkPoint(x: 26, y: 14, timeOffset: nil),
+                    InkPoint(x: 4, y: 44, timeOffset: nil)
+                ]
+            )
+        ]
+        let verticalShardStrokes = [
+            InkStroke(
+                points: [
+                    InkPoint(x: 4, y: 0, timeOffset: nil),
+                    InkPoint(x: 5, y: 46, timeOffset: nil)
+                ]
+            )
+        ]
+        let dashOnlyStrokes = [
+            InkStroke(
+                points: [
+                    InkPoint(x: 0, y: 3, timeOffset: nil),
+                    InkPoint(x: 24, y: 4, timeOffset: nil)
+                ]
+            )
+        ]
+
+        XCTAssertTrue(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokes: chordLikeStrokes,
+                flow: .draftPreview
+            )
+        )
+        XCTAssertFalse(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokes: verticalShardStrokes,
+                flow: .draftPreview
+            )
+        )
+        XCTAssertFalse(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokes: dashOnlyStrokes,
+                flow: .draftPreview
+            )
+        )
+        XCTAssertTrue(
+            ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+                strokes: verticalShardStrokes,
+                flow: .tapToConfirm
+            )
+        )
+    }
+
+    func testVisibleStrokePolicyIgnoresTinyRenderedStrokeArtifactsAndRemapsIndices() {
+        let visibleChordStroke = Self.pkStroke(
+            points: [
+                CGPoint(x: 140, y: 42),
+                CGPoint(x: 172, y: 65)
+            ]
+        )
+        let context = ChordInkDraftVisibleDrawingContext(
+            drawing: PKDrawing(strokes: [visibleChordStroke]),
+            originalStrokeIndices: [1],
+            invisibleStrokeIndices: [0]
+        )
+
+        XCTAssertFalse(
+            ChordInkDraftVisibleStrokePolicy.isVisible(
+                renderBounds: CGRect(x: 123, y: 35, width: 1, height: 2)
+            )
+        )
+        XCTAssertTrue(
+            ChordInkDraftVisibleStrokePolicy.isVisible(
+                renderBounds: CGRect(x: 140, y: 42, width: 32, height: 23)
+            )
+        )
+        XCTAssertTrue(
+            ChordInkDraftVisibleStrokePolicy.isVisible(
+                renderBounds: CGRect(x: 140, y: 42, width: 7, height: 1)
+            )
+        )
+
+        XCTAssertEqual(context.visibleStrokeCount, 1)
+        XCTAssertEqual(context.originalStrokeIndices, [1])
+        XCTAssertEqual(context.invisibleStrokeIndices, [0])
+
+        let visibleBarline = draftBarline(
+            measureID: UUID(),
+            measureIndex: 0,
+            fraction: 0.42,
+            sourceStrokeIndex: 0
+        )
+        let remappedRecognition = context.remappedBarlineRecognition(
+            ChordDraftBarlineRecognition(
+                barlines: [visibleBarline],
+                strokeIndices: [0]
+            )
+        )
+
+        XCTAssertEqual(remappedRecognition.strokeIndices, [1])
+        XCTAssertEqual(remappedRecognition.barlines.first?.sourceStrokeIndex, 1)
+    }
+
+    func testDraftPreviewRecognitionLoadPolicyFiltersOversizedBatchTargets() {
+        let normalTarget = batchTarget(strokeCount: ChordInkDraftPreviewPolicy.maximumBatchTargetStrokeCount)
+        let oversizedTarget = batchTarget(strokeCount: ChordInkDraftPreviewPolicy.maximumBatchTargetStrokeCount + 1)
+        let weakTarget = batchTarget(strokes: [
+            InkStroke(
+                points: [
+                    InkPoint(x: 4, y: 0, timeOffset: nil),
+                    InkPoint(x: 5, y: 46, timeOffset: nil)
+                ]
+            )
+        ])
+
+        let draftTargets = ChordInkDraftPreviewRecognitionLoadPolicy.boundedBatchTargets(
+            [normalTarget, oversizedTarget, weakTarget],
+            flow: .draftPreview
+        )
+        XCTAssertEqual(draftTargets.map(\.strokes.count), [normalTarget.strokes.count])
+
+        let tapToConfirmTargets = ChordInkDraftPreviewRecognitionLoadPolicy.boundedBatchTargets(
+            [normalTarget, oversizedTarget, weakTarget],
+            flow: .tapToConfirm
+        )
+        XCTAssertEqual(tapToConfirmTargets.count, 3)
+    }
+
+    func testDraftPreviewImplicitBarlinesIncludeRenderedLaneEndBarlinesForContentLanes() throws {
+        var chart = Chart.draft(title: "Terminal Preview", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Terminal Preview",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let pageSize = CGSize(width: 900, height: 1400)
+
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 1,
+                fraction: 0.18,
+                bestCandidateText: "D7",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.18),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 1,
+                fraction: 0.28,
+                bestCandidateText: "C#-Δ7",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.28),
+                layoutPageSize: pageSize
+            )
+        ])
+
+        let terminalBarlines = ChordDraftPreviewImplicitBarlinePolicy.terminalBarlines(
+            for: state,
+            chart: chart
+        )
+
+        XCTAssertEqual(terminalBarlines.map(\.laneLocation.systemIndex), [0, 1])
+        XCTAssertEqual(terminalBarlines.map(\.laneLocation.fraction), [0.9999, 0.9999])
+        XCTAssertEqual(terminalBarlines.map(\.visualOrder), [0.9999, 1.9999])
+    }
+
+    func testDraftPreviewImplicitBarlinesDoNotDuplicateTerminalDraftBarline() throws {
+        var chart = Chart.draft(title: "Terminal Draft", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Terminal Draft",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let pageSize = CGSize(width: 900, height: 1400)
+
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 1,
+                fraction: 0.18,
+                bestCandidateText: "D7",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.18),
+                layoutPageSize: pageSize
+            )
+        ])
+        state.replaceDraftBarlines(with: [
+            draftBarline(
+                measureID: measureID,
+                measureIndex: 1,
+                fraction: 0.98,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.98),
+                layoutPageSize: pageSize
+            )
+        ])
+
+        let terminalBarlines = ChordDraftPreviewImplicitBarlinePolicy.terminalBarlines(
+            for: state,
+            chart: chart
+        )
+
+        XCTAssertTrue(terminalBarlines.isEmpty)
+    }
+
     func testDraftStateReplacesBatchAndPreservesEditedTextByAnchor() {
         let measureID = UUID()
         var state = ChordPreviewState()
@@ -20,6 +252,23 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
         XCTAssertEqual(state.draftChords.count, 1)
         XCTAssertEqual(state.draftChords[0].id, draftID)
+        XCTAssertEqual(state.draftChords[0].previewText, "Cmaj7")
+    }
+
+    func testDraftStateReplacesBatchWhenExistingStateHasDuplicateAnchors() {
+        let measureID = UUID()
+        let input = draftInput(measureID: measureID, measureIndex: 0, fraction: 0.24, bestCandidateText: "C")
+        var state = ChordPreviewState()
+        state.draftChords = [
+            ChordInkDraft(id: UUID(), input: input, selectedText: "Cmaj7"),
+            ChordInkDraft(id: UUID(), input: input, selectedText: "C6")
+        ]
+
+        state.replaceDraftChords(with: [
+            draftInput(measureID: measureID, measureIndex: 0, fraction: 0.245, bestCandidateText: "C7")
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
         XCTAssertEqual(state.draftChords[0].previewText, "Cmaj7")
     }
 
@@ -48,6 +297,192 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(state.draftChords.compactMap(\.previewText), ["Bb-7", "Cdim7"])
     }
 
+    func testDraftStateCollapsesDuplicatePreviewInputsForSameVisibleChord() {
+        let measureID = UUID()
+        let sourceInk = Data("same-c-source".utf8)
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.3,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
+                drawingData: sourceInk,
+                confidence: 5,
+                strokeCount: 1
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.34,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
+                drawingData: sourceInk,
+                confidence: 4,
+                strokeCount: 3
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertEqual(state.draftChords[0].previewText, "C")
+        XCTAssertEqual(state.draftChords[0].drawingData, sourceInk)
+        XCTAssertEqual(state.draftChords[0].strokeCount, 3)
+    }
+
+    func testDraftStateLetsExpandedChordPreviewSupersedeNearbyRootOnlyPreview() {
+        let measureID = UUID()
+        let sourceInk = Data("same-c-minor-source".utf8)
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.3,
+                bestCandidateText: "C-",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
+                drawingData: sourceInk,
+                confidence: 4,
+                strokeCount: 2
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.34,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
+                drawingData: sourceInk,
+                confidence: 5,
+                strokeCount: 1
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertEqual(state.draftChords[0].previewText, "C-")
+        XCTAssertEqual(state.draftChords[0].drawingData, sourceInk)
+    }
+
+    func testDraftStateKeepsNearbyRepeatedChordInputsFromDifferentSourceInk() {
+        let measureID = UUID()
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.3,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
+                drawingData: Data("first-c-source".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.34,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
+                drawingData: Data("second-c-source".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.37,
+                bestCandidateText: "C-",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.37),
+                drawingData: Data("c-minor-source".utf8)
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 3)
+        XCTAssertEqual(state.draftChords.compactMap(\.previewText), ["C", "C", "C-"])
+    }
+
+    func testDraftStateKeepsIntentionalNeighboringPreviewInputs() {
+        let measureID = UUID()
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.1,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.1),
+                drawingData: Data("first-lane-c".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.13,
+                bestCandidateText: "D",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.13),
+                drawingData: Data("first-lane-d".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.22,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.22),
+                drawingData: Data("second-lane-c".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.12,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.12),
+                drawingData: Data("other-lane-c".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.36,
+                bestCandidateText: "C-",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.36),
+                drawingData: Data("first-lane-c-minor".utf8)
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 5)
+        XCTAssertEqual(state.draftChords.compactMap(\.previewText), ["C", "D", "C", "C-", "C"])
+    }
+
+    func testDraftStateKeepsNearbyUnresolvedPreviewInputs() {
+        let measureID = UUID()
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            ChordInkDraftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                targetFraction: 0.3,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
+                drawingData: Data("first-unresolved".utf8),
+                candidateTexts: [],
+                bestCandidateText: nil,
+                confidence: 0,
+                strokeCount: 1
+            ),
+            ChordInkDraftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                targetFraction: 0.34,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
+                drawingData: Data("second-unresolved".utf8),
+                candidateTexts: [],
+                bestCandidateText: nil,
+                confidence: 0,
+                strokeCount: 1
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 2)
+        XCTAssertTrue(state.draftChords.allSatisfy { $0.previewText == nil })
+    }
+
     func testDraftBarlineRecognizerAcceptsTallStraightLaneStrokeAndRejectsSlashStroke() {
         let measureID = UUID()
         let pageLayout = Self.pageLayout(measureID: measureID)
@@ -72,6 +507,48 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(recognition.barlines[0].sourceStrokeIndex, 0)
         XCTAssertEqual(recognition.strokeIndices, [0])
         XCTAssertTrue(recognition.barlines[0].isRenderable)
+    }
+
+    func testDraftBarlineRecognizerAcceptsSloppyPartialHeightLaneStroke() {
+        let measureID = UUID()
+        let pageLayout = Self.pageLayout(measureID: measureID)
+        let partialLaneStroke = InkStroke(points: [
+            InkPoint(x: 150, y: 100, timeOffset: 0),
+            InkPoint(x: 156, y: 116, timeOffset: 0.1),
+            InkPoint(x: 160, y: 132, timeOffset: 0.2)
+        ])
+
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [partialLaneStroke],
+            chordFrame: .zero,
+            pageLayout: pageLayout
+        )
+
+        XCTAssertEqual(recognition.barlines.count, 1)
+        XCTAssertEqual(recognition.barlines[0].measureID, measureID)
+        XCTAssertEqual(recognition.barlines[0].sourceStrokeIndex, 0)
+        XCTAssertGreaterThan(recognition.barlines[0].metrics.angleDegreesFromVertical, 10)
+        XCTAssertLessThan(recognition.barlines[0].metrics.laneCoverage, 0.8)
+        XCTAssertTrue(recognition.barlines[0].isRenderable)
+    }
+
+    func testDraftBarlineRecognizerRejectsOvertallOutOfBandLaneStroke() {
+        let measureID = UUID()
+        let pageLayout = Self.pageLayout(measureID: measureID)
+        let overtallStroke = InkStroke(points: [
+            InkPoint(x: 150, y: 60, timeOffset: 0),
+            InkPoint(x: 151, y: 120, timeOffset: 0.1),
+            InkPoint(x: 150, y: 180, timeOffset: 0.2)
+        ])
+
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [overtallStroke],
+            chordFrame: .zero,
+            pageLayout: pageLayout
+        )
+
+        XCTAssertTrue(recognition.barlines.isEmpty)
+        XCTAssertTrue(recognition.strokeIndices.isEmpty)
     }
 
     func testDraftBarlineRecognizerAcceptsOpenLaneStrokeBeyondRenderedMeasureBox() {
@@ -138,8 +615,76 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(recognition.barlines.count, 1)
         XCTAssertEqual(recognition.barlines.first?.measureID, openMeasureID)
         XCTAssertEqual(recognition.barlines.first?.measureIndex, 1)
+        XCTAssertEqual(recognition.barlines.first?.laneLocation?.systemIndex, 1)
         XCTAssertEqual(recognition.barlines.first?.fraction ?? 0, 0.5, accuracy: 0.04)
+        XCTAssertEqual(recognition.barlines.first?.laneLocation?.fraction ?? 0, 0.5, accuracy: 0.04)
         XCTAssertEqual(recognition.strokeIndices, [0])
+    }
+
+    func testChordBatchTargetingUsesDraftBarlineOnlyOnItsContinuationLane() throws {
+        var chart = Chart.draft(title: "Lane Barline", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Lane Barline",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let openMeasureID = try XCTUnwrap(chart.measures.first(where: { $0.authoringState == .open })?.id)
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400),
+            includesChordInkContinuationLanes: true
+        )
+        let chordRegion = LeadSheetActiveInkScope.chordWritingRegion(for: pageLayout)
+        let firstLane = try XCTUnwrap(chordRegion.inputFrames.first)
+        let continuationLane = try XCTUnwrap(chordRegion.inputFrames.dropFirst().first)
+        let barlineFraction = 0.48
+        let firstLaneChordX = firstLane.minX + firstLane.width * 0.34
+        let secondLaneLeftX = continuationLane.minX + continuationLane.width * 0.22
+        let secondLaneRightX = continuationLane.minX + continuationLane.width * 0.68
+        let barlineX = continuationLane.minX + continuationLane.width * CGFloat(barlineFraction)
+        let barlineStroke = InkStroke(points: [
+            InkPoint(x: Double(barlineX), y: Double(continuationLane.minY + 2), timeOffset: 0),
+            InkPoint(x: Double(barlineX + 1), y: Double(continuationLane.midY), timeOffset: 0.1),
+            InkPoint(x: Double(barlineX), y: Double(continuationLane.maxY - 2), timeOffset: 0.2)
+        ])
+        let barlineRecognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [barlineStroke],
+            chordFrame: .zero,
+            pageLayout: pageLayout
+        )
+        let barline = try XCTUnwrap(barlineRecognition.barlines.first)
+        XCTAssertEqual(barline.measureID, openMeasureID)
+        XCTAssertEqual(barline.laneLocation?.systemIndex, 1)
+
+        let drawing = PKDrawing(strokes: [
+            Self.pkStroke(points: [
+                CGPoint(x: firstLaneChordX - chordRegion.frame.minX - 10, y: firstLane.midY - chordRegion.frame.minY - 10),
+                CGPoint(x: firstLaneChordX - chordRegion.frame.minX + 10, y: firstLane.midY - chordRegion.frame.minY + 10)
+            ]),
+            Self.pkStroke(points: [
+                CGPoint(x: secondLaneLeftX - chordRegion.frame.minX - 10, y: continuationLane.midY - chordRegion.frame.minY - 10),
+                CGPoint(x: secondLaneLeftX - chordRegion.frame.minX + 10, y: continuationLane.midY - chordRegion.frame.minY + 10)
+            ]),
+            Self.pkStroke(points: [
+                CGPoint(x: secondLaneRightX - chordRegion.frame.minX - 10, y: continuationLane.midY - chordRegion.frame.minY - 10),
+                CGPoint(x: secondLaneRightX - chordRegion.frame.minX + 10, y: continuationLane.midY - chordRegion.frame.minY + 10)
+            ])
+        ])
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordRegion.frame,
+            pageLayout: pageLayout,
+            draftBarlines: [barline]
+        )
+
+        XCTAssertEqual(targets.count, 3)
+        XCTAssertEqual(targets.map(\.measureID), [openMeasureID, openMeasureID, openMeasureID])
+        XCTAssertEqual(targets.map { $0.laneLocation?.systemIndex }, [0, 1, 1])
+        XCTAssertLessThan(targets[1].laneLocation?.fraction ?? 0, barlineFraction)
+        XCTAssertGreaterThan(targets[2].laneLocation?.fraction ?? 0, barlineFraction)
     }
 
     func testChordTargetingUsesContinuationLaneFromActiveScopeLocalCoordinates() throws {
@@ -285,7 +830,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let selectTarget = ChordDraftBarlineOverlayGeometry.hitTarget(
             at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
             barlines: [barline],
-            laneFrameForMeasureID: { _ in laneFrame },
+            laneFrameForBarline: { _ in laneFrame },
             selectedBarlineID: nil
         )
         XCTAssertEqual(selectTarget, ChordDraftBarlineHitTarget(barlineID: barline.id, action: .select))
@@ -293,7 +838,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let deleteByLineTarget = ChordDraftBarlineOverlayGeometry.hitTarget(
             at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
             barlines: [barline],
-            laneFrameForMeasureID: { _ in laneFrame },
+            laneFrameForBarline: { _ in laneFrame },
             selectedBarlineID: barline.id
         )
         XCTAssertEqual(deleteByLineTarget, ChordDraftBarlineHitTarget(barlineID: barline.id, action: .delete))
@@ -302,10 +847,39 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let deleteByControlTarget = ChordDraftBarlineOverlayGeometry.hitTarget(
             at: CGPoint(x: deleteFrame.midX, y: deleteFrame.midY),
             barlines: [barline],
-            laneFrameForMeasureID: { _ in laneFrame },
+            laneFrameForBarline: { _ in laneFrame },
             selectedBarlineID: barline.id
         )
         XCTAssertEqual(deleteByControlTarget, ChordDraftBarlineHitTarget(barlineID: barline.id, action: .delete))
+    }
+
+    func testDraftBarlineOverlayUsesLaneSpecificFrame() throws {
+        let measureID = UUID()
+        let firstLaneFrame = CGRect(x: 100, y: 80, width: 400, height: 50)
+        let secondLaneFrame = CGRect(x: 100, y: 170, width: 400, height: 50)
+        let barline = draftBarline(
+            measureID: measureID,
+            measureIndex: 1,
+            fraction: 0.5,
+            laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.5)
+        )
+        let secondLineFrame = ChordDraftBarlineOverlayGeometry.lineFrame(for: barline, in: secondLaneFrame)
+
+        let firstLaneTarget = ChordDraftBarlineOverlayGeometry.hitTarget(
+            at: CGPoint(x: secondLineFrame.midX, y: firstLaneFrame.midY),
+            barlines: [barline],
+            laneFrameForBarline: { _ in secondLaneFrame },
+            selectedBarlineID: nil
+        )
+        let secondLaneTarget = ChordDraftBarlineOverlayGeometry.hitTarget(
+            at: CGPoint(x: secondLineFrame.midX, y: secondLineFrame.midY),
+            barlines: [barline],
+            laneFrameForBarline: { _ in secondLaneFrame },
+            selectedBarlineID: nil
+        )
+
+        XCTAssertNil(firstLaneTarget)
+        XCTAssertEqual(secondLaneTarget, ChordDraftBarlineHitTarget(barlineID: barline.id, action: .select))
     }
 
     func testDraftBatchRenderCommitsOnlyOnExplicitRender() throws {
@@ -791,6 +1365,101 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(chart.systems[2].measures.allSatisfy(\.chordEvents.isEmpty))
     }
 
+    func testDraftBatchRenderKeepsContinuationLaneBarlinesWithTheirLane() throws {
+        var chart = Chart.draft(title: "Lane Barlines", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Lane Barlines",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let openMeasureID = try XCTUnwrap(chart.measures.first(where: { $0.authoringState == .open })?.id)
+        let pageSize = CGSize(width: 900, height: 1400)
+        var state = ChordPreviewState()
+        state.layoutPageSize = pageSize
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.12,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.12),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.28,
+                bestCandidateText: "D",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.28),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.42,
+                bestCandidateText: "E",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.42),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.68,
+                bestCandidateText: "F",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.68),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.20,
+                bestCandidateText: "G",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.20),
+                layoutPageSize: pageSize
+            ),
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.64,
+                bestCandidateText: "A",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.64),
+                layoutPageSize: pageSize
+            )
+        ])
+        state.replaceDraftBarlines(with: [
+            draftBarline(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.50,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.50),
+                layoutPageSize: pageSize
+            ),
+            draftBarline(
+                measureID: openMeasureID,
+                measureIndex: 1,
+                fraction: 0.40,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.40),
+                layoutPageSize: pageSize
+            )
+        ])
+
+        let result = chart.commitChordInkDraftBatch(state)
+
+        XCTAssertEqual(result.renderedChordCount, 6)
+        XCTAssertEqual(result.renderedBarlineCount, 2)
+        XCTAssertGreaterThanOrEqual(chart.systems.count, 2)
+        XCTAssertEqual(
+            chart.systems[0].measures.map { $0.chordEvents.map { $0.symbol.displayText } },
+            [["C", "D", "E"], ["F"]]
+        )
+        XCTAssertEqual(
+            chart.systems[1].measures.map { $0.chordEvents.map { $0.symbol.displayText } },
+            [["G"], ["A"]]
+        )
+    }
+
     func testDraftBatchRenderResolvesLanePlacementAgainstCurrentMeasureGeometry() throws {
         var chart = Chart.blank(title: "Lane Insert", measureCount: 2, layoutStyle: .simpleChordSheet)
         let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
@@ -855,7 +1524,9 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         visualOrder: Double? = nil,
         laneLocation: ChordInkDraftLaneLocation? = nil,
         layoutPageSize: CGSize? = nil,
-        drawingData: Data = Data("ink".utf8)
+        drawingData: Data = Data("ink".utf8),
+        confidence: Double = 4.2,
+        strokeCount: Int = 2
     ) -> ChordInkDraftInput {
         ChordInkDraftInput(
             measureID: measureID,
@@ -867,8 +1538,8 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             drawingData: drawingData,
             candidateTexts: [bestCandidateText],
             bestCandidateText: bestCandidateText,
-            confidence: 4.2,
-            strokeCount: 2
+            confidence: confidence,
+            strokeCount: strokeCount
         )
     }
 
@@ -876,12 +1547,16 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         measureID: UUID,
         measureIndex: Int,
         fraction: Double,
+        laneLocation: ChordInkDraftLaneLocation? = nil,
+        layoutPageSize: CGSize? = nil,
         sourceStrokeIndex: Int? = nil
     ) -> DraftBarline {
         DraftBarline(
             measureID: measureID,
             measureIndex: measureIndex,
             fraction: fraction,
+            laneLocation: laneLocation,
+            layoutPageSize: layoutPageSize,
             sourceStrokeIndex: sourceStrokeIndex,
             metrics: DraftBarlineGestureMetrics(
                 height: 54,
@@ -903,6 +1578,30 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             rawInput: text,
             to: measureID,
             atFraction: 0.1
+        )
+    }
+
+    private func batchTarget(strokeCount: Int) -> LeadSheetChordInkRecognitionBatchTarget {
+        let strokes = (0..<strokeCount).map { index in
+            InkStroke(
+                points: [
+                    InkPoint(x: Double(index * 4), y: 0, timeOffset: nil),
+                    InkPoint(x: Double(index * 4 + 12), y: 24, timeOffset: nil)
+                ]
+            )
+        }
+        return batchTarget(strokes: strokes)
+    }
+
+    private func batchTarget(strokes: [InkStroke]) -> LeadSheetChordInkRecognitionBatchTarget {
+        return LeadSheetChordInkRecognitionBatchTarget(
+            measureID: UUID(),
+            fraction: 0.5,
+            visualOrder: 0.5,
+            laneLocation: nil,
+            strokes: strokes,
+            drawingData: Data(),
+            drawing: PKDrawing()
         )
     }
 
@@ -961,12 +1660,15 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         )
     }
 
-    private static func pkStroke(points: [CGPoint]) -> PKStroke {
+    private static func pkStroke(
+        points: [CGPoint],
+        pointSize: CGSize = CGSize(width: 3, height: 3)
+    ) -> PKStroke {
         let controlPoints = points.enumerated().map { index, point in
             PKStrokePoint(
                 location: point,
                 timeOffset: TimeInterval(index) * 0.05,
-                size: CGSize(width: 3, height: 3),
+                size: pointSize,
                 opacity: 1,
                 force: 1,
                 azimuth: 0,

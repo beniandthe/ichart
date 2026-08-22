@@ -13,7 +13,7 @@ enum ChordInkRenderResolutionPolicy {
         correctionMemory: ChordInkUserCorrectionMemory
     ) -> ChordInkRenderResolution {
         let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
-        var decision = ChordRecognitionTrustArbiter.decision(for: result)
+        var decision = primaryDecision
         let candidateTexts = candidateTexts(for: result)
 
         if decision.action == .autoRender,
@@ -41,10 +41,9 @@ enum ChordInkRenderResolutionPolicy {
         let rankedCandidateTexts = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
             .compactMap(\.displayText)
         let primaryCandidateTexts = [result.match?.displayText].compactMap { $0 }
-        let ocrCandidateTexts = result.ocrCandidates?.compactMap(\.displayText) ?? []
 
         return ChordRecognitionCompendium.userFacingCandidateTexts(
-            from: rankedCandidateTexts + primaryCandidateTexts + ocrCandidateTexts
+            from: rankedCandidateTexts + primaryCandidateTexts
         )
     }
 }

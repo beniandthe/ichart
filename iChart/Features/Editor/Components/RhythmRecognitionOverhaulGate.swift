@@ -5,5 +5,5 @@ enum RhythmRecognitionOverhaulGate {
     static let shipsDedicatedRhythmTool = false
 
     /// Kept for parked recognizer research only; the app must not route live input here.
-    static let isConstrainedGlyphOCRPrimaryForSimpleMeters = false
+    static let isConstrainedRetiredGlyphPrimaryForSimpleMeters = false
 }

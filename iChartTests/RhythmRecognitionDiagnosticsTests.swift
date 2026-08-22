@@ -114,7 +114,7 @@ final class RhythmRecognitionDiagnosticsTests: XCTestCase {
             targetUnits: 8,
             reasoningPaths: [
                 RhythmRecognitionPipelinePreview.ReasoningPath(
-                    kind: "glyphOCR",
+                    kind: "retiredGlyphInput",
                     outcome: "keepWriting",
                     values: [.eighthRest, .eighth],
                     reason: "underfilled",

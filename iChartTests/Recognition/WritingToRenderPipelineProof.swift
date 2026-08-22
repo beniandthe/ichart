@@ -8,7 +8,6 @@ enum WritingToRenderPipelineProof {
         var targetFraction: Double
         var expectedDisplayText: String
         var expectedDecisionAction: ChordInkRecognitionAction
-        var expectsOCRSidecarRequest: Bool
     }
 
     struct AcceptedDecision {
@@ -27,24 +26,21 @@ enum WritingToRenderPipelineProof {
             measureIndex: 0,
             targetFraction: 0.05,
             expectedDisplayText: "C",
-            expectedDecisionAction: .autoRender,
-            expectsOCRSidecarRequest: false
+            expectedDecisionAction: .autoRender
         ),
         ProductLoopCase(
             fixtureName: "Db7b9",
             measureIndex: 1,
             targetFraction: 0.30,
             expectedDisplayText: "Db7(b9)",
-            expectedDecisionAction: .confirm,
-            expectsOCRSidecarRequest: true
+            expectedDecisionAction: .confirm
         ),
         ProductLoopCase(
             fixtureName: "GSlashB",
             measureIndex: 2,
             targetFraction: 0.55,
             expectedDisplayText: "G/B",
-            expectedDecisionAction: .autoRender,
-            expectsOCRSidecarRequest: false
+            expectedDecisionAction: .autoRender
         )
     ]
 
@@ -68,20 +64,12 @@ enum WritingToRenderPipelineProof {
         line: UInt = #line
     ) throws -> AcceptedDecision {
         let debugSummary = "raw: \(Array(result.rawCandidates.prefix(12))), scores: \(Array(result.candidateScores.prefix(6)))"
-        let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
-        let decision = ChordRecognitionTrustArbiter.decision(for: result)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
 
         XCTAssertEqual(
             result.match?.displayText,
             proofCase.expectedDisplayText,
             "\(proofCase.fixtureName) \(debugSummary)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            primaryDecision.action,
-            proofCase.expectedDecisionAction,
-            proofCase.fixtureName,
             file: file,
             line: line
         )
@@ -95,30 +83,6 @@ enum WritingToRenderPipelineProof {
         XCTAssertEqual(
             decision.acceptedText,
             proofCase.expectedDisplayText,
-            proofCase.fixtureName,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            decision.trustSource,
-            .primaryRecognizer,
-            proofCase.fixtureName,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            decision.agreementLevel,
-            .ocrNotRequested,
-            proofCase.fixtureName,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            ChordRecognitionTrustArbiter.shouldRequestOCR(
-                for: result,
-                primaryDecision: primaryDecision
-            ),
-            proofCase.expectsOCRSidecarRequest,
             proofCase.fixtureName,
             file: file,
             line: line

@@ -244,11 +244,6 @@ private struct ChartPDFRenderer {
             coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
             in: pageLayout
         )
-        LeadSheetSavedInkRenderer.drawChordInk(
-            chart.pageHandwrittenChordData,
-            coordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
-            in: pageLayout
-        )
     }
 
     private func drawSystem(

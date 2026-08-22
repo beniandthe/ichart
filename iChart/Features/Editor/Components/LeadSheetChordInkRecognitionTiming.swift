@@ -6,7 +6,6 @@ struct ChordInkRecognitionTiming {
     var recognitionStartedAt: Date
     var recognitionFinishedAt: Date
     var strokeCount: Int
-    var ocrCandidateCount: Int
 
     var requestedDelayMilliseconds: Double {
         requestedDelay * 1_000
@@ -48,14 +47,13 @@ enum LeadSheetChordInkRecognitionTimingLogger {
     ) {
         #if DEBUG && targetEnvironment(simulator)
         let bestRead = result.match?.displayText ?? "none"
-        let primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
-        let trustDecision = ChordRecognitionTrustArbiter.decision(for: result)
-        let confidenceGap = trustDecision.confidenceGap ?? -1
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let confidenceGap = decision.confidenceGap ?? -1
         let metrics = result.metrics
         let composition = metrics.compositionMetrics
         print(
             String(
-                format: "iChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms cluster=%.0fms glyph=%.0fms context=%.0fms compose=%.0fms semantic=%.0fms match=%.0fms ocrMs=%.0fms strokes=%d clusters=%d candidates=%d sequences=%d/%d limit=%@ ocr=%d best=%@ confidence=%.2f primaryAction=%@ finalAction=%@ trust=%@ agreement=%@ closeRace=%@ gap=%.2f reason=%@",
+                format: "iChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms cluster=%.0fms glyph=%.0fms context=%.0fms compose=%.0fms semantic=%.0fms match=%.0fms strokes=%d clusters=%d candidates=%d sequences=%d/%d limit=%@ best=%@ confidence=%.2f primaryAction=%@ finalAction=%@ action=%@ closeRace=%@ gap=%.2f reason=%@",
                 timing.requestedDelayMilliseconds,
                 timing.idleMilliseconds,
                 timing.recognitionMilliseconds,
@@ -66,23 +64,20 @@ enum LeadSheetChordInkRecognitionTimingLogger {
                 metrics.composeMilliseconds,
                 metrics.semanticMilliseconds,
                 metrics.matchMilliseconds,
-                metrics.ocrMilliseconds ?? 0,
                 timing.strokeCount,
                 metrics.clusterCount,
                 result.rawCandidates.count,
                 composition.generatedSequenceCount,
                 composition.maxGeneratedSequences,
                 composition.hitGeneratedSequenceLimit ? "yes" : "no",
-                timing.ocrCandidateCount,
                 bestRead,
                 result.confidence,
-                primaryDecision.action.rawValue,
-                trustDecision.action.rawValue,
-                trustDecision.trustSource.rawValue,
-                trustDecision.agreementLevel.rawValue,
-                trustDecision.isCloseRace ? "yes" : "no",
+                decision.action.rawValue,
+                decision.action.rawValue,
+                decision.action.rawValue,
+                decision.isCloseRace ? "yes" : "no",
                 confidenceGap,
-                trustDecision.reason
+                decision.reason
             )
         )
         #endif
