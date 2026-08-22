@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import CoreGraphics
 import XCTest
 @testable import iChart
@@ -230,3 +231,4 @@ final class RenderedEditTypesTests: XCTestCase {
         )
     }
 }
+#endif
