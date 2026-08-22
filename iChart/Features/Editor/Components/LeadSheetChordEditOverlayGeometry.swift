@@ -489,7 +489,7 @@ enum LeadSheetRoadmapMarkerEditOverlayGeometry {
     }
 }
 
-final class ChordEditHitOverlayView: UIView {
+final class RenderedEditHitOverlayView: UIView {
     var containsEditableControl: ((CGPoint) -> Bool)?
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {

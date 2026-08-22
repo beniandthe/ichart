@@ -634,9 +634,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
         XCTAssertTrue(policy.pageInkCanvasInteractionEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.chordEntry.requiresChordSelectionBeforeObjectActions)
         XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditBoxes)
@@ -647,9 +647,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .textEdit)
 
         XCTAssertFalse(policy.selectionTapEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertFalse(EditorCanvasMode.textEdit.allowsMeasureSelection)
         XCTAssertTrue(EditorCanvasMode.textEdit.allowsCueTextEditing)
         XCTAssertFalse(EditorCanvasMode.textEdit.allowsChordObjectEditing)
@@ -1713,9 +1713,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
         XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
@@ -1871,22 +1871,22 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(dragAreaFrames.contains { $0.intersects(paperFrame) })
     }
 
-    func testChordMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
+    func testRenderedObjectMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
         XCTAssertFalse(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: true,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: true,
                 involvesParentScroll: true
             )
         )
         XCTAssertTrue(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: true,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: true,
                 involvesParentScroll: false
             )
         )
         XCTAssertTrue(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: false,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: false,
                 involvesParentScroll: true
             )
         )

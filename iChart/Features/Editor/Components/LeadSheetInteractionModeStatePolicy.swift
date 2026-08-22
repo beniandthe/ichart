@@ -534,13 +534,13 @@ struct LeadSheetInteractionModeStatePolicy {
     var selectionTapEnabled: Bool
     var inkSelectionTapEnabled: Bool
     var measureResizePanEnabled: Bool
-    var chordEditTapEnabled: Bool
-    var chordMovePanEnabled: Bool
-    var chordEditOverlayHidden: Bool
-    var chordEditOverlayInteractionEnabled: Bool
+    var renderedEditTapEnabled: Bool
+    var renderedObjectMovePanEnabled: Bool
+    var renderedEditOverlayHidden: Bool
+    var renderedEditOverlayInteractionEnabled: Bool
     var pageInkCanvasInteractionEnabled: Bool
     var clearsMeasureResizeDrag: Bool
-    var clearsChordInteractionState: Bool
+    var clearsRenderedObjectInteractionState: Bool
     var hidesPageInkCanvas: Bool
     var inkTool: PKInkingTool
     var inkToolMode: EditorInkToolMode
@@ -569,13 +569,13 @@ struct LeadSheetInteractionModeStatePolicy {
                 || interactionMode.allowsHeaderInkEditing
                 || interactionMode.allowsPageInkEditing,
             measureResizePanEnabled: interactionMode.showsMeasureResizeHandles,
-            chordEditTapEnabled: allowsTransparentEditOverlay,
-            chordMovePanEnabled: allowsTransparentEditOverlay,
-            chordEditOverlayHidden: !allowsTransparentEditOverlay,
-            chordEditOverlayInteractionEnabled: allowsTransparentEditOverlay,
+            renderedEditTapEnabled: allowsTransparentEditOverlay,
+            renderedObjectMovePanEnabled: allowsTransparentEditOverlay,
+            renderedEditOverlayHidden: !allowsTransparentEditOverlay,
+            renderedEditOverlayInteractionEnabled: allowsTransparentEditOverlay,
             pageInkCanvasInteractionEnabled: interactionMode.allowsAnyInkEditing,
             clearsMeasureResizeDrag: !interactionMode.showsMeasureResizeHandles,
-            clearsChordInteractionState: !interactionMode.allowsChordObjectEditing
+            clearsRenderedObjectInteractionState: !interactionMode.allowsChordObjectEditing
                 && !interactionMode.allowsCueTextEditing,
             hidesPageInkCanvas: !interactionMode.allowsAnyInkEditing,
             inkTool: inkTool(for: interactionMode),
@@ -670,12 +670,12 @@ enum LeadSheetScrollMarginPolicy {
     }
 }
 
-enum LeadSheetChordMoveScrollLockPolicy {
+enum LeadSheetRenderedObjectMoveScrollLockPolicy {
     static func allowsSimultaneousRecognition(
-        involvesChordMove: Bool,
+        involvesRenderedObjectMove: Bool,
         involvesParentScroll: Bool
     ) -> Bool {
-        !(involvesChordMove && involvesParentScroll)
+        !(involvesRenderedObjectMove && involvesParentScroll)
     }
 }
 

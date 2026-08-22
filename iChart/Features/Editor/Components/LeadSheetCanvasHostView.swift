@@ -1411,7 +1411,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = LeadSheetScopedInkCanvasView()
     private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
-    private let chordEditHitOverlayView = ChordEditHitOverlayView()
+    private let renderedEditHitOverlayView = RenderedEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
     private let chordInkRecognizer = ChordInkRecognizer()
     private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
@@ -1446,17 +1446,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleMeasureResizePan(_:))
     )
-    private lazy var chordMovePanRecognizer = UIPanGestureRecognizer(
+    private lazy var renderedObjectMovePanRecognizer = UIPanGestureRecognizer(
         target: self,
-        action: #selector(handleChordMovePan(_:))
+        action: #selector(handleRenderedObjectMovePan(_:))
     )
-    private lazy var chordEditTapRecognizer = UITapGestureRecognizer(
+    private lazy var renderedEditTapRecognizer = UITapGestureRecognizer(
         target: self,
-        action: #selector(handleChordEditTap(_:))
+        action: #selector(handleRenderedEditTapGesture(_:))
     )
-    private lazy var chordEditDoubleTapRecognizer = UITapGestureRecognizer(
+    private lazy var chordCorrectionDoubleTapRecognizer = UITapGestureRecognizer(
         target: self,
-        action: #selector(handleChordEditDoubleTap(_:))
+        action: #selector(handleChordCorrectionDoubleTap(_:))
     )
     private lazy var chordInkConfirmTapRecognizer = UITapGestureRecognizer(
         target: self,
@@ -1541,7 +1541,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     override func layoutSubviews() {
         super.layoutSubviews()
         chordInkConfirmOverlayView.frame = bounds
-        chordEditHitOverlayView.frame = bounds
+        renderedEditHitOverlayView.frame = bounds
         invalidateLayout()
         updateParentScrollGestureGate()
     }
@@ -1664,21 +1664,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmTapRecognizer)
         addSubview(chordInkConfirmOverlayView)
 
-        chordEditHitOverlayView.backgroundColor = .clear
-        chordEditHitOverlayView.isOpaque = false
-        chordEditHitOverlayView.isHidden = true
-        chordEditHitOverlayView.containsEditableControl = { [weak self] location in
+        renderedEditHitOverlayView.backgroundColor = .clear
+        renderedEditHitOverlayView.isOpaque = false
+        renderedEditHitOverlayView.isHidden = true
+        renderedEditHitOverlayView.containsEditableControl = { [weak self] location in
             self?.editableOverlayHitTarget(at: location) != nil
         }
-        chordEditTapRecognizer.delegate = self
-        chordEditDoubleTapRecognizer.delegate = self
-        chordEditDoubleTapRecognizer.numberOfTapsRequired = 2
-        chordEditTapRecognizer.require(toFail: chordEditDoubleTapRecognizer)
-        chordEditHitOverlayView.addGestureRecognizer(chordEditDoubleTapRecognizer)
-        chordEditHitOverlayView.addGestureRecognizer(chordEditTapRecognizer)
-        chordMovePanRecognizer.delegate = self
-        addGestureRecognizer(chordMovePanRecognizer)
-        addSubview(chordEditHitOverlayView)
+        renderedEditTapRecognizer.delegate = self
+        chordCorrectionDoubleTapRecognizer.delegate = self
+        chordCorrectionDoubleTapRecognizer.numberOfTapsRequired = 2
+        renderedEditTapRecognizer.require(toFail: chordCorrectionDoubleTapRecognizer)
+        renderedEditHitOverlayView.addGestureRecognizer(chordCorrectionDoubleTapRecognizer)
+        renderedEditHitOverlayView.addGestureRecognizer(renderedEditTapRecognizer)
+        renderedObjectMovePanRecognizer.delegate = self
+        addGestureRecognizer(renderedObjectMovePanRecognizer)
+        addSubview(renderedEditHitOverlayView)
         updateInteractionMode()
     }
 
@@ -3298,12 +3298,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordEditTap(_ recognizer: UITapGestureRecognizer) {
+    private func handleRenderedEditTapGesture(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
             return
         }
 
-        let location = recognizer.location(in: chordEditHitOverlayView)
+        let location = recognizer.location(in: renderedEditHitOverlayView)
         if let hitTarget = chordDraftBarlineHitTarget(at: location) {
             handleDraftBarlineTap(hitTarget)
             return
@@ -3520,12 +3520,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordEditDoubleTap(_ recognizer: UITapGestureRecognizer) {
+    private func handleChordCorrectionDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
             return
         }
 
-        let location = recognizer.location(in: chordEditHitOverlayView)
+        let location = recognizer.location(in: renderedEditHitOverlayView)
         guard let hitTarget = chordReviewHitTarget(at: location) else {
             return
         }
@@ -3806,7 +3806,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordMovePan(_ recognizer: UIPanGestureRecognizer) {
+    private func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
         if activeCueTextMoveDrag != nil {
             handleCueTextMovePan(recognizer)
@@ -5720,11 +5720,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectionTapRecognizer.isEnabled = policy.selectionTapEnabled
         inkSelectionTapRecognizer.isEnabled = policy.inkSelectionTapEnabled
         measureResizePanRecognizer.isEnabled = policy.measureResizePanEnabled
-        chordEditTapRecognizer.isEnabled = policy.chordEditTapEnabled
-        chordEditDoubleTapRecognizer.isEnabled = policy.chordEditTapEnabled
-        chordMovePanRecognizer.isEnabled = policy.chordMovePanEnabled
-        chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
-        chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled
+        renderedEditTapRecognizer.isEnabled = policy.renderedEditTapEnabled
+        chordCorrectionDoubleTapRecognizer.isEnabled = policy.renderedEditTapEnabled
+        renderedObjectMovePanRecognizer.isEnabled = policy.renderedObjectMovePanEnabled
+        renderedEditHitOverlayView.isHidden = policy.renderedEditOverlayHidden
+        renderedEditHitOverlayView.isUserInteractionEnabled = policy.renderedEditOverlayInteractionEnabled
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
         pageInkCanvasView.drawingPolicy = policy.drawingPolicy
@@ -5734,7 +5734,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeMeasureResizeDrag = nil
         }
 
-        if policy.clearsChordInteractionState {
+        if policy.clearsRenderedObjectInteractionState {
             activeChordMoveDrag = nil
             activeChordResizeDrag = nil
             activeRoadmapMarkerEditDrag = nil
@@ -5824,9 +5824,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
         }
 
-        if gestureRecognizer === chordMovePanRecognizer {
+        if gestureRecognizer === renderedObjectMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
-            let translation = chordMovePanRecognizer.translation(in: self)
+            let translation = renderedObjectMovePanRecognizer.translation(in: self)
             let startLocation = CGPoint(
                 x: location.x - translation.x,
                 y: location.y - translation.y
@@ -5841,12 +5841,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        let involvesChordMove = gestureRecognizer === chordMovePanRecognizer
-            || otherGestureRecognizer === chordMovePanRecognizer
+        let involvesRenderedObjectMove = gestureRecognizer === renderedObjectMovePanRecognizer
+            || otherGestureRecognizer === renderedObjectMovePanRecognizer
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
-        if !LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-            involvesChordMove: involvesChordMove,
+        if !LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+            involvesRenderedObjectMove: involvesRenderedObjectMove,
             involvesParentScroll: involvesParentScroll
         ) {
             return false
@@ -5854,14 +5854,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         return gestureRecognizer === inkSelectionTapRecognizer
             || otherGestureRecognizer === inkSelectionTapRecognizer
-            || involvesChordMove
+            || involvesRenderedObjectMove
     }
 
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
-        if gestureRecognizer === chordMovePanRecognizer {
+        if gestureRecognizer === renderedObjectMovePanRecognizer {
             return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: touch.type,
                 startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
