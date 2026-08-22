@@ -605,7 +605,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
-        XCTAssertTrue(canvasHostText.contains("gestureRecognizer === chordMovePanRecognizer"))
+        XCTAssertTrue(canvasHostText.contains("gestureRecognizer === renderedObjectMovePanRecognizer"))
         XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at: touch.location(in: self))"))
         XCTAssertFalse(canvasHostText.contains("touch.type == .pencil {"))
     }

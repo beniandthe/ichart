@@ -634,9 +634,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
         XCTAssertTrue(policy.pageInkCanvasInteractionEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.chordEntry.requiresChordSelectionBeforeObjectActions)
         XCTAssertTrue(EditorCanvasMode.chordEntry.drawsAllChordObjectEditBoxes)
@@ -647,9 +647,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .textEdit)
 
         XCTAssertFalse(policy.selectionTapEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertFalse(EditorCanvasMode.textEdit.allowsMeasureSelection)
         XCTAssertTrue(EditorCanvasMode.textEdit.allowsCueTextEditing)
         XCTAssertFalse(EditorCanvasMode.textEdit.allowsChordObjectEditing)
@@ -1040,6 +1040,18 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(target.fraction, 0.85)
     }
 
+    func testChordMoveTargetRejectsCommittedSimpleTerminalFiller() throws {
+        let fixture = try committedTerminalFillerFixture()
+
+        XCTAssertNil(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: fixture.location,
+                fractionAnchorX: fixture.location.x,
+                in: fixture.layout
+            )
+        )
+    }
+
     func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
         let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1242,6 +1254,32 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(target.fraction, 0.2)
     }
 
+    func testChordTargetingRejectsInkInCommittedSimpleTerminalFiller() throws {
+        let fixture = try committedTerminalFillerFixture()
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: fixture.layout)
+        let localCenter = CGPoint(
+            x: fixture.location.x - chordFrame.minX,
+            y: fixture.location.y - chordFrame.minY
+        )
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: localCenter.x - 9, y: localCenter.y - 9),
+                    CGPoint(x: localCenter.x + 9, y: localCenter.y + 9)
+                ],
+                creationDate: Date(timeIntervalSince1970: 30)
+            )
+        ])
+
+        XCTAssertNil(
+            LeadSheetChordInkRecognitionTargeting.target(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: fixture.layout
+            )
+        )
+    }
+
     func testChordBatchTargetingSplitsAdjacentMeasureChordGroups() throws {
         let chart = Chart.blank(title: "Batch Chords", measureCount: 4, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1310,7 +1348,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingSplitsClearlySeparatedOpenLaneChordGroups() throws {
-        let chart = Chart.blank(title: "Open Lane Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Open Lane Chords", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
@@ -1350,7 +1395,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
-        let chart = Chart.blank(title: "Draft Boundary Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Draft Boundary Chords", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Draft Boundary Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
@@ -1415,7 +1467,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingKeepsMultipleChordGroupsInsideDraftBarlineSegments() throws {
-        let chart = Chart.blank(title: "Draft Segment Groups", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Draft Segment Groups", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Draft Segment Groups",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
@@ -1709,20 +1768,29 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testBrowseSelectModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
+    func testBrowseEditModeEditsRenderedChordsWithoutInkCanvasOrIdleBoxes() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
 
         XCTAssertFalse(policy.pageInkCanvasInteractionEnabled)
-        XCTAssertTrue(policy.chordEditTapEnabled)
-        XCTAssertTrue(policy.chordMovePanEnabled)
-        XCTAssertFalse(policy.chordEditOverlayHidden)
+        XCTAssertTrue(policy.renderedEditTapEnabled)
+        XCTAssertTrue(policy.renderedObjectMovePanEnabled)
+        XCTAssertFalse(policy.renderedEditOverlayHidden)
         XCTAssertTrue(EditorCanvasMode.browse.allowsChordObjectEditing)
         XCTAssertTrue(EditorCanvasMode.browse.requiresChordSelectionBeforeObjectActions)
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditBoxes)
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
-    func testBrowseSelectModeRoutesHeaderTapsToHeaderAuthoring() {
+    func testBrowseEditModeSupportsSelectedMeasureResizeWithoutActiveToolControls() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
+
+        XCTAssertTrue(policy.measureResizePanEnabled)
+        XCTAssertFalse(policy.clearsMeasureResizeDrag)
+        XCTAssertTrue(EditorCanvasMode.browse.showsMeasureResizeHandles)
+        XCTAssertFalse(EditorCanvasMode.browse.showsActiveToolControls)
+    }
+
+    func testBrowseEditModeRoutesHeaderTapsToHeaderAuthoring() {
         let chart = Chart.blank(title: "Header Tap", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
@@ -1802,7 +1870,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testActiveToolMetadataMatchesPrimaryEditorModes() {
-        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Select")
+        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Edit")
         XCTAssertEqual(EditorCanvasMode.measureEdit.activeToolTitle, "Measures")
         XCTAssertEqual(EditorCanvasMode.repeatEdit.activeToolTitle, "Repeats")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")
@@ -1862,22 +1930,22 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(dragAreaFrames.contains { $0.intersects(paperFrame) })
     }
 
-    func testChordMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
+    func testRenderedObjectMoveDoesNotRecognizeSimultaneouslyWithParentScroll() {
         XCTAssertFalse(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: true,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: true,
                 involvesParentScroll: true
             )
         )
         XCTAssertTrue(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: true,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: true,
                 involvesParentScroll: false
             )
         )
         XCTAssertTrue(
-            LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-                involvesChordMove: false,
+            LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+                involvesRenderedObjectMove: false,
                 involvesParentScroll: true
             )
         )
@@ -2472,17 +2540,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let lastGroupedMeasure = try XCTUnwrap(
             layout.systems[0].measures.first { $0.sourceMeasureID == measureIDs[3] }
         )
-        let displayedLastGroupedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
-            lastGroupedMeasure,
-            in: layout.systems[0],
-            paperFrame: layout.paperFrame,
-            layoutStyle: chart.layoutStyle
-        )
 
         XCTAssertEqual(affordance.selectedMeasureID, measureIDs[1])
         XCTAssertEqual(affordance.groupedMeasureIDs, Array(measureIDs[1..<4]))
         XCTAssertEqual(affordance.groupFrame.minX, selectedMeasure.frame.minX, accuracy: 0.001)
-        XCTAssertEqual(affordance.groupFrame.maxX, displayedLastGroupedMeasure.frame.maxX, accuracy: 0.001)
+        XCTAssertEqual(affordance.groupFrame.maxX, lastGroupedMeasure.frame.maxX, accuracy: 0.001)
         XCTAssertLessThan(affordance.guideY, affordance.groupFrame.midY)
     }
 
@@ -3099,6 +3161,55 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             ],
             creationDate: creationDate
         )
+    }
+
+    private func committedTerminalFillerFixture(
+        pageSize: CGSize = CGSize(width: 900, height: 1400)
+    ) throws -> (
+        chart: Chart,
+        layout: LeadSheetPageLayout,
+        system: LeadSheetSystemLayout,
+        measure: LeadSheetMeasureLayout,
+        location: CGPoint
+    ) {
+        var chart = Chart.blank(title: "Committed Row End", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: pageSize
+        )
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.last)
+        let laneFrame = try XCTUnwrap(
+            LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: layout.paperFrame
+            )
+        )
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let location = CGPoint(
+            x: (measure.frame.maxX + terminalFrame.midX) / 2,
+            y: laneFrame.midY
+        )
+
+        XCTAssertFalse(measure.isOpen)
+        XCTAssertTrue(
+            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
+                location,
+                in: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+
+        return (chart, layout, system, measure, location)
     }
 
     private func chordStroke(

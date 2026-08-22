@@ -1057,7 +1057,7 @@ extension Chart {
 
     private struct ChordDraftResolvedRenderTarget {
         var draft: ChordInkDraft
-        var measureID: UUID
+        var measureID: UUID?
         var fraction: Double?
     }
 
@@ -1133,24 +1133,26 @@ extension Chart {
         let renderTargets = sortedDrafts.map { draft in
             let renderTarget = chordDraftRenderTarget(
                 for: draft,
-                pageLayout: renderLayout,
+                sourcePageLayout: sourceLayout,
+                renderPageLayout: renderLayout,
                 barlinePlan: barlinePlan
             )
             return ChordDraftResolvedRenderTarget(
                 draft: draft,
-                measureID: renderTarget.measureID,
-                fraction: renderTarget.fraction
+                measureID: renderTarget?.measureID,
+                fraction: renderTarget?.fraction
             )
         }
 
         for renderTarget in renderTargets {
             let draft = renderTarget.draft
-            guard let previewText = draft.previewText,
+            guard let measureID = renderTarget.measureID,
+                  let previewText = draft.previewText,
                   let match = ChordRecognitionCompendium.match(previewText),
                   let chordEventID = appendRecognizedChordEvent(
                     match.symbol,
                     rawInput: previewText,
-                    to: renderTarget.measureID,
+                    to: measureID,
                     atFraction: renderTarget.fraction,
                     sourceInkData: draft.drawingData,
                     sourceCandidateSignature: draft.sourceCandidateSignature
@@ -1160,7 +1162,7 @@ extension Chart {
             }
 
             if layoutStyle == .simpleChordSheet,
-               measure(id: renderTarget.measureID)?.rhythmMap == nil,
+               measure(id: measureID)?.rhythmMap == nil,
                let fraction = renderTarget.fraction {
                 _ = setChordEventManualLaneFraction(fraction, for: chordEventID)
             }
@@ -1343,15 +1345,27 @@ extension Chart {
         }
 
         var sourceGeometryByMeasureID = [UUID: ChordDraftBarlineSourceGeometry]()
-        let resolvedBarlines = barlines.map { barline in
+        let resolvedBarlines = barlines.compactMap { barline -> DraftBarline? in
+            if isCommittedTerminalFillerLaneLocation(
+                barline.laneLocation,
+                in: sourcePageLayout
+            ) {
+                return nil
+            }
+
             guard let sourceTarget = draftBarlineLaneTarget(
                 for: barline,
-                pageLayout: sourcePageLayout
+                pageLayout: sourcePageLayout,
+                rejectsCommittedTerminalFiller: true
             ) else {
                 return barline
             }
             let commitTarget = commitPageLayout.flatMap {
-                draftBarlineLaneTarget(for: barline, pageLayout: $0)
+                draftBarlineLaneTarget(
+                    for: barline,
+                    pageLayout: $0,
+                    rejectsCommittedTerminalFiller: false
+                )
             }
 
             var resolvedBarline = barline
@@ -1367,7 +1381,8 @@ extension Chart {
 
     private func draftBarlineLaneTarget(
         for barline: DraftBarline,
-        pageLayout: LeadSheetPageLayout
+        pageLayout: LeadSheetPageLayout,
+        rejectsCommittedTerminalFiller: Bool = true
     ) -> ChordDraftBarlineLaneTarget? {
         guard let laneLocation = barline.laneLocation,
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
@@ -1379,6 +1394,16 @@ extension Chart {
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
+        if rejectsCommittedTerminalFiller,
+           LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+            laneX,
+            in: system,
+            paperFrame: pageLayout.paperFrame,
+            layoutStyle: layoutStyle
+           ) {
+            return nil
+        }
+
         let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
             guard measure.chordInkTargetMeasureID != nil || measure.sourceMeasureID != nil else {
                 return nil
@@ -1514,15 +1539,46 @@ extension Chart {
 
     private func chordDraftRenderTarget(
         for draft: ChordInkDraft,
-        pageLayout: LeadSheetPageLayout?,
+        sourcePageLayout: LeadSheetPageLayout?,
+        renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
-    ) -> (measureID: UUID, fraction: Double?) {
-        if let pageLayout,
-           let laneTarget = chordDraftLaneTarget(
+    ) -> (measureID: UUID, fraction: Double?)? {
+        let sourceAllowsLaneProjection: Bool
+        if let sourcePageLayout,
+           draft.laneLocation != nil {
+            if isCommittedTerminalFillerLaneLocation(
+                draft.laneLocation,
+                in: sourcePageLayout
+            ) {
+                return nil
+            }
+
+            sourceAllowsLaneProjection = chordDraftLaneTarget(
                 for: draft,
-                pageLayout: pageLayout
-           ) {
-            return laneTarget
+                pageLayout: sourcePageLayout,
+                rejectsCommittedTerminalFiller: true
+            ) != nil
+        } else {
+            sourceAllowsLaneProjection = false
+        }
+
+        if let renderPageLayout {
+            if isCommittedTerminalFillerLaneLocation(
+                draft.laneLocation,
+                in: renderPageLayout
+            ) {
+                guard sourceAllowsLaneProjection else {
+                    return nil
+                }
+            }
+
+            if let laneTarget = chordDraftLaneTarget(
+                for: draft,
+                pageLayout: renderPageLayout,
+                rejectsCommittedTerminalFiller: !sourceAllowsLaneProjection
+            ) {
+                return laneTarget
+            }
         }
 
         if let segmentTarget = chordDraftSegmentTarget(
@@ -1533,6 +1589,28 @@ extension Chart {
         }
 
         return (draft.measureID, draft.laneLocation?.fraction ?? draft.targetFraction)
+    }
+
+    private func isCommittedTerminalFillerLaneLocation(
+        _ laneLocation: ChordInkDraftLaneLocation?,
+        in pageLayout: LeadSheetPageLayout
+    ) -> Bool {
+        guard let laneLocation,
+              let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
+              let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: pageLayout.paperFrame
+              ) else {
+            return false
+        }
+
+        let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
+        return LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+            laneX,
+            in: system,
+            paperFrame: pageLayout.paperFrame,
+            layoutStyle: layoutStyle
+        )
     }
 
     private func chordDraftSegmentTarget(
@@ -1561,7 +1639,8 @@ extension Chart {
 
     private func chordDraftLaneTarget(
         for draft: ChordInkDraft,
-        pageLayout: LeadSheetPageLayout
+        pageLayout: LeadSheetPageLayout,
+        rejectsCommittedTerminalFiller: Bool = true
     ) -> (measureID: UUID, fraction: Double?)? {
         guard let laneLocation = draft.laneLocation,
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
@@ -1573,6 +1652,16 @@ extension Chart {
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
+        if rejectsCommittedTerminalFiller,
+           LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+            laneX,
+            in: system,
+            paperFrame: pageLayout.paperFrame,
+            layoutStyle: layoutStyle
+           ) {
+            return nil
+        }
+
         let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
             guard measure.chordInkTargetMeasureID != nil else {
                 return nil

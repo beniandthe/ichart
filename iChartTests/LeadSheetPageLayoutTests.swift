@@ -429,8 +429,15 @@ final class LeadSheetPageLayoutTests: XCTestCase {
     }
 
     #if canImport(UIKit)
-    func testSimpleChordSheetTerminalDisplayFrameExtendsLastCommittedMeasureToLaneStop() throws {
-        let chart = Chart.blank(title: "Terminal Chord Lane", measureCount: 1, layoutStyle: .simpleChordSheet)
+    func testSimpleChordSheetTerminalDisplayFrameExtendsOpenMeasureToLaneStop() throws {
+        var chart = Chart.draft(title: "Terminal Chord Lane", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Terminal Chord Lane",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1400)
@@ -457,6 +464,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             layoutStyle: chart.layoutStyle
         )
 
+        XCTAssertTrue(measure.isOpen)
         XCTAssertEqual(terminalFrame.midX, laneFrame.maxX - 1, accuracy: 0.001)
         XCTAssertGreaterThan(displayMeasure.frame.maxX, measure.frame.maxX)
         XCTAssertEqual(displayMeasure.frame.maxX, terminalFrame.midX, accuracy: 0.001)
@@ -472,6 +480,61 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             layoutStyle: chart.layoutStyle
         )
         XCTAssertEqual(tappedMeasure?.sourceMeasureID, measure.sourceMeasureID)
+    }
+
+    func testSimpleChordSheetTerminalFillerDoesNotSelectCommittedRowEndMeasure() throws {
+        var chart = Chart.blank(title: "Committed Row End", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.last)
+        let laneFrame = try XCTUnwrap(
+            LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: layout.paperFrame
+            )
+        )
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+            measure,
+            in: system,
+            paperFrame: layout.paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
+
+        XCTAssertFalse(measure.isOpen)
+        XCTAssertGreaterThan(terminalFrame.midX, measure.frame.maxX)
+        XCTAssertEqual(displayMeasure.frame.maxX, measure.frame.maxX, accuracy: 0.001)
+
+        let terminalTap = CGPoint(
+            x: (measure.frame.maxX + terminalFrame.midX) / 2,
+            y: laneFrame.midY
+        )
+        XCTAssertTrue(
+            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
+                terminalTap,
+                in: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertNil(
+            LeadSheetCanvasInteractionTargeting.measure(
+                at: terminalTap,
+                in: layout,
+                layoutStyle: chart.layoutStyle
+            )
+        )
     }
 
     func testChordToolLayoutAddsOpenContinuationLanesWithoutChangingDefaultEngraving() throws {

@@ -724,6 +724,8 @@ struct EditorView: View {
     @State private var didRecordFirstCanvasAppear = false
     @State private var selectedMeasureID: UUID?
     @State private var selectedNoteSelection: LeadSheetNoteSelection?
+    @State private var selectedChordID: UUID?
+    @State private var selectedCommittedBarlineMeasureID: UUID?
     @State private var selectedCueTextID: UUID?
     @State private var selectedRoadmapMarkerID: UUID?
     @State private var isNoteEditMenuPresented = false
@@ -1336,11 +1338,34 @@ struct EditorView: View {
             }
             .animation(.easeOut(duration: 0.16), value: canvasMode)
             .animation(.easeOut(duration: 0.16), value: selectedRoadmapMarkerID)
+
+            if showsSelectedRenderedEditActions {
+                selectedRenderedEditActionTray(minWidth: minWidth)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.16), value: selectedChordID)
+        .animation(.easeOut(duration: 0.16), value: selectedCommittedBarlineMeasureID)
+        .animation(.easeOut(duration: 0.16), value: selectedMeasureID)
+        .animation(.easeOut(duration: 0.16), value: selectedCueTextID)
+        .animation(.easeOut(duration: 0.16), value: selectedRoadmapMarkerID)
     }
 
     private var showsActiveToolControls: Bool {
         canvasMode.showsActiveToolControls
+    }
+
+    private var showsSelectedRenderedEditActions: Bool {
+        guard canvasMode == .browse else {
+            return false
+        }
+
+        return selectedChord != nil
+            || selectedCommittedBarlineMeasureID != nil
+            || selectedCueText != nil
+            || selectedRoadmapMarker != nil
+            || selectedMeasureID != nil
     }
 
     private var isEditorGuidedTourDoneActionHighlighted: Bool {
@@ -1843,7 +1868,7 @@ struct EditorView: View {
                     handleActiveToolDoneTapped()
                 } label: {
                     EditorMenuTabLabel(
-                        title: "Select",
+                        title: "Edit",
                         systemImage: "cursorarrow",
                         isSelected: canvasMode == .browse
                             && selectedCueTextID == nil
@@ -2027,6 +2052,125 @@ struct EditorView: View {
             .frame(minWidth: minWidth, alignment: .center)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                selectedRenderedEditLabel
+
+                if selectedChord != nil {
+                    activeToolButton(
+                        title: "Correct",
+                        systemImage: "text.badge.checkmark",
+                        action: handleCorrectSelectedChord
+                    )
+
+                    activeToolButton(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        action: deleteSelectedChord
+                    )
+                } else if selectedCommittedBarlineMeasureID != nil {
+                    activeToolButton(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        isDisabled: !canDeleteSelectedCommittedChordBarline,
+                        action: deleteSelectedCommittedChordBarline
+                    )
+                } else if selectedCueText != nil {
+                    activeToolButton(
+                        title: "Edit",
+                        systemImage: "pencil",
+                        action: handleEditSelectedCueText
+                    )
+
+                    activeToolButton(
+                        title: "Larger",
+                        systemImage: "plus.magnifyingglass",
+                        isDisabled: !canGrowSelectedCueText
+                    ) {
+                        resizeSelectedCueText(by: CueText.scaleStep)
+                    }
+
+                    activeToolButton(
+                        title: "Smaller",
+                        systemImage: "minus.magnifyingglass",
+                        isDisabled: !canShrinkSelectedCueText
+                    ) {
+                        resizeSelectedCueText(by: -CueText.scaleStep)
+                    }
+
+                    activeToolButton(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        action: deleteSelectedCueText
+                    )
+                } else if selectedRoadmapMarker != nil {
+                    activeToolButton(
+                        title: "Larger",
+                        systemImage: "plus.magnifyingglass",
+                        isDisabled: !canGrowSelectedRoadmapMarker
+                    ) {
+                        resizeSelectedRoadmapMarker(by: RoadmapObject.scaleStep)
+                    }
+
+                    activeToolButton(
+                        title: "Smaller",
+                        systemImage: "minus.magnifyingglass",
+                        isDisabled: !canShrinkSelectedRoadmapMarker
+                    ) {
+                        resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
+                    }
+
+                    activeToolButton(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        action: deleteSelectedRoadmapMarker
+                    )
+                } else if selectedMeasureID != nil {
+                    activeToolButton(
+                        title: "Measures",
+                        systemImage: "rectangle.split.3x1",
+                        action: handleSelectedMeasureActionsRequested
+                    )
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .frame(minWidth: minWidth, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var selectedRenderedEditLabel: some View {
+        if selectedChord != nil {
+            Label("Chord", systemImage: "textformat")
+                .font(.subheadline.weight(.semibold))
+        } else if selectedCommittedBarlineMeasureID != nil {
+            Label("Barline", systemImage: "pause")
+                .font(.subheadline.weight(.semibold))
+        } else if selectedCueText != nil {
+            Label("Text", systemImage: "text.bubble")
+                .font(.subheadline.weight(.semibold))
+        } else if selectedRoadmapMarker != nil {
+            Label("Marker", systemImage: "signpost.right")
+                .font(.subheadline.weight(.semibold))
+        } else if selectedMeasureID != nil {
+            Label("Measure", systemImage: "rectangle.split.3x1")
+                .font(.subheadline.weight(.semibold))
+        }
     }
 
     private var measureActiveToolActions: some View {
@@ -2328,6 +2472,8 @@ struct EditorView: View {
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
             selectedNoteSelection: $selectedNoteSelection,
+            selectedChordID: $selectedChordID,
+            selectedCommittedBarlineMeasureID: $selectedCommittedBarlineMeasureID,
             selectedCueTextID: $selectedCueTextID,
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
@@ -2348,6 +2494,9 @@ struct EditorView: View {
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
             onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
+            onRepeatSpanSelectedFromCanvas: handleRepeatSpanSelectedFromCanvas,
+            onEndingSpanSelectedFromCanvas: handleEndingSpanSelectedFromCanvas,
+            onTimeSignatureSelectedFromCanvas: handleTimeSignatureSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
@@ -2754,6 +2903,18 @@ struct EditorView: View {
         selectedRoadmapMarkerID.flatMap { chart.roadmapObject(id: $0) }
     }
 
+    private var selectedChord: ChordEvent? {
+        selectedChordID.flatMap { chart.chordEvent(id: $0) }
+    }
+
+    private var canDeleteSelectedCommittedChordBarline: Bool {
+        guard let selectedCommittedBarlineMeasureID else {
+            return false
+        }
+
+        return chart.canDeleteCommittedSimpleChordBarline(after: selectedCommittedBarlineMeasureID)
+    }
+
     private var canShrinkSelectedCueText: Bool {
         guard let selectedCueText else {
             return false
@@ -2824,6 +2985,14 @@ struct EditorView: View {
     private func handleMeasureEditRequested() {
         if canvasMode == .measureEdit {
             activateSelectTool()
+            return
+        }
+
+        _ = enterMeasureEditMode()
+    }
+
+    private func handleSelectedMeasureActionsRequested() {
+        guard selectedMeasureID != nil else {
             return
         }
 
@@ -3344,6 +3513,7 @@ struct EditorView: View {
     }
 
     private func resizeSelectedCueText(by scaleDelta: Double) {
+        let shouldStayInBrowse = canvasMode == .browse
         guard let selectedCueTextID,
               chart.resizeCueText(selectedCueTextID, byScaleDelta: scaleDelta),
               let cueText = chart.cueText(id: selectedCueTextID) else {
@@ -3352,7 +3522,7 @@ struct EditorView: View {
 
         selectedMeasureID = cueText.anchorMeasureID
         selectedRoadmapMarkerID = nil
-        canvasMode = .textEdit
+        canvasMode = shouldStayInBrowse ? .browse : .textEdit
     }
 
     private func resizeSelectedRoadmapMarker(by scaleDelta: Double) {
@@ -3393,6 +3563,47 @@ struct EditorView: View {
         canvasMode = .browse
     }
 
+    private func handleCorrectSelectedChord() {
+        guard let selectedChordID else {
+            return
+        }
+
+        handleChordCorrectionRequested(selectedChordID)
+    }
+
+    private func deleteSelectedChord() {
+        guard let selectedChordID,
+              let chordEvent = chart.chordEvent(id: selectedChordID) else {
+            return
+        }
+
+        let sourceMeasureID = chart.measureContainingChordEvent(id: selectedChordID)?.id
+        guard chart.deleteChordEvent(selectedChordID) else {
+            return
+        }
+
+        self.selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedMeasureID = sourceMeasureID ?? selectedMeasureID
+        handleChordDeleted(chordEvent)
+        canvasMode = .browse
+    }
+
+    private func deleteSelectedCommittedChordBarline() {
+        guard let selectedCommittedBarlineMeasureID,
+              chart.deleteCommittedSimpleChordBarline(after: selectedCommittedBarlineMeasureID) else {
+            self.selectedCommittedBarlineMeasureID = nil
+            return
+        }
+
+        selectedMeasureID = selectedCommittedBarlineMeasureID
+        self.selectedCommittedBarlineMeasureID = nil
+        selectedChordID = nil
+        selectedCueTextID = nil
+        selectedRoadmapMarkerID = nil
+        canvasMode = .browse
+    }
+
     private func clearPendingCueTextEntry() {
         cueTextDraft = ""
         pendingCueTextMeasureID = nil
@@ -3418,6 +3629,8 @@ struct EditorView: View {
     }
 
     private func clearSelectedCanvasObjectIDs() {
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedCueTextID = nil
         selectedRoadmapMarkerID = nil
     }
@@ -3555,25 +3768,36 @@ struct EditorView: View {
 
         selectedMeasureID = measureID
         clearSelectedCanvasObjectIDs()
-        _ = enterMeasureEditMode()
-    }
-
-    private func handleChordSelectedFromCanvas(_: UUID) {
-        guard chart.hasCompletedInitialSetup,
-              canvasMode == .browse else {
-            return
-        }
-
-        selectedMeasureID = nil
         selectedNoteSelection = nil
-        clearSelectedCanvasObjectIDs()
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
         inkToolMode = .write
-        canvasMode = .chordEntry
+        canvasMode = .browse
+    }
+
+    private func handleChordSelectedFromCanvas(_ chordID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              chart.chordEvent(id: chordID) != nil,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedChordID = chordID
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        selectedRoadmapMarkerID = nil
+        selectedMeasureID = nil
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        inkToolMode = .write
+        canvasMode = .browse
     }
 
     private func handleCueTextSelectedFromCanvas(_ cueTextID: UUID) {
@@ -3583,6 +3807,9 @@ struct EditorView: View {
             return
         }
 
+        let shouldStayInBrowse = canvasMode == .browse
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
         selectedMeasureID = cueText.anchorMeasureID
@@ -3592,7 +3819,7 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
-        canvasMode = .textEdit
+        canvasMode = shouldStayInBrowse ? .browse : .textEdit
     }
 
     private func handleRoadmapMarkerSelectedFromCanvas(_ roadmapMarkerID: UUID) {
@@ -3602,6 +3829,8 @@ struct EditorView: View {
             return
         }
 
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedRoadmapMarkerID = roadmapMarkerID
         selectedCueTextID = nil
         selectedMeasureID = marker.startMeasureID
@@ -3611,6 +3840,62 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
+    }
+
+    private func handleRepeatSpanSelectedFromCanvas(_ roadmapObjectID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let repeatSpan = chart.roadmapObject(id: roadmapObjectID),
+              repeatSpan.type == .repeatSpan,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = repeatSpan.startMeasureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        _ = enterRepeatEditMode()
+    }
+
+    private func handleEndingSpanSelectedFromCanvas(_ roadmapObjectID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let endingSpan = chart.roadmapObject(id: roadmapObjectID),
+              endingSpan.type.isEnding,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = endingSpan.startMeasureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        _ = enterRepeatEditMode()
+    }
+
+    private func handleTimeSignatureSelectedFromCanvas(_ measureID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              chart.measure(id: measureID) != nil,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = measureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        canvasMode = .timeSignatureEdit
+        pendingTimeSignaturePlacement = nil
+        pendingTimeSignatureSourceMeasureID = measureID
     }
 
     private func resolvedMeasureActionTargetID() -> UUID? {
@@ -4491,7 +4776,7 @@ struct EditorView: View {
     }
 
     private func handleChordCorrectionRequested(_ chordEventID: UUID) {
-        guard canvasMode == .chordEntry,
+        guard (canvasMode == .chordEntry || canvasMode == .browse),
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
               pendingChordCorrection == nil,
@@ -4531,6 +4816,7 @@ struct EditorView: View {
         _ candidateText: String,
         correction: PendingChordCorrection
     ) {
+        let shouldReturnToBrowse = canvasMode == .browse
         let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let match = ChordRecognitionCompendium.match(trimmedCandidateText) else {
             chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
@@ -4560,10 +4846,11 @@ struct EditorView: View {
         )
         #endif
 
-        selectedMeasureID = correction.measureID
+        selectedChordID = correction.chordEventID
+        selectedMeasureID = shouldReturnToBrowse ? nil : correction.measureID
         selectedNoteSelection = nil
         pendingChordCorrection = nil
-        canvasMode = .chordEntry
+        canvasMode = shouldReturnToBrowse ? .browse : .chordEntry
     }
 
     #if DEBUG && targetEnvironment(simulator)

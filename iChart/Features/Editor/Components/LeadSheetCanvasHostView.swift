@@ -79,6 +79,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var chart: Chart
     @Binding var selectedMeasureID: UUID?
     @Binding var selectedNoteSelection: LeadSheetNoteSelection?
+    @Binding var selectedChordID: UUID?
+    @Binding var selectedCommittedBarlineMeasureID: UUID?
     @Binding var selectedCueTextID: UUID?
     @Binding var selectedRoadmapMarkerID: UUID?
     let interactionMode: EditorCanvasMode
@@ -99,6 +101,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onCueTextEditRequested: ((UUID) -> Void)? = nil
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onRepeatSpanSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onEndingSpanSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onTimeSignatureSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
@@ -110,6 +115,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
             selectedNoteSelection: $selectedNoteSelection,
+            selectedChordID: $selectedChordID,
+            selectedCommittedBarlineMeasureID: $selectedCommittedBarlineMeasureID,
+            selectedCueTextID: $selectedCueTextID,
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID
         )
     }
@@ -136,10 +144,14 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
 
     private func configure(_ view: LeadSheetCanvasUIKitView, context: Context) {
         view.chart = chart
-        view.selectedMeasureID = selectedMeasureID
-        view.selectedNoteSelection = selectedNoteSelection
-        view.selectedCueTextID = selectedCueTextID
-        view.selectedRoadmapMarkerID = selectedRoadmapMarkerID
+        view.applyParentSelectionState(
+            selectedMeasureID: selectedMeasureID,
+            selectedNoteSelection: selectedNoteSelection,
+            selectedChordID: selectedChordID,
+            selectedCommittedBarlineMeasureID: selectedCommittedBarlineMeasureID,
+            selectedCueTextID: selectedCueTextID,
+            selectedRoadmapMarkerID: selectedRoadmapMarkerID
+        )
         view.interactionMode = interactionMode
         view.inkToolMode = inkToolMode
         view.recognizesChordInk = recognizesChordInk
@@ -152,6 +164,15 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onNoteSelectionChanged = { selection in
             context.coordinator.selectedNoteSelection.wrappedValue = selection
             onNoteSelectionChanged?(selection)
+        }
+        view.onChordSelectionChanged = { chordID in
+            context.coordinator.selectedChordID.wrappedValue = chordID
+        }
+        view.onCommittedChordBarlineSelectionChanged = { measureID in
+            context.coordinator.selectedCommittedBarlineMeasureID.wrappedValue = measureID
+        }
+        view.onCueTextSelectionChanged = { cueTextID in
+            context.coordinator.selectedCueTextID.wrappedValue = cueTextID
         }
         view.onRoadmapMarkerSelectionChanged = { markerID in
             context.coordinator.selectedRoadmapMarkerID.wrappedValue = markerID
@@ -171,6 +192,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
         view.onCueTextEditRequested = onCueTextEditRequested
         view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
+        view.onRepeatSpanSelectedFromCanvas = onRepeatSpanSelectedFromCanvas
+        view.onEndingSpanSelectedFromCanvas = onEndingSpanSelectedFromCanvas
+        view.onTimeSignatureSelectedFromCanvas = onTimeSignatureSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
         view.handleChordDraftRenderInvalidationRequest(chordDraftRenderInvalidationRequestID)
         view.onRhythmicNotationPreviewChanged = onRhythmicNotationPreviewChanged
@@ -182,17 +206,26 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         var chart: Binding<Chart>
         var selectedMeasureID: Binding<UUID?>
         var selectedNoteSelection: Binding<LeadSheetNoteSelection?>
+        var selectedChordID: Binding<UUID?>
+        var selectedCommittedBarlineMeasureID: Binding<UUID?>
+        var selectedCueTextID: Binding<UUID?>
         var selectedRoadmapMarkerID: Binding<UUID?>
 
         init(
             chart: Binding<Chart>,
             selectedMeasureID: Binding<UUID?>,
             selectedNoteSelection: Binding<LeadSheetNoteSelection?>,
+            selectedChordID: Binding<UUID?>,
+            selectedCommittedBarlineMeasureID: Binding<UUID?>,
+            selectedCueTextID: Binding<UUID?>,
             selectedRoadmapMarkerID: Binding<UUID?>
         ) {
             self.chart = chart
             self.selectedMeasureID = selectedMeasureID
             self.selectedNoteSelection = selectedNoteSelection
+            self.selectedChordID = selectedChordID
+            self.selectedCommittedBarlineMeasureID = selectedCommittedBarlineMeasureID
+            self.selectedCueTextID = selectedCueTextID
             self.selectedRoadmapMarkerID = selectedRoadmapMarkerID
         }
     }
@@ -1136,6 +1169,25 @@ enum LeadSheetLiveInkCanvasAppearancePolicy {
 }
 
 final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
+    func applyParentSelectionState(
+        selectedMeasureID: UUID?,
+        selectedNoteSelection: LeadSheetNoteSelection?,
+        selectedChordID: UUID?,
+        selectedCommittedBarlineMeasureID: UUID?,
+        selectedCueTextID: UUID?,
+        selectedRoadmapMarkerID: UUID?
+    ) {
+        isSyncingSelectionFromSwiftUI = true
+        defer { isSyncingSelectionFromSwiftUI = false }
+
+        self.selectedMeasureID = selectedMeasureID
+        self.selectedNoteSelection = selectedNoteSelection
+        self.selectedChordID = selectedChordID
+        self.selectedCommittedBarlineMeasureID = selectedCommittedBarlineMeasureID
+        self.selectedCueTextID = selectedCueTextID
+        self.selectedRoadmapMarkerID = selectedRoadmapMarkerID
+    }
+
     var chart: Chart = .draft(title: "Preview") {
         didSet {
             guard oldValue != chart else {
@@ -1253,6 +1305,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            if !isSyncingSelectionFromSwiftUI {
+                onCueTextSelectionChanged?(selectedCueTextID)
+            }
             setNeedsDisplay()
         }
     }
@@ -1337,12 +1392,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
+    var onChordSelectionChanged: ((UUID?) -> Void)?
+    var onCommittedChordBarlineSelectionChanged: ((UUID?) -> Void)?
+    var onCueTextSelectionChanged: ((UUID?) -> Void)?
     var onRoadmapMarkerSelectionChanged: ((UUID?) -> Void)?
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)?
     var onChordSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextEditRequested: ((UUID) -> Void)?
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)?
+    var onRepeatSpanSelectedFromCanvas: ((UUID) -> Void)?
+    var onEndingSpanSelectedFromCanvas: ((UUID) -> Void)?
+    var onTimeSignatureSelectedFromCanvas: ((UUID) -> Void)?
     var onHeaderAuthoringRequested: (() -> Void)?
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
@@ -1350,7 +1411,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pageLayout: LeadSheetPageLayout?
     private let pageInkCanvasView = LeadSheetScopedInkCanvasView()
     private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
-    private let chordEditHitOverlayView = ChordEditHitOverlayView()
+    private let renderedEditHitOverlayView = RenderedEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
     private let chordInkRecognizer = ChordInkRecognizer()
     private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
@@ -1385,17 +1446,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleMeasureResizePan(_:))
     )
-    private lazy var chordMovePanRecognizer = UIPanGestureRecognizer(
+    private lazy var renderedObjectMovePanRecognizer = UIPanGestureRecognizer(
         target: self,
-        action: #selector(handleChordMovePan(_:))
+        action: #selector(handleRenderedObjectMovePan(_:))
     )
-    private lazy var chordEditTapRecognizer = UITapGestureRecognizer(
+    private lazy var renderedEditTapRecognizer = UITapGestureRecognizer(
         target: self,
-        action: #selector(handleChordEditTap(_:))
+        action: #selector(handleRenderedEditTapGesture(_:))
     )
-    private lazy var chordEditDoubleTapRecognizer = UITapGestureRecognizer(
+    private lazy var chordCorrectionDoubleTapRecognizer = UITapGestureRecognizer(
         target: self,
-        action: #selector(handleChordEditDoubleTap(_:))
+        action: #selector(handleChordCorrectionDoubleTap(_:))
     )
     private lazy var chordInkConfirmTapRecognizer = UITapGestureRecognizer(
         target: self,
@@ -1427,9 +1488,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
-    private var selectedChordID: UUID?
+    private var isSyncingSelectionFromSwiftUI = false
+    var selectedChordID: UUID? {
+        didSet {
+            guard oldValue != selectedChordID else {
+                return
+            }
+
+            if !isSyncingSelectionFromSwiftUI {
+                onChordSelectionChanged?(selectedChordID)
+            }
+            setNeedsDisplay()
+        }
+    }
     private var selectedDraftBarlineID: UUID?
-    private var selectedCommittedBarlineMeasureID: UUID?
+    var selectedCommittedBarlineMeasureID: UUID? {
+        didSet {
+            guard oldValue != selectedCommittedBarlineMeasureID else {
+                return
+            }
+
+            if !isSyncingSelectionFromSwiftUI {
+                onCommittedChordBarlineSelectionChanged?(selectedCommittedBarlineMeasureID)
+            }
+            setNeedsDisplay()
+        }
+    }
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
     private var performanceLayoutTraceCount = 0
@@ -1457,7 +1541,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     override func layoutSubviews() {
         super.layoutSubviews()
         chordInkConfirmOverlayView.frame = bounds
-        chordEditHitOverlayView.frame = bounds
+        renderedEditHitOverlayView.frame = bounds
         invalidateLayout()
         updateParentScrollGestureGate()
     }
@@ -1536,7 +1620,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawSelectedCommittedChordBarline(in: pageLayout)
         }
 
-        if interactionMode.showsMeasureResizeHandles {
+        if showsSelectedMeasureResizeHandles {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
                 drawSimpleRowGroupAffordance(rowGroupAffordance)
             }
@@ -1580,21 +1664,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordInkConfirmOverlayView.addGestureRecognizer(chordInkConfirmTapRecognizer)
         addSubview(chordInkConfirmOverlayView)
 
-        chordEditHitOverlayView.backgroundColor = .clear
-        chordEditHitOverlayView.isOpaque = false
-        chordEditHitOverlayView.isHidden = true
-        chordEditHitOverlayView.containsEditableControl = { [weak self] location in
+        renderedEditHitOverlayView.backgroundColor = .clear
+        renderedEditHitOverlayView.isOpaque = false
+        renderedEditHitOverlayView.isHidden = true
+        renderedEditHitOverlayView.containsEditableControl = { [weak self] location in
             self?.editableOverlayHitTarget(at: location) != nil
         }
-        chordEditTapRecognizer.delegate = self
-        chordEditDoubleTapRecognizer.delegate = self
-        chordEditDoubleTapRecognizer.numberOfTapsRequired = 2
-        chordEditTapRecognizer.require(toFail: chordEditDoubleTapRecognizer)
-        chordEditHitOverlayView.addGestureRecognizer(chordEditDoubleTapRecognizer)
-        chordEditHitOverlayView.addGestureRecognizer(chordEditTapRecognizer)
-        chordMovePanRecognizer.delegate = self
-        addGestureRecognizer(chordMovePanRecognizer)
-        addSubview(chordEditHitOverlayView)
+        renderedEditTapRecognizer.delegate = self
+        chordCorrectionDoubleTapRecognizer.delegate = self
+        chordCorrectionDoubleTapRecognizer.numberOfTapsRequired = 2
+        renderedEditTapRecognizer.require(toFail: chordCorrectionDoubleTapRecognizer)
+        renderedEditHitOverlayView.addGestureRecognizer(chordCorrectionDoubleTapRecognizer)
+        renderedEditHitOverlayView.addGestureRecognizer(renderedEditTapRecognizer)
+        renderedObjectMovePanRecognizer.delegate = self
+        addGestureRecognizer(renderedObjectMovePanRecognizer)
+        addSubview(renderedEditHitOverlayView)
         updateInteractionMode()
     }
 
@@ -2618,6 +2702,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nil
     }
 
+    private var showsSelectedMeasureResizeHandles: Bool {
+        interactionMode.showsMeasureResizeHandles
+            && selectedMeasureID != nil
+            && selectedChordID == nil
+            && selectedCommittedBarlineMeasureID == nil
+            && selectedCueTextID == nil
+            && selectedRoadmapMarkerID == nil
+    }
+
     private func displayMeasureLayout(
         _ measure: LeadSheetMeasureLayout,
         in system: LeadSheetSystemLayout
@@ -2649,12 +2742,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func measureResizeHandleHitTarget(at location: CGPoint) -> ActiveMeasureResizeDrag? {
-        guard interactionMode.showsMeasureResizeHandles,
-              let measure = selectedDisplayMeasureLayout() else {
+        guard showsSelectedMeasureResizeHandles,
+              let hitTarget = renderedEditDragTarget(at: location),
+              case .measure(let measureID) = hitTarget.objectID,
+              let measure = measureLayout(for: measureID) else {
             return nil
         }
 
-        return LeadSheetMeasureResizeGeometry.hitTarget(at: location, in: measure)
+        switch hitTarget.action {
+        case .resizeLeft:
+            return ActiveMeasureResizeDrag(
+                measureID: measureID,
+                edge: .left,
+                initialWidth: measure.frame.width
+            )
+        case .resizeRight:
+            return ActiveMeasureResizeDrag(
+                measureID: measureID,
+                edge: .right,
+                initialWidth: measure.frame.width
+            )
+        default:
+            return nil
+        }
     }
 
     private func hasNewChordEvent(from oldChart: Chart, to newChart: Chart) -> Bool {
@@ -2724,6 +2834,112 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    private func renderedEditSelectionState() -> RenderedEditSelectionState {
+        if let selectedCommittedBarlineMeasureID {
+            return RenderedEditSelectionState(
+                selectedObjectID: .committedChordBarline(afterMeasureID: selectedCommittedBarlineMeasureID)
+            )
+        }
+
+        if let selectedCueTextID {
+            return RenderedEditSelectionState(selectedObjectID: .cueText(selectedCueTextID))
+        }
+
+        if let selectedRoadmapMarkerID {
+            return RenderedEditSelectionState(selectedObjectID: .roadmapMarker(selectedRoadmapMarkerID))
+        }
+
+        if let selectedChordID {
+            return RenderedEditSelectionState(selectedObjectID: .chord(selectedChordID))
+        }
+
+        if let selectedMeasureID {
+            return RenderedEditSelectionState(selectedObjectID: .measure(selectedMeasureID))
+        }
+
+        return RenderedEditSelectionState()
+    }
+
+    private func renderedEditTapProviders() -> [any RenderedEditHitTargetProvider] {
+        var providers = [any RenderedEditHitTargetProvider]()
+
+        if interactionMode.allowsChordInkEditing || interactionMode.allowsChordObjectEditing {
+            providers.append(CommittedChordBarlineRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsCueTextEditing {
+            providers.append(CueTextRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode == .browse {
+            providers.append(RoadmapMarkerRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsChordObjectEditing,
+           !isChordObjectEditingTemporarilySuppressed() {
+            providers.append(ChordRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode == .browse {
+            providers.append(RepeatSpanRenderedEditHitTargetProvider())
+            providers.append(EndingSpanRenderedEditHitTargetProvider())
+            providers.append(TimeSignatureRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsMeasureSelection {
+            providers.append(MeasureRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsHeaderAuthoringSelection {
+            providers.append(HeaderRenderedEditHitTargetProvider())
+        }
+
+        return providers
+    }
+
+    private func renderedEditContext() -> RenderedEditContext? {
+        guard let pageLayout else {
+            return nil
+        }
+
+        let committedBarlineMeasures = (interactionMode.allowsChordInkEditing || interactionMode.allowsChordObjectEditing)
+            ? committedSimpleChordBarlineMeasures(in: pageLayout)
+            : []
+
+        return RenderedEditContext(
+            pageLayout: pageLayout,
+            layoutStyle: chart.layoutStyle,
+            selection: renderedEditSelectionState(),
+            committedChordBarlineMeasures: committedBarlineMeasures
+        )
+    }
+
+    private func renderedEditTapTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        guard let context = renderedEditContext() else {
+            return nil
+        }
+
+        return RenderedEditRouter(providers: renderedEditTapProviders())
+            .tapTarget(at: location, in: context)
+    }
+
+    private func renderedEditDragTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        guard let context = renderedEditContext() else {
+            return nil
+        }
+
+        return RenderedEditRouter(providers: renderedEditTapProviders())
+            .dragTarget(at: location, in: context)
+    }
+
+    private func renderedEditDragState(at location: CGPoint) -> RenderedEditDragState? {
+        guard let target = renderedEditDragTarget(at: location) else {
+            return nil
+        }
+
+        return RenderedEditDragState(target: target, startLocation: location)
+    }
+
     private func chordMoveHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
               !isChordObjectEditingTemporarilySuppressed(),
@@ -2765,11 +2981,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private enum EditableOverlayHitTarget {
-        case cueText(CueTextEditHitTarget)
-        case roadmap(RoadmapMarkerEditHitTarget)
-        case chord(ChordEditHitTarget)
         case draftBarline(ChordDraftBarlineHitTarget)
-        case committedBarline(CommittedChordBarlineHitTarget)
+        case rendered(RenderedEditHitTarget)
     }
 
     private func editableOverlayHitTarget(at location: CGPoint) -> EditableOverlayHitTarget? {
@@ -2777,20 +2990,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return .draftBarline(draftBarlineTarget)
         }
 
-        if let committedBarlineTarget = committedChordBarlineHitTarget(at: location) {
-            return .committedBarline(committedBarlineTarget)
-        }
-
-        if let cueTextTarget = cueTextEditHitTarget(at: location) {
-            return .cueText(cueTextTarget)
-        }
-
-        if let roadmapTarget = roadmapMarkerEditHitTarget(at: location) {
-            return .roadmap(roadmapTarget)
-        }
-
-        if let chordTarget = chordEditHitTarget(at: location) {
-            return .chord(chordTarget)
+        if let renderedTarget = renderedEditTapTarget(at: location) {
+            return .rendered(renderedTarget)
         }
 
         return nil
@@ -2917,10 +3118,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
-        cueTextMoveHitTarget(at: location) != nil
-            || roadmapMarkerMoveHitTarget(at: location) != nil
-            || chordResizeHitTarget(at: location) != nil
-            || chordMoveHitTarget(at: location) != nil
+        renderedEditDragState(at: location) != nil
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -3061,11 +3259,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        applyTapSelection(tappedMeasureID)
-
-        if interactionMode == .browse,
-           let tappedMeasureID {
-            onMeasureSelectedFromCanvas?(tappedMeasureID)
+        if let tappedMeasureID {
+            selectMeasureFromCanvas(tappedMeasureID)
+        } else {
+            applyTapSelection(nil)
         }
 
         if interactionMode.showsTimeSignatureTargeting,
@@ -3078,6 +3275,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         updateSelectedRoadmapMarkerID(markerLayout.id)
         selectedCueTextID = nil
         selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedNoteSelection = nil
         applyTapSelection(markerLayout.anchorMeasureID)
         onRoadmapMarkerSelectedFromCanvas?(markerLayout.id)
@@ -3093,6 +3291,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectedCueTextID = cueText.id
         updateSelectedRoadmapMarkerID(nil)
         selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
         selectedNoteSelection = nil
         applyTapSelection(cueText.anchorMeasureID)
         onCueTextSelectedFromCanvas?(cueText.id)
@@ -3100,59 +3299,188 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordEditTap(_ recognizer: UITapGestureRecognizer) {
+    private func handleRenderedEditTapGesture(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
             return
         }
 
-        let location = recognizer.location(in: chordEditHitOverlayView)
-        if let hitTarget = cueTextEditHitTarget(at: location) {
-            handleCueTextEditTap(hitTarget)
-            return
-        }
-
-        if let hitTarget = roadmapMarkerEditHitTarget(at: location) {
-            handleRoadmapMarkerEditTap(hitTarget)
-            return
-        }
-
+        let location = recognizer.location(in: renderedEditHitOverlayView)
         if let hitTarget = chordDraftBarlineHitTarget(at: location) {
             handleDraftBarlineTap(hitTarget)
             return
         }
 
-        if let hitTarget = committedChordBarlineHitTarget(at: location) {
-            handleCommittedBarlineTap(hitTarget)
-            return
+        if let hitTarget = renderedEditTapTarget(at: location) {
+            handleRenderedEditTap(hitTarget)
         }
+    }
 
-        guard let hitTarget = chordEditHitTarget(at: location) else {
-            return
-        }
-
-        switch hitTarget.action {
-        case .select:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            if interactionMode == .browse {
-                onChordSelectedFromCanvas?(hitTarget.chordID)
+    private func handleRenderedEditTap(_ hitTarget: RenderedEditHitTarget) {
+        switch hitTarget.objectID {
+        case .chord(let chordID):
+            handleRenderedChordTap(chordID: chordID, action: hitTarget.action)
+        case .committedChordBarline(let measureID):
+            handleRenderedCommittedBarlineTap(measureID: measureID, action: hitTarget.action)
+        case .cueText(let cueTextID):
+            handleRenderedCueTextTap(cueTextID: cueTextID, action: hitTarget.action)
+        case .roadmapMarker(let markerID):
+            handleRenderedRoadmapMarkerTap(markerID: markerID, action: hitTarget.action)
+        case .header:
+            if hitTarget.action == .openInspector {
+                onHeaderAuthoringRequested?()
             }
-            setNeedsDisplay()
-        case .delete:
-            deleteChordEvent(hitTarget.chordID)
-        case .move:
+        case .measure(let measureID):
+            guard interactionMode.allowsMeasureSelection else {
+                return
+            }
+            selectMeasureFromCanvas(measureID)
+        case .repeatSpan(let roadmapObjectID):
+            if hitTarget.action == .openInspector {
+                selectRepeatSpanFromCanvas(roadmapObjectID)
+            }
+        case .endingSpan(let roadmapObjectID):
+            if hitTarget.action == .openInspector {
+                selectEndingSpanFromCanvas(roadmapObjectID)
+            }
+        case .timeSignatureChange(let measureID):
+            if hitTarget.action == .openInspector {
+                selectTimeSignatureFromCanvas(measureID)
+            }
+        case .keyChange:
             break
-        case .resizeLeading, .resizeTrailing:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            setNeedsDisplay()
-        case .review:
-            selectedChordID = hitTarget.chordID
-            selectedCommittedBarlineMeasureID = nil
-            if interactionMode == .browse {
-                onChordSelectedFromCanvas?(hitTarget.chordID)
+        }
+    }
+
+    private func selectMeasureFromCanvas(_ measureID: UUID) {
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        applyTapSelection(measureID)
+        if interactionMode == .browse {
+            onMeasureSelectedFromCanvas?(measureID)
+        }
+        setNeedsDisplay()
+    }
+
+    private func selectRepeatSpanFromCanvas(_ roadmapObjectID: UUID) {
+        guard let roadmapObject = chart.roadmapObject(id: roadmapObjectID),
+              roadmapObject.type == .repeatSpan else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(roadmapObject.startMeasureID)
+        if interactionMode == .browse {
+            onRepeatSpanSelectedFromCanvas?(roadmapObjectID)
+        }
+    }
+
+    private func selectEndingSpanFromCanvas(_ roadmapObjectID: UUID) {
+        guard let roadmapObject = chart.roadmapObject(id: roadmapObjectID),
+              roadmapObject.type.isEnding else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(roadmapObject.startMeasureID)
+        if interactionMode == .browse {
+            onEndingSpanSelectedFromCanvas?(roadmapObjectID)
+        }
+    }
+
+    private func selectTimeSignatureFromCanvas(_ measureID: UUID) {
+        guard chart.measure(id: measureID) != nil else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(measureID)
+        if interactionMode == .browse {
+            onTimeSignatureSelectedFromCanvas?(measureID)
+        }
+    }
+
+    private func selectStructuralMeasureAnchor(_ measureID: UUID) {
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        applyTapSelection(measureID)
+        setNeedsDisplay()
+    }
+
+    private func handleRenderedChordTap(chordID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .delete:
+            deleteChordEvent(chordID)
+        case .select, .move, .resizeLeading, .resizeTrailing, .correctChord:
+            selectRenderedChordFromCanvas(chordID)
+        case .resizeLeft, .resizeRight, .grow, .shrink, .editText, .openInspector:
+            break
+        }
+    }
+
+    private func selectRenderedChordFromCanvas(_ chordID: UUID) {
+        selectedChordID = chordID
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        if interactionMode == .browse {
+            onChordSelectedFromCanvas?(chordID)
+        }
+        setNeedsDisplay()
+    }
+
+    private func handleRenderedCommittedBarlineTap(measureID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .select:
+            handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
+        case .delete:
+            handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
+        case .move, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+             .grow, .shrink, .editText, .correctChord, .openInspector:
+            break
+        }
+    }
+
+    private func handleRenderedCueTextTap(cueTextID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .select, .move:
+            guard let cueText = chart.cueText(id: cueTextID) else {
+                return
             }
+            selectCueTextFromCanvas(cueText)
+        case .editText:
+            selectedCueTextID = cueTextID
+            updateSelectedRoadmapMarkerID(nil)
+            selectedChordID = nil
+            selectedCommittedBarlineMeasureID = nil
+            selectedNoteSelection = nil
+            onCueTextEditRequested?(cueTextID)
             setNeedsDisplay()
+        case .shrink:
+            selectedCommittedBarlineMeasureID = nil
+            resizeCueText(cueTextID, by: -CueText.scaleStep)
+        case .grow:
+            selectedCommittedBarlineMeasureID = nil
+            resizeCueText(cueTextID, by: CueText.scaleStep)
+        case .delete:
+            deleteCueText(cueTextID)
+        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight, .correctChord, .openInspector:
+            break
+        }
+    }
+
+    private func handleRenderedRoadmapMarkerTap(markerID: UUID, action: RenderedEditAction) {
+        switch action {
+        case .delete:
+            handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .delete))
+        case .select, .move:
+            handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .select))
+        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+             .grow, .shrink, .editText, .correctChord, .openInspector:
+            break
         }
     }
 
@@ -3193,12 +3521,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordEditDoubleTap(_ recognizer: UITapGestureRecognizer) {
+    private func handleChordCorrectionDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
             return
         }
 
-        let location = recognizer.location(in: chordEditHitOverlayView)
+        let location = recognizer.location(in: renderedEditHitOverlayView)
         guard let hitTarget = chordReviewHitTarget(at: location) else {
             return
         }
@@ -3218,30 +3546,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        if let hitTarget = committedChordBarlineHitTarget(at: location) {
-            handleCommittedBarlineTap(hitTarget)
-            return
-        }
-
-        if let hitTarget = chordEditHitTarget(at: location) {
-            switch hitTarget.action {
-            case .select:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            case .delete:
-                deleteChordEvent(hitTarget.chordID)
-            case .move:
-                break
-            case .resizeLeading, .resizeTrailing:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            case .review:
-                selectedChordID = hitTarget.chordID
-                selectedCommittedBarlineMeasureID = nil
-                setNeedsDisplay()
-            }
+        if let hitTarget = renderedEditTapTarget(at: location) {
+            handleRenderedEditTap(hitTarget)
             return
         }
 
@@ -3276,6 +3582,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             selectedCommittedBarlineMeasureID = hitTarget.measureID
             selectedDraftBarlineID = nil
             selectedChordID = nil
+            selectedCueTextID = nil
+            updateSelectedRoadmapMarkerID(nil)
+            selectedNoteSelection = nil
             setNeedsDisplay()
         case .delete:
             deleteCommittedBarline(after: hitTarget.measureID)
@@ -3498,27 +3807,48 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleChordMovePan(_ recognizer: UIPanGestureRecognizer) {
+    private func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
-        if activeCueTextMoveDrag != nil
-            || (recognizer.state == .began
-                && cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeCueTextMoveDrag != nil {
             handleCueTextMovePan(recognizer)
             return
         }
 
-        if activeRoadmapMarkerEditDrag != nil
-            || (recognizer.state == .began
-                && roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeRoadmapMarkerEditDrag != nil {
             handleRoadmapMarkerEditPan(recognizer)
             return
         }
 
-        if activeChordResizeDrag != nil
-            || (recognizer.state == .began
-                && chordResizeHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeChordResizeDrag != nil {
             handleChordResizePan(recognizer)
             return
+        }
+
+        if recognizer.state == .began {
+            let startLocation = panStartLocation(for: recognizer)
+            guard let dragState = renderedEditDragState(at: startLocation) else {
+                activeChordMoveDrag = nil
+                setNeedsDisplay()
+                return
+            }
+
+            switch (dragState.target.objectID, dragState.target.action) {
+            case (.cueText(_), .move):
+                handleCueTextMovePan(recognizer)
+                return
+            case (.roadmapMarker(_), .move):
+                handleRoadmapMarkerEditPan(recognizer)
+                return
+            case (.chord(_), .resizeLeading), (.chord(_), .resizeTrailing):
+                handleChordResizePan(recognizer)
+                return
+            case (.chord(_), .move):
+                break
+            default:
+                activeChordMoveDrag = nil
+                setNeedsDisplay()
+                return
+            }
         }
 
         switch recognizer.state {
@@ -5391,11 +5721,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectionTapRecognizer.isEnabled = policy.selectionTapEnabled
         inkSelectionTapRecognizer.isEnabled = policy.inkSelectionTapEnabled
         measureResizePanRecognizer.isEnabled = policy.measureResizePanEnabled
-        chordEditTapRecognizer.isEnabled = policy.chordEditTapEnabled
-        chordEditDoubleTapRecognizer.isEnabled = policy.chordEditTapEnabled
-        chordMovePanRecognizer.isEnabled = policy.chordMovePanEnabled
-        chordEditHitOverlayView.isHidden = policy.chordEditOverlayHidden
-        chordEditHitOverlayView.isUserInteractionEnabled = policy.chordEditOverlayInteractionEnabled
+        renderedEditTapRecognizer.isEnabled = policy.renderedEditTapEnabled
+        chordCorrectionDoubleTapRecognizer.isEnabled = policy.renderedEditTapEnabled
+        renderedObjectMovePanRecognizer.isEnabled = policy.renderedObjectMovePanEnabled
+        renderedEditHitOverlayView.isHidden = policy.renderedEditOverlayHidden
+        renderedEditHitOverlayView.isUserInteractionEnabled = policy.renderedEditOverlayInteractionEnabled
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
         pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
         pageInkCanvasView.drawingPolicy = policy.drawingPolicy
@@ -5405,7 +5735,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeMeasureResizeDrag = nil
         }
 
-        if policy.clearsChordInteractionState {
+        if policy.clearsRenderedObjectInteractionState {
             activeChordMoveDrag = nil
             activeChordResizeDrag = nil
             activeRoadmapMarkerEditDrag = nil
@@ -5495,9 +5825,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return chordInkConfirmSurfaceContains(gestureRecognizer.location(in: self))
         }
 
-        if gestureRecognizer === chordMovePanRecognizer {
+        if gestureRecognizer === renderedObjectMovePanRecognizer {
             let location = gestureRecognizer.location(in: self)
-            let translation = chordMovePanRecognizer.translation(in: self)
+            let translation = renderedObjectMovePanRecognizer.translation(in: self)
             let startLocation = CGPoint(
                 x: location.x - translation.x,
                 y: location.y - translation.y
@@ -5512,12 +5842,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        let involvesChordMove = gestureRecognizer === chordMovePanRecognizer
-            || otherGestureRecognizer === chordMovePanRecognizer
+        let involvesRenderedObjectMove = gestureRecognizer === renderedObjectMovePanRecognizer
+            || otherGestureRecognizer === renderedObjectMovePanRecognizer
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
-        if !LeadSheetChordMoveScrollLockPolicy.allowsSimultaneousRecognition(
-            involvesChordMove: involvesChordMove,
+        if !LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
+            involvesRenderedObjectMove: involvesRenderedObjectMove,
             involvesParentScroll: involvesParentScroll
         ) {
             return false
@@ -5525,14 +5855,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         return gestureRecognizer === inkSelectionTapRecognizer
             || otherGestureRecognizer === inkSelectionTapRecognizer
-            || involvesChordMove
+            || involvesRenderedObjectMove
     }
 
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
-        if gestureRecognizer === chordMovePanRecognizer {
+        if gestureRecognizer === renderedObjectMovePanRecognizer {
             return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: touch.type,
                 startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
