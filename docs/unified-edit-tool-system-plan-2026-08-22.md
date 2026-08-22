@@ -5,7 +5,58 @@ Branch: `codex/unified-edit-tool-plan`
 Planning base: `48ff04e` (`Document chord lane fallback checkpoint`)
 Chord-lane fallback checkpoint: `697c2a5` (`Establish chord lane draft render baseline`)
 
-This is a handoff plan for replacing the current overloaded `Select` behavior with a safer, clearer unified `Edit` tool. It is a planning document only. It should not be treated as proof that the unified edit system has been implemented.
+This began as a handoff plan for replacing the current overloaded `Select` behavior with a safer, clearer unified `Edit` tool. The implementation checkpoint below records the first completed pass and the proof gathered so far.
+
+## Implementation Checkpoint
+
+Date: 2026-08-22
+
+Current implemented checkpoint before this doc update: `235511c` (`Extract rendered edit hit overlay`) on `codex/unified-edit-tool-slice-10`.
+
+Implemented slice commits:
+
+- `0f7629e` - Plan unified edit tool system
+- `be1f804` - Rename Select tool to Edit
+- `a562256` - Add rendered edit type vocabulary
+- `1a086de` - Add rendered edit target providers
+- `03fd8a6` - Route rendered edit taps through router
+- `e63bc43` - Route rendered edit drag starts through router
+- `dbd4c2e` - Add selected rendered edit action tray
+- `b3cb403` - Add selected measure editing in Edit
+- `9d24ac4` - Route structural marks into Edit
+- `3de9167` - Rename rendered edit interaction internals
+- `235511c` - Extract rendered edit hit overlay
+
+Implemented behavior:
+
+- User-facing `Select` is now `Edit`.
+- Rendered edit identity, action, priority, mutation-risk, selection, router, and provider types exist.
+- Edit taps route through the rendered edit router for chords, committed chord barlines, cue text, roadmap point markers, measures, header, repeat spans, ending spans, and time signatures.
+- Edit drag starts route through the rendered edit router for supported movable/resizable objects.
+- A selected-object action tray exposes explicit object actions instead of mutating from body taps.
+- Measures can be selected in Edit and show selected-only resize handles.
+- Repeat spans, ending spans, and time signatures open the existing scoped editors without direct destructive gestures.
+- Generic rendered edit overlay/policy names no longer use chord-only names where they now cover multiple rendered object families.
+
+Verification captured:
+
+- Slice 8: `/tmp/iChart-unified-edit-slice8.xcresult` - 168 passed, 0 failed.
+- Slice 9: `/tmp/iChart-unified-edit-slice9-20260821-a.xcresult` - 128 passed, 0 failed.
+- Slice 10: `/tmp/iChart-unified-edit-slice10-20260821-a.xcresult` - 128 passed, 0 failed.
+- Focused editor/chord-lane matrix: `/tmp/iChart-unified-edit-focused-20260821-a.xcresult` - 466 passed, 0 failed.
+- `git diff --check` passed for the cleanup slices.
+- `xcodegen generate` completed during slice 10.
+
+Still deferred:
+
+- Physical iPad acceptance is still required before calling interaction quality complete.
+- Key-change rendered selection is intentionally deferred because the current layout surface does not expose a safe source measure identity for every rendered key marker.
+- A command-executor consolidation remains future work. Current mutations still call the existing object-specific chart editing paths.
+- Renaming `EditorCanvasMode.browse` to `.edit` remains intentionally deferred because the churn is broad and not needed for the first stable Edit tool pass.
+
+Scope guard:
+
+- This implementation did not change chord recognition accuracy, OCR, chord recognition scoring, trust arbitration, or handwriting fixture behavior.
 
 ## Product Goal
 
