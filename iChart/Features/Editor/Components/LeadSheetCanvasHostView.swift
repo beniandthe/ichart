@@ -101,6 +101,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onCueTextEditRequested: ((UUID) -> Void)? = nil
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onRepeatSpanSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onEndingSpanSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onTimeSignatureSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
@@ -189,6 +192,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
         view.onCueTextEditRequested = onCueTextEditRequested
         view.onRoadmapMarkerSelectedFromCanvas = onRoadmapMarkerSelectedFromCanvas
+        view.onRepeatSpanSelectedFromCanvas = onRepeatSpanSelectedFromCanvas
+        view.onEndingSpanSelectedFromCanvas = onEndingSpanSelectedFromCanvas
+        view.onTimeSignatureSelectedFromCanvas = onTimeSignatureSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
         view.handleChordDraftRenderInvalidationRequest(chordDraftRenderInvalidationRequestID)
         view.onRhythmicNotationPreviewChanged = onRhythmicNotationPreviewChanged
@@ -1395,6 +1401,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextEditRequested: ((UUID) -> Void)?
     var onRoadmapMarkerSelectedFromCanvas: ((UUID) -> Void)?
+    var onRepeatSpanSelectedFromCanvas: ((UUID) -> Void)?
+    var onEndingSpanSelectedFromCanvas: ((UUID) -> Void)?
+    var onTimeSignatureSelectedFromCanvas: ((UUID) -> Void)?
     var onHeaderAuthoringRequested: (() -> Void)?
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
@@ -2871,6 +2880,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             providers.append(ChordRenderedEditHitTargetProvider())
         }
 
+        if interactionMode == .browse {
+            providers.append(RepeatSpanRenderedEditHitTargetProvider())
+            providers.append(EndingSpanRenderedEditHitTargetProvider())
+            providers.append(TimeSignatureRenderedEditHitTargetProvider())
+        }
+
         if interactionMode.allowsMeasureSelection {
             providers.append(MeasureRenderedEditHitTargetProvider())
         }
@@ -3318,7 +3333,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
             selectMeasureFromCanvas(measureID)
-        case .repeatSpan, .endingSpan, .timeSignatureChange, .keyChange:
+        case .repeatSpan(let roadmapObjectID):
+            if hitTarget.action == .openInspector {
+                selectRepeatSpanFromCanvas(roadmapObjectID)
+            }
+        case .endingSpan(let roadmapObjectID):
+            if hitTarget.action == .openInspector {
+                selectEndingSpanFromCanvas(roadmapObjectID)
+            }
+        case .timeSignatureChange(let measureID):
+            if hitTarget.action == .openInspector {
+                selectTimeSignatureFromCanvas(measureID)
+            }
+        case .keyChange:
             break
         }
     }
@@ -3333,6 +3360,51 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if interactionMode == .browse {
             onMeasureSelectedFromCanvas?(measureID)
         }
+        setNeedsDisplay()
+    }
+
+    private func selectRepeatSpanFromCanvas(_ roadmapObjectID: UUID) {
+        guard let roadmapObject = chart.roadmapObject(id: roadmapObjectID),
+              roadmapObject.type == .repeatSpan else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(roadmapObject.startMeasureID)
+        if interactionMode == .browse {
+            onRepeatSpanSelectedFromCanvas?(roadmapObjectID)
+        }
+    }
+
+    private func selectEndingSpanFromCanvas(_ roadmapObjectID: UUID) {
+        guard let roadmapObject = chart.roadmapObject(id: roadmapObjectID),
+              roadmapObject.type.isEnding else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(roadmapObject.startMeasureID)
+        if interactionMode == .browse {
+            onEndingSpanSelectedFromCanvas?(roadmapObjectID)
+        }
+    }
+
+    private func selectTimeSignatureFromCanvas(_ measureID: UUID) {
+        guard chart.measure(id: measureID) != nil else {
+            return
+        }
+
+        selectStructuralMeasureAnchor(measureID)
+        if interactionMode == .browse {
+            onTimeSignatureSelectedFromCanvas?(measureID)
+        }
+    }
+
+    private func selectStructuralMeasureAnchor(_ measureID: UUID) {
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        applyTapSelection(measureID)
         setNeedsDisplay()
     }
 

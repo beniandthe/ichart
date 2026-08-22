@@ -257,6 +257,84 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(rightTarget.mutationRisk, .visual)
     }
 
+    func testStructuralProvidersOpenExistingEditorsWithoutMutationTargets() throws {
+        var fixture = pageFixture()
+        let repeatID = UUID()
+        let endingID = UUID()
+        let repeatMarker = LeadSheetRepeatMarkerLayout(
+            roadmapObjectID: repeatID,
+            edge: .leading,
+            frame: CGRect(x: 96, y: 156, width: 16, height: 34)
+        )
+        let endingLayout = LeadSheetEndingLayout(
+            roadmapObjectID: endingID,
+            systemIndex: 0,
+            type: .ending1,
+            text: "1.",
+            frame: CGRect(x: 112, y: 96, width: 140, height: 20),
+            showsText: true,
+            showsLeadingHook: true,
+            showsTrailingHook: true
+        )
+        let timeFrame = CGRect(x: 64, y: 144, width: 34, height: 58)
+
+        fixture.measure.repeatMarkerLayouts = [repeatMarker]
+        fixture.pageLayout.systems[0].measures[0] = fixture.measure
+        fixture.pageLayout.systems[0].endingLayouts = [endingLayout]
+        fixture.pageLayout.systems[0].timeSignatureFrame = timeFrame
+
+        let router = RenderedEditRouter()
+        let context = RenderedEditContext(pageLayout: fixture.pageLayout)
+
+        let repeatTarget = try XCTUnwrap(
+            router.tapTarget(
+                at: CGPoint(x: repeatMarker.frame.midX, y: repeatMarker.frame.midY),
+                in: context
+            )
+        )
+        XCTAssertEqual(repeatTarget.objectID, .repeatSpan(repeatID))
+        XCTAssertEqual(repeatTarget.action, .openInspector)
+        XCTAssertEqual(repeatTarget.mutationRisk, .nonMutating)
+        XCTAssertNil(
+            router.dragTarget(
+                at: CGPoint(x: repeatMarker.frame.midX, y: repeatMarker.frame.midY),
+                in: context
+            )
+        )
+
+        let endingTarget = try XCTUnwrap(
+            router.tapTarget(
+                at: CGPoint(x: endingLayout.frame.midX, y: endingLayout.frame.midY),
+                in: context
+            )
+        )
+        XCTAssertEqual(endingTarget.objectID, .endingSpan(endingID))
+        XCTAssertEqual(endingTarget.action, .openInspector)
+        XCTAssertEqual(endingTarget.mutationRisk, .nonMutating)
+        XCTAssertNil(
+            router.dragTarget(
+                at: CGPoint(x: endingLayout.frame.midX, y: endingLayout.frame.midY),
+                in: context
+            )
+        )
+
+        let timeTarget = try XCTUnwrap(
+            router.tapTarget(
+                at: CGPoint(x: timeFrame.midX, y: timeFrame.midY),
+                in: context
+            )
+        )
+        XCTAssertEqual(timeTarget.objectID, .timeSignatureChange(afterMeasureID: fixture.measureID))
+        XCTAssertEqual(timeTarget.action, .openInspector)
+        XCTAssertEqual(timeTarget.mutationRisk, .nonMutating)
+        XCTAssertNil(
+            router.dragTarget(
+                at: CGPoint(x: timeFrame.midX, y: timeFrame.midY),
+                in: context
+            )
+        )
+    }
+
     func testCueTextAndRoadmapControlsUseExistingSelectedControlFrames() throws {
         let fixture = pageFixture()
         var cueSelection = RenderedEditSelectionState()

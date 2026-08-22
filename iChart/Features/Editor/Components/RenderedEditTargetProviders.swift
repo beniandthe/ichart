@@ -65,6 +65,9 @@ enum RenderedEditTargetProviderSet {
             CueTextRenderedEditHitTargetProvider(),
             RoadmapMarkerRenderedEditHitTargetProvider(),
             ChordRenderedEditHitTargetProvider(),
+            RepeatSpanRenderedEditHitTargetProvider(),
+            EndingSpanRenderedEditHitTargetProvider(),
+            TimeSignatureRenderedEditHitTargetProvider(),
             MeasureRenderedEditHitTargetProvider(),
             HeaderRenderedEditHitTargetProvider()
         ]
@@ -335,6 +338,85 @@ struct RoadmapMarkerRenderedEditHitTargetProvider: RenderedEditHitTargetProvider
         )
 
         return targets
+    }
+}
+
+struct RepeatSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
+    func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
+        context.pageLayout.systems.flatMap { system in
+            system.measures.flatMap { measure in
+                measure.repeatMarkerLayouts.map { marker in
+                    RenderedEditHitTarget(
+                        objectID: .repeatSpan(marker.roadmapObjectID),
+                        action: .openInspector,
+                        priority: .objectBodySelect,
+                        frame: marker.frame.insetBy(dx: -8, dy: -8),
+                        requiresSelection: false,
+                        mutationRisk: .nonMutating
+                    )
+                }
+            }
+        }
+    }
+}
+
+struct EndingSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
+    func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
+        context.pageLayout.systems.flatMap { system in
+            system.endingLayouts.map { ending in
+                RenderedEditHitTarget(
+                    objectID: .endingSpan(ending.roadmapObjectID),
+                    action: .openInspector,
+                    priority: .objectBodySelect,
+                    frame: ending.frame.insetBy(dx: -6, dy: -8),
+                    requiresSelection: false,
+                    mutationRisk: .nonMutating
+                )
+            }
+        }
+    }
+}
+
+struct TimeSignatureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
+    func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
+        context.pageLayout.systems.flatMap { system in
+            var targets: [RenderedEditHitTarget] = []
+            if let timeSignatureFrame = system.timeSignatureFrame,
+               let firstMeasureID = system.measures.first?.sourceMeasureID {
+                targets.append(
+                    timeSignatureTarget(
+                        measureID: firstMeasureID,
+                        frame: timeSignatureFrame
+                    )
+                )
+            }
+
+            targets.append(
+                contentsOf: system.measures.compactMap { measure in
+                    guard let measureID = measure.sourceMeasureID,
+                          let meterChangeFrame = measure.meterChangeFrame else {
+                        return nil
+                    }
+
+                    return timeSignatureTarget(
+                        measureID: measureID,
+                        frame: meterChangeFrame
+                    )
+                }
+            )
+            return targets
+        }
+    }
+
+    private func timeSignatureTarget(measureID: UUID, frame: CGRect) -> RenderedEditHitTarget {
+        RenderedEditHitTarget(
+            objectID: .timeSignatureChange(afterMeasureID: measureID),
+            action: .openInspector,
+            priority: .objectBodySelect,
+            frame: frame.insetBy(dx: -8, dy: -8),
+            requiresSelection: false,
+            mutationRisk: .nonMutating
+        )
     }
 }
 

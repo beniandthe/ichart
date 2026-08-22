@@ -2494,6 +2494,9 @@ struct EditorView: View {
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
             onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
             onRoadmapMarkerSelectedFromCanvas: handleRoadmapMarkerSelectedFromCanvas,
+            onRepeatSpanSelectedFromCanvas: handleRepeatSpanSelectedFromCanvas,
+            onEndingSpanSelectedFromCanvas: handleEndingSpanSelectedFromCanvas,
+            onTimeSignatureSelectedFromCanvas: handleTimeSignatureSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
@@ -3837,6 +3840,62 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
+    }
+
+    private func handleRepeatSpanSelectedFromCanvas(_ roadmapObjectID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let repeatSpan = chart.roadmapObject(id: roadmapObjectID),
+              repeatSpan.type == .repeatSpan,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = repeatSpan.startMeasureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        _ = enterRepeatEditMode()
+    }
+
+    private func handleEndingSpanSelectedFromCanvas(_ roadmapObjectID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let endingSpan = chart.roadmapObject(id: roadmapObjectID),
+              endingSpan.type.isEnding,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = endingSpan.startMeasureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        _ = enterRepeatEditMode()
+    }
+
+    private func handleTimeSignatureSelectedFromCanvas(_ measureID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              chart.measure(id: measureID) != nil,
+              canvasMode == .browse else {
+            return
+        }
+
+        selectedMeasureID = measureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        canvasMode = .timeSignatureEdit
+        pendingTimeSignaturePlacement = nil
+        pendingTimeSignatureSourceMeasureID = measureID
     }
 
     private func resolvedMeasureActionTargetID() -> UUID? {
