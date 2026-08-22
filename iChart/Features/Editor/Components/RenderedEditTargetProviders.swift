@@ -341,19 +341,52 @@ struct RoadmapMarkerRenderedEditHitTargetProvider: RenderedEditHitTargetProvider
 struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
     func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
         context.pageLayout.systems.flatMap { system in
-            system.measures.compactMap { measure in
+            system.measures.flatMap { measure -> [RenderedEditHitTarget] in
                 guard let measureID = measure.sourceMeasureID else {
-                    return nil
+                    return []
                 }
 
-                return RenderedEditHitTarget(
-                    objectID: .measure(measureID),
-                    action: .select,
-                    priority: .measureSelect,
-                    frame: measure.frame.insetBy(dx: -6, dy: -6),
-                    requiresSelection: false,
-                    mutationRisk: .nonMutating
+                let objectID = RenderedEditObjectID.measure(measureID)
+                var targets = [
+                    RenderedEditHitTarget(
+                        objectID: objectID,
+                        action: .select,
+                        priority: .measureSelect,
+                        frame: measure.frame.insetBy(dx: -6, dy: -6),
+                        requiresSelection: false,
+                        mutationRisk: .nonMutating
+                    )
+                ]
+
+                guard context.selection.contains(objectID) else {
+                    return targets
+                }
+
+                let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: measure)
+                let touchInsetX: CGFloat = -12
+                let touchInsetY: CGFloat = -10
+                targets.append(
+                    RenderedEditHitTarget(
+                        objectID: objectID,
+                        action: .resizeLeft,
+                        priority: .selectedObjectResizeHandle,
+                        frame: handles.left.insetBy(dx: touchInsetX, dy: touchInsetY),
+                        requiresSelection: true,
+                        mutationRisk: .visual
+                    )
                 )
+                targets.append(
+                    RenderedEditHitTarget(
+                        objectID: objectID,
+                        action: .resizeRight,
+                        priority: .selectedObjectResizeHandle,
+                        frame: handles.right.insetBy(dx: touchInsetX, dy: touchInsetY),
+                        requiresSelection: true,
+                        mutationRisk: .visual
+                    )
+                )
+
+                return targets
             }
         }
     }

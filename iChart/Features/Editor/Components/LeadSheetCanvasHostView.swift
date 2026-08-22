@@ -1611,7 +1611,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawSelectedCommittedChordBarline(in: pageLayout)
         }
 
-        if interactionMode.showsMeasureResizeHandles {
+        if showsSelectedMeasureResizeHandles {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
                 drawSimpleRowGroupAffordance(rowGroupAffordance)
             }
@@ -2693,6 +2693,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nil
     }
 
+    private var showsSelectedMeasureResizeHandles: Bool {
+        interactionMode.showsMeasureResizeHandles
+            && selectedMeasureID != nil
+            && selectedChordID == nil
+            && selectedCommittedBarlineMeasureID == nil
+            && selectedCueTextID == nil
+            && selectedRoadmapMarkerID == nil
+    }
+
     private func displayMeasureLayout(
         _ measure: LeadSheetMeasureLayout,
         in system: LeadSheetSystemLayout
@@ -2724,12 +2733,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func measureResizeHandleHitTarget(at location: CGPoint) -> ActiveMeasureResizeDrag? {
-        guard interactionMode.showsMeasureResizeHandles,
-              let measure = selectedDisplayMeasureLayout() else {
+        guard showsSelectedMeasureResizeHandles,
+              let hitTarget = renderedEditDragTarget(at: location),
+              case .measure(let measureID) = hitTarget.objectID,
+              let measure = measureLayout(for: measureID) else {
             return nil
         }
 
-        return LeadSheetMeasureResizeGeometry.hitTarget(at: location, in: measure)
+        switch hitTarget.action {
+        case .resizeLeft:
+            return ActiveMeasureResizeDrag(
+                measureID: measureID,
+                edge: .left,
+                initialWidth: measure.frame.width
+            )
+        case .resizeRight:
+            return ActiveMeasureResizeDrag(
+                measureID: measureID,
+                edge: .right,
+                initialWidth: measure.frame.width
+            )
+        default:
+            return nil
+        }
     }
 
     private func hasNewChordEvent(from oldChart: Chart, to newChart: Chart) -> Bool {
@@ -2843,6 +2869,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if interactionMode.allowsChordObjectEditing,
            !isChordObjectEditingTemporarilySuppressed() {
             providers.append(ChordRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsMeasureSelection {
+            providers.append(MeasureRenderedEditHitTargetProvider())
+        }
+
+        if interactionMode.allowsHeaderAuthoringSelection {
+            providers.append(HeaderRenderedEditHitTargetProvider())
         }
 
         return providers
@@ -3209,11 +3243,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        applyTapSelection(tappedMeasureID)
-
-        if interactionMode == .browse,
-           let tappedMeasureID {
-            onMeasureSelectedFromCanvas?(tappedMeasureID)
+        if let tappedMeasureID {
+            selectMeasureFromCanvas(tappedMeasureID)
+        } else {
+            applyTapSelection(nil)
         }
 
         if interactionMode.showsTimeSignatureTargeting,
@@ -3284,13 +3317,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard interactionMode.allowsMeasureSelection else {
                 return
             }
-            applyTapSelection(measureID)
-            if interactionMode == .browse {
-                onMeasureSelectedFromCanvas?(measureID)
-            }
+            selectMeasureFromCanvas(measureID)
         case .repeatSpan, .endingSpan, .timeSignatureChange, .keyChange:
             break
         }
+    }
+
+    private func selectMeasureFromCanvas(_ measureID: UUID) {
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        applyTapSelection(measureID)
+        if interactionMode == .browse {
+            onMeasureSelectedFromCanvas?(measureID)
+        }
+        setNeedsDisplay()
     }
 
     private func handleRenderedChordTap(chordID: UUID, action: RenderedEditAction) {

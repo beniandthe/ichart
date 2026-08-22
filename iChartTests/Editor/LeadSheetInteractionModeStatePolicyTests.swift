@@ -1722,6 +1722,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.browse.drawsAllChordObjectEditControls)
     }
 
+    func testBrowseEditModeSupportsSelectedMeasureResizeWithoutActiveToolControls() {
+        let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .browse)
+
+        XCTAssertTrue(policy.measureResizePanEnabled)
+        XCTAssertFalse(policy.clearsMeasureResizeDrag)
+        XCTAssertTrue(EditorCanvasMode.browse.showsMeasureResizeHandles)
+        XCTAssertFalse(EditorCanvasMode.browse.showsActiveToolControls)
+    }
+
     func testBrowseEditModeRoutesHeaderTapsToHeaderAuthoring() {
         let chart = Chart.blank(title: "Header Tap", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(

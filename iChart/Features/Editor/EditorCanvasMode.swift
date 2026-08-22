@@ -115,7 +115,7 @@ enum EditorCanvasMode: Hashable {
     }
 
     var showsMeasureResizeHandles: Bool {
-        self == .measureEdit
+        self == .browse || self == .measureEdit
     }
 
     var showsTimeSignatureTargeting: Bool {

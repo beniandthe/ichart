@@ -1347,6 +1347,7 @@ struct EditorView: View {
         }
         .animation(.easeOut(duration: 0.16), value: selectedChordID)
         .animation(.easeOut(duration: 0.16), value: selectedCommittedBarlineMeasureID)
+        .animation(.easeOut(duration: 0.16), value: selectedMeasureID)
         .animation(.easeOut(duration: 0.16), value: selectedCueTextID)
         .animation(.easeOut(duration: 0.16), value: selectedRoadmapMarkerID)
     }
@@ -1364,6 +1365,7 @@ struct EditorView: View {
             || selectedCommittedBarlineMeasureID != nil
             || selectedCueText != nil
             || selectedRoadmapMarker != nil
+            || selectedMeasureID != nil
     }
 
     private var isEditorGuidedTourDoneActionHighlighted: Bool {
@@ -2130,6 +2132,12 @@ struct EditorView: View {
                         isDestructive: true,
                         action: deleteSelectedRoadmapMarker
                     )
+                } else if selectedMeasureID != nil {
+                    activeToolButton(
+                        title: "Measures",
+                        systemImage: "rectangle.split.3x1",
+                        action: handleSelectedMeasureActionsRequested
+                    )
                 }
             }
             .padding(.horizontal, 9)
@@ -2158,6 +2166,9 @@ struct EditorView: View {
                 .font(.subheadline.weight(.semibold))
         } else if selectedRoadmapMarker != nil {
             Label("Marker", systemImage: "signpost.right")
+                .font(.subheadline.weight(.semibold))
+        } else if selectedMeasureID != nil {
+            Label("Measure", systemImage: "rectangle.split.3x1")
                 .font(.subheadline.weight(.semibold))
         }
     }
@@ -2977,6 +2988,14 @@ struct EditorView: View {
         _ = enterMeasureEditMode()
     }
 
+    private func handleSelectedMeasureActionsRequested() {
+        guard selectedMeasureID != nil else {
+            return
+        }
+
+        _ = enterMeasureEditMode()
+    }
+
     @discardableResult
     private func enterRepeatEditMode() -> Bool {
         guard chart.hasCompletedInitialSetup else {
@@ -3746,7 +3765,14 @@ struct EditorView: View {
 
         selectedMeasureID = measureID
         clearSelectedCanvasObjectIDs()
-        _ = enterMeasureEditMode()
+        selectedNoteSelection = nil
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        inkToolMode = .write
+        canvasMode = .browse
     }
 
     private func handleChordSelectedFromCanvas(_ chordID: UUID) {

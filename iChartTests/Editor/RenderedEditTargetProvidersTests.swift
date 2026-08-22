@@ -226,6 +226,37 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(roadmapTarget.objectID, .roadmapMarker(fixture.roadmapID))
     }
 
+    func testMeasureResizeHandlesRequireSelectedMeasure() throws {
+        let fixture = pageFixture()
+        let router = RenderedEditRouter()
+        let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: fixture.measure)
+        let leftHandlePoint = CGPoint(x: handles.left.midX, y: handles.left.midY)
+        let rightHandlePoint = CGPoint(x: handles.right.midX, y: handles.right.midY)
+
+        XCTAssertNil(
+            router.dragTarget(
+                at: leftHandlePoint,
+                in: RenderedEditContext(pageLayout: fixture.pageLayout)
+            )
+        )
+
+        var selection = RenderedEditSelectionState()
+        selection.select(.measure(fixture.measureID))
+        let context = RenderedEditContext(pageLayout: fixture.pageLayout, selection: selection)
+
+        let leftTarget = try XCTUnwrap(router.dragTarget(at: leftHandlePoint, in: context))
+        XCTAssertEqual(leftTarget.objectID, .measure(fixture.measureID))
+        XCTAssertEqual(leftTarget.action, .resizeLeft)
+        XCTAssertEqual(leftTarget.priority, .selectedObjectResizeHandle)
+        XCTAssertEqual(leftTarget.mutationRisk, .visual)
+
+        let rightTarget = try XCTUnwrap(router.dragTarget(at: rightHandlePoint, in: context))
+        XCTAssertEqual(rightTarget.objectID, .measure(fixture.measureID))
+        XCTAssertEqual(rightTarget.action, .resizeRight)
+        XCTAssertEqual(rightTarget.priority, .selectedObjectResizeHandle)
+        XCTAssertEqual(rightTarget.mutationRisk, .visual)
+    }
+
     func testCueTextAndRoadmapControlsUseExistingSelectedControlFrames() throws {
         let fixture = pageFixture()
         var cueSelection = RenderedEditSelectionState()
