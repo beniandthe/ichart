@@ -3,8 +3,46 @@
 Date: 2026-08-21
 Base branch: `codex/1.1.7-build49-testflight`
 Clean base commit: `885355e` (`Record corrected TestFlight branch cleanup`)
+Implementation fallback commit: `697c2a5` (`Establish chord lane draft render baseline`)
 
 This document captures the intended chord-lane implementation after the August 2026 recovery reset. It is a product and engineering contract, not proof that the implementation is complete.
+
+## Fallback Checkpoint
+
+Commit `697c2a5` on branch `codex/chord-lane-auto-render` is the first committed baseline for the course-corrected chord-lane system.
+
+Use this as the fallback point if later work destabilizes the chord tool workflow. This checkpoint includes:
+
+- explicit draft preview before render
+- `Render Chords` as the only chord-lane commit action
+- draft/user barline recognition and preview ordering
+- restored preview bootstrap for saved chord ink
+- erased/invisible stroke filtering to prevent preview ghosts
+- select-mode chord-lane hiding
+- Pencil-enabled preview strip scrolling
+- committed chord movement, resizing, deletion, and barline deletion safeguards
+- deprecated OCR path removal from live app code, tests, diagnostics, and scripts
+
+Verification recorded at the checkpoint:
+
+- `git diff --check` passed
+- focused simulator gate passed with `173` tests, `173` passed, `0` failed, `0` skipped
+- targeted OCR search across `iChart`, `iChartTests`, `project.yml`, and `scripts` found no live OCR references
+
+If recovery is needed, prefer branching from the checkpoint instead of destroying active work:
+
+```bash
+git switch -c codex/chord-lane-recovery 697c2a5
+```
+
+Only reset an active branch to this checkpoint after saving or intentionally discarding later work:
+
+```bash
+git switch codex/chord-lane-auto-render
+git reset --hard 697c2a5
+```
+
+Future chord-lane changes should preserve this baseline contract unless a newer checkpoint explicitly supersedes it.
 
 ## Product Goal
 
