@@ -242,7 +242,6 @@ def format_metrics(metrics: dict[str, Any] | None) -> str:
         f"compose={ms('composeMilliseconds')}, "
         f"semantic={ms('semanticMilliseconds')}, "
         f"match={ms('matchMilliseconds')}, "
-        f"ocr={ms('ocrMilliseconds')}, "
         f"{sequence_summary}"
         "]"
     )
@@ -392,9 +391,6 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
         measure = event.get("measureIndex")
         measure_label = measure + 1 if isinstance(measure, int) else "?"
         close_marker = " close" if event.get("wasCloseRace") else ""
-        trust = short_text(event.get("recognitionTrustSource"), fallback="-")
-        agreement = short_text(event.get("recognitionAgreementLevel"), fallback="-")
-        ocr = short_text(event.get("ocrBestCandidateText"), fallback="-")
         primary_action = short_text(event.get("primaryRecognitionAction"), fallback="-")
         primary_accepted = short_text(event.get("primaryAcceptedText"), fallback="-")
         score_suffix = format_scores(event.get("candidateScores") or [], score_limit)
@@ -411,8 +407,7 @@ def print_diagnostic_details(chart_diagnostics: list[dict[str, Any]], score_limi
         print(
             f"  {index:02d}. m{measure_label} {resolution}{close_marker}: "
             f"accepted={accepted} rendered={rendered} best={best} "
-            f"confidence={confidence} gap={gap} trust={trust} "
-            f"agreement={agreement} ocr={ocr} "
+            f"confidence={confidence} gap={gap} "
             f"primary={primary_action}:{primary_accepted}{score_suffix}{metrics_suffix}"
             f"{timing_suffix}"
             f"{placement_suffix}"
@@ -453,11 +448,6 @@ def fallback_diagnostic_event(
         "wasCloseRace": False,
         "confidenceGap": None,
         "targetFraction": None,
-        "ocrCandidates": None,
-        "ocrBestCandidateText": None,
-        "ocrRawTexts": None,
-        "recognitionTrustSource": None,
-        "recognitionAgreementLevel": None,
         "primaryRecognitionAction": None,
         "primaryAcceptedText": None,
         "primaryRecognitionReason": None,

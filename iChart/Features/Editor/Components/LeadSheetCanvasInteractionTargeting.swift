@@ -196,7 +196,7 @@ enum LeadSheetCommittedChordBarlineOverlayGeometry {
             if lineFrame(for: measure).insetBy(dx: 3, dy: 8).contains(location) {
                 return CommittedChordBarlineHitTarget(
                     measureID: measureID,
-                    action: selectedMeasureID == measureID ? .delete : .select
+                    action: .select
                 )
             }
         }

@@ -39,18 +39,6 @@ enum LeadSheetSavedInkRenderer {
         )
     }
 
-    static func drawChordInk(
-        _ drawingData: Data?,
-        coordinateSpace: PersistentInkCoordinateSpace? = nil,
-        in pageLayout: LeadSheetPageLayout
-    ) {
-        drawInk(
-            drawingData,
-            sourceCoordinateSpace: coordinateSpace,
-            in: LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout)
-        )
-    }
-
     static func drawRhythmicNotationInk(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,

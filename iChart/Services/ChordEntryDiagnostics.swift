@@ -29,11 +29,6 @@ struct ChordEntryDiagnosticEvent: Codable, Equatable {
     var wasCloseRace: Bool
     var confidenceGap: Double?
     var targetFraction: Double?
-    var ocrCandidates: [ChordOCRCandidate]? = nil
-    var ocrBestCandidateText: String? = nil
-    var ocrRawTexts: [String]? = nil
-    var recognitionTrustSource: ChordRecognitionTrustSource? = nil
-    var recognitionAgreementLevel: ChordRecognitionAgreementLevel? = nil
     var primaryRecognitionAction: ChordInkRecognitionAction? = nil
     var primaryAcceptedText: String? = nil
     var primaryRecognitionReason: String? = nil
@@ -199,11 +194,6 @@ struct ChordEntryDiagnosticsRecorder {
                     wasCloseRace: false,
                     confidenceGap: nil,
                     targetFraction: nil,
-                    ocrCandidates: nil,
-                    ocrBestCandidateText: nil,
-                    ocrRawTexts: nil,
-                    recognitionTrustSource: nil,
-                    recognitionAgreementLevel: nil,
                     primaryRecognitionAction: nil,
                     primaryAcceptedText: nil,
                     primaryRecognitionReason: nil,

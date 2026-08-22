@@ -761,20 +761,9 @@ struct EditorView: View {
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
     @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
     private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
-    @AppStorage("iChartChordDraftBarlineSpacingMode")
-    private var chordDraftBarlineSpacingModeRaw = ChordDraftBarlineSpacingMode.drawn.rawValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
     private let onExit: (() -> Void)?
-
-    private var chordDraftBarlineSpacingMode: ChordDraftBarlineSpacingMode {
-        get {
-            ChordDraftBarlineSpacingMode(rawValue: chordDraftBarlineSpacingModeRaw) ?? .drawn
-        }
-        nonmutating set {
-            chordDraftBarlineSpacingModeRaw = newValue.rawValue
-        }
-    }
 
     private static func releaseSafeInitialCanvasMode(_ mode: EditorCanvasMode) -> EditorCanvasMode {
         guard mode != .rhythmicNotationEdit
@@ -1672,23 +1661,6 @@ struct EditorView: View {
             Label("Engraving", systemImage: "slider.horizontal.3")
         }
 
-        Menu {
-            ForEach(ChordDraftBarlineSpacingMode.allCases) { mode in
-                Button {
-                    chordDraftBarlineSpacingMode = mode
-                } label: {
-                    notationMenuLabel(
-                        mode.displayText,
-                        isSelected: chordDraftBarlineSpacingMode == mode
-                    )
-                }
-            }
-        } label: {
-            Label(
-                "Chord Barlines (\(chordDraftBarlineSpacingMode.displayText))",
-                systemImage: "rectangle.split.3x1"
-            )
-        }
     }
 
     @ViewBuilder
@@ -2502,8 +2474,7 @@ struct EditorView: View {
                 .frame(width: 15)
 
             ChordDiagnosticPreviewStrip(
-                chordTexts: chordPreviewState.draftChords.map { $0.previewText ?? "?" },
-                barlineCount: chordPreviewState.draftBarlines.count
+                items: chordDiagnosticPreviewItems
             )
 
             Text(chordPreviewStatusText)
@@ -2519,6 +2490,40 @@ struct EditorView: View {
         .background(tint.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel(chordPreviewAccessibilityLabel)
+    }
+
+    private var chordDiagnosticPreviewItems: [ChordDiagnosticPreviewItem] {
+        let chordItems = chordPreviewState.draftChords.map { draft in
+            ChordDiagnosticPreviewItem(
+                id: "chord-\(draft.id.uuidString)",
+                visualOrder: draft.visualOrder ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0),
+                kind: .chord(draft.previewText ?? "?")
+            )
+        }
+        let barlineItems = chordPreviewState.draftBarlines.map { barline in
+            ChordDiagnosticPreviewItem(
+                id: "barline-\(barline.id.uuidString)",
+                visualOrder: barline.visualOrder,
+                kind: .barline
+            )
+        }
+        let implicitBarlineItems = ChordDraftPreviewImplicitBarlinePolicy
+            .terminalBarlines(for: chordPreviewState, chart: chart)
+            .map { barline in
+                ChordDiagnosticPreviewItem(
+                    id: "implicit-barline-\(barline.id)",
+                    visualOrder: barline.visualOrder,
+                    kind: .barline
+                )
+            }
+
+        return (chordItems + barlineItems + implicitBarlineItems).sorted { lhs, rhs in
+            if lhs.visualOrder == rhs.visualOrder {
+                return lhs.id < rhs.id
+            }
+
+            return lhs.visualOrder < rhs.visualOrder
+        }
     }
 
     private var chordPreviewStatusText: String {
@@ -3914,7 +3919,7 @@ struct EditorView: View {
         var updatedChart = chart
         let renderResult = updatedChart.commitChordInkDraftBatch(
             chordPreviewState,
-            barlineSpacingMode: chordDraftBarlineSpacingMode
+            barlineSpacingMode: .drawn
         )
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
             chordInkErrorMessage = "No draft chords were ready to render yet."
@@ -3959,6 +3964,7 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
+        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
 
         IChartTelemetry.record(
@@ -4571,14 +4577,12 @@ struct EditorView: View {
         let bestRead = result.match?.displayText ?? "none"
         print(
             String(
-                format: "iChart chord proposal: decisionMs=%.0f best=%@ confidence=%.2f primaryAction=%@ finalAction=%@ trust=%@ agreement=%@ closeRace=%@ gap=%.2f reason=%@",
+                format: "iChart chord proposal: decisionMs=%.0f best=%@ confidence=%.2f primaryAction=%@ finalAction=%@ closeRace=%@ gap=%.2f reason=%@",
                 decisionMilliseconds ?? -1,
                 bestRead,
                 result.confidence,
                 primaryDecision.action.rawValue,
                 decision.action.rawValue,
-                decision.trustSource.rawValue,
-                decision.agreementLevel.rawValue,
                 decision.isCloseRace ? "yes" : "no",
                 confidenceGap,
                 decision.reason
@@ -4637,11 +4641,6 @@ struct EditorView: View {
             wasCloseRace: confirmation.decision.isCloseRace,
             confidenceGap: confirmation.decision.confidenceGap,
             targetFraction: confirmation.targetFraction,
-            ocrCandidates: confirmation.result.ocrCandidates,
-            ocrBestCandidateText: confirmation.decision.ocrBestCandidateText,
-            ocrRawTexts: confirmation.decision.ocrRawTexts,
-            recognitionTrustSource: confirmation.decision.trustSource,
-            recognitionAgreementLevel: confirmation.decision.agreementLevel,
             primaryRecognitionAction: confirmation.primaryDecision.action,
             primaryAcceptedText: confirmation.primaryDecision.acceptedText,
             primaryRecognitionReason: confirmation.primaryDecision.reason,
@@ -4987,41 +4986,28 @@ private enum EditorSheet: Identifiable {
     }
 }
 
+enum ChordDiagnosticPreviewScrollPolicy {
+    #if canImport(UIKit)
+    static let allowedTouchTypes = [
+        NSNumber(value: UITouch.TouchType.direct.rawValue),
+        NSNumber(value: UITouch.TouchType.pencil.rawValue)
+    ]
+    #endif
+
+    static func isScrollEnabled(itemCount: Int) -> Bool {
+        itemCount > 0
+    }
+}
+
 private struct ChordDiagnosticPreviewStrip: View {
-    let chordTexts: [String]
-    let barlineCount: Int
+    let items: [ChordDiagnosticPreviewItem]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: ChordDiagnosticPreviewMetrics.itemSpacing) {
-                if chordTexts.isEmpty && barlineCount == 0 {
-                    Text("-")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: ChordDiagnosticPreviewMetrics.placeholderWidth)
-                } else {
-                    ForEach(Array(chordTexts.enumerated()), id: \.offset) { _, chordText in
-                        Text(chordText)
-                            .font(.caption.weight(.bold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                            .padding(.horizontal, 7)
-                            .frame(minWidth: ChordDiagnosticPreviewMetrics.chordMinWidth, minHeight: 28)
-                            .background(Color.primary.opacity(0.055))
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-
-                    ForEach(0..<barlineCount, id: \.self) { _ in
-                        Text("|")
-                            .font(.title3.weight(.semibold))
-                            .frame(width: ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
-                    }
-                }
-            }
-            .padding(.horizontal, ChordDiagnosticPreviewMetrics.horizontalInset)
-            .frame(minWidth: ChordDiagnosticPreviewMetrics.stripWidth, alignment: .leading)
+        ChordDiagnosticPreviewPencilScrollView(
+            isScrollEnabled: ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: items.count)
+        ) {
+            ChordDiagnosticPreviewStripContent(items: items)
         }
-        .scrollDisabled(chordTexts.count + barlineCount <= ChordDiagnosticPreviewMetrics.nonScrollingItemCount)
         .frame(
             width: ChordDiagnosticPreviewMetrics.stripWidth,
             height: ChordDiagnosticPreviewMetrics.stripHeight,
@@ -5031,6 +5017,133 @@ private struct ChordDiagnosticPreviewStrip: View {
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .foregroundStyle(Color.primary)
     }
+}
+
+private struct ChordDiagnosticPreviewStripContent: View {
+    let items: [ChordDiagnosticPreviewItem]
+
+    var body: some View {
+        HStack(spacing: ChordDiagnosticPreviewMetrics.itemSpacing) {
+            if items.isEmpty {
+                Text("-")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: ChordDiagnosticPreviewMetrics.placeholderWidth)
+            } else {
+                ForEach(items) { item in
+                    switch item.kind {
+                    case .chord(let text):
+                        Text(text)
+                            .font(.caption.weight(.bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: ChordDiagnosticPreviewMetrics.chordMinWidth, minHeight: 28)
+                            .background(Color.primary.opacity(0.055))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    case .barline:
+                        Text("|")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, ChordDiagnosticPreviewMetrics.horizontalInset)
+        .frame(minWidth: ChordDiagnosticPreviewMetrics.stripWidth, alignment: .leading)
+    }
+}
+
+private struct ChordDiagnosticPreviewPencilScrollView<Content: View>: View {
+    let isScrollEnabled: Bool
+    private let content: Content
+
+    init(isScrollEnabled: Bool, @ViewBuilder content: () -> Content) {
+        self.isScrollEnabled = isScrollEnabled
+        self.content = content()
+    }
+
+    var body: some View {
+        #if canImport(UIKit)
+        ChordDiagnosticPreviewUIKitScrollView(
+            isScrollEnabled: isScrollEnabled,
+            content: content
+        )
+        #else
+        ScrollView(.horizontal, showsIndicators: false) {
+            content
+        }
+        .scrollDisabled(!isScrollEnabled)
+        #endif
+    }
+}
+
+#if canImport(UIKit)
+private struct ChordDiagnosticPreviewUIKitScrollView<Content: View>: UIViewRepresentable {
+    let isScrollEnabled: Bool
+    let content: Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(content: content)
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.backgroundColor = .clear
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = isScrollEnabled
+        scrollView.alwaysBounceVertical = false
+        scrollView.bounces = true
+        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.panGestureRecognizer.allowedTouchTypes = ChordDiagnosticPreviewScrollPolicy.allowedTouchTypes
+
+        let hostingView = context.coordinator.hostingController.view!
+        hostingView.backgroundColor = .clear
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(hostingView)
+
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            hostingView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
+        ])
+
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.hostingController.rootView = content
+        context.coordinator.hostingController.view.invalidateIntrinsicContentSize()
+        scrollView.isScrollEnabled = isScrollEnabled
+        scrollView.alwaysBounceHorizontal = isScrollEnabled
+        scrollView.panGestureRecognizer.allowedTouchTypes = ChordDiagnosticPreviewScrollPolicy.allowedTouchTypes
+    }
+
+    final class Coordinator {
+        let hostingController: UIHostingController<Content>
+
+        init(content: Content) {
+            hostingController = UIHostingController(rootView: content)
+            hostingController.sizingOptions = .intrinsicContentSize
+        }
+    }
+}
+#endif
+
+private struct ChordDiagnosticPreviewItem: Identifiable {
+    enum Kind {
+        case chord(String)
+        case barline
+    }
+
+    let id: String
+    let visualOrder: Double
+    let kind: Kind
 }
 
 private enum ChordDiagnosticPreviewMetrics {

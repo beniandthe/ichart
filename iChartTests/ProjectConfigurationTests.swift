@@ -112,13 +112,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(correctionSheetText.contains("Update to \\("))
     }
 
-    func testChordInkRenderIsTapConfirmedOnly() throws {
+    func testChordInkRenderIsExplicitDraftBatchOnly() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let hostText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
         )
         let flowText = try String(
             contentsOf: projectRoot
@@ -132,9 +136,17 @@ final class ProjectConfigurationTests: XCTestCase {
             .appendingPathComponent("iChart/Features/Editor/Components/ChordInkAutomaticRecognitionPolicy.swift")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
-        XCTAssertTrue(hostText.contains("startTapConfirmedChordInkRecognition"))
-        XCTAssertTrue(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
+        XCTAssertTrue(hostText.contains("startDraftChordInkPreviewIfStable"))
+        XCTAssertTrue(editorText.contains("commitChordInkDraftBatch"))
+        XCTAssertTrue(editorText.contains("barlineSpacingMode: .drawn"))
+        XCTAssertTrue(hostText.contains("clearsDirtyAuthoringRole: flow != .draftPreview"))
+        XCTAssertTrue(hostText.contains("clearChordDraftInkCanvas()"))
+        XCTAssertTrue(editorText.contains("chordDraftRenderInvalidationRequestID = UUID()"))
         XCTAssertTrue(flowText.contains("case tapToConfirm"))
+        XCTAssertTrue(flowText.contains("case .draftPreview, .tapToConfirm:"))
+        XCTAssertFalse(flowText.contains("return true"))
+        XCTAssertFalse(hostText.contains("startTapConfirmedChordInkRecognition"))
+        XCTAssertFalse(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
         XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
         XCTAssertFalse(hostText.contains("schedulePassiveChordInkPersistence"))
         XCTAssertFalse(hostText.contains(".automaticPreview"))
@@ -439,7 +451,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(gateText.contains("shipsDedicatedRhythmTool = false"))
-        XCTAssertTrue(gateText.contains("isConstrainedGlyphOCRPrimaryForSimpleMeters = false"))
+        XCTAssertTrue(gateText.contains("isConstrainedRetiredGlyphPrimaryForSimpleMeters = false"))
         XCTAssertTrue(editorText.contains("releaseSafeInitialCanvasMode"))
         XCTAssertTrue(editorText.contains("if isDedicatedRhythmToolAvailable"))
         XCTAssertTrue(editorText.contains("activateFreeHandForRetiredRhythmTool()"))

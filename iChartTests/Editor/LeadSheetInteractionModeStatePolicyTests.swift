@@ -591,49 +591,6 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(telemetrySnapshot.renderedInkLightPixelRatio, 0.1)
     }
 
-    func testChordOCRImageKeepsPersistentInkDarkWhenCurrentTraitIsDark() throws {
-        let drawing = PKDrawing(strokes: [
-            stroke(
-                points: [
-                    CGPoint(x: 8, y: 34),
-                    CGPoint(x: 22, y: 8),
-                    CGPoint(x: 40, y: 34)
-                ],
-                creationDate: Date(timeIntervalSince1970: 80),
-                color: LeadSheetPersistentInkColorPolicy.inkColor,
-                size: CGSize(width: 8, height: 8)
-            )
-        ])
-        var ocrImage: CGImage?
-
-        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
-            ocrImage = LeadSheetChordInkImageRenderer.ocrImage(for: drawing)
-        }
-
-        let darkCoverage = try XCTUnwrap(darkPixelCoverage(in: ocrImage))
-        XCTAssertGreaterThan(darkCoverage, 0)
-    }
-
-    func testChordOCRImageKeepsSingleRootReadableCanvasResolution() throws {
-        let drawing = PKDrawing(strokes: [
-            stroke(
-                points: [
-                    CGPoint(x: 8, y: 8),
-                    CGPoint(x: 18, y: 20),
-                    CGPoint(x: 8, y: 34)
-                ],
-                creationDate: Date(timeIntervalSince1970: 82),
-                color: LeadSheetPersistentInkColorPolicy.inkColor,
-                size: CGSize(width: 7, height: 7)
-            )
-        ])
-
-        let ocrImage = try XCTUnwrap(LeadSheetChordInkImageRenderer.ocrImage(for: drawing))
-
-        XCTAssertGreaterThanOrEqual(ocrImage.width, 384)
-        XCTAssertGreaterThanOrEqual(ocrImage.height, 384)
-    }
-
     func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
         let sourceData = Data("ink-C".utf8)
 
@@ -1083,7 +1040,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(target.fraction, 0.85)
     }
 
-    func testCommittedChordBarlineOverlaySelectsThenDeletesSelectedLine() throws {
+    func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
         let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
@@ -1100,12 +1057,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         XCTAssertEqual(selectTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
 
-        let deleteByLineTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
+        let selectedLineTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
             at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
             measures: [measure],
             selectedMeasureID: measureID
         )
-        XCTAssertEqual(deleteByLineTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
+        XCTAssertEqual(selectedLineTarget, CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
 
         let deleteFrame = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(for: measure).delete
         let deleteByControlTarget = LeadSheetCommittedChordBarlineOverlayGeometry.hitTarget(
@@ -1313,6 +1270,85 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(targets.map(\.measureID), measureIDs)
     }
 
+    func testChordBatchTargetingDoesNotSplitSingleGlyphFragmentsIntoMultipleDraftTargets() throws {
+        let chart = Chart.blank(title: "Single Glyph", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let baselineY = laneFrame.midY
+        let stemX = laneFrame.minX + 72
+        let bowlStartX = stemX + 45
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: stemX - chordFrame.minX, y: baselineY - 22 - chordFrame.minY),
+                    CGPoint(x: stemX - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: bowlStartX - chordFrame.minX, y: baselineY - 21 - chordFrame.minY),
+                    CGPoint(x: bowlStartX + 24 - chordFrame.minX, y: baselineY - 2 - chordFrame.minY),
+                    CGPoint(x: bowlStartX - chordFrame.minX, y: baselineY + 21 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        XCTAssertEqual(ChordInkBatchClusterer.clusters(for: PencilKitInkAdapter.inkStrokes(from: drawing)).count, 2)
+        XCTAssertTrue(
+            LeadSheetChordInkRecognitionTargeting.batchTargets(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: layout
+            ).isEmpty
+        )
+    }
+
+    func testChordBatchTargetingSplitsClearlySeparatedOpenLaneChordGroups() throws {
+        let chart = Chart.blank(title: "Open Lane Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let baselineY = laneFrame.midY
+        let firstX = laneFrame.minX + 70
+        let secondX = firstX + 130
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: firstX - chordFrame.minX, y: baselineY - 22 - chordFrame.minY),
+                    CGPoint(x: firstX + 26 - chordFrame.minX, y: baselineY - 4 - chordFrame.minY),
+                    CGPoint(x: firstX + 4 - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: secondX - chordFrame.minX, y: baselineY - 22 - chordFrame.minY),
+                    CGPoint(x: secondX + 26 - chordFrame.minX, y: baselineY - 4 - chordFrame.minY),
+                    CGPoint(x: secondX + 4 - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
     func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
         let chart = Chart.blank(title: "Draft Boundary Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1376,6 +1412,191 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(targets.map(\.strokes.count), [1, 1])
         XCTAssertLessThan(targets[0].fraction, targets[1].fraction)
         XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
+    func testChordBatchTargetingKeepsMultipleChordGroupsInsideDraftBarlineSegments() throws {
+        let chart = Chart.blank(title: "Draft Segment Groups", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.52
+        let y = laneFrame.midY
+        let chordXs = [0.12, 0.30, 0.64, 0.82].map { fraction in
+            laneFrame.minX + laneFrame.width * CGFloat(fraction)
+        }
+        let drawing = PKDrawing(strokes: chordXs.enumerated().map { index, x in
+            stroke(
+                points: [
+                    CGPoint(x: x - chordFrame.minX, y: y - 22 - chordFrame.minY),
+                    CGPoint(x: x + 24 - chordFrame.minX, y: y - 4 - chordFrame.minY),
+                    CGPoint(x: x + 4 - chordFrame.minX, y: y + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: TimeInterval(40 + index))
+            )
+        })
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(targets.count, 4)
+        XCTAssertEqual(targets.map(\.measureID), [measureID, measureID, measureID, measureID])
+        XCTAssertEqual(targets.map(\.strokes.count), [1, 1, 1, 1])
+        XCTAssertTrue(targets.prefix(2).allSatisfy { $0.laneLocation?.fraction ?? 1 < barlineFraction })
+        XCTAssertTrue(targets.suffix(2).allSatisfy { $0.laneLocation?.fraction ?? 0 > barlineFraction })
+        XCTAssertEqual(targets.map(\.visualOrder), targets.map(\.visualOrder).sorted())
+    }
+
+    func testChordBatchTargetingSplitsTightChordGroupsInsideDraftBarlineSegment() throws {
+        let chart = Chart.blank(title: "Tight Draft Segment Groups", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.52
+        let y = laneFrame.midY
+        let firstX = laneFrame.minX + 70
+        let secondX = firstX + 78
+        let strokes = [
+            stroke(
+                points: [
+                    CGPoint(x: firstX - chordFrame.minX, y: y - 22 - chordFrame.minY),
+                    CGPoint(x: firstX + 24 - chordFrame.minX, y: y - 4 - chordFrame.minY),
+                    CGPoint(x: firstX + 4 - chordFrame.minX, y: y + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: firstX + 30 - chordFrame.minX, y: y - 18 - chordFrame.minY),
+                    CGPoint(x: firstX + 42 - chordFrame.minX, y: y - 2 - chordFrame.minY),
+                    CGPoint(x: firstX + 32 - chordFrame.minX, y: y + 18 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: secondX - chordFrame.minX, y: y - 22 - chordFrame.minY),
+                    CGPoint(x: secondX + 24 - chordFrame.minX, y: y - 4 - chordFrame.minY),
+                    CGPoint(x: secondX + 4 - chordFrame.minX, y: y + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 42)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: secondX + 30 - chordFrame.minX, y: y - 18 - chordFrame.minY),
+                    CGPoint(x: secondX + 42 - chordFrame.minX, y: y - 2 - chordFrame.minY),
+                    CGPoint(x: secondX + 32 - chordFrame.minX, y: y + 18 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 43)
+            )
+        ]
+        let drawing = PKDrawing(strokes: strokes)
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets.map(\.measureID), [measureID, measureID])
+        XCTAssertEqual(targets.map(\.strokes.count), [2, 2])
+        XCTAssertTrue(targets.allSatisfy { $0.laneLocation?.fraction ?? 1 < barlineFraction })
+        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
+    func testChordBatchTargetingCollapsesSingleGlyphFragmentsInsideDraftBarlineSegment() throws {
+        let chart = Chart.blank(title: "Draft Fragment Collapse", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let baselineY = laneFrame.midY
+        let stemX = laneFrame.minX + 72
+        let bowlStartX = stemX + 45
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: stemX - chordFrame.minX, y: baselineY - 22 - chordFrame.minY),
+                    CGPoint(x: stemX - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: bowlStartX - chordFrame.minX, y: baselineY - 21 - chordFrame.minY),
+                    CGPoint(x: bowlStartX + 24 - chordFrame.minX, y: baselineY - 2 - chordFrame.minY),
+                    CGPoint(x: bowlStartX - chordFrame.minX, y: baselineY + 21 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: 0.54,
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertTrue(targets.isEmpty)
     }
 
     func testChordActiveInkScopeUsesExpandedChordLanesInsteadOfWholePage() throws {
@@ -1798,6 +2019,249 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
                 desiredDrawingData: nil
             )
+        )
+    }
+
+    func testRestoredChordDraftPreviewPolicyBootstrapsCleanSavedChordInkInChordEntry() {
+        let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
+
+        XCTAssertTrue(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+    }
+
+    func testRestoredChordDraftPreviewPolicyRejectsUnavailableRestoreInputs() {
+        let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
+
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .browse,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: false,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: nil,
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data(),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: nil,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+    }
+
+    func testRestoredChordDraftPreviewPolicyRejectsDirtyExistingOrRepeatedPreviewWork() {
+        let snapshot = LeadSheetInkDrawingSnapshot(testValues: [1, 2])
+        var previewState = ChordPreviewState()
+        previewState.replaceDraftBarlines(with: [
+            DraftBarline(
+                measureID: UUID(),
+                measureIndex: 0,
+                fraction: 0.5,
+                metrics: DraftBarlineGestureMetrics(
+                    height: 48,
+                    width: 2,
+                    angleDegreesFromVertical: 1,
+                    straightness: 0.95,
+                    laneCoverage: 0.8
+                )
+            )
+        ])
+
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: true,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: previewState,
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: snapshot
+            )
+        )
+        XCTAssertTrue(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: Data([0x01]),
+                isDirtyChordInk: false,
+                currentInkSnapshot: snapshot,
+                lastBootstrappedSnapshot: LeadSheetInkDrawingSnapshot(testValues: [3, 4])
+            )
+        )
+    }
+
+    func testChordEmptyDraftPreviewPolicyHandlesOnlyErasedChordInk() {
+        XCTAssertTrue(
+            ChordInkEmptyDraftPreviewPolicy.shouldHandleEmptyChordInk(
+                interactionMode: .chordEntry,
+                activeRole: .chord,
+                strokeCount: 0
+            )
+        )
+        XCTAssertFalse(
+            ChordInkEmptyDraftPreviewPolicy.shouldHandleEmptyChordInk(
+                interactionMode: .chordEntry,
+                activeRole: .chord,
+                strokeCount: 1
+            )
+        )
+        XCTAssertFalse(
+            ChordInkEmptyDraftPreviewPolicy.shouldHandleEmptyChordInk(
+                interactionMode: .browse,
+                activeRole: .chord,
+                strokeCount: 0
+            )
+        )
+        XCTAssertFalse(
+            ChordInkEmptyDraftPreviewPolicy.shouldHandleEmptyChordInk(
+                interactionMode: .chordEntry,
+                activeRole: .passive,
+                strokeCount: 0
+            )
+        )
+        XCTAssertFalse(
+            ChordInkEmptyDraftPreviewPolicy.shouldHandleEmptyChordInk(
+                interactionMode: .chordEntry,
+                activeRole: nil,
+                strokeCount: 0
+            )
+        )
+    }
+
+    func testChordEmptyDraftPreviewPolicyDiscardsOnlyNonEmptyPreview() {
+        var previewState = ChordPreviewState()
+
+        XCTAssertFalse(ChordInkEmptyDraftPreviewPolicy.shouldDiscardDraftPreview(previewState))
+
+        previewState.replaceDraftChords(with: [
+            ChordInkDraftInput(
+                measureID: UUID(),
+                measureIndex: 0,
+                targetFraction: 0.2,
+                drawingData: Data([0x01]),
+                candidateTexts: ["C"],
+                bestCandidateText: "C",
+                confidence: 0.8,
+                strokeCount: 1
+            )
+        ])
+
+        XCTAssertTrue(ChordInkEmptyDraftPreviewPolicy.shouldDiscardDraftPreview(previewState))
+    }
+
+    func testCanvasLayoutInvalidationPolicyRefreshesWhenChordLaneModeChanges() {
+        XCTAssertTrue(
+            LeadSheetCanvasLayoutInvalidationPolicy.requiresLayoutRefresh(
+                previousMode: .browse,
+                nextMode: .chordEntry
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasLayoutInvalidationPolicy.requiresLayoutRefresh(
+                previousMode: .chordEntry,
+                nextMode: .browse
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasLayoutInvalidationPolicy.requiresLayoutRefresh(
+                previousMode: .browse,
+                nextMode: .measureEdit
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasLayoutInvalidationPolicy.requiresLayoutRefresh(
+                previousMode: .freeHand,
+                nextMode: .headerEntry
+            )
+        )
+    }
+
+    func testChordDiagnosticPreviewScrollAcceptsPencilInput() {
+        XCTAssertFalse(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 0))
+        XCTAssertTrue(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 1))
+
+        let allowedTouchTypes = Set(
+            ChordDiagnosticPreviewScrollPolicy.allowedTouchTypes.map { Int($0.intValue) }
+        )
+
+        XCTAssertEqual(
+            allowedTouchTypes,
+            Set([
+                UITouch.TouchType.direct.rawValue,
+                UITouch.TouchType.pencil.rawValue
+            ])
         )
     }
 

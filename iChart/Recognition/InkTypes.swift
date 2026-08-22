@@ -194,7 +194,6 @@ enum RecognitionSource: String, Codable, Hashable {
     case template
     case heuristic
     case composer
-    case ocr
 }
 
 struct GlyphCandidate: Hashable {
@@ -229,7 +228,6 @@ struct ChordInkRecognitionMetrics: Codable, Hashable {
     var semanticMilliseconds: Double = 0
     var matchMilliseconds: Double = 0
     var totalMilliseconds: Double = 0
-    var ocrMilliseconds: Double? = nil
     var strokeCount: Int = 0
     var clusterCount: Int = 0
     var glyphCandidateColumnCount: Int = 0
@@ -238,96 +236,8 @@ struct ChordInkRecognitionMetrics: Codable, Hashable {
     var compositionMetrics: ChordInkCandidateCompositionMetrics = ChordInkCandidateCompositionMetrics()
 }
 
-enum ChordOCRCandidateSource: String, Codable, Hashable {
-    case appleVision
-    case testDouble
-}
-
-struct ChordOCRCandidate: Codable, Hashable {
-    var rawText: String
-    var displayText: String?
-    var confidence: Double
-    var source: ChordOCRCandidateSource
-
-    var isSupported: Bool {
-        displayText != nil
-    }
-
-    init(
-        rawText: String,
-        displayText: String? = nil,
-        confidence: Double,
-        source: ChordOCRCandidateSource
-    ) {
-        self.rawText = rawText
-        self.displayText = displayText
-        self.confidence = confidence
-        self.source = source
-    }
-
-    static func normalized(
-        rawText: String,
-        confidence: Double,
-        source: ChordOCRCandidateSource
-    ) -> ChordOCRCandidate {
-        let displayText = bestCompendiumMatch(for: rawText)?.displayText
-        return ChordOCRCandidate(
-            rawText: rawText,
-            displayText: displayText,
-            confidence: confidence,
-            source: source
-        )
-    }
-
-    private static func bestCompendiumMatch(for rawText: String) -> ChordRecognitionMatch? {
-        for candidate in normalizedCandidateTexts(from: rawText) {
-            if let match = ChordRecognitionCompendium.match(candidate) {
-                return match
-            }
-        }
-
-        return nil
-    }
-
-    private static func normalizedCandidateTexts(from rawText: String) -> [String] {
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return []
-        }
-
-        let compact = trimmed.filter { !$0.isWhitespace }
-        let musical = compact
-            .replacingOccurrences(of: "♯", with: "#")
-            .replacingOccurrences(of: "＃", with: "#")
-            .replacingOccurrences(of: "♭", with: "b")
-            .replacingOccurrences(of: "Δ", with: "△")
-            .replacingOccurrences(of: "∆", with: "△")
-            .replacingOccurrences(of: "−", with: "-")
-            .replacingOccurrences(of: "–", with: "-")
-            .replacingOccurrences(of: "—", with: "-")
-
-        var candidates: [String] = []
-        for candidate in [trimmed, compact, musical] {
-            guard !candidate.isEmpty,
-                  !candidates.contains(candidate) else {
-                continue
-            }
-
-            candidates.append(candidate)
-        }
-
-        return candidates
-    }
-}
-
 struct ChordInkRecognitionOptions: Hashable {
-    enum OCRRequestPolicy: Hashable {
-        case trustGated
-        case always
-    }
-
     var includesSymbolLedgerDiagnostics: Bool = false
-    var ocrRequestPolicy: OCRRequestPolicy = .trustGated
 
     static let live = ChordInkRecognitionOptions()
     static let includingSymbolLedgerDiagnostics = ChordInkRecognitionOptions(
@@ -341,7 +251,6 @@ struct ChordInkRecognitionResult: Hashable {
     var match: ChordRecognitionMatch?
     var confidence: Double
     var candidateScores: [ChordInkCandidateScore] = []
-    var ocrCandidates: [ChordOCRCandidate]? = nil
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
@@ -377,28 +286,6 @@ struct ChordInkRecognitionDecision: Hashable {
     var isCloseRace: Bool
     var competingCandidateText: String?
     var confidenceGap: Double?
-    var trustSource: ChordRecognitionTrustSource = .primaryRecognizer
-    var agreementLevel: ChordRecognitionAgreementLevel = .ocrNotRequested
-    var ocrBestCandidateText: String?
-    var ocrRawTexts: [String] = []
-}
-
-enum ChordRecognitionTrustSource: String, Codable, Hashable {
-    case primaryRecognizer
-    case primaryWithOCRAgreement
-    case primaryWithOCRDisagreement
-    case ocrSupportedCandidate
-}
-
-enum ChordRecognitionAgreementLevel: String, Codable, Hashable {
-    case ocrNotRequested
-    case noOCREvidence
-    case ocrInvalid
-    case partialOCR
-    case agreesWithPrimary
-    case supportsRunnerUp
-    case disagreesWithPrimary
-    case ocrOnlySupported
 }
 
 enum ChordInkRecognitionPolicy {

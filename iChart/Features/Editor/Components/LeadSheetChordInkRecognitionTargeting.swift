@@ -30,6 +30,8 @@ private struct MeasureLaneStrokeTarget {
 }
 
 enum LeadSheetChordInkRecognitionTargeting {
+    private static let maximumBatchTargetCount = 64
+
     static func target(
         for drawing: PKDrawing,
         chordFrame: CGRect,
@@ -70,19 +72,26 @@ enum LeadSheetChordInkRecognitionTargeting {
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
-        let clusters = draftBarlineClusters.count > 1
-            && draftBarlineClusters.count <= ChordInkBatchClusterer.maximumClusterCount
-            ? draftBarlineClusters
-            : measureLaneClusters.count > 1
-            && measureLaneClusters.count <= ChordInkBatchClusterer.maximumClusterCount
-            ? measureLaneClusters
-            : ChordInkBatchClusterer.clusters(for: inkStrokes)
+        let clusters: [ChordInkBatchCluster]
+        let requiresFragmentCollapseCheck: Bool
+        if draftBarlineClusters.count > 1,
+           draftBarlineClusters.count <= maximumBatchTargetCount {
+            clusters = draftBarlineClusters
+            requiresFragmentCollapseCheck = false
+        } else if measureLaneClusters.count > 1,
+                  measureLaneClusters.count <= maximumBatchTargetCount {
+            clusters = measureLaneClusters
+            requiresFragmentCollapseCheck = true
+        } else {
+            clusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
+            requiresFragmentCollapseCheck = true
+        }
         guard clusters.count > 1,
-              clusters.count <= ChordInkBatchClusterer.maximumClusterCount else {
+              clusters.count <= maximumBatchTargetCount else {
             return []
         }
 
-        return clusters.compactMap { cluster in
+        let targets: [LeadSheetChordInkRecognitionBatchTarget] = clusters.compactMap { cluster in
             guard let target = target(forInkBounds: cluster.bounds.cgRect, chordFrame: chordFrame, pageLayout: pageLayout) else {
                 return nil
             }
@@ -122,6 +131,15 @@ enum LeadSheetChordInkRecognitionTargeting {
                 drawing: clusterDrawing
             )
         }
+        if requiresFragmentCollapseCheck,
+           ChordLaneRawBatchSplitPolicy.shouldCollapseNonBarlinedSplit(
+            clusters: clusters,
+            targets: targets
+           ) {
+            return []
+        }
+
+        return targets
     }
 
     private static func draftBarlineLaneClusters(
@@ -157,7 +175,7 @@ enum LeadSheetChordInkRecognitionTargeting {
             return []
         }
 
-        var bucketByKey = [DraftBarlineLaneClusterKey: (strokeIndices: [Int], bounds: InkBounds)]()
+        var bucketByKey = [DraftBarlineLaneClusterKey: [(index: Int, stroke: InkStroke)]]()
         for indexedStroke in indexedStrokes {
             let strokeBoundsInView = indexedStroke.element.bounds.cgRect
                 .offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
@@ -169,9 +187,6 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
 
             let positions = lanePositions[laneMatch.systemIndex] ?? []
-            guard !positions.isEmpty else {
-                return []
-            }
 
             let centerX = strokeBoundsInView.midX
             let segmentIndex = positions.firstIndex { centerX < $0 } ?? positions.count
@@ -179,17 +194,7 @@ enum LeadSheetChordInkRecognitionTargeting {
                 systemIndex: laneMatch.systemIndex,
                 segmentIndex: segmentIndex
             )
-            if let existing = bucketByKey[key] {
-                bucketByKey[key] = (
-                    strokeIndices: existing.strokeIndices + [indexedStroke.offset],
-                    bounds: existing.bounds.union(indexedStroke.element.bounds)
-                )
-            } else {
-                bucketByKey[key] = (
-                    strokeIndices: [indexedStroke.offset],
-                    bounds: indexedStroke.element.bounds
-                )
-            }
+            bucketByKey[key, default: []].append((index: indexedStroke.offset, stroke: indexedStroke.element))
         }
 
         return bucketByKey
@@ -200,13 +205,57 @@ enum LeadSheetChordInkRecognitionTargeting {
 
                 return lhs.key.systemIndex < rhs.key.systemIndex
             }
-            .map { _, value in
-                ChordInkBatchCluster(
-                    strokeIndices: value.strokeIndices,
-                    bounds: value.bounds
-                )
+            .flatMap { _, bucketStrokes in
+                let orderedBucketStrokes = bucketStrokes.sorted { lhs, rhs in
+                    if lhs.stroke.bounds.minX == rhs.stroke.bounds.minX {
+                        return lhs.index < rhs.index
+                    }
+
+                    return lhs.stroke.bounds.minX < rhs.stroke.bounds.minX
+                }
+
+                return laneSegmentClusters(for: orderedBucketStrokes)
             }
             .filter(\.isUsable)
+    }
+
+    private static func laneSegmentClusters(
+        for orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> [ChordInkBatchCluster] {
+        guard !orderedStrokes.isEmpty else {
+            return []
+        }
+
+        let wholeBucketCluster = ChordInkBatchCluster(
+            strokeIndices: orderedStrokes.map(\.index),
+            bounds: InkBounds.enclosing(orderedStrokes.map(\.stroke.bounds))
+        )
+        let clusters = ChordLaneDraftSegmentClusterer.clusters(for: orderedStrokes.map(\.stroke))
+            .compactMap { localCluster -> ChordInkBatchCluster? in
+                let originalIndices = localCluster.strokeIndices.compactMap { localIndex -> Int? in
+                    guard orderedStrokes.indices.contains(localIndex) else {
+                        return nil
+                    }
+
+                    return orderedStrokes[localIndex].index
+                }
+                guard !originalIndices.isEmpty else {
+                    return nil
+                }
+
+                return ChordInkBatchCluster(
+                    strokeIndices: originalIndices,
+                    bounds: localCluster.bounds
+                )
+            }
+
+        guard clusters.count > 1 else {
+            return clusters
+        }
+
+        return ChordLaneRawBatchSplitPolicy.shouldCollapseLaneSegmentSplit(clusters: clusters)
+            ? [wholeBucketCluster]
+            : clusters
     }
 
     private static func draftBarlineLanePositions(
@@ -217,13 +266,13 @@ enum LeadSheetChordInkRecognitionTargeting {
 
         for barline in draftBarlines where barline.isRenderable {
             guard let match = systemLaneMatch(
-                containing: barline.measureID,
+                for: barline,
                 in: pageLayout
             ) else {
                 continue
             }
 
-            let xPosition = match.laneFrame.minX + match.laneFrame.width * CGFloat(barline.fraction)
+            let xPosition = match.laneFrame.minX + match.laneFrame.width * CGFloat(barline.laneFraction)
             positionsBySystemIndex[match.systemIndex, default: []].append(xPosition)
         }
 
@@ -249,6 +298,22 @@ enum LeadSheetChordInkRecognitionTargeting {
         }
 
         return nil
+    }
+
+    private static func systemLaneMatch(
+        for barline: DraftBarline,
+        in pageLayout: LeadSheetPageLayout
+    ) -> (systemIndex: Int, laneFrame: CGRect)? {
+        if let laneLocation = barline.laneLocation,
+           let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
+           let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system,
+            paperFrame: pageLayout.paperFrame
+           ) {
+            return (system.index, laneFrame)
+        }
+
+        return systemLaneMatch(containing: barline.measureID, in: pageLayout)
     }
 
     private static func laneMatch(
@@ -517,6 +582,151 @@ private extension InkBounds {
             width: width,
             height: height
         )
+    }
+}
+
+private enum ChordLaneRawBatchSplitPolicy {
+    private static let minimumStandaloneWidth = 16.0
+    private static let minimumStandaloneHeight = 18.0
+    private static let minimumWidthToHeightRatio = 0.28
+
+    static func hasStandaloneChordEvidence(in clusters: [ChordInkBatchCluster]) -> Bool {
+        guard clusters.count > 1 else {
+            return false
+        }
+
+        return clusters.allSatisfy(isStandaloneChordSized)
+    }
+
+    static func shouldCollapseNonBarlinedSplit(
+        clusters: [ChordInkBatchCluster],
+        targets: [LeadSheetChordInkRecognitionBatchTarget]
+    ) -> Bool {
+        guard clusters.count == targets.count,
+              targets.count > 1,
+              targetsShareSingleLaneAnchor(targets) else {
+            return false
+        }
+
+        return !hasStandaloneChordEvidence(in: clusters)
+    }
+
+    static func shouldCollapseLaneSegmentSplit(clusters: [ChordInkBatchCluster]) -> Bool {
+        guard clusters.count > 1 else {
+            return false
+        }
+
+        return !hasStandaloneChordEvidence(in: clusters)
+    }
+
+    private static func targetsShareSingleLaneAnchor(
+        _ targets: [LeadSheetChordInkRecognitionBatchTarget]
+    ) -> Bool {
+        guard Set(targets.map(\.measureID)).count == 1 else {
+            return false
+        }
+
+        let laneIndexes = targets.compactMap(\.laneLocation?.systemIndex)
+        guard laneIndexes.count == targets.count else {
+            return true
+        }
+
+        return Set(laneIndexes).count == 1
+    }
+
+    private static func isStandaloneChordSized(_ cluster: ChordInkBatchCluster) -> Bool {
+        let bounds = cluster.bounds
+        guard bounds.width >= minimumStandaloneWidth,
+              bounds.height >= minimumStandaloneHeight else {
+            return false
+        }
+
+        return bounds.width / max(1, bounds.height) >= minimumWidthToHeightRatio
+    }
+}
+
+private enum ChordLaneDraftSegmentClusterer {
+    private static let maximumClusterCount = 12
+
+    static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
+        let indexedStrokes = strokes.enumerated()
+            .filter { _, stroke in
+                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.bounds.minX == rhs.element.bounds.minX {
+                    return lhs.offset < rhs.offset
+                }
+
+                return lhs.element.bounds.minX < rhs.element.bounds.minX
+            }
+
+        guard indexedStrokes.count > 1 else {
+            return indexedStrokes.map { indexedStroke in
+                ChordInkBatchCluster(
+                    strokeIndices: [indexedStroke.offset],
+                    bounds: indexedStroke.element.bounds
+                )
+            }
+        }
+
+        let splitGap = horizontalSplitGap(for: indexedStrokes.map(\.element))
+        var clusters = [ChordInkBatchCluster]()
+        var currentIndices = [Int]()
+        var currentBounds: InkBounds?
+
+        for indexedStroke in indexedStrokes {
+            let stroke = indexedStroke.element
+            if let bounds = currentBounds {
+                let gap = stroke.bounds.minX - bounds.maxX
+                if gap > splitGap {
+                    clusters.append(
+                        ChordInkBatchCluster(
+                            strokeIndices: currentIndices,
+                            bounds: bounds
+                        )
+                    )
+                    currentIndices = [indexedStroke.offset]
+                    currentBounds = stroke.bounds
+                } else {
+                    currentIndices.append(indexedStroke.offset)
+                    currentBounds = bounds.union(stroke.bounds)
+                }
+            } else {
+                currentIndices = [indexedStroke.offset]
+                currentBounds = stroke.bounds
+            }
+        }
+
+        if let currentBounds {
+            clusters.append(
+                ChordInkBatchCluster(
+                    strokeIndices: currentIndices,
+                    bounds: currentBounds
+                )
+            )
+        }
+
+        let usableClusters = clusters.filter(\.isUsable)
+        guard usableClusters.count <= maximumClusterCount else {
+            return [
+                ChordInkBatchCluster(
+                    strokeIndices: indexedStrokes.map(\.offset),
+                    bounds: InkBounds.enclosing(indexedStrokes.map(\.element.bounds))
+                )
+            ]
+        }
+
+        return usableClusters
+    }
+
+    private static func horizontalSplitGap(for strokes: [InkStroke]) -> Double {
+        let heights = strokes
+            .map(\.bounds.height)
+            .filter { $0 > 0 }
+            .sorted()
+        let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
+        return max(28, min(44, medianHeight * 0.7))
     }
 }
 #endif
