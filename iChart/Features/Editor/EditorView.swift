@@ -4207,7 +4207,7 @@ struct EditorView: View {
             barlineSpacingMode: .drawn
         )
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
-            chordInkErrorMessage = "No draft chords were ready to render yet."
+            chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
             showingChordInkError = true
             return
         }

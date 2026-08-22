@@ -1040,16 +1040,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(target.fraction, 0.85)
     }
 
-    func testChordMoveTargetRejectsCommittedSimpleTerminalFiller() throws {
-        let fixture = try committedTerminalFillerFixture()
+    func testChordMoveTargetUsesCommittedSimpleTerminalSpan() throws {
+        let fixture = try committedTerminalSpanFixture()
+        let measureID = try XCTUnwrap(fixture.measure.sourceMeasureID)
 
-        XCTAssertNil(
+        let target = try XCTUnwrap(
             LeadSheetCanvasInteractionTargeting.chordMoveTarget(
                 measureAnchor: fixture.location,
                 fractionAnchorX: fixture.location.x,
                 in: fixture.layout
             )
         )
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertGreaterThan(target.fraction, 0.8)
     }
 
     func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
@@ -1254,8 +1257,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(target.fraction, 0.2)
     }
 
-    func testChordTargetingRejectsInkInCommittedSimpleTerminalFiller() throws {
-        let fixture = try committedTerminalFillerFixture()
+    func testChordTargetingUsesCommittedSimpleTerminalSpan() throws {
+        let fixture = try committedTerminalSpanFixture()
+        let measureID = try XCTUnwrap(fixture.measure.sourceMeasureID)
         let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: fixture.layout)
         let localCenter = CGPoint(
             x: fixture.location.x - chordFrame.minX,
@@ -1271,13 +1275,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             )
         ])
 
-        XCTAssertNil(
+        let target = try XCTUnwrap(
             LeadSheetChordInkRecognitionTargeting.target(
                 for: drawing,
                 chordFrame: chordFrame,
                 pageLayout: fixture.layout
             )
         )
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertGreaterThan(target.fraction, 0.8)
     }
 
     func testChordBatchTargetingSplitsAdjacentMeasureChordGroups() throws {
@@ -3163,7 +3169,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    private func committedTerminalFillerFixture(
+    private func committedTerminalSpanFixture(
         pageSize: CGSize = CGSize(width: 900, height: 1400)
     ) throws -> (
         chart: Chart,
@@ -3200,7 +3206,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(measure.isOpen)
-        XCTAssertTrue(
+        XCTAssertFalse(
             LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
                 location,
                 in: system,

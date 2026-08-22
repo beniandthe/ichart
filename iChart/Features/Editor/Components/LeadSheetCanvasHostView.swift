@@ -1998,12 +1998,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     after: measure,
                     before: nextMeasure
                 ) {
-                    renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+                    let barlineMeasure = displayMeasureLayout(measure, in: system)
+                    renderer.drawBarline(measure.barlineAfter, in: barlineMeasure.trailingBarlineFrame)
                 }
             }
         }
 
-        renderer.drawSimpleChordStanzaTerminalBarline(for: system, paperFrame: paperFrame)
+        if LeadSheetSimpleChordTerminalBarlineGeometry.shouldDrawStandaloneTerminalBarline(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: chart.layoutStyle
+        ) {
+            renderer.drawSimpleChordStanzaTerminalBarline(for: system, paperFrame: paperFrame)
+        }
     }
 
     private func drawRepeatMarkers(
@@ -2322,6 +2329,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     ? system.measures[nextMeasureIndex]
                     : nil
                 guard let measureID = measure.sourceMeasureID,
+                      nextMeasure != nil,
                       chart.canDeleteCommittedSimpleChordBarline(after: measureID),
                       LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
                         after: measure,

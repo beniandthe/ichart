@@ -215,17 +215,6 @@ enum LeadSheetCanvasInteractionTargeting {
             return nil
         }
 
-        if pageLayout.systems.contains(where: { system in
-            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
-                location,
-                in: system,
-                paperFrame: pageLayout.paperFrame,
-                layoutStyle: layoutStyle
-            )
-        }) {
-            return nil
-        }
-
         for measure in pageLayout.systems.flatMap(\.measures) {
             if measure.frame.insetBy(dx: -6, dy: -6).contains(location) {
                 return measure
@@ -308,15 +297,6 @@ enum LeadSheetCanvasInteractionTargeting {
                 continue
             }
 
-            if LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
-                measureAnchor,
-                in: system,
-                paperFrame: pageLayout.paperFrame,
-                layoutStyle: .simpleChordSheet
-            ) {
-                return nil
-            }
-
             let systemMeasures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
                 guard measure.sourceMeasureID != nil else {
                     return nil
@@ -341,17 +321,6 @@ enum LeadSheetCanvasInteractionTargeting {
             let rawFraction = (fractionAnchorX - referenceFrame.minX)
                 / max(1, referenceFrame.width)
             return (measureID, Double(min(max(rawFraction, 0), 0.9999)))
-        }
-
-        if pageLayout.systems.contains(where: { system in
-            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
-                measureAnchor,
-                in: system,
-                paperFrame: pageLayout.paperFrame,
-                layoutStyle: .simpleChordSheet
-            )
-        }) {
-            return nil
         }
 
         let measures = pageLayout.systems.flatMap(\.measures)

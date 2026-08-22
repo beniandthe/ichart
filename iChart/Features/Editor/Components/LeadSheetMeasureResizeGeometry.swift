@@ -52,8 +52,8 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> LeadSheetMeasureLayout {
-        guard measure.isOpen,
-              system.measures.last?.id == measure.id,
+        guard system.measures.last?.id == measure.id,
+              (measure.isOpen || measure.sourceMeasureID != nil),
               let terminalFrame = barlineFrame(
                 for: system,
                 paperFrame: paperFrame,
@@ -77,12 +77,52 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         return displayMeasure
     }
 
+    static func shouldDrawStandaloneTerminalBarline(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        !usesTerminalBarlineAsTrailingBoundary(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        )
+    }
+
+    static func usesTerminalBarlineAsTrailingBoundary(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        guard layoutStyle == .simpleChordSheet,
+              let referenceMeasure = system.measures.last,
+              referenceMeasure.sourceMeasureID != nil,
+              LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                after: referenceMeasure,
+                before: nil
+              ),
+              let terminalFrame = barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ) else {
+            return false
+        }
+
+        return terminalFrame.midX > referenceMeasure.trailingBarlineFrame.midX + 1
+    }
+
     static func terminalFillerFrame(
         for system: LeadSheetSystemLayout,
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> CGRect? {
         guard layoutStyle == .simpleChordSheet,
+              !usesTerminalBarlineAsTrailingBoundary(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ),
               system.staffLineYPositions.isEmpty,
               let referenceMeasure = system.measures.last,
               !referenceMeasure.isOpen,
@@ -141,6 +181,23 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         }
 
         return frame.minX < laneX && laneX < frame.maxX
+    }
+
+    static func terminalBoundaryContainsLaneX(
+        _ laneX: CGFloat,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        guard let terminalFrame = barlineFrame(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        ) else {
+            return false
+        }
+
+        return abs(laneX - terminalFrame.midX) <= 12
     }
 }
 

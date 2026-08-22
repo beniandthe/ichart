@@ -424,9 +424,6 @@ enum LeadSheetChordInkRecognitionTargeting {
 
         let inkBoundsInView = inkBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
         let inkCenter = CGPoint(x: inkBoundsInView.midX, y: inkBoundsInView.midY)
-        if isInCommittedTerminalFiller(inkCenter, pageLayout: pageLayout) {
-            return nil
-        }
 
         let candidateMeasures = pageLayout.systems.flatMap(\.measures).compactMap { measure -> LeadSheetMeasureLayout? in
             guard measure.chordInkTargetMeasureID != nil else {
@@ -451,20 +448,6 @@ enum LeadSheetChordInkRecognitionTargeting {
         return openLaneFallbackTarget(at: inkCenter, in: pageLayout)
     }
 
-    private static func isInCommittedTerminalFiller(
-        _ location: CGPoint,
-        pageLayout: LeadSheetPageLayout
-    ) -> Bool {
-        pageLayout.systems.contains { system in
-            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
-                location,
-                in: system,
-                paperFrame: pageLayout.paperFrame,
-                layoutStyle: .simpleChordSheet
-            )
-        }
-    }
-
     private static func score(
         _ inkBounds: CGRect,
         center: CGPoint,
@@ -483,15 +466,6 @@ enum LeadSheetChordInkRecognitionTargeting {
         in pageLayout: LeadSheetPageLayout
     ) -> (measureID: UUID, fraction: Double)? {
         for system in pageLayout.systems {
-            guard !LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
-                center,
-                in: system,
-                paperFrame: pageLayout.paperFrame,
-                layoutStyle: .simpleChordSheet
-            ) else {
-                continue
-            }
-
             let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
                 guard measure.chordInkTargetMeasureID != nil else {
                     return nil
