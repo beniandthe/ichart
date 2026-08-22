@@ -1040,6 +1040,18 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(target.fraction, 0.85)
     }
 
+    func testChordMoveTargetRejectsCommittedSimpleTerminalFiller() throws {
+        let fixture = try committedTerminalFillerFixture()
+
+        XCTAssertNil(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: fixture.location,
+                fractionAnchorX: fixture.location.x,
+                in: fixture.layout
+            )
+        )
+    }
+
     func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
         let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1240,6 +1252,32 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(target.measureID, measureID)
         XCTAssertGreaterThanOrEqual(target.fraction, 0)
         XCTAssertLessThan(target.fraction, 0.2)
+    }
+
+    func testChordTargetingRejectsInkInCommittedSimpleTerminalFiller() throws {
+        let fixture = try committedTerminalFillerFixture()
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: fixture.layout)
+        let localCenter = CGPoint(
+            x: fixture.location.x - chordFrame.minX,
+            y: fixture.location.y - chordFrame.minY
+        )
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: localCenter.x - 9, y: localCenter.y - 9),
+                    CGPoint(x: localCenter.x + 9, y: localCenter.y + 9)
+                ],
+                creationDate: Date(timeIntervalSince1970: 30)
+            )
+        ])
+
+        XCTAssertNil(
+            LeadSheetChordInkRecognitionTargeting.target(
+                for: drawing,
+                chordFrame: chordFrame,
+                pageLayout: fixture.layout
+            )
+        )
     }
 
     func testChordBatchTargetingSplitsAdjacentMeasureChordGroups() throws {
@@ -2481,17 +2519,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let lastGroupedMeasure = try XCTUnwrap(
             layout.systems[0].measures.first { $0.sourceMeasureID == measureIDs[3] }
         )
-        let displayedLastGroupedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
-            lastGroupedMeasure,
-            in: layout.systems[0],
-            paperFrame: layout.paperFrame,
-            layoutStyle: chart.layoutStyle
-        )
 
         XCTAssertEqual(affordance.selectedMeasureID, measureIDs[1])
         XCTAssertEqual(affordance.groupedMeasureIDs, Array(measureIDs[1..<4]))
         XCTAssertEqual(affordance.groupFrame.minX, selectedMeasure.frame.minX, accuracy: 0.001)
-        XCTAssertEqual(affordance.groupFrame.maxX, displayedLastGroupedMeasure.frame.maxX, accuracy: 0.001)
+        XCTAssertEqual(affordance.groupFrame.maxX, lastGroupedMeasure.frame.maxX, accuracy: 0.001)
         XCTAssertLessThan(affordance.guideY, affordance.groupFrame.midY)
     }
 
@@ -3108,6 +3140,55 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             ],
             creationDate: creationDate
         )
+    }
+
+    private func committedTerminalFillerFixture(
+        pageSize: CGSize = CGSize(width: 900, height: 1400)
+    ) throws -> (
+        chart: Chart,
+        layout: LeadSheetPageLayout,
+        system: LeadSheetSystemLayout,
+        measure: LeadSheetMeasureLayout,
+        location: CGPoint
+    ) {
+        var chart = Chart.blank(title: "Committed Row End", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: pageSize
+        )
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.last)
+        let laneFrame = try XCTUnwrap(
+            LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: layout.paperFrame
+            )
+        )
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let location = CGPoint(
+            x: (measure.frame.maxX + terminalFrame.midX) / 2,
+            y: laneFrame.midY
+        )
+
+        XCTAssertFalse(measure.isOpen)
+        XCTAssertTrue(
+            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
+                location,
+                in: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+
+        return (chart, layout, system, measure, location)
     }
 
     private func chordStroke(

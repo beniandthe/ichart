@@ -52,7 +52,8 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> LeadSheetMeasureLayout {
-        guard system.measures.last?.id == measure.id,
+        guard measure.isOpen,
+              system.measures.last?.id == measure.id,
               let terminalFrame = barlineFrame(
                 for: system,
                 paperFrame: paperFrame,
@@ -74,6 +75,72 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         displayMeasure.writableFrame.size.width += addedWidth
         displayMeasure.trailingBarlineFrame = terminalFrame
         return displayMeasure
+    }
+
+    static func terminalFillerFrame(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGRect? {
+        guard layoutStyle == .simpleChordSheet,
+              system.staffLineYPositions.isEmpty,
+              let referenceMeasure = system.measures.last,
+              !referenceMeasure.isOpen,
+              referenceMeasure.sourceMeasureID != nil,
+              let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system,
+                paperFrame: paperFrame
+              ),
+              let terminalFrame = barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ) else {
+            return nil
+        }
+
+        let fillerStartX = max(referenceMeasure.frame.maxX, referenceMeasure.trailingBarlineFrame.midX)
+        let fillerEndX = terminalFrame.midX
+        guard fillerEndX > fillerStartX + 1 else {
+            return nil
+        }
+
+        return CGRect(
+            x: fillerStartX,
+            y: laneFrame.minY,
+            width: fillerEndX - fillerStartX,
+            height: laneFrame.height
+        )
+    }
+
+    static func containsTerminalFiller(
+        _ location: CGPoint,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        terminalFillerFrame(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        )?.insetBy(dx: -4, dy: -4).contains(location) == true
+    }
+
+    static func terminalFillerContainsLaneX(
+        _ laneX: CGFloat,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        guard let frame = terminalFillerFrame(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        ) else {
+            return false
+        }
+
+        return frame.minX < laneX && laneX < frame.maxX
     }
 }
 
