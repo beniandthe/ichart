@@ -91,6 +91,44 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertNil(RenderedEditRouter().dragTarget(at: bodyLocation, in: context))
     }
 
+    func testSelectedRenderedObjectsCanStartMoveThroughRouter() throws {
+        let fixture = pageFixture()
+        let router = RenderedEditRouter()
+
+        var chordSelection = RenderedEditSelectionState()
+        chordSelection.select(.chord(fixture.chordID))
+        let chordDrag = try XCTUnwrap(
+            router.dragTarget(
+                at: CGPoint(x: fixture.chordLayout.frame.midX, y: fixture.chordLayout.frame.midY),
+                in: RenderedEditContext(pageLayout: fixture.pageLayout, selection: chordSelection)
+            )
+        )
+        XCTAssertEqual(chordDrag.objectID, .chord(fixture.chordID))
+        XCTAssertEqual(chordDrag.action, .move)
+
+        var cueSelection = RenderedEditSelectionState()
+        cueSelection.select(.cueText(fixture.cueTextID))
+        let cueDrag = try XCTUnwrap(
+            router.dragTarget(
+                at: CGPoint(x: fixture.cueTextLayout.frame.midX, y: fixture.cueTextLayout.frame.midY),
+                in: RenderedEditContext(pageLayout: fixture.pageLayout, selection: cueSelection)
+            )
+        )
+        XCTAssertEqual(cueDrag.objectID, .cueText(fixture.cueTextID))
+        XCTAssertEqual(cueDrag.action, .move)
+
+        var roadmapSelection = RenderedEditSelectionState()
+        roadmapSelection.select(.roadmapMarker(fixture.roadmapID))
+        let roadmapDrag = try XCTUnwrap(
+            router.dragTarget(
+                at: CGPoint(x: fixture.roadmapLayout.frame.midX, y: fixture.roadmapLayout.frame.midY),
+                in: RenderedEditContext(pageLayout: fixture.pageLayout, selection: roadmapSelection)
+            )
+        )
+        XCTAssertEqual(roadmapDrag.objectID, .roadmapMarker(fixture.roadmapID))
+        XCTAssertEqual(roadmapDrag.action, .move)
+    }
+
     func testCommittedBarlineProviderMatchesExistingLineAndSelectedDeleteControl() throws {
         let fixture = pageFixture()
         let barlineObjectID = RenderedEditObjectID.committedChordBarline(afterMeasureID: fixture.measureID)

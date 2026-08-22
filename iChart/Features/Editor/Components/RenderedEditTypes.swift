@@ -135,6 +135,20 @@ struct RenderedEditSelectionState: Equatable {
     }
 }
 
+struct RenderedEditDragState: Equatable {
+    var target: RenderedEditHitTarget
+    var startLocation: CGPoint
+
+    init?(target: RenderedEditHitTarget, startLocation: CGPoint) {
+        guard target.action.isMove || target.action.isResize else {
+            return nil
+        }
+
+        self.target = target
+        self.startLocation = startLocation
+    }
+}
+
 enum RenderedEditSelectionPolicy {
     static func resolvedTapTarget(
         _ hitTarget: RenderedEditHitTarget?,

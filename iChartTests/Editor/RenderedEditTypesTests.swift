@@ -183,6 +183,36 @@ final class RenderedEditTypesTests: XCTestCase {
         )
     }
 
+    func testDragStateAcceptsOnlyMoveAndResizeTargets() throws {
+        let moveTarget = hitTarget(
+            objectID: .chord(UUID()),
+            action: .move,
+            priority: .selectedObjectMoveBody,
+            requiresSelection: true,
+            mutationRisk: .visual
+        )
+        let resizeTarget = hitTarget(
+            objectID: .chord(UUID()),
+            action: .resizeTrailing,
+            priority: .selectedObjectResizeHandle,
+            requiresSelection: true,
+            mutationRisk: .visual
+        )
+        let tapTarget = hitTarget(
+            objectID: .chord(UUID()),
+            action: .select,
+            priority: .objectBodySelect
+        )
+
+        let startLocation = CGPoint(x: 17, y: 29)
+        let moveState = try XCTUnwrap(RenderedEditDragState(target: moveTarget, startLocation: startLocation))
+        let resizeState = try XCTUnwrap(RenderedEditDragState(target: resizeTarget, startLocation: startLocation))
+
+        XCTAssertEqual(moveState.target, moveTarget)
+        XCTAssertEqual(resizeState.target, resizeTarget)
+        XCTAssertNil(RenderedEditDragState(target: tapTarget, startLocation: startLocation))
+    }
+
     private func hitTarget(
         objectID: RenderedEditObjectID,
         action: RenderedEditAction,

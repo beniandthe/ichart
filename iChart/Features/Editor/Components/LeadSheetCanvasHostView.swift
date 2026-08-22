@@ -2798,6 +2798,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             .tapTarget(at: location, in: context)
     }
 
+    private func renderedEditDragTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        guard let context = renderedEditContext() else {
+            return nil
+        }
+
+        return RenderedEditRouter(providers: renderedEditTapProviders())
+            .dragTarget(at: location, in: context)
+    }
+
+    private func renderedEditDragState(at location: CGPoint) -> RenderedEditDragState? {
+        guard let target = renderedEditDragTarget(at: location) else {
+            return nil
+        }
+
+        return RenderedEditDragState(target: target, startLocation: location)
+    }
+
     private func chordMoveHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
               !isChordObjectEditingTemporarilySuppressed(),
@@ -2976,10 +2993,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
-        cueTextMoveHitTarget(at: location) != nil
-            || roadmapMarkerMoveHitTarget(at: location) != nil
-            || chordResizeHitTarget(at: location) != nil
-            || chordMoveHitTarget(at: location) != nil
+        renderedEditDragState(at: location) != nil
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -3604,25 +3618,46 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     @objc
     private func handleChordMovePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
-        if activeCueTextMoveDrag != nil
-            || (recognizer.state == .began
-                && cueTextMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeCueTextMoveDrag != nil {
             handleCueTextMovePan(recognizer)
             return
         }
 
-        if activeRoadmapMarkerEditDrag != nil
-            || (recognizer.state == .began
-                && roadmapMarkerMoveHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeRoadmapMarkerEditDrag != nil {
             handleRoadmapMarkerEditPan(recognizer)
             return
         }
 
-        if activeChordResizeDrag != nil
-            || (recognizer.state == .began
-                && chordResizeHitTarget(at: panStartLocation(for: recognizer)) != nil) {
+        if activeChordResizeDrag != nil {
             handleChordResizePan(recognizer)
             return
+        }
+
+        if recognizer.state == .began {
+            let startLocation = panStartLocation(for: recognizer)
+            guard let dragState = renderedEditDragState(at: startLocation) else {
+                activeChordMoveDrag = nil
+                setNeedsDisplay()
+                return
+            }
+
+            switch (dragState.target.objectID, dragState.target.action) {
+            case (.cueText(_), .move):
+                handleCueTextMovePan(recognizer)
+                return
+            case (.roadmapMarker(_), .move):
+                handleRoadmapMarkerEditPan(recognizer)
+                return
+            case (.chord(_), .resizeLeading), (.chord(_), .resizeTrailing):
+                handleChordResizePan(recognizer)
+                return
+            case (.chord(_), .move):
+                break
+            default:
+                activeChordMoveDrag = nil
+                setNeedsDisplay()
+                return
+            }
         }
 
         switch recognizer.state {
