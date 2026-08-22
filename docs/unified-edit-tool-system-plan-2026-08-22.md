@@ -2,8 +2,11 @@
 
 Date: 2026-08-22
 Branch: `codex/unified-edit-tool-plan`
+Current checkpoint branch: `codex/chord-terminal-target-fix`
 Planning base: `48ff04e` (`Document chord lane fallback checkpoint`)
 Chord-lane fallback checkpoint: `697c2a5` (`Establish chord lane draft render baseline`)
+Unified Edit implementation checkpoint: `a4d49d3` (`Record unified edit implementation checkpoint`)
+Terminal filler functional checkpoint: `ae22c9d` (`Guard committed simple chord terminal filler targets`)
 
 This began as a handoff plan for replacing the current overloaded `Select` behavior with a safer, clearer unified `Edit` tool. The implementation checkpoint below records the first completed pass and the proof gathered so far.
 
@@ -47,9 +50,9 @@ Verification captured:
 - `git diff --check` passed for the cleanup slices.
 - `xcodegen generate` completed during slice 10.
 
-Still deferred:
+Still deferred from the slice 10 implementation checkpoint:
 
-- Physical iPad acceptance is still required before calling interaction quality complete.
+- Slice 10 did not yet have physical iPad acceptance; the later Terminal Filler Checkpoint below records physical iPad build/install/launch and user acceptance for the current checkpoint branch.
 - Key-change rendered selection is intentionally deferred because the current layout surface does not expose a safe source measure identity for every rendered key marker.
 - A command-executor consolidation remains future work. Current mutations still call the existing object-specific chart editing paths.
 - Renaming `EditorCanvasMode.browse` to `.edit` remains intentionally deferred because the churn is broad and not needed for the first stable Edit tool pass.
@@ -57,6 +60,44 @@ Still deferred:
 Scope guard:
 
 - This implementation did not change chord recognition accuracy, OCR, chord recognition scoring, trust arbitration, or handwriting fixture behavior.
+
+## Terminal Filler Checkpoint
+
+Date: 2026-08-22
+Branch: `codex/chord-terminal-target-fix`
+Functional checkpoint: `ae22c9d` (`Guard committed simple chord terminal filler targets`)
+
+This checkpoint protects the unified Edit and chord-lane systems from treating committed simple-chord row-end filler as real chart material.
+
+Repo-aware rollback map:
+
+- Use `ae22c9d` as the functional rollback point for the terminal-filler guard.
+- Use `a4d49d3` as the broader unified Edit tool baseline before terminal-filler adjustments.
+- Use `697c2a5` as the chord-lane draft/render/edit fallback if the unified Edit branch needs to be abandoned.
+- Use `68b71bf` (`Document chord lane recognition course correction`) only when returning to the hard course-correction docs baseline.
+- Use `885355e` (`Record corrected TestFlight branch cleanup`) only when intentionally returning below the chord-lane work to the clean build-49 cleanup parent.
+
+Behavior protected:
+
+- Open simple chord lanes still extend to the terminal staff-end barline as writable space.
+- Committed simple chord rows no longer extend the last committed measure display frame into staff-end filler.
+- Committed terminal filler does not select as a measure.
+- Rendered chords cannot be moved into committed terminal filler.
+- Chord ink recognition targeting rejects ink whose center lands in committed terminal filler.
+- Draft chord and draft barline batch render targets in committed terminal filler are skipped instead of mutating the chart.
+- Existing bad rendered chart objects are not silently deleted; this checkpoint prevents new terminal-filler ghosts from being created.
+
+Verification captured:
+
+- `git diff --check` passed before the checkpoint commit.
+- Focused simulator suite confirmed by `xcresulttool`: `/Users/benirossman/Library/Developer/Xcode/DerivedData/iChart-ferziqawkxkgtvaookpfhoxhvwny/Logs/Test/Test-iChart-2026.08.21_21-09-19--0700.xcresult` - 30 passed, 0 failed, 0 skipped.
+- Physical iPad build/install/launch completed for `com.ichart.app` on Ben's iPad (`376D59F8-92F2-5260-B10E-BA0BEAF941AB`) before commit.
+- User completed a comprehensive physical-iPad sweep and approved committing this branch as the next fallback point.
+
+Scope guard:
+
+- This checkpoint did not touch chord accuracy, OCR, recognition scoring, trust arbitration, or recognizer fixtures.
+- Future fixes that require recognizer internals still belong on the separate chord-recognition accuracy branch.
 
 ## Product Goal
 
