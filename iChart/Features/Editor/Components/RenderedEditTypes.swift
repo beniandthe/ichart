@@ -36,6 +36,15 @@ enum RenderedEditAction: Hashable {
         self == .move
     }
 
+    var isResize: Bool {
+        switch self {
+        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight:
+            return true
+        case .select, .move, .grow, .shrink, .editText, .correctChord, .delete, .openInspector:
+            return false
+        }
+    }
+
     var isSelection: Bool {
         self == .select
     }
@@ -148,7 +157,7 @@ enum RenderedEditSelectionPolicy {
         selection: RenderedEditSelectionState
     ) -> RenderedEditHitTarget? {
         guard let hitTarget,
-              hitTarget.action.isMove || isResizeAction(hitTarget.action) else {
+              hitTarget.action.isMove || hitTarget.action.isResize else {
             return nil
         }
 
@@ -157,14 +166,5 @@ enum RenderedEditSelectionPolicy {
         }
 
         return selection.contains(hitTarget.objectID) ? hitTarget : nil
-    }
-
-    private static func isResizeAction(_ action: RenderedEditAction) -> Bool {
-        switch action {
-        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight:
-            return true
-        case .select, .move, .grow, .shrink, .editText, .correctChord, .delete, .openInspector:
-            return false
-        }
     }
 }
