@@ -1348,7 +1348,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingSplitsClearlySeparatedOpenLaneChordGroups() throws {
-        let chart = Chart.blank(title: "Open Lane Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Open Lane Chords", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
@@ -1388,7 +1395,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
-        let chart = Chart.blank(title: "Draft Boundary Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Draft Boundary Chords", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Draft Boundary Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)
@@ -1453,7 +1467,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testChordBatchTargetingKeepsMultipleChordGroupsInsideDraftBarlineSegments() throws {
-        let chart = Chart.blank(title: "Draft Segment Groups", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var chart = Chart.draft(title: "Draft Segment Groups", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Draft Segment Groups",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1200)

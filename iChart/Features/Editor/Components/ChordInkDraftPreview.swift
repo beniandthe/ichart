@@ -1133,7 +1133,8 @@ extension Chart {
         let renderTargets = sortedDrafts.map { draft in
             let renderTarget = chordDraftRenderTarget(
                 for: draft,
-                pageLayout: renderLayout,
+                sourcePageLayout: sourceLayout,
+                renderPageLayout: renderLayout,
                 barlinePlan: barlinePlan
             )
             return ChordDraftResolvedRenderTarget(
@@ -1354,12 +1355,17 @@ extension Chart {
 
             guard let sourceTarget = draftBarlineLaneTarget(
                 for: barline,
-                pageLayout: sourcePageLayout
+                pageLayout: sourcePageLayout,
+                rejectsCommittedTerminalFiller: true
             ) else {
                 return barline
             }
             let commitTarget = commitPageLayout.flatMap {
-                draftBarlineLaneTarget(for: barline, pageLayout: $0)
+                draftBarlineLaneTarget(
+                    for: barline,
+                    pageLayout: $0,
+                    rejectsCommittedTerminalFiller: false
+                )
             }
 
             var resolvedBarline = barline
@@ -1375,7 +1381,8 @@ extension Chart {
 
     private func draftBarlineLaneTarget(
         for barline: DraftBarline,
-        pageLayout: LeadSheetPageLayout
+        pageLayout: LeadSheetPageLayout,
+        rejectsCommittedTerminalFiller: Bool = true
     ) -> ChordDraftBarlineLaneTarget? {
         guard let laneLocation = barline.laneLocation,
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
@@ -1387,12 +1394,13 @@ extension Chart {
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
-        guard !LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+        if rejectsCommittedTerminalFiller,
+           LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
             laneX,
             in: system,
             paperFrame: pageLayout.paperFrame,
             layoutStyle: layoutStyle
-        ) else {
+           ) {
             return nil
         }
 
@@ -1531,20 +1539,43 @@ extension Chart {
 
     private func chordDraftRenderTarget(
         for draft: ChordInkDraft,
-        pageLayout: LeadSheetPageLayout?,
+        sourcePageLayout: LeadSheetPageLayout?,
+        renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
     ) -> (measureID: UUID, fraction: Double?)? {
-        if let pageLayout {
+        let sourceAllowsLaneProjection: Bool
+        if let sourcePageLayout,
+           draft.laneLocation != nil {
             if isCommittedTerminalFillerLaneLocation(
                 draft.laneLocation,
-                in: pageLayout
+                in: sourcePageLayout
             ) {
                 return nil
             }
 
+            sourceAllowsLaneProjection = chordDraftLaneTarget(
+                for: draft,
+                pageLayout: sourcePageLayout,
+                rejectsCommittedTerminalFiller: true
+            ) != nil
+        } else {
+            sourceAllowsLaneProjection = false
+        }
+
+        if let renderPageLayout {
+            if isCommittedTerminalFillerLaneLocation(
+                draft.laneLocation,
+                in: renderPageLayout
+            ) {
+                guard sourceAllowsLaneProjection else {
+                    return nil
+                }
+            }
+
             if let laneTarget = chordDraftLaneTarget(
                 for: draft,
-                pageLayout: pageLayout
+                pageLayout: renderPageLayout,
+                rejectsCommittedTerminalFiller: !sourceAllowsLaneProjection
             ) {
                 return laneTarget
             }
@@ -1608,7 +1639,8 @@ extension Chart {
 
     private func chordDraftLaneTarget(
         for draft: ChordInkDraft,
-        pageLayout: LeadSheetPageLayout
+        pageLayout: LeadSheetPageLayout,
+        rejectsCommittedTerminalFiller: Bool = true
     ) -> (measureID: UUID, fraction: Double?)? {
         guard let laneLocation = draft.laneLocation,
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
@@ -1620,12 +1652,13 @@ extension Chart {
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
-        guard !LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+        if rejectsCommittedTerminalFiller,
+           LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
             laneX,
             in: system,
             paperFrame: pageLayout.paperFrame,
             layoutStyle: layoutStyle
-        ) else {
+           ) {
             return nil
         }
 
