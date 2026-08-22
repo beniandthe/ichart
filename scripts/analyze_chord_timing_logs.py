@@ -129,14 +129,22 @@ def value(attempt: Attempt, key: str, default: str = "") -> str:
     return default
 
 
+def first_value(attempt: Attempt, keys: tuple[str, ...], default: str = "") -> str:
+    for key in keys:
+        resolved = value(attempt, key)
+        if resolved:
+            return resolved
+    return default
+
+
 def row_for_attempt(index: int, attempt: Attempt) -> dict[str, str]:
     return {
         "attempt": str(index),
         "best": value(attempt, "best"),
         "accepted": value(attempt, "accepted"),
         "confidence": value(attempt, "confidence"),
-        "primaryAction": value(attempt, "primaryAction"),
-        "finalAction": value(attempt, "finalAction"),
+        "primaryAction": first_value(attempt, ("primaryAction", "action")),
+        "finalAction": first_value(attempt, ("finalAction", "action")),
         "closeRace": value(attempt, "closeRace"),
         "gap": value(attempt, "gap"),
         "delayMs": value(attempt, "delay"),

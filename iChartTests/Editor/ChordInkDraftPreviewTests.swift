@@ -299,6 +299,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
     func testDraftStateCollapsesDuplicatePreviewInputsForSameVisibleChord() {
         let measureID = UUID()
+        let sourceInk = Data("same-c-source".utf8)
         var state = ChordPreviewState()
 
         state.replaceDraftChords(with: [
@@ -308,7 +309,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 fraction: 0.3,
                 bestCandidateText: "C",
                 laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
-                drawingData: Data("small-cluster".utf8),
+                drawingData: sourceInk,
                 confidence: 5,
                 strokeCount: 1
             ),
@@ -318,7 +319,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 fraction: 0.34,
                 bestCandidateText: "C",
                 laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
-                drawingData: Data("full-cluster".utf8),
+                drawingData: sourceInk,
                 confidence: 4,
                 strokeCount: 3
             )
@@ -326,12 +327,13 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
         XCTAssertEqual(state.draftChords.count, 1)
         XCTAssertEqual(state.draftChords[0].previewText, "C")
-        XCTAssertEqual(state.draftChords[0].drawingData, Data("full-cluster".utf8))
+        XCTAssertEqual(state.draftChords[0].drawingData, sourceInk)
         XCTAssertEqual(state.draftChords[0].strokeCount, 3)
     }
 
     func testDraftStateLetsExpandedChordPreviewSupersedeNearbyRootOnlyPreview() {
         let measureID = UUID()
+        let sourceInk = Data("same-c-minor-source".utf8)
         var state = ChordPreviewState()
 
         state.replaceDraftChords(with: [
@@ -341,7 +343,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 fraction: 0.3,
                 bestCandidateText: "C-",
                 laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
-                drawingData: Data("combined-c-minor".utf8),
+                drawingData: sourceInk,
                 confidence: 4,
                 strokeCount: 2
             ),
@@ -351,7 +353,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 fraction: 0.34,
                 bestCandidateText: "C",
                 laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
-                drawingData: Data("root-only-c".utf8),
+                drawingData: sourceInk,
                 confidence: 5,
                 strokeCount: 1
             )
@@ -359,7 +361,42 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
         XCTAssertEqual(state.draftChords.count, 1)
         XCTAssertEqual(state.draftChords[0].previewText, "C-")
-        XCTAssertEqual(state.draftChords[0].drawingData, Data("combined-c-minor".utf8))
+        XCTAssertEqual(state.draftChords[0].drawingData, sourceInk)
+    }
+
+    func testDraftStateKeepsNearbyRepeatedChordInputsFromDifferentSourceInk() {
+        let measureID = UUID()
+        var state = ChordPreviewState()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.3,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.3),
+                drawingData: Data("first-c-source".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.34,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.34),
+                drawingData: Data("second-c-source".utf8)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.37,
+                bestCandidateText: "C-",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.37),
+                drawingData: Data("c-minor-source".utf8)
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 3)
+        XCTAssertEqual(state.draftChords.compactMap(\.previewText), ["C", "C", "C-"])
     }
 
     func testDraftStateKeepsIntentionalNeighboringPreviewInputs() {
@@ -372,35 +409,40 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 measureIndex: 0,
                 fraction: 0.1,
                 bestCandidateText: "C",
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.1)
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.1),
+                drawingData: Data("first-lane-c".utf8)
             ),
             draftInput(
                 measureID: measureID,
                 measureIndex: 0,
                 fraction: 0.13,
                 bestCandidateText: "D",
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.13)
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.13),
+                drawingData: Data("first-lane-d".utf8)
             ),
             draftInput(
                 measureID: measureID,
                 measureIndex: 0,
                 fraction: 0.22,
                 bestCandidateText: "C",
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.22)
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.22),
+                drawingData: Data("second-lane-c".utf8)
             ),
             draftInput(
                 measureID: measureID,
                 measureIndex: 0,
                 fraction: 0.12,
                 bestCandidateText: "C",
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.12)
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.12),
+                drawingData: Data("other-lane-c".utf8)
             ),
             draftInput(
                 measureID: measureID,
                 measureIndex: 0,
                 fraction: 0.36,
                 bestCandidateText: "C-",
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.36)
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.36),
+                drawingData: Data("first-lane-c-minor".utf8)
             )
         ])
 

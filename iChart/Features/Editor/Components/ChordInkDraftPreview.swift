@@ -265,6 +265,7 @@ enum ChordInkDraftPreviewDeduplicationPolicy {
     private static func isDuplicate(_ lhs: ChordInkDraftInput, _ rhs: ChordInkDraftInput) -> Bool {
         guard lhs.measureID == rhs.measureID,
               mergeRelationship(lhs, rhs) != nil,
+              sameSourceInk(lhs, rhs),
               sameLane(lhs, rhs),
               let lhsFraction = laneFraction(lhs),
               let rhsFraction = laneFraction(rhs) else {
@@ -359,6 +360,10 @@ enum ChordInkDraftPreviewDeduplicationPolicy {
         }
 
         return true
+    }
+
+    private static func sameSourceInk(_ lhs: ChordInkDraftInput, _ rhs: ChordInkDraftInput) -> Bool {
+        lhs.drawingData == rhs.drawingData
     }
 
     private static func laneIndex(_ input: ChordInkDraftInput) -> Int? {

@@ -53,7 +53,7 @@ enum LeadSheetChordInkRecognitionTimingLogger {
         let composition = metrics.compositionMetrics
         print(
             String(
-                format: "iChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms cluster=%.0fms glyph=%.0fms context=%.0fms compose=%.0fms semantic=%.0fms match=%.0fms strokes=%d clusters=%d candidates=%d sequences=%d/%d limit=%@ best=%@ confidence=%.2f action=%@ closeRace=%@ gap=%.2f reason=%@",
+                format: "iChart chord timing: delay=%.0fms idle=%.0fms recognition=%.0fms total=%.0fms cluster=%.0fms glyph=%.0fms context=%.0fms compose=%.0fms semantic=%.0fms match=%.0fms strokes=%d clusters=%d candidates=%d sequences=%d/%d limit=%@ best=%@ confidence=%.2f primaryAction=%@ finalAction=%@ action=%@ closeRace=%@ gap=%.2f reason=%@",
                 timing.requestedDelayMilliseconds,
                 timing.idleMilliseconds,
                 timing.recognitionMilliseconds,
@@ -72,6 +72,8 @@ enum LeadSheetChordInkRecognitionTimingLogger {
                 composition.hitGeneratedSequenceLimit ? "yes" : "no",
                 bestRead,
                 result.confidence,
+                decision.action.rawValue,
+                decision.action.rawValue,
                 decision.action.rawValue,
                 decision.isCloseRace ? "yes" : "no",
                 confidenceGap,
