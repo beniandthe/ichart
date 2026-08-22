@@ -79,6 +79,8 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var chart: Chart
     @Binding var selectedMeasureID: UUID?
     @Binding var selectedNoteSelection: LeadSheetNoteSelection?
+    @Binding var selectedChordID: UUID?
+    @Binding var selectedCommittedBarlineMeasureID: UUID?
     @Binding var selectedCueTextID: UUID?
     @Binding var selectedRoadmapMarkerID: UUID?
     let interactionMode: EditorCanvasMode
@@ -110,6 +112,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
             selectedNoteSelection: $selectedNoteSelection,
+            selectedChordID: $selectedChordID,
+            selectedCommittedBarlineMeasureID: $selectedCommittedBarlineMeasureID,
+            selectedCueTextID: $selectedCueTextID,
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID
         )
     }
@@ -136,10 +141,14 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
 
     private func configure(_ view: LeadSheetCanvasUIKitView, context: Context) {
         view.chart = chart
-        view.selectedMeasureID = selectedMeasureID
-        view.selectedNoteSelection = selectedNoteSelection
-        view.selectedCueTextID = selectedCueTextID
-        view.selectedRoadmapMarkerID = selectedRoadmapMarkerID
+        view.applyParentSelectionState(
+            selectedMeasureID: selectedMeasureID,
+            selectedNoteSelection: selectedNoteSelection,
+            selectedChordID: selectedChordID,
+            selectedCommittedBarlineMeasureID: selectedCommittedBarlineMeasureID,
+            selectedCueTextID: selectedCueTextID,
+            selectedRoadmapMarkerID: selectedRoadmapMarkerID
+        )
         view.interactionMode = interactionMode
         view.inkToolMode = inkToolMode
         view.recognizesChordInk = recognizesChordInk
@@ -152,6 +161,15 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onNoteSelectionChanged = { selection in
             context.coordinator.selectedNoteSelection.wrappedValue = selection
             onNoteSelectionChanged?(selection)
+        }
+        view.onChordSelectionChanged = { chordID in
+            context.coordinator.selectedChordID.wrappedValue = chordID
+        }
+        view.onCommittedChordBarlineSelectionChanged = { measureID in
+            context.coordinator.selectedCommittedBarlineMeasureID.wrappedValue = measureID
+        }
+        view.onCueTextSelectionChanged = { cueTextID in
+            context.coordinator.selectedCueTextID.wrappedValue = cueTextID
         }
         view.onRoadmapMarkerSelectionChanged = { markerID in
             context.coordinator.selectedRoadmapMarkerID.wrappedValue = markerID
@@ -182,17 +200,26 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         var chart: Binding<Chart>
         var selectedMeasureID: Binding<UUID?>
         var selectedNoteSelection: Binding<LeadSheetNoteSelection?>
+        var selectedChordID: Binding<UUID?>
+        var selectedCommittedBarlineMeasureID: Binding<UUID?>
+        var selectedCueTextID: Binding<UUID?>
         var selectedRoadmapMarkerID: Binding<UUID?>
 
         init(
             chart: Binding<Chart>,
             selectedMeasureID: Binding<UUID?>,
             selectedNoteSelection: Binding<LeadSheetNoteSelection?>,
+            selectedChordID: Binding<UUID?>,
+            selectedCommittedBarlineMeasureID: Binding<UUID?>,
+            selectedCueTextID: Binding<UUID?>,
             selectedRoadmapMarkerID: Binding<UUID?>
         ) {
             self.chart = chart
             self.selectedMeasureID = selectedMeasureID
             self.selectedNoteSelection = selectedNoteSelection
+            self.selectedChordID = selectedChordID
+            self.selectedCommittedBarlineMeasureID = selectedCommittedBarlineMeasureID
+            self.selectedCueTextID = selectedCueTextID
             self.selectedRoadmapMarkerID = selectedRoadmapMarkerID
         }
     }
@@ -1136,6 +1163,25 @@ enum LeadSheetLiveInkCanvasAppearancePolicy {
 }
 
 final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
+    func applyParentSelectionState(
+        selectedMeasureID: UUID?,
+        selectedNoteSelection: LeadSheetNoteSelection?,
+        selectedChordID: UUID?,
+        selectedCommittedBarlineMeasureID: UUID?,
+        selectedCueTextID: UUID?,
+        selectedRoadmapMarkerID: UUID?
+    ) {
+        isSyncingSelectionFromSwiftUI = true
+        defer { isSyncingSelectionFromSwiftUI = false }
+
+        self.selectedMeasureID = selectedMeasureID
+        self.selectedNoteSelection = selectedNoteSelection
+        self.selectedChordID = selectedChordID
+        self.selectedCommittedBarlineMeasureID = selectedCommittedBarlineMeasureID
+        self.selectedCueTextID = selectedCueTextID
+        self.selectedRoadmapMarkerID = selectedRoadmapMarkerID
+    }
+
     var chart: Chart = .draft(title: "Preview") {
         didSet {
             guard oldValue != chart else {
@@ -1253,6 +1299,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            if !isSyncingSelectionFromSwiftUI {
+                onCueTextSelectionChanged?(selectedCueTextID)
+            }
             setNeedsDisplay()
         }
     }
@@ -1337,6 +1386,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
+    var onChordSelectionChanged: ((UUID?) -> Void)?
+    var onCommittedChordBarlineSelectionChanged: ((UUID?) -> Void)?
+    var onCueTextSelectionChanged: ((UUID?) -> Void)?
     var onRoadmapMarkerSelectionChanged: ((UUID?) -> Void)?
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)?
     var onChordSelectedFromCanvas: ((UUID) -> Void)?
@@ -1427,9 +1479,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
     private weak var chordMoveLockedParentScrollView: UIScrollView?
     private var chordMoveLockedParentScrollWasEnabled: Bool?
-    private var selectedChordID: UUID?
+    private var isSyncingSelectionFromSwiftUI = false
+    var selectedChordID: UUID? {
+        didSet {
+            guard oldValue != selectedChordID else {
+                return
+            }
+
+            if !isSyncingSelectionFromSwiftUI {
+                onChordSelectionChanged?(selectedChordID)
+            }
+            setNeedsDisplay()
+        }
+    }
     private var selectedDraftBarlineID: UUID?
-    private var selectedCommittedBarlineMeasureID: UUID?
+    var selectedCommittedBarlineMeasureID: UUID? {
+        didSet {
+            guard oldValue != selectedCommittedBarlineMeasureID else {
+                return
+            }
+
+            if !isSyncingSelectionFromSwiftUI {
+                onCommittedChordBarlineSelectionChanged?(selectedCommittedBarlineMeasureID)
+            }
+            setNeedsDisplay()
+        }
+    }
     private var isRestoringSelection = false
     private var isApplyingTapSelection = false
     private var performanceLayoutTraceCount = 0
