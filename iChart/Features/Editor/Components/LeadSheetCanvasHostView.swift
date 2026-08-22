@@ -2908,6 +2908,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         return RenderedEditContext(
             pageLayout: pageLayout,
+            layoutStyle: chart.layoutStyle,
             selection: renderedEditSelectionState(),
             committedChordBarlineMeasures: committedBarlineMeasures
         )

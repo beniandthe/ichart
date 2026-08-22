@@ -4,15 +4,18 @@ import Foundation
 
 struct RenderedEditContext {
     var pageLayout: LeadSheetPageLayout
+    var layoutStyle: ChartLayoutStyle
     var selection: RenderedEditSelectionState
     var committedChordBarlineMeasures: [LeadSheetMeasureLayout]
 
     init(
         pageLayout: LeadSheetPageLayout,
+        layoutStyle: ChartLayoutStyle = .leadSheet,
         selection: RenderedEditSelectionState = RenderedEditSelectionState(),
         committedChordBarlineMeasures: [LeadSheetMeasureLayout] = []
     ) {
         self.pageLayout = pageLayout
+        self.layoutStyle = layoutStyle
         self.selection = selection
         self.committedChordBarlineMeasures = committedChordBarlineMeasures
     }
@@ -428,13 +431,19 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     return []
                 }
 
+                let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                    measure,
+                    in: system,
+                    paperFrame: context.pageLayout.paperFrame,
+                    layoutStyle: context.layoutStyle
+                )
                 let objectID = RenderedEditObjectID.measure(measureID)
                 var targets = [
                     RenderedEditHitTarget(
                         objectID: objectID,
                         action: .select,
                         priority: .measureSelect,
-                        frame: measure.frame.insetBy(dx: -6, dy: -6),
+                        frame: displayMeasure.frame.insetBy(dx: -6, dy: -6),
                         requiresSelection: false,
                         mutationRisk: .nonMutating
                     )
@@ -444,7 +453,7 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     return targets
                 }
 
-                let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: measure)
+                let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: displayMeasure)
                 let touchInsetX: CGFloat = -12
                 let touchInsetY: CGFloat = -10
                 targets.append(

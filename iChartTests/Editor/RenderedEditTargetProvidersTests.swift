@@ -257,6 +257,45 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(rightTarget.mutationRisk, .visual)
     }
 
+    func testOpenSimpleChordRowEndMeasureResizeHitTargetMatchesDisplayedHandle() throws {
+        let fixture = pageFixture(isOpen: true)
+        let router = RenderedEditRouter()
+        let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+            fixture.measure,
+            in: fixture.pageLayout.systems[0],
+            paperFrame: fixture.pageLayout.paperFrame,
+            layoutStyle: .simpleChordSheet
+        )
+        let displayedHandles = LeadSheetMeasureResizeGeometry.handleFrames(for: displayMeasure)
+        let unextendedHandles = LeadSheetMeasureResizeGeometry.handleFrames(for: fixture.measure)
+
+        XCTAssertGreaterThan(displayMeasure.frame.maxX, fixture.measure.frame.maxX)
+
+        var selection = RenderedEditSelectionState()
+        selection.select(.measure(fixture.measureID))
+        let context = RenderedEditContext(
+            pageLayout: fixture.pageLayout,
+            layoutStyle: .simpleChordSheet,
+            selection: selection
+        )
+
+        let displayedRightTarget = try XCTUnwrap(
+            router.dragTarget(
+                at: CGPoint(x: displayedHandles.right.midX, y: displayedHandles.right.midY),
+                in: context
+            )
+        )
+        XCTAssertEqual(displayedRightTarget.objectID, .measure(fixture.measureID))
+        XCTAssertEqual(displayedRightTarget.action, .resizeRight)
+
+        XCTAssertNil(
+            router.dragTarget(
+                at: CGPoint(x: unextendedHandles.right.midX, y: unextendedHandles.right.midY),
+                in: context
+            )
+        )
+    }
+
     func testStructuralProvidersOpenExistingEditorsWithoutMutationTargets() throws {
         var fixture = pageFixture()
         let repeatID = UUID()
@@ -401,7 +440,8 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
     }
 
     private func pageFixture(
-        chordFrame: CGRect = CGRect(x: 130, y: 128, width: 60, height: 28)
+        chordFrame: CGRect = CGRect(x: 130, y: 128, width: 60, height: 28),
+        isOpen: Bool = false
     ) -> PageFixture {
         let measureID = UUID()
         let chordID = UUID()
@@ -452,7 +492,7 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
             meterChange: nil,
             meterChangeFrame: nil,
             trailingBarlineFrame: CGRect(x: 340, y: 156, width: 1.6, height: 34),
-            isOpen: false
+            isOpen: isOpen
         )
         let system = LeadSheetSystemLayout(
             id: UUID(),
