@@ -1275,6 +1275,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var performanceLayoutTraceCount = 0
     private var performanceDrawTraceCount = 0
     private var activePerformanceTraceDrawIndex: Int?
+    private var editorPerformanceMetrics = LeadSheetEditorPerformanceMetrics()
     private var notationRenderer: LeadSheetNotationRenderer {
         LeadSheetNotationRenderer(chart: chart)
     }
@@ -1291,6 +1292,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil {
+            editorPerformanceMetrics.flush(reason: "removed_from_window")
+        }
         updateParentScrollGestureGate()
     }
 
@@ -1515,6 +1519,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func invalidateLayout() {
+        editorPerformanceMetrics.recordLayoutInvalidation()
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
             syncPageInkCanvas()
@@ -1576,6 +1581,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             metadata[key] = value
         }
         return metadata
+    }
+
+    private func applyUpdatedChart(_ updatedChart: Chart, reason _: String) {
+        chart = updatedChart
+        editorPerformanceMetrics.recordChartWriteBack()
+        onChartChanged?(updatedChart)
     }
 
     private func drawSystem(
@@ -3489,8 +3500,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectedCommittedBarlineMeasureID = nil
         selectedChordID = nil
         selectedDraftBarlineID = nil
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "delete_committed_barline")
         ChordLaneLocalBreadcrumbs.record(
             "committed_barline_deleted",
             fields: [
@@ -3563,9 +3573,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chart = updatedChart
+        applyUpdatedChart(updatedChart, reason: "delete_chord_event")
         selectedChordID = nil
-        onChartChanged?(updatedChart)
         onChordDeleted?(deletedChord)
         setNeedsDisplay()
     }
@@ -3576,9 +3585,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chart = updatedChart
+        applyUpdatedChart(updatedChart, reason: "resize_cue_text")
         selectedCueTextID = cueTextID
-        onChartChanged?(updatedChart)
         setNeedsDisplay()
     }
 
@@ -3595,8 +3603,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCueTextMoveDrag = nil
         }
 
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "delete_cue_text")
         setNeedsDisplay()
     }
 
@@ -3613,8 +3620,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeRoadmapMarkerEditDrag = nil
         }
 
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "delete_roadmap_marker")
         setNeedsDisplay()
     }
 
@@ -3653,12 +3659,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         case .began:
             let location = recognizer.location(in: self)
             activeMeasureResizeDrag = measureResizeHandleHitTarget(at: location)
+            if activeMeasureResizeDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
+            }
             setNeedsDisplay()
         case .changed:
             guard var activeMeasureResizeDrag else {
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             let translationX = recognizer.translation(in: self).x
             activeMeasureResizeDrag.currentFrame = LeadSheetMeasureResizePreviewPolicy.previewFrame(
                 initialFrame: activeMeasureResizeDrag.initialFrame,
@@ -3672,6 +3682,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             let proposedWidth = LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
                 initialWidth: activeMeasureResizeDrag.initialWidth,
                 edge: activeMeasureResizeDrag.edge,
@@ -3683,13 +3694,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 for: activeMeasureResizeDrag.measureID
             )
             if appliedWidth != nil {
-                chart = updatedChart
-                onChartChanged?(updatedChart)
+                applyUpdatedChart(updatedChart, reason: "resize_measure")
             }
 
             self.activeMeasureResizeDrag = nil
             setNeedsDisplay()
         case .cancelled, .failed:
+            if activeMeasureResizeDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
+            }
             activeMeasureResizeDrag = nil
             setNeedsDisplay()
         default:
@@ -3764,6 +3777,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: chordLayout.frame,
                 startLocation: startLocation
             )
+            editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
         case .changed, .ended:
@@ -3777,6 +3791,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
             activeChordMoveDrag.currentFrame = LeadSheetChordMoveDragPolicy.previewFrame(
                 for: activeChordMoveDrag,
                 at: location,
@@ -3792,6 +3807,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 setNeedsDisplay()
             }
         case .cancelled, .failed:
+            if activeChordMoveDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
+            }
             activeChordMoveDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
@@ -3837,6 +3855,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: chordLayout.frame,
                 startLocation: startLocation
             )
+            editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -3851,6 +3870,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             activeChordResizeDrag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(
                 for: activeChordResizeDrag,
                 at: location,
@@ -3867,6 +3887,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
         case .cancelled, .failed:
+            if activeChordResizeDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
+            }
             activeChordResizeDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
@@ -3898,9 +3921,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chart = updatedChart
+        applyUpdatedChart(updatedChart, reason: "resize_chord")
         selectedChordID = activeChordResizeDrag.chordID
-        onChartChanged?(updatedChart)
     }
 
     private func chordLayout(
@@ -3933,8 +3955,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "move_chord")
     }
 
     private func handleCueTextMovePan(_ recognizer: UIPanGestureRecognizer) {
@@ -3956,6 +3977,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: cueTextLayout.frame,
                 startingVerticalOffset: cueText.verticalOffset
             )
+            editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -3967,6 +3989,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
             let location = recognizer.location(in: self)
             activeCueTextMoveDrag.currentFrame = activeCueTextMoveDrag.initialFrame.offsetBy(
                 dx: location.x - activeCueTextMoveDrag.startLocation.x,
@@ -3990,9 +4013,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         atFraction: target.fraction,
                         verticalOffset: verticalOffset
                     ) {
-                        chart = updatedChart
+                        applyUpdatedChart(updatedChart, reason: "move_cue_text")
                         selectedCueTextID = activeCueTextMoveDrag.cueTextID
-                        onChartChanged?(updatedChart)
                     }
                 }
                 self.activeCueTextMoveDrag = nil
@@ -4001,6 +4023,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
         case .cancelled, .failed:
+            if activeCueTextMoveDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
+            }
             activeCueTextMoveDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
@@ -4027,6 +4052,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: markerLayout.frame,
                 movementFrame: markerLayout.movementFrame
             )
+            editorPerformanceMetrics.recordDragState(kind: .roadmapMarkerMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
 
@@ -4038,6 +4064,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            editorPerformanceMetrics.recordDragState(kind: .roadmapMarkerMove, state: recognizer.state)
             let translation = recognizer.translation(in: self)
             let proposedFrame = activeRoadmapMarkerEditDrag.initialFrame.offsetBy(
                 dx: translation.x,
@@ -4061,8 +4088,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     activeRoadmapMarkerEditDrag.markerID,
                     toNormalizedOffset: normalizedOffset
                 ) {
-                    chart = updatedChart
-                    onChartChanged?(updatedChart)
+                    applyUpdatedChart(updatedChart, reason: "move_roadmap_marker")
                 }
                 self.activeRoadmapMarkerEditDrag = nil
                 unlockParentScrollForChordMove()
@@ -4070,6 +4096,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
         case .cancelled, .failed:
+            if activeRoadmapMarkerEditDrag != nil {
+                editorPerformanceMetrics.recordDragState(kind: .roadmapMarkerMove, state: recognizer.state)
+            }
             activeRoadmapMarkerEditDrag = nil
             unlockParentScrollForChordMove()
             setNeedsDisplay()
@@ -4607,8 +4636,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             inkSnapshot: knownInkSnapshot ?? currentCanvasInkSnapshot(),
             coordinateSpace: coordinateSpace
         )
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "persist_active_ink")
         if strokeCount > 0,
            activeInkRole != nil {
             let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(
@@ -5043,10 +5071,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                coordinateSpace: liveDrawingCoordinateSpace,
                for: measureID,
                in: workingChart
-           ) {
+            ) {
             clearDirtyInkAuthoringRole(.rhythm)
-            chart = updatedChart
-            onChartChanged?(updatedChart)
+            applyUpdatedChart(updatedChart, reason: "persist_rhythm_on_finalize")
             workingChart = updatedChart
         }
 
@@ -5100,8 +5127,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ) {
                 clearRhythmicNotationUnreadInkFeedback()
                 clearRhythmicNotationCanvas()
-                chart = updatedChart
-                onChartChanged?(updatedChart)
+                applyUpdatedChart(updatedChart, reason: "finalize_rhythm_tap_render")
                 setNeedsDisplay()
                 recordRhythmicNotationDiagnostic(
                     for: decision,
@@ -5145,8 +5171,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             in: chart
         ) {
             clearDirtyInkAuthoringRole(.rhythm)
-            chart = updatedChart
-            onChartChanged?(updatedChart)
+            applyUpdatedChart(updatedChart, reason: "persist_rhythm_stable")
             setNeedsDisplay()
         }
         clearRhythmicNotationUnreadInkFeedback()
@@ -5242,8 +5267,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         inkSchedulingCoordinator.cancelPersistence()
         clearRhythmicNotationCanvas()
-        chart = updatedChart
-        onChartChanged?(updatedChart)
+        applyUpdatedChart(updatedChart, reason: "confirm_rhythm_feedback")
         setNeedsDisplay()
 
         if let appliedMeasure = updatedChart.measure(id: feedback.measureID) {

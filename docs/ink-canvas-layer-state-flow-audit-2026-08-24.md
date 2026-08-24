@@ -376,6 +376,14 @@ Next acceptance checks:
 - Measure drag/edit transaction counts on iPad and confirm chart mutation happens at release/commit boundaries rather than every drag tick.
 - Keep local persistence and remote sync evidence separate in reports.
 
+Second architecture slice:
+
+- Added aggregate editor interaction metrics in `iChart/Features/Editor/Components/LeadSheetEditorPerformanceMetrics.swift`.
+- Instrumented layout invalidations, editor chart write-backs, and valid rendered-object/measure drag sessions.
+- Routed host `chart = updatedChart` plus `onChartChanged` pairs through one helper so local trace evidence can count editor chart mutations consistently.
+- Behavior intent: no product behavior change. This slice is observational and is meant to support the next physical-iPad performance pass by answering whether heavy feel comes from drag ticks, layout invalidation, chart write-back, or ink persistence.
+- Added focused tests for drag commit/cancel aggregation and chart write-back/layout counters.
+
 ### Phase 1: Instrument The Real Bottlenecks
 
 Add or keep aggregate-only counters for:

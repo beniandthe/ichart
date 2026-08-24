@@ -5,6 +5,48 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
+    func testEditorPerformanceMetricsCountsDragAndChartWriteBackSignals() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordLayoutInvalidation()
+        metrics.recordChartWriteBack()
+        metrics.recordDragState(kind: .chordMove, state: .began)
+        metrics.recordDragState(kind: .chordMove, state: .changed)
+        metrics.recordDragState(kind: .chordMove, state: .changed)
+        metrics.recordDragState(kind: .chordMove, state: .ended)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["layout_invalidations"], 1)
+        XCTAssertEqual(snapshot["chart_writebacks"], 1)
+        XCTAssertEqual(snapshot["drag_begins"], 1)
+        XCTAssertEqual(snapshot["drag_changes"], 2)
+        XCTAssertEqual(snapshot["drag_commits"], 1)
+        XCTAssertEqual(snapshot["drag_cancels"], 0)
+        XCTAssertEqual(snapshot["chord_move_changes"], 2)
+        XCTAssertEqual(snapshot["max_drag_changes"], 2)
+    }
+
+    func testEditorPerformanceMetricsCountsCancelledDragKinds() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordDragState(kind: .measureResize, state: .began)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .cancelled)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .began)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .changed)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .changed)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .failed)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["drag_begins"], 2)
+        XCTAssertEqual(snapshot["drag_changes"], 3)
+        XCTAssertEqual(snapshot["drag_commits"], 0)
+        XCTAssertEqual(snapshot["drag_cancels"], 2)
+        XCTAssertEqual(snapshot["measure_resize_changes"], 1)
+        XCTAssertEqual(snapshot["roadmap_marker_changes"], 2)
+        XCTAssertEqual(snapshot["max_drag_changes"], 2)
+    }
+
     func testChordEntryPreservesOriginalPenWeight() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
