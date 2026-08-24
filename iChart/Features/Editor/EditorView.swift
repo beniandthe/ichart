@@ -757,6 +757,7 @@ struct EditorView: View {
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
+    @State private var latestEditorContentSize = CGSize(width: 900, height: 1400)
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
@@ -1310,6 +1311,12 @@ struct EditorView: View {
                     .padding(.bottom, verticalPadding)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onAppear {
+            latestEditorContentSize = contentSize
+        }
+        .onChange(of: contentSize) { _, newContentSize in
+            latestEditorContentSize = newContentSize
         }
     }
 
@@ -2134,6 +2141,13 @@ struct EditorView: View {
                     )
                 } else if selectedMeasureID != nil {
                     activeToolButton(
+                        title: "Even Row",
+                        systemImage: "rectangle.split.3x1",
+                        isDisabled: !canEvenSelectedMeasureRow,
+                        action: handleEvenSelectedMeasureRow
+                    )
+
+                    activeToolButton(
                         title: "Measures",
                         systemImage: "rectangle.split.3x1",
                         action: handleSelectedMeasureActionsRequested
@@ -2215,6 +2229,13 @@ struct EditorView: View {
                     handleNewSystemBeforeSelectedMeasure()
                 }
             }
+
+            activeToolButton(
+                title: "Even Row",
+                systemImage: "rectangle.split.3x1",
+                isDisabled: !canEvenSelectedMeasureRow,
+                action: handleEvenSelectedMeasureRow
+            )
 
             activeToolButton(
                 title: "Delete",
@@ -2964,6 +2985,15 @@ struct EditorView: View {
         return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
     }
 
+    private var canEvenSelectedMeasureRow: Bool {
+        guard chart.layoutStyle == .simpleChordSheet,
+              let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return simpleChordRowMeasureIDs(containing: targetMeasureID).count > 1
+    }
+
     @discardableResult
     private func enterMeasureEditMode() -> Bool {
         guard chart.hasCompletedInitialSetup else {
@@ -2997,6 +3027,76 @@ struct EditorView: View {
         }
 
         _ = enterMeasureEditMode()
+    }
+
+    private func handleEvenSelectedMeasureRow() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              chart.layoutStyle == .simpleChordSheet,
+              let targetMeasureID else {
+            return
+        }
+
+        let equalizedWidths = simpleChordRowEqualizedManualWidths(containing: targetMeasureID)
+        guard equalizedWidths.count > 1 else {
+            return
+        }
+
+        var didUpdate = false
+        for (measureID, width) in equalizedWidths {
+            didUpdate = chart.setMeasureManualLayoutWidth(width, for: measureID) != nil || didUpdate
+        }
+
+        if didUpdate {
+            selectedMeasureID = targetMeasureID
+        }
+    }
+
+    private func simpleChordRowMeasureIDs(containing measureID: UUID) -> [UUID] {
+        guard chart.layoutStyle == .simpleChordSheet else {
+            return []
+        }
+
+        for system in chart.systems {
+            let measureIDs = system.measures.map(\.id)
+            guard let selectedIndex = measureIDs.firstIndex(of: measureID) else {
+                continue
+            }
+
+            guard let maximumMeasuresPerSystem = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
+                  maximumMeasuresPerSystem > 0,
+                  maximumMeasuresPerSystem < measureIDs.count else {
+                return measureIDs
+            }
+
+            let chunkStart = (selectedIndex / maximumMeasuresPerSystem) * maximumMeasuresPerSystem
+            let chunkEnd = min(chunkStart + maximumMeasuresPerSystem, measureIDs.count)
+            return Array(measureIDs[chunkStart..<chunkEnd])
+        }
+
+        return []
+    }
+
+    private func simpleChordRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .simpleChordSheet else {
+            return [:]
+        }
+
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        guard let system = pageLayout.systems.first(where: { system in
+            system.measures.contains { $0.sourceMeasureID == measureID }
+        }) else {
+            return [:]
+        }
+
+        return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+            for: system,
+            in: pageLayout,
+            chart: chart
+        )
     }
 
     @discardableResult

@@ -81,6 +81,12 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(dragTarget.objectID, chordObjectID)
         XCTAssertEqual(dragTarget.action, .resizeTrailing)
         XCTAssertEqual(dragTarget.priority, .selectedObjectResizeHandle)
+
+        let leadingDragTarget = RenderedEditRouter().dragTarget(
+            at: CGPoint(x: controls.leadingResize.midX, y: controls.leadingResize.midY),
+            in: context
+        )
+        XCTAssertNotEqual(leadingDragTarget?.action, .resizeLeading)
     }
 
     func testUnselectedChordBodyCannotStartMove() {
@@ -89,6 +95,50 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         let bodyLocation = CGPoint(x: fixture.chordLayout.frame.midX, y: fixture.chordLayout.frame.midY)
 
         XCTAssertNil(RenderedEditRouter().dragTarget(at: bodyLocation, in: context))
+    }
+
+    func testUnselectedChordMoveHaloDoesNotStealMeasureTap() throws {
+        let fixture = pageFixture()
+        let selectionFrame = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: fixture.chordLayout)
+        let previousMoveHalo = LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: fixture.chordLayout)
+        let location = CGPoint(x: selectionFrame.minX - 4, y: selectionFrame.midY)
+
+        XCTAssertTrue(previousMoveHalo.contains(location))
+        XCTAssertFalse(selectionFrame.contains(location))
+        XCTAssertTrue(fixture.measure.frame.insetBy(dx: -6, dy: -6).contains(location))
+
+        let target = try XCTUnwrap(
+            RenderedEditRouter().tapTarget(
+                at: location,
+                in: RenderedEditContext(pageLayout: fixture.pageLayout)
+            )
+        )
+
+        XCTAssertEqual(target.objectID, .measure(fixture.measureID))
+        XCTAssertEqual(target.action, .select)
+    }
+
+    func testSelectedChordKeepsForgivingMoveHaloForDrag() throws {
+        let fixture = pageFixture()
+        let chordObjectID = RenderedEditObjectID.chord(fixture.chordID)
+        let selectionFrame = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: fixture.chordLayout)
+        let moveFrame = LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: fixture.chordLayout)
+        let location = CGPoint(x: selectionFrame.midX, y: selectionFrame.minY - 6)
+        var selection = RenderedEditSelectionState()
+        selection.select(chordObjectID)
+
+        XCTAssertTrue(moveFrame.contains(location))
+        XCTAssertFalse(selectionFrame.contains(location))
+
+        let dragTarget = try XCTUnwrap(
+            RenderedEditRouter().dragTarget(
+                at: location,
+                in: RenderedEditContext(pageLayout: fixture.pageLayout, selection: selection)
+            )
+        )
+
+        XCTAssertEqual(dragTarget.objectID, chordObjectID)
+        XCTAssertEqual(dragTarget.action, .move)
     }
 
     func testSelectedRenderedObjectsCanStartMoveThroughRouter() throws {

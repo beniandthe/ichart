@@ -36,6 +36,14 @@ enum LeadSheetChordEditOverlayGeometry {
         )
     }
 
+    static func bodySelectionFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
+        editFrame(for: chordLayout)
+    }
+
+    static func selectedMoveBodyFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
+        editFrame(for: chordLayout).insetBy(dx: -8, dy: -8)
+    }
+
     static func controlFrames(for chordLayout: LeadSheetChordLayout) -> LeadSheetChordEditControlFrames {
         let editFrame = editFrame(for: chordLayout)
         let originY = editFrame.minY - controlSize / 2
@@ -79,14 +87,6 @@ enum LeadSheetChordEditOverlayGeometry {
 
             for chordLayout in measure.chordLayouts.reversed() where chordLayout.id == selectedChordID {
                 let controls = controlFrames(for: chordLayout)
-                if controls.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return ChordEditHitTarget(
-                        measureID: measureID,
-                        chordID: chordLayout.id,
-                        action: .resizeLeading
-                    )
-                }
-
                 if controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
@@ -115,8 +115,7 @@ enum LeadSheetChordEditOverlayGeometry {
                 if controls.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     continue
                 }
-                if controls.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location)
-                    || controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                if controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     continue
                 }
 
@@ -152,13 +151,6 @@ enum LeadSheetChordEditOverlayGeometry {
                         measureID: measureID,
                         chordID: chordLayout.id,
                         action: .delete
-                    )
-                }
-                if controlFrames.leadingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return ChordEditHitTarget(
-                        measureID: measureID,
-                        chordID: chordLayout.id,
-                        action: .resizeLeading
                     )
                 }
                 if controlFrames.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {

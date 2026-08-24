@@ -2,17 +2,27 @@
 import Foundation
 import UIKit
 
+struct LeadSheetChordMovePositionPreview {
+    var measureID: UUID
+    var referenceFrame: CGRect
+    var guideFrame: CGRect
+    var guideXs: [CGFloat]
+    var activeGuideX: CGFloat?
+    var targetFraction: Double
+    var targetX: CGFloat
+}
+
 struct ActiveChordMoveDrag {
     var chordID: UUID
     var sourcePageLayout: LeadSheetPageLayout
     var initialFrame: CGRect
     var currentFrame: CGRect
     var startLocation: CGPoint
+    var currentPositionPreview: LeadSheetChordMovePositionPreview? = nil
 }
 
 struct ActiveChordResizeDrag {
     enum Edge {
-        case leading
         case trailing
     }
 
@@ -22,6 +32,88 @@ struct ActiveChordResizeDrag {
     var initialFrame: CGRect
     var currentFrame: CGRect
     var startLocation: CGPoint
+}
+
+enum LeadSheetChordMovePositionGuidePolicy {
+    static let snapTolerance: CGFloat = 18
+    static let leadingArtifactInset: CGFloat = 12
+    static let artifactGap: CGFloat = 6
+
+    static func guideFractions(for meter: Meter) -> [Double] {
+        let beatCount = max(1, meter.numerator)
+        return (0..<beatCount).map { beatIndex in
+            Double(beatIndex) / Double(beatCount)
+        }
+    }
+
+    static func guideXs(for meter: Meter, in referenceFrame: CGRect) -> [CGFloat] {
+        guideFractions(for: meter).map { fraction in
+            referenceFrame.minX + referenceFrame.width * CGFloat(fraction)
+        }
+    }
+
+    static func guideFrame(
+        for measure: LeadSheetMeasureLayout,
+        referenceFrame: CGRect
+    ) -> CGRect {
+        let leadingRepeatMaxX = measure.repeatMarkerLayouts
+            .filter { $0.edge == .leading }
+            .map(\.frame.maxX)
+            .max()
+        let reservedArtifactMaxX = [
+            leadingRepeatMaxX,
+            measure.meterChangeFrame?.maxX
+        ]
+            .compactMap { $0 }
+            .max()
+        let artifactSafeMinX = reservedArtifactMaxX.map { $0 + artifactGap }
+            ?? referenceFrame.minX
+        let preferredMinX = max(
+            referenceFrame.minX + leadingArtifactInset,
+            artifactSafeMinX
+        )
+        let resolvedMinX = min(
+            max(referenceFrame.minX, preferredMinX),
+            max(referenceFrame.minX, referenceFrame.maxX - 1)
+        )
+
+        return CGRect(
+            x: resolvedMinX,
+            y: referenceFrame.minY,
+            width: max(1, referenceFrame.maxX - resolvedMinX),
+            height: referenceFrame.height
+        )
+    }
+
+    static func resolvedFraction(
+        rawFraction: Double,
+        referenceFrame: CGRect,
+        guideFrame: CGRect,
+        meter: Meter,
+        tolerance: CGFloat = snapTolerance
+    ) -> (fraction: Double, activeGuideX: CGFloat?) {
+        let clampedFraction = ChordEvent.clampedManualLaneFraction(rawFraction)
+        let rawX = referenceFrame.minX + referenceFrame.width * CGFloat(clampedFraction)
+        let guideXs = guideXs(for: meter, in: guideFrame)
+        guard let closestGuideX = guideXs.min(by: { lhs, rhs in
+            abs(lhs - rawX) < abs(rhs - rawX)
+        }) else {
+            return (clampedFraction, nil)
+        }
+
+        guard abs(closestGuideX - rawX) <= tolerance else {
+            return (clampedFraction, nil)
+        }
+
+        let snappedFraction = Double(
+            (closestGuideX - referenceFrame.minX)
+                / max(1, referenceFrame.width)
+        )
+        return (
+            ChordEvent.clampedManualLaneFraction(snappedFraction),
+            closestGuideX
+        )
+    }
 }
 
 enum LeadSheetChordMoveDragPolicy {
@@ -55,12 +147,14 @@ enum LeadSheetChordMoveDragPolicy {
 
     static func target(
         at location: CGPoint,
-        for drag: ActiveChordMoveDrag
+        for drag: ActiveChordMoveDrag,
+        chart: Chart? = nil
     ) -> (measureID: UUID, fraction: Double)? {
         let locationTarget = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
             measureAnchor: location,
             fractionAnchorX: drag.currentFrame.minX,
-            in: drag.sourcePageLayout
+            in: drag.sourcePageLayout,
+            chart: chart
         )
         let frameMeasureAnchor = CGPoint(
             x: drag.currentFrame.midX,
@@ -69,17 +163,32 @@ enum LeadSheetChordMoveDragPolicy {
         let frameTarget = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
             measureAnchor: frameMeasureAnchor,
             fractionAnchorX: drag.currentFrame.minX,
-            in: drag.sourcePageLayout
+            in: drag.sourcePageLayout,
+            chart: chart
         )
 
         if drag.currentFrame == drag.initialFrame {
             return LeadSheetCanvasInteractionTargeting.chordMoveTarget(
                 at: location,
-                in: drag.sourcePageLayout
+                in: drag.sourcePageLayout,
+                chart: chart
             ) ?? frameTarget
         }
 
         return locationTarget ?? frameTarget
+    }
+
+    static func positionPreview(
+        at location: CGPoint,
+        for drag: ActiveChordMoveDrag,
+        chart: Chart
+    ) -> LeadSheetChordMovePositionPreview? {
+        LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+            measureAnchor: location,
+            fractionAnchorX: drag.currentFrame.minX,
+            in: drag.sourcePageLayout,
+            chart: chart
+        )
     }
 }
 
@@ -96,46 +205,17 @@ enum LeadSheetChordResizeDragPolicy {
         )
         let deltaX = location.x - drag.startLocation.x
 
-        switch drag.edge {
-        case .leading:
-            let proposedMinX = drag.initialFrame.minX + deltaX
-            let resolvedMinX = min(
-                max(proposedMinX, movementFrame.minX),
-                drag.initialFrame.maxX - minimumWidth
-            )
-            let resolvedWidth = min(
-                maximumWidth,
-                max(minimumWidth, drag.initialFrame.maxX - resolvedMinX)
-            )
-            return CGRect(
-                x: drag.initialFrame.maxX - resolvedWidth,
-                y: drag.initialFrame.minY,
-                width: resolvedWidth,
-                height: drag.initialFrame.height
-            )
-
-        case .trailing:
-            let proposedWidth = drag.initialFrame.width + deltaX
-            let availableWidth = max(minimumWidth, movementFrame.maxX - drag.initialFrame.minX)
-            let resolvedWidth = min(
-                maximumWidth,
-                min(availableWidth, max(minimumWidth, proposedWidth))
-            )
-            return CGRect(
-                x: drag.initialFrame.minX,
-                y: drag.initialFrame.minY,
-                width: resolvedWidth,
-                height: drag.initialFrame.height
-            )
-        }
-    }
-
-    static func leadingTarget(
-        for drag: ActiveChordResizeDrag
-    ) -> (measureID: UUID, fraction: Double)? {
-        LeadSheetCanvasInteractionTargeting.chordMoveTarget(
-            at: CGPoint(x: drag.currentFrame.minX, y: drag.currentFrame.midY),
-            in: drag.sourcePageLayout
+        let proposedWidth = drag.initialFrame.width + deltaX
+        let availableWidth = max(minimumWidth, movementFrame.maxX - drag.initialFrame.minX)
+        let resolvedWidth = min(
+            maximumWidth,
+            min(availableWidth, max(minimumWidth, proposedWidth))
+        )
+        return CGRect(
+            x: drag.initialFrame.minX,
+            y: drag.initialFrame.minY,
+            width: resolvedWidth,
+            height: drag.initialFrame.height
         )
     }
 }
@@ -270,20 +350,87 @@ enum LeadSheetCanvasInteractionTargeting {
 
     static func chordMoveTarget(
         at location: CGPoint,
-        in pageLayout: LeadSheetPageLayout?
+        in pageLayout: LeadSheetPageLayout?,
+        chart: Chart? = nil
     ) -> (measureID: UUID, fraction: Double)? {
         chordMoveTarget(
             measureAnchor: location,
             fractionAnchorX: location.x,
-            in: pageLayout
+            in: pageLayout,
+            chart: chart
         )
     }
 
     static func chordMoveTarget(
         measureAnchor: CGPoint,
         fractionAnchorX: CGFloat,
-        in pageLayout: LeadSheetPageLayout?
+        in pageLayout: LeadSheetPageLayout?,
+        chart: Chart? = nil
     ) -> (measureID: UUID, fraction: Double)? {
+        guard let target = chordMoveRawTarget(
+            measureAnchor: measureAnchor,
+            fractionAnchorX: fractionAnchorX,
+            in: pageLayout
+        ) else {
+            return nil
+        }
+
+        return (
+            target.measureID,
+            resolvedChordMoveFraction(
+                target.rawFraction,
+                referenceFrame: target.referenceFrame,
+                guideFrame: target.guideFrame,
+                measureID: target.measureID,
+                chart: chart
+            )
+        )
+    }
+
+    static func chordMovePositionPreview(
+        measureAnchor: CGPoint,
+        fractionAnchorX: CGFloat,
+        in pageLayout: LeadSheetPageLayout?,
+        chart: Chart
+    ) -> LeadSheetChordMovePositionPreview? {
+        guard let target = chordMoveRawTarget(
+            measureAnchor: measureAnchor,
+            fractionAnchorX: fractionAnchorX,
+            in: pageLayout
+        ),
+              let measure = chart.measure(id: target.measureID) else {
+            return nil
+        }
+
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        let resolved = LeadSheetChordMovePositionGuidePolicy.resolvedFraction(
+            rawFraction: target.rawFraction,
+            referenceFrame: target.referenceFrame,
+            guideFrame: target.guideFrame,
+            meter: meter
+        )
+        let targetX = target.referenceFrame.minX
+            + target.referenceFrame.width * CGFloat(resolved.fraction)
+
+        return LeadSheetChordMovePositionPreview(
+            measureID: target.measureID,
+            referenceFrame: target.referenceFrame,
+            guideFrame: target.guideFrame,
+            guideXs: LeadSheetChordMovePositionGuidePolicy.guideXs(
+                for: meter,
+                in: target.guideFrame
+            ),
+            activeGuideX: resolved.activeGuideX,
+            targetFraction: resolved.fraction,
+            targetX: targetX
+        )
+    }
+
+    private static func chordMoveRawTarget(
+        measureAnchor: CGPoint,
+        fractionAnchorX: CGFloat,
+        in pageLayout: LeadSheetPageLayout?
+    ) -> (measureID: UUID, referenceFrame: CGRect, guideFrame: CGRect, rawFraction: Double)? {
         guard let pageLayout else {
             return nil
         }
@@ -318,9 +465,18 @@ enum LeadSheetCanvasInteractionTargeting {
                 && targetMeasure.isOpen
                 && !chordMoveLaneSegmentFrame(for: targetMeasure).contains(measureAnchor)
             let referenceFrame = isFullWidthOpenLane ? laneFrame : targetMeasure.chordBandFrame
+            let guideFrame = LeadSheetChordMovePositionGuidePolicy.guideFrame(
+                for: targetMeasure,
+                referenceFrame: referenceFrame
+            )
             let rawFraction = (fractionAnchorX - referenceFrame.minX)
                 / max(1, referenceFrame.width)
-            return (measureID, Double(min(max(rawFraction, 0), 0.9999)))
+            return (
+                measureID,
+                referenceFrame,
+                guideFrame,
+                Double(min(max(rawFraction, 0), 0.9999))
+            )
         }
 
         let measures = pageLayout.systems.flatMap(\.measures)
@@ -330,10 +486,39 @@ enum LeadSheetCanvasInteractionTargeting {
            let measureID = targetMeasure.sourceMeasureID {
             let fraction = (fractionAnchorX - targetMeasure.chordBandFrame.minX)
                 / max(1, targetMeasure.chordBandFrame.width)
-            return (measureID, Double(min(max(fraction, 0), 0.9999)))
+            return (
+                measureID,
+                targetMeasure.chordBandFrame,
+                LeadSheetChordMovePositionGuidePolicy.guideFrame(
+                    for: targetMeasure,
+                    referenceFrame: targetMeasure.chordBandFrame
+                ),
+                Double(min(max(fraction, 0), 0.9999))
+            )
         }
 
         return nil
+    }
+
+    private static func resolvedChordMoveFraction(
+        _ rawFraction: Double,
+        referenceFrame: CGRect,
+        guideFrame: CGRect,
+        measureID: UUID,
+        chart: Chart?
+    ) -> Double {
+        guard let chart,
+              let measure = chart.measure(id: measureID) else {
+            return ChordEvent.clampedManualLaneFraction(rawFraction)
+        }
+
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        return LeadSheetChordMovePositionGuidePolicy.resolvedFraction(
+            rawFraction: rawFraction,
+            referenceFrame: referenceFrame,
+            guideFrame: guideFrame,
+            meter: meter
+        ).fraction
     }
 
     static func cueTextMoveTarget(
