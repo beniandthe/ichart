@@ -417,6 +417,14 @@ Third architecture slice:
 - This does not fix the underlying cloud push failure. It only reduces automatic retry pressure while the cloud path is failing.
 - Added focused tests for the automatic-upload backoff policy.
 
+Fourth architecture slice:
+
+- Added `iChart/Features/Editor/Components/LeadSheetParentScrollLockCoordinator.swift`.
+- Moved rendered-drag parent scroll locking state out of `LeadSheetCanvasHostView.swift`.
+- Behavior intent: no product behavior change. Chord, cue text, and roadmap marker drags still lock the parent scroll view while active and restore its prior enabled state when the drag ends or cancels.
+- This reduces shared mutable UIKit state in the host before deeper rendered-edit extraction.
+- Added focused tests for lock, repeated-lock, and unlock-without-lock behavior.
+
 ### Phase 1: Instrument The Real Bottlenecks
 
 Add or keep aggregate-only counters for:

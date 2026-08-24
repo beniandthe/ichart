@@ -1242,8 +1242,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeChordResizeDrag: ActiveChordResizeDrag?
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
-    private weak var chordMoveLockedParentScrollView: UIScrollView?
-    private var chordMoveLockedParentScrollWasEnabled: Bool?
+    private var parentScrollLockCoordinator = LeadSheetParentScrollLockCoordinator()
     private var isSyncingSelectionFromSwiftUI = false
     var selectedChordID: UUID? {
         didSet {
@@ -1477,28 +1476,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func lockParentScrollForChordMove() {
-        guard chordMoveLockedParentScrollView == nil,
-              let scrollView = enclosingParentScrollView() else {
-            return
-        }
-
-        chordMoveLockedParentScrollView = scrollView
-        chordMoveLockedParentScrollWasEnabled = scrollView.isScrollEnabled
-        scrollView.isScrollEnabled = false
+        parentScrollLockCoordinator.lock(enclosingParentScrollView())
     }
 
     private func unlockParentScrollForChordMove() {
-        defer {
-            chordMoveLockedParentScrollView = nil
-            chordMoveLockedParentScrollWasEnabled = nil
-        }
-
-        guard let scrollView = chordMoveLockedParentScrollView,
-              let wasEnabled = chordMoveLockedParentScrollWasEnabled else {
-            return
-        }
-
-        scrollView.isScrollEnabled = wasEnabled
+        parentScrollLockCoordinator.unlock()
     }
 
     fileprivate func allowsParentScrollGestureStart(at point: CGPoint) -> Bool {
