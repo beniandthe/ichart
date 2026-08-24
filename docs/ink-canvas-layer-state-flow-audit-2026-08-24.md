@@ -384,6 +384,39 @@ Second architecture slice:
 - Behavior intent: no product behavior change. This slice is observational and is meant to support the next physical-iPad performance pass by answering whether heavy feel comes from drag ticks, layout invalidation, chart write-back, or ink persistence.
 - Added focused tests for drag commit/cancel aggregation and chart write-back/layout counters.
 
+Second physical iPad validation checkpoint:
+
+- Device: Ben's iPad, app `com.ichart.app`, iChart `1.1.7` build `49`.
+- Scenario: mixed chord ink, Free-Write ink, deletion, rendered edit movement/resizing, old heavy chart open, old heavy Free-Write erasure, old heavy Free-Write rewrite, app close, app reopen, and chart reopen.
+- User-facing result: close/reopen was verified by hand after the mixed sweep; the edited ink state held visually.
+- Device trace result: iChart stayed running through the sweep, with no new local iChart diagnostic report observed during the pass.
+- Local chart store result: `Chasing After You` retained a large page-ink payload after partial erase/rewrite, which matches the user action rather than indicating erase rehydration. A newer test chart retained its current page-ink payload.
+- Ink trace result: `29` `ink.pipeline.aggregate` events, `19` manual erase events, `39` persistence attempts, `0` skipped persistence attempts, and only `1` `sync_loads` event. That single sync load corresponded to loading the existing heavy chart ink into the live canvas; the trace did not show repeated model reloads during dirty write/erase.
+- Heavy-ink trace result: the largest observed drawing reached about `448` strokes / `147 KB`; max recorded persist time was about `10.11 ms`.
+- Edit trace result: rendered chord movement, chord resize, and measure resize were exercised. Drag activity produced chart write-back/layout clusters around commits and layout events, not an obvious runaway pattern on every drag tick.
+
+What this additionally proves:
+
+- Local Free-Write persistence, erasure, partial erasure of heavy existing ink, rewrite after erasure, and close/reopen restore are holding on the physical iPad for the tested flows.
+- The original stale-model rehydration class was not reproduced during either the focused erase/reopen pass or the later mixed heavy-ink pass.
+- The editor interaction metrics are useful enough to distinguish drag/edit workload from ink persistence workload.
+
+What this still does not prove:
+
+- It does not prove remote cloud backup/sync correctness. Telemetry still showed repeated `cloud.push_failed` events during the pass, which is separate from local iPad persistence.
+- It does not prove cue text movement, roadmap marker movement, or cancelled drag paths; those counters were not exercised in the mixed pass.
+- It does not prove recognition accuracy; that remains outside this branch.
+
+Third architecture slice:
+
+- Added `iChart/App/Sync/ChartCloudAutomaticUploadBackoff.swift`.
+- Wired `ChartCloudSyncStore` so automatic cloud uploads pause briefly after a failed cloud push instead of trying again after every local ink/edit save.
+- Manual `Back Up Now` still bypasses the automatic queue and can be used as an explicit retry.
+- Successful cloud pushes and sync cancellation/reset paths clear the automatic-upload backoff.
+- Behavior intent: protect local authoring from repeated failing background cloud pushes without changing local persistence, PencilKit behavior, chord recognition, OCR, or cloud merge semantics.
+- This does not fix the underlying cloud push failure. It only reduces automatic retry pressure while the cloud path is failing.
+- Added focused tests for the automatic-upload backoff policy.
+
 ### Phase 1: Instrument The Real Bottlenecks
 
 Add or keep aggregate-only counters for:

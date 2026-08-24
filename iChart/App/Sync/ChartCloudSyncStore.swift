@@ -11,6 +11,7 @@ final class ChartCloudSyncStore: ObservableObject {
     private let service: ChartCloudSyncService?
     private weak var libraryStore: ChartLibraryStore?
     private var isSignedIn = false
+    private var automaticUploadBackoff = ChartCloudAutomaticUploadBackoff()
     private var queuedUploadTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
@@ -133,6 +134,19 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        let queuedAt = Date()
+        guard automaticUploadBackoff.allowsAutomaticUpload(at: queuedAt) else {
+            IChartPerformanceTrace.record(
+                "cloud.automatic_push_suppressed",
+                metadata: [
+                    "reason": "failure_backoff",
+                    "retry_after_ms": "\(Int(automaticUploadBackoff.remainingCooldown(at: queuedAt) * 1_000))",
+                    "chart_count": "\(snapshot.charts.count)"
+                ]
+            )
+            return
+        }
+
         queuedUploadTask?.cancel()
         queuedUploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -196,6 +210,7 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     private func runPush(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
+        queuedUploadTask = nil
         guard !isWorking else {
             queueUpload(snapshot)
             return
@@ -226,6 +241,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 lastSyncAt: Date(),
                 lastRemoteBackupAt: result.lastRemoteBackupAt
             )
+            automaticUploadBackoff.recordSuccess()
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
             IChartTelemetry.record(
@@ -238,6 +254,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         } catch {
+            automaticUploadBackoff.recordFailure(at: Date())
             state = Self.failureState(for: error)
             IChartTelemetry.record(
                 "cloud.push_failed",
@@ -259,6 +276,7 @@ final class ChartCloudSyncStore: ObservableObject {
         syncTask?.cancel()
         syncTask = nil
         isWorking = false
+        automaticUploadBackoff.reset()
     }
 
     private var isCloudSyncEntitled: Bool {
