@@ -53,7 +53,11 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         layoutStyle: ChartLayoutStyle
     ) -> LeadSheetMeasureLayout {
         guard system.measures.last?.id == measure.id,
-              (measure.isOpen || measure.sourceMeasureID != nil),
+              (measure.isOpen || usesTerminalBarlineAsTrailingBoundary(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              )),
               let terminalFrame = barlineFrame(
                 for: system,
                 paperFrame: paperFrame,
@@ -127,6 +131,10 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
               let referenceMeasure = system.measures.last,
               !referenceMeasure.isOpen,
               referenceMeasure.sourceMeasureID != nil,
+              LeadSheetRepeatBoundaryPolicy.repeatMarkers(
+                after: referenceMeasure,
+                before: nil
+              ).isEmpty,
               let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
                 paperFrame: paperFrame

@@ -551,6 +551,63 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(tappedMeasure?.sourceMeasureID, measure.sourceMeasureID)
     }
 
+    func testSimpleChordSheetRepeatEndedTerminalMeasureDoesNotCreateTerminalFiller() throws {
+        var chart = Chart.blank(title: "Repeat End Row", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3]))
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.last)
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+            measure,
+            in: system,
+            paperFrame: layout.paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
+        let terminalTap = CGPoint(
+            x: (measure.frame.maxX + terminalFrame.midX) / 2,
+            y: measure.frame.midY
+        )
+
+        XCTAssertFalse(measure.repeatMarkerLayouts.isEmpty)
+        XCTAssertGreaterThan(terminalFrame.midX, measure.frame.maxX)
+        XCTAssertEqual(displayMeasure.frame, measure.frame)
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetSimpleChordTerminalBarlineGeometry.containsTerminalFiller(
+                terminalTap,
+                in: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertNil(
+            LeadSheetCanvasInteractionTargeting.measure(
+                at: terminalTap,
+                in: layout,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+    }
+
     func testChordToolLayoutAddsOpenContinuationLanesWithoutChangingDefaultEngraving() throws {
         var chart = Chart.draft(title: "Open Chord Lanes", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
