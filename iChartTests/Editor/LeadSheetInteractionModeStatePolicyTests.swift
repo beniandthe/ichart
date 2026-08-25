@@ -2546,11 +2546,17 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let lastGroupedMeasure = try XCTUnwrap(
             layout.systems[0].measures.first { $0.sourceMeasureID == measureIDs[3] }
         )
+        let displayedLastGroupedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+            lastGroupedMeasure,
+            in: layout.systems[0],
+            paperFrame: layout.paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
 
         XCTAssertEqual(affordance.selectedMeasureID, measureIDs[1])
         XCTAssertEqual(affordance.groupedMeasureIDs, Array(measureIDs[1..<4]))
         XCTAssertEqual(affordance.groupFrame.minX, selectedMeasure.frame.minX, accuracy: 0.001)
-        XCTAssertEqual(affordance.groupFrame.maxX, lastGroupedMeasure.frame.maxX, accuracy: 0.001)
+        XCTAssertEqual(affordance.groupFrame.maxX, displayedLastGroupedMeasure.frame.maxX, accuracy: 0.001)
         XCTAssertLessThan(affordance.guideY, affordance.groupFrame.midY)
     }
 
