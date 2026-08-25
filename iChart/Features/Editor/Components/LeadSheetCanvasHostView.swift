@@ -2753,7 +2753,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard showsSelectedMeasureResizeHandles,
               let hitTarget = renderedEditDragTarget(at: location),
               case .measure(let measureID) = hitTarget.objectID,
-              let measure = measureLayout(for: measureID) else {
+              let measure = selectedDisplayMeasureLayout() ?? measureLayout(for: measureID) else {
             return nil
         }
 

@@ -1674,8 +1674,8 @@ extension Chart {
             return nil
         }
 
-        let fraction = (laneX - targetMeasure.display.chordBandFrame.minX)
-            / max(1, targetMeasure.display.chordBandFrame.width)
+        let fraction = (laneX - targetMeasure.source.chordBandFrame.minX)
+            / max(1, targetMeasure.source.chordBandFrame.width)
         return (measureID, Double(min(max(fraction, 0), 0.9999)))
     }
 
