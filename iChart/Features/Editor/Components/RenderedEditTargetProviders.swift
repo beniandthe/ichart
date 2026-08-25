@@ -360,11 +360,18 @@ struct RepeatSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
         context.pageLayout.systems.flatMap { system in
             system.measures.flatMap { measure in
                 measure.repeatMarkerLayouts.map { marker in
-                    RenderedEditHitTarget(
+                    let renderedFrame = LeadSheetSimpleChordTerminalBarlineGeometry.renderedRepeatMarkerFrame(
+                        marker,
+                        after: measure,
+                        in: system,
+                        paperFrame: context.pageLayout.paperFrame,
+                        layoutStyle: context.layoutStyle
+                    )
+                    return RenderedEditHitTarget(
                         objectID: .repeatSpan(marker.roadmapObjectID),
                         action: .openInspector,
                         priority: .objectBodySelect,
-                        frame: marker.frame.insetBy(dx: -8, dy: -8),
+                        frame: renderedFrame.insetBy(dx: -8, dy: -8),
                         requiresSelection: false,
                         mutationRisk: .nonMutating
                     )

@@ -362,37 +362,44 @@ private struct ChartPDFRenderer {
         if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
             renderer.drawOpenMeasureHint(measure)
         } else {
-            let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy
-                .repeatMarkers(after: measure, before: nextMeasure)
-                .filter { !drawnRepeatMarkerIDs.contains($0.id) }
-
-            if !repeatBoundaryMarkers.isEmpty {
-                drawRepeatMarkers(repeatBoundaryMarkers, using: renderer)
-                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
-            } else if LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+            let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
                 after: measure,
-                before: nextMeasure
-            ) {
-                let barlineMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
-                    measure,
-                    in: system,
-                    paperFrame: paperFrame,
-                    layoutStyle: chart.layoutStyle
+                before: nextMeasure,
+                excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+
+            switch boundary {
+            case .repeatBoundary(let repeatBoundaryMarkers, let terminalTrailingLineX):
+                drawRepeatMarkers(
+                    repeatBoundaryMarkers,
+                    terminalTrailingLineX: terminalTrailingLineX,
+                    using: renderer
                 )
-                renderer.drawBarline(measure.barlineAfter, in: barlineMeasure.trailingBarlineFrame)
+                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+            case .normalBarline(let barline, let frame):
+                renderer.drawBarline(barline, in: frame)
+            case .none:
+                break
             }
         }
     }
 
     private func drawRepeatMarkers(
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
+        terminalTrailingLineX: CGFloat? = nil,
         using renderer: LeadSheetNotationRenderer
     ) {
         guard !repeatMarkers.isEmpty else {
             return
         }
 
-        renderer.drawRepeatBoundary(repeatMarkers)
+        renderer.drawRepeatBoundary(
+            repeatMarkers,
+            terminalTrailingLineX: terminalTrailingLineX
+        )
     }
 
     private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {

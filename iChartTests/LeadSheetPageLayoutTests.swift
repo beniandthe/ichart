@@ -608,6 +608,421 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
     }
 
+    func testSimpleChordSheetTerminalRepeatUsesTerminalBarlineAsRightmostRepeatBarline() throws {
+        var chart = Chart.blank(title: "Terminal Repeat", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3])
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let terminalMeasure = try XCTUnwrap(firstSystem.measures.last)
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let trailingMarker = try XCTUnwrap(
+            terminalMeasure.repeatMarkerLayouts.first { $0.edge == .trailing }
+        )
+
+        XCTAssertEqual(trailingMarker.roadmapObjectID, repeatID)
+        XCTAssertEqual(terminalMeasure.sourceMeasureID, measureIDs[3])
+        XCTAssertGreaterThan(terminalFrame.midX, trailingMarker.frame.midX)
+        XCTAssertTrue(
+            LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingRepeatBoundary(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let terminalTrailingRepeatLineX = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: terminalMeasure,
+                in: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertEqual(
+            terminalTrailingRepeatLineX,
+            terminalFrame.midX,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(
+            LeadSheetSimpleChordTerminalBarlineGeometry.shouldDrawStandaloneTerminalBarline(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerFrame(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+    }
+
+    func testSimpleChordSheetMidRowRepeatDoesNotUseTerminalBarline() throws {
+        var chart = Chart.blank(title: "Mid Row Repeat", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[2])
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let repeatEndMeasure = try XCTUnwrap(
+            firstSystem.measures.first { $0.sourceMeasureID == measureIDs[2] }
+        )
+        let terminalCommittedMeasure = try XCTUnwrap(
+            firstSystem.measures.first { $0.sourceMeasureID == measureIDs[3] }
+        )
+        let trailingMarker = try XCTUnwrap(
+            repeatEndMeasure.repeatMarkerLayouts.first { $0.edge == .trailing }
+        )
+
+        XCTAssertEqual(trailingMarker.roadmapObjectID, repeatID)
+        XCTAssertNil(
+            terminalCommittedMeasure.repeatMarkerLayouts.first { $0.edge == .trailing }
+        )
+        XCTAssertFalse(
+            LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingRepeatBoundary(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: repeatEndMeasure,
+                in: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+    }
+
+    func testSimpleChordSheetTerminalRepeatTreatsTinyTrailingSpacerAsTerminalPadding() throws {
+        let repeatMeasureID = UUID()
+        let spacerMeasureID = UUID()
+        let repeatID = UUID()
+        let repeatStaffFrame = CGRect(x: 120, y: 220, width: 320, height: 84)
+        let spacerStaffFrame = CGRect(x: 442, y: 220, width: 20, height: 84)
+        let repeatMeasure = LeadSheetMeasureLayout(
+            id: repeatMeasureID,
+            sourceMeasureID: repeatMeasureID,
+            chordInkTargetMeasureID: repeatMeasureID,
+            index: 1,
+            frame: repeatStaffFrame.insetBy(dx: -2, dy: -12),
+            staffFrame: repeatStaffFrame,
+            chordBandFrame: repeatStaffFrame,
+            writableFrame: repeatStaffFrame.insetBy(dx: 2, dy: 2),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [
+                LeadSheetRepeatMarkerLayout(
+                    roadmapObjectID: repeatID,
+                    edge: .trailing,
+                    frame: CGRect(x: repeatStaffFrame.maxX - 4, y: repeatStaffFrame.minY, width: 8, height: repeatStaffFrame.height)
+                )
+            ],
+            cueTextLayouts: [],
+            leadingBarline: .single,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: repeatStaffFrame.maxX, y: repeatStaffFrame.minY, width: 1.6, height: repeatStaffFrame.height),
+            isOpen: false
+        )
+        let spacerMeasure = LeadSheetMeasureLayout(
+            id: spacerMeasureID,
+            sourceMeasureID: nil,
+            chordInkTargetMeasureID: nil,
+            index: 2,
+            frame: spacerStaffFrame.insetBy(dx: -2, dy: -12),
+            staffFrame: spacerStaffFrame,
+            chordBandFrame: spacerStaffFrame,
+            writableFrame: spacerStaffFrame.insetBy(dx: 2, dy: 2),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: nil,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: spacerStaffFrame.maxX, y: spacerStaffFrame.minY, width: 1.6, height: spacerStaffFrame.height),
+            isOpen: true
+        )
+        let system = LeadSheetSystemLayout(
+            id: UUID(),
+            index: 1,
+            frame: CGRect(x: 118, y: 208, width: 344, height: 108),
+            staffLineYPositions: [],
+            clefFrame: nil,
+            keySignatureLayouts: [],
+            keyTextFrame: nil,
+            keyText: nil,
+            timeSignatureFrame: nil,
+            sectionTextFrame: nil,
+            sectionText: nil,
+            roadmapTextFrame: nil,
+            roadmapText: nil,
+            roadmapMarkerLayouts: [],
+            endingLayouts: [],
+            measures: [repeatMeasure, spacerMeasure]
+        )
+        let paperFrame = CGRect(x: 80, y: 120, width: 400, height: 700)
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+
+        XCTAssertGreaterThan(terminalFrame.midX, repeatMeasure.trailingBarlineFrame.midX)
+        XCTAssertEqual(
+            try XCTUnwrap(
+                LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                    after: repeatMeasure,
+                    in: system,
+                    paperFrame: paperFrame,
+                    layoutStyle: .simpleChordSheet
+                )
+            ),
+            terminalFrame.midX,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: spacerMeasure,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetSimpleChordTerminalBarlineGeometry.shouldDrawStandaloneTerminalBarline(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+    }
+
+    func testSimpleChordSheetTerminalRepeatDoesNotConsumeTerminalAcrossCommittedBlankMeasure() throws {
+        let repeatMeasureID = UUID()
+        let blankMeasureID = UUID()
+        let repeatID = UUID()
+        let repeatStaffFrame = CGRect(x: 120, y: 220, width: 280, height: 84)
+        let blankStaffFrame = CGRect(x: 400, y: 220, width: 120, height: 84)
+        let repeatMeasure = LeadSheetMeasureLayout(
+            id: repeatMeasureID,
+            sourceMeasureID: repeatMeasureID,
+            chordInkTargetMeasureID: repeatMeasureID,
+            index: 1,
+            frame: repeatStaffFrame.insetBy(dx: -2, dy: -12),
+            staffFrame: repeatStaffFrame,
+            chordBandFrame: repeatStaffFrame,
+            writableFrame: repeatStaffFrame.insetBy(dx: 2, dy: 2),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [
+                LeadSheetRepeatMarkerLayout(
+                    roadmapObjectID: repeatID,
+                    edge: .trailing,
+                    frame: CGRect(x: repeatStaffFrame.maxX - 4, y: repeatStaffFrame.minY, width: 8, height: repeatStaffFrame.height)
+                )
+            ],
+            cueTextLayouts: [],
+            leadingBarline: .single,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: repeatStaffFrame.maxX, y: repeatStaffFrame.minY, width: 1.6, height: repeatStaffFrame.height),
+            isOpen: false
+        )
+        let blankMeasure = LeadSheetMeasureLayout(
+            id: blankMeasureID,
+            sourceMeasureID: blankMeasureID,
+            chordInkTargetMeasureID: blankMeasureID,
+            index: 2,
+            frame: blankStaffFrame.insetBy(dx: -2, dy: -12),
+            staffFrame: blankStaffFrame,
+            chordBandFrame: blankStaffFrame,
+            writableFrame: blankStaffFrame.insetBy(dx: 2, dy: 2),
+            chordLayouts: [],
+            noteLayouts: [],
+            repeatMarkerLayouts: [],
+            cueTextLayouts: [],
+            leadingBarline: nil,
+            barlineAfter: .single,
+            meterChange: nil,
+            meterChangeFrame: nil,
+            trailingBarlineFrame: CGRect(x: blankStaffFrame.maxX, y: blankStaffFrame.minY, width: 1.6, height: blankStaffFrame.height),
+            isOpen: false
+        )
+        let system = LeadSheetSystemLayout(
+            id: UUID(),
+            index: 1,
+            frame: CGRect(x: 118, y: 208, width: 402, height: 108),
+            staffLineYPositions: [],
+            clefFrame: nil,
+            keySignatureLayouts: [],
+            keyTextFrame: nil,
+            keyText: nil,
+            timeSignatureFrame: nil,
+            sectionTextFrame: nil,
+            sectionText: nil,
+            roadmapTextFrame: nil,
+            roadmapText: nil,
+            roadmapMarkerLayouts: [],
+            endingLayouts: [],
+            measures: [repeatMeasure, blankMeasure]
+        )
+        let paperFrame = CGRect(x: 80, y: 120, width: 620, height: 700)
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+
+        XCTAssertGreaterThan(terminalFrame.midX, blankMeasure.trailingBarlineFrame.midX)
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: repeatMeasure,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+
+        let repeatBoundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+            after: repeatMeasure,
+            before: blankMeasure,
+            excludingRepeatMarkerIDs: [],
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: .simpleChordSheet
+        )
+        guard case .repeatBoundary(_, let terminalTrailingLineX) = repeatBoundary else {
+            return XCTFail("Expected repeat boundary before committed blank measure.")
+        }
+        XCTAssertNil(terminalTrailingLineX)
+
+        let blankBoundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+            after: blankMeasure,
+            before: nil,
+            excludingRepeatMarkerIDs: [],
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: .simpleChordSheet
+        )
+        guard case .normalBarline(_, let barlineFrame) = blankBoundary else {
+            return XCTFail("Expected committed blank measure to keep its terminal barline.")
+        }
+        XCTAssertEqual(barlineFrame, terminalFrame)
+    }
+
+    func testSimpleChordSheetTerminalRepeatIgnoresTrailingOpenAuthoringLane() throws {
+        var chart = Chart.draft(title: "Terminal Repeat Open Lane", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Terminal Repeat Open Lane",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 5
+        )
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertEqual(chart.measures.map(\.authoringState), [
+            .committed,
+            .committed,
+            .committed,
+            .committed,
+            .open
+        ])
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3])
+        )
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let repeatEndMeasure = try XCTUnwrap(
+            firstSystem.measures.first { $0.sourceMeasureID == measureIDs[3] }
+        )
+        let openMeasure = try XCTUnwrap(
+            firstSystem.measures.first { $0.sourceMeasureID == measureIDs[4] }
+        )
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let trailingMarker = try XCTUnwrap(
+            repeatEndMeasure.repeatMarkerLayouts.first { $0.edge == .trailing }
+        )
+        let terminalTrailingRepeatLineX = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: repeatEndMeasure,
+                in: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+
+        XCTAssertTrue(openMeasure.isOpen)
+        XCTAssertGreaterThan(terminalFrame.midX, trailingMarker.frame.midX)
+        XCTAssertEqual(trailingMarker.roadmapObjectID, repeatID)
+        XCTAssertEqual(terminalTrailingRepeatLineX, terminalFrame.midX, accuracy: 0.001)
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: openMeasure,
+                in: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetSimpleChordTerminalBarlineGeometry.shouldDrawStandaloneTerminalBarline(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        XCTAssertNil(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerFrame(
+                for: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+    }
+
     func testChordToolLayoutAddsOpenContinuationLanesWithoutChangingDefaultEngraving() throws {
         var chart = Chart.draft(title: "Open Chord Lanes", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(

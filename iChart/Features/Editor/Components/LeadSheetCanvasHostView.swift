@@ -1745,19 +1745,27 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
                     ? system.measures[nextMeasureIndex]
                     : nil
-                let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy
-                    .repeatMarkers(after: measure, before: nextMeasure)
-                    .filter { !drawnRepeatMarkerIDs.contains($0.id) }
-
-                if !repeatBoundaryMarkers.isEmpty {
-                    drawRepeatMarkers(repeatBoundaryMarkers, using: renderer)
-                    drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
-                } else if LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
                     after: measure,
-                    before: nextMeasure
-                ) {
-                    let barlineMeasure = displayMeasureLayout(measure, in: system)
-                    renderer.drawBarline(measure.barlineAfter, in: barlineMeasure.trailingBarlineFrame)
+                    before: nextMeasure,
+                    excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
+                    in: system,
+                    paperFrame: paperFrame,
+                    layoutStyle: chart.layoutStyle
+                )
+
+                switch boundary {
+                case .repeatBoundary(let repeatBoundaryMarkers, let terminalTrailingLineX):
+                    drawRepeatMarkers(
+                        repeatBoundaryMarkers,
+                        terminalTrailingLineX: terminalTrailingLineX,
+                        using: renderer
+                    )
+                    drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+                case .normalBarline(let barline, let frame):
+                    renderer.drawBarline(barline, in: frame)
+                case .none:
+                    break
                 }
             }
         }
@@ -1773,13 +1781,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawRepeatMarkers(
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
+        terminalTrailingLineX: CGFloat? = nil,
         using renderer: LeadSheetNotationRenderer
     ) {
         guard !repeatMarkers.isEmpty else {
             return
         }
 
-        renderer.drawRepeatBoundary(repeatMarkers)
+        renderer.drawRepeatBoundary(
+            repeatMarkers,
+            terminalTrailingLineX: terminalTrailingLineX
+        )
     }
 
     private func drawMeasureSelection(_ measure: LeadSheetMeasureLayout, in system: LeadSheetSystemLayout) {

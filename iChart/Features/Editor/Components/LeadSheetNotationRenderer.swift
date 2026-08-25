@@ -347,6 +347,21 @@ enum LeadSheetRoadmapLabelFitting {
     }
 }
 
+enum LeadSheetRoadmapMarkerLabelGeometry {
+    static func labelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
+        if markerLayout.type.containsNotationMarkerGlyph {
+            var frame = markerLayout.frame.insetBy(
+                dx: markerLayout.type.isStandaloneNotationMarker ? 0 : 2,
+                dy: 0
+            )
+            frame.size.height += max(4, markerLayout.frame.height * 0.18)
+            return frame
+        }
+
+        return markerLayout.frame.insetBy(dx: 2, dy: 1)
+    }
+}
+
 struct LeadSheetNotationRenderer {
     let chart: Chart
 
@@ -1094,7 +1109,10 @@ struct LeadSheetNotationRenderer {
         drawRepeatBoundary([marker])
     }
 
-    func drawRepeatBoundary(_ markers: [LeadSheetRepeatMarkerLayout]) {
+    func drawRepeatBoundary(
+        _ markers: [LeadSheetRepeatMarkerLayout],
+        terminalTrailingLineX: CGFloat? = nil
+    ) {
         guard let firstMarker = markers.first else {
             return
         }
@@ -1114,8 +1132,9 @@ struct LeadSheetNotationRenderer {
             staffSpace: staffSpace
         )
         let centerX = firstMarker.frame.midX
-        let leadingLineX = centerX - separation / 2
-        let trailingLineX = centerX + separation / 2
+        let trailingLineX = terminalTrailingLineX ?? centerX + separation / 2
+        let leadingLineX = terminalTrailingLineX.map { $0 - separation }
+            ?? centerX - separation / 2
         let edges = Set(markers.map(\.edge))
 
         drawRepeatBarline(
@@ -1270,14 +1289,7 @@ struct LeadSheetNotationRenderer {
     }
 
     private func roadmapMarkerLabelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
-        if markerLayout.type.containsNotationMarkerGlyph {
-            return markerLayout.frame.insetBy(
-                dx: markerLayout.type.isStandaloneNotationMarker ? 0 : 2,
-                dy: 0
-            )
-        }
-
-        return markerLayout.frame.insetBy(dx: 2, dy: 1)
+        LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: markerLayout)
     }
 
     private func roadmapMarkerMinimumFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
