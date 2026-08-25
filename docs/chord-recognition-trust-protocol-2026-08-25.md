@@ -156,6 +156,12 @@ Validation:
 - `xcrun xcresulttool get test-results summary --path /tmp/iChartRecognitionTrustFinalRetry-1787675374.xcresult --format json`
 - Result: 15 total selected simulator tests, 12 passed, 3 skipped, 0 failed. The skipped tests were full-archive opt-in tests because the Xcode test host did not receive `ICHART_FULL_INK_FIXTURES`; full-archive coverage is therefore proven by the SwiftPM full-archive commands above, not by this simulator run.
 
+Music-theory context extraction:
+
+- `docs/chord-recognition-music-theory-context-evidence-2026-08-25.md` records repo and web evidence for root, root-accidental, quality, extension, alteration, slash-bass, and chord-repeat roles.
+- The current decision is to add theory only as a shared role-evidence layer for grouping, candidate composition, scoring, and confirmation. It must not expand parser coverage silently, reintroduce OCR/Scribble lane recognition, or become a key/progression auto-correction engine.
+- Validation: documentation-only slice; no recognizer code or tests changed.
+
 Physical iPad validation:
 
 - Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.
