@@ -162,6 +162,25 @@ Music-theory context extraction:
 - The current decision is to add theory only as a shared role-evidence layer for grouping, candidate composition, scoring, and confirmation. It must not expand parser coverage silently, reintroduce OCR/Scribble lane recognition, or become a key/progression auto-correction engine.
 - Validation: documentation-only slice; no recognizer code or tests changed.
 
+Commit `046bd45` added `ChordInkTheoryRoleContext`, pure role-context tests, and migrated `ChordInkSequentialGrouper` to consume shared root-start/slash-bass role evidence instead of private duplicated root/slash checks. The helper labels root base, root accidental, quality, chord extension, alteration accidental, alteration degree, slash separator, slash bass root, six-nine separator, parentheses, chord-repeat dots/slash, and unknown roles. This did not expand parser coverage or change lane UI/render flow.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-theory-role-context --filter 'ChordInkTheoryRoleContextTests|ChordInkSequentialGrouperTests'`
+- Result: pass, 15 selected XCTest cases, 0 failures.
+- `swift test --scratch-path /tmp/iChartSwiftBuild-theory-role-context-broad --filter 'ChordInkTheoryRoleContextTests|ChordInkSequentialGrouperTests|ChordInkRecognizerTests|ChordInkTrustAcceptanceTests|ChordRecognitionProviderBoundaryTests'`
+- Result: pass, 69 selected XCTest cases, 1 expected full-archive skip, 0 failures.
+- `ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-theory-role-context-full --filter 'ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled|GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled|StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled|ChordInkTheoryRoleContextTests|ChordInkSequentialGrouperTests'`
+- Result: pass, 18 selected XCTest cases, 0 failures.
+- `xcodegen generate`
+- Result: generated project, no tracked project churn.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=0D3454BE-1A21-4910-8FD6-FFD3EB43E908' -resultBundlePath /tmp/iChartTheoryRoleContext-20260825-0954.xcresult -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkSequentialGrouperTests test`
+- Result: failed before selected tests ran because the simulator reported `Busy` / application preflight launch failure.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=3619FD3E-3A11-4C33-AE7E-C9FFB905B1A8' -resultBundlePath /tmp/iChartTheoryRoleContextRetry-20260825-0955.xcresult -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkSequentialGrouperTests test`
+- Result: pass.
+- `xcrun xcresulttool get test-results summary --path /tmp/iChartTheoryRoleContextRetry-20260825-0955.xcresult --format json`
+- Result: 15 total selected simulator tests, 15 passed, 0 failed, 0 skipped.
+
 Physical iPad validation:
 
 - Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.
