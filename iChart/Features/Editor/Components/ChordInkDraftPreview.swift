@@ -1346,7 +1346,7 @@ extension Chart {
 
         var sourceGeometryByMeasureID = [UUID: ChordDraftBarlineSourceGeometry]()
         let resolvedBarlines = barlines.compactMap { barline -> DraftBarline? in
-            if isCommittedTerminalFillerLaneLocation(
+            if isTerminalBoundaryLaneLocation(
                 barline.laneLocation,
                 in: sourcePageLayout
             ) {
@@ -1395,7 +1395,7 @@ extension Chart {
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
         if rejectsCommittedTerminalFiller,
-           LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+           LeadSheetSimpleChordTerminalBarlineGeometry.terminalBoundaryContainsLaneX(
             laneX,
             in: system,
             paperFrame: pageLayout.paperFrame,
@@ -1404,40 +1404,48 @@ extension Chart {
             return nil
         }
 
-        let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
+        let measures = system.measures.compactMap { measure -> (source: LeadSheetMeasureLayout, display: LeadSheetMeasureLayout)? in
             guard measure.chordInkTargetMeasureID != nil || measure.sourceMeasureID != nil else {
                 return nil
             }
 
-            return measure
+            return (
+                source: measure,
+                display: LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                    measure,
+                    in: system,
+                    paperFrame: pageLayout.paperFrame,
+                    layoutStyle: layoutStyle
+                )
+            )
         }
         guard !measures.isEmpty else {
             return nil
         }
 
         let targetMeasure = measures.first { measure in
-            measure.chordWritingFrame.insetBy(dx: -4, dy: 0).minX <= laneX
-                && laneX <= measure.chordWritingFrame.insetBy(dx: -4, dy: 0).maxX
+            measure.display.chordWritingFrame.insetBy(dx: -4, dy: 0).minX <= laneX
+                && laneX <= measure.display.chordWritingFrame.insetBy(dx: -4, dy: 0).maxX
         } ?? measures.min { lhs, rhs in
-            horizontalDistance(from: laneX, to: lhs.chordWritingFrame)
-                < horizontalDistance(from: laneX, to: rhs.chordWritingFrame)
+            horizontalDistance(from: laneX, to: lhs.display.chordWritingFrame)
+                < horizontalDistance(from: laneX, to: rhs.display.chordWritingFrame)
         }
 
         guard let targetMeasure,
-              let measureID = targetMeasure.chordInkTargetMeasureID ?? targetMeasure.sourceMeasureID else {
+              let measureID = targetMeasure.source.chordInkTargetMeasureID ?? targetMeasure.source.sourceMeasureID else {
             return nil
         }
 
-        let fraction = (laneX - targetMeasure.frame.minX)
-            / max(1, targetMeasure.frame.width)
+        let fraction = (laneX - targetMeasure.display.frame.minX)
+            / max(1, targetMeasure.display.frame.width)
         return ChordDraftBarlineLaneTarget(
             measureID: measureID,
-            measureIndex: targetMeasure.index,
+            measureIndex: targetMeasure.source.index,
             fraction: Double(min(max(fraction, 0), 0.9999)),
             sourceGeometry: ChordDraftBarlineSourceGeometry(
                 laneFrame: laneFrame,
-                measureFrame: targetMeasure.frame,
-                fractionFrame: targetMeasure.frame
+                measureFrame: targetMeasure.display.frame,
+                fractionFrame: targetMeasure.display.frame
             )
         )
     }
@@ -1543,39 +1551,11 @@ extension Chart {
         renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
     ) -> (measureID: UUID, fraction: Double?)? {
-        let sourceAllowsLaneProjection: Bool
-        if let sourcePageLayout,
-           draft.laneLocation != nil {
-            if isCommittedTerminalFillerLaneLocation(
-                draft.laneLocation,
-                in: sourcePageLayout
-            ) {
-                return nil
-            }
-
-            sourceAllowsLaneProjection = chordDraftLaneTarget(
-                for: draft,
-                pageLayout: sourcePageLayout,
-                rejectsCommittedTerminalFiller: true
-            ) != nil
-        } else {
-            sourceAllowsLaneProjection = false
-        }
-
         if let renderPageLayout {
-            if isCommittedTerminalFillerLaneLocation(
-                draft.laneLocation,
-                in: renderPageLayout
-            ) {
-                guard sourceAllowsLaneProjection else {
-                    return nil
-                }
-            }
-
             if let laneTarget = chordDraftLaneTarget(
                 for: draft,
                 pageLayout: renderPageLayout,
-                rejectsCommittedTerminalFiller: !sourceAllowsLaneProjection
+                rejectsCommittedTerminalFiller: false
             ) {
                 return laneTarget
             }
@@ -1591,7 +1571,7 @@ extension Chart {
         return (draft.measureID, draft.laneLocation?.fraction ?? draft.targetFraction)
     }
 
-    private func isCommittedTerminalFillerLaneLocation(
+    private func isTerminalBoundaryLaneLocation(
         _ laneLocation: ChordInkDraftLaneLocation?,
         in pageLayout: LeadSheetPageLayout
     ) -> Bool {
@@ -1605,7 +1585,7 @@ extension Chart {
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
-        return LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
+        return LeadSheetSimpleChordTerminalBarlineGeometry.terminalBoundaryContainsLaneX(
             laneX,
             in: system,
             paperFrame: pageLayout.paperFrame,
@@ -1662,32 +1642,40 @@ extension Chart {
             return nil
         }
 
-        let measures = system.measures.compactMap { measure -> LeadSheetMeasureLayout? in
+        let measures = system.measures.compactMap { measure -> (source: LeadSheetMeasureLayout, display: LeadSheetMeasureLayout)? in
             guard measure.chordInkTargetMeasureID != nil else {
                 return nil
             }
 
-            return measure
+            return (
+                source: measure,
+                display: LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                    measure,
+                    in: system,
+                    paperFrame: pageLayout.paperFrame,
+                    layoutStyle: layoutStyle
+                )
+            )
         }
         guard !measures.isEmpty else {
             return nil
         }
 
         let targetMeasure = measures.first { measure in
-            measure.chordWritingFrame.insetBy(dx: -4, dy: 0).minX <= laneX
-                && laneX <= measure.chordWritingFrame.insetBy(dx: -4, dy: 0).maxX
+            measure.display.chordWritingFrame.insetBy(dx: -4, dy: 0).minX <= laneX
+                && laneX <= measure.display.chordWritingFrame.insetBy(dx: -4, dy: 0).maxX
         } ?? measures.min { lhs, rhs in
-            horizontalDistance(from: laneX, to: lhs.chordWritingFrame)
-                < horizontalDistance(from: laneX, to: rhs.chordWritingFrame)
+            horizontalDistance(from: laneX, to: lhs.display.chordWritingFrame)
+                < horizontalDistance(from: laneX, to: rhs.display.chordWritingFrame)
         }
 
         guard let targetMeasure,
-              let measureID = targetMeasure.chordInkTargetMeasureID else {
+              let measureID = targetMeasure.source.chordInkTargetMeasureID else {
             return nil
         }
 
-        let fraction = (laneX - targetMeasure.chordBandFrame.minX)
-            / max(1, targetMeasure.chordBandFrame.width)
+        let fraction = (laneX - targetMeasure.source.chordBandFrame.minX)
+            / max(1, targetMeasure.source.chordBandFrame.width)
         return (measureID, Double(min(max(fraction, 0), 0.9999)))
     }
 

@@ -309,17 +309,27 @@ private struct ChartPDFRenderer {
                 : nil
             drawMeasure(
                 measure,
+                in: system,
+                paperFrame: paperFrame,
                 nextMeasure: nextMeasure,
                 drawnRepeatMarkerIDs: &drawnRepeatMarkerIDs,
                 using: renderer
             )
         }
 
-        renderer.drawSimpleChordStanzaTerminalBarline(for: system, paperFrame: paperFrame)
+        if LeadSheetSimpleChordTerminalBarlineGeometry.shouldDrawStandaloneTerminalBarline(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: chart.layoutStyle
+        ) {
+            renderer.drawSimpleChordStanzaTerminalBarline(for: system, paperFrame: paperFrame)
+        }
     }
 
     private func drawMeasure(
         _ measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
         nextMeasure: LeadSheetMeasureLayout?,
         drawnRepeatMarkerIDs: inout Set<String>,
         using renderer: LeadSheetNotationRenderer
@@ -363,7 +373,13 @@ private struct ChartPDFRenderer {
                 after: measure,
                 before: nextMeasure
             ) {
-                renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+                let barlineMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                    measure,
+                    in: system,
+                    paperFrame: paperFrame,
+                    layoutStyle: chart.layoutStyle
+                )
+                renderer.drawBarline(measure.barlineAfter, in: barlineMeasure.trailingBarlineFrame)
             }
         }
     }

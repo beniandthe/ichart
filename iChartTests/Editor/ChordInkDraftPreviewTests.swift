@@ -1494,8 +1494,8 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(chart.measures[1].chordEvents.map { $0.symbol.displayText }, ["G", "F"])
     }
 
-    func testDraftBatchRenderSkipsCommittedTerminalFillerDrafts() throws {
-        var chart = Chart.blank(title: "Terminal Filler", measureCount: 6, layoutStyle: .simpleChordSheet)
+    func testDraftBatchRenderSplitsCommittedTerminalSpanBarline() throws {
+        var chart = Chart.blank(title: "Terminal Span", measureCount: 6, layoutStyle: .simpleChordSheet)
         let measureIDs = chart.measures.map(\.id)
         XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
         let pageSize = CGSize(width: 900, height: 1400)
@@ -1515,30 +1515,69 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 layoutStyle: chart.layoutStyle
             )
         )
-        let terminalFillerX = (rowEndMeasure.frame.maxX + terminalFrame.midX) / 2
-        let terminalFillerFraction = Double((terminalFillerX - laneFrame.minX) / laneFrame.width)
+        let splitX = (rowEndMeasure.frame.maxX + terminalFrame.midX) / 2
+        let splitFraction = Double((splitX - laneFrame.minX) / laneFrame.width)
         let laneLocation = ChordInkDraftLaneLocation(
             systemIndex: system.index,
-            fraction: terminalFillerFraction
+            fraction: splitFraction
         )
 
         var state = ChordPreviewState()
         state.layoutPageSize = pageSize
-        state.replaceDraftChords(with: [
-            draftInput(
-                measureID: rowEndMeasureID,
-                measureIndex: rowEndMeasure.index,
-                fraction: terminalFillerFraction,
-                bestCandidateText: "C",
-                laneLocation: laneLocation,
-                layoutPageSize: pageSize
-            )
-        ])
         state.replaceDraftBarlines(with: [
             draftBarline(
                 measureID: rowEndMeasureID,
                 measureIndex: rowEndMeasure.index,
-                fraction: terminalFillerFraction,
+                fraction: splitFraction,
+                laneLocation: laneLocation,
+                layoutPageSize: pageSize
+            )
+        ])
+
+        let result = chart.commitChordInkDraftBatch(state)
+
+        XCTAssertEqual(result.renderedChordCount, 0)
+        XCTAssertEqual(result.renderedBarlineCount, 1)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
+        XCTAssertEqual(chart.measures.count, 7)
+        let leftMeasure = try XCTUnwrap(chart.measure(id: rowEndMeasureID))
+        XCTAssertEqual(leftMeasure.barlineAfter, .single)
+    }
+
+    func testDraftBatchRenderSkipsTerminalBoundaryBarline() throws {
+        var chart = Chart.blank(title: "Terminal Boundary", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let pageSize = CGSize(width: 900, height: 1400)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: pageSize,
+            includesChordInkContinuationLanes: true
+        )
+        let system = try XCTUnwrap(layout.systems.first)
+        let rowEndMeasure = try XCTUnwrap(system.measures.last)
+        let rowEndMeasureID = try XCTUnwrap(rowEndMeasure.sourceMeasureID)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let terminalFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: system,
+                paperFrame: layout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let terminalFraction = Double((terminalFrame.midX - laneFrame.minX) / laneFrame.width)
+        let laneLocation = ChordInkDraftLaneLocation(
+            systemIndex: system.index,
+            fraction: terminalFraction
+        )
+
+        var state = ChordPreviewState()
+        state.layoutPageSize = pageSize
+        state.replaceDraftBarlines(with: [
+            draftBarline(
+                measureID: rowEndMeasureID,
+                measureIndex: rowEndMeasure.index,
+                fraction: terminalFraction,
                 laneLocation: laneLocation,
                 layoutPageSize: pageSize
             )
@@ -1548,9 +1587,8 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
         XCTAssertEqual(result.renderedChordCount, 0)
         XCTAssertEqual(result.renderedBarlineCount, 0)
-        XCTAssertEqual(result.unresolvedDraftIDs.count, 1)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
         XCTAssertEqual(chart.measures.count, 6)
-        XCTAssertTrue(chart.measures.flatMap(\.chordEvents).isEmpty)
     }
 
     func testTelemetryAllowsOnlyAggregateDraftPreviewProperties() {

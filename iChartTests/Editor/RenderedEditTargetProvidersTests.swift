@@ -176,6 +176,42 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(deleteTarget.mutationRisk, .structural)
     }
 
+    func testCommittedBarlineProviderOmitsSimpleChordTerminalBoundary() throws {
+        let fixture = pageFixture(isOpen: false)
+        let barlineObjectID = RenderedEditObjectID.committedChordBarline(afterMeasureID: fixture.measureID)
+        var selection = RenderedEditSelectionState()
+        selection.select(barlineObjectID)
+        let context = RenderedEditContext(
+            pageLayout: fixture.pageLayout,
+            layoutStyle: .simpleChordSheet,
+            selection: selection,
+            committedChordBarlineMeasures: [fixture.measure]
+        )
+        let router = RenderedEditRouter(providers: [CommittedChordBarlineRenderedEditHitTargetProvider()])
+        let lineFrame = LeadSheetCommittedChordBarlineOverlayGeometry.lineFrame(for: fixture.measure)
+        let deleteFrame = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(for: fixture.measure).delete
+
+        XCTAssertTrue(
+            LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingBoundary(
+                for: fixture.pageLayout.systems[0],
+                paperFrame: fixture.pageLayout.paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        )
+        XCTAssertNil(
+            router.tapTarget(
+                at: CGPoint(x: lineFrame.midX, y: lineFrame.midY),
+                in: context
+            )
+        )
+        XCTAssertNil(
+            router.tapTarget(
+                at: CGPoint(x: deleteFrame.midX, y: deleteFrame.midY),
+                in: context
+            )
+        )
+    }
+
     func testCommittedBarlineLineWinsOverOverlappingChordBody() throws {
         let fixture = pageFixture(
             chordFrame: CGRect(x: 292, y: 128, width: 56, height: 28)

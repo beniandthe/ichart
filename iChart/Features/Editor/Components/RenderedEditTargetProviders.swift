@@ -165,6 +165,9 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
             guard let measureID = measure.sourceMeasureID else {
                 return []
             }
+            guard !isTerminalTrailingBoundary(measure, in: context) else {
+                return []
+            }
 
             let objectID = RenderedEditObjectID.committedChordBarline(afterMeasureID: measureID)
             let lineFrame = LeadSheetCommittedChordBarlineOverlayGeometry.lineFrame(for: measure)
@@ -200,6 +203,24 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
             )
 
             return targets
+        }
+    }
+
+    private func isTerminalTrailingBoundary(
+        _ measure: LeadSheetMeasureLayout,
+        in context: RenderedEditContext
+    ) -> Bool {
+        guard context.layoutStyle == .simpleChordSheet else {
+            return false
+        }
+
+        return context.pageLayout.systems.contains { system in
+            system.measures.last?.id == measure.id
+                && LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingBoundary(
+                    for: system,
+                    paperFrame: context.pageLayout.paperFrame,
+                    layoutStyle: context.layoutStyle
+                )
         }
     }
 }
