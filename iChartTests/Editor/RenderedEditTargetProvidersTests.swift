@@ -460,6 +460,52 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         )
     }
 
+    func testTerminalRepeatHitTargetUsesRenderedTerminalFrame() throws {
+        var chart = Chart.blank(title: "Terminal Repeat Target", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSimpleSystemBreak(before: measureIDs[4]))
+        let repeatID = try XCTUnwrap(
+            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: measureIDs[3])
+        )
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let firstSystem = try XCTUnwrap(pageLayout.systems.first)
+        let terminalMeasure = try XCTUnwrap(firstSystem.measures.last)
+        let trailingMarker = try XCTUnwrap(
+            terminalMeasure.repeatMarkerLayouts.first { $0.edge == .trailing }
+        )
+        let terminalTrailingRepeatLineX = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: terminalMeasure,
+                in: firstSystem,
+                paperFrame: pageLayout.paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        let router = RenderedEditRouter()
+        let context = RenderedEditContext(pageLayout: pageLayout, layoutStyle: chart.layoutStyle)
+
+        XCTAssertGreaterThan(terminalTrailingRepeatLineX, trailingMarker.frame.maxX)
+
+        let visibleRepeatTarget = try XCTUnwrap(
+            router.tapTarget(
+                at: CGPoint(x: terminalTrailingRepeatLineX - 6, y: trailingMarker.frame.midY),
+                in: context
+            )
+        )
+        XCTAssertEqual(visibleRepeatTarget.objectID, .repeatSpan(repeatID))
+        XCTAssertEqual(visibleRepeatTarget.action, .openInspector)
+
+        let oldMarkerRepeatTargets = router.hitTargets(
+            at: CGPoint(x: trailingMarker.frame.midX, y: trailingMarker.frame.midY),
+            in: context
+        )
+        .filter { $0.objectID == .repeatSpan(repeatID) }
+        XCTAssertTrue(oldMarkerRepeatTargets.isEmpty)
+    }
+
     func testCueTextAndRoadmapControlsUseExistingSelectedControlFrames() throws {
         let fixture = pageFixture()
         var cueSelection = RenderedEditSelectionState()

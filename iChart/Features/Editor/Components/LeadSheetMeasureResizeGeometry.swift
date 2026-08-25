@@ -598,6 +598,38 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         return terminalFrame.midX
     }
 
+    static func renderedRepeatMarkerFrame(
+        _ marker: LeadSheetRepeatMarkerLayout,
+        after measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGRect {
+        guard marker.edge == .trailing,
+              let terminalTrailingLineX = terminalTrailingRepeatLineX(
+                after: measure,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ) else {
+            return marker.frame
+        }
+
+        let staffSpace = max(CGFloat(1), (marker.frame.height - 4) / 4)
+        let lineWidth = LeadSheetBarlineMetrics.repeatLineWidth(
+            staffSpace: staffSpace,
+            strokeScale: 1,
+            layoutStyle: layoutStyle
+        )
+        let markerWidth = max(lineWidth, 1)
+        return CGRect(
+            x: terminalTrailingLineX - markerWidth / 2,
+            y: marker.frame.minY,
+            width: markerWidth,
+            height: marker.frame.height
+        )
+    }
+
     private static func isTerminalBoundary(
         after measure: LeadSheetMeasureLayout,
         before nextMeasure: LeadSheetMeasureLayout?,
