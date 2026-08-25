@@ -63,10 +63,10 @@ Each implementation slice must record:
 Minimum local gates before final branch claim:
 
 ```bash
-swift test --scratch-path /tmp/iChartSwiftBuild-recognition-trust --filter 'ChordInkRecognizerTests|GestureTemplateRecognizerTests|ChordInkCandidateComposerTests|StrokeClustererTests|ChordInkSymbolLedgerTests|InkFixtureLoaderTests|InkFixtureCoverageTests|ChordEntryPassReplayTests|ChordInkSequentialGroupingTests|ChordInkRenderResolutionPolicyTests|ChordInkRecognitionSessionTests|ChordInkDraftPreviewTests'
-ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-recognition-trust-full --filter 'ChordInkRecognizerTests|GestureTemplateRecognizerTests|ChordInkCandidateComposerTests|StrokeClustererTests|ChordInkSymbolLedgerTests|InkFixtureLoaderTests|InkFixtureCoverageTests|ChordEntryPassReplayTests|ChordInkSequentialGroupingTests'
+swift test --scratch-path /tmp/iChartSwiftBuild-recognition-trust --filter 'ChordInkRecognizerTests|GestureTemplateRecognizerTests|ChordInkCandidateComposerTests|StrokeClustererTests|ChordInkSymbolLedgerTests|InkFixtureLoaderTests|InkFixtureCoverageTests|ChordEntryPassReplayTests|ChordInkSequentialGrouperTests|ChordInkRenderResolutionPolicyTests|ChordInkRecognitionSessionTests|ChordInkDraftPreviewTests|ChordInkTrustAcceptanceTests|ChordRecognitionProviderBoundaryTests'
+ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-recognition-trust-full --filter 'ChordInkRecognizerTests|GestureTemplateRecognizerTests|ChordInkCandidateComposerTests|StrokeClustererTests|ChordInkSymbolLedgerTests|InkFixtureLoaderTests|InkFixtureCoverageTests|ChordEntryPassReplayTests|ChordInkSequentialGrouperTests'
 xcodegen generate
-xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' test
+xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=0D3454BE-1A21-4910-8FD6-FFD3EB43E908' test
 ```
 
 The Xcode test result is not accepted from exit code alone. Confirm the `.xcresult` has nonzero selected tests and zero failures.
@@ -93,13 +93,69 @@ Record each case as trusted, confirmed, no-read, wrong-read, or grouping failure
 
 ## Drift Checklist
 
-- [ ] Current commit and branch recorded before code changes.
-- [ ] No OCR/Vision text recognition path added.
-- [ ] No `PKStrokeRecognizer` dependency added.
-- [ ] Scribble remains correction-only.
-- [ ] Render Chords / Auto Render remains the only rendered-content boundary.
-- [ ] Sequential grouping tests added before grouping implementation.
-- [ ] Known full-archive flat failures stay visible until fixed.
-- [ ] Trust policy favors confirmation/no-read over confident wrong read.
-- [ ] Aggregate telemetry only; no raw chord text, drawing payloads, chart titles, user names, emails, or support data added to production telemetry.
+- [x] Current commit and branch recorded before code changes.
+- [x] No OCR/Vision text recognition path added.
+- [x] No `PKStrokeRecognizer` dependency added.
+- [x] Scribble remains correction-only.
+- [x] Render Chords / Auto Render remains the only rendered-content boundary.
+- [x] Sequential grouping tests added before grouping implementation.
+- [x] Known full-archive flat failures stayed visible until fixed.
+- [x] Trust policy favors confirmation/no-read over confident wrong read.
+- [x] Aggregate telemetry only; no raw chord text, drawing payloads, chart titles, user names, emails, or support data added to production telemetry.
 - [ ] Physical iPad validation recorded before final accuracy claims.
+
+## Implementation Log
+
+Commit `4014eaf` added this protocol and linked it from the branch plan.
+
+Commit `442eea2` renamed live recognition decisions from auto-render terminology to trusted/confirm terminology while preserving the legacy `autoRendered` diagnostic resolution and serialized `rejectedAutoRenderRules` correction-memory key.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-trust-terminology --filter 'ChordInkRenderResolutionPolicyTests|ChordInkUserCorrectionMemoryTests|ChordInkRecognizerTests'`
+- Result: pass, 59 selected XCTest cases, 1 expected full-archive skip, 0 failures.
+
+Commit `920cbb3` added index-preserving stroke clusters, root-led sequential grouping, grouping tests, and targeter integration. Gap clustering remains fallback when sequential root evidence does not produce multiple groups.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-sequential-grouping --filter 'ChordInkSequentialGrouperTests|ChordInkRecognizerTests|StrokeClustererTests'`
+- Result: pass, 64 selected XCTest cases, 2 expected full-archive skips, 0 failures.
+- `xcodegen generate`
+- Result: generated project, no tracked project churn.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=0D3454BE-1A21-4910-8FD6-FFD3EB43E908' -resultBundlePath /tmp/iChartSequentialGrouping-1787674648.xcresult -only-testing:iChartTests/ChordInkSequentialGrouperTests test`
+- Result: pass.
+- `xcrun xcresulttool get test-results summary --path /tmp/iChartSequentialGrouping-1787674648.xcresult --format json`
+- Result: 7 total tests, 7 passed, 0 failed, 0 skipped.
+
+Commit `cf3eec7` tightened trust gates for generated-sequence-limit risk, missing rooted glyph evidence, unsupported high-confidence candidate pressure, and live provider boundaries.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-trust-gates --filter 'ChordInkRecognizerTests|ChordRecognitionProviderBoundaryTests'`
+- Result: pass, 52 selected XCTest cases, 1 expected full-archive skip, 0 failures.
+- `xcodegen generate`
+- Result: generated project, no tracked project churn.
+
+Commit `7af0592` fixed the captured D-flat flat-loop ranking failure, added negative lookalike coverage for `°`, `•`, `△`, and `6`, added `ChordRepeatCaptured01`, and introduced the named trust acceptance fixture set.
+
+Validation:
+
+- `ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-flat-fix --filter 'GestureTemplateRecognizerTests|ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled|StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled'`
+- Result: pass, 14 selected XCTest cases, 0 failures.
+- `swift test --scratch-path /tmp/iChartSwiftBuild-trust-acceptance --filter 'ChordInkTrustAcceptanceTests|InkFixtureLoaderTests|ChordInkRecognizerTests/testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries'`
+- Result: pass, 6 selected XCTest cases, 0 failures.
+- `ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-flat-fix --filter 'ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled|GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled|StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled'`
+- Result: pass, 3 selected XCTest cases, 0 failures.
+- `xcodegen generate`
+- Result: generated project, no tracked project churn.
+- `ICHART_FULL_INK_FIXTURES=1 xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=0D3454BE-1A21-4910-8FD6-FFD3EB43E908' -resultBundlePath /tmp/iChartRecognitionTrustFinal-1787675315.xcresult -only-testing:iChartTests/ChordInkSequentialGrouperTests -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/ChordRecognitionProviderBoundaryTests -only-testing:iChartTests/GestureTemplateRecognizerTests/testCapturedDFlatLoopsRankFlatBeforeDegreeDotAndSixLookalikes -only-testing:iChartTests/GestureTemplateRecognizerTests/testFlatLoopBoostDoesNotStealDegreeDotTriangleOrSixTemplates -only-testing:iChartTests/GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled -only-testing:iChartTests/StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled test`
+- Result: failed before selected tests ran because the simulator reported `Busy` / application preflight launch failure.
+- `ICHART_FULL_INK_FIXTURES=1 xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'id=3619FD3E-3A11-4C33-AE7E-C9FFB905B1A8' -resultBundlePath /tmp/iChartRecognitionTrustFinalRetry-1787675374.xcresult -only-testing:iChartTests/ChordInkSequentialGrouperTests -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/ChordRecognitionProviderBoundaryTests -only-testing:iChartTests/GestureTemplateRecognizerTests/testCapturedDFlatLoopsRankFlatBeforeDegreeDotAndSixLookalikes -only-testing:iChartTests/GestureTemplateRecognizerTests/testFlatLoopBoostDoesNotStealDegreeDotTriangleOrSixTemplates -only-testing:iChartTests/GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled -only-testing:iChartTests/StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled test`
+- Result: pass.
+- `xcrun xcresulttool get test-results summary --path /tmp/iChartRecognitionTrustFinalRetry-1787675374.xcresult --format json`
+- Result: 15 total selected simulator tests, 12 passed, 3 skipped, 0 failed. The skipped tests were full-archive opt-in tests because the Xcode test host did not receive `ICHART_FULL_INK_FIXTURES`; full-archive coverage is therefore proven by the SwiftPM full-archive commands above, not by this simulator run.
+
+Physical iPad validation:
+
+- Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.
