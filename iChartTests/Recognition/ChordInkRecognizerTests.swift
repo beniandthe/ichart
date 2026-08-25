@@ -1007,13 +1007,17 @@ final class ChordInkRecognizerTests: XCTestCase {
     private func assertRecognizes(fixtures: [InkFixture]) throws {
         for fixture in fixtures {
             let result = recognizer.recognize(strokes: fixture.strokes)
-
-            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, fixture.name)
-            XCTAssertFalse(result.rawCandidates.isEmpty, fixture.name)
-            if !fixture.allowsCompactSemanticRecognition {
-                XCTAssertEqual(result.glyphCandidates.count, fixture.expectedClusterCount, fixture.name)
+            let glyphSummary = result.glyphCandidates.map { group in
+                group.prefix(8).map { "\($0.text):\($0.confidence)" }
             }
-            XCTAssertGreaterThan(result.confidence, 0, fixture.name)
+            let debugSummary = "\(fixture.name) raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(glyphSummary), scores: \(result.candidateScores.prefix(8))"
+
+            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, debugSummary)
+            XCTAssertFalse(result.rawCandidates.isEmpty, debugSummary)
+            if !fixture.allowsCompactSemanticRecognition {
+                XCTAssertEqual(result.glyphCandidates.count, fixture.expectedClusterCount, debugSummary)
+            }
+            XCTAssertGreaterThan(result.confidence, 0, debugSummary)
         }
     }
 }

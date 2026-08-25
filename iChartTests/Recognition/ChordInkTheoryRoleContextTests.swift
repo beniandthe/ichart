@@ -44,6 +44,75 @@ final class ChordInkTheoryRoleContextTests: XCTestCase {
         XCTAssertEqual(context.roles, [.rootBase, .quality, .chordExtension, .rootBase, .quality, .chordExtension])
     }
 
+    func testLabelsCloseRootBehindSuffixLookalikeAsRootEvidence() {
+        let context = roleContext(
+            glyphs: [
+                [
+                    glyph("5", confidence: 0.62),
+                    glyph("F", confidence: 0.588),
+                    glyph("B", confidence: 0.566),
+                    glyph("D", confidence: 0.537)
+                ],
+                [glyph("#", confidence: 0.99)],
+                [glyph("7", confidence: 0.985)]
+            ],
+            bounds: [
+                rootBounds(at: 0),
+                highSuffixBounds(at: 42),
+                suffixBounds(at: 64)
+            ]
+        )
+
+        XCTAssertEqual(context.roles, [.rootBase, .rootAccidental, .chordExtension])
+        XCTAssertEqual(context.rootDescriptorPrefixLength, 2)
+        XCTAssertEqual(context.evidence[0].text, "F")
+    }
+
+    func testLabelsFlatAccidentalBeforeCloseRootLookalikeAfterActiveRoot() {
+        let context = roleContext(
+            glyphs: [
+                [glyph("A", confidence: 0.98)],
+                [
+                    glyph("b", confidence: 0.98),
+                    glyph("C", confidence: 0.95)
+                ],
+                [glyph("m", confidence: 0.99)],
+                [glyph("7", confidence: 0.985)]
+            ],
+            bounds: [
+                rootBounds(at: 0),
+                highSuffixBounds(at: 42),
+                suffixBounds(at: 64),
+                suffixBounds(at: 86)
+            ]
+        )
+
+        XCTAssertEqual(context.roles, [.rootBase, .rootAccidental, .quality, .chordExtension])
+        XCTAssertEqual(context.rootDescriptorPrefixLength, 2)
+        XCTAssertEqual(context.evidence[1].text, "b")
+    }
+
+    func testRejectsWeakRootBehindStrongSuffixLookalike() {
+        let context = roleContext(
+            glyphs: [
+                [
+                    glyph("6", confidence: 0.92),
+                    glyph("D", confidence: 0.55)
+                ],
+                [glyph("b", confidence: 0.84)],
+                [glyph("7", confidence: 0.90)]
+            ],
+            bounds: [
+                rootBounds(at: 0),
+                highSuffixBounds(at: 42),
+                suffixBounds(at: 64)
+            ]
+        )
+
+        XCTAssertNil(context.rootDescriptorPrefixLength)
+        XCTAssertEqual(context.roles, [.unknown, .unknown, .unknown])
+    }
+
     func testSuffixOnlyFragmentsStayUnknown() {
         let context = roleContext(
             glyphs: [

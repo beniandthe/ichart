@@ -196,6 +196,25 @@ Validation:
 - `xcrun xcresulttool get test-results summary --path /tmp/iChartRoleContextComposer-20260825-1004.xcresult`
 - Result: 64 total selected simulator tests, 64 passed, 0 failed, 0 skipped.
 
+Semantic glyph-contextualizer role-prefix slice migrated suspended/altered semantic boost prefix detection onto `ChordInkTheoryRoleContext.rootDescriptorPrefixLength`. The role scan now classifies active-root accidentals before checking for the next root, exposes direct prefix length, and allows a close A-G root behind a suffix lookalike only in the first glyph column. This preserves captured `F#7sus` evidence without letting later flat columns reopen as `C/G` roots. `ChordInkRecognizerTests` fixture assertions now include raw candidates, glyph columns, and candidate scores in failure messages because the full archive caught a real regression in this slice.
+
+Validation:
+
+- Initial full-archive attempt after the first role-prefix migration failed: `FSharp7susCaptured03` read as `B#7sus` instead of `F#7sus`.
+- A broader attempted root-threshold relaxation failed with 19 full-archive regressions, mostly false `sus` reads for flat minor/major/altered fixtures. That change was narrowed before commit.
+- `swift test --scratch-path /tmp/iChartSwiftBuild-role-contextualizer-fix2 --filter 'ChordInkTheoryRoleContextTests|ChordInkSemanticGlyphContextualizerTests|ChordInkRecognizerTests|ChordInkTrustAcceptanceTests|ChordRecognitionProviderBoundaryTests'`
+- Result: pass, 68 selected XCTest cases, 1 expected full-archive skip, 0 failures.
+- `ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-role-contextualizer-full-fix2 --filter 'ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled|GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled|StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled|ChordInkSemanticGlyphContextualizerTests|ChordInkTheoryRoleContextTests|ChordInkTrustAcceptanceTests'`
+- Result: pass, 19 selected XCTest cases, 0 failures.
+- `xcodegen generate`
+- Result: generated project, no tracked project churn.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=FB72927F-8AE8-466D-B698-6F5840EBEA94' -resultBundlePath /tmp/iChartRoleContextualizer-20260825-1014.xcresult -only-testing:iChartTests/ChordInkSemanticGlyphContextualizerTests -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesDefaultRegressionFixturesThroughPureSwiftPipeline -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/ChordRecognitionProviderBoundaryTests test`
+- Result: failed before selected tests ran because the simulator reported `Busy` / application preflight launch failure.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=165234BC-33C0-48D7-896B-9AD058C13C53' -resultBundlePath /tmp/iChartRoleContextualizer-20260825-1015.xcresult -only-testing:iChartTests/ChordInkSemanticGlyphContextualizerTests -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesDefaultRegressionFixturesThroughPureSwiftPipeline -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/ChordRecognitionProviderBoundaryTests test`
+- Result: pass.
+- `xcrun xcresulttool get test-results summary --path /tmp/iChartRoleContextualizer-20260825-1015.xcresult`
+- Result: 18 total selected simulator tests, 18 passed, 0 failed, 0 skipped.
+
 Physical iPad validation:
 
 - Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.

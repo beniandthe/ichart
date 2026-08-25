@@ -73,23 +73,34 @@ struct ChordInkTheoryRoleContext: Hashable {
         return glyphCandidates.count == 3 ? glyphCandidates : nil
     }
 
+    var rootDescriptorPrefixLength: Int? {
+        guard evidence.first?.primaryRole == .rootBase else {
+            return nil
+        }
+
+        return evidence.dropFirst().first?.primaryRole == .rootAccidental ? 2 : 1
+    }
+
     static func rootBaseCandidate(
         in candidates: [GlyphCandidate],
-        bounds: InkBounds?
+        bounds: InkBounds?,
+        allowsCloseSuffixLookalike: Bool = false
     ) -> GlyphCandidate? {
         if let bounds,
            bounds.width < 8 || bounds.height < 16 || bounds.recognitionArea < 180 {
             return nil
         }
 
+        let minimumConfidence = allowsCloseSuffixLookalike ? 0.55 : 0.70
         guard let rootCandidate = candidates.first(where: { candidate in
-            rootTexts.contains(candidate.text) && candidate.confidence >= 0.70
+            rootTexts.contains(candidate.text) && candidate.confidence >= minimumConfidence
         }) else {
             return nil
         }
 
         if let bestCandidate = candidates.first,
-           suffixAndModifierTexts.contains(bestCandidate.text) {
+           suffixAndModifierTexts.contains(bestCandidate.text),
+           !allowsCloseSuffixLookalike {
             return nil
         }
 
@@ -162,7 +173,23 @@ struct ChordInkTheoryRoleContext: Hashable {
             }
             state.awaitingSlashBassRoot = false
 
-            if let rootCandidate = rootBaseCandidate(in: group, bounds: cluster?.bounds) {
+            if state.hasActiveRoot,
+               let accidentalCandidate = rootAccidentalCandidate(
+                in: group,
+                cluster: cluster,
+                state: state
+            ) {
+                output.append(evidence(index: index, role: .rootAccidental, candidate: accidentalCandidate))
+                state.didConsumeRootAccidental = true
+                state.lastRole = .rootAccidental
+                continue
+            }
+
+            if let rootCandidate = rootBaseCandidate(
+                in: group,
+                bounds: cluster?.bounds,
+                allowsCloseSuffixLookalike: index == 0
+            ) {
                 output.append(evidence(index: index, role: .rootBase, candidate: rootCandidate))
                 state = RoleScanState(
                     hasActiveRoot: true,
@@ -175,17 +202,6 @@ struct ChordInkTheoryRoleContext: Hashable {
             guard state.hasActiveRoot else {
                 output.append(evidence(index: index, role: .unknown, candidate: group.first))
                 state.lastRole = .unknown
-                continue
-            }
-
-            if let accidentalCandidate = rootAccidentalCandidate(
-                in: group,
-                cluster: cluster,
-                state: state
-            ) {
-                output.append(evidence(index: index, role: .rootAccidental, candidate: accidentalCandidate))
-                state.didConsumeRootAccidental = true
-                state.lastRole = .rootAccidental
                 continue
             }
 
