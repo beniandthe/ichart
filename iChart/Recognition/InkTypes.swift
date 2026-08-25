@@ -101,6 +101,19 @@ struct InkCluster: Codable, Hashable {
     }
 }
 
+struct IndexedInkCluster: Hashable {
+    var cluster: InkCluster
+    var originalIndexes: [Int]
+
+    var strokes: [InkStroke] {
+        cluster.strokes
+    }
+
+    var bounds: InkBounds {
+        cluster.bounds
+    }
+}
+
 struct ChordInkBatchCluster: Hashable {
     var strokeIndices: [Int]
     var bounds: InkBounds

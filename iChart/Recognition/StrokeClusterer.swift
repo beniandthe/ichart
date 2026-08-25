@@ -21,6 +21,19 @@ struct StrokeClusterer {
     }
 
     func cluster(_ strokes: [InkStroke]) -> [InkCluster] {
+        indexedClusters(strokes).map(\.cluster)
+    }
+
+    func indexedClusters(_ strokes: [InkStroke]) -> [IndexedInkCluster] {
+        mutableClusters(for: strokes).map { cluster in
+            IndexedInkCluster(
+                cluster: InkCluster(strokes: cluster.strokes),
+                originalIndexes: cluster.originalIndexes
+            )
+        }
+    }
+
+    private func mutableClusters(for strokes: [InkStroke]) -> [MutableInkCluster] {
         var workingClusters = strokes.enumerated().map { index, stroke in
             MutableInkCluster(strokes: [stroke], originalIndexes: [index])
         }
@@ -84,9 +97,6 @@ struct StrokeClusterer {
                 }
 
                 return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
-            }
-            .map { cluster in
-                InkCluster(strokes: cluster.strokes)
             }
     }
 

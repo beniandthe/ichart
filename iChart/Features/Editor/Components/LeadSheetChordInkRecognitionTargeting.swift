@@ -230,6 +230,13 @@ enum LeadSheetChordInkRecognitionTargeting {
             strokeIndices: orderedStrokes.map(\.index),
             bounds: InkBounds.enclosing(orderedStrokes.map(\.stroke.bounds))
         )
+        let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
+        if sequentialClusters.count > 1 {
+            return ChordLaneRawBatchSplitPolicy.shouldCollapseLaneSegmentSplit(clusters: sequentialClusters)
+                ? [wholeBucketCluster]
+                : sequentialClusters
+        }
+
         let clusters = ChordLaneDraftSegmentClusterer.clusters(for: orderedStrokes.map(\.stroke))
             .compactMap { localCluster -> ChordInkBatchCluster? in
                 let originalIndices = localCluster.strokeIndices.compactMap { localIndex -> Int? in
@@ -538,6 +545,15 @@ enum LeadSheetChordInkRecognitionTargeting {
 
                 return lhs.stroke.bounds.minX < rhs.stroke.bounds.minX
             }
+            let orderedStrokes = orderedGroup.map { target in
+                (index: target.originalIndex, stroke: target.stroke)
+            }
+            let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
+            if sequentialClusters.count > 1 {
+                return sequentialClusters.map { cluster in
+                    (key: key, cluster: cluster)
+                }
+            }
 
             return ChordInkBatchClusterer.clusters(for: orderedGroup.map(\.stroke))
                 .compactMap { localCluster -> (key: MeasureLaneClusterKey, cluster: ChordInkBatchCluster)? in
@@ -572,6 +588,22 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
             .map(\.cluster)
             .filter(\.isUsable)
+    }
+
+    private static func rootLedSequentialClusters(
+        for orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> [ChordInkBatchCluster] {
+        let groups = ChordInkSequentialGrouper().groups(for: orderedStrokes)
+        guard groups.count > 1 else {
+            return []
+        }
+
+        return groups.map { group in
+            ChordInkBatchCluster(
+                strokeIndices: group.strokeIndices,
+                bounds: group.bounds
+            )
+        }
     }
 }
 
