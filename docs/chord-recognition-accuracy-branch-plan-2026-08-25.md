@@ -60,7 +60,7 @@ Observed source flow:
 5. Batch splitting currently falls back to `ChordInkBatchClusterer`, which is horizontal-gap based.
 6. `ChordInkRecognitionSession` runs `ChordInkRecognizer` off the main thread and returns payloads on the main thread.
 7. `ChordInkRecognizer` clusters strokes with `StrokeClusterer`, ranks glyphs with `GestureTemplateRecognizer`, contextualizes glyph candidates, composes chord candidates, matches against `ChordRecognitionCompendium`, and records metrics.
-8. `ChordInkRecognitionPolicy` decides auto-render versus confirmation, but `ChordInkRecognitionFlow.canRenderChord` is currently false for both `draftPreview` and `tapToConfirm`.
+8. `ChordInkRecognitionPolicy` decides trusted candidate versus confirmation, but `ChordInkRecognitionFlow.canRenderChord` is currently false for both `draftPreview` and `tapToConfirm`.
 9. `EditorView` commits draft chords and barlines only from `commitChordInkDraftBatch` after the user taps `Render Chords`.
 
 Observed OCR state:

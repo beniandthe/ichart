@@ -256,9 +256,47 @@ struct ChordInkRecognitionResult: Hashable {
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 }
 
-enum ChordInkRecognitionAction: String, Codable, Hashable {
-    case autoRender
+enum ChordInkRecognitionAction: Codable, Hashable {
+    case trusted
     case confirm
+
+    var rawValue: String {
+        switch self {
+        case .trusted:
+            return "trusted"
+        case .confirm:
+            return "confirm"
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "trusted", "autoRender":
+            self = .trusted
+        case "confirm":
+            self = .confirm
+        default:
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let action = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown chord ink recognition action: \(rawValue)"
+            )
+        }
+
+        self = action
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum ChordInkContinuationGracePolicy {
@@ -289,7 +327,7 @@ struct ChordInkRecognitionDecision: Hashable {
 }
 
 enum ChordInkRecognitionPolicy {
-    static let autoRenderMinimumConfidence = 3.95
+    static let trustedMinimumConfidence = 3.95
     static let closeRaceConfidenceGap = 0.04
     private static let uncommonRootSpellingConfirmationGap = 0.08
     private static let weakSingleCandidateRootConfidence = 0.76
@@ -312,7 +350,7 @@ enum ChordInkRecognitionPolicy {
         let bestScore = rankedScores.first { $0.displayText == acceptedText }
         let bestConfidence = max(result.confidence, bestScore?.confidence ?? 0)
 
-        guard bestConfidence >= autoRenderMinimumConfidence else {
+        guard bestConfidence >= trustedMinimumConfidence else {
             return ChordInkRecognitionDecision(
                 action: .confirm,
                 acceptedText: acceptedText,
@@ -357,15 +395,15 @@ enum ChordInkRecognitionPolicy {
             }
 
             if gap <= closeRaceConfidenceGap {
-                if shouldAutoRenderCloseSpellingRace(
+                if shouldTrustCloseSpellingRace(
                     acceptedText: acceptedText,
                     competingText: competingText,
                     gap: gap
                 ) {
                     return ChordInkRecognitionDecision(
-                        action: .autoRender,
+                        action: .trusted,
                         acceptedText: acceptedText,
-                        reason: "Confident read. Placed automatically.",
+                        reason: "Trusted read.",
                         isCloseRace: false,
                         competingCandidateText: nil,
                         confidenceGap: nil
@@ -384,9 +422,9 @@ enum ChordInkRecognitionPolicy {
         }
 
         return ChordInkRecognitionDecision(
-            action: .autoRender,
+            action: .trusted,
             acceptedText: acceptedText,
-            reason: "Confident read. Placed automatically.",
+            reason: "Trusted read.",
             isCloseRace: false,
             competingCandidateText: nil,
             confidenceGap: nil
@@ -427,7 +465,7 @@ enum ChordInkRecognitionPolicy {
         }
     }
 
-    private static func shouldAutoRenderCloseSpellingRace(
+    private static func shouldTrustCloseSpellingRace(
         acceptedText: String,
         competingText: String,
         gap: Double

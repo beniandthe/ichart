@@ -369,7 +369,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertTrue(supportedTexts.contains("Absus"))
         XCTAssertTrue(supportedTexts.contains("Bbsus"))
         XCTAssertGreaterThanOrEqual(absusCandidate.confidence, 3.70)
-        XCTAssertLessThan(absusCandidate.confidence, ChordInkRecognitionPolicy.autoRenderMinimumConfidence)
+        XCTAssertLessThan(absusCandidate.confidence, ChordInkRecognitionPolicy.trustedMinimumConfidence)
     }
 
     func testSuspendedLookalikePenalizesSlashBassCandidateAtModestSConfidence() throws {

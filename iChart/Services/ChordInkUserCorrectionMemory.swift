@@ -24,7 +24,7 @@ enum ChordInkUserCorrectionMemoryPolicy {
         }
     }
 
-    static func canUseRejectedAutoRenderCandidateSignature(_ signature: [String]) -> Bool {
+    static func canUseRejectedTrustedCandidateSignature(_ signature: [String]) -> Bool {
         // A single-candidate deletion only proves that exact ink was wrong in that local moment.
         // Multi-candidate signatures describe a real recognizer race and are safe to block broadly.
         signature.count > 1
@@ -74,7 +74,7 @@ struct ChordInkUserCorrectionExclusion: Codable, Equatable, Identifiable {
     var count: Int
 }
 
-struct ChordInkRejectedAutoRenderRule: Codable, Equatable, Identifiable {
+struct ChordInkRejectedTrustedCandidateRule: Codable, Equatable, Identifiable {
     var id: UUID
     var acceptedText: String
     var inkDigests: [String]
@@ -87,22 +87,22 @@ struct ChordInkRejectedAutoRenderRule: Codable, Equatable, Identifiable {
 struct ChordInkUserCorrectionMemory: Codable, Equatable {
     var correctionRules: [ChordInkUserCorrectionRule] = []
     var suggestionExclusions: [ChordInkUserCorrectionExclusion] = []
-    var rejectedAutoRenderRules: [ChordInkRejectedAutoRenderRule] = []
+    var rejectedTrustedCandidateRules: [ChordInkRejectedTrustedCandidateRule] = []
 
     private enum CodingKeys: String, CodingKey {
         case correctionRules
         case suggestionExclusions
-        case rejectedAutoRenderRules
+        case rejectedTrustedCandidateRules = "rejectedAutoRenderRules"
     }
 
     init(
         correctionRules: [ChordInkUserCorrectionRule] = [],
         suggestionExclusions: [ChordInkUserCorrectionExclusion] = [],
-        rejectedAutoRenderRules: [ChordInkRejectedAutoRenderRule] = []
+        rejectedTrustedCandidateRules: [ChordInkRejectedTrustedCandidateRule] = []
     ) {
         self.correctionRules = correctionRules
         self.suggestionExclusions = suggestionExclusions
-        self.rejectedAutoRenderRules = rejectedAutoRenderRules
+        self.rejectedTrustedCandidateRules = rejectedTrustedCandidateRules
     }
 
     init(from decoder: Decoder) throws {
@@ -115,9 +115,9 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             [ChordInkUserCorrectionExclusion].self,
             forKey: .suggestionExclusions
         ) ?? []
-        rejectedAutoRenderRules = try container.decodeIfPresent(
-            [ChordInkRejectedAutoRenderRule].self,
-            forKey: .rejectedAutoRenderRules
+        rejectedTrustedCandidateRules = try container.decodeIfPresent(
+            [ChordInkRejectedTrustedCandidateRule].self,
+            forKey: .rejectedTrustedCandidateRules
         ) ?? []
     }
 
@@ -125,7 +125,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(correctionRules, forKey: .correctionRules)
         try container.encode(suggestionExclusions, forKey: .suggestionExclusions)
-        try container.encode(rejectedAutoRenderRules, forKey: .rejectedAutoRenderRules)
+        try container.encode(rejectedTrustedCandidateRules, forKey: .rejectedTrustedCandidateRules)
     }
 
     func preferredCandidate(
@@ -157,7 +157,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             .acceptedText
     }
 
-    func shouldBlockAutoRender(
+    func shouldBlockTrustedCandidate(
         acceptedText: String,
         drawingData: Data,
         candidateTexts: [String] = []
@@ -168,7 +168,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
 
         let digest = ChordInkUserCorrectionMemoryPolicy.inkDigest(for: drawingData)
         let candidateSignature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
-        return rejectedAutoRenderRules.contains { rule in
+        return rejectedTrustedCandidateRules.contains { rule in
             guard rule.acceptedText == match.displayText else {
                 return false
             }
@@ -177,7 +177,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
                 return true
             }
 
-            guard ChordInkUserCorrectionMemoryPolicy.canUseRejectedAutoRenderCandidateSignature(candidateSignature) else {
+            guard ChordInkUserCorrectionMemoryPolicy.canUseRejectedTrustedCandidateSignature(candidateSignature) else {
                 return false
             }
 
@@ -278,7 +278,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
     }
 
     @discardableResult
-    mutating func recordRejectedAutoRender(
+    mutating func recordRejectedTrustedCandidate(
         acceptedText: String,
         drawingData: Data,
         candidateSignature: [String] = [],
@@ -289,20 +289,20 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         }
 
         let digest = ChordInkUserCorrectionMemoryPolicy.inkDigest(for: drawingData)
-        if let index = rejectedAutoRenderRules.firstIndex(where: { $0.acceptedText == match.displayText }) {
-            rejectedAutoRenderRules[index].updatedAt = now
-            rejectedAutoRenderRules[index].count += 1
-            appendDigest(digest, toRejectedAutoRenderAt: index)
-            if ChordInkUserCorrectionMemoryPolicy.canUseRejectedAutoRenderCandidateSignature(candidateSignature) {
-                appendCandidateSignature(candidateSignature, toRejectedAutoRenderAt: index)
+        if let index = rejectedTrustedCandidateRules.firstIndex(where: { $0.acceptedText == match.displayText }) {
+            rejectedTrustedCandidateRules[index].updatedAt = now
+            rejectedTrustedCandidateRules[index].count += 1
+            appendDigest(digest, toRejectedTrustedCandidateAt: index)
+            if ChordInkUserCorrectionMemoryPolicy.canUseRejectedTrustedCandidateSignature(candidateSignature) {
+                appendCandidateSignature(candidateSignature, toRejectedTrustedCandidateAt: index)
             }
         } else {
             let candidateSignatures = ChordInkUserCorrectionMemoryPolicy
-                .canUseRejectedAutoRenderCandidateSignature(candidateSignature)
+                .canUseRejectedTrustedCandidateSignature(candidateSignature)
                 ? [candidateSignature]
                 : nil
-            rejectedAutoRenderRules.append(
-                ChordInkRejectedAutoRenderRule(
+            rejectedTrustedCandidateRules.append(
+                ChordInkRejectedTrustedCandidateRule(
                     id: UUID(),
                     acceptedText: match.displayText,
                     inkDigests: [digest],
@@ -354,31 +354,31 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         suggestionExclusions[index].inkDigests.append(digest)
     }
 
-    private mutating func appendDigest(_ digest: String, toRejectedAutoRenderAt index: Int) {
-        guard !rejectedAutoRenderRules[index].inkDigests.contains(digest) else {
+    private mutating func appendDigest(_ digest: String, toRejectedTrustedCandidateAt index: Int) {
+        guard !rejectedTrustedCandidateRules[index].inkDigests.contains(digest) else {
             return
         }
 
-        rejectedAutoRenderRules[index].inkDigests.append(digest)
+        rejectedTrustedCandidateRules[index].inkDigests.append(digest)
     }
 
     private mutating func appendCandidateSignature(
         _ candidateSignature: [String],
-        toRejectedAutoRenderAt index: Int
+        toRejectedTrustedCandidateAt index: Int
     ) {
         guard !candidateSignature.isEmpty else {
             return
         }
 
-        if rejectedAutoRenderRules[index].candidateSignatures == nil {
-            rejectedAutoRenderRules[index].candidateSignatures = []
+        if rejectedTrustedCandidateRules[index].candidateSignatures == nil {
+            rejectedTrustedCandidateRules[index].candidateSignatures = []
         }
 
-        guard rejectedAutoRenderRules[index].candidateSignatures?.contains(candidateSignature) == false else {
+        guard rejectedTrustedCandidateRules[index].candidateSignatures?.contains(candidateSignature) == false else {
             return
         }
 
-        rejectedAutoRenderRules[index].candidateSignatures?.append(candidateSignature)
+        rejectedTrustedCandidateRules[index].candidateSignatures?.append(candidateSignature)
     }
 }
 

@@ -26,7 +26,7 @@ enum WritingToRenderPipelineProof {
             measureIndex: 0,
             targetFraction: 0.05,
             expectedDisplayText: "C",
-            expectedDecisionAction: .autoRender
+            expectedDecisionAction: .trusted
         ),
         ProductLoopCase(
             fixtureName: "Db7b9",
@@ -40,7 +40,7 @@ enum WritingToRenderPipelineProof {
             measureIndex: 2,
             targetFraction: 0.55,
             expectedDisplayText: "G/B",
-            expectedDecisionAction: .autoRender
+            expectedDecisionAction: .trusted
         )
     ]
 

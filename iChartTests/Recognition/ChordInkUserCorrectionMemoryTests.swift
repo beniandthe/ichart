@@ -111,14 +111,14 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
     }
 
-    func testDeletedInkChordBlocksSameAutoRenderByDigestOrCandidateSignature() {
+    func testDeletedInkChordBlocksSameTrustedCandidateByDigestOrCandidateSignature() {
         var memory = ChordInkUserCorrectionMemory()
-        let rejectedDrawing = Data("wrong auto render".utf8)
+        let rejectedDrawing = Data("wrong trusted read".utf8)
         let differentDrawing = Data("different drawing".utf8)
         let rejectedSignature = ["Db7(b9)", "Db7", "G/B"]
 
         XCTAssertFalse(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: rejectedDrawing,
                 candidateTexts: rejectedSignature
@@ -126,7 +126,7 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            memory.recordRejectedAutoRender(
+            memory.recordRejectedTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: rejectedDrawing,
                 candidateSignature: rejectedSignature,
@@ -135,27 +135,27 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: rejectedDrawing
             )
         )
         XCTAssertTrue(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: differentDrawing,
                 candidateTexts: rejectedSignature
             )
         )
         XCTAssertFalse(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: differentDrawing,
                 candidateTexts: ["C", "G/B", "F#"]
             )
         )
         XCTAssertFalse(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "G/B",
                 drawingData: rejectedDrawing,
                 candidateTexts: rejectedSignature
@@ -169,7 +169,7 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         let differentDrawing = Data("fresh c ink".utf8)
 
         XCTAssertTrue(
-            memory.recordRejectedAutoRender(
+            memory.recordRejectedTrustedCandidate(
                 acceptedText: "C",
                 drawingData: rejectedDrawing,
                 candidateSignature: ["C"],
@@ -178,23 +178,23 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "C",
                 drawingData: rejectedDrawing,
                 candidateTexts: ["C"]
             )
         )
         XCTAssertFalse(
-            memory.shouldBlockAutoRender(
+            memory.shouldBlockTrustedCandidate(
                 acceptedText: "C",
                 drawingData: differentDrawing,
                 candidateTexts: ["C"]
             )
         )
-        XCTAssertNil(memory.rejectedAutoRenderRules.first?.candidateSignatures)
+        XCTAssertNil(memory.rejectedTrustedCandidateRules.first?.candidateSignatures)
     }
 
-    func testStoreLoadsOlderCorrectionMemoryWithoutRejectedAutoRenderRules() throws {
+    func testStoreLoadsOlderCorrectionMemoryWithoutRejectedTrustedCandidateRules() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ChordInkUserCorrectionMemoryStore(
@@ -230,7 +230,7 @@ final class ChordInkUserCorrectionMemoryTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            memory.recordRejectedAutoRender(
+            memory.recordRejectedTrustedCandidate(
                 acceptedText: "Db7(b9)",
                 drawingData: Data("stored rejection".utf8),
                 now: Date(timeIntervalSinceReferenceDate: 31)

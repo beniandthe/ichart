@@ -4495,9 +4495,9 @@ struct EditorView: View {
         )
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
-        let autoRenderTextsByID = Dictionary(
+        let trustedTextsByID = Dictionary(
             uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
-                guard confirmation.decision.action == .autoRender,
+                guard confirmation.decision.action == .trusted,
                       let acceptedText = confirmation.decision.acceptedText else {
                     return nil
                 }
@@ -4507,9 +4507,9 @@ struct EditorView: View {
         )
 
         if !isGuidedChordConfirmation,
-           autoRenderTextsByID.count == confirmations.count,
+           trustedTextsByID.count == confirmations.count,
            commitChordInkBatchCandidates(
-                autoRenderTextsByID,
+                trustedTextsByID,
                 batch: batch,
                 resolution: .autoRendered
            ) {
@@ -4578,7 +4578,7 @@ struct EditorView: View {
         completeEditorGuidedTourStep(.chordWrite)
 
         if !isGuidedChordConfirmation,
-           confirmation.decision.action == .autoRender,
+           confirmation.decision.action == .trusted,
            let acceptedText = confirmation.decision.acceptedText {
             _ = commitChordInkCandidate(
                 acceptedText,
@@ -4903,7 +4903,7 @@ struct EditorView: View {
         }
 
         let acceptedText = chordEvent.rawInput ?? chordEvent.symbol.displayText
-        if chordInkUserCorrectionMemory.recordRejectedAutoRender(
+        if chordInkUserCorrectionMemory.recordRejectedTrustedCandidate(
             acceptedText: acceptedText,
             drawingData: sourceInkData,
             candidateSignature: chordEvent.sourceCandidateSignature

@@ -2,7 +2,17 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRenderResolutionPolicyTests: XCTestCase {
-    func testClearAutoRenderCandidateStaysAutomaticWhenMemoryAllowsIt() {
+    func testRecognitionActionDecodesLegacyAutoRenderValueAsTrusted() throws {
+        let data = Data(#""autoRender""#.utf8)
+
+        let action = try JSONDecoder().decode(ChordInkRecognitionAction.self, from: data)
+        let encoded = try JSONEncoder().encode(action)
+
+        XCTAssertEqual(action, .trusted)
+        XCTAssertEqual(String(data: encoded, encoding: .utf8), #""trusted""#)
+    }
+
+    func testClearTrustedCandidateStaysTrustedWhenMemoryAllowsIt() {
         let drawingData = Data("clear C".utf8)
         let resolution = ChordInkRenderResolutionPolicy.resolution(
             for: recognitionResult(
@@ -17,12 +27,12 @@ final class ChordInkRenderResolutionPolicyTests: XCTestCase {
             correctionMemory: ChordInkUserCorrectionMemory()
         )
 
-        XCTAssertEqual(resolution.decision.action, .autoRender)
+        XCTAssertEqual(resolution.decision.action, .trusted)
         XCTAssertEqual(resolution.decision.acceptedText, "C")
         XCTAssertEqual(Array(resolution.candidateTexts.prefix(2)), ["C", "G"])
     }
 
-    func testRejectedAutoRenderMemoryDemotesAutomaticRenderToConfirmation() {
+    func testRejectedTrustedCandidateMemoryDemotesTrustedReadToConfirmation() {
         let drawingData = Data("rejected C".utf8)
         let result = recognitionResult(
             matchText: "C",
@@ -34,7 +44,7 @@ final class ChordInkRenderResolutionPolicyTests: XCTestCase {
         )
         let candidateTexts = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
         var memory = ChordInkUserCorrectionMemory()
-        memory.recordRejectedAutoRender(
+        memory.recordRejectedTrustedCandidate(
             acceptedText: "C",
             drawingData: drawingData,
             candidateSignature: ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)

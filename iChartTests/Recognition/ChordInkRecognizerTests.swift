@@ -292,7 +292,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.confidence, 4.90, debugSummary)
     }
 
-    func testChordRepeatRecognitionCanAutoRenderWithoutRootEvidence() {
+    func testChordRepeatRecognitionCanBeTrustedWithoutRootEvidence() {
         let result = recognitionResult(
             matchText: "•/•",
             confidence: 4.95,
@@ -306,7 +306,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "•/•")
     }
 
@@ -532,7 +532,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
-    func testRecognizerReturnsCandidateScoresForAutoRenderDecisions() throws {
+    func testRecognizerReturnsCandidateScoresForTrustedCandidateDecisions() throws {
         let result = recognizer.recognize(strokes: try shiftedTemplateStrokes("C", offsetX: 0))
 
         XCTAssertEqual(result.match?.displayText, "C")
@@ -555,7 +555,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(metrics.totalMilliseconds, 0)
     }
 
-    func testResolutionPolicyAutoRendersDecisiveMatches() throws {
+    func testResolutionPolicyTrustsDecisiveMatches() throws {
         let result = recognitionResult(
             matchText: "C",
             confidence: 4.80,
@@ -567,7 +567,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "C")
         XCTAssertFalse(decision.isCloseRace)
     }
@@ -590,7 +590,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(decision.competingCandidateText, "G")
     }
 
-    func testResolutionPolicyAutoRendersModerateLiveLoopMargins() throws {
+    func testResolutionPolicyTrustsModerateLiveLoopMargins() throws {
         let result = recognitionResult(
             matchText: "Db-7",
             confidence: 4.35,
@@ -602,7 +602,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "Db-7")
         XCTAssertFalse(decision.isCloseRace)
     }
@@ -624,7 +624,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(decision.isCloseRace)
     }
 
-    func testResolutionPolicyAutoRendersClearLoopCandidatesBelowOldThreshold() throws {
+    func testResolutionPolicyTrustsClearLoopCandidatesBelowOldThreshold() throws {
         let result = recognitionResult(
             matchText: "C",
             confidence: 3.965,
@@ -635,7 +635,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "C")
         XCTAssertFalse(decision.isCloseRace)
     }
@@ -667,7 +667,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(decision.isCloseRace)
     }
 
-    func testResolutionPolicyStillAutoRendersSingleCandidateWithStrongRootGlyph() throws {
+    func testResolutionPolicyStillTrustsSingleCandidateWithStrongRootGlyph() throws {
         let result = recognitionResult(
             matchText: "C7",
             confidence: 4.120,
@@ -687,12 +687,12 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "C7")
         XCTAssertFalse(decision.isCloseRace)
     }
 
-    func testResolutionPolicyAutoRendersClearSlashWinnerFromLiveLoop() throws {
+    func testResolutionPolicyTrustsClearSlashWinnerFromLiveLoop() throws {
         let result = recognitionResult(
             matchText: "G/B",
             confidence: 4.9767,
@@ -705,7 +705,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "G/B")
         XCTAssertFalse(decision.isCloseRace)
     }
@@ -728,7 +728,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(decision.competingCandidateText, "Db7(b5)")
     }
 
-    func testResolutionPolicyAutoRendersCommonSpellingOverUncommonCloseRunnerUp() throws {
+    func testResolutionPolicyTrustsCommonSpellingOverUncommonCloseRunnerUp() throws {
         let result = recognitionResult(
             matchText: "F#",
             confidence: 3.9796,
@@ -740,7 +740,7 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let decision = ChordInkRecognitionPolicy.decision(for: result)
 
-        XCTAssertEqual(decision.action, .autoRender)
+        XCTAssertEqual(decision.action, .trusted)
         XCTAssertEqual(decision.acceptedText, "F#")
         XCTAssertFalse(decision.isCloseRace)
     }
