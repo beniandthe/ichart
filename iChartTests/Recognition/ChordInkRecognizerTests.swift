@@ -692,6 +692,91 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(decision.isCloseRace)
     }
 
+    func testResolutionPolicyPromptsWhenRootEvidenceIsMissingFromGlyphs() throws {
+        let result = recognitionResult(
+            matchText: "C7",
+            confidence: 4.120,
+            scores: [
+                candidateScore("C7", confidence: 4.120)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("G", confidence: 0.965),
+                    glyph("D", confidence: 0.940)
+                ],
+                [
+                    glyph("7", confidence: 0.985)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyPromptsWhenGeneratedSequenceLimitWasHit() throws {
+        var metrics = ChordInkRecognitionMetrics()
+        metrics.compositionMetrics = ChordInkCandidateCompositionMetrics(
+            selectedColumnCount: 7,
+            generatedSequenceCount: 4096,
+            returnedCandidateCount: 32,
+            maxGeneratedSequences: 4096,
+            hitGeneratedSequenceLimit: true
+        )
+        let result = recognitionResult(
+            matchText: "C7",
+            confidence: 4.120,
+            scores: [
+                candidateScore("C7", confidence: 4.120)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("C", confidence: 0.965),
+                    glyph("G", confidence: 0.621)
+                ],
+                [
+                    glyph("7", confidence: 0.985)
+                ]
+            ],
+            metrics: metrics
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyPromptsWhenUnsupportedCandidateHasHighPressure() throws {
+        let result = recognitionResult(
+            matchText: "C7",
+            confidence: 4.120,
+            scores: [
+                ChordInkCandidateScore(text: "C7add9add9", displayText: nil, confidence: 4.125),
+                candidateScore("C7", confidence: 4.120)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("C", confidence: 0.965),
+                    glyph("G", confidence: 0.621)
+                ],
+                [
+                    glyph("7", confidence: 0.985)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
     func testResolutionPolicyTrustsClearSlashWinnerFromLiveLoop() throws {
         let result = recognitionResult(
             matchText: "G/B",
@@ -876,14 +961,16 @@ final class ChordInkRecognizerTests: XCTestCase {
         matchText: String?,
         confidence: Double,
         scores: [ChordInkCandidateScore],
-        glyphCandidates: [[GlyphCandidate]] = []
+        glyphCandidates: [[GlyphCandidate]] = [],
+        metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
     ) -> ChordInkRecognitionResult {
         ChordInkRecognitionResult(
             rawCandidates: scores.map(\.text),
             glyphCandidates: glyphCandidates,
             match: matchText.flatMap(ChordRecognitionCompendium.match),
             confidence: confidence,
-            candidateScores: scores
+            candidateScores: scores,
+            metrics: metrics
         )
     }
 

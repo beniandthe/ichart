@@ -345,6 +345,7 @@ enum ChordInkRecognitionPolicy {
     private static let uncommonRootSpellingConfirmationGap = 0.08
     private static let weakSingleCandidateRootConfidence = 0.76
     private static let ambiguousSingleCandidateRootGap = 0.08
+    private static let unsupportedCandidatePressureGap = 0.02
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
         guard let match = result.match else {
@@ -368,6 +369,45 @@ enum ChordInkRecognitionPolicy {
                 action: .confirm,
                 acceptedText: acceptedText,
                 reason: "Low-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if result.metrics.compositionMetrics.hitGeneratedSequenceLimit {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Recognition candidate limit hit. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if hasUnsupportedCandidatePressure(
+            result: result,
+            bestConfidence: bestConfidence
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Unsupported high-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if shouldConfirmMissingRootEvidence(
+            acceptedText: acceptedText,
+            glyphCandidates: result.glyphCandidates
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "No clear root evidence. Choose a suggestion or type the chord you meant.",
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
@@ -505,6 +545,37 @@ enum ChordInkRecognitionPolicy {
         }
 
         return ["B#", "E#", "Cb", "Fb"].contains("\(symbol.root.rawValue)\(symbol.accidental.rawValue)")
+    }
+
+    private static func hasUnsupportedCandidatePressure(
+        result: ChordInkRecognitionResult,
+        bestConfidence: Double
+    ) -> Bool {
+        guard let strongestUnsupported = result.candidateScores
+            .filter({ $0.displayText == nil })
+            .max(by: { lhs, rhs in
+                lhs.confidence < rhs.confidence
+            }) else {
+            return false
+        }
+
+        return strongestUnsupported.confidence + unsupportedCandidatePressureGap >= bestConfidence
+    }
+
+    private static func shouldConfirmMissingRootEvidence(
+        acceptedText: String,
+        glyphCandidates: [[GlyphCandidate]]
+    ) -> Bool {
+        guard !glyphCandidates.isEmpty,
+              let acceptedSymbol = try? ChordSymbolParser.parse(acceptedText),
+              acceptedSymbol.kind == .rooted else {
+            return false
+        }
+
+        return rootGlyphEvidence(
+            for: acceptedSymbol.root.rawValue,
+            glyphCandidates: glyphCandidates
+        ) == nil
     }
 
     private static func shouldConfirmSingleCandidateWithWeakRoot(
