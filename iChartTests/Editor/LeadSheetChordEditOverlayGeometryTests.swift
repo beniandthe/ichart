@@ -308,6 +308,37 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         XCTAssertGreaterThan(editFrame.height, markerLayout.frame.height)
     }
 
+    func testRoadmapNotationLabelFrameExtendsBelowMarkerFrameForCodaGlyph() {
+        let markerLayout = roadmapMarkerLayout(
+            frame: CGRect(x: 126, y: 72, width: 42, height: 44),
+            movementFrame: CGRect(x: 120, y: 72, width: 180, height: 44)
+        )
+
+        let labelFrame = LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: markerLayout)
+
+        XCTAssertEqual(labelFrame.minX, markerLayout.frame.minX, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.minY, markerLayout.frame.minY, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.width, markerLayout.frame.width, accuracy: 0.001)
+        XCTAssertGreaterThan(labelFrame.maxY, markerLayout.frame.maxY)
+        XCTAssertGreaterThanOrEqual(labelFrame.maxY - markerLayout.frame.maxY, 4)
+    }
+
+    func testRoadmapTextLabelFrameStaysInsideMarkerFrame() {
+        let markerLayout = LeadSheetRoadmapMarkerLayout(
+            roadmapObjectID: UUID(),
+            type: .fine,
+            text: "Fine",
+            frame: CGRect(x: 20, y: 30, width: 50, height: 34),
+            movementFrame: CGRect(x: 20, y: 30, width: 100, height: 34),
+            anchorMeasureID: UUID(),
+            scale: 1
+        )
+
+        let labelFrame = LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: markerLayout)
+
+        XCTAssertEqual(labelFrame, markerLayout.frame.insetBy(dx: 2, dy: 1))
+    }
+
     func testRoadmapMarkerDeleteOnlyWinsForSelectedMarker() {
         let markerID = UUID()
         let markerLayout = roadmapMarkerLayout(id: markerID)

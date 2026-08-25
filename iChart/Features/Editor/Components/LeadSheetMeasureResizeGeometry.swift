@@ -353,6 +353,12 @@ struct LeadSheetSimpleRowGroupAffordance {
     var guideY: CGFloat
 }
 
+enum LeadSheetRenderedMeasureBoundary {
+    case none
+    case normalBarline(type: BarlineType, frame: CGRect)
+    case repeatBoundary(markers: [LeadSheetRepeatMarkerLayout], terminalTrailingLineX: CGFloat?)
+}
+
 enum LeadSheetSimpleChordTerminalBarlineGeometry {
     static func barlineFrame(
         for system: LeadSheetSystemLayout,
@@ -409,12 +415,70 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         return displayMeasure
     }
 
+    static func renderedBoundary(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?,
+        excludingRepeatMarkerIDs drawnRepeatMarkerIDs: Set<String>,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> LeadSheetRenderedMeasureBoundary {
+        guard !(measure.isOpen && layoutStyle != .simpleChordSheet) else {
+            return .none
+        }
+
+        let allRepeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(
+            after: measure,
+            before: nextMeasure
+        )
+        let visibleRepeatBoundaryMarkers = allRepeatBoundaryMarkers.filter {
+            !drawnRepeatMarkerIDs.contains($0.id)
+        }
+
+        if !visibleRepeatBoundaryMarkers.isEmpty {
+            return .repeatBoundary(
+                markers: visibleRepeatBoundaryMarkers,
+                terminalTrailingLineX: terminalTrailingRepeatLineX(
+                    after: measure,
+                    before: nextMeasure,
+                    repeatBoundaryMarkers: visibleRepeatBoundaryMarkers,
+                    in: system,
+                    paperFrame: paperFrame,
+                    layoutStyle: layoutStyle
+                )
+            )
+        }
+
+        guard allRepeatBoundaryMarkers.isEmpty,
+              LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
+                after: measure,
+                before: nextMeasure
+              ) else {
+            return .none
+        }
+
+        let barlineMeasure = displayMeasure(
+            measure,
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        )
+        return .normalBarline(
+            type: measure.barlineAfter,
+            frame: barlineMeasure.trailingBarlineFrame
+        )
+    }
+
     static func shouldDrawStandaloneTerminalBarline(
         for system: LeadSheetSystemLayout,
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> Bool {
         !usesTerminalBarlineAsTrailingBoundary(
+            for: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        ) && !usesTerminalBarlineAsTrailingRepeatBoundary(
             for: system,
             paperFrame: paperFrame,
             layoutStyle: layoutStyle
@@ -444,6 +508,123 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         return terminalFrame.midX > referenceMeasure.trailingBarlineFrame.midX + 1
     }
 
+    static func usesTerminalBarlineAsTrailingRepeatBoundary(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> Bool {
+        guard layoutStyle == .simpleChordSheet else {
+            return false
+        }
+
+        for measureIndex in system.measures.indices {
+            let measure = system.measures[measureIndex]
+            let nextMeasureIndex = measureIndex + 1
+            let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
+                ? system.measures[nextMeasureIndex]
+                : nil
+            let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(
+                after: measure,
+                before: nextMeasure
+            )
+
+            if terminalTrailingRepeatLineX(
+                after: measure,
+                before: nextMeasure,
+                repeatBoundaryMarkers: repeatBoundaryMarkers,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+            ) != nil {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func terminalTrailingRepeatLineX(
+        after measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGFloat? {
+        guard let measureIndex = system.measures.firstIndex(where: { $0.id == measure.id }) else {
+            return nil
+        }
+
+        let nextMeasureIndex = measureIndex + 1
+        let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
+            ? system.measures[nextMeasureIndex]
+            : nil
+        let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(
+            after: measure,
+            before: nextMeasure
+        )
+
+        return terminalTrailingRepeatLineX(
+            after: measure,
+            before: nextMeasure,
+            repeatBoundaryMarkers: repeatBoundaryMarkers,
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        )
+    }
+
+    static func terminalTrailingRepeatLineX(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?,
+        repeatBoundaryMarkers: [LeadSheetRepeatMarkerLayout],
+        in system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGFloat? {
+        guard layoutStyle == .simpleChordSheet,
+              repeatBoundaryMarkers.contains(where: { $0.edge == .trailing }),
+              isTerminalBoundary(
+                after: measure,
+                before: nextMeasure,
+                in: system
+              ),
+              let terminalFrame = barlineFrame(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ) else {
+            return nil
+        }
+
+        return terminalFrame.midX
+    }
+
+    private static func isTerminalBoundary(
+        after measure: LeadSheetMeasureLayout,
+        before nextMeasure: LeadSheetMeasureLayout?,
+        in system: LeadSheetSystemLayout
+    ) -> Bool {
+        guard nextMeasure == nil else {
+            return remainingMeasuresAfter(measure, in: system).allSatisfy(isTerminalContinuationMeasure)
+        }
+
+        return system.measures.last?.id == measure.id
+    }
+
+    private static func remainingMeasuresAfter(
+        _ measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout
+    ) -> ArraySlice<LeadSheetMeasureLayout> {
+        guard let measureIndex = system.measures.firstIndex(where: { $0.id == measure.id }) else {
+            return []
+        }
+
+        return system.measures.suffix(from: system.measures.index(after: measureIndex))
+    }
+
+    private static func isTerminalContinuationMeasure(_ measure: LeadSheetMeasureLayout) -> Bool {
+        measure.sourceMeasureID == nil || measure.isOpen
+    }
+
     static func terminalFillerFrame(
         for system: LeadSheetSystemLayout,
         paperFrame: CGRect,
@@ -451,6 +632,11 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
     ) -> CGRect? {
         guard layoutStyle == .simpleChordSheet,
               !usesTerminalBarlineAsTrailingBoundary(
+                for: system,
+                paperFrame: paperFrame,
+                layoutStyle: layoutStyle
+              ),
+              !usesTerminalBarlineAsTrailingRepeatBoundary(
                 for: system,
                 paperFrame: paperFrame,
                 layoutStyle: layoutStyle
