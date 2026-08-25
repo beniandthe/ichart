@@ -215,6 +215,17 @@ Validation:
 - `xcrun xcresulttool get test-results summary --path /tmp/iChartRoleContextualizer-20260825-1015.xcresult`
 - Result: 18 total selected simulator tests, 18 passed, 0 failed, 0 skipped.
 
+Role-prefix trust acceptance fixture slice promoted the full-archive cases that caught the false-sus role-prefix regression into `InkFixtureLoader.trustAcceptanceFixtureNames`. Added coverage includes `FSharp7susCaptured03` plus flat minor, flat major, flat altered, and flat suspended fixtures that should not be stolen by contextual `sus` boosts.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-role-prefix-acceptance --filter 'ChordInkTrustAcceptanceTests|InkFixtureLoaderTests'`
+- Result: pass, 5 selected XCTest cases, 0 failures.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=165234BC-33C0-48D7-896B-9AD058C13C53' -resultBundlePath /tmp/iChartRolePrefixAcceptance-20260825-1017.xcresult -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/InkFixtureLoaderTests test`
+- Result: failed before selected tests ran because the simulator reported `Busy` / application preflight launch failure.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=42254D11-2E65-4586-AEBE-C6317AF2DD10' -resultBundlePath /tmp/iChartRolePrefixAcceptance-20260825-1018.xcresult -only-testing:iChartTests/ChordInkTrustAcceptanceTests -only-testing:iChartTests/InkFixtureLoaderTests test`
+- Result: failed before selected tests ran because the simulator again reported `Busy` / application preflight launch failure. No simulator XCTest pass is claimed for this test-list-only slice.
+
 Physical iPad validation:
 
 - Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.
