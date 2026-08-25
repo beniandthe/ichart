@@ -5,6 +5,64 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
+    func testEditorPerformanceMetricsCountsDragAndChartWriteBackSignals() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordLayoutInvalidation()
+        metrics.recordChartWriteBack()
+        metrics.recordDragState(kind: .chordMove, state: .began)
+        metrics.recordDragState(kind: .chordMove, state: .changed)
+        metrics.recordDragState(kind: .chordMove, state: .changed)
+        metrics.recordDragState(kind: .chordMove, state: .ended)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["layout_invalidations"], 1)
+        XCTAssertEqual(snapshot["chart_writebacks"], 1)
+        XCTAssertEqual(snapshot["drag_begins"], 1)
+        XCTAssertEqual(snapshot["drag_changes"], 2)
+        XCTAssertEqual(snapshot["drag_commits"], 1)
+        XCTAssertEqual(snapshot["drag_cancels"], 0)
+        XCTAssertEqual(snapshot["chord_move_changes"], 2)
+        XCTAssertEqual(snapshot["max_drag_changes"], 2)
+    }
+
+    func testEditorPerformanceMetricsCountsCancelledDragKinds() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordDragState(kind: .measureResize, state: .began)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .cancelled)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .began)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .changed)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .changed)
+        metrics.recordDragState(kind: .roadmapMarkerMove, state: .failed)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["drag_begins"], 2)
+        XCTAssertEqual(snapshot["drag_changes"], 3)
+        XCTAssertEqual(snapshot["drag_commits"], 0)
+        XCTAssertEqual(snapshot["drag_cancels"], 2)
+        XCTAssertEqual(snapshot["measure_resize_changes"], 1)
+        XCTAssertEqual(snapshot["roadmap_marker_changes"], 2)
+        XCTAssertEqual(snapshot["max_drag_changes"], 2)
+    }
+
+    func testEditorPerformanceMetricsPreservesActiveDragCountsAcrossFlush() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordDragState(kind: .measureResize, state: .began)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.flush(reason: "test")
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .ended)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["drag_changes"], 1)
+        XCTAssertEqual(snapshot["drag_commits"], 1)
+        XCTAssertEqual(snapshot["max_drag_changes"], 3)
+    }
+
     func testChordEntryPreservesOriginalPenWeight() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
@@ -618,6 +676,54 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.inkToolMode, .write)
         XCTAssertTrue(policy.canvasTool is PKInkingTool)
+    }
+
+    func testActiveInkErasePolicyRemovesIntersectedStrokeOnly() {
+        let erasedStroke = stroke(
+            points: [
+                CGPoint(x: 12, y: 12),
+                CGPoint(x: 42, y: 42)
+            ],
+            creationDate: Date(timeIntervalSince1970: 71)
+        )
+        let retainedStroke = stroke(
+            points: [
+                CGPoint(x: 180, y: 20),
+                CGPoint(x: 220, y: 42)
+            ],
+            creationDate: Date(timeIntervalSince1970: 72)
+        )
+        let drawing = PKDrawing(strokes: [erasedStroke, retainedStroke])
+
+        let indices = LeadSheetActiveInkErasePolicy.strokeIndicesToErase(
+            in: drawing,
+            from: CGPoint(x: 0, y: 30),
+            to: CGPoint(x: 54, y: 30),
+            radius: 16
+        )
+
+        XCTAssertEqual(indices, Set([0]))
+    }
+
+    func testActiveInkErasePolicyIgnoresDistantStroke() {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 90, y: 90),
+                    CGPoint(x: 130, y: 132)
+                ],
+                creationDate: Date(timeIntervalSince1970: 73)
+            )
+        ])
+
+        let indices = LeadSheetActiveInkErasePolicy.strokeIndicesToErase(
+            in: drawing,
+            from: CGPoint(x: 4, y: 4),
+            to: CGPoint(x: 30, y: 4),
+            radius: 12
+        )
+
+        XCTAssertTrue(indices.isEmpty)
     }
 
     func testChordEntryKeepsSimulatorPointerInputForAutomation() {
@@ -1957,6 +2063,80 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testMeasureResizePreviewPolicyComputesRightEdgeWidth() {
+        XCTAssertEqual(
+            LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                initialWidth: 180,
+                edge: .right,
+                translationX: 32
+            ),
+            212
+        )
+    }
+
+    func testMeasureResizePreviewPolicyComputesLeftEdgeWidth() {
+        XCTAssertEqual(
+            LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                initialWidth: 180,
+                edge: .left,
+                translationX: -32
+            ),
+            212
+        )
+        XCTAssertEqual(
+            LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                initialWidth: 180,
+                edge: .left,
+                translationX: 32
+            ),
+            148
+        )
+    }
+
+    func testMeasureResizePreviewPolicyClampsModelWidth() {
+        XCTAssertEqual(
+            LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                initialWidth: 120,
+                edge: .right,
+                translationX: -200
+            ),
+            Measure.minimumManualLayoutWidth
+        )
+        XCTAssertEqual(
+            LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                initialWidth: 200,
+                edge: .right,
+                translationX: 1_200
+            ),
+            Measure.maximumManualLayoutWidth
+        )
+    }
+
+    func testMeasureResizePreviewPolicyKeepsLeftEdgeStableForRightResize() {
+        let initialFrame = CGRect(x: 100, y: 20, width: 180, height: 44)
+        let previewFrame = LeadSheetMeasureResizePreviewPolicy.previewFrame(
+            initialFrame: initialFrame,
+            edge: .right,
+            translationX: 40
+        )
+
+        XCTAssertEqual(previewFrame.minX, 100)
+        XCTAssertEqual(previewFrame.width, 220)
+    }
+
+    func testMeasureResizePreviewPolicyKeepsRightEdgeStableForLeftResize() {
+        let initialFrame = CGRect(x: 100, y: 20, width: 180, height: 44)
+        let previewFrame = LeadSheetMeasureResizePreviewPolicy.previewFrame(
+            initialFrame: initialFrame,
+            edge: .left,
+            translationX: -40
+        )
+
+        XCTAssertEqual(previewFrame.maxX, initialFrame.maxX)
+        XCTAssertEqual(previewFrame.minX, 60)
+        XCTAssertEqual(previewFrame.width, 220)
+    }
+
     func testInkCanvasSyncPolicyPreservesDirtyChordInkFromStaleModelReload() {
         XCTAssertTrue(
             LeadSheetInkCanvasSyncPolicy.shouldPreserveActiveCanvas(
@@ -1970,6 +2150,251 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 desiredDrawingData: Data([0x02])
             )
         )
+    }
+
+    func testInkCanvasSyncPolicyPersistsOutgoingFreehandInkWhenEnteringEditInkScope() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldPersistOutgoingCanvas(
+                previousActiveInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                nextActiveInkScope: .noteSelection(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyDoesNotPersistOutgoingCanvasWhenScopeIdentityIsUnchanged() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPersistOutgoingCanvas(
+                previousActiveInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                nextActiveInkScope: .page(frame: CGRect(x: 4, y: 4, width: 320, height: 480))
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyDoesNotPersistTemporaryNoteSelectionInkWhenChangingScopes() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPersistOutgoingCanvas(
+                previousActiveInkScope: .noteSelection(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                nextActiveInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyPreservesDirtyFreehandInkBeforeDataComparison() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveDirtyActiveCanvas(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                interactionMode: .freeHand,
+                sessionState: dirtyInkSessionState(.passive)
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyPreservesDirtyHeaderInkBeforeDataComparison() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveDirtyActiveCanvas(
+                activeInkScope: .header(frame: CGRect(x: 0, y: 0, width: 320, height: 80)),
+                interactionMode: .headerEntry,
+                sessionState: dirtyInkSessionState(.passive)
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyDoesNotPreserveDirtyCanvasBeforeDataComparisonAfterScopeSwitch() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveDirtyActiveCanvas(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                interactionMode: .freeHand,
+                sessionState: dirtyInkSessionState(.passive),
+                didSwitchInkScope: true
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyDoesNotPreserveCleanCanvasBeforeDataComparison() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldPreserveDirtyActiveCanvas(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                interactionMode: .freeHand,
+                sessionState: dirtyInkSessionState()
+            )
+        )
+    }
+
+    func testLiveInkNormalizationPolicyNeverNormalizesPassiveCanvas() {
+        XCTAssertFalse(
+            LeadSheetLiveInkNormalizationPolicy.shouldNormalizeLiveCanvas(
+                activeInkRole: .passive,
+                sessionState: dirtyInkSessionState()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetLiveInkNormalizationPolicy.shouldNormalizeLiveCanvas(
+                activeInkRole: .passive,
+                sessionState: dirtyInkSessionState(.passive)
+            )
+        )
+    }
+
+    func testLiveInkNormalizationPolicyOnlyNormalizesCleanSemanticCanvas() {
+        XCTAssertTrue(
+            LeadSheetLiveInkNormalizationPolicy.shouldNormalizeLiveCanvas(
+                activeInkRole: .chord,
+                sessionState: dirtyInkSessionState()
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetLiveInkNormalizationPolicy.shouldNormalizeLiveCanvas(
+                activeInkRole: .chord,
+                sessionState: dirtyInkSessionState(.chord)
+            )
+        )
+    }
+
+    func testPendingPersistedInkPolicyAppliesStaleIncomingInk() {
+        let pendingErase = LeadSheetPendingPersistedInk(
+            drawingData: nil,
+            coordinateSpace: nil
+        )
+        let staleIncomingInk = LeadSheetPendingPersistedInk(
+            drawingData: Data([0x01]),
+            coordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480)
+        )
+
+        XCTAssertTrue(
+            LeadSheetPendingPersistedInkPolicy.shouldApplyPendingInk(
+                incomingInk: staleIncomingInk,
+                pendingInk: pendingErase
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetPendingPersistedInkPolicy.shouldRetainPendingInk(
+                incomingInk: staleIncomingInk,
+                pendingInk: pendingErase
+            )
+        )
+    }
+
+    func testPendingPersistedInkPolicyRetiresWhenParentEchoesPendingInk() {
+        let pendingErase = LeadSheetPendingPersistedInk(
+            drawingData: nil,
+            coordinateSpace: nil
+        )
+
+        XCTAssertFalse(
+            LeadSheetPendingPersistedInkPolicy.shouldApplyPendingInk(
+                incomingInk: pendingErase,
+                pendingInk: pendingErase
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetPendingPersistedInkPolicy.shouldRetainPendingInk(
+                incomingInk: pendingErase,
+                pendingInk: pendingErase
+            )
+        )
+    }
+
+    func testPendingPersistedInkPolicyRecordsDirtyPersistedEraseTombstone() {
+        XCTAssertTrue(
+            LeadSheetPendingPersistedInkPolicy.shouldRecordEraseTombstone(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                drawingData: nil,
+                isDirtyAuthoringRole: true
+            )
+        )
+    }
+
+    func testPendingPersistedInkPolicyDoesNotRecordCleanOrTemporaryEraseTombstone() {
+        XCTAssertFalse(
+            LeadSheetPendingPersistedInkPolicy.shouldRecordEraseTombstone(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                drawingData: nil,
+                isDirtyAuthoringRole: false
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetPendingPersistedInkPolicy.shouldRecordEraseTombstone(
+                activeInkScope: .noteSelection(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                drawingData: nil,
+                isDirtyAuthoringRole: true
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetPendingPersistedInkPolicy.shouldRecordEraseTombstone(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                drawingData: Data([0x01]),
+                isDirtyAuthoringRole: true
+            )
+        )
+    }
+
+    func testInkPersistenceDedupePolicySkipsUnchangedPassiveInk() {
+        let persistedSnapshot = LeadSheetPersistedInkSnapshot(
+            inkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [12, 24]),
+            coordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480)
+        )
+
+        XCTAssertTrue(
+            LeadSheetInkPersistenceDedupePolicy.shouldSkipPersistence(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                currentSnapshot: persistedSnapshot,
+                lastPersistedSnapshot: persistedSnapshot
+            )
+        )
+    }
+
+    func testInkPersistenceDedupePolicyDoesNotSkipChangedPassiveInk() {
+        let lastPersistedSnapshot = LeadSheetPersistedInkSnapshot(
+            inkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [12]),
+            coordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480)
+        )
+        let currentSnapshot = LeadSheetPersistedInkSnapshot(
+            inkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [12, 24]),
+            coordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480)
+        )
+
+        XCTAssertFalse(
+            LeadSheetInkPersistenceDedupePolicy.shouldSkipPersistence(
+                activeInkScope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 480)),
+                currentSnapshot: currentSnapshot,
+                lastPersistedSnapshot: lastPersistedSnapshot
+            )
+        )
+    }
+
+    func testInkPersistenceDedupePolicyDoesNotSkipSemanticInk() {
+        let persistedSnapshot = LeadSheetPersistedInkSnapshot(
+            inkSnapshot: LeadSheetInkDrawingSnapshot(testValues: [12, 24]),
+            coordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480)
+        )
+
+        XCTAssertFalse(
+            LeadSheetInkPersistenceDedupePolicy.shouldSkipPersistence(
+                activeInkScope: .chords(
+                    frame: CGRect(x: 0, y: 0, width: 320, height: 80),
+                    inputFrames: [CGRect(x: 0, y: 0, width: 320, height: 80)]
+                ),
+                currentSnapshot: persistedSnapshot,
+                lastPersistedSnapshot: persistedSnapshot
+            )
+        )
+    }
+
+    func testActiveInkScopeIdentityAppliesPendingChordEraseOverStaleChart() throws {
+        var staleChart = Chart.blank(title: "Erase Guard", measureCount: 1)
+        staleChart.pageHandwrittenChordData = Data([0x01])
+        staleChart.pageHandwrittenChordCoordinateSpace = PersistentInkCoordinateSpace(width: 320, height: 480)
+
+        let updatedChart = try XCTUnwrap(
+            LeadSheetActiveInkScope.Identity.chords.chartByPersistingDrawingData(
+                nil,
+                coordinateSpace: nil,
+                in: staleChart
+            )
+        )
+
+        XCTAssertNil(updatedChart.pageHandwrittenChordData)
+        XCTAssertNil(updatedChart.pageHandwrittenChordCoordinateSpace)
     }
 
     func testInkCanvasSyncPolicyDoesNotPreserveDirtyRetiredRhythmInkFromStaleModelReload() {
@@ -2631,6 +3056,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(
             LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
                 currentInkSnapshot: snapshot,
+                scheduledInkSnapshot: nil
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: nil,
                 scheduledInkSnapshot: nil
             )
         )

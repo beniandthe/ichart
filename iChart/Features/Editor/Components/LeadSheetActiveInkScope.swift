@@ -252,6 +252,28 @@ enum LeadSheetActiveInkScope {
     }
 
     func drawingData(in chart: Chart) -> Data? {
+        identity.drawingData(in: chart)
+    }
+
+    func drawingCoordinateSpace(in chart: Chart) -> PersistentInkCoordinateSpace? {
+        identity.drawingCoordinateSpace(in: chart)
+    }
+
+    func chartByPersistingDrawingData(
+        _ drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        in chart: Chart
+    ) -> Chart? {
+        identity.chartByPersistingDrawingData(
+            drawingData,
+            coordinateSpace: coordinateSpace,
+            in: chart
+        )
+    }
+}
+
+extension LeadSheetActiveInkScope.Identity {
+    func drawingData(in chart: Chart) -> Data? {
         switch self {
         case .page:
             return chart.pageHandwrittenNotationData
@@ -259,7 +281,7 @@ enum LeadSheetActiveInkScope {
             return chart.pageHandwrittenHeaderData
         case .chords:
             return chart.pageHandwrittenChordData
-        case .rhythmicMeasure(let measureID, _):
+        case .rhythmicMeasure(let measureID):
             return chart.measure(id: measureID)?.handwrittenRhythmicNotationData
         case .noteSelection:
             return nil
@@ -274,7 +296,7 @@ enum LeadSheetActiveInkScope {
             return chart.pageHandwrittenHeaderCoordinateSpace
         case .chords:
             return chart.pageHandwrittenChordCoordinateSpace
-        case .rhythmicMeasure(let measureID, _):
+        case .rhythmicMeasure(let measureID):
             return chart.measure(id: measureID)?.handwrittenRhythmicNotationCoordinateSpace
         case .noteSelection:
             return nil
@@ -310,7 +332,7 @@ enum LeadSheetActiveInkScope {
             ) else {
                 return nil
             }
-        case .rhythmicMeasure(let measureID, _):
+        case .rhythmicMeasure(let measureID):
             guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
                 drawingData,
                 coordinateSpace: coordinateSpace,

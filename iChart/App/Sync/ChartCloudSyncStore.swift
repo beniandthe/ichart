@@ -11,6 +11,7 @@ final class ChartCloudSyncStore: ObservableObject {
     private let service: ChartCloudSyncService?
     private weak var libraryStore: ChartLibraryStore?
     private var isSignedIn = false
+    private var automaticUploadBackoff = ChartCloudAutomaticUploadBackoff()
     private var queuedUploadTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
@@ -133,14 +134,42 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        guard allowsAutomaticUpload(snapshot, at: Date()) else {
+            return
+        }
+
         queuedUploadTask?.cancel()
         queuedUploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled else {
                 return
             }
+            guard self?.beginQueuedAutomaticUpload(snapshot) == true else {
+                return
+            }
             await self?.runPush(snapshot: snapshot, service: service)
         }
+    }
+
+    private func beginQueuedAutomaticUpload(_ snapshot: ChartLibrarySnapshot) -> Bool {
+        queuedUploadTask = nil
+        return allowsAutomaticUpload(snapshot, at: Date())
+    }
+
+    private func allowsAutomaticUpload(_ snapshot: ChartLibrarySnapshot, at date: Date) -> Bool {
+        guard automaticUploadBackoff.allowsAutomaticUpload(at: date) else {
+            IChartPerformanceTrace.record(
+                "cloud.automatic_push_suppressed",
+                metadata: [
+                    "reason": "failure_backoff",
+                    "retry_after_ms": "\(Int(automaticUploadBackoff.remainingCooldown(at: date) * 1_000))",
+                    "chart_count": "\(snapshot.charts.count)"
+                ]
+            )
+            return false
+        }
+
+        return true
     }
 
     private func runRestore(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
@@ -196,6 +225,7 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     private func runPush(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
+        queuedUploadTask = nil
         guard !isWorking else {
             queueUpload(snapshot)
             return
@@ -226,6 +256,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 lastSyncAt: Date(),
                 lastRemoteBackupAt: result.lastRemoteBackupAt
             )
+            automaticUploadBackoff.recordSuccess()
             lastRemoteBackupAt = result.lastRemoteBackupAt
             state = .synced(Date())
             IChartTelemetry.record(
@@ -238,6 +269,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         } catch {
+            automaticUploadBackoff.recordFailure(at: Date())
             state = Self.failureState(for: error)
             IChartTelemetry.record(
                 "cloud.push_failed",
@@ -259,6 +291,7 @@ final class ChartCloudSyncStore: ObservableObject {
         syncTask?.cancel()
         syncTask = nil
         isWorking = false
+        automaticUploadBackoff.reset()
     }
 
     private var isCloudSyncEntitled: Bool {

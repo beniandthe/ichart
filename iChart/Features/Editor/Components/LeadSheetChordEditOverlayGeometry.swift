@@ -262,12 +262,15 @@ struct RoadmapMarkerEditHitTarget {
 struct ActiveRoadmapMarkerEditDrag {
     var markerID: UUID
     var initialFrame: CGRect
+    var currentFrame: CGRect
     var movementFrame: CGRect
 }
 
 struct ActiveCueTextMoveDrag {
     var cueTextID: UUID
     var startLocation: CGPoint
+    var initialFrame: CGRect
+    var currentFrame: CGRect
     var startingVerticalOffset: Double
 }
 

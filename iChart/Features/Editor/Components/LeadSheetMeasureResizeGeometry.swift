@@ -11,11 +11,44 @@ struct ActiveMeasureResizeDrag {
     var measureID: UUID
     var edge: Edge
     var initialWidth: CGFloat
+    var initialFrame: CGRect
+    var currentFrame: CGRect
 }
 
 struct LeadSheetMeasureResizeHandleFrames {
     let left: CGRect
     let right: CGRect
+}
+
+enum LeadSheetMeasureResizePreviewPolicy {
+    static func proposedModelWidth(
+        initialWidth: CGFloat,
+        edge: ActiveMeasureResizeDrag.Edge,
+        translationX: CGFloat
+    ) -> CGFloat {
+        let signedDelta = edge == .right
+            ? translationX
+            : -translationX
+        return Measure.clampedManualLayoutWidth(initialWidth + signedDelta)
+    }
+
+    static func previewFrame(
+        initialFrame: CGRect,
+        edge: ActiveMeasureResizeDrag.Edge,
+        translationX: CGFloat
+    ) -> CGRect {
+        let proposedWidth = proposedModelWidth(
+            initialWidth: initialFrame.width,
+            edge: edge,
+            translationX: translationX
+        )
+        var frame = initialFrame
+        frame.size.width = proposedWidth
+        if edge == .left {
+            frame.origin.x = initialFrame.maxX - proposedWidth
+        }
+        return frame
+    }
 }
 
 struct LeadSheetSimpleRowGroupAffordance {
@@ -242,7 +275,9 @@ enum LeadSheetMeasureResizeGeometry {
             return ActiveMeasureResizeDrag(
                 measureID: measureID,
                 edge: .left,
-                initialWidth: measure.frame.width
+                initialWidth: measure.frame.width,
+                initialFrame: measure.frame,
+                currentFrame: measure.frame
             )
         }
 
@@ -250,7 +285,9 @@ enum LeadSheetMeasureResizeGeometry {
             return ActiveMeasureResizeDrag(
                 measureID: measureID,
                 edge: .right,
-                initialWidth: measure.frame.width
+                initialWidth: measure.frame.width,
+                initialFrame: measure.frame,
+                currentFrame: measure.frame
             )
         }
 
