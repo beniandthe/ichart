@@ -4,6 +4,7 @@ Date: 2026-08-25
 Branch: `codex/chord-recognition-accuracy`
 Baseline: `d60d37bd837bf05867479cce315be91e4d1b4f70`
 Scope: chord recognition grouping, glyph classification, candidate composition, trust policy, fixtures, and recognition diagnostics only.
+Trust protocol: `docs/chord-recognition-trust-protocol-2026-08-25.md`
 
 ## Current Git State
 
