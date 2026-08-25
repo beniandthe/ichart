@@ -96,14 +96,14 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
 
         return measure.chordLayouts.flatMap { chordLayout in
             let objectID = RenderedEditObjectID.chord(chordLayout.id)
-            let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
-            let bodyFrame = editFrame.insetBy(dx: -8, dy: -8)
+            let selectionFrame = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chordLayout)
+            let moveFrame = LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: chordLayout)
             var targets = [
                 RenderedEditHitTarget(
                     objectID: objectID,
                     action: .select,
                     priority: .objectBodySelect,
-                    frame: bodyFrame,
+                    frame: selectionFrame,
                     requiresSelection: false,
                     mutationRisk: .nonMutating
                 ),
@@ -111,7 +111,7 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     objectID: objectID,
                     action: .move,
                     priority: .selectedObjectMoveBody,
-                    frame: bodyFrame,
+                    frame: moveFrame,
                     requiresSelection: true,
                     mutationRisk: .visual
                 )
@@ -131,16 +131,6 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     frame: controlFrames.delete.insetBy(dx: -controlOutset, dy: -controlOutset),
                     requiresSelection: true,
                     mutationRisk: .destructive
-                )
-            )
-            targets.append(
-                RenderedEditHitTarget(
-                    objectID: objectID,
-                    action: .resizeLeading,
-                    priority: .selectedObjectResizeHandle,
-                    frame: controlFrames.leadingResize.insetBy(dx: -controlOutset, dy: -controlOutset),
-                    requiresSelection: true,
-                    mutationRisk: .visual
                 )
             )
             targets.append(

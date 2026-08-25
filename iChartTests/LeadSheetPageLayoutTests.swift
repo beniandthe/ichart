@@ -1320,6 +1320,52 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(firstSystem.measures.last?.frame.maxX ?? 0, firstSystem.frame.maxX + 0.001)
     }
 
+    #if canImport(UIKit)
+    func testSimpleChordSheetEqualRowManualWidthMakesShortRowVisuallyEven() throws {
+        var chart = Chart.blank(title: "Equal Short Row", measureCount: 3, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        _ = chart.setMeasureManualLayoutWidth(320, for: measureIDs[0])
+        _ = chart.setMeasureManualLayoutWidth(120, for: measureIDs[1])
+        _ = chart.setMeasureManualLayoutWidth(220, for: measureIDs[2])
+
+        let unevenLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let unevenSystem = try XCTUnwrap(unevenLayout.systems.first)
+        let equalizedWidths = LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+            for: unevenSystem,
+            in: unevenLayout,
+            chart: chart
+        )
+        for (measureID, width) in equalizedWidths {
+            _ = chart.setMeasureManualLayoutWidth(width, for: measureID)
+        }
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let displayedMeasures = firstSystem.measures.map { measure in
+            LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                measure,
+                in: firstSystem,
+                paperFrame: layout.paperFrame,
+                layoutStyle: .simpleChordSheet
+            )
+        }
+        let visibleWidths = displayedMeasures.map(\.frame.width)
+        let firstVisibleWidth = try XCTUnwrap(visibleWidths.first)
+        let lastMeasure = try XCTUnwrap(firstSystem.measures.last)
+
+        XCTAssertEqual(firstSystem.measures.count, 3)
+        XCTAssertTrue(visibleWidths.allSatisfy { abs($0 - firstVisibleWidth) <= 1.5 })
+        XCTAssertLessThan(lastMeasure.frame.width, firstSystem.measures[0].frame.width)
+    }
+    #endif
+
     func testSimpleChordSheetAllowsSixteenMeasuresOnOneManualRow() throws {
         let chart = Chart.blank(title: "Dense Grid", measureCount: 16, layoutStyle: .simpleChordSheet)
 

@@ -13,11 +13,306 @@ struct ActiveMeasureResizeDrag {
     var initialWidth: CGFloat
     var initialFrame: CGRect
     var currentFrame: CGRect
+    var transaction: LeadSheetMeasureResizeTransaction? = nil
+    var currentPreview: LeadSheetMeasureResizePreview? = nil
 }
 
 struct LeadSheetMeasureResizeHandleFrames {
     let left: CGRect
     let right: CGRect
+}
+
+struct LeadSheetMeasureResizeMeasureSnapshot: Hashable {
+    var measureID: UUID
+    var frame: CGRect
+}
+
+struct LeadSheetMeasureResizePreview: Hashable {
+    var rowFrame: CGRect
+    var measureFrames: [UUID: CGRect]
+    var affectedMeasureIDs: [UUID]
+    var draggedEdgeX: CGFloat
+    var evenDivisionGuideXs: [CGFloat]
+    var activeEvenDivisionGuideX: CGFloat?
+    var committedManualWidths: [UUID: CGFloat]
+
+    func frame(for measureID: UUID?) -> CGRect? {
+        guard let measureID else {
+            return nil
+        }
+
+        return measureFrames[measureID]
+    }
+}
+
+struct LeadSheetMeasureResizeTransaction: Hashable {
+    var selectedMeasureID: UUID
+    var edge: ActiveMeasureResizeDrag.Edge
+    var rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot]
+    var selectedIndex: Int
+    var displayedToManualWidthScale: CGFloat
+    var evenDivisionCommitManualWidths: [UUID: CGFloat]
+    var minimumDisplayedWidth: CGFloat
+    var maximumDisplayedWidth: CGFloat
+
+    init?(
+        selectedMeasureID: UUID,
+        edge: ActiveMeasureResizeDrag.Edge,
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        displayedToManualWidthScale: CGFloat,
+        evenDivisionCommitManualWidths: [UUID: CGFloat] = [:]
+    ) {
+        guard let selectedIndex = rowMeasures.firstIndex(where: { $0.measureID == selectedMeasureID }) else {
+            return nil
+        }
+
+        self.selectedMeasureID = selectedMeasureID
+        self.edge = edge
+        self.rowMeasures = rowMeasures
+        self.selectedIndex = selectedIndex
+        self.displayedToManualWidthScale = max(0.0001, displayedToManualWidthScale)
+        self.evenDivisionCommitManualWidths = evenDivisionCommitManualWidths
+        minimumDisplayedWidth = Measure.minimumManualLayoutWidth / self.displayedToManualWidthScale
+        maximumDisplayedWidth = Measure.maximumManualLayoutWidth / self.displayedToManualWidthScale
+    }
+
+    func preview(for translationX: CGFloat) -> LeadSheetMeasureResizePreview {
+        var frames = Dictionary(uniqueKeysWithValues: rowMeasures.map { ($0.measureID, $0.frame) })
+        let selected = rowMeasures[selectedIndex]
+        var affectedMeasureIDs = [selected.measureID]
+        let rowFrame = frozenRowFrame()
+
+        switch edge {
+        case .right:
+            let neighborIndex = rowMeasures.index(after: selectedIndex)
+            if rowMeasures.indices.contains(neighborIndex) {
+                let neighbor = rowMeasures[neighborIndex]
+                affectedMeasureIDs.append(neighbor.measureID)
+                let delta = clampedRightEdgeDelta(
+                    translationX,
+                    selectedWidth: selected.frame.width,
+                    neighborWidth: neighbor.frame.width
+                )
+                frames[selected.measureID]?.size.width = max(1, selected.frame.width + delta)
+                frames[neighbor.measureID]?.origin.x = neighbor.frame.minX + delta
+                frames[neighbor.measureID]?.size.width = max(1, neighbor.frame.width - delta)
+            } else {
+                let delta = clampedTerminalRightEdgeDelta(
+                    translationX,
+                    selectedFrame: selected.frame,
+                    rowFrame: rowFrame
+                )
+                frames[selected.measureID]?.size.width = max(1, selected.frame.width + delta)
+            }
+        case .left:
+            let neighborIndex = selectedIndex - 1
+            if rowMeasures.indices.contains(neighborIndex) {
+                let neighbor = rowMeasures[neighborIndex]
+                affectedMeasureIDs.insert(neighbor.measureID, at: 0)
+                let delta = clampedLeftEdgeDelta(
+                    translationX,
+                    selectedWidth: selected.frame.width,
+                    neighborWidth: neighbor.frame.width
+                )
+                frames[neighbor.measureID]?.size.width = max(1, neighbor.frame.width + delta)
+                frames[selected.measureID]?.origin.x = selected.frame.minX + delta
+                frames[selected.measureID]?.size.width = max(1, selected.frame.width - delta)
+            } else {
+                let delta = clampedTerminalLeftEdgeDelta(
+                    translationX,
+                    selectedFrame: selected.frame,
+                    rowFrame: rowFrame
+                )
+                frames[selected.measureID]?.origin.x = selected.frame.minX + delta
+                frames[selected.measureID]?.size.width = max(1, selected.frame.width - delta)
+            }
+        }
+
+        let committedManualWidths: [UUID: CGFloat] = Dictionary(
+            uniqueKeysWithValues: affectedMeasureIDs.compactMap { measureID in
+                guard let frame = frames[measureID] else {
+                    return nil
+                }
+
+                return (
+                    measureID,
+                    Measure.clampedManualLayoutWidth(frame.width * displayedToManualWidthScale)
+                )
+            }
+        )
+        let draggedEdgeX: CGFloat
+        if let selectedFrame = frames[selected.measureID] {
+            draggedEdgeX = edge == .right ? selectedFrame.maxX : selectedFrame.minX
+        } else {
+            draggedEdgeX = edge == .right ? selected.frame.maxX : selected.frame.minX
+        }
+        let evenDivisionGuideXs = evenDivisionGuideXs(in: rowFrame, measureCount: rowMeasures.count)
+        let activeEvenDivisionGuideX = activeEvenDivisionGuideX(
+            for: draggedEdgeX,
+            guides: evenDivisionGuideXs,
+            expectedDivisionIndex: expectedEvenDivisionIndex()
+        )
+
+        if let activeEvenDivisionGuideX {
+            let evenFrames = evenDivisionFrames(in: rowFrame)
+            let evenAffectedMeasureIDs = rowMeasures.map(\.measureID)
+            let evenCommittedManualWidths = evenDivisionCommitManualWidths.isEmpty
+                ? manualWidths(for: evenAffectedMeasureIDs, in: evenFrames)
+                : evenDivisionCommitManualWidths
+            return LeadSheetMeasureResizePreview(
+                rowFrame: rowFrame,
+                measureFrames: evenFrames,
+                affectedMeasureIDs: evenAffectedMeasureIDs,
+                draggedEdgeX: activeEvenDivisionGuideX,
+                evenDivisionGuideXs: evenDivisionGuideXs,
+                activeEvenDivisionGuideX: activeEvenDivisionGuideX,
+                committedManualWidths: evenCommittedManualWidths
+            )
+        }
+
+        return LeadSheetMeasureResizePreview(
+            rowFrame: rowFrame,
+            measureFrames: frames,
+            affectedMeasureIDs: affectedMeasureIDs,
+            draggedEdgeX: draggedEdgeX,
+            evenDivisionGuideXs: evenDivisionGuideXs,
+            activeEvenDivisionGuideX: activeEvenDivisionGuideX,
+            committedManualWidths: committedManualWidths
+        )
+    }
+
+    private func manualWidths(
+        for measureIDs: [UUID],
+        in frames: [UUID: CGRect]
+    ) -> [UUID: CGFloat] {
+        Dictionary(
+            uniqueKeysWithValues: measureIDs.compactMap { measureID in
+                guard let frame = frames[measureID] else {
+                    return nil
+                }
+
+                return (
+                    measureID,
+                    Measure.clampedManualLayoutWidth(frame.width * displayedToManualWidthScale)
+                )
+            }
+        )
+    }
+
+    private func frozenRowFrame() -> CGRect {
+        rowMeasures
+            .map(\.frame)
+            .reduce(CGRect.null) { partialResult, frame in
+                partialResult.union(frame)
+            }
+    }
+
+    private func minimumWidth(for currentWidth: CGFloat) -> CGFloat {
+        min(currentWidth, minimumDisplayedWidth)
+    }
+
+    private func evenDivisionGuideXs(in rowFrame: CGRect, measureCount: Int) -> [CGFloat] {
+        guard measureCount > 1, rowFrame.width > 1 else {
+            return []
+        }
+
+        let divisionWidth = rowFrame.width / CGFloat(measureCount)
+        return (1..<measureCount).map { divisionIndex in
+            rowFrame.minX + CGFloat(divisionIndex) * divisionWidth
+        }
+    }
+
+    private func evenDivisionFrames(in rowFrame: CGRect) -> [UUID: CGRect] {
+        guard !rowMeasures.isEmpty, rowFrame.width > 1 else {
+            return Dictionary(uniqueKeysWithValues: rowMeasures.map { ($0.measureID, $0.frame) })
+        }
+
+        let divisionWidth = rowFrame.width / CGFloat(rowMeasures.count)
+        return Dictionary(
+            uniqueKeysWithValues: rowMeasures.enumerated().map { index, measure in
+                var frame = measure.frame
+                frame.origin.x = rowFrame.minX + CGFloat(index) * divisionWidth
+                frame.size.width = divisionWidth
+                return (measure.measureID, frame)
+            }
+        )
+    }
+
+    private func expectedEvenDivisionIndex() -> Int? {
+        switch edge {
+        case .right:
+            let divisionIndex = selectedIndex + 1
+            return divisionIndex < rowMeasures.count ? divisionIndex : nil
+        case .left:
+            return selectedIndex > 0 ? selectedIndex : nil
+        }
+    }
+
+    private func activeEvenDivisionGuideX(
+        for draggedEdgeX: CGFloat,
+        guides: [CGFloat],
+        expectedDivisionIndex: Int?,
+        tolerance: CGFloat = 5
+    ) -> CGFloat? {
+        guard let expectedDivisionIndex,
+              expectedDivisionIndex > 0,
+              guides.indices.contains(expectedDivisionIndex - 1) else {
+            return nil
+        }
+
+        let guideX = guides[expectedDivisionIndex - 1]
+        return abs(guideX - draggedEdgeX) <= tolerance ? guideX : nil
+    }
+
+    private func clampedRightEdgeDelta(
+        _ delta: CGFloat,
+        selectedWidth: CGFloat,
+        neighborWidth: CGFloat
+    ) -> CGFloat {
+        let minimumSelectedWidth = minimumWidth(for: selectedWidth)
+        let minimumNeighborWidth = minimumWidth(for: neighborWidth)
+        let lowerBound = -(selectedWidth - minimumSelectedWidth)
+        let upperBound = neighborWidth - minimumNeighborWidth
+        return min(max(delta, lowerBound), upperBound)
+    }
+
+    private func clampedLeftEdgeDelta(
+        _ delta: CGFloat,
+        selectedWidth: CGFloat,
+        neighborWidth: CGFloat
+    ) -> CGFloat {
+        let minimumSelectedWidth = minimumWidth(for: selectedWidth)
+        let minimumNeighborWidth = minimumWidth(for: neighborWidth)
+        let lowerBound = -(neighborWidth - minimumNeighborWidth)
+        let upperBound = selectedWidth - minimumSelectedWidth
+        return min(max(delta, lowerBound), upperBound)
+    }
+
+    private func clampedTerminalRightEdgeDelta(
+        _ delta: CGFloat,
+        selectedFrame: CGRect,
+        rowFrame: CGRect
+    ) -> CGFloat {
+        let lowerBound = -(selectedFrame.width - minimumWidth(for: selectedFrame.width))
+        let upperBound = min(
+            maximumDisplayedWidth - selectedFrame.width,
+            max(0, rowFrame.maxX - selectedFrame.maxX)
+        )
+        return min(max(delta, lowerBound), upperBound)
+    }
+
+    private func clampedTerminalLeftEdgeDelta(
+        _ delta: CGFloat,
+        selectedFrame: CGRect,
+        rowFrame: CGRect
+    ) -> CGFloat {
+        let lowerBound = max(
+            -(maximumDisplayedWidth - selectedFrame.width),
+            rowFrame.minX - selectedFrame.minX
+        )
+        let upperBound = selectedFrame.width - minimumWidth(for: selectedFrame.width)
+        return min(max(delta, lowerBound), upperBound)
+    }
 }
 
 enum LeadSheetMeasureResizePreviewPolicy {
@@ -344,6 +639,65 @@ enum LeadSheetSimpleRowGroupAffordanceGeometry {
         }
 
         return nil
+    }
+}
+
+enum LeadSheetSimpleChordRowEqualizationPolicy {
+    static func manualLayoutWidths(
+        for system: LeadSheetSystemLayout,
+        in pageLayout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .simpleChordSheet else {
+            return [:]
+        }
+
+        let sourceMeasures = system.measures.compactMap { measure -> (id: UUID, frame: CGRect)? in
+            guard let measureID = measure.sourceMeasureID else {
+                return nil
+            }
+
+            return (measureID, measure.frame)
+        }
+        guard let firstMeasure = sourceMeasures.first else {
+            return [:]
+        }
+
+        let maxSystemWidth = max(1, pageLayout.paperFrame.width - 68)
+        let rawRowBodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        )
+        let rawRowEndX = firstMeasure.frame.minX + rawRowBodyWidth
+        let terminalFrame = LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+            for: system,
+            paperFrame: pageLayout.paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
+        let terminalDisplayExtension = max(
+            0,
+            (terminalFrame?.midX ?? rawRowEndX) - rawRowEndX
+        )
+        let visibleMeasureWidth = max(
+            1,
+            (rawRowBodyWidth + terminalDisplayExtension) / CGFloat(sourceMeasures.count)
+        )
+        let lastIndex = sourceMeasures.index(before: sourceMeasures.endIndex)
+
+        return Dictionary(
+            uniqueKeysWithValues: sourceMeasures.enumerated().map { index, measure in
+                let targetRawWidth = index == lastIndex
+                    ? max(1, visibleMeasureWidth - terminalDisplayExtension)
+                    : visibleMeasureWidth
+                let manualWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
+                    targetRawWidth,
+                    chart: chart,
+                    maxSystemWidth: maxSystemWidth
+                )
+
+                return (measure.id, manualWidth)
+            }
+        )
     }
 }
 #endif

@@ -1384,6 +1384,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if let rowGroupAffordance = simpleRowGroupAffordance() {
                 drawSimpleRowGroupAffordance(rowGroupAffordance)
             }
+            if let preview = activeMeasureResizeDrag?.currentPreview {
+                drawMeasureResizePreviewGuides(preview)
+            }
             if let selectedMeasure = selectedDisplayMeasureLayout() {
                 drawMeasureResizeHandles(for: selectedMeasure, using: renderer)
             }
@@ -1943,6 +1946,83 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    private func drawMeasureResizePreviewGuides(_ preview: LeadSheetMeasureResizePreview) {
+        let affectedFrames = preview.affectedMeasureIDs.compactMap { preview.measureFrames[$0] }
+        guard !affectedFrames.isEmpty else {
+            return
+        }
+
+        let isAlignedToEvenDivision = preview.activeEvenDivisionGuideX != nil
+        let guideColor = isAlignedToEvenDivision
+            ? UIColor(red: 0.02, green: 0.62, blue: 0.28, alpha: 1)
+            : UIColor(red: 0.06, green: 0.31, blue: 0.94, alpha: 1)
+        let affectedFillColor = isAlignedToEvenDivision
+            ? UIColor(red: 0.02, green: 0.62, blue: 0.28, alpha: 0.08)
+            : UIColor(red: 0.18, green: 0.43, blue: 0.96, alpha: 0.07)
+        let affectedStrokeColor = isAlignedToEvenDivision
+            ? UIColor(red: 0.02, green: 0.62, blue: 0.28, alpha: 0.40)
+            : UIColor(red: 0.18, green: 0.43, blue: 0.96, alpha: 0.34)
+
+        affectedFillColor.setFill()
+        affectedStrokeColor.setStroke()
+
+        for frame in affectedFrames {
+            let fillRect = frame.insetBy(dx: 2, dy: 12)
+            let path = UIBezierPath(roundedRect: fillRect, cornerRadius: 6)
+            path.fill()
+            path.lineWidth = 1
+            path.stroke()
+        }
+
+        let rowGuide = UIBezierPath()
+        rowGuide.move(to: CGPoint(x: preview.rowFrame.minX, y: preview.rowFrame.minY - 6))
+        rowGuide.addLine(to: CGPoint(x: preview.rowFrame.maxX, y: preview.rowFrame.minY - 6))
+        UIColor(red: 0.18, green: 0.43, blue: 0.96, alpha: 0.24).setStroke()
+        rowGuide.lineWidth = 1
+        rowGuide.setLineDash([6, 4], count: 2, phase: 0)
+        rowGuide.stroke()
+
+        for guideX in preview.evenDivisionGuideXs {
+            let isActiveGuide = preview.activeEvenDivisionGuideX.map { abs($0 - guideX) < 0.5 } ?? false
+            let evenGuide = UIBezierPath()
+            evenGuide.move(to: CGPoint(x: guideX, y: preview.rowFrame.minY - 10))
+            evenGuide.addLine(to: CGPoint(x: guideX, y: preview.rowFrame.maxY + 10))
+            if isActiveGuide {
+                guideColor.withAlphaComponent(0.72).setStroke()
+                evenGuide.lineWidth = 1.5
+                evenGuide.setLineDash([5, 2], count: 2, phase: 0)
+            } else {
+                UIColor(red: 0.18, green: 0.43, blue: 0.96, alpha: 0.20).setStroke()
+                evenGuide.lineWidth = 0.8
+                evenGuide.setLineDash([3, 6], count: 2, phase: 0)
+            }
+            evenGuide.stroke()
+        }
+
+        let edgeGuide = UIBezierPath()
+        edgeGuide.move(to: CGPoint(x: preview.draggedEdgeX, y: preview.rowFrame.minY - 10))
+        edgeGuide.addLine(to: CGPoint(x: preview.draggedEdgeX, y: preview.rowFrame.maxY + 10))
+        guideColor.withAlphaComponent(0.82).setStroke()
+        edgeGuide.lineWidth = isAlignedToEvenDivision ? 2.0 : 1.4
+        edgeGuide.setLineDash([4, 3], count: 2, phase: 0)
+        edgeGuide.stroke()
+
+        guideColor.withAlphaComponent(isAlignedToEvenDivision ? 0.44 : 0.38).setStroke()
+        for frame in affectedFrames {
+            let leftGuide = UIBezierPath()
+            leftGuide.move(to: CGPoint(x: frame.minX, y: preview.rowFrame.minY - 4))
+            leftGuide.addLine(to: CGPoint(x: frame.minX, y: preview.rowFrame.maxY + 4))
+            leftGuide.lineWidth = 0.8
+            leftGuide.stroke()
+
+            let rightGuide = UIBezierPath()
+            rightGuide.move(to: CGPoint(x: frame.maxX, y: preview.rowFrame.minY - 4))
+            rightGuide.addLine(to: CGPoint(x: frame.maxX, y: preview.rowFrame.maxY + 4))
+            rightGuide.lineWidth = 0.8
+            rightGuide.stroke()
+        }
+    }
+
     private func drawSimpleRowGroupAffordance(_ affordance: LeadSheetSimpleRowGroupAffordance) {
         let guideY = affordance.guideY
         let startX = affordance.groupFrame.minX + 4
@@ -2403,7 +2483,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             alignment: .center
         )
 
-        drawChordResizeHandle(controlFrames.leadingResize, isActive: activeChordResizeDrag?.edge == .leading)
         drawChordResizeHandle(controlFrames.trailingResize, isActive: activeChordResizeDrag?.edge == .trailing)
     }
 
@@ -2422,6 +2501,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func drawChordSnapGuide(for chordLayout: LeadSheetChordLayout) {
+        if let activeChordMoveDrag,
+           activeChordMoveDrag.chordID == chordLayout.id,
+           let positionPreview = activeChordMoveDrag.currentPositionPreview {
+            drawChordMovePositionGuides(positionPreview)
+        }
+
         let startPoint = CGPoint(
             x: chordLayout.frame.midX,
             y: chordLayout.frame.maxY + 1
@@ -2446,6 +2531,45 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let targetPath = UIBezierPath(ovalIn: targetRect)
         UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.72).setFill()
         targetPath.fill()
+    }
+
+    private func drawChordMovePositionGuides(_ preview: LeadSheetChordMovePositionPreview) {
+        let isAligned = preview.activeGuideX != nil
+        let activeColor = isAligned
+            ? UIColor(red: 0.02, green: 0.62, blue: 0.28, alpha: 1)
+            : UIColor(red: 0.06, green: 0.31, blue: 0.94, alpha: 1)
+        let fieldFrame = preview.guideFrame.insetBy(dx: -4, dy: -8)
+        let fieldPath = UIBezierPath(roundedRect: fieldFrame, cornerRadius: 5)
+        activeColor.withAlphaComponent(isAligned ? 0.08 : 0.06).setFill()
+        fieldPath.fill()
+        activeColor.withAlphaComponent(isAligned ? 0.34 : 0.22).setStroke()
+        fieldPath.lineWidth = 1
+        fieldPath.stroke()
+
+        for guideX in preview.guideXs {
+            let isActiveGuide = preview.activeGuideX.map { abs($0 - guideX) < 0.5 } ?? false
+            let guidePath = UIBezierPath()
+            guidePath.move(to: CGPoint(x: guideX, y: fieldFrame.minY - 2))
+            guidePath.addLine(to: CGPoint(x: guideX, y: fieldFrame.maxY + 2))
+            if isActiveGuide {
+                activeColor.withAlphaComponent(0.82).setStroke()
+                guidePath.lineWidth = 1.7
+                guidePath.setLineDash([5, 2], count: 2, phase: 0)
+            } else {
+                UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.24).setStroke()
+                guidePath.lineWidth = 0.9
+                guidePath.setLineDash([3, 6], count: 2, phase: 0)
+            }
+            guidePath.stroke()
+        }
+
+        let targetPath = UIBezierPath()
+        targetPath.move(to: CGPoint(x: preview.targetX, y: fieldFrame.minY - 4))
+        targetPath.addLine(to: CGPoint(x: preview.targetX, y: fieldFrame.maxY + 4))
+        activeColor.withAlphaComponent(isAligned ? 0.88 : 0.60).setStroke()
+        targetPath.lineWidth = isAligned ? 2.0 : 1.3
+        targetPath.lineCapStyle = .round
+        targetPath.stroke()
     }
 
     private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {
@@ -2522,11 +2646,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ measure: LeadSheetMeasureLayout
     ) -> LeadSheetMeasureLayout {
         guard let activeMeasureResizeDrag,
-              activeMeasureResizeDrag.measureID == measure.sourceMeasureID else {
+              let previewFrame = activeMeasureResizeDrag.currentPreview?.frame(for: measure.sourceMeasureID)
+                ?? (activeMeasureResizeDrag.measureID == measure.sourceMeasureID
+                    ? activeMeasureResizeDrag.currentFrame
+                    : nil) else {
             return measure
         }
 
-        let previewFrame = activeMeasureResizeDrag.currentFrame
         let deltaX = previewFrame.minX - measure.frame.minX
         let widthDelta = previewFrame.width - measure.frame.width
         var previewMeasure = measure
@@ -2552,38 +2678,112 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    private func measureAndSystemLayout(
+        for measureID: UUID
+    ) -> (measure: LeadSheetMeasureLayout, system: LeadSheetSystemLayout)? {
+        for system in pageLayout?.systems ?? [] {
+            if let measure = system.measures.first(where: { $0.sourceMeasureID == measureID }) {
+                return (measure, system)
+            }
+        }
+
+        return nil
+    }
+
     private func measureLayout(for measureID: UUID) -> LeadSheetMeasureLayout? {
-        pageLayout?.systems
-            .flatMap(\.measures)
-            .first(where: { $0.sourceMeasureID == measureID })
+        measureAndSystemLayout(for: measureID)?.measure
+    }
+
+    private func measureResizeDisplayedToManualWidthScale() -> CGFloat {
+        guard chart.layoutStyle == .simpleChordSheet,
+              let pageLayout else {
+            return 1
+        }
+
+        return LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: max(1, pageLayout.paperFrame.width - 68)
+        )
+    }
+
+    private func measureResizeTransaction(
+        for measureID: UUID,
+        edge: ActiveMeasureResizeDrag.Edge,
+        in system: LeadSheetSystemLayout
+    ) -> LeadSheetMeasureResizeTransaction? {
+        let snapshots = system.measures.compactMap { measure -> LeadSheetMeasureResizeMeasureSnapshot? in
+            guard let sourceMeasureID = measure.sourceMeasureID else {
+                return nil
+            }
+
+            return LeadSheetMeasureResizeMeasureSnapshot(
+                measureID: sourceMeasureID,
+                frame: measure.frame
+            )
+        }
+        let evenDivisionCommitManualWidths: [UUID: CGFloat]
+        if chart.layoutStyle == .simpleChordSheet,
+           let pageLayout {
+            evenDivisionCommitManualWidths = LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+                for: system,
+                in: pageLayout,
+                chart: chart
+            )
+        } else {
+            evenDivisionCommitManualWidths = [:]
+        }
+
+        return LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: measureID,
+            edge: edge,
+            rowMeasures: snapshots,
+            displayedToManualWidthScale: measureResizeDisplayedToManualWidthScale(),
+            evenDivisionCommitManualWidths: evenDivisionCommitManualWidths
+        )
     }
 
     private func measureResizeHandleHitTarget(at location: CGPoint) -> ActiveMeasureResizeDrag? {
         guard showsSelectedMeasureResizeHandles,
               let hitTarget = renderedEditDragTarget(at: location),
               case .measure(let measureID) = hitTarget.objectID,
-              let measure = selectedDisplayMeasureLayout() ?? measureLayout(for: measureID) else {
+              let measureAndSystem = measureAndSystemLayout(for: measureID) else {
             return nil
         }
 
+        let measure = measureAndSystem.measure
+        let system = measureAndSystem.system
         switch hitTarget.action {
         case .resizeLeft:
             let displayMeasure = selectedDisplayMeasureLayout() ?? measure
+            let transaction = measureResizeTransaction(
+                for: measureID,
+                edge: .left,
+                in: system
+            )
             return ActiveMeasureResizeDrag(
                 measureID: measureID,
                 edge: .left,
-                initialWidth: measure.frame.width,
+                initialWidth: displayMeasure.frame.width,
                 initialFrame: displayMeasure.frame,
-                currentFrame: displayMeasure.frame
+                currentFrame: displayMeasure.frame,
+                transaction: transaction,
+                currentPreview: transaction?.preview(for: 0)
             )
         case .resizeRight:
             let displayMeasure = selectedDisplayMeasureLayout() ?? measure
+            let transaction = measureResizeTransaction(
+                for: measureID,
+                edge: .right,
+                in: system
+            )
             return ActiveMeasureResizeDrag(
                 measureID: measureID,
                 edge: .right,
-                initialWidth: measure.frame.width,
+                initialWidth: displayMeasure.frame.width,
                 initialFrame: displayMeasure.frame,
-                currentFrame: displayMeasure.frame
+                currentFrame: displayMeasure.frame,
+                transaction: transaction,
+                currentPreview: transaction?.preview(for: 0)
             )
         default:
             return nil
@@ -3653,11 +3853,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             let translationX = recognizer.translation(in: self).x
-            activeMeasureResizeDrag.currentFrame = LeadSheetMeasureResizePreviewPolicy.previewFrame(
-                initialFrame: activeMeasureResizeDrag.initialFrame,
-                edge: activeMeasureResizeDrag.edge,
-                translationX: translationX
-            )
+            if let transaction = activeMeasureResizeDrag.transaction {
+                let preview = transaction.preview(for: translationX)
+                activeMeasureResizeDrag.currentPreview = preview
+                activeMeasureResizeDrag.currentFrame = preview.frame(for: activeMeasureResizeDrag.measureID)
+                    ?? activeMeasureResizeDrag.currentFrame
+            } else {
+                activeMeasureResizeDrag.currentFrame = LeadSheetMeasureResizePreviewPolicy.previewFrame(
+                    initialFrame: activeMeasureResizeDrag.initialFrame,
+                    edge: activeMeasureResizeDrag.edge,
+                    translationX: translationX
+                )
+            }
             self.activeMeasureResizeDrag = activeMeasureResizeDrag
             setNeedsDisplay()
         case .ended:
@@ -3666,17 +3873,40 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
-            let proposedWidth = LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
-                initialWidth: activeMeasureResizeDrag.initialWidth,
-                edge: activeMeasureResizeDrag.edge,
-                translationX: recognizer.translation(in: self).x
-            )
             var updatedChart = chart
-            let appliedWidth = updatedChart.setMeasureManualLayoutWidth(
-                proposedWidth,
-                for: activeMeasureResizeDrag.measureID
-            )
-            if appliedWidth != nil {
+            let translationX = recognizer.translation(in: self).x
+            let committedWidths: [UUID: CGFloat]
+            if abs(translationX) < 0.5 {
+                committedWidths = [:]
+            } else if let transaction = activeMeasureResizeDrag.transaction {
+                committedWidths = transaction.preview(for: translationX).committedManualWidths
+            } else {
+                committedWidths = [:]
+            }
+            var didApplyResize = false
+            if committedWidths.isEmpty {
+                guard abs(translationX) >= 0.5 else {
+                    self.activeMeasureResizeDrag = nil
+                    setNeedsDisplay()
+                    return
+                }
+                let proposedWidth = LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
+                    initialWidth: activeMeasureResizeDrag.initialWidth,
+                    edge: activeMeasureResizeDrag.edge,
+                    translationX: translationX
+                )
+                didApplyResize = updatedChart.setMeasureManualLayoutWidth(
+                    proposedWidth,
+                    for: activeMeasureResizeDrag.measureID
+                ) != nil
+            } else {
+                for (measureID, width) in committedWidths {
+                    didApplyResize = updatedChart.setMeasureManualLayoutWidth(width, for: measureID) != nil
+                        || didApplyResize
+                }
+            }
+
+            if didApplyResize {
                 applyUpdatedChart(updatedChart, reason: "resize_measure")
             }
 
@@ -3726,7 +3956,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             case (.roadmapMarker(_), .move):
                 handleRoadmapMarkerEditPan(recognizer)
                 return
-            case (.chord(_), .resizeLeading), (.chord(_), .resizeTrailing):
+            case (.chord(_), .resizeTrailing):
                 handleChordResizePan(recognizer)
                 return
             case (.chord(_), .move):
@@ -3775,10 +4005,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
-            activeChordMoveDrag.currentFrame = LeadSheetChordMoveDragPolicy.previewFrame(
-                for: activeChordMoveDrag,
+            activeChordMoveDrag = chordMoveDragWithPositionPreview(
+                activeChordMoveDrag,
                 at: location,
-                boundedBy: pageLayout.paperFrame
+                in: pageLayout
             )
             self.activeChordMoveDrag = activeChordMoveDrag
             setNeedsDisplay()
@@ -3817,12 +4047,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            let edge: ActiveChordResizeDrag.Edge
             switch hitTarget.action {
-            case .resizeLeading:
-                edge = .leading
             case .resizeTrailing:
-                edge = .trailing
+                break
             default:
                 activeChordResizeDrag = nil
                 setNeedsDisplay()
@@ -3833,7 +4060,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeChordResizeDrag = ActiveChordResizeDrag(
                 chordID: hitTarget.chordID,
                 sourcePageLayout: pageLayout,
-                edge: edge,
+                edge: .trailing,
                 initialFrame: chordLayout.frame,
                 currentFrame: chordLayout.frame,
                 startLocation: startLocation
@@ -3886,15 +4113,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         var updatedChart = chart
         var didChange = false
 
-        if activeChordResizeDrag.edge == .leading,
-           let target = LeadSheetChordResizeDragPolicy.leadingTarget(for: activeChordResizeDrag) {
-            didChange = updatedChart.moveChordEventInCommittedChordLane(
-                activeChordResizeDrag.chordID,
-                to: target.measureID,
-                atFraction: target.fraction
-            ) || didChange
-        }
-
         didChange = updatedChart.setChordEventManualDisplayWidth(
             Double(activeChordResizeDrag.currentFrame.width),
             for: activeChordResizeDrag.chordID
@@ -3918,13 +4136,44 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             .first { $0.id == chordID }
     }
 
+    private func chordMoveDragWithPositionPreview(
+        _ drag: ActiveChordMoveDrag,
+        at location: CGPoint,
+        in pageLayout: LeadSheetPageLayout
+    ) -> ActiveChordMoveDrag {
+        var updatedDrag = drag
+        updatedDrag.currentFrame = LeadSheetChordMoveDragPolicy.previewFrame(
+            for: drag,
+            at: location,
+            boundedBy: pageLayout.paperFrame
+        )
+        updatedDrag.currentPositionPreview = LeadSheetChordMoveDragPolicy.positionPreview(
+            at: location,
+            for: updatedDrag,
+            chart: chart
+        )
+
+        guard let activeGuideX = updatedDrag.currentPositionPreview?.activeGuideX else {
+            return updatedDrag
+        }
+
+        var snappedFrame = updatedDrag.currentFrame
+        snappedFrame.origin.x = min(
+            max(activeGuideX, pageLayout.paperFrame.minX),
+            max(pageLayout.paperFrame.minX, pageLayout.paperFrame.maxX - snappedFrame.width)
+        )
+        updatedDrag.currentFrame = snappedFrame
+        return updatedDrag
+    }
+
     private func commitChordMove(
         _ activeChordMoveDrag: ActiveChordMoveDrag,
         at location: CGPoint
     ) {
         guard let target = LeadSheetChordMoveDragPolicy.target(
             at: location,
-            for: activeChordMoveDrag
+            for: activeChordMoveDrag,
+            chart: chart
         ) else {
             return
         }

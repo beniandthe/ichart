@@ -477,21 +477,59 @@ enum LeadSheetPageLayoutEngine {
         chart: Chart,
         maxSystemWidth: CGFloat
     ) -> CGFloat {
+        let clampedTargetWidth = min(max(targetRowWidth, 1), simpleChordSheetBodyWidth(chart: chart, maxSystemWidth: maxSystemWidth))
+        let scale = simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        )
+        return clampedTargetWidth * scale
+    }
+
+    static func simpleChordSheetTargetRowWidthForManualLayoutWidth(
+        _ manualLayoutWidth: CGFloat,
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
+        let scale = simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        )
+        return Measure.clampedManualLayoutWidth(manualLayoutWidth) / max(0.0001, scale)
+    }
+
+    static func simpleChordSheetManualLayoutWidthScale(
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
+        let bodyWidth = simpleChordSheetBodyWidth(chart: chart, maxSystemWidth: maxSystemWidth)
+        let preferredMeasuresPerSystem = max(
+            1,
+            chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem
+        )
+        let standardMeasureWidth = bodyWidth / CGFloat(preferredMeasuresPerSystem)
+        let visualPolicy = VisualPolicy(chart: chart)
+        let defaultWidth = max(1, preferredCommittedMeasureWidth * visualPolicy.metrics.measureWidthScale)
+        return defaultWidth / max(1, standardMeasureWidth)
+    }
+
+    static func simpleChordSheetMaximumRowBodyWidth(
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
+        simpleChordSheetBodyWidth(chart: chart, maxSystemWidth: maxSystemWidth)
+    }
+
+    private static func simpleChordSheetBodyWidth(
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
         let visualPolicy = VisualPolicy(chart: chart)
         let leadingSignatureWidth = leadingSignatureWidth(
             for: chart,
             visualPolicy: visualPolicy,
             systemIndex: 0
         )
-        let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - systemTrailingPadding)
-        let preferredMeasuresPerSystem = max(
-            1,
-            chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem
-        )
-        let standardMeasureWidth = bodyWidth / CGFloat(preferredMeasuresPerSystem)
-        let defaultWidth = max(1, preferredCommittedMeasureWidth * visualPolicy.metrics.measureWidthScale)
-        let clampedTargetWidth = min(max(targetRowWidth, 1), bodyWidth)
-        return clampedTargetWidth * defaultWidth / max(1, standardMeasureWidth)
+        return max(1, maxSystemWidth - leadingSignatureWidth - systemTrailingPadding)
     }
 
     private static func headerLayout(

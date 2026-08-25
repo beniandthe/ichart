@@ -1161,6 +1161,186 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(target.fraction, 0.8)
     }
 
+    func testChordMoveTargetSnapsToBeatAnchorWhenChartProvided() throws {
+        let chart = Chart.blank(title: "Chord Position Guides", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let seedPreview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: CGPoint(x: measure.chordBandFrame.midX, y: measure.chordBandFrame.midY),
+                fractionAnchorX: measure.chordBandFrame.midX,
+                in: layout,
+                chart: chart
+            )
+        )
+        let secondBeatGuideX = try XCTUnwrap(seedPreview.guideXs.dropFirst().first)
+        let nearSecondBeatX = secondBeatGuideX + 6
+        let location = CGPoint(x: nearSecondBeatX, y: measure.chordBandFrame.midY)
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: location,
+                fractionAnchorX: nearSecondBeatX,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertEqual(
+            target.fraction,
+            Double((secondBeatGuideX - measure.chordBandFrame.minX) / measure.chordBandFrame.width),
+            accuracy: 0.0001
+        )
+    }
+
+    func testChordMoveTargetKeepsRawFractionOutsideBeatAnchorTolerance() throws {
+        let chart = Chart.blank(title: "Chord Raw Position", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let seedPreview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: CGPoint(x: measure.chordBandFrame.midX, y: measure.chordBandFrame.midY),
+                fractionAnchorX: measure.chordBandFrame.midX,
+                in: layout,
+                chart: chart
+            )
+        )
+        let secondBeatGuideX = try XCTUnwrap(seedPreview.guideXs.dropFirst().first)
+        let thirdBeatGuideX = try XCTUnwrap(seedPreview.guideXs.dropFirst(2).first)
+        XCTAssertGreaterThan(
+            thirdBeatGuideX - secondBeatGuideX,
+            LeadSheetChordMovePositionGuidePolicy.snapTolerance * 2
+        )
+        let targetX = (secondBeatGuideX + thirdBeatGuideX) / 2
+        let rawFraction = (targetX - measure.chordBandFrame.minX) / measure.chordBandFrame.width
+        let location = CGPoint(x: targetX, y: measure.chordBandFrame.midY)
+
+        let target = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMoveTarget(
+                measureAnchor: location,
+                fractionAnchorX: targetX,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(target.measureID, measureID)
+        XCTAssertEqual(target.fraction, Double(rawFraction), accuracy: 0.0001)
+    }
+
+    func testChordMovePositionPreviewReportsActiveBeatGuide() throws {
+        let chart = Chart.blank(title: "Chord Guide Preview", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let seedPreview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: CGPoint(x: measure.chordBandFrame.midX, y: measure.chordBandFrame.midY),
+                fractionAnchorX: measure.chordBandFrame.midX,
+                in: layout,
+                chart: chart
+            )
+        )
+        let thirdBeatGuideX = try XCTUnwrap(seedPreview.guideXs.dropFirst(2).first)
+        let targetX = thirdBeatGuideX - 5
+        let location = CGPoint(x: targetX, y: measure.chordBandFrame.midY)
+
+        let preview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: location,
+                fractionAnchorX: targetX,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(preview.guideXs.count, 4)
+        XCTAssertEqual(preview.targetX, thirdBeatGuideX, accuracy: 0.0001)
+        XCTAssertNotNil(preview.activeGuideX)
+    }
+
+    func testChordMovePositionGuideStartsPastLeadingRepeatMarker() throws {
+        let chart = Chart.blank(title: "Chord Guide Repeat", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        var system = try XCTUnwrap(layout.systems.first)
+        var measure = try XCTUnwrap(system.measures.first)
+        let repeatMarker = LeadSheetRepeatMarkerLayout(
+            roadmapObjectID: UUID(),
+            edge: .leading,
+            frame: CGRect(
+                x: measure.chordBandFrame.minX + 4,
+                y: measure.chordBandFrame.minY,
+                width: 24,
+                height: measure.chordBandFrame.height
+            )
+        )
+        measure.repeatMarkerLayouts = [repeatMarker]
+        system.measures[0] = measure
+        layout.systems[0] = system
+
+        let preview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: CGPoint(x: repeatMarker.frame.maxX + 4, y: measure.chordBandFrame.midY),
+                fractionAnchorX: repeatMarker.frame.maxX + 4,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            preview.guideFrame.minX,
+            repeatMarker.frame.maxX + LeadSheetChordMovePositionGuidePolicy.artifactGap - 0.001
+        )
+        XCTAssertEqual(try XCTUnwrap(preview.guideXs.first), preview.guideFrame.minX)
+    }
+
+    func testChordMovePositionGuideStartsPastInlineMeterChange() throws {
+        let chart = Chart.blank(title: "Chord Guide Meter", measureCount: 1, layoutStyle: .simpleChordSheet)
+        var layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        var system = try XCTUnwrap(layout.systems.first)
+        var measure = try XCTUnwrap(system.measures.first)
+        let meterFrame = CGRect(
+            x: measure.chordBandFrame.minX + 6,
+            y: measure.chordBandFrame.minY,
+            width: 28,
+            height: measure.chordBandFrame.height
+        )
+        measure.meterChangeFrame = meterFrame
+        system.measures[0] = measure
+        layout.systems[0] = system
+
+        let preview = try XCTUnwrap(
+            LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+                measureAnchor: CGPoint(x: meterFrame.maxX + 4, y: measure.chordBandFrame.midY),
+                fractionAnchorX: meterFrame.maxX + 4,
+                in: layout,
+                chart: chart
+            )
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            preview.guideFrame.minX,
+            meterFrame.maxX + LeadSheetChordMovePositionGuidePolicy.artifactGap - 0.001
+        )
+    }
+
     func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
         let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1247,30 +1427,13 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(widenedFrame.minX, sourceChordLayout.frame.minX, accuracy: 0.001)
         XCTAssertEqual(widenedFrame.width, sourceChordLayout.frame.width + 48, accuracy: 0.001)
 
-        let leadingTarget = try XCTUnwrap(
+        XCTAssertNil(
             LeadSheetChordEditOverlayGeometry.resizeHitTarget(
                 at: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY),
                 in: sourceLayout,
                 selectedChordID: chordID
             )
         )
-        XCTAssertEqual(leadingTarget.action, .resizeLeading)
-
-        let leadingDrag = ActiveChordResizeDrag(
-            chordID: chordID,
-            sourcePageLayout: sourceLayout,
-            edge: .leading,
-            initialFrame: sourceChordLayout.frame,
-            currentFrame: sourceChordLayout.frame,
-            startLocation: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY)
-        )
-        let narrowedFrame = LeadSheetChordResizeDragPolicy.previewFrame(
-            for: leadingDrag,
-            at: CGPoint(x: controlFrames.leadingResize.midX + 10, y: controlFrames.leadingResize.midY),
-            boundedBy: sourceLayout.paperFrame
-        )
-        XCTAssertEqual(narrowedFrame.maxX, sourceChordLayout.frame.maxX, accuracy: 0.001)
-        XCTAssertEqual(narrowedFrame.width, sourceChordLayout.frame.width - 10, accuracy: 0.001)
     }
 
     func testBrowseModeKeepsCueTextEditable() {
@@ -2135,6 +2298,158 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(previewFrame.maxX, initialFrame.maxX)
         XCTAssertEqual(previewFrame.minX, 60)
         XCTAssertEqual(previewFrame.width, 220)
+    }
+
+    func testMeasureResizeTransactionBalancesRightEdgeWithNearestNeighbor() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let transaction = try XCTUnwrap(
+            LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: firstID,
+                edge: .right,
+                rowMeasures: [
+                    measureResizeSnapshot(firstID, x: 100, width: 180),
+                    measureResizeSnapshot(secondID, x: 280, width: 180),
+                    measureResizeSnapshot(thirdID, x: 460, width: 180)
+                ],
+                displayedToManualWidthScale: 1
+            )
+        )
+
+        let preview = transaction.preview(for: 40)
+
+        XCTAssertEqual(preview.frame(for: firstID)?.minX, 100)
+        XCTAssertEqual(preview.frame(for: firstID)?.width, 220)
+        XCTAssertEqual(preview.frame(for: secondID)?.minX, 320)
+        XCTAssertEqual(preview.frame(for: secondID)?.width, 140)
+        XCTAssertEqual(preview.frame(for: thirdID)?.minX, 460)
+        XCTAssertEqual(preview.frame(for: thirdID)?.width, 180)
+        XCTAssertEqual(preview.affectedMeasureIDs, [firstID, secondID])
+        XCTAssertEqual(preview.committedManualWidths[firstID], 220)
+        XCTAssertEqual(preview.committedManualWidths[secondID], 140)
+        XCTAssertNil(preview.committedManualWidths[thirdID])
+    }
+
+    func testMeasureResizeTransactionHighlightsEvenDivisionGuideWhenActiveEdgeAligns() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let transaction = try XCTUnwrap(
+            LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: firstID,
+                edge: .right,
+                rowMeasures: [
+                    measureResizeSnapshot(firstID, x: 100, width: 180),
+                    measureResizeSnapshot(secondID, x: 280, width: 180),
+                    measureResizeSnapshot(thirdID, x: 460, width: 180)
+                ],
+                displayedToManualWidthScale: 1
+            )
+        )
+
+        let alignedPreview = transaction.preview(for: 0)
+        let unalignedPreview = transaction.preview(for: 40)
+
+        XCTAssertEqual(alignedPreview.evenDivisionGuideXs.count, 2)
+        XCTAssertEqual(alignedPreview.evenDivisionGuideXs[0], 280)
+        XCTAssertEqual(alignedPreview.evenDivisionGuideXs[1], 460)
+        XCTAssertEqual(alignedPreview.activeEvenDivisionGuideX, 280)
+        XCTAssertNil(unalignedPreview.activeEvenDivisionGuideX)
+        XCTAssertEqual(unalignedPreview.committedManualWidths[firstID], 220)
+        XCTAssertEqual(unalignedPreview.committedManualWidths[secondID], 140)
+    }
+
+    func testMeasureResizeTransactionEvenDivisionGuideEqualizesWholeRow() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let transaction = try XCTUnwrap(
+            LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: firstID,
+                edge: .right,
+                rowMeasures: [
+                    measureResizeSnapshot(firstID, x: 100, width: 240),
+                    measureResizeSnapshot(secondID, x: 340, width: 120),
+                    measureResizeSnapshot(thirdID, x: 460, width: 240)
+                ],
+                displayedToManualWidthScale: 1,
+                evenDivisionCommitManualWidths: [
+                    firstID: 501,
+                    secondID: 502,
+                    thirdID: 490
+                ]
+            )
+        )
+
+        let preview = transaction.preview(for: -40)
+
+        XCTAssertEqual(preview.activeEvenDivisionGuideX, 300)
+        XCTAssertEqual(preview.affectedMeasureIDs, [firstID, secondID, thirdID])
+        XCTAssertEqual(preview.frame(for: firstID)?.minX, 100)
+        XCTAssertEqual(preview.frame(for: firstID)?.width, 200)
+        XCTAssertEqual(preview.frame(for: secondID)?.minX, 300)
+        XCTAssertEqual(preview.frame(for: secondID)?.width, 200)
+        XCTAssertEqual(preview.frame(for: thirdID)?.minX, 500)
+        XCTAssertEqual(preview.frame(for: thirdID)?.width, 200)
+        XCTAssertEqual(preview.committedManualWidths[firstID], 501)
+        XCTAssertEqual(preview.committedManualWidths[secondID], 502)
+        XCTAssertEqual(preview.committedManualWidths[thirdID], 490)
+    }
+
+    func testMeasureResizeTransactionBalancesLeftEdgeWithNearestNeighbor() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let transaction = try XCTUnwrap(
+            LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: secondID,
+                edge: .left,
+                rowMeasures: [
+                    measureResizeSnapshot(firstID, x: 100, width: 180),
+                    measureResizeSnapshot(secondID, x: 280, width: 180),
+                    measureResizeSnapshot(thirdID, x: 460, width: 180)
+                ],
+                displayedToManualWidthScale: 1
+            )
+        )
+
+        let preview = transaction.preview(for: -30)
+
+        XCTAssertEqual(preview.frame(for: firstID)?.minX, 100)
+        XCTAssertEqual(preview.frame(for: firstID)?.width, 150)
+        XCTAssertEqual(preview.frame(for: secondID)?.minX, 250)
+        XCTAssertEqual(preview.frame(for: secondID)?.width, 210)
+        XCTAssertEqual(preview.frame(for: thirdID)?.minX, 460)
+        XCTAssertEqual(preview.frame(for: thirdID)?.width, 180)
+        XCTAssertEqual(preview.affectedMeasureIDs, [firstID, secondID])
+        XCTAssertEqual(preview.committedManualWidths[firstID], 150)
+        XCTAssertEqual(preview.committedManualWidths[secondID], 210)
+        XCTAssertNil(preview.committedManualWidths[thirdID])
+    }
+
+    func testMeasureResizeTransactionClampsBeforeNeighborCollapses() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let transaction = try XCTUnwrap(
+            LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: firstID,
+                edge: .right,
+                rowMeasures: [
+                    measureResizeSnapshot(firstID, x: 100, width: 180),
+                    measureResizeSnapshot(secondID, x: 280, width: 110)
+                ],
+                displayedToManualWidthScale: 1
+            )
+        )
+
+        let preview = transaction.preview(for: 90)
+
+        XCTAssertEqual(preview.frame(for: firstID)?.width, 194)
+        XCTAssertEqual(preview.frame(for: secondID)?.minX, 294)
+        XCTAssertEqual(preview.frame(for: secondID)?.width, Measure.minimumManualLayoutWidth)
+        XCTAssertEqual(preview.committedManualWidths[firstID], 194)
+        XCTAssertEqual(preview.committedManualWidths[secondID], Measure.minimumManualLayoutWidth)
     }
 
     func testInkCanvasSyncPolicyPreservesDirtyChordInkFromStaleModelReload() {
@@ -3585,6 +3900,17 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             naturalUnits: 8,
             targetUnits: 8,
             passesCompendium: true
+        )
+    }
+
+    private func measureResizeSnapshot(
+        _ measureID: UUID,
+        x: CGFloat,
+        width: CGFloat
+    ) -> LeadSheetMeasureResizeMeasureSnapshot {
+        LeadSheetMeasureResizeMeasureSnapshot(
+            measureID: measureID,
+            frame: CGRect(x: x, y: 120, width: width, height: 90)
         )
     }
 

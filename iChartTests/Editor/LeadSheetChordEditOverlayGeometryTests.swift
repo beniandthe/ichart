@@ -65,6 +65,32 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         assertAction(moveTarget?.action, is: .move)
     }
 
+    func testLeadingChordResizeHandleIsDeprecated() {
+        let measureID = UUID()
+        let chordID = UUID()
+        let chordLayout = LeadSheetChordLayout(
+            id: chordID,
+            text: "Db7(b9)",
+            frame: CGRect(x: 160, y: 88, width: 76, height: 36),
+            snapGuideTarget: CGPoint(x: 198, y: 132)
+        )
+        let pageLayout = pageLayout(measureID: measureID, chordLayout: chordLayout)
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        let location = CGPoint(x: controls.leadingResize.midX, y: controls.leadingResize.midY)
+
+        XCTAssertNil(
+            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+                at: location,
+                in: pageLayout,
+                selectedChordID: chordID
+            )
+        )
+        XCTAssertNotEqual(
+            LeadSheetChordEditOverlayGeometry.hitTarget(at: location, in: pageLayout)?.action,
+            .resizeLeading
+        )
+    }
+
     func testChordBodyStillRequestsReview() {
         let measureID = UUID()
         let chordID = UUID()
