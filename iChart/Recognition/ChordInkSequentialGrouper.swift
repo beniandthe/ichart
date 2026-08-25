@@ -14,12 +14,6 @@ enum ChordInkSequentialGroupAnchorReason: Hashable {
 }
 
 struct ChordInkSequentialGrouper {
-    private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
-    private static let suffixAndModifierTexts: Set<String> = [
-        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "l", "t",
-        "-", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"
-    ]
-
     var clusterer: StrokeClusterer
     var glyphRecognizer: GestureTemplateRecognizer
     var templates: [GestureTemplate]
@@ -71,39 +65,38 @@ struct ChordInkSequentialGrouper {
             return SequentialGlyph(
                 strokeIndices: sourceIndexes,
                 cluster: localCluster.cluster,
-                candidates: candidates,
-                rootEvidence: rootEvidence(in: candidates, bounds: localCluster.bounds),
-                isSlashSeparator: isSlashSeparator(candidates: candidates, cluster: localCluster.cluster)
+                candidates: candidates
             )
         }
+        let roleContext = ChordInkTheoryRoleContext(
+            glyphCandidateGroups: glyphs.map(\.candidates),
+            clusters: glyphs.map(\.cluster)
+        )
 
         var groups = [WorkingGroup]()
         var currentGroup: WorkingGroup?
-        var previousGlyphWasSlashSeparator = false
 
-        for glyph in glyphs {
-            if let rootEvidence = glyph.rootEvidence,
-               currentGroup != nil,
-               !previousGlyphWasSlashSeparator {
+        for (glyphIndex, glyph) in glyphs.enumerated() {
+            let roleEvidence = roleContext[glyphIndex]
+            if roleEvidence?.opensChordGroup == true,
+               currentGroup != nil {
                 groups.append(currentGroup!)
                 currentGroup = WorkingGroup(
                     glyph: glyph,
                     anchorReason: .rootStart,
-                    rootText: rootEvidence.text,
-                    rootConfidence: rootEvidence.confidence
+                    rootText: roleEvidence?.text,
+                    rootConfidence: roleEvidence?.confidence
                 )
-            } else if currentGroup != nil {
-                currentGroup?.append(glyph)
-            } else if let rootEvidence = glyph.rootEvidence {
+            } else if roleEvidence?.opensChordGroup == true {
                 currentGroup = WorkingGroup(
                     glyph: glyph,
                     anchorReason: .rootStart,
-                    rootText: rootEvidence.text,
-                    rootConfidence: rootEvidence.confidence
+                    rootText: roleEvidence?.text,
+                    rootConfidence: roleEvidence?.confidence
                 )
+            } else if currentGroup != nil {
+                currentGroup?.append(glyph)
             }
-
-            previousGlyphWasSlashSeparator = glyph.isSlashSeparator
         }
 
         if let currentGroup {
@@ -126,63 +119,12 @@ struct ChordInkSequentialGrouper {
             }
     }
 
-    private func rootEvidence(
-        in candidates: [GlyphCandidate],
-        bounds: InkBounds
-    ) -> RootEvidence? {
-        guard bounds.width >= 8,
-              bounds.height >= 16,
-              bounds.recognitionArea >= 180,
-              let rootCandidate = candidates.first(where: { candidate in
-                Self.rootTexts.contains(candidate.text) && candidate.confidence >= 0.70
-              }) else {
-            return nil
-        }
-
-        if let bestCandidate = candidates.first,
-           Self.suffixAndModifierTexts.contains(bestCandidate.text) {
-            return nil
-        }
-
-        let bestConfidence = candidates.first?.confidence ?? 0
-        guard rootCandidate.confidence + 0.06 >= bestConfidence else {
-            return nil
-        }
-
-        if let suffixCandidate = candidates.first(where: { candidate in
-            Self.suffixAndModifierTexts.contains(candidate.text)
-        }),
-           suffixCandidate.confidence >= rootCandidate.confidence + 0.10 {
-            return nil
-        }
-
-        return RootEvidence(
-            text: rootCandidate.text,
-            confidence: rootCandidate.confidence
-        )
-    }
-
-    private func isSlashSeparator(candidates: [GlyphCandidate], cluster: InkCluster) -> Bool {
-        if candidates.contains(where: { $0.text == "/" && $0.confidence >= 0.60 }) {
-            return true
-        }
-
-        return cluster.strokes.count == 1
-            && cluster.strokes.first?.isLooseSlashBassSeparatorCandidate == true
-    }
 }
 
 private struct SequentialGlyph: Hashable {
     var strokeIndices: [Int]
     var cluster: InkCluster
     var candidates: [GlyphCandidate]
-    var rootEvidence: RootEvidence?
-    var isSlashSeparator: Bool
-}
-
-private struct RootEvidence: Hashable {
-    var text: String
-    var confidence: Double
 }
 
 private struct WorkingGroup: Hashable {
