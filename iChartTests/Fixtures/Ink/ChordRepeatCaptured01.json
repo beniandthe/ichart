@@ -1,0 +1,117 @@
+{
+  "expectedClusterCount": 3,
+  "expectedDisplayText": "•/•",
+  "expectedTopGlyphs": [
+    "•",
+    "/",
+    "•"
+  ],
+  "name": "ChordRepeatCaptured01",
+  "strokes": [
+    {
+      "bounds": {
+        "maxX": 29,
+        "maxY": 22,
+        "minX": 19,
+        "minY": 13
+      },
+      "points": [
+        {
+          "timeOffset": 0,
+          "x": 19,
+          "y": 17
+        },
+        {
+          "timeOffset": 0.016,
+          "x": 23,
+          "y": 13
+        },
+        {
+          "timeOffset": 0.032,
+          "x": 28,
+          "y": 15
+        },
+        {
+          "timeOffset": 0.048,
+          "x": 29,
+          "y": 20
+        },
+        {
+          "timeOffset": 0.064,
+          "x": 24,
+          "y": 22
+        },
+        {
+          "timeOffset": 0.08,
+          "x": 20,
+          "y": 20
+        }
+      ]
+    },
+    {
+      "bounds": {
+        "maxX": 51,
+        "maxY": 58,
+        "minX": 30,
+        "minY": 10
+      },
+      "points": [
+        {
+          "timeOffset": 0.096,
+          "x": 30,
+          "y": 58
+        },
+        {
+          "timeOffset": 0.112,
+          "x": 39,
+          "y": 36
+        },
+        {
+          "timeOffset": 0.128,
+          "x": 51,
+          "y": 10
+        }
+      ]
+    },
+    {
+      "bounds": {
+        "maxX": 60,
+        "maxY": 51,
+        "minX": 52,
+        "minY": 42
+      },
+      "points": [
+        {
+          "timeOffset": 0.144,
+          "x": 52,
+          "y": 45
+        },
+        {
+          "timeOffset": 0.16,
+          "x": 56,
+          "y": 42
+        },
+        {
+          "timeOffset": 0.176,
+          "x": 60,
+          "y": 45
+        },
+        {
+          "timeOffset": 0.192,
+          "x": 59,
+          "y": 50
+        },
+        {
+          "timeOffset": 0.208,
+          "x": 54,
+          "y": 51
+        },
+        {
+          "timeOffset": 0.224,
+          "x": 52,
+          "y": 48
+        }
+      ]
+    }
+  ]
+}

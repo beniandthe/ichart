@@ -27,6 +27,42 @@ enum InkFixtureLoader {
         "CMinorMajor7"
     ]
 
+    static let trustAcceptanceFixtureNames = uniqueFixtureNames(defaultRegressionFixtureNames + [
+        "A",
+        "B",
+        "D",
+        "E",
+        "F",
+        "G",
+        "ACaptured01",
+        "BCaptured01",
+        "DCaptured01",
+        "ECaptured01",
+        "FCaptured01",
+        "GCaptured01",
+        "DFlatCaptured01",
+        "DFlatMinorCaptured01",
+        "DFlat7susCaptured03",
+        "EFlatCaptured01",
+        "FSharpCaptured01",
+        "BFlatMinor7Captured01",
+        "FSharp7Captured01",
+        "GSlashBCaptured01",
+        "DSlashFSharpCaptured01",
+        "FSlashACaptured01",
+        "BFlatSlashDCaptured01",
+        "CMajor7",
+        "CMajor7Captured01",
+        "CMajor9Captured01",
+        "C7susCaptured03",
+        "GsusCaptured01",
+        "FSharpsus4Captured03",
+        "C7Flat9Captured01",
+        "C7Sharp11Captured01",
+        "C7altCaptured03",
+        "ChordRepeatCaptured01"
+    ])
+
     static var shouldRunFullInkFixtureArchiveTests: Bool {
         guard let value = ProcessInfo.processInfo.environment[fullInkFixtureArchiveEnvironmentVariable] else {
             return false
@@ -57,6 +93,22 @@ enum InkFixtureLoader {
     static func loadDefaultRegressionFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
         let corpus = try fixtureCorpus(relativeTo: file)
         return try defaultRegressionFixtureNames.map { fixtureName in
+            guard let fixture = corpus.fixturesByFilename[fixtureName] else {
+                let fixtureURL = fixturesDirectoryURL(relativeTo: file)
+                    .appendingPathComponent("\(fixtureName).json")
+                throw NSError(
+                    domain: NSCocoaErrorDomain,
+                    code: NSFileReadNoSuchFileError,
+                    userInfo: [NSFilePathErrorKey: fixtureURL.path]
+                )
+            }
+            return fixture
+        }
+    }
+
+    static func loadTrustAcceptanceFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
+        let corpus = try fixtureCorpus(relativeTo: file)
+        return try trustAcceptanceFixtureNames.map { fixtureName in
             guard let fixture = corpus.fixturesByFilename[fixtureName] else {
                 let fixtureURL = fixturesDirectoryURL(relativeTo: file)
                     .appendingPathComponent("\(fixtureName).json")
@@ -147,6 +199,13 @@ enum InkFixtureLoader {
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures")
             .appendingPathComponent("Ink")
+    }
+
+    private static func uniqueFixtureNames(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { name in
+            seen.insert(name).inserted
+        }
     }
 }
 

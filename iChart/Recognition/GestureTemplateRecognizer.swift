@@ -909,7 +909,9 @@ struct GestureTemplateRecognizer {
             candidates.append(heuristicCandidate("#", confidence: 0.72))
         }
 
-        if isFlatLike(features) {
+        if isOpenSingleStrokeFlatLoopLike(features) {
+            candidates.append(heuristicCandidate("b", confidence: 0.9996))
+        } else if isFlatLike(features) {
             candidates.append(heuristicCandidate("b", confidence: 0.98))
         } else if isSplitAlterationFlatLike(features) {
             candidates.append(heuristicCandidate("b", confidence: 0.46))
@@ -1010,6 +1012,40 @@ struct GestureTemplateRecognizer {
         }
 
         return false
+    }
+
+    private func isOpenSingleStrokeFlatLoopLike(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 1,
+              let stroke = features.strokes.first else {
+            return false
+        }
+
+        let startY = stroke.normalizedYRatio(of: stroke.startPoint)
+        let endY = stroke.normalizedYRatio(of: stroke.endPoint)
+        let looksLikeTriangleReturn = stroke.hasLowerBodyThenUpperPeakReturn
+            && stroke.angleDegrees >= 55
+            && stroke.angleDegrees <= 130
+            && stroke.normalizedXRatio(of: stroke.endPoint) <= 0.62
+            && stroke.normalizedYRatio(of: stroke.endPoint) >= 0.55
+
+        return stroke.pointCount >= 12
+            && stroke.bounds.width >= 6
+            && stroke.bounds.width <= 18
+            && stroke.bounds.height >= 14
+            && stroke.bounds.height <= 30
+            && stroke.aspectRatio >= 0.35
+            && stroke.aspectRatio <= 1.05
+            && stroke.straightness >= 0.08
+            && stroke.straightness <= 0.36
+            && stroke.angleDegrees >= 55
+            && stroke.angleDegrees <= 115
+            && stroke.endpointClosureRatio >= 0.30
+            && stroke.endpointClosureRatio <= 0.82
+            && startY <= 0.35
+            && endY >= 0.42
+            && stroke.horizontalDirectionChangeCount >= 1
+            && !stroke.hasEarlyTopHorizontalRun
+            && !looksLikeTriangleReturn
     }
 
     private func isSplitAlterationFlatLike(_ features: RootGlyphFeatures) -> Bool {

@@ -122,6 +122,42 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         }
     }
 
+    func testCapturedDFlatLoopsRankFlatBeforeDegreeDotAndSixLookalikes() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+
+        for fixtureName in ["DFlatMinorCaptured01", "DFlat7susCaptured03"] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let clusters = clusterer.cluster(fixture.strokes)
+            let flatIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "b"), fixtureName)
+            let flatCluster = try XCTUnwrap(clusters[safe: flatIndex], fixtureName)
+            let candidates = recognizer.rankedCandidates(for: flatCluster, templates: templates, limit: 6)
+            let candidateSummary = candidates
+                .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+                .joined(separator: ",")
+
+            XCTAssertEqual(candidates.first?.text, "b", "\(fixtureName) \(candidateSummary)")
+            for lookalike in ["°", "•", "6"] {
+                XCTAssertLessThan(
+                    candidateRank(of: "b", in: candidates),
+                    candidateRank(of: lookalike, in: candidates),
+                    "\(fixtureName) \(candidateSummary)"
+                )
+            }
+        }
+    }
+
+    func testFlatLoopBoostDoesNotStealDegreeDotTriangleOrSixTemplates() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+
+        for text in ["°", "•", "△", "6"] {
+            let template = try XCTUnwrap(templates.first { $0.text == text })
+            let cluster = InkCluster(strokes: template.strokes)
+            let candidates = recognizer.rankedCandidates(for: cluster, templates: templates, limit: 4)
+
+            XCTAssertEqual(candidates.first?.text, text)
+        }
+    }
+
     func testRecognizerReturnsAmbiguousCandidatesInsteadOfForcingOneAnswer() throws {
         let fixture = try InkFixtureLoader.load("C", file: #filePath)
         let cluster = try XCTUnwrap(clusterer.cluster(fixture.strokes).first)
@@ -183,6 +219,10 @@ final class GestureTemplateRecognizerTests: XCTestCase {
     }
 }
 
+private func candidateRank(of text: String, in candidates: [GlyphCandidate]) -> Int {
+    candidates.firstIndex { $0.text == text } ?? Int.max
+}
+
 private extension InkFixture {
     var allowsCompactSharpElevenClusters: Bool {
         expectedDisplayText.contains("(#11)")
@@ -235,6 +275,12 @@ private extension InkFixture {
         }
 
         return 3
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
