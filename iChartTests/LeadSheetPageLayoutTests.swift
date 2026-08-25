@@ -1320,6 +1320,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(firstSystem.measures.last?.frame.maxX ?? 0, firstSystem.frame.maxX + 0.001)
     }
 
+    #if canImport(UIKit)
     func testSimpleChordSheetEqualRowManualWidthMakesShortRowVisuallyEven() throws {
         var chart = Chart.blank(title: "Equal Short Row", measureCount: 3, layoutStyle: .simpleChordSheet)
         let measureIDs = chart.measures.map(\.id)
@@ -1363,6 +1364,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(visibleWidths.allSatisfy { abs($0 - firstVisibleWidth) <= 1.5 })
         XCTAssertLessThan(lastMeasure.frame.width, firstSystem.measures[0].frame.width)
     }
+    #endif
 
     func testSimpleChordSheetAllowsSixteenMeasuresOnOneManualRow() throws {
         let chart = Chart.blank(title: "Dense Grid", measureCount: 16, layoutStyle: .simpleChordSheet)
