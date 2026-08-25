@@ -47,6 +47,22 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(snapshot["max_drag_changes"], 2)
     }
 
+    func testEditorPerformanceMetricsPreservesActiveDragCountsAcrossFlush() {
+        var metrics = LeadSheetEditorPerformanceMetrics()
+
+        metrics.recordDragState(kind: .measureResize, state: .began)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.flush(reason: "test")
+        metrics.recordDragState(kind: .measureResize, state: .changed)
+        metrics.recordDragState(kind: .measureResize, state: .ended)
+
+        let snapshot = metrics.testSnapshot
+        XCTAssertEqual(snapshot["drag_changes"], 1)
+        XCTAssertEqual(snapshot["drag_commits"], 1)
+        XCTAssertEqual(snapshot["max_drag_changes"], 3)
+    }
+
     func testChordEntryPreservesOriginalPenWeight() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 

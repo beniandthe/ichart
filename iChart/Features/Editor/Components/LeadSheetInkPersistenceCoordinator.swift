@@ -34,6 +34,10 @@ struct LeadSheetInkPersistenceCoordinator {
         pipelineMetrics.recordSkippedPersistence(strokeCount: strokeCount)
     }
 
+    mutating func flushMetrics(reason: String) {
+        pipelineMetrics.flush(reason: reason)
+    }
+
     mutating func chartByApplyingPendingPersistedInk(to incomingChart: Chart) -> Chart {
         guard !pendingPersistedInkByScopeIdentity.isEmpty else {
             return incomingChart

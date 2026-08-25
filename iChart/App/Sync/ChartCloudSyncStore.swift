@@ -134,16 +134,7 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
-        let queuedAt = Date()
-        guard automaticUploadBackoff.allowsAutomaticUpload(at: queuedAt) else {
-            IChartPerformanceTrace.record(
-                "cloud.automatic_push_suppressed",
-                metadata: [
-                    "reason": "failure_backoff",
-                    "retry_after_ms": "\(Int(automaticUploadBackoff.remainingCooldown(at: queuedAt) * 1_000))",
-                    "chart_count": "\(snapshot.charts.count)"
-                ]
-            )
+        guard allowsAutomaticUpload(snapshot, at: Date()) else {
             return
         }
 
@@ -153,8 +144,32 @@ final class ChartCloudSyncStore: ObservableObject {
             guard !Task.isCancelled else {
                 return
             }
+            guard self?.beginQueuedAutomaticUpload(snapshot) == true else {
+                return
+            }
             await self?.runPush(snapshot: snapshot, service: service)
         }
+    }
+
+    private func beginQueuedAutomaticUpload(_ snapshot: ChartLibrarySnapshot) -> Bool {
+        queuedUploadTask = nil
+        return allowsAutomaticUpload(snapshot, at: Date())
+    }
+
+    private func allowsAutomaticUpload(_ snapshot: ChartLibrarySnapshot, at date: Date) -> Bool {
+        guard automaticUploadBackoff.allowsAutomaticUpload(at: date) else {
+            IChartPerformanceTrace.record(
+                "cloud.automatic_push_suppressed",
+                metadata: [
+                    "reason": "failure_backoff",
+                    "retry_after_ms": "\(Int(automaticUploadBackoff.remainingCooldown(at: date) * 1_000))",
+                    "chart_count": "\(snapshot.charts.count)"
+                ]
+            )
+            return false
+        }
+
+        return true
     }
 
     private func runRestore(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {

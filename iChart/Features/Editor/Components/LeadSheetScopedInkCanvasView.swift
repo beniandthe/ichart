@@ -76,6 +76,10 @@ final class LeadSheetScopedInkCanvasView: PKCanvasView {
               let touch = touches.first else {
             return false
         }
+        guard drawingPolicy != .pencilOnly || touch.type == .pencil else {
+            lastManualEraseLocation = nil
+            return false
+        }
 
         let location = touch.location(in: self)
         guard point(inside: location, with: event) else {

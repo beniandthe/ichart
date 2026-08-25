@@ -84,7 +84,7 @@ struct LeadSheetEditorPerformanceMetrics {
                 "chord_resize_changes": "\(chordResizeChangeCount)",
                 "cue_text_move_changes": "\(cueTextMoveChangeCount)",
                 "roadmap_marker_changes": "\(roadmapMarkerMoveChangeCount)",
-                "max_drag_changes": "\(maxDragChangesPerSession)"
+                "max_drag_changes": "\(reportedMaxDragChangesPerSession)"
             ]
         )
         reset()
@@ -103,7 +103,7 @@ struct LeadSheetEditorPerformanceMetrics {
             "chord_resize_changes": chordResizeChangeCount,
             "cue_text_move_changes": cueTextMoveChangeCount,
             "roadmap_marker_changes": roadmapMarkerMoveChangeCount,
-            "max_drag_changes": maxDragChangesPerSession
+            "max_drag_changes": reportedMaxDragChangesPerSession
         ]
     }
 
@@ -128,6 +128,13 @@ struct LeadSheetEditorPerformanceMetrics {
             currentDragChangeCountByKind[kind] ?? 0
         )
         currentDragChangeCountByKind[kind] = nil
+    }
+
+    private var reportedMaxDragChangesPerSession: Int {
+        max(
+            maxDragChangesPerSession,
+            currentDragChangeCountByKind.values.max() ?? 0
+        )
     }
 
     private var hasEvents: Bool {
@@ -167,7 +174,6 @@ struct LeadSheetEditorPerformanceMetrics {
         chordResizeChangeCount = 0
         cueTextMoveChangeCount = 0
         roadmapMarkerMoveChangeCount = 0
-        currentDragChangeCountByKind = [:]
         maxDragChangesPerSession = 0
         lastFlushUptime = ProcessInfo.processInfo.systemUptime
     }

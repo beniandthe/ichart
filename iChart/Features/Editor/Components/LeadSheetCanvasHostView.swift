@@ -1293,6 +1293,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         super.didMoveToWindow()
         if window == nil {
             editorPerformanceMetrics.flush(reason: "removed_from_window")
+            inkPersistenceCoordinator.flushMetrics(reason: "removed_from_window")
         }
         updateParentScrollGestureGate()
     }
