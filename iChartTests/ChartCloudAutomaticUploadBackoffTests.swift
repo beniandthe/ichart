@@ -1,6 +1,7 @@
 import XCTest
 @testable import iChart
 
+#if canImport(UIKit)
 final class ChartCloudAutomaticUploadBackoffTests: XCTestCase {
     func testAllowsAutomaticUploadBeforeFailureAndAfterCooldown() {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
@@ -30,3 +31,4 @@ final class ChartCloudAutomaticUploadBackoffTests: XCTestCase {
         XCTAssertTrue(backoff.allowsAutomaticUpload(at: start.addingTimeInterval(1)))
     }
 }
+#endif
