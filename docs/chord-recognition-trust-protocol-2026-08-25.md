@@ -181,6 +181,21 @@ Validation:
 - `xcrun xcresulttool get test-results summary --path /tmp/iChartTheoryRoleContextRetry-20260825-0955.xcresult --format json`
 - Result: 15 total selected simulator tests, 15 passed, 0 failed, 0 skipped.
 
+Semantic role-context composer slice migrated chord-repeat semantic candidate creation onto the shared theory role context. `ChordInkTheoryRoleContext` now exposes validated chord-repeat glyph candidates, `ChordInkRecognitionCandidateComposer` builds one role context per target, and `ChordInkSemanticCandidateComposer` no longer carries a private duplicate dot-slash-dot layout validator. This keeps chord-repeat evidence in the shared theory layer without changing lane UI, render timing, parser coverage, or trust thresholds.
+
+Validation:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-theory-semantic --filter 'ChordInkTheoryRoleContextTests|ChordInkCandidateComposerTests|ChordInkRecognizerTests/testRecognizesChordRepeatSymbolFromDotSlashDotInk|ChordInkRecognizerTests/testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries|ChordInkRecognizerTests/testChordRepeatRecognitionCanBeTrustedWithoutRootEvidence'`
+- Result: pass, 64 selected XCTest cases, 0 failures.
+- `ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-theory-semantic-full --filter 'ChordInkRecognizerTests/testRecognizesFullInkFixtureArchiveWhenEnabled|GestureTemplateRecognizerTests/testExpectedGlyphAppearsInTopThreeForFullArchiveWhenEnabled|StrokeClustererTests/testClustersFullInkFixtureArchiveWhenEnabled|ChordInkCandidateComposerTests|ChordInkTheoryRoleContextTests'`
+- Result: pass, 64 selected XCTest cases, 0 failures.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=3619FD3E-3A11-4C33-AE7E-C9FFB905B1A8' -resultBundlePath /tmp/iChartRoleContextComposer-20260825-1003.xcresult -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkCandidateComposerTests -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesChordRepeatSymbolFromDotSlashDotInk -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries -only-testing:iChartTests/ChordInkRecognizerTests/testChordRepeatRecognitionCanBeTrustedWithoutRootEvidence test`
+- Result: failed before selected tests ran because the simulator reported `Busy` / application preflight launch failure.
+- `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=FB72927F-8AE8-466D-B698-6F5840EBEA94' -resultBundlePath /tmp/iChartRoleContextComposer-20260825-1004.xcresult -only-testing:iChartTests/ChordInkTheoryRoleContextTests -only-testing:iChartTests/ChordInkCandidateComposerTests -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesChordRepeatSymbolFromDotSlashDotInk -only-testing:iChartTests/ChordInkRecognizerTests/testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries -only-testing:iChartTests/ChordInkRecognizerTests/testChordRepeatRecognitionCanBeTrustedWithoutRootEvidence test`
+- Result: pass.
+- `xcrun xcresulttool get test-results summary --path /tmp/iChartRoleContextComposer-20260825-1004.xcresult`
+- Result: 64 total selected simulator tests, 64 passed, 0 failed, 0 skipped.
+
 Physical iPad validation:
 
 - Status: not yet run. No final handwriting accuracy claim is made from simulator or fixture evidence alone.

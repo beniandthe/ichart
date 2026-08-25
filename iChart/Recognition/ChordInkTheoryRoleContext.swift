@@ -64,6 +64,15 @@ struct ChordInkTheoryRoleContext: Hashable {
         return evidence[index]
     }
 
+    var chordRepeatGlyphCandidates: [GlyphCandidate]? {
+        guard evidence.map(\.primaryRole) == [.chordRepeatDot, .chordRepeatSlash, .chordRepeatDot] else {
+            return nil
+        }
+
+        let glyphCandidates = evidence.compactMap(\.candidate)
+        return glyphCandidates.count == 3 ? glyphCandidates : nil
+    }
+
     static func rootBaseCandidate(
         in candidates: [GlyphCandidate],
         bounds: InkBounds?

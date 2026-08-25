@@ -31,11 +31,16 @@ struct ChordInkRecognitionCandidateComposer {
         var bestCandidatesByText = Dictionary(
             uniqueKeysWithValues: composedCandidates.map { ($0.text, $0) }
         )
+        let roleContext = ChordInkTheoryRoleContext(
+            glyphCandidateGroups: glyphCandidateGroups,
+            clusters: clusters
+        )
 
         let semanticStart = Date()
         let semanticCandidates = semanticCandidateComposer.candidates(
             from: glyphCandidateGroups,
-            clusters: clusters
+            clusters: clusters,
+            roleContext: roleContext
         )
         for semanticCandidate in semanticCandidates {
             if let currentBest = bestCandidatesByText[semanticCandidate.text],
@@ -71,10 +76,15 @@ struct ChordInkRecognitionCandidateComposer {
 struct ChordInkSemanticCandidateComposer {
     func candidates(
         from glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
+        clusters: [InkCluster],
+        roleContext: ChordInkTheoryRoleContext? = nil
     ) -> [ChordInkCandidate] {
+        let roleContext = roleContext ?? ChordInkTheoryRoleContext(
+            glyphCandidateGroups: glyphCandidateGroups,
+            clusters: clusters
+        )
         let singleCandidates = [
-            chordRepeatCandidate(from: glyphCandidateGroups, clusters: clusters),
+            chordRepeatCandidate(roleContext: roleContext),
             diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
             plainNinthAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
             majorAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
@@ -92,53 +102,17 @@ struct ChordInkSemanticCandidateComposer {
     }
 
     private func chordRepeatCandidate(
-        from glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
+        roleContext: ChordInkTheoryRoleContext
     ) -> ChordInkCandidate? {
-        guard glyphCandidateGroups.count == 3,
-              clusters.count == 3,
-              let leadingDot = chordRepeatDotCandidate(in: glyphCandidateGroups[0]),
-              let slash = slashCandidate(in: glyphCandidateGroups[1]),
-              let trailingDot = chordRepeatDotCandidate(in: glyphCandidateGroups[2]),
-              isChordRepeatClusterLayout(clusters) else {
+        guard let glyphCandidates = roleContext.chordRepeatGlyphCandidates else {
             return nil
         }
 
         return ChordInkCandidate(
             text: ChordSymbol.chordRepeatDisplayText,
             confidence: 4.8,
-            glyphCandidates: [leadingDot, slash, trailingDot]
+            glyphCandidates: glyphCandidates
         )
-    }
-
-    private func chordRepeatDotCandidate(in candidates: [GlyphCandidate]) -> GlyphCandidate? {
-        candidates.first { candidate in
-            candidate.text == "•" && candidate.confidence >= 0.50
-        }
-    }
-
-    private func slashCandidate(in candidates: [GlyphCandidate]) -> GlyphCandidate? {
-        candidates.first { candidate in
-            candidate.text == "/" && candidate.confidence >= 0.50
-        }
-    }
-
-    private func isChordRepeatClusterLayout(_ clusters: [InkCluster]) -> Bool {
-        let leading = clusters[0].bounds
-        let slash = clusters[1].bounds
-        let trailing = clusters[2].bounds
-        let leadingDotCompact = leading.width <= 18 && leading.height <= 18
-        let trailingDotCompact = trailing.width <= 18 && trailing.height <= 18
-        let slashDominatesDots = slash.height >= max(leading.height, trailing.height) * 1.2
-        let ordered = leading.recognitionMidX < slash.recognitionMidX
-            && slash.recognitionMidX < trailing.recognitionMidX
-        let dotVerticalSpread = abs(leading.recognitionMidY - trailing.recognitionMidY)
-
-        return leadingDotCompact
-            && trailingDotCompact
-            && slashDominatesDots
-            && ordered
-            && dotVerticalSpread <= max(36, slash.height * 1.4)
     }
 
     private func minorEleventhCandidate(

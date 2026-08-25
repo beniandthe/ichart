@@ -167,6 +167,36 @@ final class ChordInkTheoryRoleContextTests: XCTestCase {
         XCTAssertFalse(context.evidence.contains(where: \.opensChordGroup))
     }
 
+    func testExposesChordRepeatGlyphCandidatesOnlyForValidatedLayout() {
+        let validContext = roleContext(
+            glyphs: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ],
+            bounds: [
+                dotBounds(at: 0, y: 24),
+                slashBounds(at: 18),
+                dotBounds(at: 42, y: 38)
+            ]
+        )
+        let invalidContext = roleContext(
+            glyphs: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ],
+            bounds: [
+                dotBounds(at: 0, y: 24),
+                slashBounds(at: 18),
+                dotBounds(at: 20, y: 38)
+            ]
+        )
+
+        XCTAssertEqual(validContext.chordRepeatGlyphCandidates?.map(\.text), ["•", "/", "•"])
+        XCTAssertNil(invalidContext.chordRepeatGlyphCandidates)
+    }
+
     private func roleContext(
         glyphs: [[GlyphCandidate]],
         bounds: [InkBounds]
