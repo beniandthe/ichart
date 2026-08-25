@@ -2716,10 +2716,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return nil
             }
 
-            let displayMeasure = displayMeasureLayout(measure, in: system)
             return LeadSheetMeasureResizeMeasureSnapshot(
                 measureID: sourceMeasureID,
-                frame: displayMeasure.frame
+                frame: measure.frame
             )
         }
         let evenDivisionCommitManualWidths: [UUID: CGFloat]
