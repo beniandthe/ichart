@@ -101,6 +101,19 @@ struct InkCluster: Codable, Hashable {
     }
 }
 
+struct IndexedInkCluster: Hashable {
+    var cluster: InkCluster
+    var originalIndexes: [Int]
+
+    var strokes: [InkStroke] {
+        cluster.strokes
+    }
+
+    var bounds: InkBounds {
+        cluster.bounds
+    }
+}
+
 struct ChordInkBatchCluster: Hashable {
     var strokeIndices: [Int]
     var bounds: InkBounds
@@ -256,9 +269,47 @@ struct ChordInkRecognitionResult: Hashable {
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 }
 
-enum ChordInkRecognitionAction: String, Codable, Hashable {
-    case autoRender
+enum ChordInkRecognitionAction: Codable, Hashable {
+    case trusted
     case confirm
+
+    var rawValue: String {
+        switch self {
+        case .trusted:
+            return "trusted"
+        case .confirm:
+            return "confirm"
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "trusted", "autoRender":
+            self = .trusted
+        case "confirm":
+            self = .confirm
+        default:
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let action = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown chord ink recognition action: \(rawValue)"
+            )
+        }
+
+        self = action
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum ChordInkContinuationGracePolicy {
@@ -289,11 +340,13 @@ struct ChordInkRecognitionDecision: Hashable {
 }
 
 enum ChordInkRecognitionPolicy {
-    static let autoRenderMinimumConfidence = 3.95
+    static let trustedMinimumConfidence = 3.95
     static let closeRaceConfidenceGap = 0.04
     private static let uncommonRootSpellingConfirmationGap = 0.08
     private static let weakSingleCandidateRootConfidence = 0.76
     private static let ambiguousSingleCandidateRootGap = 0.08
+    private static let ambiguousAcceptedRootGlyphRaceGap = 0.08
+    private static let unsupportedCandidatePressureGap = 0.02
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
         guard let match = result.match else {
@@ -312,11 +365,50 @@ enum ChordInkRecognitionPolicy {
         let bestScore = rankedScores.first { $0.displayText == acceptedText }
         let bestConfidence = max(result.confidence, bestScore?.confidence ?? 0)
 
-        guard bestConfidence >= autoRenderMinimumConfidence else {
+        guard bestConfidence >= trustedMinimumConfidence else {
             return ChordInkRecognitionDecision(
                 action: .confirm,
                 acceptedText: acceptedText,
                 reason: "Low-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if result.metrics.compositionMetrics.hitGeneratedSequenceLimit {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Recognition candidate limit hit. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if hasUnsupportedCandidatePressure(
+            result: result,
+            bestConfidence: bestConfidence
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Unsupported high-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        if shouldConfirmMissingRootEvidence(
+            acceptedText: acceptedText,
+            glyphCandidates: result.glyphCandidates
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "No clear root evidence. Choose a suggestion or type the chord you meant.",
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
@@ -335,6 +427,20 @@ enum ChordInkRecognitionPolicy {
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
+            )
+        }
+
+        if let rootRace = acceptedRootGlyphRace(
+            acceptedText: acceptedText,
+            glyphCandidates: result.glyphCandidates
+        ) {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: "Ambiguous root read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: true,
+                competingCandidateText: rootRace.runnerUpRoot,
+                confidenceGap: rootRace.absoluteGapToRunnerUp
             )
         }
 
@@ -357,15 +463,15 @@ enum ChordInkRecognitionPolicy {
             }
 
             if gap <= closeRaceConfidenceGap {
-                if shouldAutoRenderCloseSpellingRace(
+                if shouldTrustCloseSpellingRace(
                     acceptedText: acceptedText,
                     competingText: competingText,
                     gap: gap
                 ) {
                     return ChordInkRecognitionDecision(
-                        action: .autoRender,
+                        action: .trusted,
                         acceptedText: acceptedText,
-                        reason: "Confident read. Placed automatically.",
+                        reason: "Trusted read.",
                         isCloseRace: false,
                         competingCandidateText: nil,
                         confidenceGap: nil
@@ -384,9 +490,9 @@ enum ChordInkRecognitionPolicy {
         }
 
         return ChordInkRecognitionDecision(
-            action: .autoRender,
+            action: .trusted,
             acceptedText: acceptedText,
-            reason: "Confident read. Placed automatically.",
+            reason: "Trusted read.",
             isCloseRace: false,
             competingCandidateText: nil,
             confidenceGap: nil
@@ -427,7 +533,7 @@ enum ChordInkRecognitionPolicy {
         }
     }
 
-    private static func shouldAutoRenderCloseSpellingRace(
+    private static func shouldTrustCloseSpellingRace(
         acceptedText: String,
         competingText: String,
         gap: Double
@@ -456,6 +562,37 @@ enum ChordInkRecognitionPolicy {
         return ["B#", "E#", "Cb", "Fb"].contains("\(symbol.root.rawValue)\(symbol.accidental.rawValue)")
     }
 
+    private static func hasUnsupportedCandidatePressure(
+        result: ChordInkRecognitionResult,
+        bestConfidence: Double
+    ) -> Bool {
+        guard let strongestUnsupported = result.candidateScores
+            .filter({ $0.displayText == nil })
+            .max(by: { lhs, rhs in
+                lhs.confidence < rhs.confidence
+            }) else {
+            return false
+        }
+
+        return strongestUnsupported.confidence + unsupportedCandidatePressureGap >= bestConfidence
+    }
+
+    private static func shouldConfirmMissingRootEvidence(
+        acceptedText: String,
+        glyphCandidates: [[GlyphCandidate]]
+    ) -> Bool {
+        guard !glyphCandidates.isEmpty,
+              let acceptedSymbol = try? ChordSymbolParser.parse(acceptedText),
+              acceptedSymbol.kind == .rooted else {
+            return false
+        }
+
+        return rootGlyphEvidence(
+            for: acceptedSymbol.root.rawValue,
+            glyphCandidates: glyphCandidates
+        ) == nil
+    }
+
     private static func shouldConfirmSingleCandidateWithWeakRoot(
         acceptedText: String,
         rankedScores: [ChordInkCandidateScore],
@@ -475,10 +612,27 @@ enum ChordInkRecognitionPolicy {
             || rootEvidence.gapToRunnerUp <= ambiguousSingleCandidateRootGap
     }
 
+    private static func acceptedRootGlyphRace(
+        acceptedText: String,
+        glyphCandidates: [[GlyphCandidate]]
+    ) -> ChordInkRootGlyphEvidence? {
+        guard let acceptedSymbol = try? ChordSymbolParser.parse(acceptedText),
+              acceptedSymbol.kind == .rooted,
+              let rootEvidence = rootGlyphEvidence(
+                for: acceptedSymbol.root.rawValue,
+                glyphCandidates: glyphCandidates
+              ),
+              rootEvidence.gapToRunnerUp <= ambiguousAcceptedRootGlyphRaceGap else {
+            return nil
+        }
+
+        return rootEvidence
+    }
+
     private static func rootGlyphEvidence(
         for acceptedRoot: String,
         glyphCandidates: [[GlyphCandidate]]
-    ) -> (acceptedConfidence: Double, gapToRunnerUp: Double)? {
+    ) -> ChordInkRootGlyphEvidence? {
         guard let rootGlyphColumn = glyphCandidates.first else {
             return nil
         }
@@ -499,13 +653,31 @@ enum ChordInkRecognitionPolicy {
             return nil
         }
 
-        let runnerUpConfidence = rootCandidates
-            .first { $0.text != acceptedRoot }?
-            .confidence ?? 0
-        return (
+        let runnerUpCandidate = rootCandidates
+            .first { $0.text != acceptedRoot }
+        let runnerUpConfidence = runnerUpCandidate?.confidence ?? 0
+
+        return ChordInkRootGlyphEvidence(
+            acceptedRoot: acceptedRoot,
             acceptedConfidence: acceptedCandidate.confidence,
-            gapToRunnerUp: acceptedCandidate.confidence - runnerUpConfidence
+            runnerUpRoot: runnerUpCandidate?.text,
+            runnerUpConfidence: runnerUpConfidence
         )
+    }
+}
+
+private struct ChordInkRootGlyphEvidence {
+    var acceptedRoot: String
+    var acceptedConfidence: Double
+    var runnerUpRoot: String?
+    var runnerUpConfidence: Double
+
+    var gapToRunnerUp: Double {
+        acceptedConfidence - runnerUpConfidence
+    }
+
+    var absoluteGapToRunnerUp: Double {
+        abs(gapToRunnerUp)
     }
 }
 

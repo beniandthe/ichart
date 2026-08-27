@@ -164,6 +164,93 @@ test("sanitized properties drops arrays and objects", () => {
   );
 });
 
+test("telemetry row allows aggregate chord preview handwriting quality without content", () => {
+  const row = telemetryRowFromEvent(
+    validEvent({
+      event_name: "chord.preview_updated",
+      properties: {
+        barline_count: 0,
+        batch_size: 4,
+        candidate_count: 12,
+        close_race_count: 1,
+        cluster_count: 7,
+        confidence_bucket: "3_4",
+        confirm_count: 1,
+        decision: "mixed",
+        draft_count: 4,
+        flow: "draft_preview",
+        generated_sequence_limit_count: 0,
+        layout_style: "simpleChordSheet",
+        matched_count: 3,
+        no_read_count: 1,
+        raw_candidate_count: 18,
+        recognition_ms: 14.12567,
+        recognition_target_count: 4,
+        result: "partial",
+        stroke_count: 13,
+        trusted_count: 3,
+        unresolved_count: 1,
+        raw_chord_text: "D/F#",
+        drawing_payload: "not allowed",
+      },
+    }),
+    validContext
+  );
+
+  assert.ok(row);
+  assert.equal(row.event_name, "chord.preview_updated");
+  assert.equal(row.properties.barline_count, 0);
+  assert.equal(row.properties.batch_size, 4);
+  assert.equal(row.properties.candidate_count, 12);
+  assert.equal(row.properties.close_race_count, 1);
+  assert.equal(row.properties.cluster_count, 7);
+  assert.equal(row.properties.confidence_bucket, "3_4");
+  assert.equal(row.properties.confirm_count, 1);
+  assert.equal(row.properties.decision, "mixed");
+  assert.equal(row.properties.draft_count, 4);
+  assert.equal(row.properties.flow, "draft_preview");
+  assert.equal(row.properties.generated_sequence_limit_count, 0);
+  assert.equal(row.properties.layout_style, "simpleChordSheet");
+  assert.equal(row.properties.matched_count, 3);
+  assert.equal(row.properties.no_read_count, 1);
+  assert.equal(row.properties.raw_candidate_count, 18);
+  assert.equal(row.properties.recognition_ms, 14.126);
+  assert.equal(row.properties.recognition_target_count, 4);
+  assert.equal(row.properties.result, "partial");
+  assert.equal(row.properties.stroke_count, 13);
+  assert.equal(row.properties.trusted_count, 3);
+  assert.equal(row.properties.unresolved_count, 1);
+  assert.equal(row.properties.raw_chord_text, undefined);
+  assert.equal(row.properties.drawing_payload, undefined);
+});
+
+test("telemetry row accepts chord preview render lifecycle events", () => {
+  for (const eventName of [
+    "chord.preview_rendered",
+    "chord.preview_discarded",
+    "chord.draft_barline_added",
+  ]) {
+    const row = telemetryRowFromEvent(
+      validEvent({
+        event_name: eventName,
+        properties: {
+          draft_count: 2,
+          barline_count: 1,
+          rendered_count: 2,
+          unresolved_count: 0,
+        },
+      }),
+      validContext
+    );
+
+    assert.ok(row);
+    assert.equal(row.event_name, eventName);
+    assert.equal(row.properties.draft_count, 2);
+    assert.equal(row.properties.barline_count, 1);
+    assert.equal(row.properties.unresolved_count, 0);
+  }
+});
+
 test("ingest stores valid signed-out telemetry batches", async () => {
   let storedRows = null;
   const response = await handleTelemetryIngestRequest(

@@ -122,6 +122,309 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         }
     }
 
+    func testOneStrokeRootDIsRecognizedBeforeCurvedLookalikes() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let oneStrokeD = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 28, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil),
+                InkPoint(x: 36, y: 56, timeOffset: nil),
+                InkPoint(x: 46, y: 38, timeOffset: nil),
+                InkPoint(x: 38, y: 20, timeOffset: nil),
+                InkPoint(x: 10, y: 12, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: oneStrokeD, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "D", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "G", in: candidates), candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "C", in: candidates), candidateSummary)
+    }
+
+    func testTopFirstOneStrokeRootDIsRecognizedBeforeCurvedLookalikes() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let topFirstD = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 30, y: 13, timeOffset: nil),
+                InkPoint(x: 44, y: 24, timeOffset: nil),
+                InkPoint(x: 46, y: 40, timeOffset: nil),
+                InkPoint(x: 34, y: 56, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil),
+                InkPoint(x: 10, y: 38, timeOffset: nil),
+                InkPoint(x: 10, y: 12, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: topFirstD, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "D", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "G", in: candidates), candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "B", in: candidates), candidateSummary)
+    }
+
+    func testNoisySingleBowlRootDDoesNotFallToB() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let noisyTwoStrokeD = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 30, y: 14, timeOffset: nil),
+                InkPoint(x: 44, y: 24, timeOffset: nil),
+                InkPoint(x: 46, y: 38, timeOffset: nil),
+                InkPoint(x: 39, y: 50, timeOffset: nil),
+                InkPoint(x: 31, y: 55, timeOffset: nil),
+                InkPoint(x: 34, y: 53, timeOffset: nil),
+                InkPoint(x: 23, y: 59, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: noisyTwoStrokeD, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "D", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "B", in: candidates), candidateSummary)
+    }
+
+    func testScreenshotStyleTwoStrokeRootDDoesNotFallToB() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let screenshotStyleD = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 61, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 11, y: 13, timeOffset: nil),
+                InkPoint(x: 18, y: 12, timeOffset: nil),
+                InkPoint(x: 29, y: 13, timeOffset: nil),
+                InkPoint(x: 39, y: 17, timeOffset: nil),
+                InkPoint(x: 46, y: 25, timeOffset: nil),
+                InkPoint(x: 48, y: 36, timeOffset: nil),
+                InkPoint(x: 46, y: 44, timeOffset: nil),
+                InkPoint(x: 47, y: 48, timeOffset: nil),
+                InkPoint(x: 42, y: 54, timeOffset: nil),
+                InkPoint(x: 34, y: 57, timeOffset: nil),
+                InkPoint(x: 29, y: 56, timeOffset: nil),
+                InkPoint(x: 32, y: 57, timeOffset: nil),
+                InkPoint(x: 23, y: 60, timeOffset: nil),
+                InkPoint(x: 14, y: 61, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: screenshotStyleD, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "D", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "B", in: candidates), candidateSummary)
+    }
+
+    func testTwoLobeRootBStillRanksBeforeD() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let twoLobeB = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 10, timeOffset: nil),
+                InkPoint(x: 10, y: 62, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 11, y: 12, timeOffset: nil),
+                InkPoint(x: 25, y: 10, timeOffset: nil),
+                InkPoint(x: 39, y: 15, timeOffset: nil),
+                InkPoint(x: 44, y: 25, timeOffset: nil),
+                InkPoint(x: 36, y: 33, timeOffset: nil),
+                InkPoint(x: 18, y: 35, timeOffset: nil),
+                InkPoint(x: 36, y: 38, timeOffset: nil),
+                InkPoint(x: 47, y: 48, timeOffset: nil),
+                InkPoint(x: 41, y: 58, timeOffset: nil),
+                InkPoint(x: 26, y: 63, timeOffset: nil),
+                InkPoint(x: 11, y: 60, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: twoLobeB, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "B", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "B", in: candidates), candidateRank(of: "D", in: candidates), candidateSummary)
+    }
+
+    func testRootFUsesBottomStrokeEvidenceInsteadOfStrokeOrder() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let topFirstF = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 42, y: 12, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 35, timeOffset: nil),
+                InkPoint(x: 34, y: 35, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: topFirstF, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "F", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "F", in: candidates), candidateRank(of: "E", in: candidates), candidateSummary)
+    }
+
+    func testRootEUsesBottomStrokeEvidenceInsteadOfStrokeOrder() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let verticalFirstE = InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 42, y: 12, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 35, timeOffset: nil),
+                InkPoint(x: 34, y: 35, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 10, y: 60, timeOffset: nil),
+                InkPoint(x: 42, y: 60, timeOffset: nil)
+            ])
+        ])
+
+        let candidates = recognizer.rankedCandidates(for: verticalFirstE, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "E", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "E", in: candidates), candidateRank(of: "F", in: candidates), candidateSummary)
+    }
+
+    func testCapturedBaseLetterFamiliesRankExpectedGlyphFirst() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+
+        for fixtureName in [
+            "ACaptured01",
+            "ARootSplitDevice01",
+            "BCaptured01",
+            "BCaptured02",
+            "BCaptured03",
+            "BCaptured04",
+            "DCaptured01",
+            "DCaptured02",
+            "DCaptured03",
+            "DCaptured04",
+            "DCaptured05",
+            "ECaptured01",
+            "ECaptured02",
+            "ECaptured03",
+            "ECaptured04",
+            "FCaptured01",
+            "FCaptured02",
+            "FCaptured03",
+            "FCaptured04",
+            "FCaptured05"
+        ] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let cluster = try XCTUnwrap(clusterer.cluster(fixture.strokes).first, fixtureName)
+            let candidates = recognizer.rankedCandidates(for: cluster, templates: templates, limit: 5)
+            let candidateSummary = candidates
+                .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+                .joined(separator: ",")
+
+            XCTAssertEqual(candidates.first?.text, fixture.expectedDisplayText, "\(fixtureName) \(candidateSummary)")
+        }
+    }
+
+    func testOneStrokeDHeuristicDoesNotStealFlatLoops() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let fixture = try InkFixtureLoader.load("BFlatMajor13", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+        let flatIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "b"))
+        let flatCluster = try XCTUnwrap(clusters[safe: flatIndex])
+
+        let candidates = recognizer.rankedCandidates(for: flatCluster, templates: templates, limit: 5)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertTrue(candidates.prefix(3).map(\.text).contains("b"), candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "b", in: candidates), candidateRank(of: "D", in: candidates), candidateSummary)
+    }
+
+    func testCapturedDFlatLoopsRankFlatBeforeDegreeDotAndSixLookalikes() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+
+        for fixtureName in ["DFlatMinorCaptured01", "DFlat7susCaptured03", "DFlatDiminishedRaceDevice01"] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let clusters = clusterer.cluster(fixture.strokes)
+            let flatIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "b"), fixtureName)
+            let flatCluster = try XCTUnwrap(clusters[safe: flatIndex], fixtureName)
+            let candidates = recognizer.rankedCandidates(for: flatCluster, templates: templates, limit: 6)
+            let candidateSummary = candidates
+                .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+                .joined(separator: ",")
+
+            XCTAssertEqual(candidates.first?.text, "b", "\(fixtureName) \(candidateSummary)")
+            for lookalike in ["°", "•", "6"] {
+                XCTAssertLessThan(
+                    candidateRank(of: "b", in: candidates),
+                    candidateRank(of: lookalike, in: candidates),
+                    "\(fixtureName) \(candidateSummary)"
+                )
+            }
+        }
+    }
+
+    func testDeviceInitialDMinorSevenRootRanksDAboveBAndTriangle() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let fixture = try InkFixtureLoader.load("DMinor7InitialNoReadDevice01", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+        let rootCluster = try XCTUnwrap(clusters.first)
+        let candidates = recognizer.rankedCandidates(for: rootCluster, templates: templates, limit: 6)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "D", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "B", in: candidates), candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "D", in: candidates), candidateRank(of: "△", in: candidates), candidateSummary)
+    }
+
+    func testFlatLoopBoostDoesNotStealDegreeDotTriangleOrSixTemplates() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+
+        for text in ["°", "•", "△", "6"] {
+            let template = try XCTUnwrap(templates.first { $0.text == text })
+            let cluster = InkCluster(strokes: template.strokes)
+            let candidates = recognizer.rankedCandidates(for: cluster, templates: templates, limit: 4)
+
+            XCTAssertEqual(candidates.first?.text, text)
+        }
+    }
+
     func testRecognizerReturnsAmbiguousCandidatesInsteadOfForcingOneAnswer() throws {
         let fixture = try InkFixtureLoader.load("C", file: #filePath)
         let cluster = try XCTUnwrap(clusterer.cluster(fixture.strokes).first)
@@ -183,6 +486,10 @@ final class GestureTemplateRecognizerTests: XCTestCase {
     }
 }
 
+private func candidateRank(of text: String, in candidates: [GlyphCandidate]) -> Int {
+    candidates.firstIndex { $0.text == text } ?? Int.max
+}
+
 private extension InkFixture {
     var allowsCompactSharpElevenClusters: Bool {
         expectedDisplayText.contains("(#11)")
@@ -235,6 +542,12 @@ private extension InkFixture {
         }
 
         return 3
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

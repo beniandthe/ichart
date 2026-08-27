@@ -16,9 +16,9 @@ enum ChordInkRenderResolutionPolicy {
         var decision = primaryDecision
         let candidateTexts = candidateTexts(for: result)
 
-        if decision.action == .autoRender,
+        if decision.action == .trusted,
            let acceptedText = decision.acceptedText,
-           correctionMemory.shouldBlockAutoRender(
+           correctionMemory.shouldBlockTrustedCandidate(
                acceptedText: acceptedText,
                drawingData: drawingData,
                candidateTexts: candidateTexts

@@ -1669,6 +1669,189 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
     }
 
+    func testChordBatchTargetingDoesNotAbsorbDetachedDIntoPriorCOpenLaneRoot() throws {
+        var chart = Chart.draft(title: "Open Lane C Then D", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane C Then D",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = deviceCThenDetachedDPointSets(
+            offsetX: laneFrame.minX + 64 - chordFrame.minX - 193.9,
+            offsetY: laneFrame.midY - chordFrame.minY - 68
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 80 + TimeInterval(index))
+            )
+        })
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets[0].strokes.count, 1)
+        XCTAssertEqual(targets[1].strokes.count, 2)
+        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
+    func testChordBatchTargetingDoesNotAbsorbRepeatDeviceDIntoPriorCOpenLaneRoot() throws {
+        var chart = Chart.draft(title: "Open Lane C Then D Repeat", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane C Then D Repeat",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = repeatDeviceCThenDetachedDPointSets(
+            offsetX: laneFrame.minX + 120 - chordFrame.minX - 168.1,
+            offsetY: laneFrame.midY - chordFrame.minY - 70
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 90 + TimeInterval(index))
+            )
+        })
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets[0].strokes.count, 1)
+        XCTAssertEqual(targets[1].strokes.count, 2)
+        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
+    func testChordBatchTargetingDoesNotAbsorbRepeatDeviceDIntoPriorCWithLeftNeighbors() throws {
+        var chart = Chart.draft(title: "Open Lane A B C Then D Repeat", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Open Lane A B C Then D Repeat",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = repeatDeviceABCDPointSets(
+            offsetX: laneFrame.minX + 40 - chordFrame.minX - 21.9,
+            offsetY: laneFrame.midY - chordFrame.minY - 75
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 100 + TimeInterval(index))
+            )
+        })
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            4,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertEqual(result.diagnostics.selectedRoute, "lane_root_sequence")
+        XCTAssertEqual(result.diagnostics.laneSequentialClusterCount, 4)
+        XCTAssertEqual(result.targets.map(\.strokes.count), [3, 2, 1, 2])
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+        XCTAssertLessThan(result.targets[1].visualOrder, result.targets[2].visualOrder)
+        XCTAssertLessThan(result.targets[2].visualOrder, result.targets[3].visualOrder)
+    }
+
+    func testChordBatchTargetingPreservesOriginalStrokeOrderInsideTargets() throws {
+        var chart = Chart.draft(title: "Batch Stroke Order", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Batch Stroke Order",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let baselineY = laneFrame.midY
+        let firstX = laneFrame.minX + 72
+        let secondX = firstX + 128
+        let firstBody = stroke(
+            points: [
+                CGPoint(x: firstX + 3 - chordFrame.minX, y: baselineY - 23 - chordFrame.minY),
+                CGPoint(x: firstX + 21 - chordFrame.minX, y: baselineY - 21 - chordFrame.minY),
+                CGPoint(x: firstX + 34 - chordFrame.minX, y: baselineY - 10 - chordFrame.minY),
+                CGPoint(x: firstX + 39 - chordFrame.minX, y: baselineY + 4 - chordFrame.minY),
+                CGPoint(x: firstX + 34 - chordFrame.minX, y: baselineY + 17 - chordFrame.minY),
+                CGPoint(x: firstX + 20 - chordFrame.minX, y: baselineY + 23 - chordFrame.minY),
+                CGPoint(x: firstX + 3 - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+            ],
+            creationDate: Date(timeIntervalSince1970: 40)
+        )
+        let firstStem = stroke(
+            points: [
+                CGPoint(x: firstX - chordFrame.minX, y: baselineY - 24 - chordFrame.minY),
+                CGPoint(x: firstX - chordFrame.minX, y: baselineY + 24 - chordFrame.minY)
+            ],
+            creationDate: Date(timeIntervalSince1970: 41)
+        )
+        let secondRoot = stroke(
+            points: [
+                CGPoint(x: secondX - chordFrame.minX, y: baselineY - 22 - chordFrame.minY),
+                CGPoint(x: secondX + 26 - chordFrame.minX, y: baselineY - 4 - chordFrame.minY),
+                CGPoint(x: secondX + 4 - chordFrame.minX, y: baselineY + 22 - chordFrame.minY)
+            ],
+            creationDate: Date(timeIntervalSince1970: 42)
+        )
+        let drawing = PKDrawing(strokes: [firstBody, firstStem, secondRoot])
+
+        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets[0].strokes.count, 2)
+        XCTAssertGreaterThan(targets[0].strokes[0].bounds.minX, targets[0].strokes[1].bounds.minX)
+        XCTAssertEqual(
+            PencilKitInkAdapter.inkStrokes(from: targets[0].drawing).map(\.bounds.minX),
+            targets[0].strokes.map(\.bounds.minX)
+        )
+    }
+
     func testChordBatchTargetingSplitsSameOpenLaneGroupsAtDraftBarline() throws {
         var chart = Chart.draft(title: "Draft Boundary Chords", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
@@ -4231,6 +4414,146 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
     private func relativeFrame(_ frame: CGRect, to parentFrame: CGRect) -> CGRect {
         frame.offsetBy(dx: -parentFrame.minX, dy: -parentFrame.minY)
+    }
+
+    private func deviceCThenDetachedDPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
+        [
+            [
+                CGPoint(x: offsetX + 210.7413, y: offsetY + 54.4026),
+                CGPoint(x: offsetX + 208.1048, y: offsetY + 54.9308),
+                CGPoint(x: offsetX + 205.8639, y: offsetY + 57.1093),
+                CGPoint(x: offsetX + 200.6568, y: offsetY + 63.1830),
+                CGPoint(x: offsetX + 195.5157, y: offsetY + 71.2371),
+                CGPoint(x: offsetX + 193.9339, y: offsetY + 77.4428),
+                CGPoint(x: offsetX + 194.1316, y: offsetY + 80.3476),
+                CGPoint(x: offsetX + 208.1707, y: offsetY + 81.7339),
+                CGPoint(x: offsetX + 216.4097, y: offsetY + 79.2253),
+                CGPoint(x: offsetX + 218.9802, y: offsetY + 78.3670)
+            ],
+            [
+                CGPoint(x: offsetX + 281.7938, y: offsetY + 60.9384),
+                CGPoint(x: offsetX + 281.2665, y: offsetY + 73.7458),
+                CGPoint(x: offsetX + 281.2665, y: offsetY + 76.2545)
+            ],
+            [
+                CGPoint(x: offsetX + 276.4550, y: offsetY + 64.1732),
+                CGPoint(x: offsetX + 277.9050, y: offsetY + 56.7132),
+                CGPoint(x: offsetX + 282.8484, y: offsetY + 54.6007),
+                CGPoint(x: offsetX + 296.1624, y: offsetY + 55.9210),
+                CGPoint(x: offsetX + 303.6764, y: offsetY + 61.1364),
+                CGPoint(x: offsetX + 307.7629, y: offsetY + 73.4817),
+                CGPoint(x: offsetX + 303.0832, y: offsetY + 79.0272),
+                CGPoint(x: offsetX + 288.2531, y: offsetY + 85.3649),
+                CGPoint(x: offsetX + 281.0028, y: offsetY + 84.7047)
+            ]
+        ]
+    }
+
+    private func repeatDeviceCThenDetachedDPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
+        [
+            [
+                CGPoint(x: offsetX + 188.1337, y: offsetY + 54.5346),
+                CGPoint(x: offsetX + 188.1337, y: offsetY + 52.6201),
+                CGPoint(x: offsetX + 186.42, y: offsetY + 52.6862),
+                CGPoint(x: offsetX + 183.8494, y: offsetY + 54.9308),
+                CGPoint(x: offsetX + 182.6631, y: offsetY + 56.0531),
+                CGPoint(x: offsetX + 181.4107, y: offsetY + 57.3074),
+                CGPoint(x: offsetX + 180.0925, y: offsetY + 58.7598),
+                CGPoint(x: offsetX + 178.6425, y: offsetY + 60.2782),
+                CGPoint(x: offsetX + 177.1924, y: offsetY + 61.9286),
+                CGPoint(x: offsetX + 175.7423, y: offsetY + 63.6451),
+                CGPoint(x: offsetX + 174.0946, y: offsetY + 65.6256),
+                CGPoint(x: offsetX + 172.7763, y: offsetY + 67.4081),
+                CGPoint(x: offsetX + 171.524, y: offsetY + 69.3226),
+                CGPoint(x: offsetX + 170.4035, y: offsetY + 71.3691),
+                CGPoint(x: offsetX + 169.4808, y: offsetY + 73.3497),
+                CGPoint(x: offsetX + 168.7557, y: offsetY + 75.3302),
+                CGPoint(x: offsetX + 168.1625, y: offsetY + 77.4428),
+                CGPoint(x: offsetX + 168.0966, y: offsetY + 79.0272),
+                CGPoint(x: offsetX + 168.1625, y: offsetY + 81.7339),
+                CGPoint(x: offsetX + 169.6126, y: offsetY + 83.8465),
+                CGPoint(x: offsetX + 171.6558, y: offsetY + 85.2329),
+                CGPoint(x: offsetX + 174.1605, y: offsetY + 85.827),
+                CGPoint(x: offsetX + 177.1265, y: offsetY + 86.0911),
+                CGPoint(x: offsetX + 178.9061, y: offsetY + 86.1571),
+                CGPoint(x: offsetX + 181.8721, y: offsetY + 86.1571),
+                CGPoint(x: offsetX + 183.454, y: offsetY + 86.1571),
+                CGPoint(x: offsetX + 184.9699, y: offsetY + 86.1571),
+                CGPoint(x: offsetX + 186.4859, y: offsetY + 86.0251)
+            ],
+            [
+                CGPoint(x: offsetX + 244.4879, y: offsetY + 59.2219),
+                CGPoint(x: offsetX + 243.7629, y: offsetY + 63.7111),
+                CGPoint(x: offsetX + 243.7629, y: offsetY + 70.4449),
+                CGPoint(x: offsetX + 243.7629, y: offsetY + 78.0369),
+                CGPoint(x: offsetX + 243.4993, y: offsetY + 86.7513)
+            ],
+            [
+                CGPoint(x: offsetX + 233.283, y: offsetY + 57.0433),
+                CGPoint(x: offsetX + 232.8216, y: offsetY + 54.9308),
+                CGPoint(x: offsetX + 236.974, y: offsetY + 53.7424),
+                CGPoint(x: offsetX + 245.7402, y: offsetY + 53.0823),
+                CGPoint(x: offsetX + 257.5384, y: offsetY + 53.5444),
+                CGPoint(x: offsetX + 266.766, y: offsetY + 57.5715),
+                CGPoint(x: offsetX + 271.3798, y: offsetY + 63.249),
+                CGPoint(x: offsetX + 271.2479, y: offsetY + 70.907),
+                CGPoint(x: offsetX + 267.0296, y: offsetY + 77.4428),
+                CGPoint(x: offsetX + 258.8566, y: offsetY + 83.6484),
+                CGPoint(x: offsetX + 248.7722, y: offsetY + 87.2134),
+                CGPoint(x: offsetX + 244.9493, y: offsetY + 87.3454)
+            ]
+        ]
+    }
+
+    private func repeatDeviceABCDPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
+        let aStrokes: [[CGPoint]] = [
+            [
+                CGPoint(x: offsetX + 34.4283, y: offsetY + 58.4297),
+                CGPoint(x: offsetX + 31.5941, y: offsetY + 64.6353),
+                CGPoint(x: offsetX + 28.5622, y: offsetY + 72.4915),
+                CGPoint(x: offsetX + 25.1348, y: offsetY + 80.0175),
+                CGPoint(x: offsetX + 21.9052, y: offsetY + 86.8173)
+            ],
+            [
+                CGPoint(x: offsetX + 37.2625, y: offsetY + 53.4784),
+                CGPoint(x: offsetX + 39.1739, y: offsetY + 60.2122),
+                CGPoint(x: offsetX + 42.4036, y: offsetY + 68.2003),
+                CGPoint(x: offsetX + 45.8969, y: offsetY + 77.1787),
+                CGPoint(x: offsetX + 49.1925, y: offsetY + 86.2231),
+                CGPoint(x: offsetX + 52.3562, y: offsetY + 98.7665)
+            ],
+            [
+                CGPoint(x: offsetX + 29.0236, y: offsetY + 79.0932),
+                CGPoint(x: offsetX + 35.2852, y: offsetY + 76.1224),
+                CGPoint(x: offsetX + 42.9968, y: offsetY + 74.7360),
+                CGPoint(x: offsetX + 48.6652, y: offsetY + 74.2079)
+            ]
+        ]
+        let bStrokes: [[CGPoint]] = [
+            [
+                CGPoint(x: offsetX + 96.3850, y: offsetY + 69.5867),
+                CGPoint(x: offsetX + 96.4509, y: offsetY + 75.0001),
+                CGPoint(x: offsetX + 96.4509, y: offsetY + 82.0640),
+                CGPoint(x: offsetX + 96.4509, y: offsetY + 88.9959),
+                CGPoint(x: offsetX + 96.4509, y: offsetY + 93.7491)
+            ],
+            [
+                CGPoint(x: offsetX + 90.3871, y: offsetY + 66.1538),
+                CGPoint(x: offsetX + 94.6054, y: offsetY + 61.4005),
+                CGPoint(x: offsetX + 108.1832, y: offsetY + 58.2317),
+                CGPoint(x: offsetX + 118.3335, y: offsetY + 57.6375),
+                CGPoint(x: offsetX + 112.1378, y: offsetY + 62.8529),
+                CGPoint(x: offsetX + 99.0215, y: offsetY + 72.2274),
+                CGPoint(x: offsetX + 108.5786, y: offsetY + 75.4622),
+                CGPoint(x: offsetX + 119.7177, y: offsetY + 79.0272),
+                CGPoint(x: offsetX + 122.2223, y: offsetY + 85.2989),
+                CGPoint(x: offsetX + 114.4448, y: offsetY + 93.7491),
+                CGPoint(x: offsetX + 104.0966, y: offsetY + 99.3606),
+                CGPoint(x: offsetX + 94.9350, y: offsetY + 100.5490)
+            ]
+        ]
+
+        return aStrokes + bStrokes + repeatDeviceCThenDetachedDPointSets(offsetX: offsetX, offsetY: offsetY)
     }
 
     private func stroke(

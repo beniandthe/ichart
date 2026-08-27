@@ -1,18 +1,23 @@
 struct ChordInkSemanticGlyphContextualizer {
     func contextualizedGlyphCandidateGroups(
         _ glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
+        clusters: [InkCluster],
+        roleContext: ChordInkTheoryRoleContext? = nil
     ) -> [[GlyphCandidate]] {
         guard clusters.count == glyphCandidateGroups.count,
               clusters.count >= 4,
-              clusters.count <= 6,
-              glyphCandidateGroups.first?.contains(where: { candidate in
-                  candidate.confidence >= 0.50 && "ABCDEFG".contains(candidate.text)
-              }) == true else {
+              clusters.count <= 6 else {
             return glyphCandidateGroups
         }
 
-        let prefixLength = hasHighAccidentalPrefix(in: glyphCandidateGroups, clusters: clusters) ? 2 : 1
+        let roleContext = roleContext ?? ChordInkTheoryRoleContext(
+            glyphCandidateGroups: glyphCandidateGroups,
+            clusters: clusters
+        )
+        guard let prefixLength = roleContext.rootDescriptorPrefixLength else {
+            return glyphCandidateGroups
+        }
+
         let suffixLength = clusters.count - prefixLength
         guard suffixLength == 3 || suffixLength == 4 else {
             return glyphCandidateGroups
@@ -189,27 +194,6 @@ struct ChordInkSemanticGlyphContextualizer {
         return suffixClusters.dropFirst().allSatisfy { suffixCluster in
             suffixCluster.bounds.minY >= suffixFloor
         }
-    }
-
-    private func hasHighAccidentalPrefix(
-        in glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
-    ) -> Bool {
-        guard glyphCandidateGroups.indices.contains(1),
-              clusters.indices.contains(1) else {
-            return false
-        }
-
-        let hasStrongFlat = glyphCandidateGroups[1].contains { candidate in
-            candidate.confidence >= 0.60 && candidate.text == "b"
-        }
-        let hasStrongSharp = glyphCandidateGroups[1].contains { candidate in
-            candidate.confidence >= 0.70 && candidate.text == "#"
-        }
-        let rootBounds = clusters[0].bounds
-        let highModifierBottom = rootBounds.maxY - rootBounds.height * 0.32
-
-        return hasStrongSharp || hasStrongFlat && clusters[1].bounds.maxY <= highModifierBottom
     }
 
     private func canApplySuspendedContext(

@@ -80,6 +80,7 @@ final class StrokeClustererTests: XCTestCase {
             "FSlashA",
             "BFlatSlashDCaptured01",
             "DSlashFSharpCaptured02",
+            "DSlashFSharpLooseDevice01",
             "FSharpSlashASharpCaptured01"
         ] {
             let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
@@ -109,6 +110,15 @@ final class StrokeClustererTests: XCTestCase {
 
         XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
         XCTAssertEqual(clusters.first?.strokes.count, 2)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testThreeStrokeRootACapturesLegsAndCrossbarAsOneGlyph() throws {
+        let fixture = try InkFixtureLoader.load("ARootSplitDevice01", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.first?.strokes.count, 3)
         XCTAssertTrue(clusters.areSortedLeftToRight)
     }
 

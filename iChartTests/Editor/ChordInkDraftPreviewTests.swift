@@ -1597,6 +1597,15 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             "barline_count": .int(1),
             "rendered_count": .int(2),
             "unresolved_count": .int(0),
+            "trusted_count": .int(1),
+            "confirm_count": .int(1),
+            "matched_count": .int(1),
+            "no_read_count": .int(1),
+            "close_race_count": .int(1),
+            "generated_sequence_limit_count": .int(0),
+            "raw_candidate_count": .int(4),
+            "recognition_target_count": .int(2),
+            "cluster_count": .int(3),
             "raw_chord_text": .string("Cmaj7"),
             "drawing_payload": .string("not allowed")
         ])
@@ -1605,6 +1614,15 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(sanitized["barline_count"], .int(1))
         XCTAssertEqual(sanitized["rendered_count"], .int(2))
         XCTAssertEqual(sanitized["unresolved_count"], .int(0))
+        XCTAssertEqual(sanitized["trusted_count"], .int(1))
+        XCTAssertEqual(sanitized["confirm_count"], .int(1))
+        XCTAssertEqual(sanitized["matched_count"], .int(1))
+        XCTAssertEqual(sanitized["no_read_count"], .int(1))
+        XCTAssertEqual(sanitized["close_race_count"], .int(1))
+        XCTAssertEqual(sanitized["generated_sequence_limit_count"], .int(0))
+        XCTAssertEqual(sanitized["raw_candidate_count"], .int(4))
+        XCTAssertEqual(sanitized["recognition_target_count"], .int(2))
+        XCTAssertEqual(sanitized["cluster_count"], .int(3))
         XCTAssertNil(sanitized["raw_chord_text"])
         XCTAssertNil(sanitized["drawing_payload"])
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_updated"))

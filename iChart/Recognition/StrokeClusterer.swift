@@ -21,6 +21,19 @@ struct StrokeClusterer {
     }
 
     func cluster(_ strokes: [InkStroke]) -> [InkCluster] {
+        indexedClusters(strokes).map(\.cluster)
+    }
+
+    func indexedClusters(_ strokes: [InkStroke]) -> [IndexedInkCluster] {
+        mutableClusters(for: strokes).map { cluster in
+            IndexedInkCluster(
+                cluster: InkCluster(strokes: cluster.strokes),
+                originalIndexes: cluster.originalIndexes
+            )
+        }
+    }
+
+    private func mutableClusters(for strokes: [InkStroke]) -> [MutableInkCluster] {
         var workingClusters = strokes.enumerated().map { index, stroke in
             MutableInkCluster(strokes: [stroke], originalIndexes: [index])
         }
@@ -84,9 +97,6 @@ struct StrokeClusterer {
                 }
 
                 return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
-            }
-            .map { cluster in
-                InkCluster(strokes: cluster.strokes)
             }
     }
 
@@ -1034,6 +1044,10 @@ struct StrokeClusterer {
             return false
         }
 
+        if shouldMergeAsRootAConstruction(lhs, rhs) {
+            return true
+        }
+
         if shouldMergeAsHalfDiminishedConstruction(lhs, rhs) {
             return true
         }
@@ -1143,6 +1157,73 @@ struct StrokeClusterer {
             && hasRootBody
             && horizontalOverlap >= narrowerWidth * 0.35
             && verticalMiss <= max(6, combinedBounds.height * 0.28)
+    }
+
+    private func shouldMergeAsRootAConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        guard lhs.strokes.count == 1,
+              rhs.strokes.count == 1,
+              let lhsStroke = lhs.strokes.first,
+              let rhsStroke = rhs.strokes.first else {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([lhs.bounds, rhs.bounds])
+        let combinedWidth = max(combinedBounds.width, 1)
+        let combinedHeight = max(combinedBounds.height, 1)
+        let combinedAspectRatio = combinedWidth / combinedHeight
+
+        guard combinedBounds.width >= 12,
+              combinedBounds.height >= 16,
+              combinedAspectRatio >= 0.35,
+              combinedAspectRatio <= 1.25,
+              lhs.bounds.horizontalGap(to: rhs.bounds) <= max(4, combinedWidth * 0.12),
+              lhs.bounds.verticalOverlap(with: rhs.bounds) >= min(lhs.bounds.height, rhs.bounds.height) * 0.58,
+              let lhsLeg = rootALegProfile(for: lhsStroke),
+              let rhsLeg = rootALegProfile(for: rhsStroke),
+              lhsLeg.direction != rhsLeg.direction else {
+            return false
+        }
+
+        let topBand = combinedBounds.minY + combinedHeight * 0.34
+        let bottomBand = combinedBounds.minY + combinedHeight * 0.62
+        let apexDistance = abs(lhsLeg.topPoint.x - rhsLeg.topPoint.x)
+        let bottomSpan = abs(lhsLeg.bottomPoint.x - rhsLeg.bottomPoint.x)
+
+        return lhsLeg.topPoint.y <= topBand
+            && rhsLeg.topPoint.y <= topBand
+            && lhsLeg.bottomPoint.y >= bottomBand
+            && rhsLeg.bottomPoint.y >= bottomBand
+            && apexDistance <= max(8, combinedWidth * 0.32)
+            && bottomSpan >= max(10, combinedWidth * 0.48)
+    }
+
+    private func rootALegProfile(for stroke: InkStroke) -> RootALegProfile? {
+        guard stroke.points.count >= 2,
+              stroke.bounds.height >= 14,
+              stroke.bounds.width >= 3,
+              stroke.aspectRatio >= 0.08,
+              stroke.aspectRatio <= 0.82,
+              stroke.straightness >= 0.50,
+              stroke.diagonalAngleMagnitude >= 30,
+              stroke.diagonalAngleMagnitude <= 82,
+              let topPoint = stroke.points.min(by: { $0.y < $1.y }),
+              let bottomPoint = stroke.points.max(by: { $0.y < $1.y }) else {
+            return nil
+        }
+
+        let horizontalAdvance = bottomPoint.x - topPoint.x
+        guard abs(horizontalAdvance) >= max(2.5, stroke.bounds.height * 0.08) else {
+            return nil
+        }
+
+        return RootALegProfile(
+            direction: horizontalAdvance < 0 ? .downLeft : .downRight,
+            topPoint: topPoint,
+            bottomPoint: bottomPoint
+        )
     }
 
     private func shouldMergeAsHalfDiminishedConstruction(
@@ -1831,4 +1912,15 @@ struct StrokeClusterer {
             && ordered.right.isQualityOrExtensionGlyphCandidate)
             || (ordered.left.isQualityOrExtensionGlyphCandidate && ordered.right.isQualityOrExtensionGlyphCandidate)
     }
+}
+
+private struct RootALegProfile: Hashable {
+    var direction: RootALegDirection
+    var topPoint: InkPoint
+    var bottomPoint: InkPoint
+}
+
+private enum RootALegDirection: Hashable {
+    case downLeft
+    case downRight
 }
