@@ -5488,10 +5488,23 @@ private enum EditorSheet: Identifiable {
 
 enum ChordDiagnosticPreviewScrollPolicy {
     #if canImport(UIKit)
-    static let allowedTouchTypes = [
-        NSNumber(value: UITouch.TouchType.direct.rawValue),
-        NSNumber(value: UITouch.TouchType.pencil.rawValue)
-    ]
+    static var allowedTouchTypes: [NSNumber] {
+        allowedTouchTypes()
+    }
+
+    static func allowedTouchTypes(
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
+    ) -> [NSNumber] {
+        switch environment {
+        case .device:
+            return [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        case .simulator:
+            return [
+                NSNumber(value: UITouch.TouchType.direct.rawValue),
+                NSNumber(value: UITouch.TouchType.pencil.rawValue)
+            ]
+        }
+    }
     #endif
 
     static func isScrollEnabled(itemCount: Int) -> Bool {
@@ -6374,7 +6387,7 @@ private struct CueTextEntryPanelView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        Button("Cancel") {
+                        PencilOnlyActionButton(title: "Cancel", style: .plain) {
                             onCancel()
                         }
 
@@ -6385,10 +6398,13 @@ private struct CueTextEntryPanelView: View {
 
                         Spacer()
 
-                        Button(actionTitle) {
+                        PencilOnlyActionButton(
+                            title: actionTitle,
+                            style: .plain,
+                            isEnabled: canAdd
+                        ) {
                             onAdd()
                         }
-                        .disabled(!canAdd)
                         .tourActionHighlight(
                             isActive: highlightsAction && canAdd,
                             cornerRadius: 8

@@ -580,7 +580,7 @@ struct LeadSheetInteractionModeStatePolicy {
             hidesPageInkCanvas: !interactionMode.allowsAnyInkEditing,
             inkTool: inkTool(for: interactionMode),
             inkToolMode: interactionMode.allowsAnyInkEditing ? inkToolMode : .write,
-            drawingPolicy: drawingPolicy(for: interactionMode)
+            drawingPolicy: LeadSheetLiveInkInputPolicy.drawingPolicy(for: interactionMode)
         )
     }
 
@@ -600,16 +600,49 @@ struct LeadSheetInteractionModeStatePolicy {
         return LeadSheetPersistentInkColorPolicy.inkingTool(width: 2.8)
     }
 
-    private static func drawingPolicy(for interactionMode: EditorCanvasMode) -> PKCanvasViewDrawingPolicy {
-        guard interactionMode.allowsChordInkEditing else {
+}
+
+enum LeadSheetLiveInkInputPolicy {
+    enum RuntimeEnvironment {
+        case device
+        case simulator
+
+        static var current: RuntimeEnvironment {
+            #if targetEnvironment(simulator)
+            return .simulator
+            #else
+            return .device
+            #endif
+        }
+    }
+
+    static func drawingPolicy(
+        for interactionMode: EditorCanvasMode,
+        environment: RuntimeEnvironment = .current
+    ) -> PKCanvasViewDrawingPolicy {
+        guard interactionMode.allowsAnyInkEditing else {
             return .anyInput
         }
 
-        #if targetEnvironment(simulator)
-        return .anyInput
-        #else
-        return .pencilOnly
-        #endif
+        switch environment {
+        case .device:
+            return .pencilOnly
+        case .simulator:
+            return .anyInput
+        }
+    }
+
+    static func allowsCanvasGestureTouch(
+        touchType: UITouch.TouchType,
+        interactionMode: EditorCanvasMode,
+        environment: RuntimeEnvironment = .current
+    ) -> Bool {
+        guard interactionMode.allowsAnyInkEditing,
+              environment == .device else {
+            return true
+        }
+
+        return touchType == .pencil
     }
 }
 
@@ -682,9 +715,33 @@ enum LeadSheetRenderedObjectMoveScrollLockPolicy {
 enum LeadSheetObjectMoveTouchPolicy {
     static func allowsMovePan(
         touchType: UITouch.TouchType,
-        startsOnMoveTarget: Bool
+        interactionMode: EditorCanvasMode,
+        startsOnMoveTarget: Bool,
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
     ) -> Bool {
-        touchType != .pencil || startsOnMoveTarget
+        guard LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+            touchType: touchType,
+            interactionMode: interactionMode,
+            environment: environment
+        ) else {
+            return false
+        }
+
+        return touchType != .pencil || startsOnMoveTarget
+    }
+}
+
+enum LeadSheetParentScrollTouchPolicy {
+    static func blocksParentScrollStart(
+        touchType: UITouch.TouchType,
+        interactionMode: EditorCanvasMode,
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
+    ) -> Bool {
+        !LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+            touchType: touchType,
+            interactionMode: interactionMode,
+            environment: environment
+        )
     }
 }
 #endif

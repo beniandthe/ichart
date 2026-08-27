@@ -38,33 +38,46 @@ final class LeadSheetScopedInkCanvasView: PKCanvasView {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard handleManualErase(touches, with: event) else {
-            super.touchesBegan(touches, with: event)
+        guard let activeTouches = pencilEligibleTouches(from: touches) else {
+            return
+        }
+        guard handleManualErase(activeTouches, with: event) else {
+            super.touchesBegan(activeTouches, with: event)
             return
         }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard handleManualErase(touches, with: event) else {
-            super.touchesMoved(touches, with: event)
+        guard let activeTouches = pencilEligibleTouches(from: touches) else {
+            return
+        }
+        guard handleManualErase(activeTouches, with: event) else {
+            super.touchesMoved(activeTouches, with: event)
             return
         }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if handleManualErase(touches, with: event) {
+        guard let activeTouches = pencilEligibleTouches(from: touches) else {
+            lastManualEraseLocation = nil
+            return
+        }
+        if handleManualErase(activeTouches, with: event) {
             lastManualEraseLocation = nil
             return
         }
 
         lastManualEraseLocation = nil
-        super.touchesEnded(touches, with: event)
+        super.touchesEnded(activeTouches, with: event)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         lastManualEraseLocation = nil
+        guard let activeTouches = pencilEligibleTouches(from: touches) else {
+            return
+        }
         guard manualEraseEnabled else {
-            super.touchesCancelled(touches, with: event)
+            super.touchesCancelled(activeTouches, with: event)
             return
         }
     }
@@ -91,6 +104,22 @@ final class LeadSheetScopedInkCanvasView: PKCanvasView {
         lastManualEraseLocation = location
         manualEraseHandler?(previousLocation, location)
         return true
+    }
+
+    private func pencilEligibleTouches(from touches: Set<UITouch>) -> Set<UITouch>? {
+        guard drawingPolicy == .pencilOnly else {
+            return touches
+        }
+
+        let pencilTouches = touches.filter { touch in
+            touch.type == .pencil
+        }
+        guard !pencilTouches.isEmpty else {
+            lastManualEraseLocation = nil
+            return nil
+        }
+
+        return Set(pencilTouches)
     }
 }
 #endif

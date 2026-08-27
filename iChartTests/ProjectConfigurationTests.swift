@@ -47,6 +47,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
         )
+        let actionButtonText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/PencilOnlyActionButton.swift")
+        )
         let confirmationSheetText = try XCTUnwrap(
             sheetText
                 .components(separatedBy: "struct ChordInkConfirmationSheetView: View")
@@ -72,6 +76,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
         XCTAssertTrue(confirmationSheetText.contains("TextField(\"Type chord\""))
+        XCTAssertTrue(confirmationSheetText.contains("ChordInkPencilOnlyButton("))
+        XCTAssertTrue(confirmationSheetText.contains("title: \"Confirm\""))
         XCTAssertTrue(confirmationSheetText.contains(".presentationDetents([.medium])"))
         XCTAssertFalse(confirmationSheetText.contains("ScrollView"))
         XCTAssertFalse(confirmationSheetText.contains("Open keyboard for manual chord entry"))
@@ -88,8 +94,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(correctionSheetText.contains("TextField(\"Type chord\""))
         XCTAssertTrue(correctionSheetText.contains("correction.quickChoiceTexts"))
         XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
-        XCTAssertTrue(correctionSheetText.contains("Text(\"Confirm\")"))
-        XCTAssertTrue(correctionSheetText.contains("Text(\"Cancel\")"))
+        XCTAssertTrue(correctionSheetText.contains("title: \"Confirm\""))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkPencilOnlyButton(title: \"Cancel\")"))
         XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
@@ -102,6 +108,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("var allowsScribble = true"))
         XCTAssertTrue(sheetText.contains("textField.allowsScribble = allowsScribble"))
         XCTAssertTrue(sheetText.contains("allowsScribble && bounds.contains(location)"))
+        XCTAssertTrue(sheetText.contains("private typealias ChordInkPencilOnlyButton = PencilOnlyActionButton"))
+        XCTAssertTrue(actionButtonText.contains("final class PencilOnlyUIButton"))
+        XCTAssertTrue(actionButtonText.contains("override func beginTracking(_ touch: UITouch"))
+        XCTAssertTrue(actionButtonText.contains("event?.allTouches"))
+        XCTAssertTrue(actionButtonText.contains("touch.type == .pencil"))
         XCTAssertTrue(sheetText.contains("blockedTexts.contains(ChordInkManualEntryShortcut.chordRepeatText)"))
         XCTAssertFalse(correctionSheetText.contains("Correct Chord"))
         XCTAssertFalse(correctionSheetText.contains("Update the chord"))
@@ -572,6 +583,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
         )
+        let actionButtonText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/PencilOnlyActionButton.swift")
+        )
 
         XCTAssertTrue(libraryText.contains("IChartKeyboardFocusButton"))
         XCTAssertTrue(libraryText.contains("field: .firstName"))
@@ -590,6 +605,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(editorText.contains("Open keyboard for text entry"))
         XCTAssertTrue(editorText.contains(".allowsHitTesting(!showingCueTextEntry)"))
         XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
+        XCTAssertTrue(editorText.contains("PencilOnlyActionButton(title: \"Cancel\", style: .plain)"))
+        XCTAssertTrue(editorText.contains("PencilOnlyActionButton("))
+        XCTAssertTrue(editorText.contains("title: actionTitle"))
+        XCTAssertTrue(actionButtonText.contains("final class PencilOnlyUIButton"))
+        XCTAssertTrue(actionButtonText.contains("touch.type == .pencil"))
         XCTAssertFalse(editorText.contains(".sheet(isPresented: $showingCueTextEntry)"))
         XCTAssertFalse(editorText.contains(".presentationDetents([.height(275)])"))
         XCTAssertFalse(chordSheetText.contains("Open keyboard for chord correction"))
