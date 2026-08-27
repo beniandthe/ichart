@@ -1640,18 +1640,28 @@ extension Chart {
             return nil
         }
 
-        let fraction = (laneX - targetMeasure.display.frame.minX)
-            / max(1, targetMeasure.display.frame.width)
+        let segmentFrame = chordDraftBarlineSegmentFrame(for: targetMeasure.display)
+        let fraction = (laneX - segmentFrame.minX)
+            / max(1, segmentFrame.width)
         return ChordDraftBarlineLaneTarget(
             measureID: measureID,
             measureIndex: targetMeasure.source.index,
             fraction: Double(min(max(fraction, 0), 0.9999)),
             sourceGeometry: ChordDraftBarlineSourceGeometry(
                 laneFrame: laneFrame,
-                measureFrame: targetMeasure.display.frame,
-                fractionFrame: targetMeasure.display.frame
+                measureFrame: segmentFrame,
+                fractionFrame: segmentFrame
             )
         )
+    }
+
+    private func chordDraftBarlineSegmentFrame(for measure: LeadSheetMeasureLayout) -> CGRect {
+        switch layoutStyle {
+        case .rhythmSectionSheet:
+            return measure.staffFrame
+        case .simpleChordSheet, .leadSheet:
+            return measure.frame
+        }
     }
 
     private mutating func applyDraftBarlineSegmentWidths(
@@ -1768,17 +1778,19 @@ extension Chart {
                 continue
             }
 
-            guard let measureFrame = system.measures.first(where: { measure in
+            guard let measure = system.measures.first(where: { measure in
                 measure.chordInkTargetMeasureID == originalMeasureID
                     || measure.sourceMeasureID == originalMeasureID
-            })?.frame else {
+            }) else {
                 continue
             }
+            let segmentFrame = chordDraftBarlineSegmentFrame(for: measure)
+            let fractionFrame = layoutStyle == .rhythmSectionSheet ? segmentFrame : laneFrame
 
             return ChordDraftBarlineSourceGeometry(
                 laneFrame: laneFrame,
-                measureFrame: measureFrame,
-                fractionFrame: laneFrame
+                measureFrame: segmentFrame,
+                fractionFrame: fractionFrame
             )
         }
 
@@ -1847,22 +1859,38 @@ extension Chart {
     ) -> (measureID: UUID, fraction: Double?)? {
         guard let segmentMeasureIDs = barlinePlan.segmentMeasureIDsByOriginalMeasureID[draft.measureID],
               !segmentMeasureIDs.isEmpty,
-              let laneFraction = draft.laneLocation?.fraction ?? draft.visualOrder.map({ $0 - floor($0) }) else {
+              let measureFraction = chordDraftSegmentFraction(for: draft) else {
             return nil
         }
 
         let boundaries = (barlinePlan.boundaryFractionsByOriginalMeasureID[draft.measureID] ?? [])
             .sorted()
-        let segmentIndex = boundaries.firstIndex { laneFraction < $0 } ?? boundaries.count
+        let segmentIndex = boundaries.firstIndex { measureFraction < $0 } ?? boundaries.count
         let clampedSegmentIndex = min(max(0, segmentIndex), segmentMeasureIDs.count - 1)
         let lowerBoundary = clampedSegmentIndex == 0 ? 0 : boundaries[clampedSegmentIndex - 1]
         let upperBoundary = clampedSegmentIndex < boundaries.count ? boundaries[clampedSegmentIndex] : 1
-        let localFraction = (laneFraction - lowerBoundary) / max(0.0001, upperBoundary - lowerBoundary)
+        let localFraction = (measureFraction - lowerBoundary) / max(0.0001, upperBoundary - lowerBoundary)
 
         return (
             segmentMeasureIDs[clampedSegmentIndex],
             min(max(localFraction, 0), 0.9999)
         )
+    }
+
+    private func chordDraftSegmentFraction(for draft: ChordInkDraft) -> Double? {
+        let rawFraction: Double?
+        switch layoutStyle {
+        case .rhythmSectionSheet:
+            rawFraction = draft.targetFraction
+                ?? draft.visualOrder.map { $0 - floor($0) }
+                ?? draft.laneLocation?.fraction
+        case .simpleChordSheet, .leadSheet:
+            rawFraction = draft.laneLocation?.fraction
+                ?? draft.visualOrder.map { $0 - floor($0) }
+                ?? draft.targetFraction
+        }
+
+        return rawFraction.map { min(max($0, 0), 0.9999) }
     }
 
     private func chordDraftLaneTarget(

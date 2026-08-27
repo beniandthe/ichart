@@ -1484,6 +1484,89 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(renderedMeasures.allSatisfy { $0.chordBandFrame.height < $0.chordWritingFrame.height })
     }
 
+    func testRhythmDraftBatchRenderUsesMeasureLocalFirstMeasureSegmentFractions() throws {
+        var chart = Chart.draft(title: "Rhythm First Segment", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm First Segment",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let openMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureManualLayoutWidth(240, for: openMeasureID)
+        let pageSize = CGSize(width: 900, height: 1400)
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: pageSize,
+            includesChordInkContinuationLanes: true
+        )
+        let sourceSystem = try XCTUnwrap(sourceLayout.systems.first)
+        let sourceMeasure = try XCTUnwrap(sourceSystem.measures.first)
+        let laneFrame = try XCTUnwrap(
+            LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: sourceSystem,
+                paperFrame: sourceLayout.paperFrame
+            )
+        )
+
+        XCTAssertGreaterThan(sourceMeasure.frame.width, sourceMeasure.staffFrame.width)
+        XCTAssertGreaterThan(laneFrame.width, sourceMeasure.staffFrame.width)
+
+        let splitFraction = 0.4
+        let rightChordFraction = 0.7
+        let splitX = sourceMeasure.staffFrame.minX + sourceMeasure.staffFrame.width * CGFloat(splitFraction)
+        let rightChordX = sourceMeasure.staffFrame.minX + sourceMeasure.staffFrame.width * CGFloat(rightChordFraction)
+        let splitLaneFraction = Double((splitX - laneFrame.minX) / laneFrame.width)
+        let rightChordLaneFraction = Double((rightChordX - laneFrame.minX) / laneFrame.width)
+        XCTAssertLessThan(rightChordLaneFraction, splitFraction)
+
+        var state = ChordPreviewState()
+        state.layoutPageSize = pageSize
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: openMeasureID,
+                measureIndex: sourceMeasure.index,
+                fraction: rightChordFraction,
+                bestCandidateText: "G",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: sourceSystem.index, fraction: rightChordLaneFraction),
+                layoutPageSize: pageSize
+            )
+        ])
+        state.replaceDraftBarlines(with: [
+            draftBarline(
+                measureID: openMeasureID,
+                measureIndex: sourceMeasure.index,
+                fraction: splitFraction,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: sourceSystem.index, fraction: splitLaneFraction),
+                layoutPageSize: pageSize
+            )
+        ])
+
+        let result = chart.commitChordInkDraftBatch(state)
+        let leftMeasure = try XCTUnwrap(chart.measure(id: openMeasureID))
+        let rightMeasureID = try XCTUnwrap(chart.measures.dropFirst().first?.id)
+        let rightMeasure = try XCTUnwrap(chart.measure(id: rightMeasureID))
+
+        XCTAssertEqual(result.renderedChordCount, 1)
+        XCTAssertEqual(result.renderedBarlineCount, 1)
+        XCTAssertEqual(chart.measures.count, 2)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
+        XCTAssertTrue(leftMeasure.chordEvents.isEmpty)
+        XCTAssertEqual(rightMeasure.chordEvents.map { $0.symbol.displayText }, ["G"])
+        XCTAssertEqual(
+            try XCTUnwrap(leftMeasure.manualLayoutWidth),
+            Double(sourceMeasure.staffFrame.width * CGFloat(splitFraction)),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(rightMeasure.manualLayoutWidth),
+            Double(sourceMeasure.staffFrame.width * CGFloat(1 - splitFraction)),
+            accuracy: 0.001
+        )
+    }
+
     func testRhythmDraftBatchRenderDefensivelyKeepsDraftInkWhenAnyDraftChordUnresolved() throws {
         var chart = Chart.draft(title: "Rhythm Unresolved Draft", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(
