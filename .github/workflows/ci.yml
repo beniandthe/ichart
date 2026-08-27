@@ -124,7 +124,7 @@ jobs:
 
       - name: Install XcodeGen
         if: steps.app_changes.outputs.run_tests == 'true'
-        run: brew install xcodegen
+        run: .github/scripts/install-xcodegen.sh
 
       - name: Generate Xcode project
         if: steps.app_changes.outputs.run_tests == 'true'

@@ -70,7 +70,7 @@ jobs:
 
       - name: Install XcodeGen
         if: steps.codeql_scope.outputs.run_codeql == 'true'
-        run: brew install xcodegen
+        run: .github/scripts/install-xcodegen.sh
 
       - name: Generate Xcode project
         if: steps.codeql_scope.outputs.run_codeql == 'true'
