@@ -1673,6 +1673,80 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(target.fraction, 0.2)
     }
 
+    func testRhythmChordBatchTargetingUsesDraftBarlineSegmentsInsideThinLane() throws {
+        var chart = Chart.draft(title: "Rhythm Draft Boundary Chords", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm Draft Boundary Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.52
+        let barlineX = laneFrame.minX + laneFrame.width * CGFloat(barlineFraction)
+        let y = laneFrame.midY
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: barlineX - 46 - chordFrame.minX, y: y - 14 - chordFrame.minY),
+                    CGPoint(x: barlineX - 22 - chordFrame.minX, y: y + 12 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: barlineX + 22 - chordFrame.minX, y: y - 14 - chordFrame.minY),
+                    CGPoint(x: barlineX + 46 - chordFrame.minX, y: y + 12 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        XCTAssertLessThan(measure.chordBandFrame.height, measure.chordWritingFrame.height)
+        XCTAssertTrue(measure.chordWritingFrame.contains(measure.chordBandFrame))
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: barlineFraction),
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            2,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertEqual(result.diagnostics.selectedRoute, "draft_barline_lane")
+        XCTAssertEqual(result.targets.map(\.measureID), [measureID, measureID])
+        XCTAssertLessThan(result.targets[0].laneLocation?.fraction ?? 1, barlineFraction)
+        XCTAssertGreaterThan(result.targets[1].laneLocation?.fraction ?? 0, barlineFraction)
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+    }
+
     func testChordTargetingUsesCommittedSimpleTerminalSpan() throws {
         let fixture = try committedTerminalSpanFixture()
         let measureID = try XCTUnwrap(fixture.measure.sourceMeasureID)

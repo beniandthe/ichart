@@ -1303,7 +1303,7 @@ extension Chart {
                 let boundaryFraction = boundaryFractions[barlineIndex]
                 let localSplitFraction = (boundaryFraction - previousBoundaryFraction)
                     / max(0.0001, 1 - previousBoundaryFraction)
-                guard let newSegmentMeasureID = splitSimpleChordMeasure(
+                guard let newSegmentMeasureID = splitMeasureForDraftBarline(
                     currentSegmentMeasureID,
                     atFraction: localSplitFraction,
                     barlineAfter: .single
@@ -1319,13 +1319,26 @@ extension Chart {
                 renderedBarlineIDs.append(barline.id)
             }
 
-            applyDraftBarlineSegmentWidths(
-                originalMeasureID: measureID,
-                segmentMeasureIDs: segmentMeasureIDsByOriginalMeasureID[measureID] ?? [],
-                boundaryFractions: boundaryFractionsByOriginalMeasureID[measureID] ?? [],
-                sourceGeometryOverride: resolution.sourceGeometryByMeasureID[measureID],
-                sourcePageLayout: sourcePageLayout
-            )
+            let segmentMeasureIDs = segmentMeasureIDsByOriginalMeasureID[measureID] ?? []
+            let committedBoundaryFractions = boundaryFractionsByOriginalMeasureID[measureID] ?? []
+            switch layoutStyle {
+            case .simpleChordSheet:
+                applyDraftBarlineSegmentWidths(
+                    originalMeasureID: measureID,
+                    segmentMeasureIDs: segmentMeasureIDs,
+                    boundaryFractions: committedBoundaryFractions,
+                    sourceGeometryOverride: resolution.sourceGeometryByMeasureID[measureID],
+                    sourcePageLayout: sourcePageLayout
+                )
+            case .rhythmSectionSheet:
+                applyRhythmSectionDraftBarlineSegmentWidths(
+                    segmentMeasureIDs: segmentMeasureIDs,
+                    boundaryFractions: committedBoundaryFractions,
+                    sourceGeometryOverride: resolution.sourceGeometryByMeasureID[measureID]
+                )
+            case .leadSheet:
+                break
+            }
         }
 
         return ChordDraftBarlineCommitPlan(
@@ -1333,6 +1346,29 @@ extension Chart {
             segmentMeasureIDsByOriginalMeasureID: segmentMeasureIDsByOriginalMeasureID,
             boundaryFractionsByOriginalMeasureID: boundaryFractionsByOriginalMeasureID
         )
+    }
+
+    private mutating func splitMeasureForDraftBarline(
+        _ measureID: UUID,
+        atFraction fraction: Double,
+        barlineAfter: BarlineType
+    ) -> UUID? {
+        switch layoutStyle {
+        case .simpleChordSheet:
+            return splitSimpleChordMeasure(
+                measureID,
+                atFraction: fraction,
+                barlineAfter: barlineAfter
+            )
+        case .rhythmSectionSheet:
+            return splitOpenRhythmSectionMeasure(
+                measureID,
+                atFraction: fraction,
+                barlineAfter: barlineAfter
+            )
+        case .leadSheet:
+            return nil
+        }
     }
 
     private func resolvedDraftBarlinesForCommit(
@@ -1497,6 +1533,42 @@ extension Chart {
         }
     }
 
+    private mutating func applyRhythmSectionDraftBarlineSegmentWidths(
+        segmentMeasureIDs: [UUID],
+        boundaryFractions: [Double],
+        sourceGeometryOverride: ChordDraftBarlineSourceGeometry?
+    ) {
+        guard layoutStyle == .rhythmSectionSheet,
+              !segmentMeasureIDs.isEmpty,
+              let sourceGeometry = sourceGeometryOverride else {
+            return
+        }
+
+        let sourceFrame = sourceGeometry.measureFrame
+        let fractionFrame = sourceGeometry.fractionFrame
+        let clampedBoundaryXs = boundaryFractions
+            .map { boundaryFraction in
+                fractionFrame.minX + fractionFrame.width * CGFloat(min(max(boundaryFraction, 0.0001), 0.9999))
+            }
+            .map {
+                min(max($0, sourceFrame.minX + 1), sourceFrame.maxX - 1)
+            }
+            .sorted()
+        let targetRowWidths = zip([sourceFrame.minX] + clampedBoundaryXs, clampedBoundaryXs + [sourceFrame.maxX]).map { lower, upper in
+            max(1, upper - lower)
+        }
+        guard targetRowWidths.count == segmentMeasureIDs.count else {
+            return
+        }
+
+        for (measureID, targetRowWidth) in zip(segmentMeasureIDs, targetRowWidths) {
+            setDraftBarlineSegmentManualLayoutWidth(
+                targetRowWidth,
+                for: measureID
+            )
+        }
+    }
+
     private mutating func setDraftBarlineSegmentManualLayoutWidth(
         _ width: CGFloat,
         for measureID: UUID
@@ -1551,6 +1623,14 @@ extension Chart {
         renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
     ) -> (measureID: UUID, fraction: Double?)? {
+        if layoutStyle == .rhythmSectionSheet,
+           let segmentTarget = chordDraftSegmentTarget(
+            for: draft,
+            barlinePlan: barlinePlan
+           ) {
+            return segmentTarget
+        }
+
         if let renderPageLayout {
             if let laneTarget = chordDraftLaneTarget(
                 for: draft,

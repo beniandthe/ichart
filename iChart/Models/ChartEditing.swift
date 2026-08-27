@@ -1634,6 +1634,69 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func splitOpenRhythmSectionMeasure(
+        _ measureID: UUID,
+        atFraction fraction: Double,
+        barlineAfter: BarlineType = .single
+    ) -> UUID? {
+        guard layoutStyle == .rhythmSectionSheet,
+              let location = measureLocation(id: measureID) else {
+            return nil
+        }
+
+        let flattenedIndex = flattenedMeasureIndex(for: location)
+        var flattenedMeasures = measures
+        guard flattenedMeasures.indices.contains(flattenedIndex) else {
+            return nil
+        }
+
+        let originalMeasure = flattenedMeasures[flattenedIndex]
+        guard originalMeasure.authoringState == .open,
+              originalMeasure.meterOverride == nil,
+              originalMeasure.chordEvents.isEmpty,
+              originalMeasure.rhythmMap == nil,
+              originalMeasure.pitchedNoteEvents.isEmpty,
+              originalMeasure.handwrittenRhythmicNotationData == nil,
+              originalMeasure.handwrittenRhythmicNotationCoordinateSpace == nil,
+              originalMeasure.cueTextIDs.isEmpty,
+              originalMeasure.roadmapObjectIDs.isEmpty,
+              !hasAttachmentsBlockingOpenRhythmSectionSplit(for: originalMeasure.id) else {
+            return nil
+        }
+
+        let splitFraction = min(max(fraction, 0.0001), 0.9999)
+        var leftMeasure = originalMeasure
+        var rightMeasure = originalMeasure
+        rightMeasure.id = UUID()
+        rightMeasure.index = originalMeasure.index + 1
+
+        leftMeasure.authoringState = .committed
+        leftMeasure.barlineAfter = barlineAfter
+        rightMeasure.authoringState = .open
+        rightMeasure.barlineAfter = .single
+
+        if let manualLayoutWidth = originalMeasure.manualLayoutWidth {
+            leftMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(splitFraction)))
+            rightMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(1 - splitFraction)))
+        }
+
+        flattenedMeasures[flattenedIndex] = leftMeasure
+        flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
+        rebuildSystems(using: flattenedMeasures)
+        updatedAt = .now
+        return rightMeasure.id
+    }
+
+    private func hasAttachmentsBlockingOpenRhythmSectionSplit(for measureID: UUID) -> Bool {
+        keyChanges.contains { $0.measureID == measureID }
+            || timeSignatureChanges.contains { $0.afterMeasureID == measureID }
+            || sectionLabels.contains { $0.anchorMeasureID == measureID }
+            || cueTexts.contains { $0.anchorMeasureID == measureID }
+            || roadmapObjects.contains { $0.startMeasureID == measureID || $0.endMeasureID == measureID }
+            || freehandSymbols.contains { $0.anchorMeasureID == measureID }
+    }
+
+    @discardableResult
     mutating func positionOpenMeasure(after measureID: UUID) -> UUID? {
         guard let targetLocation = measureLocation(id: measureID) else {
             return nil

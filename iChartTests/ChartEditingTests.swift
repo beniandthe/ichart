@@ -3027,6 +3027,179 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(rightMeasure.chordEvents.first?.manualLaneFraction), 0.6, accuracy: 0.0001)
     }
 
+    func testSplitOpenRhythmSectionMeasureCreatesCommittedBoundaryAndOpenRightMeasure() throws {
+        var chart = Chart.draft(title: "Split Rhythm Lane", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Split Rhythm Lane",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        _ = chart.setMeasureManualLayoutWidth(300, for: measureID)
+
+        let rightMeasureID = try XCTUnwrap(chart.splitOpenRhythmSectionMeasure(measureID, atFraction: 0.4))
+
+        let leftMeasure = try XCTUnwrap(chart.measure(id: measureID))
+        let rightMeasure = try XCTUnwrap(chart.measure(id: rightMeasureID))
+
+        XCTAssertEqual(chart.measures.count, 2)
+        XCTAssertEqual(leftMeasure.authoringState, .committed)
+        XCTAssertEqual(rightMeasure.authoringState, .open)
+        XCTAssertEqual(leftMeasure.barlineAfter, .single)
+        XCTAssertEqual(leftMeasure.manualLayoutWidth, 120)
+        XCTAssertEqual(rightMeasure.manualLayoutWidth, 180)
+        XCTAssertTrue(leftMeasure.chordEvents.isEmpty)
+        XCTAssertTrue(rightMeasure.chordEvents.isEmpty)
+        XCTAssertEqual(leftMeasure.beatGridPreset, .eighthSubdivision)
+        XCTAssertEqual(rightMeasure.beatGridPreset, .eighthSubdivision)
+    }
+
+    func testSplitOpenRhythmSectionMeasureRejectsCommittedOrContentfulMeasures() throws {
+        var chart = Chart.draft(title: "Guard Rhythm Split", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Guard Rhythm Split",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 2,
+            clef: .bass
+        )
+        let committedMeasureID = try XCTUnwrap(chart.measures.first?.id)
+        let openMeasureID = try XCTUnwrap(chart.measures.last?.id)
+        XCTAssertTrue(
+            chart.appendRecognizedChord(
+                ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil),
+                rawInput: "C",
+                to: openMeasureID,
+                atFraction: 0.2
+            )
+        )
+
+        XCTAssertNil(chart.splitOpenRhythmSectionMeasure(committedMeasureID, atFraction: 0.5))
+        XCTAssertNil(chart.splitOpenRhythmSectionMeasure(openMeasureID, atFraction: 0.5))
+        XCTAssertEqual(chart.measures.count, 2)
+    }
+
+    func testSplitOpenRhythmSectionMeasureRejectsAnchoredObjectsThatWouldNeedRedistribution() throws {
+        let cases: [(name: String, mutate: (inout Chart, UUID, UUID) -> Void)] = [
+            (
+                "meter override",
+                { chart, _, _ in
+                    chart.systems[0].measures[0].meterOverride = Meter(numerator: 3, denominator: 4)
+                }
+            ),
+            (
+                "pitched notes",
+                { chart, _, _ in
+                    chart.systems[0].measures[0].pitchedNoteEvents = [
+                        LeadSheetPitchedNoteEvent(
+                            rhythmSlotIndex: 0,
+                            staffPosition: LeadSheetStaffPosition(staffStep: 4)
+                        )
+                    ]
+                }
+            ),
+            (
+                "rhythm coordinate space",
+                { chart, _, _ in
+                    chart.systems[0].measures[0].handwrittenRhythmicNotationCoordinateSpace =
+                        PersistentInkCoordinateSpace(width: 320, height: 120)
+                }
+            ),
+            (
+                "section label",
+                { chart, measureID, systemID in
+                    chart.sectionLabels.append(
+                        SectionLabel(
+                            id: UUID(),
+                            text: "A",
+                            type: .rehearsalMark,
+                            anchorMeasureID: measureID,
+                            anchorSystemID: systemID,
+                            rawInput: "A"
+                        )
+                    )
+                }
+            ),
+            (
+                "key change",
+                { chart, measureID, _ in
+                    chart.keyChanges.append(KeyChange(measureID: measureID, key: .cMajor))
+                }
+            ),
+            (
+                "time signature change",
+                { chart, measureID, _ in
+                    chart.timeSignatureChanges.append(
+                        TimeSignatureChange(
+                            id: UUID(),
+                            afterMeasureID: measureID,
+                            meter: Meter(numerator: 3, denominator: 4)
+                        )
+                    )
+                }
+            ),
+            (
+                "roadmap object",
+                { chart, measureID, _ in
+                    chart.roadmapObjects.append(
+                        RoadmapObject(
+                            id: UUID(),
+                            type: .segno,
+                            startMeasureID: measureID,
+                            endMeasureID: nil,
+                            anchorSystemID: nil,
+                            placement: .snappedTop,
+                            displayText: nil,
+                            count: nil,
+                            linkedTargetID: nil,
+                            rawInput: nil
+                        )
+                    )
+                }
+            ),
+            (
+                "freehand symbol",
+                { chart, measureID, _ in
+                    chart.freehandSymbols.append(
+                        FreehandSymbol(
+                            id: UUID(),
+                            anchorMeasureID: measureID,
+                            lane: .belowMeasure,
+                            normalizedFrame: FreehandSymbolNormalizedFrame(x: 0.1, y: 0.1, width: 0.2, height: 0.2),
+                            drawingData: Data([0x01]),
+                            zIndex: 0
+                        )
+                    )
+                }
+            )
+        ]
+
+        for testCase in cases {
+            var chart = Chart.draft(title: "Guard \(testCase.name)", layoutStyle: .rhythmSectionSheet)
+            chart.completeInitialSetup(
+                title: "Guard \(testCase.name)",
+                key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4),
+                staffStyle: .fiveLine,
+                startingMeasureCount: 1,
+                clef: .bass
+            )
+            let measureID = try XCTUnwrap(chart.measures.first?.id)
+            let systemID = try XCTUnwrap(chart.systems.first?.id)
+            testCase.mutate(&chart, measureID, systemID)
+
+            XCTAssertNil(
+                chart.splitOpenRhythmSectionMeasure(measureID, atFraction: 0.5),
+                "Expected split to refuse \(testCase.name)"
+            )
+            XCTAssertEqual(chart.measures.count, 1)
+        }
+    }
+
     func testResolvedAuthoringMeasurePreservesValidPreferredMeasure() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(
