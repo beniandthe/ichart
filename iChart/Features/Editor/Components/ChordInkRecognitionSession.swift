@@ -18,6 +18,7 @@ struct ChordInkRecognitionSessionRequest {
 struct ChordInkRecognitionProposalPayload {
     var requestID: UUID
     var result: ChordInkRecognitionResult
+    var strokes: [InkStroke]
     var drawingData: Data
     var target: (measureID: UUID, fraction: Double)
     var visualOrder: Double? = nil
@@ -53,6 +54,7 @@ final class ChordInkRecognitionSession {
             let payload = ChordInkRecognitionProposalPayload(
                 requestID: request.requestID,
                 result: result,
+                strokes: request.strokes,
                 drawingData: request.drawingData,
                 target: request.target,
                 visualOrder: request.visualOrder,
@@ -96,6 +98,7 @@ final class ChordInkRecognitionSession {
                 return ChordInkRecognitionProposalPayload(
                     requestID: request.requestID,
                     result: result,
+                    strokes: request.strokes,
                     drawingData: request.drawingData,
                     target: request.target,
                     visualOrder: request.visualOrder,

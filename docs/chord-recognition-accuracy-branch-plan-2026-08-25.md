@@ -173,6 +173,76 @@ Current gaps against the course-correction contract:
   - trust/no-read category
 - Do not log raw chord text, drawing payloads, chart title, user names, email, or support data.
 
+### Step 5A: Replayable Recognition Trace Architecture
+
+- Promote physical-device diagnostic JSONL into a pure Swift recognition trace model that can be loaded and checked without the editor UI.
+- Build trace passes from targeting, recognition payload, and preview-replacement events.
+- Preserve the distinction between grouping order and recognizer replay order in the trace.
+- Add invariants before more glyph work:
+  - a later batch pass must not drop a previous renderable read for the same target.
+  - a target that was readable in single-target mode must not lose all supported candidates when replayed inside a batch with the same stroke fingerprint.
+  - single-target and batch-target glyph evidence should be comparable for the same target.
+  - unresolved preview replacements must be explicit evidence, not inferred from screenshots.
+- Add warning-level observations for close-race volatility before converting any of it into scoring changes:
+  - same measure/system/target slot, overlapping supported candidates, both passes held as `confirm`, and the selected primary candidate changes.
+  - treat root-descriptor flips such as `B/F#` -> `D/F#` as evidence to inspect root stability, not as proof that the preview should be trusted.
+- Park erase-as-rejection as cautionary future work unless explicitly reopened after trace-only proof:
+  - if a registered draft preview is erased before Render Chords, treat that as local negative evidence for the exact `(lane/system, anchor bucket, stroke fingerprint, candidate)` attempt.
+  - do not show the same candidate again for the same erased fingerprint and spot unless the ink materially changes.
+  - do not make this global correction memory; the same chord written elsewhere or with new ink remains eligible.
+  - erase-to-empty must clear preview state before scheduler guards or nil-drawing exits can leave stale preview text behind.
+  - do not implement this as part of the current push without a separate trace-only safety pass.
+- Convert validated root-volatility evidence into trust-policy gates before any more glyph scoring:
+  - if the accepted rooted chord's first glyph column has a close or stronger alternate `A-G` root, hold the result as `confirm` even when whole-chord candidate score is decisive.
+  - keep clear accepted root evidence eligible for `trusted` so this does not become a blanket slash-chord or D-root suppression rule.
+- For physical-device misreads, capture replayable `InkStroke` points in DEBUG diagnostics before tuning glyph scores. Bounds, screenshots, and candidate summaries can identify the failure class, but they are not sufficient evidence for D/B root-shape scoring changes.
+- Use synthetic trace tests first, then promote real iPad traces into sanitized fixtures only when they catch a transferable recognizer or targeting regression. The fixture label must come from the user's stated intended chord, not from the recognizer's wrong primary candidate.
+- Keep this as validation plumbing only: no chord lane UI, render commit, edit mode, barline, ink persistence, sync, measure resize, OCR/Scribble, or Apple stroke-recognizer changes.
+
+### Step 5B: Grouping Authority Guardrail
+
+- Keep sequential grouping owned by an independent root-start detector, not by composer/theory role state alone.
+- Use music-theory role context to support semantic candidate composition, glyph boosts, and trust decisions; do not let it suppress a physically detached A-G root just because that glyph also resembles a suffix or accidental.
+- Route priority must preserve root-start authority before broad measure buckets: `draft_barline_lane`, then `lane_root_sequence`, then `measure_lane`, then `gap_fallback`.
+- When `lane_root_sequence` proves multiple detached roots, do not run the old non-barlined fragment-collapse policy over those groups; root-boundary proof is the guardrail against retroactive preview rewrites.
+- Group-start evidence must combine:
+  - A-G root candidate evidence.
+  - root-sized glyph geometry.
+  - horizontal detachment from the active group.
+  - slash-bass exception so bass roots after `/` stay inside the chord.
+  - suffix/extension pressure checks so attached `b`, `m`, `7`, `9`, `11`, `13`, alteration marks, and parentheses do not become fake roots.
+- Any future change to grouping must include tests for adjacent base roots that are also suffix lookalikes, especially `B C` avoiding `Bb` and `F G` avoiding `F-`.
+- If physical iPad traces show base roots collapsing after later ink is added, classify the failure at grouping/targeting before tuning glyph scores.
+- Target absorption is a hard grouping failure: if a later detached root-sized `A-G` glyph is appended to a previously readable target and changes that earlier target's chord identity, the trace layer must flag it before any glyph score tuning is considered.
+- The 2026-08-26 `C D C D` iPad failure is the active verification case. Do not claim it fixed until a signed physical-device build emits `root-construction-targeting-v4-2026-08-26`, selects `lane_root_sequence`, reports four lane sequential clusters, and replays without `.targetAbsorbedPreviouslyReadableRead`.
+- `root-construction-targeting-v4-2026-08-26` adds two non-UI recognition safeguards from the failed v3 iPad trace: glyph scoring inside the sequential grouper preserves original writing order, and detached root-construction fragments get a short lookahead before they can be appended to the active chord group.
+- 2026-08-26 v4 iPad result: the `C D C D` pass satisfied the physical acceptance gate. The pulled trace at `/tmp/ichart-v4-device-pass-20260826-160530/chord-draft-preview-debug.jsonl` ended with `lane_root_sequence`, `laneSequentialClusterCount = 4`, stable preview replacements `C->C,D->D,C->C,nil->D`, and the opt-in trace stability test passed with 0 failures.
+- 2026-08-26 broader v4 iPad result: the pulled trace at `/tmp/ichart-full-device-pass-20260826-1611/chord-draft-preview-debug.jsonl` replayed with zero trace stability failures. The captured A-G sweep stayed stable, `D/F#` read separately from the `B/F#` control, and no previous root collapsed into an accidental after later ink. Remaining concern is no-read/ambiguous complex-form accuracy, not preview replacement or target absorption.
+- 2026-08-26 labeled lane 2/lane 3 follow-up: user labels isolated two remaining first-write failures from that trace: `Db` briefly lost a tight flat-vs-diminished race to `D°`, and `D-7` initially had raw `D-7` but no supported accepted read because the loose D root ranked below weak suffix/lookalike evidence. Both were promoted into replayable fixtures. The accepted source fix is glyph-local: demote `°`/`•` only for open descending flat-loop evidence, and add a deliberately weak loose single-bowl `D` proof path. A broader generic `isFlatLike` demotion failed the full archive and is explicitly rejected.
+- 2026-08-26 current trace and A-level telemetry path: the pulled trace at `/tmp/ichart-current-trace-20260826-170053/chord-draft-preview-debug.jsonl` replayed with zero trace stability failures. No previous renderable preview text changed into a different renderable text, `Db`/`D-7`/`D/F#` settled as recognized reads, `B/F#` remained a separate confirmation-gated control, and the final `A B C D E F G` sweep stayed stable with `D` conservative/confirm. This is enough to keep the branch at a B+ architecture marker, not an A-level accuracy claim. The final A-level addition is aggregate real-user handwriting telemetry: allow `chord.preview_updated` and related preview lifecycle events through both app and Supabase ingest allowlists, record only aggregate quality counters, and continue promoting labeled wrong-read/no-read clusters into fixtures when real traces show repeatable families.
+
+### Cautionary Future: Erase-As-Rejection Preview Feedback
+
+Status: parked. This is not part of the current branch implementation plan unless explicitly reopened after trace-only evidence shows it will not reduce trust.
+
+- Build a session-local rejection ledger for draft chord previews only.
+- Record rejection when all of these are true:
+  - a target had a registered preview candidate.
+  - the ink for that target is erased before Render Chords.
+  - the target can be matched to the erased lane/system/anchor bucket and stroke fingerprint.
+- Use the ledger after recognition but before preview replacement:
+  - exact same candidate plus exact same erased fingerprint/spot is suppressed or downgraded to confirm/no-read.
+  - materially changed ink, changed anchor, or same chord elsewhere is not suppressed.
+  - ledger entries clear on Discard, Render Chords, chart/editor reset, or target identity change.
+- Add trace evidence for rejection decisions in DEBUG diagnostics. The trace should identify the suppression stage and hashed fingerprint without adding production raw drawing telemetry.
+- Add tests before implementation:
+  - erase-to-empty clears stale preview text.
+  - erased wrong preview is not re-shown for the same fingerprint/spot.
+  - rewritten materially different ink can preview again.
+  - same chord text at another anchor is not blocked.
+  - Render Chords remains the only chart mutation boundary.
+- Physical iPad acceptance: produce a wrong-preview case, erase it, confirm preview clears and does not reappear for the erased ink spot, then rewrite with changed ink and confirm recognition can recover.
+
 ### Step 6: Simulator And Physical-iPad Validation
 
 - Simulator/current build cases:

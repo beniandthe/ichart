@@ -110,6 +110,36 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testDeviceDFlatDiminishedRacePrefersRootAccidentalButRequiresConfirmation() throws {
+        let fixture = try InkFixtureLoader.load("DFlatDiminishedRaceDevice01", file: #filePath)
+        let result = recognizer.recognize(strokes: fixture.strokes)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let rankedDisplayTexts = ChordInkRecognitionPolicy
+            .rankedSupportedScores(for: result)
+            .compactMap(\.displayText)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), scores: \(result.candidateScores.prefix(8)), decision: \(decision)"
+
+        XCTAssertEqual(result.match?.displayText, "Db", debugSummary)
+        XCTAssertEqual(decision.acceptedText, "Db", debugSummary)
+        XCTAssertEqual(decision.action, .confirm, debugSummary)
+        XCTAssertTrue(rankedDisplayTexts.contains("D°"), debugSummary)
+    }
+
+    func testDeviceInitialDMinorSevenNoReadBecomesConservativeSupportedRead() throws {
+        let fixture = try InkFixtureLoader.load("DMinor7InitialNoReadDevice01", file: #filePath)
+        let result = recognizer.recognize(strokes: fixture.strokes)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let rankedDisplayTexts = ChordInkRecognitionPolicy
+            .rankedSupportedScores(for: result)
+            .compactMap(\.displayText)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) }), scores: \(result.candidateScores.prefix(8)), decision: \(decision)"
+
+        XCTAssertEqual(result.match?.displayText, "D-7", debugSummary)
+        XCTAssertEqual(decision.acceptedText, "D-7", debugSummary)
+        XCTAssertEqual(decision.action, .confirm, debugSummary)
+        XCTAssertEqual(rankedDisplayTexts.first, "D-7", debugSummary)
+    }
+
     func testRecognizesDominantSharpFiveInkFixtures() throws {
         let fixtures = try allFixtures()
             .filter { $0.expectedDisplayText.contains("(#5)") }
@@ -664,6 +694,74 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         XCTAssertEqual(decision.action, .confirm)
         XCTAssertEqual(decision.acceptedText, "B7")
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
+    func testResolutionPolicyPromptsWhenRootGlyphRaceIsCloseDespiteDecisiveChordScore() throws {
+        let result = recognitionResult(
+            matchText: "D/F#",
+            confidence: 4.960,
+            scores: [
+                candidateScore("D/F#", confidence: 4.960),
+                candidateScore("B/F#", confidence: 4.410)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("D", confidence: 0.718),
+                    glyph("B", confidence: 0.748),
+                    glyph("F", confidence: 0.610)
+                ],
+                [
+                    glyph("/", confidence: 0.980)
+                ],
+                [
+                    glyph("F", confidence: 0.960)
+                ],
+                [
+                    glyph("#", confidence: 0.950)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "D/F#")
+        XCTAssertTrue(decision.isCloseRace)
+        XCTAssertEqual(decision.competingCandidateText, "B")
+        XCTAssertEqual(try XCTUnwrap(decision.confidenceGap), 0.030, accuracy: 0.0001)
+    }
+
+    func testResolutionPolicyTrustsWhenAcceptedRootGlyphIsClearDespiteAlternateChordScore() throws {
+        let result = recognitionResult(
+            matchText: "D/F#",
+            confidence: 4.960,
+            scores: [
+                candidateScore("D/F#", confidence: 4.960),
+                candidateScore("B/F#", confidence: 4.410)
+            ],
+            glyphCandidates: [
+                [
+                    glyph("D", confidence: 0.910),
+                    glyph("B", confidence: 0.748),
+                    glyph("F", confidence: 0.610)
+                ],
+                [
+                    glyph("/", confidence: 0.980)
+                ],
+                [
+                    glyph("F", confidence: 0.960)
+                ],
+                [
+                    glyph("#", confidence: 0.950)
+                ]
+            ]
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .trusted)
+        XCTAssertEqual(decision.acceptedText, "D/F#")
         XCTAssertFalse(decision.isCloseRace)
     }
 

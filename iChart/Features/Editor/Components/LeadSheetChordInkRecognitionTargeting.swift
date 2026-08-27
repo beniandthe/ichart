@@ -13,6 +13,11 @@ struct LeadSheetChordInkRecognitionBatchTarget {
     var drawing: PKDrawing
 }
 
+struct LeadSheetChordInkRecognitionBatchTargetingResult {
+    var targets: [LeadSheetChordInkRecognitionBatchTarget]
+    var diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics
+}
+
 private struct DraftBarlineLaneClusterKey: Hashable {
     var systemIndex: Int
     var segmentIndex: Int
@@ -27,6 +32,12 @@ private struct MeasureLaneStrokeTarget {
     var originalIndex: Int
     var stroke: InkStroke
     var key: MeasureLaneClusterKey
+}
+
+private struct SystemLaneStrokeTarget {
+    var originalIndex: Int
+    var stroke: InkStroke
+    var systemIndex: Int
 }
 
 enum LeadSheetChordInkRecognitionTargeting {
@@ -56,8 +67,32 @@ enum LeadSheetChordInkRecognitionTargeting {
         pageLayout: LeadSheetPageLayout?,
         draftBarlines: [DraftBarline] = []
     ) -> [LeadSheetChordInkRecognitionBatchTarget] {
+        batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout,
+            draftBarlines: draftBarlines
+        ).targets
+    }
+
+    static func batchTargetingResult(
+        for drawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?,
+        draftBarlines: [DraftBarline] = []
+    ) -> LeadSheetChordInkRecognitionBatchTargetingResult {
         guard let pageLayout else {
-            return []
+            return LeadSheetChordInkRecognitionBatchTargetingResult(
+                targets: [],
+                diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics(
+                    selectedRoute: "no_page_layout",
+                    draftBarlineClusterCount: 0,
+                    laneSequentialClusterCount: 0,
+                    measureLaneClusterCount: 0,
+                    fallbackClusterCount: 0,
+                    selectedClusterCount: 0
+                )
+            )
         }
 
         let inkStrokes = PencilKitInkAdapter.inkStrokes(from: drawing)
@@ -67,28 +102,54 @@ enum LeadSheetChordInkRecognitionTargeting {
             pageLayout: pageLayout,
             draftBarlines: draftBarlines
         )
+        let laneSequentialClusters = systemLaneSequentialClusters(
+            for: inkStrokes,
+            chordFrame: chordFrame,
+            pageLayout: pageLayout
+        )
         let measureLaneClusters = measureLaneClusters(
             for: inkStrokes,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
+        let fallbackClusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
         let clusters: [ChordInkBatchCluster]
         let requiresFragmentCollapseCheck: Bool
+        let selectedRoute: String
         if draftBarlineClusters.count > 1,
            draftBarlineClusters.count <= maximumBatchTargetCount {
             clusters = draftBarlineClusters
             requiresFragmentCollapseCheck = false
+            selectedRoute = "draft_barline_lane"
+        } else if laneSequentialClusters.count > 1,
+                  laneSequentialClusters.count <= maximumBatchTargetCount {
+            clusters = laneSequentialClusters
+            requiresFragmentCollapseCheck = false
+            selectedRoute = "lane_root_sequence"
         } else if measureLaneClusters.count > 1,
                   measureLaneClusters.count <= maximumBatchTargetCount {
             clusters = measureLaneClusters
             requiresFragmentCollapseCheck = true
+            selectedRoute = "measure_lane"
         } else {
-            clusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
+            clusters = fallbackClusters
             requiresFragmentCollapseCheck = true
+            selectedRoute = "gap_fallback"
         }
+        let emptyResult = LeadSheetChordInkRecognitionBatchTargetingResult(
+            targets: [],
+            diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics(
+                selectedRoute: selectedRoute,
+                draftBarlineClusterCount: draftBarlineClusters.count,
+                laneSequentialClusterCount: laneSequentialClusters.count,
+                measureLaneClusterCount: measureLaneClusters.count,
+                fallbackClusterCount: fallbackClusters.count,
+                selectedClusterCount: clusters.count
+            )
+        )
         guard clusters.count > 1,
               clusters.count <= maximumBatchTargetCount else {
-            return []
+            return emptyResult
         }
 
         let targets: [LeadSheetChordInkRecognitionBatchTarget] = clusters.compactMap { cluster in
@@ -96,7 +157,7 @@ enum LeadSheetChordInkRecognitionTargeting {
                 return nil
             }
 
-            let strokePairs = cluster.strokeIndices.compactMap { index -> (PKStroke, InkStroke)? in
+            let strokePairs = cluster.strokeIndices.sorted().compactMap { index -> (PKStroke, InkStroke)? in
                 guard drawing.strokes.indices.contains(index),
                       inkStrokes.indices.contains(index) else {
                     return nil
@@ -136,10 +197,30 @@ enum LeadSheetChordInkRecognitionTargeting {
             clusters: clusters,
             targets: targets
            ) {
-            return []
+            return LeadSheetChordInkRecognitionBatchTargetingResult(
+                targets: [],
+                diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics(
+                    selectedRoute: selectedRoute + "_collapsed",
+                    draftBarlineClusterCount: draftBarlineClusters.count,
+                    laneSequentialClusterCount: laneSequentialClusters.count,
+                    measureLaneClusterCount: measureLaneClusters.count,
+                    fallbackClusterCount: fallbackClusters.count,
+                    selectedClusterCount: clusters.count
+                )
+            )
         }
 
-        return targets
+        return LeadSheetChordInkRecognitionBatchTargetingResult(
+            targets: targets,
+            diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics(
+                selectedRoute: selectedRoute,
+                draftBarlineClusterCount: draftBarlineClusters.count,
+                laneSequentialClusterCount: laneSequentialClusters.count,
+                measureLaneClusterCount: measureLaneClusters.count,
+                fallbackClusterCount: fallbackClusters.count,
+                selectedClusterCount: clusters.count
+            )
+        )
     }
 
     private static func draftBarlineLaneClusters(
@@ -232,9 +313,7 @@ enum LeadSheetChordInkRecognitionTargeting {
         )
         let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
         if sequentialClusters.count > 1 {
-            return ChordLaneRawBatchSplitPolicy.shouldCollapseLaneSegmentSplit(clusters: sequentialClusters)
-                ? [wholeBucketCluster]
-                : sequentialClusters
+            return sequentialClusters
         }
 
         let clusters = ChordLaneDraftSegmentClusterer.clusters(for: orderedStrokes.map(\.stroke))
@@ -585,6 +664,71 @@ enum LeadSheetChordInkRecognitionTargeting {
                 }
 
                 return lhs.key.systemIndex < rhs.key.systemIndex
+            }
+            .map(\.cluster)
+            .filter(\.isUsable)
+    }
+
+    private static func systemLaneSequentialClusters(
+        for strokes: [InkStroke],
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> [ChordInkBatchCluster] {
+        let usableStrokes = strokes.enumerated()
+            .filter { _, stroke in
+                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+            }
+        let laneStrokeTargets = usableStrokes.compactMap { index, stroke -> SystemLaneStrokeTarget? in
+            let strokeBoundsInView = stroke.bounds.cgRect.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
+            guard let laneMatch = laneMatch(
+                for: strokeBoundsInView,
+                in: pageLayout
+            ) else {
+                return nil
+            }
+
+            return SystemLaneStrokeTarget(
+                originalIndex: index,
+                stroke: stroke,
+                systemIndex: laneMatch.systemIndex
+            )
+        }
+
+        guard laneStrokeTargets.count == usableStrokes.count,
+              laneStrokeTargets.count > 1 else {
+            return []
+        }
+
+        let groupedTargets = Dictionary(grouping: laneStrokeTargets, by: \.systemIndex)
+        let clusters = groupedTargets.flatMap { systemIndex, group -> [(systemIndex: Int, cluster: ChordInkBatchCluster)] in
+            let orderedStrokes = group
+                .sorted { lhs, rhs in
+                    if lhs.stroke.bounds.minX == rhs.stroke.bounds.minX {
+                        return lhs.originalIndex < rhs.originalIndex
+                    }
+
+                    return lhs.stroke.bounds.minX < rhs.stroke.bounds.minX
+                }
+                .map { target in
+                    (index: target.originalIndex, stroke: target.stroke)
+                }
+            let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
+            guard sequentialClusters.count > 1 else {
+                return []
+            }
+
+            return sequentialClusters.map { cluster in
+                (systemIndex: systemIndex, cluster: cluster)
+            }
+        }
+
+        return clusters
+            .sorted { lhs, rhs in
+                if lhs.systemIndex == rhs.systemIndex {
+                    return lhs.cluster.bounds.minX < rhs.cluster.bounds.minX
+                }
+
+                return lhs.systemIndex < rhs.systemIndex
             }
             .map(\.cluster)
             .filter(\.isUsable)

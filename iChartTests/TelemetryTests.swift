@@ -12,10 +12,21 @@ final class TelemetryTests: XCTestCase {
             "stroke_color_median_luminance": .double(0.05999),
             "canvas_override_user_interface_style": .string("light"),
             "canvas_drawing_policy": .string("any_input"),
+            "close_race_count": .int(1),
+            "cluster_count": .int(4),
+            "confirm_count": .int(2),
+            "draft_count": .int(3),
+            "generated_sequence_limit_count": .int(0),
+            "matched_count": .int(2),
+            "no_read_count": .int(1),
+            "raw_candidate_count": .int(9),
+            "recognition_target_count": .int(3),
             "source_coordinate_width": .double(1366),
             "source_coordinate_height": .double(1024),
             "target_coordinate_width": .double(1024),
             "target_coordinate_height": .double(1366),
+            "trusted_count": .int(1),
+            "unresolved_count": .int(1),
             "live_canvas_light_trait_guard_enabled": .bool(true),
             "tool_ink_type": .string("pen"),
             "tool_is_inking": .bool(true),
@@ -32,10 +43,21 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(sanitized["stroke_color_median_luminance"], .double(0.06))
         XCTAssertEqual(sanitized["canvas_override_user_interface_style"], .string("light"))
         XCTAssertEqual(sanitized["canvas_drawing_policy"], .string("any_input"))
+        XCTAssertEqual(sanitized["close_race_count"], .int(1))
+        XCTAssertEqual(sanitized["cluster_count"], .int(4))
+        XCTAssertEqual(sanitized["confirm_count"], .int(2))
+        XCTAssertEqual(sanitized["draft_count"], .int(3))
+        XCTAssertEqual(sanitized["generated_sequence_limit_count"], .int(0))
+        XCTAssertEqual(sanitized["matched_count"], .int(2))
+        XCTAssertEqual(sanitized["no_read_count"], .int(1))
+        XCTAssertEqual(sanitized["raw_candidate_count"], .int(9))
+        XCTAssertEqual(sanitized["recognition_target_count"], .int(3))
         XCTAssertEqual(sanitized["source_coordinate_width"], .double(1366))
         XCTAssertEqual(sanitized["source_coordinate_height"], .double(1024))
         XCTAssertEqual(sanitized["target_coordinate_width"], .double(1024))
         XCTAssertEqual(sanitized["target_coordinate_height"], .double(1366))
+        XCTAssertEqual(sanitized["trusted_count"], .int(1))
+        XCTAssertEqual(sanitized["unresolved_count"], .int(1))
         XCTAssertEqual(sanitized["live_canvas_light_trait_guard_enabled"], .bool(true))
         XCTAssertEqual(sanitized["tool_ink_type"], .string("pen"))
         XCTAssertEqual(sanitized["tool_is_inking"], .bool(true))

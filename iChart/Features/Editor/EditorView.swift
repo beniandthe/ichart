@@ -2861,6 +2861,114 @@ struct EditorView: View {
         return properties
     }
 
+    private static func chordDraftPreviewTelemetryProperties(
+        payloads: [ChordInkRecognitionProposalPayload],
+        inputs: [ChordInkDraftInput],
+        updatedState: ChordPreviewState,
+        layoutStyle: String
+    ) -> IChartTelemetryProperties {
+        let decisions = payloads.map { ChordInkRecognitionPolicy.decision(for: $0.result) }
+        let matchedCount = payloads.filter { $0.result.match != nil }.count
+        let noReadCount = payloads.count - matchedCount
+        let trustedCount = decisions.filter { $0.action == .trusted && $0.acceptedText != nil }.count
+        let confirmCount = decisions.filter { $0.action == .confirm }.count
+        let closeRaceCount = decisions.filter(\.isCloseRace).count
+        let generatedSequenceLimitCount = payloads.filter {
+            $0.result.metrics.compositionMetrics.hitGeneratedSequenceLimit
+        }.count
+        let matchedConfidences = payloads.compactMap { payload -> Double? in
+            payload.result.match == nil ? nil : payload.result.confidence
+        }
+        let recognitionMilliseconds = payloads.reduce(0) { partialResult, payload in
+            partialResult + payload.timing.recognitionMilliseconds
+        }
+
+        var properties: IChartTelemetryProperties = [
+            "batch_size": .int(payloads.count),
+            "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
+            "close_race_count": .int(closeRaceCount),
+            "cluster_count": .int(payloads.reduce(0) { $0 + $1.result.metrics.clusterCount }),
+            "confirm_count": .int(confirmCount),
+            "decision": .string(previewDecisionSummary(
+                totalCount: payloads.count,
+                trustedCount: trustedCount,
+                confirmCount: confirmCount,
+                noReadCount: noReadCount
+            )),
+            "draft_count": .int(updatedState.draftChords.count),
+            "flow": .string(ChordInkRecognitionFlow.draftPreview.telemetryValue),
+            "generated_sequence_limit_count": .int(generatedSequenceLimitCount),
+            "layout_style": .string(layoutStyle),
+            "matched_count": .int(matchedCount),
+            "no_read_count": .int(noReadCount),
+            "raw_candidate_count": .int(payloads.reduce(0) { $0 + $1.result.rawCandidates.count }),
+            "recognition_target_count": .int(payloads.count),
+            "result": .string(previewResultSummary(
+                totalCount: payloads.count,
+                matchedCount: matchedCount,
+                noReadCount: noReadCount
+            )),
+            "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
+            "trusted_count": .int(trustedCount),
+            "unresolved_count": .int(updatedState.unresolvedChordCount)
+        ]
+
+        if recognitionMilliseconds > 0 {
+            properties["recognition_ms"] = .double(recognitionMilliseconds)
+        }
+
+        if let minimumMatchedConfidence = matchedConfidences.min() {
+            properties["confidence_bucket"] = .string(confidenceBucket(minimumMatchedConfidence))
+        }
+
+        return properties
+    }
+
+    private static func previewDecisionSummary(
+        totalCount: Int,
+        trustedCount: Int,
+        confirmCount: Int,
+        noReadCount: Int
+    ) -> String {
+        guard totalCount > 0 else {
+            return "none"
+        }
+
+        if noReadCount == totalCount {
+            return "no_read"
+        }
+
+        if trustedCount == totalCount {
+            return "trusted"
+        }
+
+        if confirmCount == totalCount {
+            return "confirm"
+        }
+
+        return "mixed"
+    }
+
+    private static func previewResultSummary(
+        totalCount: Int,
+        matchedCount: Int,
+        noReadCount: Int
+    ) -> String {
+        guard totalCount > 0 else {
+            return "empty"
+        }
+
+        if matchedCount == totalCount {
+            return "matched"
+        }
+
+        if noReadCount == totalCount {
+            return "unmatched"
+        }
+
+        return "partial"
+    }
+
     private static func confidenceBucket(_ confidence: Double) -> String {
         switch confidence {
         case ..<1:
@@ -4253,19 +4361,24 @@ struct EditorView: View {
             )
         }
 
+        let previousPreviewState = chordPreviewState
         var updatedPreviewState = chordPreviewState
         updatedPreviewState.replaceDraftChords(with: inputs)
+        ChordDraftPreviewDeviceDiagnostics.recordPreviewReplacement(
+            previousState: previousPreviewState,
+            inputs: inputs,
+            updatedState: updatedPreviewState
+        )
         chordPreviewState = updatedPreviewState
 
         IChartTelemetry.record(
             "chord.preview_updated",
-            properties: [
-                "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
-                "draft_count": .int(updatedPreviewState.draftChords.count),
-                "unresolved_count": .int(updatedPreviewState.unresolvedChordCount),
-                "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
-                "layout_style": .string(chart.layoutStyle.rawValue)
-            ]
+            properties: Self.chordDraftPreviewTelemetryProperties(
+                payloads: payloads,
+                inputs: inputs,
+                updatedState: updatedPreviewState,
+                layoutStyle: chart.layoutStyle.rawValue
+            )
         )
     }
 

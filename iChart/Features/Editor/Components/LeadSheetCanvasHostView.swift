@@ -124,6 +124,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> LeadSheetCanvasUIKitView {
         ChordLaneLocalBreadcrumbs.reset()
+        ChordDraftPreviewDeviceDiagnostics.reset()
         ChordLaneLocalBreadcrumbs.record(
             "make_canvas",
             fields: [
@@ -5049,15 +5050,27 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        let batchTargets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+        let batchTargetingResult = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
             for: recognitionDrawing,
             chordFrame: chordFrame,
             pageLayout: pageLayout,
             draftBarlines: flow == .draftPreview ? barlineRecognition.barlines : []
         )
+        let batchTargets = batchTargetingResult.targets
         let boundedBatchTargets = ChordInkDraftPreviewRecognitionLoadPolicy.boundedBatchTargets(
             batchTargets,
             flow: flow
+        )
+        ChordDraftPreviewDeviceDiagnostics.recordTargeting(
+            flow: flow,
+            sourceStrokeCount: sourceStrokes.count,
+            recognitionStrokeCount: recognitionDrawing.strokes.count,
+            visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
+            ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
+            barlineCount: barlineRecognition.barlines.count,
+            rawBatchTargets: batchTargets,
+            boundedBatchTargets: boundedBatchTargets,
+            targetingDiagnostics: batchTargetingResult.diagnostics
         )
         let skippedBatchTargetCount = batchTargets.count - boundedBatchTargets.count
         if skippedBatchTargetCount > 0 {
@@ -5096,6 +5109,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 )
                 chordInkRecognitionRequestState.clearActiveRequest()
                 if flow == .draftPreview {
+                    ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
+                        flow: flow,
+                        stage: "skip_weak_batch_targets",
+                        recognitionStrokeCount: recognitionDrawing.strokes.count,
+                        rawBatchTargetCount: batchTargets.count,
+                        boundedBatchTargetCount: boundedBatchTargets.count
+                    )
                     onChordInkDraftPreviewChanged?([])
                 }
                 return
@@ -5145,6 +5165,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 ]
             )
             chordInkRecognitionRequestState.clearActiveRequest()
+            ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
+                flow: flow,
+                stage: "skip_single_target",
+                recognitionStrokeCount: strokes.count,
+                rawBatchTargetCount: batchTargets.count,
+                boundedBatchTargetCount: boundedBatchTargets.count
+            )
             onChordInkDraftPreviewChanged?([])
             return
         }
@@ -5163,6 +5190,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             chordInkRecognitionRequestState.clearActiveRequest()
             if flow == .draftPreview {
+                ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
+                    flow: flow,
+                    stage: "no_target",
+                    recognitionStrokeCount: recognitionDrawing.strokes.count,
+                    rawBatchTargetCount: batchTargets.count,
+                    boundedBatchTargetCount: boundedBatchTargets.count
+                )
                 onChordInkDraftPreviewChanged?([])
             }
             return
@@ -5187,6 +5221,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ),
             layoutPageSize: pageLayout?.pageBounds.size,
             options: chordInkRecognitionOptions
+        )
+        ChordDraftPreviewDeviceDiagnostics.recordSingleTarget(
+            flow: flow,
+            request: sessionRequest
         )
         ChordLaneLocalBreadcrumbs.record(
             "recognize_chord_ink_start_single",
@@ -5221,6 +5259,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
+        ChordDraftPreviewDeviceDiagnostics.recordPayloads([payload], flow: flow, stage: "finish_single")
 
         if flow == .draftPreview {
             onChordInkDraftPreviewChanged?(payload.result.rawCandidates.isEmpty ? [] : [payload])
@@ -5267,6 +5306,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         for payload in payloads {
             LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
         }
+        ChordDraftPreviewDeviceDiagnostics.recordPayloads(payloads, flow: flow, stage: "finish_batch")
 
         if flow == .draftPreview {
             onChordInkDraftPreviewChanged?(payloads.filter { !$0.result.rawCandidates.isEmpty })
