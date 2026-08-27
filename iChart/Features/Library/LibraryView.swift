@@ -170,6 +170,7 @@ private enum IChartHomeTab: String, CaseIterable, Identifiable {
 
 private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     case tutorial
+    case howTo
     case faq
     case userPolicy
     case legal
@@ -181,6 +182,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         switch self {
         case .tutorial:
             "Tutorial"
+        case .howTo:
+            "How To"
         case .faq:
             "FAQ"
         case .userPolicy:
@@ -195,7 +198,9 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .tutorial:
-            "App walkthrough"
+            "Simple sheet walkthrough"
+        case .howTo:
+            "Use the chart tools"
         case .faq:
             "Common questions"
         case .userPolicy:
@@ -211,6 +216,8 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         switch self {
         case .tutorial:
             "graduationcap"
+        case .howTo:
+            "wrench.and.screwdriver"
         case .faq:
             "questionmark.circle"
         case .userPolicy:
@@ -225,7 +232,9 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var detailTitle: String {
         switch self {
         case .tutorial:
-            "iChart Tutorial"
+            "Simple Sheet Walkthrough"
+        case .howTo:
+            "How To Use The Tools"
         case .faq:
             "Common Questions"
         case .userPolicy:
@@ -240,7 +249,9 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var detailText: String {
         switch self {
         case .tutorial:
-            "A written guide to the main iChart systems, plus a hands-on tour when you want to try the flow."
+            "A Simple Chord Sheet example, plus the hands-on tour."
+        case .howTo:
+            "Simple help for Edit, Chord, Render Chords, the Corridor Lane, Free-Write, and Export."
         case .faq:
             "Answers about Forums and why iChart uses accounts."
         case .userPolicy:
@@ -260,416 +271,152 @@ private struct IChartTutorialSection: Identifiable {
     let systemImageName: String
     let steps: [IChartTutorialStep]
 
-    static let all: [IChartTutorialSection] = [
+    static let all: [IChartTutorialSection] = simpleSheetWalkthrough
+
+    private static let simpleSheetWalkthrough: [IChartTutorialSection] = [
         IChartTutorialSection(
-            id: "write-chart-flow",
-            title: "Write A Real Chart",
-            summary: "Start with the chart goal, choose the right page, write the music, then export the finished PDF.",
-            systemImageName: "person.crop.circle.badge.checkmark",
+            id: "simple-example-start",
+            title: "1. Start The Example",
+            summary: "Make one Simple Chord Sheet with a normal setup.",
+            systemImageName: "music.note.list",
             steps: [
                 IChartTutorialStep(
-                    id: "start-with-purpose",
-                    title: "Start With The Job",
-                    detail: "Decide what the band needs before you touch tools: a quick chord chart, a rhythm-section part, a rehearsal PDF, or a polished shareable chart. That choice should guide the page style and how much detail you add."
+                    id: "open-charts",
+                    title: "Open Charts",
+                    detail: "Tap Charts, then New Chart. This walkthrough makes one editable chart.",
+                    guardrail: "Do not start from PDFs, Forums, Projects, or Rhythm Section Sheet."
                 ),
                 IChartTutorialStep(
-                    id: "chart-type",
-                    title: "Choose The Page",
-                    detail: "Tap New Chart. Use Simple Chord Sheet for chord-first pages and Rhythm Section Sheet when you need staff lines, slash rhythm, bass clef, rhythmic figures, or clearer rhythm-section notation."
+                    id: "choose-simple",
+                    title: "Choose Simple Chord Sheet",
+                    detail: "Pick Simple Chord Sheet for a chord-first page with large measures and clear chord placement.",
+                    guardrail: "If you picked a different sheet type, cancel and choose Simple Chord Sheet."
                 ),
                 IChartTutorialStep(
-                    id: "setup",
-                    title: "Set The Starting Shape",
-                    detail: "Choose the time signature and starting measure count up front. You can adjust later, but starting close saves cleanup when repeats, text, rhythm, and chords are already attached to measures."
-                ),
-                IChartTutorialStep(
-                    id: "build-finish-save",
-                    title: "Build, Check, Export",
-                    detail: "Lay out measures first, add roadmap markings, enter chords and rhythms, add text last, then export a PDF. iChart keeps the editable chart in Charts and stores finished PDFs in the PDF Library."
+                    id: "create-page",
+                    title: "Create The Page",
+                    detail: "Use a normal starting setup: C, 4/4, and eight measures. Tap Create Blank Page to enter the editor.",
+                    guardrail: "You cannot enter the editor until the page is created."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "library",
-            title: "Charts, Projects, And PDFs",
-            summary: "Keep editable work, song folders, and finished PDFs in the right places.",
-            systemImageName: "folder.badge.plus",
-            steps: [
-                IChartTutorialStep(
-                    id: "charts",
-                    title: "Charts",
-                    detail: "Charts is where editable chart files live. Open a chart to keep working, or use chart actions to rename, duplicate, export, upload to Forums, or delete."
-                ),
-                IChartTutorialStep(
-                    id: "projects",
-                    title: "Projects",
-                    detail: "Projects are for Pro song folders. Put related versions together, such as Concert, Bb Horn, Eb Horn, rhythm, rehearsal, or short-form copies, without mixing them into unrelated library files."
-                ),
-                IChartTutorialStep(
-                    id: "variants",
-                    title: "Variants",
-                    detail: "Create a variant when the same song needs another reading view or layout. A variant lets you keep the original chart intact while preparing another part."
-                ),
-                IChartTutorialStep(
-                    id: "pdfs",
-                    title: "PDFs",
-                    detail: "PDFs stores exported charts and forum downloads. This is the handoff shelf: preview, share, or remove finished files without changing the editable chart."
-                ),
-                IChartTutorialStep(
-                    id: "cloud",
-                    title: "Cloud Restore",
-                    detail: "Pro cloud backup helps restore your library to the same account. Keep working locally, and use Settings when you need to confirm backup or restore state."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "editor-navigation",
-            title: "Editor Navigation",
-            summary: "Use Select to move around, then enter one tool at a time for the actual edit.",
-            systemImageName: "hand.tap",
-            steps: [
-                IChartTutorialStep(
-                    id: "select",
-                    title: "Select",
-                    detail: "Select is the clean browsing mode. Use it to scroll, tap existing objects, move rendered chords/text/roadmap markers, and get out of writing tools before making layout decisions."
-                ),
-                IChartTutorialStep(
-                    id: "top-row",
-                    title: "Top Row",
-                    detail: "The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Chord, and Free-Write. Treat each one as its own mode so accidental marks do not land in the wrong layer."
-                ),
-                IChartTutorialStep(
-                    id: "active-row",
-                    title: "Active Row",
-                    detail: "The active row appears under the main toolbar after you choose a tool. It holds the actions for that tool only, such as Write, Erase, Read, Clear, Stack, End Rep, or Done."
-                ),
-                IChartTutorialStep(
-                    id: "done-before-switching",
-                    title: "Tap Done Before Switching",
-                    detail: "When a tool shows Done, tap it before jumping to another tool. That returns the editor to Select and helps keep Pencil input, scrolling, and object selection predictable."
-                ),
-                IChartTutorialStep(
-                    id: "write-vs-free-write",
-                    title: "Read Tools Vs Free-Write",
-                    detail: "Chord is the read tool: iChart interprets handwritten chord symbols and renders them. Free-Write is raw persistent ink for rhythms, articulations, cues, and anything you want to stay exactly handwritten."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "page-tool",
-            title: "Page",
-            summary: "Use Page for whole-chart setup, appearance, transposition, and PDF export.",
-            systemImageName: "doc.text",
-            steps: [
-                IChartTutorialStep(
-                    id: "setup-export",
-                    title: "Setup",
-                    detail: "Use Setup when the whole page needs a structural change, such as page style, default time signature, or starting measure count. Make these changes early when possible."
-                ),
-                IChartTutorialStep(
-                    id: "header",
-                    title: "Header",
-                    detail: "Use Header for the chart title. Typed is clean and fast; Handwritten lets the title match the chart's handwritten feel. Clear removes a handwritten header when you want to rewrite it."
-                ),
-                IChartTutorialStep(
-                    id: "transpose",
-                    title: "Transposition",
-                    detail: "Instrument Transposition changes the reading view, such as Concert or Bb Horn. Transpose is a one-time written-chord action, so use it when you intentionally want the chart's existing chords moved."
-                ),
-                IChartTutorialStep(
-                    id: "appearance",
-                    title: "Appearance",
-                    detail: "Style, Fonts, Pen Responsiveness, and Engraving change the look and feel of the chart. Use them after the music is readable, then do one final scan for spacing and collisions."
-                ),
-                IChartTutorialStep(
-                    id: "export",
-                    title: "Export PDF",
-                    detail: "Export PDF creates the handoff file and saves it to PDFs. Export after checking title, page style, measure flow, repeats, text, chord placement, and overall readability."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "measures-tool",
-            title: "Measures",
-            summary: "Use Measures to shape the chart before you fill it with notation.",
-            systemImageName: "rectangle.split.3x1",
-            steps: [
-                IChartTutorialStep(
-                    id: "select-measure",
-                    title: "Select A Measure",
-                    detail: "Tap a measure first. Measures actions use that measure as the target for insertion, row breaks, joins, and deletion."
-                ),
-                IChartTutorialStep(
-                    id: "add-stack",
-                    title: "Add And Stack",
-                    detail: "Add inserts one measure after the selected measure. Stack is faster for adding a phrase, section, or full form because you can choose a measure count at once."
-                ),
-                IChartTutorialStep(
-                    id: "first-double",
-                    title: "First And Double",
-                    detail: "First inserts a measure at the beginning. Double adds a measure with a double barline, which is useful for section breaks and endings."
-                ),
-                IChartTutorialStep(
-                    id: "system-flow",
-                    title: "New Row And Join",
-                    detail: "New Row starts the selected measure on a new system. Join removes that manual break when the row should flow naturally again."
-                ),
-                IChartTutorialStep(
-                    id: "delete",
-                    title: "Delete And Range",
-                    detail: "Delete removes the selected measure. On the first measure, Delete clears only the right barline when needed and keeps the opening barline. Range and Delete To remove a span; Clear cancels the pending range."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "repeats-tool",
-            title: "Repeats",
-            summary: "Use Repeats for repeat barlines, one-bar repeats, and endings.",
-            systemImageName: "repeat",
-            steps: [
-                IChartTutorialStep(
-                    id: "repeat-targets",
-                    title: "Select The Boundary",
-                    detail: "Tap the measure where the repeat or ending starts or ends. Repeats are boundary markings, so the selected measure matters."
-                ),
-                IChartTutorialStep(
-                    id: "one-bar",
-                    title: "One Bar",
-                    detail: "One Bar places a one-measure repeat symbol at the selected measure. Use it when the previous measure should be repeated exactly."
-                ),
-                IChartTutorialStep(
-                    id: "repeat-span",
-                    title: "Start And End Rep",
-                    detail: "Start marks the opening repeat. Move to the last measure of the repeated section and tap End Rep to close the span."
-                ),
-                IChartTutorialStep(
-                    id: "endings",
-                    title: "1st And 2nd",
-                    detail: "Use 1st and 2nd for alternate endings. Start the ending at its first measure, then close it with End 1st or End 2nd at the last measure in that ending."
-                ),
-                IChartTutorialStep(
-                    id: "remove",
-                    title: "Remove Repeat, Remove Ending, And Clear",
-                    detail: "Remove Repeat removes repeat markings at the selected measure. Remove Ending removes endings. Clear cancels a repeat or ending span you started but do not want to finish."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "coda-tool",
-            title: "Coda",
-            summary: "Use Coda for roadmap marks like Coda, Segno, Fine, D.S., and D.C.",
-            systemImageName: "scope",
-            steps: [
-                IChartTutorialStep(
-                    id: "markers",
-                    title: "Markers",
-                    detail: "Select the measure, then add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C. as a point marker."
-                ),
-                IChartTutorialStep(
-                    id: "edit-markers",
-                    title: "Move, Size, And Delete",
-                    detail: "Use Select to adjust a roadmap marker after placing it. Move it away from chords or text, resize when it needs more weight, and delete it when the road map changes."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "text-tool",
-            title: "Text",
-            summary: "Use Text for cues, feel notes, section labels, and rehearsal reminders.",
-            systemImageName: "text.bubble",
-            steps: [
-                IChartTutorialStep(
-                    id: "above",
-                    title: "Add Text Above Selected Measure",
-                    detail: "Select a measure, then add text above it for section names, hits, cue notes, or anything the player should see before reading the measure."
-                ),
-                IChartTutorialStep(
-                    id: "below",
-                    title: "Add Text Below Selected Measure",
-                    detail: "Use below-measure text when the note belongs under the staff or chord grid, such as feel reminders, performance notes, or short warnings."
-                ),
-                IChartTutorialStep(
-                    id: "write-text",
-                    title: "Pencil Or Keyboard",
-                    detail: "Use Pencil handwriting or the system keyboard tools for entry. Text mode should focus on the text box, not measure selection."
-                ),
-                IChartTutorialStep(
-                    id: "edit-text",
-                    title: "Move, Resize, And Remove",
-                    detail: "Use Select to tap existing text, then move it up, down, left, or right to avoid clashes. Resize or delete it when the page needs cleanup."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "time-tool",
-            title: "Time",
-            summary: "Use Time for meter changes inside the chart.",
-            systemImageName: "metronome",
-            steps: [
-                IChartTutorialStep(
-                    id: "target-measure",
-                    title: "Choose A Measure",
-                    detail: "Tap Time, then tap the measure where the next time signature should start."
-                ),
-                IChartTutorialStep(
-                    id: "meter-choice",
-                    title: "Choose A Meter",
-                    detail: "The Time tool offers common /4 and /8 meters, including 4/4, 3/4, 5/4, 6/4, 3/8, 5/8, 6/8, 7/8, 9/8, and 12/8."
-                ),
-                IChartTutorialStep(
-                    id: "scope",
-                    title: "Choose The Span",
-                    detail: "Apply the change for a measure count, to the next time signature, or to the end of the piece. Use the shortest span that matches the music so later measures stay predictable."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "rhythm-entry",
-            title: "Rhythm Entry",
-            summary: "Use Free-Write for page-level handwritten rhythm notes in this version.",
-            systemImageName: "pencil.and.scribble",
-            steps: [
-                IChartTutorialStep(
-                    id: "availability",
-                    title: "Current Workflow",
-                    detail: "Rhythm Section charts keep the staff, measure layout, chords, repeats, text, and export systems. Handwritten rhythm marks can be written with Free-Write as page-level ink; they are not attached to individual measures yet."
-                ),
-                IChartTutorialStep(
-                    id: "write-rhythm",
-                    title: "Write",
-                    detail: "Tap Free-Write, choose Write, and draw rhythm cues directly on the page. The ink stays exactly where you write it and exports with the chart."
-                ),
-                IChartTutorialStep(
-                    id: "erase-rhythm",
-                    title: "Erase",
-                    detail: "Use the Free-Write eraser to remove rhythm ink. Since this ink is not interpreted into symbols, rebuilding a rhythm means erasing and rewriting it."
-                ),
-                IChartTutorialStep(
-                    id: "future-input",
-                    title: "Literal Input",
-                    detail: "A dedicated literal rhythm input method will come later. For this version, Free-Write is the reliable page-level handwriting path."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "chord-tool",
-            title: "Chord",
-            summary: "Use Chord when iChart should read handwritten chord symbols and render them cleanly.",
+            id: "simple-example-chords",
+            title: "2. Write Chords",
+            summary: "Write the example chords, check the preview, then render them.",
             systemImageName: "pencil",
             steps: [
                 IChartTutorialStep(
-                    id: "write",
-                    title: "Write",
-                    detail: "Tap Chord, choose Write, and write only inside the chord writing box. When you are finished, tap outside the box to read it. The chord ink lane should not render until you tap outside it."
+                    id: "enter-chord-tool",
+                    title: "Enter Chord",
+                    detail: "Tap Chord, keep Write selected, and write inside the highlighted chord lane.",
+                    guardrail: "Use Chord when you want iChart to read what you write."
                 ),
                 IChartTutorialStep(
-                    id: "confirm",
-                    title: "Confirm",
-                    detail: "Pick the chord you meant, type it manually, or use Chord Repeat for •/•. Confirm renders the chord; Rewrite clears the attempt and lets you try again."
+                    id: "write-example-progression",
+                    title: "Write A Four-Chord Example",
+                    detail: "Write C in measure 1, F in measure 2, G in measure 3, and C in measure 4. Wait for the preview under your writing before rendering.",
+                    guardrail: "If the preview is wrong, erase or discard the writing and try again."
                 ),
                 IChartTutorialStep(
-                    id: "move",
-                    title: "Move",
-                    detail: "Use Select to drag a rendered chord within its measure. Movement snaps to the measure's placement grid so chords stay musically attached instead of floating randomly."
+                    id: "resolve-recognition",
+                    title: "Fix Any Question Marks",
+                    detail: "If iChart asks you to choose a chord, pick the right one or type it. If iChart cannot read a chord, erase it or discard it and write it again.",
+                    guardrail: "Render Chords will not work until every chord has a readable preview."
                 ),
                 IChartTutorialStep(
-                    id: "edit",
-                    title: "Edit",
-                    detail: "Double tap a rendered chord box when the text needs correction. Use Free-Write instead when the notation should stay handwritten and never be interpreted."
+                    id: "render-chords",
+                    title: "Render Chords",
+                    detail: "Tap Render Chords when the preview is right. This puts the chords and any lane barlines onto the chart.",
+                    guardrail: "If the button is disabled, fix the chord iChart could not read. If a popup already added the chord, continue."
+                ),
+                IChartTutorialStep(
+                    id: "leave-chord-mode",
+                    title: "Return To Select",
+                    detail: "Tap Done after the chords are on the chart. Edit is the safe place to check, scroll, and move things.",
+                    guardrail: "Tap Done before using another tool so new writing goes in the right place."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "free-hand-tool",
-            title: "Free-Write",
-            summary: "Use Free-Write for persistent raw ink that iChart never reads or interprets.",
-            systemImageName: "pencil.and.scribble",
+            id: "simple-example-layout",
+            title: "3. Shape The Form",
+            summary: "Use Measures for simple row and measure changes.",
+            systemImageName: "rectangle.split.3x1",
             steps: [
                 IChartTutorialStep(
-                    id: "write-freehand",
-                    title: "Write",
-                    detail: "Choose Write and draw handwritten chords, rhythms, articulations, rehearsal notes, layout marks, kicks, or reminders directly on the page."
+                    id: "enter-measures",
+                    title: "Enter Measures",
+                    detail: "Tap Measures and select the measure you want to change.",
+                    guardrail: "The selected measure is where the next measure action happens."
                 ),
                 IChartTutorialStep(
-                    id: "erase-freehand",
-                    title: "Erase",
-                    detail: "Choose Erase to remove Free-Write ink. Free-Write does not create movable boxes or saved symbols, so moving a mark means erasing and rewriting it."
+                    id: "add-stack-if-needed",
+                    title: "Add Or Stack Measures",
+                    detail: "Use Add for one more measure or Stack for several measures at once.",
+                    guardrail: "Tap the measure you want to change before tapping Add or Stack."
                 ),
                 IChartTutorialStep(
-                    id: "trust-freehand",
-                    title: "When To Use It",
-                    detail: "Use Free-Write when speed matters, when a symbol is too personal or unusual for a reader, or when you want the chart to look exactly like your handwriting."
+                    id: "new-row-cleanup",
+                    title: "Make The Rows Readable",
+                    detail: "Use New Row to start a new system and Even Row when a Simple sheet row needs equal measure widths.",
+                    guardrail: "Leave Chord first; then change rows."
+                ),
+                IChartTutorialStep(
+                    id: "finish-measures",
+                    title: "Return To Select",
+                    detail: "Tap Done when the example form is readable.",
+                    guardrail: "Return to Edit before adding text or exporting."
                 )
             ]
         ),
         IChartTutorialSection(
-            id: "account-pro-forums",
-            title: "Account, Pro, And Forums",
-            summary: "Know what stays local, what needs Pro, and how community sharing works.",
-            systemImageName: "person.2",
+            id: "simple-example-text-export",
+            title: "4. Add Text And Export",
+            summary: "Add one cue, check the page, then export.",
+            systemImageName: "square.and.arrow.up",
             steps: [
                 IChartTutorialStep(
-                    id: "basic",
-                    title: "Basic",
-                    detail: "Basic includes the chart-writing tools, PDF export, and three local charts. If you are over the Basic cap after Pro ends, choose which three charts stay active."
+                    id: "add-text",
+                    title: "Add One Cue",
+                    detail: "Tap Text, choose text above the selected measure, and add a short cue like Intro, Verse, or Solo.",
+                    guardrail: "Text needs a selected measure. If Add Text does nothing, tap Edit, tap the measure, then try again."
                 ),
                 IChartTutorialStep(
-                    id: "pro",
-                    title: "Pro",
-                    detail: "Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums."
+                    id: "review-page",
+                    title: "Review The Chart",
+                    detail: "Check the title, chords, row breaks, text, and empty measures. Move chords or text in Edit if they collide.",
+                    guardrail: "Do not export while you are writing. Tap Done first."
                 ),
                 IChartTutorialStep(
-                    id: "cloud",
-                    title: "Cloud Backup",
-                    detail: "Cloud backup is for account restore support. Local editing and PDF export keep working without cloud service, but cloud backup pauses when Pro is not active."
-                ),
-                IChartTutorialStep(
-                    id: "forums",
-                    title: "Forums",
-                    detail: "Forums are a Pro community PDF library. Upload starts from a chart made in iChart, runs metadata and provenance checks, then publishes a fixed PDF snapshot when it passes."
-                ),
-                IChartTutorialStep(
-                    id: "forum-remove",
-                    title: "Withdraw Or Remove",
-                    detail: "You can withdraw a pending submission or remove your published forum chart. Removing it hides the public post and download, but the chart stays in your own library."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "settings-help",
-            title: "Settings And Support",
-            summary: "Check account identity, Pro state, backup, appearance, and support paths.",
-            systemImageName: "gearshape",
-            steps: [
-                IChartTutorialStep(
-                    id: "account-identity",
-                    title: "Account Identity",
-                    detail: "Name and email come from account creation and are used for support, Pro, cloud backup, and forum attribution. Contact support if an identifier needs to change."
-                ),
-                IChartTutorialStep(
-                    id: "subscription",
-                    title: "Subscription",
-                    detail: "Use Settings to check Pro status, restore purchases, and see when cloud backup or Forums require Pro."
-                ),
-                IChartTutorialStep(
-                    id: "theme",
-                    title: "Theme",
-                    detail: "Use light or dark mode based on the rehearsal environment. The chart itself should stay readable before it looks stylish."
-                ),
-                IChartTutorialStep(
-                    id: "support",
-                    title: "Support",
-                    detail: "Use Contact Us for bugs, account questions, or Pro help. Include the account email and the chart type or tool involved, but never send passwords or recovery links."
+                    id: "export-pdf",
+                    title: "Export PDF",
+                    detail: "Tap Page, then Export. iChart creates the finished PDF while the editable chart stays in Charts.",
+                    guardrail: "If Export is disabled, tap Done and finish setup first."
                 )
             ]
         )
     ]
+
 }
 
 private struct IChartTutorialStep: Identifiable {
     let id: String
     let title: String
     let detail: String
+    let guardrail: String?
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        guardrail: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.guardrail = guardrail
+    }
 }
 
 private struct IChartHelpArticleSection: Identifiable {
@@ -683,6 +430,8 @@ private struct IChartHelpArticleSection: Identifiable {
         switch topic {
         case .tutorial:
             []
+        case .howTo:
+            howTo
         case .faq:
             faq
         case .userPolicy:
@@ -693,6 +442,98 @@ private struct IChartHelpArticleSection: Identifiable {
             contact
         }
     }
+
+    private static let howTo: [IChartHelpArticleSection] = [
+        IChartHelpArticleSection(
+            id: "editor-edit-checkpoint",
+            title: "Edit",
+            systemImageName: "cursorarrow",
+            body: "Use Edit when you want to check the page or change something already on it.",
+            bullets: [
+                "Tap Done to leave the current tool and return to Edit.",
+                "Tap a chord, barline, text label, marker, or measure to show its buttons.",
+                "Use the buttons to correct, move, resize, delete, or clean up what you selected."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-corridor-lane",
+            title: "Chord And Corridor Lane",
+            systemImageName: "pencil",
+            body: "Use Chord when you want iChart to read the chords you write.",
+            bullets: [
+                "Write in the highlighted Corridor Lane above the staff.",
+                "The small text under your writing is the preview.",
+                "Draw a barline in the same lane when you want it placed with the chords.",
+                "If the preview is wrong, erase or discard the writing and try again before rendering."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-render-chords",
+            title: "Render Chords",
+            systemImageName: "checkmark.circle",
+            body: "Render Chords puts the preview chords and lane barlines onto the chart.",
+            bullets: [
+                "Preview chords and lane barlines are not final until you tap Render Chords or choose a chord from a popup.",
+                "If Render Chords is disabled, fix the chord iChart could not read.",
+                "Use Discard to clear the current chord writing without changing the chart."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-rendered-objects",
+            title: "Changing Chords, Text, And Markers",
+            systemImageName: "square.and.pencil",
+            body: "After something is on the chart, use Edit to change it.",
+            bullets: [
+                "Tap a chord in Edit to correct or delete it.",
+                "Tap text or roadmap markers in Edit to move, resize, edit, or delete them.",
+                "Tap a chord barline in Edit when you want to remove it."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-structure-tools",
+            title: "Measures, Repeats, Coda, Text, And Time",
+            systemImageName: "rectangle.split.3x1",
+            body: "These tools work from the measure you select.",
+            bullets: [
+                "Measures adds, stacks, deletes, starts a new row, joins a row, or evens a row.",
+                "Repeats adds one-bar repeats, repeat starts and ends, endings, and remove buttons.",
+                "Coda, Text, and Time use the selected measure as their starting point."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-sheet-types",
+            title: "Simple And Rhythm Section Sheets",
+            systemImageName: "music.note.list",
+            body: "Pick the sheet that matches the chart you want to write.",
+            bullets: [
+                "Simple Chord Sheet is best for fast chord charts.",
+                "Rhythm Section Sheet gives more space for hits, slashes, groove cues, and bass clef parts.",
+                "The tutorial uses Simple Chord Sheet only."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-free-write",
+            title: "Free-Write",
+            systemImageName: "pencil.and.scribble",
+            body: "Free-Write keeps your handwriting exactly as you draw it.",
+            bullets: [
+                "Use it for rhythm notes, reminders, and marks iChart should not turn into chords.",
+                "The Rhythm tab is hidden for now; use Free-Write for handwritten rhythm notes.",
+                "Tap Done before using another tool or exporting."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-page-export",
+            title: "Page And Export",
+            systemImageName: "square.and.arrow.up",
+            body: "Use Page for chart settings and PDF export.",
+            bullets: [
+                "Page has title/header, key, transposition, style, fonts, pen feel, engraving, and export.",
+                "Export makes a PDF. Your editable chart stays in Charts.",
+                "If Export is unavailable, tap Done and finish setup first."
+            ]
+        )
+    ]
 
     private static let faq: [IChartHelpArticleSection] = [
         IChartHelpArticleSection(
@@ -729,12 +570,23 @@ private struct IChartHelpArticleSection: Identifiable {
             ]
         ),
         IChartHelpArticleSection(
+            id: "faq-subscription",
+            title: "Why is Pro a subscription instead of one purchase?",
+            systemImageName: "creditcard",
+            body: "Pro is a subscription because cloud backup, restore, Forums, account recovery, and support all have ongoing server costs.",
+            bullets: [
+                "The subscription keeps those services running as the app grows.",
+                "If iChart comes to another platform, that app will be free to download.",
+                "Your Pro access will transfer through your iChart account."
+            ]
+        ),
+        IChartHelpArticleSection(
             id: "faq-support",
             title: "What should I send support?",
             systemImageName: "envelope",
             body: "Send enough detail for the issue to be reproduced without sharing private credentials.",
             bullets: [
-                "For chart-writing bugs, include the chart type, active tool, and what you expected to happen.",
+                "For chart-writing bugs, include the chart type, what you were doing, and what you expected to happen.",
                 "For account or Pro questions, include the email tied to your iChart account.",
                 "Do not send passwords, recovery links, verification links, or payment details."
             ]
@@ -772,7 +624,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Publish only charts you have the right to share.",
                 "Forum publishing sends a fixed PDF snapshot with creator credit and chart details.",
-                "Editable chart data, source ink, and private local authoring state are not shared in V1."
+                "Your editable chart, original handwriting, and private drafts are not shared when you publish."
             ]
         ),
         IChartHelpArticleSection(
@@ -865,7 +717,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "exclamationmark.triangle",
             body: "For feedback, bug reports, account questions, or Pro support, contact iChart through the hosted support page.",
             bullets: [
-                "For chart-writing bugs, mention the chart type, active tool, and what you expected to happen.",
+                "For chart-writing bugs, mention the chart type, what you were doing, and what you expected to happen.",
                 "For account or Pro questions, include your account email and whether you are on Basic or Pro.",
                 "Do not send passwords, recovery links, verification links, or payment credentials."
             ]
@@ -884,11 +736,11 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var title: String {
         switch self {
         case .welcome:
-            "Welcome To iChart"
+            "Simple Sheet Walkthrough"
         case .charts:
             "Start With Charts"
         case .newChart:
-            "Create Your First Chart"
+            "Create The Example Chart"
         case .simpleChart:
             "Choose Simple Chord Sheet"
         }
@@ -897,20 +749,33 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .welcome:
-            "Let’s build your first clean chart together. You’ll create a Simple Chord Sheet, write and confirm a chord, try the structure tools, and see where export and page controls live."
+            "Build one clear Simple Chord Sheet from start to export: create the page, write example chords, render only when safe, shape the rows, add one cue, and export."
         case .charts:
-            "Tap Charts in the sidebar. This is where your charts and new chart creation live."
+            "Tap Charts in the sidebar. The walkthrough starts from the editable chart library."
         case .newChart:
-            "Tap New Chart to choose what kind of chart you want to make."
+            "Tap New Chart. The next screen must be the sheet-type picker."
         case .simpleChart:
-            "Choose Simple Chord Sheet for a chord-first page. Rhythm Section Sheet gives you more room for slashes, hits, and groove cues."
+            "Choose Simple Chord Sheet. This walkthrough is only for the chord-first simple page."
+        }
+    }
+
+    var guardrailText: String? {
+        switch self {
+        case .welcome:
+            "The tour does not cover Projects, Forums, PDFs, Rhythm Section, or account setup."
+        case .charts:
+            "If another sidebar tab is open, switch back to Charts before continuing."
+        case .newChart:
+            "If New Chart is disabled, resolve the Basic chart limit before starting."
+        case .simpleChart:
+            "If you tap the wrong sheet type, cancel and start New Chart again."
         }
     }
 
     var primaryActionTitle: String? {
         switch self {
         case .welcome:
-            "Take The Tour"
+            "Start Walkthrough"
         case .charts, .newChart, .simpleChart:
             nil
         }
@@ -2360,6 +2225,8 @@ private struct IChartGuidedTourPrompt: View {
                     .font(.title3)
                     .foregroundStyle(tourMessageColor)
                     .fixedSize(horizontal: false, vertical: true)
+
+                guardrailRow
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -2394,6 +2261,8 @@ private struct IChartGuidedTourPrompt: View {
                         .font(.subheadline)
                         .foregroundStyle(tourMessageColor)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    guardrailRow
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2424,7 +2293,18 @@ private struct IChartGuidedTourPrompt: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
+            .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
+    }
+
+    @ViewBuilder
+    private var guardrailRow: some View {
+        if let guardrailText = step.guardrailText {
+            Label(guardrailText, systemImage: "checkmark.shield")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.isDark ? IChartTourStyle.orangeSoft : IChartTourStyle.navy)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+        }
     }
 
     private var actionButtons: some View {
@@ -2455,6 +2335,13 @@ private struct IChartGuidedTourSheetCallout: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let guardrailText = step.guardrailText {
+                Label(guardrailText, systemImage: "checkmark.shield")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4930,7 +4817,7 @@ private struct IChartHelpTopicDetail: View {
         switch topic {
         case .tutorial:
             IChartTutorialGuide(theme: theme, onStartGuidedTour: onStartGuidedTour)
-        case .faq, .userPolicy, .legal, .contactUs:
+        case .howTo, .faq, .userPolicy, .legal, .contactUs:
             IChartHelpArticlePage(
                 topic: topic,
                 theme: theme,
@@ -5106,10 +4993,26 @@ private struct IChartHelpArticleSectionView: View {
                         }
                     }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(expandedHelpDetailBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(expandedHelpDetailBorder, lineWidth: 1)
+                }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var expandedHelpDetailBackground: Color {
+        IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)
+    }
+
+    private var expandedHelpDetailBorder: Color {
+        IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)
     }
 }
 
@@ -5121,12 +5024,12 @@ private struct IChartTutorialGuide: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("iChart Tutorial", systemImage: "graduationcap")
+            Label("Simple Sheet Walkthrough", systemImage: "graduationcap")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
             Button(action: onStartGuidedTour) {
-                Label("Start Hands-On Tour", systemImage: "sparkles")
+                Label("Start Simple Sheet Walkthrough", systemImage: "sparkles")
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -5206,6 +5109,14 @@ private struct IChartTutorialSectionCard: View {
                         IChartTutorialStepRow(number: index + 1, step: step, theme: theme)
                     }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(expandedHelpDetailBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(expandedHelpDetailBorder, lineWidth: 1)
+                }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -5215,8 +5126,16 @@ private struct IChartTutorialSectionCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.panelBorder, lineWidth: 1)
+                .stroke(isExpanded ? expandedHelpDetailBorder : theme.panelBorder, lineWidth: isExpanded ? 1.25 : 1)
         }
+    }
+
+    private var expandedHelpDetailBackground: Color {
+        IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)
+    }
+
+    private var expandedHelpDetailBorder: Color {
+        IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)
     }
 }
 
@@ -5243,6 +5162,14 @@ private struct IChartTutorialStepRow: View {
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let guardrail = step.guardrail {
+                    Label(guardrail, systemImage: "checkmark.shield")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(IChartHomeBrand.blue)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
             }
         }
     }

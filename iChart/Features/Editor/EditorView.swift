@@ -46,6 +46,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     case chordModes
     case chordWrite
     case chordConfirm
+    case chordRender
     case chordCorrection
     case chordUnreadable
     case chordMove
@@ -99,18 +100,49 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
 
     var id: String { rawValue }
 
+    private static let simpleSheetWalkthroughSteps: [IChartEditorGuidedTourStep] = [
+        .setup,
+        .chordTool,
+        .chordModes,
+        .chordWrite,
+        .chordConfirm,
+        .chordRender,
+        .chordDone,
+        .measureTool,
+        .measureStack,
+        .measureNewRow,
+        .measureDone,
+        .textTool,
+        .textAddPosition,
+        .textAddConfirm,
+        .textDone,
+        .page,
+        .pageExport,
+        .finish
+    ]
+
+    var progressText: String? {
+        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+            return nil
+        }
+
+        return "Step \(index + 1) of \(Self.simpleSheetWalkthroughSteps.count)"
+    }
+
     var title: String {
         switch self {
         case .setup:
             "Create The Page"
         case .chordTool:
-            "Chord Tool"
+            "Enter Chord"
         case .chordModes:
-            "Write And Erase"
+            "Use Write Mode"
         case .chordWrite:
-            "Write A Chord"
+            "Write The Example"
         case .chordConfirm:
-            "Confirm The Chord"
+            "Resolve Choices"
+        case .chordRender:
+            "Render Chords"
         case .chordCorrection:
             "Edit A Rendered Chord"
         case .chordUnreadable:
@@ -120,17 +152,17 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordDone:
             "Leave Chord Mode"
         case .measureTool:
-            "Measure Tool"
+            "Shape The Form"
         case .measureAdd:
             "Add"
         case .measureStack:
-            "Stack"
+            "Add Measures"
         case .measureFirst:
             "First"
         case .measureDouble:
             "Double"
         case .measureNewRow:
-            "New Row"
+            "Clean Rows"
         case .measureDelete:
             "Delete"
         case .measureRange:
@@ -164,11 +196,11 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .codaDone:
             "Finish Coda"
         case .textTool:
-            "Text Tool"
+            "Add A Cue"
         case .textAddPosition:
-            "Above Or Below"
+            "Place Text"
         case .textAddConfirm:
-            "Add Text"
+            "Type The Cue"
         case .textMoveResizeDelete:
             "Move, Size, Delete"
         case .textDone:
@@ -190,9 +222,9 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .freeWriteDone:
             "Finish Free-Write"
         case .page:
-            "Page Tool"
+            "Final Check"
         case .pageExport:
-            "Export"
+            "Export PDF"
         case .pageHeader:
             "Header"
         case .pageKey:
@@ -210,48 +242,50 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .pageEngraving:
             "Engraving"
         case .finish:
-            "Tour Complete"
+            "Walkthrough Complete"
         }
     }
 
     var message: String {
         switch self {
         case .setup:
-            "Choose the key, time signature, starting measure count, and sheet style. Create Blank Page opens the editor."
+            "Use a normal example setup: C, 4/4, eight starting measures, and the selected Simple Chord Sheet style. Create Blank Page opens the editor."
         case .chordTool:
-            "Chord reads handwritten chord symbols and turns them into editable rendered chords."
+            "Tap Chord to write symbols iChart should read. The example starts with a simple four-chord progression."
         case .chordModes:
-            "Write mode creates chord ink in highlighted measures. Erase mode erases chord ink only."
+            "Keep Write selected. Erase removes chord writing before you render."
         case .chordWrite:
-            "Write a chord in a highlighted measure, then tap anywhere outside the measure to confirm your chord."
+            "Write C, F, G, and C across the first four highlighted measures. Wait for preview text under your writing. If you draw a barline in the lane, it previews there too."
         case .chordConfirm:
-            "iChart reads your handwriting and offers editable chord choices before rendering."
+            "If iChart opens a choice sheet, choose the intended chord or type it. If no sheet appears, continue."
+        case .chordRender:
+            "Tap Render Chords when the previews are right. This puts the chords and any lane barlines onto the chart."
         case .chordCorrection:
-            "If it is not your chord, delete it or double tap the rendered chord to type the chord you want."
+            "If it is not your chord, delete it or double tap the chord to type the one you want."
         case .chordUnreadable:
             "If iChart cannot read the chord, erase and rewrite the ink, or type the chord and confirm it."
         case .chordMove:
-            "Rendered chords can be dragged and placed around a measure."
+            "Chords on the chart can be dragged and placed around a measure."
         case .chordDone:
-            "Tap Done when you are done writing chords."
+            "Tap Done after the example chords are rendered so the editor returns to Select."
         case .measureTool:
-            "Measures changes the chart structure around the selected highlighted measure."
+            "Tap Measures to adjust the Simple sheet form after the chords are in place."
         case .measureAdd:
             "Add inserts one measure after the selected measure."
         case .measureStack:
-            "Stack opens a sheet so you can add several measures at one time."
+            "Use Stack only if the example needs more measures. Otherwise use Next to keep the eight-measure setup."
         case .measureFirst:
             "First inserts a new first measure at the beginning of the chart."
         case .measureDouble:
             "Double creates a double barline on the selected measure."
         case .measureNewRow:
-            "New Row starts the selected measure on a new stanza."
+            "Select the measure that should start a new row, then tap New Row. Even Row can clean up widths after that."
         case .measureDelete:
             "Delete removes the highlighted selected measure."
         case .measureRange:
             "Range starts at the selected measure; select another measure to delete the full span."
         case .measureDone:
-            "Tap Done when you are done changing measure layout."
+            "Tap Done once the example has a readable row layout."
         case .repeatsTool:
             "Repeats adds repeat symbols and endings to highlighted measures."
         case .repeatsOneBar:
@@ -279,15 +313,15 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .codaDone:
             "Move on when you are done placing roadmap markers."
         case .textTool:
-            "Text adds typed notes above or below the selected measure."
+            "Tap Text to add one short cue to the example chart."
         case .textAddPosition:
-            "Choose text above or text below the selected measure."
+            "Choose Add Text Above Selected Measure for a simple section label or cue."
         case .textAddConfirm:
-            "Type the text, then tap Add to place it on the chart."
+            "Type a short cue like Intro, Verse, or Solo, then tap Add."
         case .textMoveResizeDelete:
             "Select placed text to move it, make it smaller or larger, or delete it."
         case .textDone:
-            "Tap Done when you are done editing text."
+            "Tap Done after the cue appears on the chart."
         case .timeTool:
             "Time changes meter at a selected measure."
         case .timeSelectMeasure:
@@ -305,9 +339,9 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .freeWriteDone:
             "Tap Done when you are done free-writing."
         case .page:
-            "Page holds whole-chart actions and export settings."
+            "Review the chart in Select before export: title, chords, rows, text, and empty measures."
         case .pageExport:
-            "Export shares the chart as a PDF."
+            "Tap Page, then Export to create the finished PDF. The editable chart stays in Charts."
         case .pageHeader:
             "Header lets you type or handwrite the chart header."
         case .pageKey:
@@ -325,7 +359,50 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .pageEngraving:
             "Engraving controls page layout."
         case .finish:
-            "You can restart this walkthrough from Help."
+            "The Simple Chord Sheet example is complete. You can restart this walkthrough from Help."
+        }
+    }
+
+    var guardrailText: String? {
+        switch self {
+        case .setup:
+            "Create Blank Page is required. The tour cannot progress into the editor until setup is complete."
+        case .chordTool:
+            "Use Chord for readable chord symbols only; use Free-Write later for raw handwritten marks."
+        case .chordModes:
+            "If Write is not selected, switch to Write before adding example chords."
+        case .chordWrite:
+            "The preview is only a preview. It is not on the chart until you tap Render Chords or choose from a popup."
+        case .chordConfirm:
+            "Resolve any sheet that appears. If nothing appears, use Next."
+        case .chordRender:
+            "If Render Chords is disabled, fix the chord iChart could not read. If a popup already added the chord, use Next."
+        case .chordDone:
+            "Done is the safe exit from Chord mode before layout or text edits."
+        case .measureTool:
+            "Every measure action uses the selected measure as its target."
+        case .measureStack:
+            "Stack is optional in this example. Do not add measures if the page already has enough."
+        case .measureNewRow:
+            "If New Row is disabled, select a measure that can legally start a new row."
+        case .measureDone:
+            "Select mode is the checkpoint before adding text."
+        case .textTool:
+            "Text requires a selected measure. Select the target measure first if needed."
+        case .textAddPosition:
+            "If the menu action does nothing, return to Select and tap the measure that should own the text."
+        case .textAddConfirm:
+            "Add stays blocked until the text field is not blank."
+        case .textDone:
+            "Leave Text mode before export."
+        case .page:
+            "Do not export from a writing mode. Tap Done first."
+        case .pageExport:
+            "If Export is disabled, complete setup and leave the active tool."
+        case .finish:
+            "The walkthrough only covered the Simple Chord Sheet example."
+        default:
+            nil
         }
     }
 
@@ -336,11 +413,13 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .chordTool:
             "Tap Chord"
         case .chordModes:
-            "Use Write or Erase"
+            "Keep Write selected"
         case .chordWrite:
-            "Tap anywhere outside the measure to confirm your chord"
+            "Write C, F, G, C"
         case .chordConfirm:
-            "Tap a suggestion or Confirm"
+            "Resolve sheet, or Next"
+        case .chordRender:
+            "Tap Render Chords"
         case .chordCorrection:
             "Double tap a rendered chord to edit"
         case .chordUnreadable:
@@ -354,13 +433,13 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .measureAdd:
             "Tap Add"
         case .measureStack:
-            "Tap Stack"
+            "Stack only if needed"
         case .measureFirst:
             "Tap First"
         case .measureDouble:
             "Tap Double"
         case .measureNewRow:
-            "Tap New Row"
+            "Select measure, then New Row"
         case .measureDelete:
             "Tap Delete"
         case .measureRange:
@@ -396,9 +475,9 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .textTool:
             "Tap Text"
         case .textAddPosition:
-            "Choose above or below"
+            "Choose Add Text Above"
         case .textAddConfirm:
-            "Tap Add"
+            "Type cue, then Add"
         case .textMoveResizeDelete:
             "Select text"
         case .textDone:
@@ -420,9 +499,9 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .freeWriteDone:
             "Tap Done"
         case .page:
-            "Tap Page"
+            "Review in Select"
         case .pageExport:
-            "Export shares PDF"
+            "Page > Export"
         case .pageHeader:
             "Header"
         case .pageKey:
@@ -448,6 +527,14 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         switch self {
         case .setup:
             nil
+        case .chordConfirm:
+            "No Sheet? Next"
+        case .chordRender:
+            "Render Or Continue"
+        case .measureStack:
+            "Skip If Enough"
+        case .pageExport:
+            "Done Exporting"
         case .finish:
             "Finish Tour"
         default:
@@ -456,118 +543,16 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
     }
 
     var nextStep: IChartEditorGuidedTourStep? {
-        switch self {
-        case .setup:
-            .chordTool
-        case .chordTool:
-            .chordModes
-        case .chordModes:
-            .chordWrite
-        case .chordWrite:
-            .chordConfirm
-        case .chordConfirm:
-            .chordCorrection
-        case .chordCorrection:
-            .chordUnreadable
-        case .chordUnreadable:
-            .chordMove
-        case .chordMove:
-            .chordDone
-        case .chordDone:
-            .measureTool
-        case .measureTool:
-            .measureAdd
-        case .measureAdd:
-            .measureStack
-        case .measureStack:
-            .measureFirst
-        case .measureFirst:
-            .measureDouble
-        case .measureDouble:
-            .measureNewRow
-        case .measureNewRow:
-            .measureDelete
-        case .measureDelete:
-            .measureRange
-        case .measureRange:
-            .measureDone
-        case .measureDone:
-            .repeatsTool
-        case .repeatsTool:
-            .repeatsOneBar
-        case .repeatsOneBar:
-            .repeatsStart
-        case .repeatsStart:
-            .repeatsEnd
-        case .repeatsEnd:
-            .repeatsFirstEnding
-        case .repeatsFirstEnding:
-            .repeatsSecondEnding
-        case .repeatsSecondEnding:
-            .repeatsDeleteRepeat
-        case .repeatsDeleteRepeat:
-            .repeatsDeleteEnding
-        case .repeatsDeleteEnding:
-            .repeatsDone
-        case .repeatsDone:
-            .codaTool
-        case .codaTool:
-            .codaMarker
-        case .codaMarker:
-            .codaMoveDelete
-        case .codaMoveDelete:
-            .codaDone
-        case .codaDone:
-            .textTool
-        case .textTool:
-            .textAddPosition
-        case .textAddPosition:
-            .textAddConfirm
-        case .textAddConfirm:
-            .textMoveResizeDelete
-        case .textMoveResizeDelete:
-            .textDone
-        case .textDone:
-            .timeTool
-        case .timeTool:
-            .timeSelectMeasure
-        case .timeSelectMeasure:
-            .timeChooseMeter
-        case .timeChooseMeter:
-            .timeApplyScope
-        case .timeApplyScope:
-            .timeDone
-        case .timeDone:
-            .freeWriteTool
-        case .freeWriteTool:
-            .freeWriteMode
-        case .freeWriteMode:
-            .freeWriteDone
-        case .freeWriteDone:
-            .page
-        case .page:
-            .pageExport
-        case .pageExport:
-            .pageHeader
-        case .pageHeader:
-            .pageKey
-        case .pageKey:
-            .pageInstrument
-        case .pageInstrument:
-            .pageTranspose
-        case .pageTranspose:
-            .pageStyle
-        case .pageStyle:
-            .pageFonts
-        case .pageFonts:
-            .pagePen
-        case .pagePen:
-            .pageEngraving
-        case .pageEngraving:
-            .finish
-        case .finish:
-            nil
+        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+            return nil
         }
+
+        let nextIndex = index + 1
+        guard Self.simpleSheetWalkthroughSteps.indices.contains(nextIndex) else {
+            return nil
+        }
+
+        return Self.simpleSheetWalkthroughSteps[nextIndex]
     }
 
 }
@@ -591,14 +576,34 @@ private struct IChartEditorGuidedTourRail: View {
                     .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(step.title)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(accent)
+                    HStack(spacing: 8) {
+                        if let progressText = step.progressText {
+                            Text(progressText)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(actionAccent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(IChartTourStyle.orangeSoft)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+
+                        Text(step.title)
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(accent)
+                    }
 
                     Text(step.message)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if let guardrailText = step.guardrailText {
+                        Label(guardrailText, systemImage: "checkmark.shield")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(accent)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -896,7 +901,7 @@ struct EditorView: View {
             ChordInkConfirmationSheetView(
                 confirmation: confirmation,
                 showsFixtureCaptureTools: Self.showsChordFixtureCaptureTools,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm,
+                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
                 onAcceptCandidate: { candidateText in
                     handleChordInkCandidateAccepted(candidateText, confirmation: confirmation)
                 },
@@ -916,7 +921,7 @@ struct EditorView: View {
         .sheet(item: $pendingChordInkBatchConfirmation) { batch in
             ChordInkBatchConfirmationSheetView(
                 batch: batch,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm,
+                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
                 onAcceptAll: { candidateTextByID in
                     handleChordInkBatchAccepted(candidateTextByID, batch: batch)
                 },
@@ -1175,6 +1180,12 @@ struct EditorView: View {
                 handleChordTabTapped()
             }
             completeEditorGuidedTourStep(currentStep)
+        case .chordRender:
+            if canRenderChordDrafts || chordPreviewState.unresolvedChordCount > 0 {
+                handleRenderChordDrafts()
+            } else {
+                completeEditorGuidedTourStep(currentStep)
+            }
         case .chordDone, .measureDone, .repeatsDone, .timeDone, .freeWriteDone:
             activateSelectTool()
             completeEditorGuidedTourStep(currentStep)
@@ -1386,7 +1397,7 @@ struct EditorView: View {
 
     private var isChordTourSectionActive: Bool {
         switch editorGuidedTourStep {
-        case .chordTool, .chordModes, .chordWrite, .chordConfirm, .chordCorrection, .chordUnreadable, .chordMove, .chordDone:
+        case .chordTool, .chordModes, .chordWrite, .chordConfirm, .chordRender, .chordCorrection, .chordUnreadable, .chordMove, .chordDone:
             true
         default:
             false
@@ -2379,6 +2390,7 @@ struct EditorView: View {
             activeToolButton(
                 title: "Render Chords",
                 systemImage: "checkmark.circle",
+                isTourHighlighted: editorGuidedTourStep == .chordRender,
                 isDisabled: !canRenderChordDrafts,
                 action: handleRenderChordDrafts
             )
@@ -2753,6 +2765,7 @@ struct EditorView: View {
                     let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
                     activeSheet = .export(libraryPDF)
                     isExporting = false
+                    completeEditorGuidedTourStep(.pageExport)
                     IChartTelemetry.record(
                         "pdf.export_succeeded",
                         properties: [
@@ -4437,6 +4450,7 @@ struct EditorView: View {
         chordInkAutomaticRewriteFailures.reset()
         completeEditorGuidedTourStep(.chordWrite)
         completeEditorGuidedTourStep(.chordConfirm)
+        completeEditorGuidedTourStep(.chordRender)
 
         IChartTelemetry.record(
             "chord.preview_rendered",
@@ -4609,6 +4623,7 @@ struct EditorView: View {
         )
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
+            || editorGuidedTourStep == .chordRender
         let trustedTextsByID = Dictionary(
             uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
                 guard confirmation.decision.action == .trusted,
@@ -4688,6 +4703,7 @@ struct EditorView: View {
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
         let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
             || editorGuidedTourStep == .chordConfirm
+            || editorGuidedTourStep == .chordRender
 
         completeEditorGuidedTourStep(.chordWrite)
 
@@ -4855,6 +4871,7 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         completeEditorGuidedTourStep(.chordWrite)
         completeEditorGuidedTourStep(.chordConfirm)
+        completeEditorGuidedTourStep(.chordRender)
 
         #if DEBUG && targetEnvironment(simulator)
         logChordInkCommitTiming(
@@ -4977,6 +4994,7 @@ struct EditorView: View {
         pendingChordInkBatchConfirmation = nil
         completeEditorGuidedTourStep(.chordWrite)
         completeEditorGuidedTourStep(.chordConfirm)
+        completeEditorGuidedTourStep(.chordRender)
 
         IChartTelemetry.record(
             "chord.batch_committed",

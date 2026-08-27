@@ -126,9 +126,14 @@ struct ChartSetupSheetView: View {
                         .font(.headline.weight(.bold))
                         .foregroundStyle(IChartTourStyle.navy)
 
-                    Text("Choose the key, time signature, starting measure count, and sheet style.")
+                    Text("For the example, use C, 4/4, and set Starting Measures to 8 before creating the page.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Label("The walkthrough cannot continue until Create Blank Page finishes.", systemImage: "checkmark.shield")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(IChartTourStyle.navy)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
