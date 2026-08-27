@@ -1,4 +1,6 @@
 struct ChordInkCandidateTextVariantPolicy {
+    private let grammarPolicy = ChordInkCandidateGrammarPolicy()
+
     func textVariants(for glyphCandidates: [GlyphCandidate]) -> [String] {
         let variantsByGlyph = glyphCandidates.map { glyphTextVariants(for: $0.text) }
         let variants = variantsByGlyph.reduce([""]) { partialVariants, glyphVariants in
@@ -25,7 +27,9 @@ struct ChordInkCandidateTextVariantPolicy {
             return expansions
         }
 
-        let canonicalVariants = (variants + expandedVariants).map(canonicalTextVariant)
+        let canonicalVariants = (variants + expandedVariants)
+            .filter { grammarPolicy.allows(text: $0, glyphCandidates: glyphCandidates) }
+            .map(canonicalTextVariant)
         return Array(Set(canonicalVariants)).sorted()
     }
 

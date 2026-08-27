@@ -287,6 +287,58 @@ final class ChordInkRecognitionTraceTests: XCTestCase {
         XCTAssertEqual(trace.stabilityIssues, [])
     }
 
+    func testAllowsDetachedTargetAbsorptionWhenInkCompletesLegalSameChordSuffix() {
+        let abSusBounds = [
+            bounds(minX: 10, minY: 20, width: 18, height: 42),
+            bounds(minX: 34, minY: 28, width: 16, height: 34),
+            bounds(minX: 58, minY: 30, width: 18, height: 32),
+            bounds(minX: 82, minY: 26, width: 18, height: 36),
+            bounds(minX: 106, minY: 26, width: 18, height: 36),
+            bounds(minX: 130, minY: 30, width: 18, height: 32)
+        ]
+        let abSus4Bounds = abSusBounds + [
+            bounds(minX: 190, minY: 18, width: 24, height: 48)
+        ]
+        let trace = ChordInkRecognitionTrace(events: [
+            event(
+                stage: "targeting",
+                boundedBatchTargetCount: 1,
+                targets: [target(index: 0, fraction: 0.32, strokeBounds: abSusBounds)],
+                timestampOffset: 10
+            ),
+            event(stage: "finish_batch", payloads: [
+                payload(
+                    index: 0,
+                    fraction: 0.32,
+                    strokeCount: abSusBounds.count,
+                    raw: ["Absus", "Bbsus"],
+                    supported: ["Absus", "Bbsus"],
+                    match: "Absus",
+                    accepted: "Absus"
+                )
+            ], timestampOffset: 11),
+            event(
+                stage: "targeting",
+                boundedBatchTargetCount: 1,
+                targets: [target(index: 0, fraction: 0.32, strokeBounds: abSus4Bounds)],
+                timestampOffset: 12
+            ),
+            event(stage: "finish_batch", payloads: [
+                payload(
+                    index: 0,
+                    fraction: 0.32,
+                    strokeCount: abSus4Bounds.count,
+                    raw: ["Absus4"],
+                    supported: ["Absus4"],
+                    match: "Absus4",
+                    accepted: "Absus4"
+                )
+            ], timestampOffset: 13)
+        ])
+
+        XCTAssertEqual(trace.stabilityIssues, [])
+    }
+
     func testObservesCloseRacePrimaryCandidateChangeForSameBatchTargetSlot() {
         let firstSlashTarget = target(index: 3, fraction: 0.696, strokeBounds: dSlashFSharpStrokeBounds)
         let secondSlashTarget = target(index: 3, fraction: 0.689, strokeBounds: dSlashFSharpStrokeBounds)

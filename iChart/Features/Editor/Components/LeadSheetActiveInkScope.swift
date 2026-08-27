@@ -47,6 +47,8 @@ enum LeadSheetRhythmicNotationInkCapturePolicy {
 }
 
 enum LeadSheetActiveInkScope {
+    private static let rhythmSectionChordLaneHeight: CGFloat = 40
+
     enum Identity: Hashable {
         case page
         case header
@@ -224,7 +226,7 @@ enum LeadSheetActiveInkScope {
                 return nil
             }
 
-            return measure.chordWritingFrame
+            return chordWritingLaneFrame(for: measure, in: system)
         }
         guard let firstLane = measureLanes.first else {
             return nil
@@ -249,6 +251,23 @@ enum LeadSheetActiveInkScope {
         )
         let boundedLane = laneFrame.intersection(paperFrame)
         return boundedLane.isNull || boundedLane.isEmpty ? nil : boundedLane
+    }
+
+    private static func chordWritingLaneFrame(
+        for measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout
+    ) -> CGRect {
+        guard system.layoutStyle == .rhythmSectionSheet else {
+            return measure.chordWritingFrame
+        }
+
+        let height = min(measure.chordBandFrame.height, rhythmSectionChordLaneHeight)
+        return CGRect(
+            x: measure.chordWritingFrame.minX,
+            y: measure.chordBandFrame.midY - height / 2,
+            width: measure.chordWritingFrame.width,
+            height: max(1, height)
+        )
     }
 
     func drawingData(in chart: Chart) -> Data? {

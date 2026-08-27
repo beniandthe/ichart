@@ -21,6 +21,7 @@ struct LeadSheetHeaderLayout: Hashable {
 struct LeadSheetSystemLayout: Identifiable, Hashable {
     var id: UUID
     var index: Int
+    var layoutStyle: ChartLayoutStyle = .leadSheet
     var frame: CGRect
     var staffLineYPositions: [CGFloat]
     var clefFrame: CGRect?
@@ -858,6 +859,7 @@ enum LeadSheetPageLayoutEngine {
         return LeadSheetSystemLayout(
             id: plan.id,
             index: index,
+            layoutStyle: chart.layoutStyle,
             frame: frame,
             staffLineYPositions: staffLineYPositions,
             clefFrame: clefFrame,

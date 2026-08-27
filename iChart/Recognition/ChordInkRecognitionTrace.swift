@@ -189,6 +189,10 @@ struct ChordInkRecognitionTrace: Codable, Equatable {
                    let previousText = previous.bestSupportedText,
                    let newText = snapshot.bestSupportedText,
                    previousText != newText,
+                   !ChordInkSameChordContinuationPolicy.allowsContinuation(
+                        from: previousText,
+                        to: newText
+                   ),
                    snapshot.absorbs(previous) {
                     issues.append(
                         ChordInkRecognitionTraceStabilityIssue(

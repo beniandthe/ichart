@@ -1587,7 +1587,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.browse.allowsCueTextEditing)
     }
 
-    func testChordTargetingAcceptsInkAcrossFullRhythmSectionChordLane() throws {
+    func testRhythmChordInkScopeKeepsThinLaneAboveStaff() throws {
         let chart = Chart.blank(title: "Top Lane Chord", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -1595,14 +1595,16 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             pageSize: CGSize(width: 900, height: 1200)
         )
         let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
         let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let inkCenterX = measure.chordBandFrame.midX
         let inkStartInView = CGPoint(
-            x: measure.chordWritingFrame.midX - 8,
-            y: measure.chordWritingFrame.maxY - 8
+            x: inkCenterX - 8,
+            y: laneFrame.midY - 8
         )
         let inkEndInView = CGPoint(
-            x: measure.chordWritingFrame.midX + 8,
-            y: measure.chordWritingFrame.maxY - 4
+            x: inkCenterX + 8,
+            y: laneFrame.midY + 4
         )
         let localStart = CGPoint(
             x: inkStartInView.x - chordFrame.minX,
@@ -1613,8 +1615,10 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             y: inkEndInView.y - chordFrame.minY
         )
 
-        XCTAssertTrue(measure.chordWritingFrame.contains(inkStartInView))
-        XCTAssertFalse(measure.chordBandFrame.contains(inkStartInView))
+        XCTAssertLessThan(laneFrame.height, measure.chordWritingFrame.height)
+        XCTAssertTrue(laneFrame.contains(CGPoint(x: measure.chordBandFrame.midX, y: measure.chordBandFrame.midY)))
+        XCTAssertLessThan(laneFrame.maxY, measure.staffFrame.minY)
+        XCTAssertFalse(laneFrame.contains(CGPoint(x: measure.staffFrame.midX, y: measure.staffFrame.minY + 4)))
 
         let drawing = PKDrawing(strokes: [
             stroke(points: [localStart, localEnd], creationDate: Date(timeIntervalSince1970: 30))
@@ -1671,6 +1675,80 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(target.measureID, measureID)
         XCTAssertGreaterThanOrEqual(target.fraction, 0)
         XCTAssertLessThan(target.fraction, 0.2)
+    }
+
+    func testRhythmChordBatchTargetingUsesDraftBarlineSegmentsInsideThinLane() throws {
+        var chart = Chart.draft(title: "Rhythm Draft Boundary Chords", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm Draft Boundary Chords",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let measureID = try XCTUnwrap(measure.sourceMeasureID)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let barlineFraction = 0.52
+        let barlineX = laneFrame.minX + laneFrame.width * CGFloat(barlineFraction)
+        let y = laneFrame.midY
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: barlineX - 46 - chordFrame.minX, y: y - 14 - chordFrame.minY),
+                    CGPoint(x: barlineX - 22 - chordFrame.minX, y: y + 12 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: barlineX + 22 - chordFrame.minX, y: y - 14 - chordFrame.minY),
+                    CGPoint(x: barlineX + 46 - chordFrame.minX, y: y + 12 - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            )
+        ])
+
+        XCTAssertLessThan(measure.chordBandFrame.height, measure.chordWritingFrame.height)
+        XCTAssertTrue(measure.chordWritingFrame.contains(measure.chordBandFrame))
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            draftBarlines: [
+                DraftBarline(
+                    measureID: measureID,
+                    measureIndex: measure.index,
+                    fraction: barlineFraction,
+                    laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: barlineFraction),
+                    metrics: DraftBarlineGestureMetrics(
+                        height: Double(laneFrame.height),
+                        width: 2,
+                        angleDegreesFromVertical: 0,
+                        straightness: 1,
+                        laneCoverage: 1
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            2,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertEqual(result.diagnostics.selectedRoute, "draft_barline_lane")
+        XCTAssertEqual(result.targets.map(\.measureID), [measureID, measureID])
+        XCTAssertLessThan(result.targets[0].laneLocation?.fraction ?? 1, barlineFraction)
+        XCTAssertGreaterThan(result.targets[1].laneLocation?.fraction ?? 0, barlineFraction)
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
     }
 
     func testChordTargetingUsesCommittedSimpleTerminalSpan() throws {
@@ -1954,6 +2032,190 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(targets[0].strokes.count, 1)
         XCTAssertEqual(targets[1].strokes.count, 2)
         XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+    }
+
+    func testRhythmChordBatchTargetingDoesNotCollapseDeviceCThenDIntoSingleRead() throws {
+        var chart = Chart.draft(title: "Rhythm C Then D", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm C Then D",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = repeatDeviceCThenDetachedDPointSets(
+            offsetX: measure.chordWritingFrame.minX + 60 - chordFrame.minX - 168.1,
+            offsetY: laneFrame.midY - chordFrame.minY - 70
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 110 + TimeInterval(index))
+            )
+        })
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            2,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertEqual(result.diagnostics.selectedRoute, "lane_root_sequence")
+        XCTAssertEqual(result.diagnostics.laneSequentialClusterCount, 2)
+        XCTAssertEqual(result.targets.map(\.strokes.count), [1, 2])
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+    }
+
+    func testRhythmChordBatchTargetingKeepsLatestLooseCThenFragmentedDSeparate() throws {
+        var chart = Chart.draft(title: "Rhythm Current Device C Then D", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm Current Device C Then D",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = latestRhythmLooseCThenFragmentedDPointSets(
+            offsetX: measure.chordWritingFrame.minX + 50 - chordFrame.minX - 56.7126,
+            offsetY: laneFrame.midY - chordFrame.minY - 34
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 112 + TimeInterval(index))
+            )
+        })
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            2,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertNotEqual(result.diagnostics.selectedRoute, "measure_lane_collapsed")
+        XCTAssertEqual(result.targets.map(\.strokes.count), [1, 3])
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+    }
+
+    func testRhythmChordBatchTargetingKeepsLatestCloseCThenFragmentedFSeparate() throws {
+        var chart = Chart.draft(title: "Rhythm Current Device C Then F", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm Current Device C Then F",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let transformedStrokes = latestRhythmCloseCThenFragmentedFPointSets(
+            offsetX: measure.chordWritingFrame.minX + 48 - chordFrame.minX - 52.6261,
+            offsetY: laneFrame.midY - chordFrame.minY - 30
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 116 + TimeInterval(index))
+            )
+        })
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(
+            result.targets.count,
+            2,
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+        )
+        XCTAssertNotEqual(result.diagnostics.selectedRoute, "measure_lane_collapsed")
+        XCTAssertEqual(result.targets.map(\.strokes.count), [1, 3])
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+    }
+
+    func testRhythmChordBatchTargetingDoesNotSplitAttachedFlatAsDetachedRoot() throws {
+        var chart = Chart.draft(title: "Rhythm C Flat Guard", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Rhythm C Flat Guard",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1,
+            clef: .bass
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let baseX = measure.chordWritingFrame.minX + 50 - chordFrame.minX
+        let baseY = laneFrame.midY - chordFrame.minY - 34
+        let transformedStrokes = try transformedTemplatePointSets(
+            "C",
+            offsetX: baseX,
+            offsetY: baseY,
+            scale: 0.72
+        ) + transformedTemplatePointSets(
+            "b",
+            offsetX: baseX + 33,
+            offsetY: baseY + 3,
+            scale: 0.34
+        )
+        let drawing = PKDrawing(strokes: transformedStrokes.enumerated().map { index, points in
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSince1970: 120 + TimeInterval(index))
+            )
+        })
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout
+        )
+
+        XCTAssertTrue(
+            result.targets.isEmpty,
+            "attached flat should remain a single recognition target route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount) strokeCounts=\(result.targets.map(\.strokes.count))"
+        )
+        XCTAssertNotEqual(result.diagnostics.selectedRoute, "lane_root_sequence")
+        XCTAssertNotEqual(result.diagnostics.selectedRoute, "measure_lane_root_sequence")
     }
 
     func testChordBatchTargetingDoesNotAbsorbRepeatDeviceDIntoPriorCWithLeftNeighbors() throws {
@@ -2349,8 +2611,10 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         }
 
         XCTAssertNotEqual(frame, LeadSheetActiveInkScope.pageWritingFrame(for: layout))
-        XCTAssertTrue(frame.contains(firstMeasure.chordWritingFrame))
-        XCTAssertTrue(inputFrames.contains { $0.contains(firstMeasure.chordWritingFrame) })
+        let firstInputFrame = try XCTUnwrap(inputFrames.first)
+        XCTAssertLessThan(firstInputFrame.height, firstMeasure.chordWritingFrame.height)
+        XCTAssertTrue(firstInputFrame.contains(CGPoint(x: firstMeasure.chordBandFrame.midX, y: firstMeasure.chordBandFrame.midY)))
+        XCTAssertLessThan(firstInputFrame.maxY, firstMeasure.staffFrame.minY)
         XCTAssertEqual(try XCTUnwrap(inputFrames.first).maxX, layout.paperFrame.insetBy(dx: 14, dy: 0).maxX)
         XCTAssertFalse(
             inputFrames.contains {
@@ -4728,6 +4992,127 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         ]
     }
 
+    private func latestRhythmLooseCThenFragmentedDPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
+        [
+            [
+                CGPoint(x: offsetX + 67.8516, y: offsetY + 23.5995),
+                CGPoint(x: offsetX + 65.9402, y: offsetY + 24.3257),
+                CGPoint(x: offsetX + 64.0287, y: offsetY + 26.3062),
+                CGPoint(x: offsetX + 62.3150, y: offsetY + 28.2867),
+                CGPoint(x: offsetX + 60.6013, y: offsetY + 30.5313),
+                CGPoint(x: offsetX + 59.7445, y: offsetY + 31.8517),
+                CGPoint(x: offsetX + 58.9536, y: offsetY + 33.3041),
+                CGPoint(x: offsetX + 58.2285, y: offsetY + 34.6905),
+                CGPoint(x: offsetX + 57.5035, y: offsetY + 36.2749),
+                CGPoint(x: offsetX + 56.7785, y: offsetY + 38.9816),
+                CGPoint(x: offsetX + 56.7126, y: offsetY + 41.3582),
+                CGPoint(x: offsetX + 57.0421, y: offsetY + 43.4048),
+                CGPoint(x: offsetX + 58.4263, y: offsetY + 44.7251),
+                CGPoint(x: offsetX + 60.3377, y: offsetY + 45.5833),
+                CGPoint(x: offsetX + 62.6446, y: offsetY + 46.1775),
+                CGPoint(x: offsetX + 64.9515, y: offsetY + 46.3755),
+                CGPoint(x: offsetX + 68.3789, y: offsetY + 46.3755),
+                CGPoint(x: offsetX + 70.4880, y: offsetY + 45.9794)
+            ],
+            [
+                CGPoint(x: offsetX + 113.9896, y: offsetY + 26.2402),
+                CGPoint(x: offsetX + 114.4509, y: offsetY + 28.1547),
+                CGPoint(x: offsetX + 114.4509, y: offsetY + 30.2012),
+                CGPoint(x: offsetX + 114.4509, y: offsetY + 32.6439),
+                CGPoint(x: offsetX + 114.2532, y: offsetY + 35.4166),
+                CGPoint(x: offsetX + 114.1214, y: offsetY + 38.2554),
+                CGPoint(x: offsetX + 114.0555, y: offsetY + 42.4145),
+                CGPoint(x: offsetX + 114.0555, y: offsetY + 45.1872),
+                CGPoint(x: offsetX + 114.0555, y: offsetY + 45.8474)
+            ],
+            [
+                CGPoint(x: offsetX + 113.0668, y: offsetY + 25.9101),
+                CGPoint(x: offsetX + 113.9896, y: offsetY + 24.5237),
+                CGPoint(x: offsetX + 115.9010, y: offsetY + 23.7975),
+                CGPoint(x: offsetX + 117.9442, y: offsetY + 23.1374),
+                CGPoint(x: offsetX + 120.7125, y: offsetY + 22.3451),
+                CGPoint(x: offsetX + 122.1626, y: offsetY + 21.8830),
+                CGPoint(x: offsetX + 123.6126, y: offsetY + 21.4209),
+                CGPoint(x: offsetX + 125.1286, y: offsetY + 20.9588),
+                CGPoint(x: offsetX + 126.5786, y: offsetY + 20.4967),
+                CGPoint(x: offsetX + 128.0287, y: offsetY + 19.9685)
+            ],
+            [
+                CGPoint(x: offsetX + 115.2419, y: offsetY + 36.9350),
+                CGPoint(x: offsetX + 116.9556, y: offsetY + 36.9350),
+                CGPoint(x: offsetX + 119.3943, y: offsetY + 36.9350),
+                CGPoint(x: offsetX + 121.4375, y: offsetY + 36.8690),
+                CGPoint(x: offsetX + 123.6785, y: offsetY + 36.6050),
+                CGPoint(x: offsetX + 126.2491, y: offsetY + 36.4069),
+                CGPoint(x: offsetX + 128.8855, y: offsetY + 36.1428)
+            ]
+        ]
+    }
+
+    private func latestRhythmCloseCThenFragmentedFPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
+        [
+            [
+                CGPoint(x: offsetX + 65.4788, y: offsetY + 16.6676),
+                CGPoint(x: offsetX + 64.5560, y: offsetY + 17.9220),
+                CGPoint(x: offsetX + 62.7105, y: offsetY + 19.5724),
+                CGPoint(x: offsetX + 60.9968, y: offsetY + 21.4869),
+                CGPoint(x: offsetX + 59.9422, y: offsetY + 22.8073),
+                CGPoint(x: offsetX + 58.8876, y: offsetY + 24.3917),
+                CGPoint(x: offsetX + 57.7012, y: offsetY + 26.2402),
+                CGPoint(x: offsetX + 56.5807, y: offsetY + 28.2867),
+                CGPoint(x: offsetX + 55.4602, y: offsetY + 30.5313),
+                CGPoint(x: offsetX + 54.3398, y: offsetY + 33.1060),
+                CGPoint(x: offsetX + 53.5488, y: offsetY + 35.2846),
+                CGPoint(x: offsetX + 52.9556, y: offsetY + 37.3972),
+                CGPoint(x: offsetX + 52.6261, y: offsetY + 39.2456),
+                CGPoint(x: offsetX + 52.6261, y: offsetY + 43.0747),
+                CGPoint(x: offsetX + 53.9443, y: offsetY + 43.9329),
+                CGPoint(x: offsetX + 56.0534, y: offsetY + 44.1310),
+                CGPoint(x: offsetX + 58.9536, y: offsetY + 44.1310),
+                CGPoint(x: offsetX + 60.4695, y: offsetY + 43.8669),
+                CGPoint(x: offsetX + 62.0514, y: offsetY + 43.4048),
+                CGPoint(x: offsetX + 63.6992, y: offsetY + 42.8766),
+                CGPoint(x: offsetX + 65.2810, y: offsetY + 42.2825),
+                CGPoint(x: offsetX + 66.9288, y: offsetY + 41.6223),
+                CGPoint(x: offsetX + 68.6425, y: offsetY + 40.9621),
+                CGPoint(x: offsetX + 70.0267, y: offsetY + 40.3679),
+                CGPoint(x: offsetX + 72.3995, y: offsetY + 39.4437),
+                CGPoint(x: offsetX + 74.1132, y: offsetY + 38.6515)
+            ],
+            [
+                CGPoint(x: offsetX + 107.5302, y: offsetY + 23.7975),
+                CGPoint(x: offsetX + 106.8711, y: offsetY + 20.7607),
+                CGPoint(x: offsetX + 106.8052, y: offsetY + 22.5432),
+                CGPoint(x: offsetX + 107.0689, y: offsetY + 24.5898),
+                CGPoint(x: offsetX + 107.5302, y: offsetY + 27.0984),
+                CGPoint(x: offsetX + 107.9916, y: offsetY + 29.8712),
+                CGPoint(x: offsetX + 108.1894, y: offsetY + 31.5216),
+                CGPoint(x: offsetX + 108.5848, y: offsetY + 34.1623),
+                CGPoint(x: offsetX + 108.9803, y: offsetY + 36.6050),
+                CGPoint(x: offsetX + 109.5076, y: offsetY + 39.5097),
+                CGPoint(x: offsetX + 109.9031, y: offsetY + 41.2262)
+            ],
+            [
+                CGPoint(x: offsetX + 109.2439, y: offsetY + 20.9588),
+                CGPoint(x: offsetX + 108.7826, y: offsetY + 19.5064),
+                CGPoint(x: offsetX + 111.6827, y: offsetY + 18.4501),
+                CGPoint(x: offsetX + 113.7918, y: offsetY + 17.7899),
+                CGPoint(x: offsetX + 117.2192, y: offsetY + 16.9317),
+                CGPoint(x: offsetX + 119.6579, y: offsetY + 16.4696),
+                CGPoint(x: offsetX + 121.6353, y: offsetY + 16.2715),
+                CGPoint(x: offsetX + 123.2172, y: offsetY + 16.2715),
+                CGPoint(x: offsetX + 124.4695, y: offsetY + 16.2055)
+            ],
+            [
+                CGPoint(x: offsetX + 111.0235, y: offsetY + 30.4653),
+                CGPoint(x: offsetX + 112.9350, y: offsetY + 30.4653),
+                CGPoint(x: offsetX + 116.1646, y: offsetY + 29.2770),
+                CGPoint(x: offsetX + 118.1420, y: offsetY + 28.6168),
+                CGPoint(x: offsetX + 122.4921, y: offsetY + 27.2965)
+            ]
+        ]
+    }
+
     private func repeatDeviceABCDPointSets(offsetX: CGFloat, offsetY: CGFloat) -> [[CGPoint]] {
         let aStrokes: [[CGPoint]] = [
             [
@@ -4777,6 +5162,27 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         ]
 
         return aStrokes + bStrokes + repeatDeviceCThenDetachedDPointSets(offsetX: offsetX, offsetY: offsetY)
+    }
+
+    private func transformedTemplatePointSets(
+        _ text: String,
+        offsetX: CGFloat,
+        offsetY: CGFloat,
+        scale: CGFloat
+    ) throws -> [[CGPoint]] {
+        let template = try XCTUnwrap(
+            ChordGlyphTemplateLibrary.initialTemplates.first { $0.text == text },
+            "Missing template \(text)"
+        )
+
+        return template.strokes.map { stroke in
+            stroke.points.map { point in
+                CGPoint(
+                    x: offsetX + CGFloat(point.x) * scale,
+                    y: offsetY + CGFloat(point.y) * scale
+                )
+            }
+        }
     }
 
     private func stroke(

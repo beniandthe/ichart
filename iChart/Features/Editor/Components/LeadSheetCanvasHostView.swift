@@ -5077,7 +5077,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             barlineCount: barlineRecognition.barlines.count,
             rawBatchTargets: batchTargets,
             boundedBatchTargets: boundedBatchTargets,
-            targetingDiagnostics: batchTargetingResult.diagnostics
+            targetingDiagnostics: batchTargetingResult.diagnostics,
+            layoutStyle: chart.layoutStyle
         )
         let skippedBatchTargetCount = batchTargets.count - boundedBatchTargets.count
         if skippedBatchTargetCount > 0 {
@@ -5121,7 +5122,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         stage: "skip_weak_batch_targets",
                         recognitionStrokeCount: recognitionDrawing.strokes.count,
                         rawBatchTargetCount: batchTargets.count,
-                        boundedBatchTargetCount: boundedBatchTargets.count
+                        boundedBatchTargetCount: boundedBatchTargets.count,
+                        layoutStyle: chart.layoutStyle
                     )
                     onChordInkDraftPreviewChanged?([])
                 }
@@ -5177,7 +5179,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 stage: "skip_single_target",
                 recognitionStrokeCount: strokes.count,
                 rawBatchTargetCount: batchTargets.count,
-                boundedBatchTargetCount: boundedBatchTargets.count
+                boundedBatchTargetCount: boundedBatchTargets.count,
+                layoutStyle: chart.layoutStyle
             )
             onChordInkDraftPreviewChanged?([])
             return
@@ -5202,7 +5205,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     stage: "no_target",
                     recognitionStrokeCount: recognitionDrawing.strokes.count,
                     rawBatchTargetCount: batchTargets.count,
-                    boundedBatchTargetCount: boundedBatchTargets.count
+                    boundedBatchTargetCount: boundedBatchTargets.count,
+                    layoutStyle: chart.layoutStyle
                 )
                 onChordInkDraftPreviewChanged?([])
             }
@@ -5231,7 +5235,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
         ChordDraftPreviewDeviceDiagnostics.recordSingleTarget(
             flow: flow,
-            request: sessionRequest
+            request: sessionRequest,
+            layoutStyle: chart.layoutStyle
         )
         ChordLaneLocalBreadcrumbs.record(
             "recognize_chord_ink_start_single",
@@ -5266,7 +5271,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
-        ChordDraftPreviewDeviceDiagnostics.recordPayloads([payload], flow: flow, stage: "finish_single")
+        ChordDraftPreviewDeviceDiagnostics.recordPayloads(
+            [payload],
+            flow: flow,
+            stage: "finish_single",
+            layoutStyle: chart.layoutStyle
+        )
 
         if flow == .draftPreview {
             onChordInkDraftPreviewChanged?(payload.result.rawCandidates.isEmpty ? [] : [payload])
@@ -5313,7 +5323,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         for payload in payloads {
             LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
         }
-        ChordDraftPreviewDeviceDiagnostics.recordPayloads(payloads, flow: flow, stage: "finish_batch")
+        ChordDraftPreviewDeviceDiagnostics.recordPayloads(
+            payloads,
+            flow: flow,
+            stage: "finish_batch",
+            layoutStyle: chart.layoutStyle
+        )
 
         if flow == .draftPreview {
             onChordInkDraftPreviewChanged?(payloads.filter { !$0.result.rawCandidates.isEmpty })
