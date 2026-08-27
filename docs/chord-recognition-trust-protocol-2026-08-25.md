@@ -130,7 +130,7 @@ Future-only implementation sequence:
 - [x] Root-glyph volatility is gated at trust policy before additional glyph scoring changes.
 - [x] Erase-as-rejection is parked as cautionary future work, not an active behavior change for this branch.
 - [x] Aggregate telemetry only; no raw chord text, drawing payloads, chart titles, user names, emails, or support data added to production telemetry.
-- [ ] Physical iPad validation recorded before final accuracy claims.
+- [x] Physical iPad validation recorded for the current B+ architecture/stability claim; this branch does not claim A-level broad handwriting accuracy.
 
 ## Implementation Log
 
