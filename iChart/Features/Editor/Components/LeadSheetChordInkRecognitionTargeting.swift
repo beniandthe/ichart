@@ -722,7 +722,7 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
         }
 
-        return clusters
+        let sortedClusters = clusters
             .sorted { lhs, rhs in
                 if lhs.systemIndex == rhs.systemIndex {
                     return lhs.cluster.bounds.minX < rhs.cluster.bounds.minX
@@ -732,6 +732,14 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
             .map(\.cluster)
             .filter(\.isUsable)
+
+        let coveredStrokeIndices = Set(sortedClusters.flatMap(\.strokeIndices))
+        let expectedStrokeIndices = Set(laneStrokeTargets.map(\.originalIndex))
+        guard coveredStrokeIndices == expectedStrokeIndices else {
+            return []
+        }
+
+        return sortedClusters
     }
 
     private static func rootLedSequentialClusters(

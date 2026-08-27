@@ -1669,6 +1669,70 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
     }
 
+    func testChordBatchTargetingFallsBackWhenLaneRootSequenceWouldDropContinuationLaneStroke() throws {
+        var chart = Chart.draft(title: "Partial Lane Root Sequence", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Partial Lane Root Sequence",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let openMeasureID = try XCTUnwrap(chart.measures.first(where: { $0.authoringState == .open })?.id)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400),
+            includesChordInkContinuationLanes: true
+        )
+        let chordRegion = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
+        let firstLane = try XCTUnwrap(chordRegion.inputFrames.first)
+        let continuationLane = try XCTUnwrap(chordRegion.inputFrames.dropFirst().first)
+        let firstBaselineY = firstLane.midY
+        let continuationBaselineY = continuationLane.midY
+        let firstX = firstLane.minX + 70
+        let secondX = firstX + 130
+        let continuationX = continuationLane.minX + 90
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: firstX - chordRegion.frame.minX, y: firstBaselineY - 22 - chordRegion.frame.minY),
+                    CGPoint(x: firstX + 26 - chordRegion.frame.minX, y: firstBaselineY - 4 - chordRegion.frame.minY),
+                    CGPoint(x: firstX + 4 - chordRegion.frame.minX, y: firstBaselineY + 22 - chordRegion.frame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: secondX - chordRegion.frame.minX, y: firstBaselineY - 22 - chordRegion.frame.minY),
+                    CGPoint(x: secondX + 26 - chordRegion.frame.minX, y: firstBaselineY - 4 - chordRegion.frame.minY),
+                    CGPoint(x: secondX + 4 - chordRegion.frame.minX, y: firstBaselineY + 22 - chordRegion.frame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 41)
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: continuationX - chordRegion.frame.minX, y: continuationBaselineY - 22 - chordRegion.frame.minY),
+                    CGPoint(x: continuationX + 26 - chordRegion.frame.minX, y: continuationBaselineY - 4 - chordRegion.frame.minY),
+                    CGPoint(x: continuationX + 4 - chordRegion.frame.minX, y: continuationBaselineY + 22 - chordRegion.frame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 42)
+            )
+        ])
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordRegion.frame,
+            pageLayout: layout
+        )
+
+        XCTAssertEqual(result.diagnostics.selectedRoute, "measure_lane")
+        XCTAssertEqual(result.diagnostics.laneSequentialClusterCount, 0)
+        XCTAssertEqual(result.targets.count, 3)
+        XCTAssertEqual(result.targets.map(\.measureID), [openMeasureID, openMeasureID, openMeasureID])
+        XCTAssertEqual(result.targets.map { $0.laneLocation?.systemIndex }, [0, 0, 1])
+        XCTAssertEqual(result.targets.flatMap(\.strokes).count, 3)
+    }
+
     func testChordBatchTargetingDoesNotAbsorbDetachedDIntoPriorCOpenLaneRoot() throws {
         var chart = Chart.draft(title: "Open Lane C Then D", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
