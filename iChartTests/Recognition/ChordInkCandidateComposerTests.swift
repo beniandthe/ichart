@@ -29,6 +29,188 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(candidates.first?.text, "F#")
     }
 
+    func testDoesNotPromoteUppercaseSecondRootLetterAsFlatAccidental() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("C", confidence: 0.96)],
+            [
+                glyph("F", confidence: 0.996, source: .heuristic),
+                glyph("B", confidence: 0.59),
+                glyph("D", confidence: 0.58)
+            ]
+        ])
+        let candidateTexts = candidates.map(\.text)
+        let supportedDisplayTexts = candidateTexts.compactMap { text in
+            ChordRecognitionCompendium.match(text)?.displayText
+        }
+
+        XCTAssertFalse(candidateTexts.contains("CB"))
+        XCTAssertFalse(supportedDisplayTexts.contains("Cb"))
+    }
+
+    func testStillComposesFlatWhenSecondGlyphIsLowercaseFlat() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("C", confidence: 0.96)],
+            [glyph("b", confidence: 0.91)]
+        ])
+
+        XCTAssertEqual(candidates.first?.text, "Cb")
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Cb")
+    }
+
+    func testStillComposesSlashBassRootLetterAfterSlash() {
+        let candidates = composer.compose(glyphCandidates: [
+            [glyph("G", confidence: 0.96)],
+            [glyph("/", confidence: 0.90)],
+            [glyph("B", confidence: 0.91)]
+        ])
+
+        XCTAssertEqual(candidates.first?.text, "G/B")
+        XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "G/B")
+    }
+
+    func testRecognitionComposerRejectsDetachedBaseRootPressureAsQualitySuffix() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.95, source: .heuristic)],
+                [
+                    glyph("m", confidence: 0.99, source: .heuristic),
+                    glyph("C", confidence: 0.95, source: .heuristic)
+                ],
+                [
+                    glyph("E", confidence: 0.996, source: .heuristic),
+                    glyph("5", confidence: 0.992, source: .heuristic),
+                    glyph("6", confidence: 0.54)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 20, maxX: 24, maxY: 46),
+                cluster(minX: 48, minY: 20, maxX: 70, maxY: 46),
+                cluster(minX: 96, minY: 22, maxX: 118, maxY: 47)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("C-"))
+        XCTAssertFalse(displayTexts.contains("Cm6"))
+    }
+
+    func testRecognitionComposerRejectsDetachedBaseRootPressureAsMajorSixthSuffix() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("D", confidence: 0.92, source: .heuristic)],
+                [
+                    glyph("E", confidence: 0.996, source: .heuristic),
+                    glyph("5", confidence: 0.992, source: .heuristic),
+                    glyph("6", confidence: 0.49)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 22, maxY: 49, strokes: 2),
+                cluster(minX: 52, minY: 26, maxX: 74, maxY: 51, strokes: 3)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("D6"))
+        XCTAssertEqual(displayTexts.first, "D")
+    }
+
+    func testRecognitionComposerRejectsDetachedBaseRootPressureAsMinorSuffix() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("F", confidence: 0.996, source: .heuristic)],
+                [
+                    glyph("m", confidence: 0.99, source: .heuristic),
+                    glyph("G", confidence: 0.97, source: .heuristic),
+                    glyph("6", confidence: 0.67)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 26, maxX: 18, maxY: 50, strokes: 3),
+                cluster(minX: 48, minY: 26, maxX: 71, maxY: 51)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("F-"))
+        XCTAssertFalse(displayTexts.contains("F6"))
+        XCTAssertEqual(displayTexts.first, "F")
+    }
+
+    func testRecognitionComposerStillAllowsAttachedFlatRootAccidentalWithRootPressureLookalike() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("D", confidence: 0.92, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 25, maxY: 53),
+                cluster(minX: 31, minY: 14, maxX: 42, maxY: 42)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertEqual(displayTexts.first, "Cb")
+    }
+
+    func testRecognitionComposerKeepsAccidentalSixthWhenSixHasRootPressure() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("B", confidence: 0.987, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("D", confidence: 0.979, source: .heuristic)
+                ],
+                [
+                    glyph("6", confidence: 0.995, source: .heuristic),
+                    glyph("D", confidence: 0.979, source: .heuristic),
+                    glyph("b", confidence: 0.98, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 24, maxY: 54),
+                cluster(minX: 30, minY: 12, maxX: 42, maxY: 44),
+                cluster(minX: 70, minY: 22, maxX: 94, maxY: 52)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertTrue(displayTexts.contains("Bb6"))
+    }
+
+    func testRecognitionComposerStillAllowsSlashBassBaseRootPressureAfterSlash() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("G", confidence: 0.96, source: .heuristic)],
+                [glyph("/", confidence: 0.90)],
+                [glyph("B", confidence: 0.95, source: .heuristic)]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 24, maxY: 54),
+                cluster(minX: 32, minY: 20, maxX: 42, maxY: 58),
+                cluster(minX: 64, minY: 24, maxX: 88, maxY: 54, strokes: 2)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertEqual(displayTexts.first, "G/B")
+    }
+
     func testComposesMinorAliasesToStandardMinorCandidate() throws {
         let dashCandidates = composer.compose(glyphCandidates: [
             [glyph("C", confidence: 0.94)],

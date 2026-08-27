@@ -52,7 +52,14 @@ struct ChordInkRecognitionCandidateComposer {
         }
         let semanticMilliseconds = Self.elapsedMilliseconds(since: semanticStart)
 
-        let candidates = Array(bestCandidatesByText.values).sorted { lhs, rhs in
+        let grammarPolicy = ChordInkCandidateGrammarPolicy()
+        let candidates = Array(bestCandidatesByText.values).filter { candidate in
+            grammarPolicy.allows(
+                candidate,
+                candidateColumns: glyphCandidateGroups,
+                clusters: clusters
+            )
+        }.sorted { lhs, rhs in
             if lhs.confidence != rhs.confidence {
                 return lhs.confidence > rhs.confidence
             }

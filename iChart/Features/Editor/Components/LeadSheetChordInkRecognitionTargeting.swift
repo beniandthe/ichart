@@ -34,6 +34,18 @@ private struct MeasureLaneStrokeTarget {
     var key: MeasureLaneClusterKey
 }
 
+private struct MeasureLaneClusterResult {
+    var clusters: [ChordInkBatchCluster]
+    var usedRootLedGrouping: Bool
+    var allSelectedClustersUseRootLedGrouping: Bool
+}
+
+private struct MeasureLaneClusterGroupResult {
+    var key: MeasureLaneClusterKey
+    var clusters: [ChordInkBatchCluster]
+    var usedRootLedGrouping: Bool
+}
+
 private struct SystemLaneStrokeTarget {
     var originalIndex: Int
     var stroke: InkStroke
@@ -107,11 +119,12 @@ enum LeadSheetChordInkRecognitionTargeting {
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
-        let measureLaneClusters = measureLaneClusters(
+        let measureLaneResult = measureLaneClusters(
             for: inkStrokes,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
+        let measureLaneClusters = measureLaneResult.clusters
         let fallbackClusters = ChordInkBatchClusterer.clusters(for: inkStrokes)
         let clusters: [ChordInkBatchCluster]
         let requiresFragmentCollapseCheck: Bool
@@ -129,8 +142,14 @@ enum LeadSheetChordInkRecognitionTargeting {
         } else if measureLaneClusters.count > 1,
                   measureLaneClusters.count <= maximumBatchTargetCount {
             clusters = measureLaneClusters
-            requiresFragmentCollapseCheck = true
-            selectedRoute = "measure_lane"
+            requiresFragmentCollapseCheck = !measureLaneResult.allSelectedClustersUseRootLedGrouping
+            if measureLaneResult.allSelectedClustersUseRootLedGrouping {
+                selectedRoute = "measure_lane_root_sequence"
+            } else if measureLaneResult.usedRootLedGrouping {
+                selectedRoute = "measure_lane_mixed"
+            } else {
+                selectedRoute = "measure_lane"
+            }
         } else {
             clusters = fallbackClusters
             requiresFragmentCollapseCheck = true
@@ -580,7 +599,7 @@ enum LeadSheetChordInkRecognitionTargeting {
         for strokes: [InkStroke],
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout
-    ) -> [ChordInkBatchCluster] {
+    ) -> MeasureLaneClusterResult {
         let usableStrokes = strokes.enumerated()
             .filter { _, stroke in
                 stroke.bounds.width >= 1 || stroke.bounds.height >= 1
@@ -612,11 +631,15 @@ enum LeadSheetChordInkRecognitionTargeting {
 
         guard strokeTargets.count == usableStrokes.count,
               strokeTargets.count > 1 else {
-            return []
+            return MeasureLaneClusterResult(
+                clusters: [],
+                usedRootLedGrouping: false,
+                allSelectedClustersUseRootLedGrouping: false
+            )
         }
 
         let groupedTargets = Dictionary(grouping: strokeTargets, by: \.key)
-        let clusters = groupedTargets.flatMap { key, group -> [(key: MeasureLaneClusterKey, cluster: ChordInkBatchCluster)] in
+        let groupResults = groupedTargets.map { key, group -> MeasureLaneClusterGroupResult in
             let orderedGroup = group.sorted { lhs, rhs in
                 if lhs.stroke.bounds.minX == rhs.stroke.bounds.minX {
                     return lhs.originalIndex < rhs.originalIndex
@@ -629,12 +652,14 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
             let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
             if sequentialClusters.count > 1 {
-                return sequentialClusters.map { cluster in
-                    (key: key, cluster: cluster)
-                }
+                return MeasureLaneClusterGroupResult(
+                    key: key,
+                    clusters: sequentialClusters,
+                    usedRootLedGrouping: true
+                )
             }
 
-            return ChordInkBatchClusterer.clusters(for: orderedGroup.map(\.stroke))
+            let fallbackClusters = ChordInkBatchClusterer.clusters(for: orderedGroup.map(\.stroke))
                 .compactMap { localCluster -> (key: MeasureLaneClusterKey, cluster: ChordInkBatchCluster)? in
                     let originalIndices = localCluster.strokeIndices.compactMap { localIndex -> Int? in
                         guard orderedGroup.indices.contains(localIndex) else {
@@ -655,9 +680,21 @@ enum LeadSheetChordInkRecognitionTargeting {
                         )
                     )
                 }
+                .map(\.cluster)
+
+            return MeasureLaneClusterGroupResult(
+                key: key,
+                clusters: fallbackClusters,
+                usedRootLedGrouping: false
+            )
         }
 
-        return clusters
+        let resolvedClusterPairs = groupResults.flatMap { result in
+            result.clusters.map { cluster in
+                (key: result.key, cluster: cluster, usedRootLedGrouping: result.usedRootLedGrouping)
+            }
+        }
+        let resolvedClusters = resolvedClusterPairs
             .sorted { lhs, rhs in
                 if lhs.key.systemIndex == rhs.key.systemIndex {
                     return lhs.cluster.bounds.minX < rhs.cluster.bounds.minX
@@ -667,6 +704,20 @@ enum LeadSheetChordInkRecognitionTargeting {
             }
             .map(\.cluster)
             .filter(\.isUsable)
+        let selectedStrokeIndices = Set(resolvedClusters.flatMap(\.strokeIndices))
+        let selectedGroupUsesRootLed = groupResults
+            .filter { result in
+                result.clusters.contains { cluster in
+                    !selectedStrokeIndices.isDisjoint(with: Set(cluster.strokeIndices))
+                }
+            }
+            .map(\.usedRootLedGrouping)
+        return MeasureLaneClusterResult(
+            clusters: resolvedClusters,
+            usedRootLedGrouping: selectedGroupUsesRootLed.contains(true),
+            allSelectedClustersUseRootLedGrouping: !selectedGroupUsesRootLed.isEmpty
+                && selectedGroupUsesRootLed.allSatisfy { $0 }
+        )
     }
 
     private static func systemLaneSequentialClusters(
@@ -774,6 +825,13 @@ private enum ChordLaneRawBatchSplitPolicy {
     private static let minimumStandaloneWidth = 16.0
     private static let minimumStandaloneHeight = 18.0
     private static let minimumWidthToHeightRatio = 0.28
+    private static let probableRootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
+    private static let suffixAndModifierTexts: Set<String> = [
+        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "l", "t",
+        "-", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"
+    ]
+    private static let probableRootMinimumConfidence = 0.46
+    private static let probableRootMaximumLagBehindBest = 0.45
 
     static func hasStandaloneChordEvidence(in clusters: [ChordInkBatchCluster]) -> Bool {
         guard clusters.count > 1 else {
@@ -790,6 +848,10 @@ private enum ChordLaneRawBatchSplitPolicy {
         guard clusters.count == targets.count,
               targets.count > 1,
               targetsShareSingleLaneAnchor(targets) else {
+            return false
+        }
+
+        if hasDetachedRootTargetSequence(in: targets) {
             return false
         }
 
@@ -817,6 +879,69 @@ private enum ChordLaneRawBatchSplitPolicy {
         }
 
         return Set(laneIndexes).count == 1
+    }
+
+    private static func hasDetachedRootTargetSequence(
+        in targets: [LeadSheetChordInkRecognitionBatchTarget]
+    ) -> Bool {
+        let orderedTargets = targets
+            .map { target in
+                (target: target, bounds: InkBounds.enclosing(target.strokes.map(\.bounds)))
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX == rhs.bounds.minX {
+                    return lhs.target.visualOrder < rhs.target.visualOrder
+                }
+
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+        guard orderedTargets.count > 1,
+              orderedTargets.allSatisfy({ hasProbableRootEvidence(in: $0.target) }) else {
+            return false
+        }
+
+        return zip(orderedTargets, orderedTargets.dropFirst()).allSatisfy { leading, trailing in
+            ChordInkSequentialRootStartDetector.isRootSequenceBoundarySizedGlyph(
+                trailing.bounds,
+                from: leading.bounds
+            )
+        }
+    }
+
+    private static func hasProbableRootEvidence(
+        in target: LeadSheetChordInkRecognitionBatchTarget
+    ) -> Bool {
+        let cluster = InkCluster(strokes: target.strokes)
+        let mutableCluster = MutableInkCluster(
+            strokes: target.strokes,
+            originalIndexes: Array(target.strokes.indices)
+        )
+        guard mutableCluster.hasRootConstructionBody
+                || mutableCluster.hasRootConstructionVerticalStem && mutableCluster.hasRootConstructionBar else {
+            return false
+        }
+
+        let candidates = GestureTemplateRecognizer().rankedCandidates(
+            for: cluster,
+            templates: ChordGlyphTemplateLibrary.initialTemplates,
+            limit: 8
+        )
+        guard let bestCandidate = candidates.first,
+              let rootCandidate = candidates.first(where: { candidate in
+                probableRootTexts.contains(candidate.text)
+                    && candidate.confidence >= probableRootMinimumConfidence
+              }) else {
+            return false
+        }
+
+        if suffixAndModifierTexts.contains(bestCandidate.text),
+           bestCandidate.text != rootCandidate.text,
+           rootCandidate.source != .heuristic,
+           rootCandidate.confidence + 0.08 < bestCandidate.confidence {
+            return false
+        }
+
+        return rootCandidate.confidence + probableRootMaximumLagBehindBest >= bestCandidate.confidence
     }
 
     private static func isStandaloneChordSized(_ cluster: ChordInkBatchCluster) -> Bool {

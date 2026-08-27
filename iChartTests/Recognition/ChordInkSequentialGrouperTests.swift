@@ -87,6 +87,21 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         XCTAssertEqual(evidence?.text, "D")
     }
 
+    func testCloseAdjacentRootSizedLetterStartsNextGroupAtLiveTraceGap() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("E", confidence: 0.996, source: .heuristic),
+                glyph("5", confidence: 0.992, source: .heuristic),
+                glyph("6", confidence: 0.49)
+            ],
+            cluster: cluster(rootBounds(at: 46)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertEqual(evidence?.text, "E")
+    }
+
     func testDeviceCThenDetachedDStaysAsSeparateSequentialGroups() {
         let groups = grouper.groups(for: indexed(deviceCThenDetachedDStrokes()))
 
@@ -122,6 +137,25 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         XCTAssertEqual(groups[3].strokeIndices, [4, 5])
     }
 
+    func testLatestRhythmCloseCThenFragmentedFStaysSeparateBeforeGapFallback() {
+        let strokes = latestRhythmCloseCThenFragmentedFStrokes()
+        let strokeClusters = StrokeClusterer().indexedClusters(strokes)
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(
+            strokeClusters.count,
+            2,
+            "The lower-level clusterer splits the live C/F trace, but the first C still has to survive initial root evidence before fallback can collapse it."
+        )
+        XCTAssertEqual(groups.count, 2)
+        guard groups.count == 2 else {
+            return
+        }
+        XCTAssertEqual(groups.map(\.rootText), ["C", "F"])
+        XCTAssertEqual(groups[0].strokeIndices, [0])
+        XCTAssertEqual(groups[1].strokeIndices, [1, 2, 3])
+    }
+
     func testSlashBassRootDoesNotStartASecondGroup() throws {
         let strokes = try glyphStrokes([
             ("G", 0),
@@ -150,6 +184,20 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         XCTAssertEqual(evidence?.text, "C")
     }
 
+    func testDetachedRootSizedFlatLookalikeStartsNextGroupWhenRootTrailsByLiveTraceMargin() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("D", confidence: 0.92, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 100)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertEqual(evidence?.text, "D")
+    }
+
     func testAttachedFlatLookalikeDoesNotStartNextGroup() {
         let evidence = ChordInkSequentialRootStartDetector.evidence(
             in: [
@@ -158,6 +206,62 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
             ],
             cluster: cluster(highSuffixBounds(at: 42)),
             currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertNil(evidence)
+    }
+
+    func testBaseSizedInitialFlatLookalikeCanStartRootWhenRootEvidenceIsClose() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(InkBounds(minX: 52, minY: 16, maxX: 74, maxY: 44)),
+            currentGroupBounds: nil,
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertEqual(evidence?.text, "C")
+    }
+
+    func testBaseSizedInitialExtensionLookalikeCanStartRootWhenRootEvidenceIsClose() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("6", confidence: 0.995, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(InkBounds(minX: 52, minY: 16, maxX: 76, maxY: 46)),
+            currentGroupBounds: nil,
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertEqual(evidence?.text, "C")
+    }
+
+    func testBaseSizedInitialExtensionLookalikeDoesNotStartRootWhenRootEvidenceTrailsTooFar() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("6", confidence: 0.995, source: .heuristic),
+                glyph("C", confidence: 0.88, source: .heuristic)
+            ],
+            cluster: cluster(InkBounds(minX: 52, minY: 16, maxX: 76, maxY: 46)),
+            currentGroupBounds: nil,
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertNil(evidence)
+    }
+
+    func testCompactInitialFlatLookalikeDoesNotStartRoot() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(highSuffixBounds(at: 42)),
+            currentGroupBounds: nil,
             previousGlyphWasSlashSeparator: false
         )
 
@@ -281,6 +385,70 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
                 InkPoint(x: x, y: y, timeOffset: nil)
             }
         )
+    }
+
+    private func latestRhythmCloseCThenFragmentedFStrokes() -> [InkStroke] {
+        [
+            latestDeviceStroke([
+                (65.4787826538086, 16.66763687133789),
+                (64.55601501464844, 17.921964645385742),
+                (62.71050262451172, 19.572410583496094),
+                (60.99680709838867, 21.486923217773438),
+                (59.94222640991211, 22.8072566986084),
+                (58.88763427734375, 24.391695022583008),
+                (57.701236724853516, 26.240163803100586),
+                (56.580745697021484, 28.286727905273438),
+                (55.460243225097656, 30.531314849853516),
+                (54.339752197265625, 33.106014251708984),
+                (53.54882049560547, 35.28459167480469),
+                (52.95561218261719, 37.39716339111328),
+                (52.62605667114258, 39.24563217163086),
+                (52.62605667114258, 43.07465744018555),
+                (53.94428634643555, 43.93290328979492),
+                (56.05344772338867, 44.13096237182617),
+                (58.953556060791016, 44.13096237182617),
+                (60.469512939453125, 43.86689376831055),
+                (62.051387786865234, 43.40476989746094),
+                (63.69917678833008, 42.87663650512695),
+                (65.28104400634766, 42.2824592590332),
+                (66.92882537841797, 41.62227249145508),
+                (68.64252471923828, 40.96212387084961),
+                (70.02666473388672, 40.36794662475586),
+                (72.39947509765625, 39.44369125366211),
+                (74.11316680908203, 38.651493072509766)
+            ]),
+            latestDeviceStroke([
+                (107.53024291992188, 23.797517776489258),
+                (106.87113189697266, 20.76072883605957),
+                (106.80522155761719, 22.543190002441406),
+                (107.06885528564453, 24.589754104614258),
+                (107.53024291992188, 27.098407745361328),
+                (107.99163055419922, 29.871166229248047),
+                (108.18936157226562, 31.521575927734375),
+                (108.5848388671875, 34.16228103637695),
+                (108.98029327392578, 36.60496520996094),
+                (109.5075912475586, 39.509735107421875),
+                (109.90306854248047, 41.22618865966797)
+            ]),
+            latestDeviceStroke([
+                (109.24394989013672, 20.95875358581543),
+                (108.78256225585938, 19.506366729736328),
+                (111.68266296386719, 18.450098037719727),
+                (113.79182434082031, 17.789913177490234),
+                (117.2192153930664, 16.931703567504883),
+                (119.65794372558594, 16.46957778930664),
+                (121.63529205322266, 16.27151870727539),
+                (123.21715545654297, 16.27151870727539),
+                (124.46947479248047, 16.20551109313965)
+            ]),
+            latestDeviceStroke([
+                (111.02354431152344, 30.465307235717773),
+                (112.93498229980469, 30.465307235717773),
+                (116.16464233398438, 29.276988983154297),
+                (118.1419906616211, 28.616802215576172),
+                (122.49213409423828, 27.296466827392578)
+            ])
+        ]
     }
 
     private func latestRepeatDeviceCThenDetachedDStrokes() -> [InkStroke] {

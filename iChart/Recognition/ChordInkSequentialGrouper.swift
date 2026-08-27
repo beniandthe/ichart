@@ -44,41 +44,13 @@ struct ChordInkSequentialGrouper {
             return []
         }
 
-        let localClusters = clusterer.indexedClusters(orderedStrokes.map(\.stroke))
+        let clusteredStrokes = clusterer.indexedClusters(orderedStrokes.map(\.stroke))
+        let localClusters = splitFusedSequentialRootClusters(
+            clusteredStrokes,
+            orderedStrokes: orderedStrokes
+        )
         let glyphs = localClusters.compactMap { localCluster -> SequentialGlyph? in
-            let sourceIndexedStrokes = localCluster.originalIndexes.compactMap { localIndex -> SequentialIndexedStroke? in
-                guard orderedStrokes.indices.contains(localIndex) else {
-                    return nil
-                }
-
-                let orderedStroke = orderedStrokes[localIndex]
-                return SequentialIndexedStroke(
-                    index: orderedStroke.index,
-                    stroke: orderedStroke.stroke
-                )
-            }
-            let sourceIndexes = sourceIndexedStrokes.map(\.index).sorted()
-            guard !sourceIndexes.isEmpty else {
-                return nil
-            }
-
-            let sourceOrderCluster = InkCluster(
-                strokes: sourceIndexedStrokes
-                    .sorted { lhs, rhs in lhs.index < rhs.index }
-                    .map(\.stroke),
-                bounds: localCluster.cluster.bounds
-            )
-            let candidates = glyphRecognizer.rankedCandidates(
-                for: sourceOrderCluster,
-                templates: templates,
-                limit: 8
-            )
-            return SequentialGlyph(
-                strokeIndices: sourceIndexes,
-                indexedStrokes: sourceIndexedStrokes,
-                cluster: sourceOrderCluster,
-                candidates: candidates
-            )
+            sequentialGlyph(for: localCluster, orderedStrokes: orderedStrokes)
         }
         var groups = [WorkingGroup]()
         var currentGroup: WorkingGroup?
@@ -155,6 +127,150 @@ struct ChordInkSequentialGrouper {
                 !group.strokeIndices.isEmpty
                     && (group.bounds.width >= 4 || group.bounds.height >= 4)
             }
+    }
+
+    private func sequentialGlyph(
+        for localCluster: IndexedInkCluster,
+        orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> SequentialGlyph? {
+        let sourceIndexedStrokes = localCluster.originalIndexes.compactMap { localIndex -> SequentialIndexedStroke? in
+            guard orderedStrokes.indices.contains(localIndex) else {
+                return nil
+            }
+
+            let orderedStroke = orderedStrokes[localIndex]
+            return SequentialIndexedStroke(
+                index: orderedStroke.index,
+                stroke: orderedStroke.stroke
+            )
+        }
+        let sourceIndexes = sourceIndexedStrokes.map(\.index).sorted()
+        guard !sourceIndexes.isEmpty else {
+            return nil
+        }
+
+        let sourceOrderCluster = InkCluster(
+            strokes: sourceIndexedStrokes
+                .sorted { lhs, rhs in lhs.index < rhs.index }
+                .map(\.stroke),
+            bounds: localCluster.cluster.bounds
+        )
+        let candidates = glyphRecognizer.rankedCandidates(
+            for: sourceOrderCluster,
+            templates: templates,
+            limit: 8
+        )
+        return SequentialGlyph(
+            strokeIndices: sourceIndexes,
+            indexedStrokes: sourceIndexedStrokes,
+            cluster: sourceOrderCluster,
+            candidates: candidates
+        )
+    }
+
+    private func splitFusedSequentialRootClusters(
+        _ localClusters: [IndexedInkCluster],
+        orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> [IndexedInkCluster] {
+        localClusters.flatMap { localCluster in
+            recursivelySplitFusedSequentialRootCluster(
+                localCluster,
+                orderedStrokes: orderedStrokes
+            )
+        }
+    }
+
+    private func recursivelySplitFusedSequentialRootCluster(
+        _ localCluster: IndexedInkCluster,
+        orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> [IndexedInkCluster] {
+        guard let splitClusters = splitFusedSequentialRootCluster(
+            localCluster,
+            orderedStrokes: orderedStrokes
+        ) else {
+            return [localCluster]
+        }
+
+        return splitClusters.flatMap { splitCluster in
+            recursivelySplitFusedSequentialRootCluster(
+                splitCluster,
+                orderedStrokes: orderedStrokes
+            )
+        }
+    }
+
+    private func splitFusedSequentialRootCluster(
+        _ localCluster: IndexedInkCluster,
+        orderedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> [IndexedInkCluster]? {
+        let orderedPairs = localCluster.originalIndexes.compactMap { localIndex -> (localIndex: Int, stroke: InkStroke)? in
+            guard orderedStrokes.indices.contains(localIndex) else {
+                return nil
+            }
+
+            return (localIndex: localIndex, stroke: orderedStrokes[localIndex].stroke)
+        }
+            .sorted { lhs, rhs in
+                if lhs.stroke.bounds.minX == rhs.stroke.bounds.minX {
+                    return lhs.localIndex < rhs.localIndex
+                }
+
+                return lhs.stroke.bounds.minX < rhs.stroke.bounds.minX
+            }
+
+        guard orderedPairs.count >= 3 else {
+            return nil
+        }
+
+        for splitIndex in orderedPairs.indices.dropFirst() {
+            let leftCluster = indexedCluster(from: Array(orderedPairs[..<splitIndex]))
+            let rightCluster = indexedCluster(from: Array(orderedPairs[splitIndex...]))
+
+            guard let leftGlyph = sequentialGlyph(for: leftCluster, orderedStrokes: orderedStrokes),
+                  let rightGlyph = sequentialGlyph(for: rightCluster, orderedStrokes: orderedStrokes),
+                  hasFusedSequentialRootBoundary(left: leftGlyph, right: rightGlyph) else {
+                continue
+            }
+
+            return [leftCluster, rightCluster]
+        }
+
+        return nil
+    }
+
+    private func indexedCluster(
+        from pairs: [(localIndex: Int, stroke: InkStroke)]
+    ) -> IndexedInkCluster {
+        IndexedInkCluster(
+            cluster: InkCluster(strokes: pairs.map(\.stroke)),
+            originalIndexes: pairs.map(\.localIndex)
+        )
+    }
+
+    private func hasFusedSequentialRootBoundary(
+        left: SequentialGlyph,
+        right: SequentialGlyph
+    ) -> Bool {
+        guard ChordInkSequentialRootStartDetector.evidence(
+            in: left.candidates,
+            cluster: left.cluster,
+            currentGroupBounds: nil,
+            previousGlyphWasSlashSeparator: false
+        ) != nil else {
+            return false
+        }
+
+        guard right.canBeginDetachedRootConstruction(from: left.cluster.bounds),
+              ChordInkSequentialRootStartDetector.evidence(
+                in: right.candidates,
+                cluster: right.cluster,
+                currentGroupBounds: left.cluster.bounds,
+                previousGlyphWasSlashSeparator: false
+              ) != nil else {
+            return false
+        }
+
+        return true
     }
 
     private func rootConstructionStart(
@@ -237,10 +353,14 @@ enum ChordInkSequentialRootStartDetector {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let initialRootStartMinimumConfidence = 0.70
     private static let detachedRootStartMinimumConfidence = 0.50
+    private static let rootSizedModifierLookalikeMinimumConfidence = 0.90
+    private static let rootSizedModifierLookalikeMaximumLag = 0.08
     private static let suffixAndModifierTexts: Set<String> = [
         "#", "b", "△", "°", "ø", "•", "+", "m", "a", "l", "t",
         "-", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"
     ]
+    private static let rootSizedModifierLookalikeOverrideTexts: Set<String> = ["b", "m", "-", "6"]
+    private static let closeBoundarySymbolicSuffixTexts: Set<String> = ["△", "°", "ø", "•", "+"]
 
     static func evidence(
         in candidates: [GlyphCandidate],
@@ -266,29 +386,53 @@ enum ChordInkSequentialRootStartDetector {
         let bestConfidence = bestCandidate?.confidence ?? 0
         let suffixLeads = bestCandidate
             .map { suffixAndModifierTexts.contains($0.text) && $0.text != rootCandidate.text } ?? false
+        let suffixLeadGap = bestConfidence - rootCandidate.confidence
+        let hasRootSizedModifierLookalikeOverride = Self.hasRootSizedModifierLookalikeOverride(
+            rootCandidate: rootCandidate,
+            bestCandidate: bestCandidate,
+            cluster: cluster,
+            currentGroupBounds: currentGroupBounds
+        )
 
         if let currentGroupBounds {
-            guard isDetachedRootSizedGlyph(cluster.bounds, from: currentGroupBounds) else {
+            let usesStrictBoundary = isDetachedRootSizedGlyph(cluster.bounds, from: currentGroupBounds)
+            let usesCloseBoundary = !usesStrictBoundary
+                && isRootSequenceBoundarySizedGlyph(cluster.bounds, from: currentGroupBounds)
+            guard usesStrictBoundary || usesCloseBoundary else {
                 return nil
             }
 
-            let suffixLeadGap = bestConfidence - rootCandidate.confidence
+            if usesCloseBoundary,
+               hasCloseBoundarySymbolicSuffixPressure(
+                in: candidates,
+                rootCandidate: rootCandidate
+               ) {
+                return nil
+            }
+
             if suffixLeads,
+               !hasRootSizedModifierLookalikeOverride,
                (rootCandidate.source != .heuristic || suffixLeadGap >= 0.04) {
                 return nil
             }
         } else if suffixLeads {
-            return nil
+            guard hasRootSizedModifierLookalikeOverride else {
+                return nil
+            }
         }
 
-        guard rootCandidate.confidence + 0.06 >= bestConfidence else {
+        let maximumLag = hasRootSizedModifierLookalikeOverride
+            ? rootSizedModifierLookalikeMaximumLag
+            : 0.06
+        guard rootCandidate.confidence + maximumLag >= bestConfidence else {
             return nil
         }
 
         if let suffixCandidate = candidates.first(where: { candidate in
             suffixAndModifierTexts.contains(candidate.text)
         }),
-           suffixCandidate.confidence >= rootCandidate.confidence + 0.10 {
+           suffixCandidate.confidence >= rootCandidate.confidence + 0.10,
+           !hasRootSizedModifierLookalikeOverride {
             return nil
         }
 
@@ -298,9 +442,58 @@ enum ChordInkSequentialRootStartDetector {
         )
     }
 
+    private static func hasCloseBoundarySymbolicSuffixPressure(
+        in candidates: [GlyphCandidate],
+        rootCandidate: GlyphCandidate
+    ) -> Bool {
+        candidates.contains { candidate in
+            closeBoundarySymbolicSuffixTexts.contains(candidate.text)
+                && candidate.confidence >= 0.45
+                && candidate.confidence + 0.25 >= rootCandidate.confidence
+        }
+    }
+
     static func isDetachedRootSizedGlyph(
         _ bounds: InkBounds,
         from currentGroupBounds: InkBounds
+    ) -> Bool {
+        isRootSequenceBoundarySizedGlyph(
+            bounds,
+            from: currentGroupBounds,
+            minimumHorizontalGap: 16,
+            minimumCenterAdvance: 18,
+            heightRatioFloor: 0.55,
+            widthRatioFloor: 0.18,
+            heightGapScale: 0.30,
+            widthAdvanceScale: 0.45
+        )
+    }
+
+    static func isRootSequenceBoundarySizedGlyph(
+        _ bounds: InkBounds,
+        from currentGroupBounds: InkBounds
+    ) -> Bool {
+        isRootSequenceBoundarySizedGlyph(
+            bounds,
+            from: currentGroupBounds,
+            minimumHorizontalGap: 10,
+            minimumCenterAdvance: 14,
+            heightRatioFloor: 0.55,
+            widthRatioFloor: 0.18,
+            heightGapScale: 0.22,
+            widthAdvanceScale: 0.35
+        )
+    }
+
+    private static func isRootSequenceBoundarySizedGlyph(
+        _ bounds: InkBounds,
+        from currentGroupBounds: InkBounds,
+        minimumHorizontalGap: Double,
+        minimumCenterAdvance: Double,
+        heightRatioFloor: Double,
+        widthRatioFloor: Double,
+        heightGapScale: Double,
+        widthAdvanceScale: Double
     ) -> Bool {
         let horizontalGap = currentGroupBounds.horizontalGap(to: bounds)
         let referenceHeight = max(currentGroupBounds.height, bounds.height, 1)
@@ -308,11 +501,40 @@ enum ChordInkSequentialRootStartDetector {
         let centerAdvance = bounds.recognitionMidX - currentGroupBounds.recognitionMidX
         let heightRatio = bounds.height / referenceHeight
         let widthRatio = bounds.width / referenceWidth
-        let rootSized = heightRatio >= 0.55 && widthRatio >= 0.18
+        let rootSized = heightRatio >= heightRatioFloor && widthRatio >= widthRatioFloor
 
         return rootSized
-            && horizontalGap >= max(16, referenceHeight * 0.30)
-            && centerAdvance >= max(18, referenceWidth * 0.45)
+            && horizontalGap >= max(minimumHorizontalGap, referenceHeight * heightGapScale)
+            && centerAdvance >= max(minimumCenterAdvance, referenceWidth * widthAdvanceScale)
+    }
+
+    private static func isInitialRootSizedModifierLookalike(_ bounds: InkBounds) -> Bool {
+        bounds.width >= 18
+            && bounds.height >= 18
+            && bounds.recognitionArea >= 360
+    }
+
+    private static func hasRootSizedModifierLookalikeOverride(
+        rootCandidate: GlyphCandidate,
+        bestCandidate: GlyphCandidate?,
+        cluster: InkCluster,
+        currentGroupBounds: InkBounds?
+    ) -> Bool {
+        guard let bestCandidate,
+              bestCandidate.text != rootCandidate.text,
+              bestCandidate.confidence > rootCandidate.confidence,
+              rootSizedModifierLookalikeOverrideTexts.contains(bestCandidate.text),
+              rootCandidate.source == .heuristic,
+              rootCandidate.confidence >= rootSizedModifierLookalikeMinimumConfidence,
+              rootCandidate.confidence + rootSizedModifierLookalikeMaximumLag >= bestCandidate.confidence else {
+            return false
+        }
+
+        if let currentGroupBounds {
+            return isRootSequenceBoundarySizedGlyph(cluster.bounds, from: currentGroupBounds)
+        }
+
+        return isInitialRootSizedModifierLookalike(cluster.bounds)
     }
 }
 
@@ -346,8 +568,8 @@ private struct SequentialGlyph: Hashable {
         let horizontalGap = currentGroupBounds.horizontalGap(to: bounds)
         let centerAdvance = bounds.recognitionMidX - currentGroupBounds.recognitionMidX
 
-        guard horizontalGap >= max(18, referenceHeight * 0.30),
-              centerAdvance >= max(22, referenceWidth * 0.45),
+        guard horizontalGap >= max(10, referenceHeight * 0.22),
+              centerAdvance >= max(14, referenceWidth * 0.35),
               bounds.height >= 12,
               bounds.recognitionArea >= 18 else {
             return false

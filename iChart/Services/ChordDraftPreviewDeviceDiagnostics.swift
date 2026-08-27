@@ -94,7 +94,7 @@ struct ChordDraftPreviewDeviceDiagnosticReplacement: Codable, Equatable {
 }
 
 struct LeadSheetChordInkRecognitionBatchTargetingDiagnostics: Codable, Equatable {
-    static let version = "root-construction-targeting-v4-2026-08-26"
+    static let version = "ink-grammar-guard-v7-2026-08-27"
 
     var version: String = Self.version
     var selectedRoute: String
@@ -109,6 +109,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     var timestamp: Date
     var stage: String
     var flow: String?
+    var layoutStyle: String?
     var requestID: UUID?
     var sourceStrokeCount: Int?
     var recognitionStrokeCount: Int?
@@ -137,6 +138,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
         timestamp: Date = .now,
         stage: String,
         flow: String? = nil,
+        layoutStyle: String? = nil,
         requestID: UUID? = nil,
         sourceStrokeCount: Int? = nil,
         recognitionStrokeCount: Int? = nil,
@@ -158,6 +160,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
         self.timestamp = timestamp
         self.stage = stage
         self.flow = flow
+        self.layoutStyle = layoutStyle
         self.requestID = requestID
         self.sourceStrokeCount = sourceStrokeCount
         self.recognitionStrokeCount = recognitionStrokeCount
@@ -292,13 +295,15 @@ enum ChordDraftPreviewDeviceDiagnostics {
         barlineCount: Int,
         rawBatchTargets: [LeadSheetChordInkRecognitionBatchTarget],
         boundedBatchTargets: [LeadSheetChordInkRecognitionBatchTarget],
-        targetingDiagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics? = nil
+        targetingDiagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics? = nil,
+        layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
         append(
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "targeting",
                 flow: flow.telemetryValue,
+                layoutStyle: layoutStyle?.rawValue,
                 sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleStrokeCount,
@@ -318,13 +323,15 @@ enum ChordDraftPreviewDeviceDiagnostics {
 
     static func recordSingleTarget(
         flow: ChordInkRecognitionFlow,
-        request: ChordInkRecognitionSessionRequest
+        request: ChordInkRecognitionSessionRequest,
+        layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
         append(
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "single_target",
                 flow: flow.telemetryValue,
+                layoutStyle: layoutStyle?.rawValue,
                 requestID: request.requestID,
                 recognitionStrokeCount: request.strokes.count,
                 targets: [
@@ -351,13 +358,15 @@ enum ChordDraftPreviewDeviceDiagnostics {
         stage: String,
         recognitionStrokeCount: Int,
         rawBatchTargetCount: Int,
-        boundedBatchTargetCount: Int
+        boundedBatchTargetCount: Int,
+        layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
         append(
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: stage,
                 flow: flow.telemetryValue,
+                layoutStyle: layoutStyle?.rawValue,
                 recognitionStrokeCount: recognitionStrokeCount,
                 rawBatchTargetCount: rawBatchTargetCount,
                 boundedBatchTargetCount: boundedBatchTargetCount
@@ -369,13 +378,15 @@ enum ChordDraftPreviewDeviceDiagnostics {
     static func recordPayloads(
         _ payloads: [ChordInkRecognitionProposalPayload],
         flow: ChordInkRecognitionFlow,
-        stage: String
+        stage: String,
+        layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
         append(
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: stage,
                 flow: flow.telemetryValue,
+                layoutStyle: layoutStyle?.rawValue,
                 requestID: payloads.first?.requestID,
                 payloadCount: payloads.count,
                 candidatePayloadCount: payloads.filter { !$0.result.rawCandidates.isEmpty }.count,
@@ -390,7 +401,8 @@ enum ChordDraftPreviewDeviceDiagnostics {
     static func recordPreviewReplacement(
         previousState: ChordPreviewState,
         inputs: [ChordInkDraftInput],
-        updatedState: ChordPreviewState
+        updatedState: ChordPreviewState,
+        layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
         let previousDraftsByAnchor = Dictionary(
@@ -422,6 +434,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
         append(
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "preview_replace",
+                layoutStyle: layoutStyle?.rawValue,
                 payloadCount: inputs.count,
                 draftCount: updatedState.draftChords.count,
                 unresolvedDraftCount: updatedState.unresolvedChordCount,
@@ -516,20 +529,20 @@ private extension ChordDraftPreviewDeviceDiagnostics {
     static func compactSummary(for event: ChordDraftPreviewDeviceDiagnosticEvent) -> String {
         switch event.stage {
         case "targeting":
-            return "iChart chord draft debug: targeting flow=\(event.flow ?? "none") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
+            return "iChart chord draft debug: targeting flow=\(event.flow ?? "none") layout=\(event.layoutStyle ?? "unknown") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
         case "single_target":
             let target = event.targets.first
-            return "iChart chord draft debug: single_target strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
+            return "iChart chord draft debug: single_target layout=\(event.layoutStyle ?? "unknown") strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
         case "finish_single", "finish_batch":
             let best = event.payloads.map { payload in
                 payload.acceptedText ?? payload.matchText ?? payload.supportedCandidates.first ?? "?"
             }.joined(separator: "|")
-            return "iChart chord draft debug: \(event.stage) payloads=\(event.payloadCount ?? -1) best=\(best)\n"
+            return "iChart chord draft debug: \(event.stage) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1) best=\(best)\n"
         case "preview_replace":
             let texts = event.replacements.map { replacement in
                 "\(replacement.previousPreviewText ?? "?")->\(replacement.newPreviewText ?? "?")"
             }.joined(separator: "|")
-            return "iChart chord draft debug: preview_replace drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
+            return "iChart chord draft debug: preview_replace layout=\(event.layoutStyle ?? "unknown") drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
         default:
             return "iChart chord draft debug: \(event.stage)\n"
         }

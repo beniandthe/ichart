@@ -4367,7 +4367,8 @@ struct EditorView: View {
         ChordDraftPreviewDeviceDiagnostics.recordPreviewReplacement(
             previousState: previousPreviewState,
             inputs: inputs,
-            updatedState: updatedPreviewState
+            updatedState: updatedPreviewState,
+            layoutStyle: chart.layoutStyle
         )
         chordPreviewState = updatedPreviewState
 

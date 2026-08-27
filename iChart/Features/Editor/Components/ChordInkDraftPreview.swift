@@ -474,6 +474,72 @@ struct ChordInkDraft: Identifiable, Hashable {
     }
 }
 
+private struct ChordInkDraftStrokeFingerprint: Hashable {
+    private static let minimumDetachedAddedStrokeGap: CGFloat = 24
+
+    var strokeBounds: [CGRect]
+    var quantizedStrokeBounds: Set<QuantizedChordInkDraftStrokeBounds>
+
+    init?(drawingData: Data) {
+        guard let drawing = try? PKDrawing(data: drawingData) else {
+            return nil
+        }
+
+        let visibleBounds = drawing.strokes
+            .map(\.renderBounds)
+            .filter(ChordInkDraftVisibleStrokePolicy.isVisible(renderBounds:))
+            .map(\.standardized)
+        guard !visibleBounds.isEmpty else {
+            return nil
+        }
+
+        strokeBounds = visibleBounds
+        quantizedStrokeBounds = Set(visibleBounds.map(QuantizedChordInkDraftStrokeBounds.init(bounds:)))
+    }
+
+    func absorbs(_ previous: ChordInkDraftStrokeFingerprint) -> Bool {
+        guard strokeBounds.count > previous.strokeBounds.count,
+              quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds),
+              let addedStrokeGap = minimumAddedStrokeGap(after: previous) else {
+            return false
+        }
+
+        return addedStrokeGap >= Self.minimumDetachedAddedStrokeGap
+    }
+
+    private func minimumAddedStrokeGap(after previous: ChordInkDraftStrokeFingerprint) -> CGFloat? {
+        let addedBounds = strokeBounds.filter { bounds in
+            !previous.quantizedStrokeBounds.contains(
+                QuantizedChordInkDraftStrokeBounds(bounds: bounds)
+            )
+        }
+        guard let previousMaxX = previous.strokeBounds.map(\.maxX).max(),
+              let addedMinX = addedBounds.map(\.minX).min() else {
+            return nil
+        }
+
+        return addedMinX - previousMaxX
+    }
+}
+
+private struct QuantizedChordInkDraftStrokeBounds: Hashable {
+    var minX: Int
+    var minY: Int
+    var width: Int
+    var height: Int
+
+    init(bounds: CGRect) {
+        minX = Self.quantize(bounds.minX)
+        minY = Self.quantize(bounds.minY)
+        width = Self.quantize(bounds.width)
+        height = Self.quantize(bounds.height)
+    }
+
+    private static func quantize(_ value: CGFloat) -> Int {
+        Int((value * 2).rounded())
+    }
+}
+
 struct DraftBarlineGestureMetrics: Hashable {
     var height: Double
     var width: Double
@@ -604,22 +670,124 @@ struct ChordPreviewState: Equatable {
 
     mutating func replaceDraftChords(with inputs: [ChordInkDraftInput], updatedAt: Date = .now) {
         let deduplicatedInputs = ChordInkDraftPreviewDeduplicationPolicy.deduplicated(inputs)
+        let previousRenderableDrafts = draftChords.filter(\.isRenderable)
         let previousDraftByAnchor = Dictionary(
             draftChords.map { ($0.anchor, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        draftChords = deduplicatedInputs
-            .map { input in
-                let previousDraft = previousDraftByAnchor[input.anchor]
-                return ChordInkDraft(
-                    id: previousDraft?.id ?? UUID(),
-                    input: input,
-                    selectedText: previousDraft?.selectedText,
-                    isStale: false
-                )
+        var preservedDraftIDs = Set<UUID>()
+        var resolvedDrafts = [ChordInkDraft]()
+
+        for input in deduplicatedInputs {
+            let previousDraft = previousDraftByAnchor[input.anchor]
+            let incomingDraft = ChordInkDraft(
+                id: previousDraft?.id ?? UUID(),
+                input: input,
+                selectedText: previousDraft?.selectedText,
+                isStale: false
+            )
+
+            if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
+                by: incomingDraft,
+                from: previousRenderableDrafts,
+                excluding: preservedDraftIDs
+            ) {
+                resolvedDrafts.append(absorbedDraft)
+                preservedDraftIDs.insert(absorbedDraft.id)
+                resolvedDrafts.append(Self.unresolvedAbsorbedDraft(from: input))
+            } else {
+                resolvedDrafts.append(incomingDraft)
             }
+        }
+
+        draftChords = resolvedDrafts
+            .sorted(by: Self.isOrderedBefore)
         layoutPageSize = deduplicatedInputs.compactMap(\.layoutPageSize).first ?? layoutPageSize
         self.updatedAt = updatedAt
+    }
+
+    private static func absorbedPreviousRenderableDraft(
+        by incomingDraft: ChordInkDraft,
+        from previousDrafts: [ChordInkDraft],
+        excluding preservedDraftIDs: Set<UUID>
+    ) -> ChordInkDraft? {
+        let incomingPreviewText = incomingDraft.previewText
+        guard let incomingFingerprint = ChordInkDraftStrokeFingerprint(drawingData: incomingDraft.drawingData) else {
+            return nil
+        }
+
+        return previousDrafts
+            .filter { previousDraft in
+                guard !preservedDraftIDs.contains(previousDraft.id),
+                      let previousPreviewText = previousDraft.previewText,
+                      previousPreviewText != incomingPreviewText,
+                      sharesDraftContinuityScope(previousDraft, incomingDraft),
+                      let previousFingerprint = ChordInkDraftStrokeFingerprint(drawingData: previousDraft.drawingData) else {
+                    return false
+                }
+
+                if ChordInkSameChordContinuationPolicy.allowsContinuation(
+                    from: previousPreviewText,
+                    to: incomingPreviewText
+                ) {
+                    return false
+                }
+
+                return incomingFingerprint.absorbs(previousFingerprint)
+            }
+            .sorted { lhs, rhs in
+                if lhs.strokeCount != rhs.strokeCount {
+                    return lhs.strokeCount > rhs.strokeCount
+                }
+
+                return visualOrder(lhs) < visualOrder(rhs)
+            }
+            .first
+    }
+
+    private static func unresolvedAbsorbedDraft(from input: ChordInkDraftInput) -> ChordInkDraft {
+        var unresolvedInput = input
+        unresolvedInput.candidateTexts = []
+        unresolvedInput.bestCandidateText = nil
+        unresolvedInput.confidence = 0
+        return ChordInkDraft(input: unresolvedInput, selectedText: nil, isStale: true)
+    }
+
+    private static func sharesDraftContinuityScope(
+        _ lhs: ChordInkDraft,
+        _ rhs: ChordInkDraft
+    ) -> Bool {
+        guard lhs.measureID == rhs.measureID else {
+            return false
+        }
+
+        if let lhsLane = lhs.laneLocation?.systemIndex,
+           let rhsLane = rhs.laneLocation?.systemIndex,
+           lhsLane != rhsLane {
+            return false
+        }
+
+        return visualOrder(rhs) + 0.08 >= visualOrder(lhs)
+    }
+
+    private static func isOrderedBefore(_ lhs: ChordInkDraft, _ rhs: ChordInkDraft) -> Bool {
+        let lhsVisualOrder = visualOrder(lhs)
+        let rhsVisualOrder = visualOrder(rhs)
+        if lhsVisualOrder != rhsVisualOrder {
+            return lhsVisualOrder < rhsVisualOrder
+        }
+
+        if lhs.measureIndex == rhs.measureIndex {
+            return (lhs.targetFraction ?? 0) < (rhs.targetFraction ?? 0)
+        }
+
+        return lhs.measureIndex < rhs.measureIndex
+    }
+
+    private static func visualOrder(_ draft: ChordInkDraft) -> Double {
+        draft.laneLocation?.visualOrder
+            ?? draft.visualOrder
+            ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0)
     }
 
     mutating func replaceDraftBarlines(with barlines: [DraftBarline], updatedAt: Date = .now) {

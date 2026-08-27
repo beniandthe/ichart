@@ -17,6 +17,7 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
             timestamp: Date(timeIntervalSinceReferenceDate: 10),
             stage: "finish_batch",
             flow: "draft_preview",
+            layoutStyle: ChartLayoutStyle.rhythmSectionSheet.rawValue,
             requestID: UUID(),
             sourceStrokeCount: 7,
             recognitionStrokeCount: 6,
@@ -111,6 +112,7 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
 
         let loadedEvents = try recorder.loadEvents()
         XCTAssertEqual(loadedEvents, [event, event])
+        XCTAssertEqual(loadedEvents.first?.layoutStyle, ChartLayoutStyle.rhythmSectionSheet.rawValue)
         XCTAssertEqual(
             loadedEvents.first?.targetingDiagnosticsVersion,
             LeadSheetChordInkRecognitionBatchTargetingDiagnostics.version
@@ -124,5 +126,29 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
         try recorder.reset()
 
         XCTAssertEqual(try recorder.loadEvents(), [])
+    }
+
+    func testRecorderLoadsOlderDeviceDraftPreviewEventsWithoutLayoutStyle() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = temporaryDirectory.appendingPathComponent("chord-draft-preview-debug.jsonl")
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: url)
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        let legacyEventJSON = """
+        {"payloads":[],"replacements":[],"stage":"targeting","targets":[],"timestamp":"2026-08-26T21:50:00Z"}
+        """
+        let legacyEventData = try XCTUnwrap((legacyEventJSON + "\n").data(using: .utf8))
+        try legacyEventData.write(to: url)
+
+        let loadedEvents = try recorder.loadEvents()
+
+        XCTAssertEqual(loadedEvents.count, 1)
+        XCTAssertEqual(loadedEvents.first?.stage, "targeting")
+        XCTAssertNil(loadedEvents.first?.layoutStyle)
     }
 }
