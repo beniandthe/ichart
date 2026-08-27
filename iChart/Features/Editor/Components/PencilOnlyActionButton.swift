@@ -86,7 +86,7 @@ struct PencilOnlyActionButton: UIViewRepresentable {
 
 final class PencilOnlyUIButton: UIButton {
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        guard touch.type == .pencil else {
+        guard PencilOnlyActionButtonInputPolicy.allowsButtonTouch(touchType: touch.type) else {
             return false
         }
 
@@ -103,7 +103,21 @@ final class PencilOnlyUIButton: UIButton {
         }
 
         return touches.contains { touch in
-            touch.type == .pencil
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(touchType: touch.type)
+        }
+    }
+}
+
+enum PencilOnlyActionButtonInputPolicy {
+    static func allowsButtonTouch(
+        touchType: UITouch.TouchType,
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
+    ) -> Bool {
+        switch environment {
+        case .device:
+            return touchType == .pencil
+        case .simulator:
+            return true
         }
     }
 }

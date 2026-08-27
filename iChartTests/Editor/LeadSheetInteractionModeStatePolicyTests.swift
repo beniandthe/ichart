@@ -776,6 +776,33 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testPencilOnlyActionButtonsKeepSimulatorDirectTouchAutomationAvailable() {
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .direct,
+                environment: .simulator
+            )
+        )
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .pencil,
+                environment: .simulator
+            )
+        )
+        XCTAssertFalse(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .direct,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .pencil,
+                environment: .device
+            )
+        )
+    }
+
     func testDeviceCanvasGesturesIgnoreDirectTouchInLiveInkModes() {
         XCTAssertFalse(
             LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
