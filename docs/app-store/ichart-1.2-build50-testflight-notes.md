@@ -3,7 +3,7 @@
 Date: 2026-08-27
 Branch: `codex/v1-2-build50-release`
 Base commit: `aecaabea088967de12cf2ab15c319a060909cba9`
-Package intent: App Store Connect upload for TestFlight / Apple processing after PR #64, PR #65, and PR #66 landed on `main`.
+Package intent: App Store Connect upload for TestFlight / Apple processing after PR #54 through PR #66 landed on `main`.
 
 ## Build Metadata
 
@@ -15,9 +15,20 @@ Package intent: App Store Connect upload for TestFlight / Apple processing after
 
 ## Included Source Changes Since Build 49
 
+- PR #54: Add explicit-render chord lane workflow.
+- PR #55: Add unified Edit mode and terminal filler safeguards.
+- PR #56: Update GitHub Actions dependencies.
+- PR #57: Fix simple chord terminal barline measures.
+- PR #58: Stabilize ink responsiveness and persistence.
+- PR #59: Improve measure resize and chord edit guides.
+- PR #60: Fix terminal repeat rendering and coda marker bounds.
+- PR #61: Improve chord recognition trust pipeline.
+- PR #62: Guard lane root targeting coverage.
+- PR #63: Install XcodeGen without Homebrew in CI.
 - PR #64: Lock live ink input to Apple Pencil on physical devices while preserving simulator automation.
 - PR #65: Integrate Rhythm Section chord systems and related recognition/preview diagnostics.
 - PR #66: Update tutorial and help UX for the Simple Chord Sheet walkthrough.
+- `d60d37b`: Document future blockers before next major push.
 
 ## Verification Log
 
