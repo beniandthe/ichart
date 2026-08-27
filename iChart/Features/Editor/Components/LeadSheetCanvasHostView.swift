@@ -1505,6 +1505,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    fileprivate func shouldBlockParentScrollTouch(_ touch: UITouch) -> Bool {
+        LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+            touchType: touch.type,
+            interactionMode: interactionMode
+        )
+    }
+
     private func invalidateLayout() {
         editorPerformanceMetrics.recordLayoutInvalidation()
         guard bounds.width > 0, bounds.height > 0 else {
@@ -6141,11 +6148,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if gestureRecognizer === renderedObjectMovePanRecognizer {
             return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: touch.type,
+                interactionMode: interactionMode,
                 startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
             )
         }
 
-        return true
+        return LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+            touchType: touch.type,
+            interactionMode: interactionMode
+        )
     }
 }
 
@@ -6154,6 +6165,7 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
     weak var scrollView: UIScrollView?
     private var panBlocker: UIPanGestureRecognizer?
     private var pinchBlocker: UIPinchGestureRecognizer?
+    private var blocksCurrentParentScrollGesture = false
 
     func install(in scrollView: UIScrollView, canvasView: LeadSheetCanvasUIKitView) {
         if self.scrollView !== scrollView {
@@ -6204,6 +6216,10 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
             return true
         }
 
+        if blocksCurrentParentScrollGesture {
+            return true
+        }
+
         return !canvasView.allowsParentScrollGestureStart(at: gestureRecognizer.location(in: canvasView))
     }
 
@@ -6223,7 +6239,9 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
             return true
         }
 
-        return !canvasView.allowsParentScrollGestureStart(at: touch.location(in: canvasView))
+        let blocksTouch = canvasView.shouldBlockParentScrollTouch(touch)
+        blocksCurrentParentScrollGesture = blocksTouch
+        return blocksTouch || !canvasView.allowsParentScrollGestureStart(at: touch.location(in: canvasView))
     }
 
     private func isScrollGesture(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -6254,8 +6272,14 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
         recognizer.delaysTouchesEnded = false
     }
 
-    @objc private func handleBlockerGesture(_: UIGestureRecognizer) {
+    @objc private func handleBlockerGesture(_ recognizer: UIGestureRecognizer) {
         // The blocker only exists to make the parent scroll recognizer wait/fail.
+        switch recognizer.state {
+        case .ended, .cancelled, .failed:
+            blocksCurrentParentScrollGesture = false
+        default:
+            break
+        }
     }
 
     deinit {

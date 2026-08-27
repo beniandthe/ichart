@@ -736,6 +736,142 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         #endif
     }
 
+    func testDeviceLiveInkInputUsesPencilOnlyAcrossInkModes() {
+        let liveInkModes: [EditorCanvasMode] = [
+            .freeHand,
+            .headerEntry,
+            .chordEntry,
+            .noteEdit
+        ]
+
+        for mode in liveInkModes {
+            XCTAssertEqual(
+                LeadSheetLiveInkInputPolicy.drawingPolicy(for: mode, environment: .device),
+                .pencilOnly,
+                "\(mode) should reject direct hand input on device"
+            )
+        }
+
+        XCTAssertEqual(
+            LeadSheetLiveInkInputPolicy.drawingPolicy(for: .browse, environment: .device),
+            .anyInput
+        )
+        XCTAssertEqual(
+            LeadSheetLiveInkInputPolicy.drawingPolicy(for: .textEdit, environment: .device),
+            .anyInput
+        )
+    }
+
+    func testSimulatorLiveInkInputKeepsDirectAutomationAvailable() {
+        XCTAssertEqual(
+            LeadSheetLiveInkInputPolicy.drawingPolicy(for: .chordEntry, environment: .simulator),
+            .anyInput
+        )
+        XCTAssertTrue(
+            LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+                touchType: .direct,
+                interactionMode: .chordEntry,
+                environment: .simulator
+            )
+        )
+    }
+
+    func testPencilOnlyActionButtonsKeepSimulatorDirectTouchAutomationAvailable() {
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .direct,
+                environment: .simulator
+            )
+        )
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .pencil,
+                environment: .simulator
+            )
+        )
+        XCTAssertFalse(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .direct,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: .pencil,
+                environment: .device
+            )
+        )
+    }
+
+    func testDeviceCanvasGesturesIgnoreDirectTouchInLiveInkModes() {
+        XCTAssertFalse(
+            LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+                touchType: .direct,
+                interactionMode: .chordEntry,
+                environment: .device
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+                touchType: .direct,
+                interactionMode: .freeHand,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+                touchType: .pencil,
+                interactionMode: .chordEntry,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+                touchType: .direct,
+                interactionMode: .browse,
+                environment: .device
+            )
+        )
+    }
+
+    func testDeviceParentScrollBlocksDirectTouchInLiveInkModes() {
+        XCTAssertTrue(
+            LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+                touchType: .direct,
+                interactionMode: .chordEntry,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+                touchType: .direct,
+                interactionMode: .freeHand,
+                environment: .device
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+                touchType: .pencil,
+                interactionMode: .chordEntry,
+                environment: .device
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+                touchType: .direct,
+                interactionMode: .browse,
+                environment: .device
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetParentScrollTouchPolicy.blocksParentScrollStart(
+                touchType: .direct,
+                interactionMode: .chordEntry,
+                environment: .simulator
+            )
+        )
+    }
+
     func testChordEntryKeepsInkCanvasAndEnablesRenderedChordObjects() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .chordEntry)
 
@@ -766,19 +902,30 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(
             LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: .pencil,
+                interactionMode: .browse,
                 startsOnMoveTarget: false
             )
         )
         XCTAssertTrue(
             LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: .pencil,
+                interactionMode: .browse,
                 startsOnMoveTarget: true
             )
         )
         XCTAssertTrue(
             LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: .direct,
+                interactionMode: .browse,
                 startsOnMoveTarget: false
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                interactionMode: .chordEntry,
+                startsOnMoveTarget: true,
+                environment: .device
             )
         )
     }
@@ -3313,16 +3460,28 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 0))
         XCTAssertTrue(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 1))
 
-        let allowedTouchTypes = Set(
-            ChordDiagnosticPreviewScrollPolicy.allowedTouchTypes.map { Int($0.intValue) }
+        let simulatorTouchTypes = Set(
+            ChordDiagnosticPreviewScrollPolicy
+                .allowedTouchTypes(environment: .simulator)
+                .map { Int($0.intValue) }
         )
 
         XCTAssertEqual(
-            allowedTouchTypes,
+            simulatorTouchTypes,
             Set([
                 UITouch.TouchType.direct.rawValue,
                 UITouch.TouchType.pencil.rawValue
             ])
+        )
+
+        let deviceTouchTypes = Set(
+            ChordDiagnosticPreviewScrollPolicy
+                .allowedTouchTypes(environment: .device)
+                .map { Int($0.intValue) }
+        )
+        XCTAssertEqual(
+            deviceTouchTypes,
+            Set([UITouch.TouchType.pencil.rawValue])
         )
     }
 

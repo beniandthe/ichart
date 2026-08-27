@@ -5,6 +5,8 @@ private enum ChordInkManualEntryShortcut {
     static let chordRepeatText = ChordSymbol.chordRepeatDisplayText
 }
 
+private typealias ChordInkPencilOnlyButton = PencilOnlyActionButton
+
 struct PendingChordInkConfirmation: Identifiable {
     let id = UUID()
     let measureID: UUID
@@ -177,17 +179,18 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Button("Rewrite Ink") {
+                    ChordInkPencilOnlyButton(title: "Rewrite Ink") {
                         onClearAndRewrite()
                     }
-                    .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
 
-                    Button("Render All") {
+                    ChordInkPencilOnlyButton(
+                        title: "Render All",
+                        style: .borderedProminent,
+                        isEnabled: canRenderAll
+                    ) {
                         onAcceptAll(trimmedCandidateTextByID)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canRenderAll)
                     .frame(maxWidth: .infinity)
                     .tourActionHighlight(
                         isActive: highlightsForwardActions && canRenderAll,
@@ -252,11 +255,10 @@ struct ChordInkBatchConfirmationSheetView: View {
             if !confirmation.visibleCandidateTexts.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(confirmation.visibleCandidateTexts, id: \.self) { candidate in
-                        Button(candidate) {
+                        ChordInkPencilOnlyButton(title: candidate) {
                             candidateTextByID[confirmation.id] = candidate
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
                         .tourActionHighlight(
                             isActive: highlightsForwardActions,
                             cornerRadius: 8
@@ -265,14 +267,14 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
             }
 
-            Button {
+            ChordInkPencilOnlyButton(
+                title: "Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)",
+                systemImageName: "repeat",
+                accessibilityLabel: "Use chord repeat symbol"
+            ) {
                 candidateTextByID[confirmation.id] = ChordInkManualEntryShortcut.chordRepeatText
-            } label: {
-                Label("Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)", systemImage: "repeat")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .frame(maxWidth: .infinity)
             .accessibilityLabel("Use chord repeat symbol")
         }
         .padding(12)
@@ -551,39 +553,32 @@ struct ChordInkConfirmationSheetView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 10) {
-            Button {
+            ChordInkPencilOnlyButton(
+                title: "Confirm",
+                style: .borderedProminent,
+                isEnabled: !trimmedCandidateText.isEmpty
+            ) {
                 acceptTrimmedCandidate()
-            } label: {
-                Text("Confirm")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(trimmedCandidateText.isEmpty)
+            .frame(maxWidth: .infinity)
             .tourActionHighlight(
                 isActive: highlightsForwardActions && !trimmedCandidateText.isEmpty,
                 cornerRadius: 10
             )
 
-            Button(role: .destructive) {
+            ChordInkPencilOnlyButton(
+                title: "Rewrite Ink",
+                role: .destructive
+            ) {
                 onClearAndRewrite()
-            } label: {
-                Text("Rewrite Ink")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
         }
     }
 
     private func compactButton(title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .frame(maxWidth: .infinity, minHeight: 42)
-                .padding(.horizontal, 10)
-        }
-        .buttonStyle(.bordered)
+        ChordInkPencilOnlyButton(title: title, action: action)
+            .frame(maxWidth: .infinity, minHeight: 42)
     }
 
     #if DEBUG && targetEnvironment(simulator)
@@ -724,35 +719,25 @@ struct ChordCorrectionSheetView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 10) {
-            Button {
+            ChordInkPencilOnlyButton(
+                title: "Confirm",
+                style: .borderedProminent,
+                isEnabled: !trimmedCandidateText.isEmpty
+            ) {
                 acceptTrimmedCandidate()
-            } label: {
-                Text("Confirm")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(trimmedCandidateText.isEmpty)
+            .frame(maxWidth: .infinity)
 
-            Button {
+            ChordInkPencilOnlyButton(title: "Cancel") {
                 onCancel()
-            } label: {
-                Text("Cancel")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
         }
     }
 
     private func compactButton(title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .frame(maxWidth: .infinity, minHeight: 42)
-                .padding(.horizontal, 10)
-        }
-        .buttonStyle(.bordered)
+        ChordInkPencilOnlyButton(title: title, action: action)
+            .frame(maxWidth: .infinity, minHeight: 42)
     }
 
     private var quickShortcutTexts: [String] {
