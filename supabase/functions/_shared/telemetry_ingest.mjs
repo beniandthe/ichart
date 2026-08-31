@@ -373,6 +373,7 @@ function telemetryClientAPIKeyFromEnv(env) {
 
 async function insertTelemetryEvents(configuration, rows, fetcher) {
   const url = supabaseURL(configuration, "/rest/v1/telemetry_events");
+  url.searchParams.set("on_conflict", "client_event_id");
   const response = await fetcher(url, {
     method: "POST",
     headers: supabaseRESTHeaders(configuration, "resolution=ignore-duplicates,return=minimal"),

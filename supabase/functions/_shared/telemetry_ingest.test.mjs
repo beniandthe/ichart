@@ -314,8 +314,12 @@ test("ingest accepts signed-out telemetry with the configured client key", async
     SUPABASE_ANON_KEY: "client-key",
   }, {
     fetch: async (url, request) => {
-      assert.equal(String(url), "https://project.supabase.co/rest/v1/telemetry_events");
+      assert.equal(
+        String(url),
+        "https://project.supabase.co/rest/v1/telemetry_events?on_conflict=client_event_id"
+      );
       assert.equal(request.headers.apikey, "server-only-key");
+      assert.equal(request.headers.prefer, "resolution=ignore-duplicates,return=minimal");
       storedRows = JSON.parse(request.body);
       return new Response("", { status: 201 });
     },
