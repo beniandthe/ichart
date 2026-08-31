@@ -69,6 +69,10 @@ struct ChordDraftPreviewDeviceDiagnosticPayload: Codable, Equatable {
     var confidence: Double
     var closeRace: Bool
     var confidenceGap: Double?
+    var requestedDelayMilliseconds: Double?
+    var idleMilliseconds: Double?
+    var recognitionMilliseconds: Double?
+    var recognitionTotalMilliseconds: Double?
     var topScores: [ChordInkCandidateScore]
     var glyphCandidateColumns: [[ChordDraftPreviewDeviceDiagnosticGlyphCandidate]]?
     var inkStrokes: [InkStroke]? = nil
@@ -496,6 +500,10 @@ private extension ChordDraftPreviewDeviceDiagnostics {
             confidence: payload.result.confidence,
             closeRace: decision.isCloseRace,
             confidenceGap: decision.confidenceGap,
+            requestedDelayMilliseconds: payload.timing.requestedDelayMilliseconds,
+            idleMilliseconds: payload.timing.idleMilliseconds,
+            recognitionMilliseconds: payload.timing.recognitionMilliseconds,
+            recognitionTotalMilliseconds: payload.timing.recognitionTotalMilliseconds,
             topScores: Array(payload.result.candidateScores.prefix(8)),
             glyphCandidateColumns: payload.result.glyphCandidates.map { candidates in
                 candidates.prefix(8).map { candidate in
@@ -537,7 +545,9 @@ private extension ChordDraftPreviewDeviceDiagnostics {
             let best = event.payloads.map { payload in
                 payload.acceptedText ?? payload.matchText ?? payload.supportedCandidates.first ?? "?"
             }.joined(separator: "|")
-            return "iChart chord draft debug: \(event.stage) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1) best=\(best)\n"
+            let slowestTotal = event.payloads.compactMap(\.recognitionTotalMilliseconds).max()
+            let timing = slowestTotal.map { String(format: " total=%.0fms", $0) } ?? ""
+            return "iChart chord draft debug: \(event.stage) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1)\(timing) best=\(best)\n"
         case "preview_replace":
             let texts = event.replacements.map { replacement in
                 "\(replacement.previousPreviewText ?? "?")->\(replacement.newPreviewText ?? "?")"

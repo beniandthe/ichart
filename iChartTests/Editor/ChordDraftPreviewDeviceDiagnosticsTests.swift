@@ -75,6 +75,10 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
                     confidence: 4.5,
                     closeRace: false,
                     confidenceGap: nil,
+                    requestedDelayMilliseconds: 400,
+                    idleMilliseconds: 410,
+                    recognitionMilliseconds: 12,
+                    recognitionTotalMilliseconds: 422,
                     topScores: [
                         ChordInkCandidateScore(text: "D", displayText: "D", confidence: 4.5)
                     ],
@@ -122,6 +126,10 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(loadedEvents.first?.measureLaneClusterCount, 2)
         XCTAssertEqual(loadedEvents.first?.targets.first?.inkStrokes, [inkStroke])
         XCTAssertEqual(loadedEvents.first?.payloads.first?.inkStrokes, [inkStroke])
+        XCTAssertEqual(loadedEvents.first?.payloads.first?.requestedDelayMilliseconds, 400)
+        XCTAssertEqual(loadedEvents.first?.payloads.first?.idleMilliseconds, 410)
+        XCTAssertEqual(loadedEvents.first?.payloads.first?.recognitionMilliseconds, 12)
+        XCTAssertEqual(loadedEvents.first?.payloads.first?.recognitionTotalMilliseconds, 422)
 
         try recorder.reset()
 

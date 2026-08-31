@@ -261,6 +261,52 @@ Open:
 
 - Physical iPad acceptance is still required for this slice. Test plain `C`, repeated `C D`, `C°7`, `Cø7`, real flats such as `Cb`/`Bb`, and `C7(b9)` followed by a separate next chord.
 - The prior `Eb△7 -> Eb△13` absorption issue remains outside this C-root fix and should be checked separately after the C behavior is confirmed.
+
+### 2026-08-30 Preview-Speed Experiment
+
+Purpose:
+
+- Test a speed-only improvement after the evidence-first and C-root checkpoint was committed as `b363304`.
+- Keep recognition behavior stable by changing scheduling and diagnostics only, not grouping, glyph scoring, evidence policy, trust policy, preview reduction, render behavior, persistence, or UI.
+
+Implementation:
+
+- Reduced `ChordInkDraftPreviewPolicy.recognitionDelay` from `0.58s` to `0.40s`.
+- Added per-payload timing fields to `chord-draft-preview-debug.jsonl`: requested delay, actual idle time, recognition time, and total recognition latency.
+- Added the slowest payload total to the compact debug summary for `finish_single` and `finish_batch` events.
+
+Verification:
+
+- `swift test --scratch-path /tmp/iChartSwiftBuild-preview-speed --filter 'ChordDraftPreviewDeviceDiagnosticsTests|ChordInkRecognitionSessionTests|ChordInkDraftPreviewTests|ChordInkSemanticGlyphContextualizerTests|ChordInkCandidateComposerTests|ChordRecognitionProviderBoundaryTests'`
+  - Result: pass, 76 selected tests, 0 failures.
+- `xcodegen generate`
+  - Result: pass; regenerated `iChart.xcodeproj` from `project.yml`.
+- `git diff --check`
+  - Result: pass, no whitespace errors.
+- Simulator XCTest:
+  - Command: `xcodebuild -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,id=0D3454BE-1A21-4910-8FD6-FFD3EB43E908' -derivedDataPath /tmp/iChartDerived-preview-speed -resultBundlePath /tmp/iChartPreviewSpeed.xcresult -only-testing:iChartTests/ChordDraftPreviewDeviceDiagnosticsTests test`
+  - `xcresulttool` summary: `totalTestCount = 2`, `passedTests = 2`, `failedTests = 0`, `skippedTests = 0`.
+- Physical iPad Debug build/install/launch:
+  - Device: Ben's iPad `376D59F8-92F2-5260-B10E-BA0BEAF941AB`, available and paired.
+  - Build: `xcodebuild -quiet -project iChart.xcodeproj -scheme iChart -configuration Debug -destination 'platform=iOS,id=376D59F8-92F2-5260-B10E-BA0BEAF941AB' -derivedDataPath /tmp/iChartPreviewSpeedDevice-20260830 -allowProvisioningUpdates build`
+  - Result: pass, with existing unrelated `LibraryView` and telemetry warnings.
+  - Code signing: app bundle is valid on disk and satisfies its Designated Requirement.
+  - App identity: `com.ichart.app`, version `1.2`, build `50`.
+  - Binary proof: `strings .../iChart | rg 'ChordInkCandidateEvidencePolicy|ChordInkSemanticGlyphContextualizer|recognitionTotalMilliseconds|requestedDelayMilliseconds|lane_root_sequence'` found the evidence policy, contextualizer, timing fields, and lane-root sequence strings.
+  - Install: pass, installed `com.ichart.app`.
+  - Launch: pass, launched `com.ichart.app`.
+
+Open:
+
+- Rejected on physical iPad. The `400ms` delay caused visible incomplete-glyph churn and restored old wrong-read behavior in single-target preview passes:
+  - `C -> Cb -> Cb7`
+  - `C -> Cø7 -> C7/C`
+  - `C△ -> Cø7`
+  - `C -> unresolved -> Cø7`
+- Device trace: `/tmp/ichart-device-pass-20260830-preview-speed-regression/chord-draft-preview-debug.jsonl`.
+- The trace replay gate passed against this file, which exposes a guardrail gap: current replay tests do not fail this single-target preview-churn class.
+- Action taken: reverted `ChordInkDraftPreviewPolicy.recognitionDelay` to `0.58s`; keep timing diagnostics available because they are useful evidence and do not change recognition behavior.
+- Important timing note: `idleMilliseconds` and `recognitionTotalMilliseconds` are measured after the scheduler delay has elapsed. Perceived latency is roughly `requestedDelayMilliseconds + recognitionTotalMilliseconds`.
 - Added `testDraftStateKeepsLaneSpecificDraftIdentityWhenFractionsOverlap` to prove same-measure same-fraction targets on different lanes keep distinct draft ids.
 
 Verification:
