@@ -13,11 +13,11 @@ struct ChordInkCandidateSelectionPolicy {
                candidate.confidence >= 0.85 && "ABCDEFG".contains(candidate.text)
            }) {
             selected.removeAll { candidate in
-                candidate.text == "b" || candidate.text == "#"
+                candidate.text == "b"
+                    || candidate.text == "#"
+                    || candidate.text == rootCandidate.text
             }
-            if !selected.contains(where: { $0.text == rootCandidate.text }) {
-                selected.insert(rootCandidate, at: 0)
-            }
+            selected.insert(rootCandidate, at: 0)
         }
 
         func promoteCandidate(

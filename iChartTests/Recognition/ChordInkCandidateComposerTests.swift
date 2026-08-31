@@ -5,6 +5,40 @@ final class ChordInkCandidateComposerTests: XCTestCase {
     private let composer = ChordInkCandidateComposer()
     private let recognitionComposer = ChordInkRecognitionCandidateComposer()
 
+    func testRootSelectionMovesStrongCBeforeFlatLookalikeInFirstColumn() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+
+        let selected = policy.selectedGlyphCandidates(
+            forColumnAt: 0,
+            in: [[
+                glyph("6", confidence: 0.995, source: .heuristic),
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic),
+                glyph("G", confidence: 0.71, source: .template)
+            ]]
+        )
+
+        XCTAssertEqual(selected.first?.text, "C")
+        XCTAssertFalse(selected.contains { $0.text == "b" })
+    }
+
+    func testRootSelectionDoesNotMoveSecondColumnFlatAccidental() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+
+        let selected = policy.selectedGlyphCandidates(
+            forColumnAt: 1,
+            in: [
+                [glyph("C", confidence: 0.95, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("C", confidence: 0.95, source: .heuristic)
+                ]
+            ]
+        )
+
+        XCTAssertEqual(selected.first?.text, "b")
+    }
+
     func testComposesBbAheadOfInvalidEightFlatLookalike() {
         let candidates = composer.compose(glyphCandidates: [
             [
@@ -209,6 +243,143 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         }
 
         XCTAssertEqual(displayTexts.first, "G/B")
+    }
+
+    func testRecognitionComposerRejectsDetachedRootAsFlatAccidental() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("D", confidence: 0.96, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 24, maxY: 54),
+                cluster(minX: 66, minY: 25, maxX: 92, maxY: 56, strokes: 2)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("Cb"))
+        XCTAssertEqual(displayTexts.first, "C")
+    }
+
+    func testRecognitionComposerRejectsSlashBassWithoutOwnedSlashSeparator() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("E", confidence: 0.96, source: .heuristic)],
+                [glyph("b", confidence: 0.91)],
+                [
+                    glyph("△", confidence: 0.94),
+                    glyph("°", confidence: 0.90),
+                    glyph("ø", confidence: 0.88)
+                ],
+                [
+                    glyph("7", confidence: 0.95),
+                    glyph("/", confidence: 0.93)
+                ],
+                [glyph("C", confidence: 0.92, source: .heuristic)]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 22, maxX: 28, maxY: 58),
+                cluster(minX: 34, minY: 14, maxX: 46, maxY: 38),
+                angularTriangleCluster(minX: 58, minY: 22, maxX: 82, maxY: 48),
+                cluster(minX: 92, minY: 18, maxX: 112, maxY: 52),
+                cluster(minX: 132, minY: 22, maxX: 158, maxY: 58)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertTrue(displayTexts.contains("Eb△7"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Eb°/C"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Ebø7"), "\(displayTexts)")
+    }
+
+    func testRecognitionComposerRejectsHalfDiminishedWhenTriangleOwnsQualityCluster() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("B", confidence: 0.97, source: .heuristic)],
+                [glyph("b", confidence: 0.92)],
+                [
+                    glyph("△", confidence: 0.95),
+                    glyph("ø", confidence: 0.92),
+                    glyph("°", confidence: 0.88)
+                ],
+                [glyph("7", confidence: 0.94)]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 22, maxX: 30, maxY: 58),
+                cluster(minX: 36, minY: 14, maxX: 48, maxY: 38),
+                angularTriangleCluster(minX: 60, minY: 22, maxX: 86, maxY: 48),
+                cluster(minX: 98, minY: 18, maxX: 116, maxY: 52)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertTrue(displayTexts.contains("Bb△7"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Bbø7"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Bb°7"), "\(displayTexts)")
+    }
+
+    func testRecognitionComposerProtectsAngularTriangleWhenRoundQualityCandidateScoresHigher() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("B", confidence: 0.97, source: .heuristic)],
+                [glyph("b", confidence: 0.92)],
+                [
+                    glyph("°", confidence: 0.98),
+                    glyph("ø", confidence: 0.94),
+                    glyph("△", confidence: 0.76)
+                ],
+                [glyph("7", confidence: 0.94)]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 22, maxX: 30, maxY: 58),
+                cluster(minX: 36, minY: 14, maxX: 48, maxY: 38),
+                angularTriangleCluster(minX: 60, minY: 22, maxX: 86, maxY: 48),
+                cluster(minX: 98, minY: 18, maxX: 116, maxY: 52)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertTrue(displayTexts.contains("Bb△7"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Bb°7"), "\(displayTexts)")
+        XCTAssertFalse(displayTexts.contains("Bbø7"), "\(displayTexts)")
+    }
+
+    func testRecognitionComposerStillAllowsOwnedHalfDiminishedQuality() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("B", confidence: 0.97, source: .heuristic)],
+                [glyph("b", confidence: 0.92)],
+                [
+                    glyph("ø", confidence: 0.95),
+                    glyph("△", confidence: 0.70),
+                    glyph("°", confidence: 0.68)
+                ],
+                [glyph("7", confidence: 0.94)]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 22, maxX: 30, maxY: 58),
+                cluster(minX: 36, minY: 14, maxX: 48, maxY: 38),
+                cluster(minX: 60, minY: 22, maxX: 86, maxY: 48, strokes: 2),
+                cluster(minX: 98, minY: 18, maxX: 116, maxY: 52)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertTrue(displayTexts.contains("Bbø7"))
     }
 
     func testComposesMinorAliasesToStandardMinorCandidate() throws {
@@ -1429,5 +1600,23 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             },
             bounds: bounds
         )
+    }
+
+    private func angularTriangleCluster(
+        minX: Double,
+        minY: Double,
+        maxX: Double,
+        maxY: Double
+    ) -> InkCluster {
+        let midX = minX + (maxX - minX) / 2
+        let top = InkPoint(x: midX, y: minY, timeOffset: nil)
+        let lowerLeft = InkPoint(x: minX, y: maxY, timeOffset: nil)
+        let lowerRight = InkPoint(x: maxX, y: maxY, timeOffset: nil)
+
+        return InkCluster(strokes: [
+            InkStroke(points: [lowerLeft, top]),
+            InkStroke(points: [top, lowerRight]),
+            InkStroke(points: [lowerRight, lowerLeft])
+        ])
     }
 }
