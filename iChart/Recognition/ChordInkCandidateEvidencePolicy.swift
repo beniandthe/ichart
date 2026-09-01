@@ -181,7 +181,8 @@ struct ChordInkCandidateEvidencePolicy {
             return false
         }
 
-        if hasAttachedFlatAccidentalEvidence(
+        if rootCandidate.text == "G",
+           hasAttachedFlatAccidentalEvidence(
             selectedGlyph: selectedGlyph,
             clusterBounds: clusterBounds,
             prefixBounds: prefixBounds
