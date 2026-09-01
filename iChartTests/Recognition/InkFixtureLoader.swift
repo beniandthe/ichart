@@ -57,6 +57,7 @@ enum InkFixtureLoader {
         "Bbm7Captured02",
         "BFlatm6",
         "BFlatMajor7",
+        "BFlatMajor7SplitTriangleDevice02",
         "BFlat7Flat5Captured01",
         "FSharp7Captured01",
         "FSharp7susCaptured03",

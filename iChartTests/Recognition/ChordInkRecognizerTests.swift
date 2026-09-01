@@ -445,6 +445,27 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertTrue(result.rawCandidates.contains("Eb°"), debugSummary)
     }
 
+    func testDeviceSplitTriangleMajorSevenDoesNotBecomeHalfDiminished() {
+        let result = recognizer.recognize(strokes: deviceSplitTriangleMajorSevenStrokes())
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) }), scores: \(result.candidateScores.prefix(8))"
+
+        XCTAssertEqual(result.match?.displayText, "Bb△7", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("Bb△7"), debugSummary)
+        XCTAssertFalse(Array(result.rawCandidates.prefix(8)).contains("Bbø7"), debugSummary)
+    }
+
+    func testCurrentDeviceSplitTriangleMajorSevenDoesNotBecomeSlashAlteration() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let result = recognizer.recognize(strokes: fixture.strokes)
+        let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) }), scores: \(result.candidateScores.prefix(8))"
+
+        XCTAssertEqual(result.match?.displayText, "Bb△7", debugSummary)
+        XCTAssertEqual(result.glyphCandidates.count, fixture.expectedClusterCount, debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("Bb△7"), debugSummary)
+        XCTAssertFalse(Array(result.rawCandidates.prefix(8)).contains("Bb/C"), debugSummary)
+        XCTAssertFalse(Array(result.rawCandidates.prefix(8)).contains("Bb9b5"), debugSummary)
+    }
+
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {
         let degreeLookalike = InkStroke(points: [
             InkPoint(x: 78, y: 5, timeOffset: nil),
@@ -1033,6 +1054,137 @@ final class ChordInkRecognizerTests: XCTestCase {
                 }
             )
         }
+    }
+
+    private func deviceSplitTriangleMajorSevenStrokes() -> [InkStroke] {
+        [
+            InkStroke(points: [
+                InkPoint(x: 31.396404266357422, y: 44.16988754272461, timeOffset: nil),
+                InkPoint(x: 31.396404266357422, y: 46.08440017700195, timeOffset: nil),
+                InkPoint(x: 31.462312698364258, y: 48.32902145385742, timeOffset: nil),
+                InkPoint(x: 31.6600399017334, y: 49.91342544555664, timeOffset: nil),
+                InkPoint(x: 31.923688888549805, y: 51.95998764038086, timeOffset: nil),
+                InkPoint(x: 32.121429443359375, y: 54.46864318847656, timeOffset: nil),
+                InkPoint(x: 32.25324630737305, y: 57.043338775634766, timeOffset: nil),
+                InkPoint(x: 32.319156646728516, y: 59.816062927246094, timeOffset: nil),
+                InkPoint(x: 32.385074615478516, y: 62.58881759643555, timeOffset: nil),
+                InkPoint(x: 32.450984954833984, y: 65.36154174804688, timeOffset: nil),
+                InkPoint(x: 32.450984954833984, y: 68.06829071044922, timeOffset: nil),
+                InkPoint(x: 32.450984954833984, y: 70.84101104736328, timeOffset: nil),
+                InkPoint(x: 32.450984954833984, y: 72.8875732421875, timeOffset: nil),
+                InkPoint(x: 32.51689529418945, y: 76.05641174316406, timeOffset: nil),
+                InkPoint(x: 32.648712158203125, y: 78.03693389892578, timeOffset: nil),
+                InkPoint(x: 33.966941833496094, y: 79.81942749023438, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 29.287229537963867, y: 47.40476989746094, timeOffset: nil),
+                InkPoint(x: 28.232648849487305, y: 45.490257263183594, timeOffset: nil),
+                InkPoint(x: 29.74861717224121, y: 44.499996185302734, timeOffset: nil),
+                InkPoint(x: 31.85778045654297, y: 43.83980941772461, timeOffset: nil),
+                InkPoint(x: 35.021522521972656, y: 43.311676025390625, timeOffset: nil),
+                InkPoint(x: 37.657981872558594, y: 42.915557861328125, timeOffset: nil),
+                InkPoint(x: 39.1739387512207, y: 42.717498779296875, timeOffset: nil),
+                InkPoint(x: 43.32636642456055, y: 42.453433990478516, timeOffset: nil),
+                InkPoint(x: 45.83099365234375, y: 42.453433990478516, timeOffset: nil),
+                InkPoint(x: 48.006065368652344, y: 42.519439697265625, timeOffset: nil),
+                InkPoint(x: 49.39020538330078, y: 43.113616943359375, timeOffset: nil),
+                InkPoint(x: 50.444786071777344, y: 44.63201141357422, timeOffset: nil),
+                InkPoint(x: 50.444786071777344, y: 46.54652404785156, timeOffset: nil),
+                InkPoint(x: 49.45612716674805, y: 47.9989128112793, timeOffset: nil),
+                InkPoint(x: 48.07198715209961, y: 49.71536636352539, timeOffset: nil),
+                InkPoint(x: 46.2923698425293, y: 51.299800872802734, timeOffset: nil),
+                InkPoint(x: 44.31503677368164, y: 52.95024871826172, timeOffset: nil),
+                InkPoint(x: 41.283111572265625, y: 55.260841369628906, timeOffset: nil),
+                InkPoint(x: 38.910301208496094, y: 56.91128921508789, timeOffset: nil),
+                InkPoint(x: 37.06477737426758, y: 58.033599853515625, timeOffset: nil),
+                InkPoint(x: 39.76714324951172, y: 57.76953125, timeOffset: nil),
+                InkPoint(x: 41.283111572265625, y: 57.70352554321289, timeOffset: nil),
+                InkPoint(x: 42.99680709838867, y: 57.70352554321289, timeOffset: nil),
+                InkPoint(x: 44.71050262451172, y: 57.76953125, timeOffset: nil),
+                InkPoint(x: 46.35829162597656, y: 58.36367416381836, timeOffset: nil),
+                InkPoint(x: 47.940155029296875, y: 59.485984802246094, timeOffset: nil),
+                InkPoint(x: 49.19247817993164, y: 61.00437927246094, timeOffset: nil),
+                InkPoint(x: 50.11524200439453, y: 62.91889190673828, timeOffset: nil),
+                InkPoint(x: 50.64252471923828, y: 65.36154174804688, timeOffset: nil),
+                InkPoint(x: 50.70843505859375, y: 67.93624114990234, timeOffset: nil),
+                InkPoint(x: 50.2470588684082, y: 71.96331787109375, timeOffset: nil),
+                InkPoint(x: 49.258384704589844, y: 74.07588958740234, timeOffset: nil),
+                InkPoint(x: 47.940155029296875, y: 75.92436218261719, timeOffset: nil),
+                InkPoint(x: 46.2923698425293, y: 77.5748062133789, timeOffset: nil),
+                InkPoint(x: 44.57867431640625, y: 78.49906158447266, timeOffset: nil),
+                InkPoint(x: 42.53541946411133, y: 79.09320068359375, timeOffset: nil),
+                InkPoint(x: 40.096702575683594, y: 79.42330932617188, timeOffset: nil),
+                InkPoint(x: 37.85572052001953, y: 79.42330932617188, timeOffset: nil),
+                InkPoint(x: 35.68063735961914, y: 79.291259765625, timeOffset: nil),
+                InkPoint(x: 33.439659118652344, y: 78.49906158447266, timeOffset: nil),
+                InkPoint(x: 31.85778045654297, y: 77.5748062133789, timeOffset: nil),
+                InkPoint(x: 30.737289428710938, y: 76.51853942871094, timeOffset: nil),
+                InkPoint(x: 30.209993362426758, y: 74.6040267944336, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 59.34283447265625, y: 34.59735870361328, timeOffset: nil),
+                InkPoint(x: 59.606468200683594, y: 36.115753173828125, timeOffset: nil),
+                InkPoint(x: 59.93602752685547, y: 38.16228103637695, timeOffset: nil),
+                InkPoint(x: 60.79288101196289, y: 43.113616943359375, timeOffset: nil),
+                InkPoint(x: 61.320167541503906, y: 45.688316345214844, timeOffset: nil),
+                InkPoint(x: 61.84746170043945, y: 48.52704620361328, timeOffset: nil),
+                InkPoint(x: 62.11111068725586, y: 50.11148452758789, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 61.320167541503906, y: 44.896080017089844, timeOffset: nil),
+                InkPoint(x: 62.37474822998047, y: 43.7738037109375, timeOffset: nil),
+                InkPoint(x: 64.41799926757812, y: 42.915557861328125, timeOffset: nil),
+                InkPoint(x: 66.79080963134766, y: 42.849552154541016, timeOffset: nil),
+                InkPoint(x: 68.37268829345703, y: 43.17962646484375, timeOffset: nil),
+                InkPoint(x: 69.62500762939453, y: 44.56600570678711, timeOffset: nil),
+                InkPoint(x: 70.02047729492188, y: 46.15044021606445, timeOffset: nil),
+                InkPoint(x: 69.9545669555664, y: 48.262977600097656, timeOffset: nil),
+                InkPoint(x: 68.57042694091797, y: 49.38528823852539, timeOffset: nil),
+                InkPoint(x: 66.52717590332031, y: 49.91342544555664, timeOffset: nil),
+                InkPoint(x: 63.03386306762695, y: 49.91342544555664, timeOffset: nil),
+                InkPoint(x: 61.320167541503906, y: 48.72510528564453, timeOffset: nil),
+                InkPoint(x: 60.72697067260742, y: 47.33872604370117, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 84.25732421875, y: 37.568138122558594, timeOffset: nil),
+                InkPoint(x: 83.46639251708984, y: 39.41664505004883, timeOffset: nil),
+                InkPoint(x: 82.74137115478516, y: 40.8690299987793, timeOffset: nil),
+                InkPoint(x: 81.55496215820312, y: 43.377685546875, timeOffset: nil),
+                InkPoint(x: 80.89584350585938, y: 45.22618865966797, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 83.46639251708984, y: 36.77593994140625, timeOffset: nil),
+                InkPoint(x: 85.04825592041016, y: 37.63414764404297, timeOffset: nil),
+                InkPoint(x: 85.97103118896484, y: 38.88847351074219, timeOffset: nil),
+                InkPoint(x: 86.9596939086914, y: 40.40690612792969, timeOffset: nil),
+                InkPoint(x: 87.8824691772461, y: 41.859291076660156, timeOffset: nil),
+                InkPoint(x: 88.80522155761719, y: 43.24563217163086, timeOffset: nil),
+                InkPoint(x: 89.99163055419922, y: 45.22618865966797, timeOffset: nil),
+                InkPoint(x: 90.91438293457031, y: 46.61253356933594, timeOffset: nil),
+                InkPoint(x: 91.57349395751953, y: 48.32902145385742, timeOffset: nil),
+                InkPoint(x: 90.05754089355469, y: 48.262977600097656, timeOffset: nil),
+                InkPoint(x: 88.40974426269531, y: 48.13096237182617, timeOffset: nil),
+                InkPoint(x: 86.16876220703125, y: 48.13096237182617, timeOffset: nil),
+                InkPoint(x: 84.05960083007812, y: 48.13096237182617, timeOffset: nil),
+                InkPoint(x: 82.27998352050781, y: 48.13096237182617, timeOffset: nil),
+                InkPoint(x: 81.7527084350586, y: 48.0649528503418, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 95.85772705078125, y: 33.87116622924805, timeOffset: nil),
+                InkPoint(x: 96.97823333740234, y: 32.35273742675781, timeOffset: nil),
+                InkPoint(x: 98.8896713256836, y: 31.824602127075195, timeOffset: nil),
+                InkPoint(x: 100.60335540771484, y: 31.626543045043945, timeOffset: nil),
+                InkPoint(x: 102.6466064453125, y: 31.560535430908203, timeOffset: nil),
+                InkPoint(x: 105.87626647949219, y: 31.560535430908203, timeOffset: nil),
+                InkPoint(x: 107.5240478515625, y: 31.560535430908203, timeOffset: nil),
+                InkPoint(x: 108.97411346435547, y: 32.15467834472656, timeOffset: nil),
+                InkPoint(x: 109.1059341430664, y: 33.80512237548828, timeOffset: nil),
+                InkPoint(x: 108.51272583007812, y: 35.521575927734375, timeOffset: nil),
+                InkPoint(x: 107.12859344482422, y: 38.22832489013672, timeOffset: nil),
+                InkPoint(x: 106.0739974975586, y: 40.53892135620117, timeOffset: nil),
+                InkPoint(x: 105.54672241210938, y: 42.38742446899414, timeOffset: nil)
+            ])
+        ]
     }
 
     private func transformedTemplateStrokes(

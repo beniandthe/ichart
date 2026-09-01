@@ -95,6 +95,17 @@ final class StrokeClustererTests: XCTestCase {
         }
     }
 
+    func testDeviceSplitTriangleMajorSevenClustersTriangleAsOneGlyph() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+        let triangleIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "△"))
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.map(\.strokes.count), [2, 2, 2, 1])
+        XCTAssertEqual(clusters[triangleIndex].strokes.count, 2)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
     func testRootStemAndBodyCanMergeWhenTheyTouchAtTheEdge() throws {
         let fixture = try InkFixtureLoader.load("BSharpMinor11Captured01", file: #filePath)
         let clusters = clusterer.cluster(fixture.strokes)

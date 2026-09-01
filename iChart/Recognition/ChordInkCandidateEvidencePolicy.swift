@@ -7,6 +7,8 @@ struct ChordInkCandidateEvidencePolicy {
     private static let hardSlashConflictTexts: Set<String> = ["△", "°", "ø", "7"]
     private static let rootPressureMinimumConfidence = 0.90
     private static let rootPressureMaximumLag = 0.08
+    private static let triangleOwnershipMinimumConfidence = 0.55
+    private static let angularTriangleOwnershipMinimumConfidence = 0.40
 
     func allows(
         _ candidate: ChordInkCandidate,
@@ -413,11 +415,16 @@ struct ChordInkCandidateEvidencePolicy {
             candidate.text == selected.text
         }?.confidence ?? selected.confidence
 
+        let hasOpenHandwrittenTriangleEvidence = hasOpenHandwrittenTriangleEvidence(cluster)
+        let hasAngularTriangleEvidence = hasAngularMajorTriangleEvidence(cluster)
+        let minimumTriangleConfidence = hasOpenHandwrittenTriangleEvidence
+            ? Self.angularTriangleOwnershipMinimumConfidence
+            : Self.triangleOwnershipMinimumConfidence
+
         return column.contains { candidate in
             candidate.text == "△"
-                && candidate.confidence >= 0.55
-                && (candidate.confidence > selectedConfidence
-                    || hasAngularMajorTriangleEvidence(cluster))
+                && candidate.confidence >= minimumTriangleConfidence
+                && (candidate.confidence > selectedConfidence || hasAngularTriangleEvidence)
         }
     }
 
@@ -473,19 +480,45 @@ struct ChordInkCandidateEvidencePolicy {
         guard stroke.bounds.width >= 7,
               stroke.bounds.height >= 10,
               stroke.aspectRatio >= 0.30,
-              stroke.aspectRatio <= 1.45,
-              !stroke.isDiminishedCircleConstructionCandidate else {
+              stroke.aspectRatio <= 1.45 else {
+            return false
+        }
+
+        if hasOpenHandwrittenTriangleEvidence(stroke) {
+            return true
+        }
+
+        guard !stroke.isDiminishedCircleConstructionCandidate else {
             return false
         }
 
         let closedAngularTriangle = stroke.points.count >= 4
             && stroke.endpointClosureRatio <= 0.25
             && hasTriangleCornerCoverage(InkCluster(strokes: [stroke]))
-        let openHandwrittenTriangle = stroke.points.count >= 8
-            && stroke.looksLikeTriangleReturn
-            && stroke.straightness <= 0.45
 
-        return closedAngularTriangle || openHandwrittenTriangle
+        return closedAngularTriangle
+    }
+
+    private func hasOpenHandwrittenTriangleEvidence(_ cluster: InkCluster) -> Bool {
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        return hasOpenHandwrittenTriangleEvidence(stroke)
+    }
+
+    private func hasOpenHandwrittenTriangleEvidence(_ stroke: InkStroke) -> Bool {
+        stroke.bounds.width >= 7
+            && stroke.bounds.height >= 10
+            && stroke.aspectRatio >= 0.30
+            && stroke.aspectRatio <= 1.45
+            && stroke.points.count >= 8
+            && stroke.hasLowerBodyThenUpperPeakReturn
+            && stroke.endpointClosureRatio >= 0.40
+            && stroke.straightness <= 0.48
+            && stroke.normalizedMaxY >= 0.82
+            && hasTriangleCornerCoverage(InkCluster(strokes: [stroke]))
     }
 
     private func hasTriangleCornerCoverage(_ cluster: InkCluster) -> Bool {
