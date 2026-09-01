@@ -225,7 +225,7 @@ struct ChordInkCandidateEvidencePolicy {
         let flatStrokeEvidence = hasFlatStrokeEvidence(cluster)
         let flatShaped = aspectRatio(of: clusterBounds) <= 0.70
             || clusterBounds.width <= max(16, prefixWidth * 0.55)
-            || (flatStrokeEvidence && clusterBounds.width <= 18)
+            || (flatStrokeEvidence && clusterBounds.width <= 22)
 
         return startsAtPrefixRightEdge
             && closeEnoughToBelongToPrefix
@@ -290,7 +290,20 @@ struct ChordInkCandidateEvidencePolicy {
                 && yRatio >= 0.35
                 && yRatio <= 0.85
         }
-        let hasFlatAspect = stroke.aspectRatio <= 0.75 || hasOpenLoopBodyEndpoint
+        let hasRecognizerSizedSingleStrokeFlat = stroke.points.count >= 12
+            && stroke.bounds.width <= 22
+            && stroke.bounds.height >= 10
+            && stroke.bounds.height <= 33
+            && stroke.aspectRatio >= 0.40
+            && stroke.aspectRatio <= 1.05
+            && stroke.straightness >= 0.05
+            && stroke.straightness <= 0.62
+            && abs(stroke.angleDegrees) >= 35
+            && abs(stroke.angleDegrees) <= 115
+            && (stroke.aspectRatio <= 0.98 || abs(stroke.angleDegrees) >= 55)
+        let hasFlatAspect = stroke.aspectRatio <= 0.75
+            || hasOpenLoopBodyEndpoint
+            || hasRecognizerSizedSingleStrokeFlat
 
         return stroke.points.count >= 4
             && stroke.bounds.height >= 8
