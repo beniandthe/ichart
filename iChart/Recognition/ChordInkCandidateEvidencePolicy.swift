@@ -123,7 +123,7 @@ struct ChordInkCandidateEvidencePolicy {
         return !hasDetachedRootPressure(
             in: candidateColumns[1],
             selectedGlyph: accidentalGlyph,
-            clusterBounds: clusters[1].bounds,
+            cluster: clusters[1],
             prefixBounds: clusters[0].bounds
         )
     }
@@ -153,7 +153,7 @@ struct ChordInkCandidateEvidencePolicy {
             if hasDetachedRootPressure(
                 in: candidateColumns[index],
                 selectedGlyph: glyph,
-                clusterBounds: clusters[index].bounds,
+                cluster: clusters[index],
                 prefixBounds: prefixBounds
             ) {
                 return true
@@ -166,9 +166,11 @@ struct ChordInkCandidateEvidencePolicy {
     private func hasDetachedRootPressure(
         in column: [GlyphCandidate],
         selectedGlyph: GlyphCandidate,
-        clusterBounds: InkBounds,
+        cluster: InkCluster,
         prefixBounds: InkBounds
     ) -> Bool {
+        let clusterBounds = cluster.bounds
+
         guard ChordInkSequentialRootStartDetector.isDetachedRootSizedGlyph(
             clusterBounds,
             from: prefixBounds
@@ -184,7 +186,7 @@ struct ChordInkCandidateEvidencePolicy {
         if rootCandidate.text == "G",
            hasAttachedFlatAccidentalEvidence(
             selectedGlyph: selectedGlyph,
-            clusterBounds: clusterBounds,
+            cluster: cluster,
             prefixBounds: prefixBounds
         ) {
             return false
@@ -202,13 +204,14 @@ struct ChordInkCandidateEvidencePolicy {
 
     private func hasAttachedFlatAccidentalEvidence(
         selectedGlyph: GlyphCandidate,
-        clusterBounds: InkBounds,
+        cluster: InkCluster,
         prefixBounds: InkBounds
     ) -> Bool {
         guard selectedGlyph.text == "b" else {
             return false
         }
 
+        let clusterBounds = cluster.bounds
         let prefixWidth = max(prefixBounds.width, 1)
         let prefixHeight = max(prefixBounds.height, 1)
         let prefixArea = max(prefixBounds.recognitionArea, 1)
@@ -227,6 +230,25 @@ struct ChordInkCandidateEvidencePolicy {
             && modifierSized
             && flatShaped
             && clusterBounds.recognitionMidX > prefixBounds.recognitionMidX
+            && hasFlatStrokeEvidence(cluster)
+    }
+
+    private func hasFlatStrokeEvidence(_ cluster: InkCluster) -> Bool {
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first,
+              let firstPoint = stroke.points.first,
+              let lastPoint = stroke.points.last else {
+            return false
+        }
+
+        return stroke.points.count >= 4
+            && stroke.bounds.height >= 8
+            && stroke.aspectRatio <= 0.75
+            && stroke.angleDegrees >= 45
+            && stroke.angleDegrees <= 115
+            && stroke.normalizedYRatio(of: firstPoint) <= 0.35
+            && stroke.normalizedYRatio(of: lastPoint) >= 0.45
+            && !stroke.hasEarlyTopHorizontalRun
     }
 
     private func hasOwnedSlashBassEvidence(

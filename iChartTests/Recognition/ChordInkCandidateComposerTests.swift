@@ -208,8 +208,8 @@ final class ChordInkCandidateComposerTests: XCTestCase {
                 ]
             ],
             clusters: [
-                cluster(minX: 0, minY: 24, maxX: 25, maxY: 53),
-                cluster(minX: 31, minY: 14, maxX: 42, maxY: 42)
+                cluster(minX: 0, minY: 20, maxX: 24, maxY: 60),
+                flatLikeCluster(minX: 41, minY: 23, maxX: 51, maxY: 55)
             ]
         )
         let displayTexts = result.candidates.compactMap { candidate in
@@ -217,6 +217,28 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         }
 
         XCTAssertEqual(displayTexts.first, "Cb")
+    }
+
+    func testRecognitionComposerRejectsNarrowDetachedGRootAsFlatAccidental() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("G", confidence: 0.97, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 20, maxX: 24, maxY: 60),
+                cluster(minX: 41, minY: 23, maxX: 51, maxY: 55)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("Cb"))
+        XCTAssertEqual(displayTexts.first, "C")
     }
 
     func testRecognitionComposerKeepsAccidentalSixthWhenSixHasRootPressure() {
@@ -1809,6 +1831,24 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             InkStroke(points: [lowerLeft, top]),
             InkStroke(points: [top, lowerRight]),
             InkStroke(points: [lowerRight, lowerLeft])
+        ])
+    }
+
+    private func flatLikeCluster(
+        minX: Double,
+        minY: Double,
+        maxX: Double,
+        maxY: Double
+    ) -> InkCluster {
+        let height = maxY - minY
+        let width = maxX - minX
+        return InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: minX, y: minY, timeOffset: nil),
+                InkPoint(x: minX, y: maxY, timeOffset: nil),
+                InkPoint(x: maxX, y: minY + height * 0.75, timeOffset: nil),
+                InkPoint(x: minX + width * 0.25, y: minY + height * 0.50, timeOffset: nil)
+            ])
         ])
     }
 
