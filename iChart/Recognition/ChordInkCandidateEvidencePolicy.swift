@@ -259,9 +259,24 @@ struct ChordInkCandidateEvidencePolicy {
         let hasTopEndpointOnStem = endpointPositions.contains { position in
             position.x <= 0.40 && position.y <= 0.35
         }
-        let hasBodyEndpointNearStem = endpointPositions.contains { position in
+        let hasReturningBodyEndpoint = endpointPositions.contains { position in
             position.x <= 0.55 && position.y >= 0.45
         }
+        let hasOpenLoopBodyEndpoint = stroke.points.count >= 12
+            && stroke.bounds.width >= 6
+            && stroke.bounds.height >= 14
+            && stroke.bounds.height <= 30
+            && stroke.aspectRatio >= 0.35
+            && stroke.straightness >= 0.08
+            && stroke.straightness <= 0.36
+            && stroke.angleDegrees >= 55
+            && stroke.angleDegrees <= 115
+            && stroke.endpointClosureRatio >= 0.30
+            && stroke.endpointClosureRatio <= 0.82
+            && stroke.normalizedYRatio(of: firstPoint) <= 0.35
+            && stroke.normalizedYRatio(of: lastPoint) >= 0.42
+            && stroke.horizontalDirectionChangeCount >= 1
+            && !stroke.looksLikeTriangleReturn
         let hasLeftStemCoverage = (leftStemYRatios.min() ?? 1) <= 0.20
             && (leftStemYRatios.max() ?? 0) >= 0.78
         let hasRightBody = stroke.points.contains { point in
@@ -280,7 +295,7 @@ struct ChordInkCandidateEvidencePolicy {
             && (endpointYRatios.min() ?? 1) <= 0.35
             && (endpointYRatios.max() ?? 0) >= 0.45
             && hasTopEndpointOnStem
-            && hasBodyEndpointNearStem
+            && (hasReturningBodyEndpoint || hasOpenLoopBodyEndpoint)
             && hasLeftStemCoverage
             && hasRightBody
             && !stroke.hasEarlyTopHorizontalRun
