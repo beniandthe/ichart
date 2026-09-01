@@ -247,6 +247,7 @@ struct ChordInkCandidateEvidencePolicy {
             stroke.normalizedYRatio(of: firstPoint),
             stroke.normalizedYRatio(of: lastPoint)
         ]
+        let absoluteAngle = abs(stroke.angleDegrees)
         let endpointPositions = [firstPoint, lastPoint].map { point in
             (
                 x: stroke.normalizedXRatio(of: point),
@@ -298,9 +299,9 @@ struct ChordInkCandidateEvidencePolicy {
             && stroke.aspectRatio <= 1.05
             && stroke.straightness >= 0.05
             && stroke.straightness <= 0.62
-            && abs(stroke.angleDegrees) >= 35
-            && abs(stroke.angleDegrees) <= 115
-            && (stroke.aspectRatio <= 0.98 || abs(stroke.angleDegrees) >= 55)
+            && absoluteAngle >= 35
+            && absoluteAngle <= 115
+            && (stroke.aspectRatio <= 0.98 || absoluteAngle >= 55)
         let hasFlatAspect = stroke.aspectRatio <= 0.75
             || hasOpenLoopBodyEndpoint
             || hasRecognizerSizedSingleStrokeFlat
@@ -308,8 +309,8 @@ struct ChordInkCandidateEvidencePolicy {
         return stroke.points.count >= 4
             && stroke.bounds.height >= 8
             && hasFlatAspect
-            && abs(stroke.angleDegrees) >= 45
-            && abs(stroke.angleDegrees) <= 115
+            && (absoluteAngle >= 45 || hasRecognizerSizedSingleStrokeFlat)
+            && absoluteAngle <= 115
             && (endpointYRatios.min() ?? 1) <= 0.35
             && (endpointYRatios.max() ?? 0) >= 0.45
             && hasTopEndpointOnStem
