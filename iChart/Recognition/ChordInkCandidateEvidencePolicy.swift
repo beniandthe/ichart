@@ -245,6 +245,32 @@ struct ChordInkCandidateEvidencePolicy {
             stroke.normalizedYRatio(of: firstPoint),
             stroke.normalizedYRatio(of: lastPoint)
         ]
+        let endpointPositions = [firstPoint, lastPoint].map { point in
+            (
+                x: stroke.normalizedXRatio(of: point),
+                y: stroke.normalizedYRatio(of: point)
+            )
+        }
+        let leftStemYRatios = stroke.points
+            .filter { point in
+                stroke.normalizedXRatio(of: point) <= 0.35
+            }
+            .map(stroke.normalizedYRatio(of:))
+        let hasTopEndpointOnStem = endpointPositions.contains { position in
+            position.x <= 0.40 && position.y <= 0.35
+        }
+        let hasBodyEndpointNearStem = endpointPositions.contains { position in
+            position.x <= 0.55 && position.y >= 0.45
+        }
+        let hasLeftStemCoverage = (leftStemYRatios.min() ?? 1) <= 0.20
+            && (leftStemYRatios.max() ?? 0) >= 0.78
+        let hasRightBody = stroke.points.contains { point in
+            let xRatio = stroke.normalizedXRatio(of: point)
+            let yRatio = stroke.normalizedYRatio(of: point)
+            return xRatio >= 0.55
+                && yRatio >= 0.35
+                && yRatio <= 0.85
+        }
 
         return stroke.points.count >= 4
             && stroke.bounds.height >= 8
@@ -253,6 +279,10 @@ struct ChordInkCandidateEvidencePolicy {
             && abs(stroke.angleDegrees) <= 115
             && (endpointYRatios.min() ?? 1) <= 0.35
             && (endpointYRatios.max() ?? 0) >= 0.45
+            && hasTopEndpointOnStem
+            && hasBodyEndpointNearStem
+            && hasLeftStemCoverage
+            && hasRightBody
             && !stroke.hasEarlyTopHorizontalRun
     }
 
