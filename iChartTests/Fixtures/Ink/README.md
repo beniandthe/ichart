@@ -42,6 +42,12 @@ full captured handwriting archive is opt-in and should be run deliberately when
 auditing recognition drift, preparing recognition changes, or reviewing fixture
 coverage:
 
+Fixture replay is not a merge-acceptance gate for new live-recognition
+behavior by itself. Recognition changes must keep their evidence surfaces
+separate: focused invariant tests for the changed rule, current-device trace or
+physical iPad validation for live Pencil behavior, and chart-symbol references
+only when vocabulary, parsing, canonical display, or rendering changed.
+
 ```bash
 ICHART_FULL_INK_FIXTURES=1 swift test --scratch-path /tmp/iChartSwiftBuild-full-ink
 ```
