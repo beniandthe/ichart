@@ -272,7 +272,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             ],
             clusters: [
                 cluster(minX: 0, minY: 20, maxX: 24, maxY: 60),
-                widerOpenLoopFlatLikeCluster(minX: 41, minY: 26, maxX: 56.5, maxY: 46)
+                widerOpenLoopFlatLikeCluster(minX: 41, minY: 26, maxX: 58.5, maxY: 49)
             ]
         )
         let displayTexts = result.candidates.compactMap { candidate in

@@ -222,15 +222,17 @@ struct ChordInkCandidateEvidencePolicy {
             && verticalMiss <= max(8, prefixHeight * 0.55)
         let modifierSized = clusterBounds.recognitionArea / prefixArea <= 0.72
             || clusterBounds.width <= prefixWidth * 0.85
+        let flatStrokeEvidence = hasFlatStrokeEvidence(cluster)
         let flatShaped = aspectRatio(of: clusterBounds) <= 0.70
             || clusterBounds.width <= max(16, prefixWidth * 0.55)
+            || (flatStrokeEvidence && clusterBounds.width <= 18)
 
         return startsAtPrefixRightEdge
             && closeEnoughToBelongToPrefix
             && modifierSized
             && flatShaped
             && clusterBounds.recognitionMidX > prefixBounds.recognitionMidX
-            && hasFlatStrokeEvidence(cluster)
+            && flatStrokeEvidence
     }
 
     private func hasFlatStrokeEvidence(_ cluster: InkCluster) -> Bool {
