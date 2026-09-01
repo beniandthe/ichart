@@ -241,13 +241,18 @@ struct ChordInkCandidateEvidencePolicy {
             return false
         }
 
+        let endpointYRatios = [
+            stroke.normalizedYRatio(of: firstPoint),
+            stroke.normalizedYRatio(of: lastPoint)
+        ]
+
         return stroke.points.count >= 4
             && stroke.bounds.height >= 8
             && stroke.aspectRatio <= 0.75
-            && stroke.angleDegrees >= 45
-            && stroke.angleDegrees <= 115
-            && stroke.normalizedYRatio(of: firstPoint) <= 0.35
-            && stroke.normalizedYRatio(of: lastPoint) >= 0.45
+            && abs(stroke.angleDegrees) >= 45
+            && abs(stroke.angleDegrees) <= 115
+            && (endpointYRatios.min() ?? 1) <= 0.35
+            && (endpointYRatios.max() ?? 0) >= 0.45
             && !stroke.hasEarlyTopHorizontalRun
     }
 
