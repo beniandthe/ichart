@@ -261,6 +261,27 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(displayTexts.first, "Cb")
     }
 
+    func testRecognitionComposerStillAllowsWiderOpenLoopAttachedFlatRootAccidental() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.9996, source: .heuristic),
+                    glyph("G", confidence: 0.97, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 20, maxX: 24, maxY: 60),
+                widerOpenLoopFlatLikeCluster(minX: 41, minY: 26, maxX: 56.5, maxY: 46)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertEqual(displayTexts.first, "Cb")
+    }
+
     func testRecognitionComposerRejectsNarrowDetachedGRootAsFlatAccidental() {
         let result = recognitionComposer.composeRecognitionCandidates(
             from: [
@@ -1956,6 +1977,32 @@ final class ChordInkCandidateComposerTests: XCTestCase {
                 InkPoint(x: minX + width * 0.48, y: minY + height * 0.50, timeOffset: nil),
                 InkPoint(x: minX + width * 0.58, y: minY + height * 0.58, timeOffset: nil),
                 InkPoint(x: minX + width * 0.70, y: minY + height * 0.62, timeOffset: nil)
+            ])
+        ])
+    }
+
+    private func widerOpenLoopFlatLikeCluster(
+        minX: Double,
+        minY: Double,
+        maxX: Double,
+        maxY: Double
+    ) -> InkCluster {
+        let height = maxY - minY
+        let width = maxX - minX
+        return InkCluster(strokes: [
+            InkStroke(points: [
+                InkPoint(x: minX, y: minY, timeOffset: nil),
+                InkPoint(x: minX, y: minY + height * 0.22, timeOffset: nil),
+                InkPoint(x: minX, y: minY + height * 0.55, timeOffset: nil),
+                InkPoint(x: minX + width * 0.06, y: minY + height * 0.84, timeOffset: nil),
+                InkPoint(x: minX + width * 0.34, y: maxY, timeOffset: nil),
+                InkPoint(x: minX + width * 0.88, y: minY + height * 0.86, timeOffset: nil),
+                InkPoint(x: maxX, y: minY + height * 0.62, timeOffset: nil),
+                InkPoint(x: minX + width * 0.80, y: minY + height * 0.48, timeOffset: nil),
+                InkPoint(x: minX + width * 0.56, y: minY + height * 0.42, timeOffset: nil),
+                InkPoint(x: minX + width * 0.46, y: minY + height * 0.50, timeOffset: nil),
+                InkPoint(x: minX + width * 0.52, y: minY + height * 0.60, timeOffset: nil),
+                InkPoint(x: minX + width * 0.56, y: minY + height * 0.68, timeOffset: nil)
             ])
         ])
     }

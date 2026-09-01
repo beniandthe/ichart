@@ -267,6 +267,7 @@ struct ChordInkCandidateEvidencePolicy {
             && stroke.bounds.height >= 14
             && stroke.bounds.height <= 30
             && stroke.aspectRatio >= 0.35
+            && stroke.aspectRatio <= 1.05
             && stroke.straightness >= 0.08
             && stroke.straightness <= 0.36
             && stroke.angleDegrees >= 55
@@ -286,10 +287,11 @@ struct ChordInkCandidateEvidencePolicy {
                 && yRatio >= 0.35
                 && yRatio <= 0.85
         }
+        let hasFlatAspect = stroke.aspectRatio <= 0.75 || hasOpenLoopBodyEndpoint
 
         return stroke.points.count >= 4
             && stroke.bounds.height >= 8
-            && stroke.aspectRatio <= 0.75
+            && hasFlatAspect
             && abs(stroke.angleDegrees) >= 45
             && abs(stroke.angleDegrees) <= 115
             && (endpointYRatios.min() ?? 1) <= 0.35
