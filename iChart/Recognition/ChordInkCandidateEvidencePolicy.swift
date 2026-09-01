@@ -181,8 +181,11 @@ struct ChordInkCandidateEvidencePolicy {
             return false
         }
 
-        if selectedGlyph.text == "b",
-           rootCandidate.text == "G" {
+        if hasAttachedFlatAccidentalEvidence(
+            selectedGlyph: selectedGlyph,
+            clusterBounds: clusterBounds,
+            prefixBounds: prefixBounds
+        ) {
             return false
         }
 
@@ -194,6 +197,35 @@ struct ChordInkCandidateEvidencePolicy {
         return rootCandidate.confidence
             + Self.rootPressureMaximumLag
             >= max(bestConfidence, selectedConfidence)
+    }
+
+    private func hasAttachedFlatAccidentalEvidence(
+        selectedGlyph: GlyphCandidate,
+        clusterBounds: InkBounds,
+        prefixBounds: InkBounds
+    ) -> Bool {
+        guard selectedGlyph.text == "b" else {
+            return false
+        }
+
+        let prefixWidth = max(prefixBounds.width, 1)
+        let prefixHeight = max(prefixBounds.height, 1)
+        let prefixArea = max(prefixBounds.recognitionArea, 1)
+        let horizontalGap = prefixBounds.horizontalGap(to: clusterBounds)
+        let verticalMiss = prefixBounds.verticalMiss(to: clusterBounds)
+        let startsAtPrefixRightEdge = clusterBounds.minX >= prefixBounds.maxX - max(4, prefixWidth * 0.22)
+        let closeEnoughToBelongToPrefix = horizontalGap <= max(8, prefixHeight * 0.45)
+            && verticalMiss <= max(8, prefixHeight * 0.55)
+        let modifierSized = clusterBounds.recognitionArea / prefixArea <= 0.72
+            || clusterBounds.width <= prefixWidth * 0.85
+        let flatShaped = aspectRatio(of: clusterBounds) <= 0.70
+            || clusterBounds.width <= max(16, prefixWidth * 0.55)
+
+        return startsAtPrefixRightEdge
+            && closeEnoughToBelongToPrefix
+            && modifierSized
+            && flatShaped
+            && clusterBounds.recognitionMidX > prefixBounds.recognitionMidX
     }
 
     private func hasOwnedSlashBassEvidence(

@@ -198,6 +198,27 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(displayTexts.first, "Cb")
     }
 
+    func testRecognitionComposerStillAllowsAttachedFlatRootAccidentalWithGRootPressureLookalike() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("G", confidence: 0.97, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 25, maxY: 53),
+                cluster(minX: 31, minY: 14, maxX: 42, maxY: 42)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertEqual(displayTexts.first, "Cb")
+    }
+
     func testRecognitionComposerKeepsAccidentalSixthWhenSixHasRootPressure() {
         let result = recognitionComposer.composeRecognitionCandidates(
             from: [
@@ -252,6 +273,28 @@ final class ChordInkCandidateComposerTests: XCTestCase {
                 [
                     glyph("b", confidence: 0.98, source: .heuristic),
                     glyph("D", confidence: 0.96, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 24, maxX: 24, maxY: 54),
+                cluster(minX: 66, minY: 25, maxX: 92, maxY: 56, strokes: 2)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("Cb"))
+        XCTAssertEqual(displayTexts.first, "C")
+    }
+
+    func testRecognitionComposerRejectsDetachedGRootAsFlatAccidental() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.98, source: .heuristic),
+                    glyph("G", confidence: 0.97, source: .heuristic)
                 ]
             ],
             clusters: [
