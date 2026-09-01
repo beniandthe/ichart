@@ -418,6 +418,10 @@ struct GestureTemplateRecognizer {
     }
 
     private func isTriangleMajorLike(_ features: RootGlyphFeatures) -> Bool {
+        if isTwoStrokeOpenTriangleMajorLike(features) {
+            return true
+        }
+
         guard features.strokeCount == 1,
               let stroke = features.strokes.first else {
             return false
@@ -440,6 +444,94 @@ struct GestureTemplateRecognizer {
             && stroke.aspectRatio <= 1.10
             && !stroke.hasEarlyTopHorizontalRun
             && (compactClosedTriangle || handwrittenTriangle)
+    }
+
+    private func isTwoStrokeOpenTriangleMajorLike(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 2 else {
+            return false
+        }
+
+        let orderedStrokes = features.strokes.sorted { lhs, rhs in
+            lhs.bounds.minX < rhs.bounds.minX
+        }
+        let leftStroke = orderedStrokes[0]
+        let rightStroke = orderedStrokes[1]
+        let bounds = features.bounds
+        let horizontalGap = leftStroke.bounds.horizontalGap(to: rightStroke.bounds)
+        let verticalOverlap = leftStroke.bounds.verticalOverlap(with: rightStroke.bounds)
+        let smallerHeight = max(min(leftStroke.bounds.height, rightStroke.bounds.height), 1)
+
+        guard bounds.width >= 8,
+              bounds.width <= 28,
+              bounds.height >= 8,
+              bounds.height <= 28,
+              features.aspectRatio >= 0.55,
+              features.aspectRatio <= 1.75,
+              horizontalGap <= max(3, bounds.width * 0.20),
+              verticalOverlap >= smallerHeight * 0.35 else {
+            return false
+        }
+
+        return isTriangleMajorLeftLeg(leftStroke, in: bounds)
+            && isTriangleMajorRightLegWithBase(rightStroke, in: bounds)
+    }
+
+    private func isTriangleMajorLeftLeg(_ stroke: RootStrokeFeatures, in bounds: InkBounds) -> Bool {
+        let startX = normalizedXRatio(of: stroke.startPoint, in: bounds)
+        let startY = normalizedYRatio(of: stroke.startPoint, in: bounds)
+        let endX = normalizedXRatio(of: stroke.endPoint, in: bounds)
+        let endY = normalizedYRatio(of: stroke.endPoint, in: bounds)
+
+        return stroke.pointCount >= 3
+            && stroke.bounds.height >= 6
+            && stroke.bounds.width <= max(8, stroke.bounds.height * 0.85)
+            && stroke.straightness >= 0.50
+            && stroke.diagonalAngleMagnitude >= 45
+            && stroke.diagonalAngleMagnitude <= 82
+            && stroke.startPoint.x >= stroke.endPoint.x + max(2, bounds.width * 0.12)
+            && stroke.endPoint.y >= stroke.startPoint.y + max(5, bounds.height * 0.35)
+            && startX >= 0.08
+            && startX <= 0.58
+            && startY <= 0.36
+            && endX <= startX - 0.08
+            && endY >= 0.62
+    }
+
+    private func isTriangleMajorRightLegWithBase(_ stroke: RootStrokeFeatures, in bounds: InkBounds) -> Bool {
+        let startX = normalizedXRatio(of: stroke.startPoint, in: bounds)
+        let startY = normalizedYRatio(of: stroke.startPoint, in: bounds)
+        let endX = normalizedXRatio(of: stroke.endPoint, in: bounds)
+        let endY = normalizedYRatio(of: stroke.endPoint, in: bounds)
+        let lowerPoints = stroke.points.filter { point in
+            normalizedYRatio(of: point, in: bounds) >= 0.68
+        }
+        let lowerMinX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.min() ?? endX
+        let lowerMaxX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.max() ?? endX
+        let reachesRightCorner = stroke.points.contains { point in
+            normalizedXRatio(of: point, in: bounds) >= 0.72
+                && normalizedYRatio(of: point, in: bounds) >= 0.50
+        }
+
+        return stroke.pointCount >= 8
+            && stroke.bounds.width >= 7
+            && stroke.bounds.height >= 7
+            && stroke.horizontalDirectionChangeCount >= 1
+            && startX >= 0.08
+            && startX <= 0.62
+            && startY <= 0.34
+            && endX <= 0.26
+            && endY >= 0.62
+            && reachesRightCorner
+            && lowerMinX <= 0.26
+            && lowerMaxX >= 0.72
+    }
+
+    private func normalizedXRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.x - bounds.minX) / max(bounds.width, 1)
+    }
+
+    private func normalizedYRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.y - bounds.minY) / max(bounds.height, 1)
     }
 
     private func isDiminishedCircleLike(_ features: RootGlyphFeatures) -> Bool {

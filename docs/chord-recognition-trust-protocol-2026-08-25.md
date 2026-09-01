@@ -4,6 +4,8 @@ Date: 2026-08-25
 Branch: `codex/chord-recognition-accuracy`
 Current authority: this document plus `docs/chord-recognition-accuracy-branch-plan-2026-08-25.md`
 
+Current evidence-first experiment: `docs/chord-recognition-evidence-first-pipeline-plan-2026-08-30.md`
+
 ## Purpose
 
 This protocol keeps the chord recognition accuracy branch narrow and drift-aware. The branch may change grouping, glyph recognition, candidate composition, trust policy, recognition fixtures, and recognition diagnostics. It must not change chord lane UI, rendered edit mode, terminal barline rendering, ink persistence, sync, measure resize, or layout guide behavior unless a direct recognition-validation blocker is documented first.

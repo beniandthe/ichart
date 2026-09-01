@@ -255,6 +255,44 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(state.draftChords[0].previewText, "Cmaj7")
     }
 
+    func testDraftStateKeepsLaneSpecificDraftIdentityWhenFractionsOverlap() {
+        let measureID = UUID()
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.09,
+                bestCandidateText: "Eb△7",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.09)
+            )
+        ])
+
+        let firstLaneDraftID = state.draftChords[0].id
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.09,
+                bestCandidateText: "Eb△7",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.09)
+            ),
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.09,
+                bestCandidateText: "C",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.09)
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 2)
+        XCTAssertEqual(state.draftChords[0].id, firstLaneDraftID)
+        XCTAssertEqual(state.draftChords[0].previewText, "Eb△7")
+        XCTAssertNotEqual(state.draftChords[1].id, firstLaneDraftID)
+        XCTAssertEqual(state.draftChords[1].previewText, "C")
+    }
+
     func testDraftStateReplacesBatchWhenExistingStateHasDuplicateAnchors() {
         let measureID = UUID()
         let input = draftInput(measureID: measureID, measureIndex: 0, fraction: 0.24, bestCandidateText: "C")
@@ -323,6 +361,64 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNil(state.draftChords[1].previewText)
         XCTAssertEqual(state.draftChords[1].drawingData, absorbedDrawingData)
         XCTAssertEqual(state.renderableDraftChords.map(\.previewText), ["C"])
+        XCTAssertEqual(state.unresolvedChordCount, 1)
+        XCTAssertFalse(state.canRenderAllDraftChords)
+    }
+
+    func testDraftStatePreservesReadableDraftWhenExpandedInkBecomesNoRead() {
+        let measureID = UUID()
+        let previousStrokes = [
+            Self.pkStroke(points: [CGPoint(x: 10, y: 20), CGPoint(x: 30, y: 42), CGPoint(x: 12, y: 66)]),
+            Self.pkStroke(points: [CGPoint(x: 42, y: 18), CGPoint(x: 62, y: 18), CGPoint(x: 50, y: 66)]),
+            Self.pkStroke(points: [CGPoint(x: 72, y: 16), CGPoint(x: 66, y: 38), CGPoint(x: 72, y: 66)]),
+            Self.pkStroke(points: [CGPoint(x: 84, y: 16), CGPoint(x: 84, y: 66), CGPoint(x: 98, y: 52), CGPoint(x: 88, y: 42)]),
+            Self.pkStroke(points: [CGPoint(x: 108, y: 24), CGPoint(x: 118, y: 18), CGPoint(x: 126, y: 32), CGPoint(x: 114, y: 44)]),
+            Self.pkStroke(points: [CGPoint(x: 136, y: 16), CGPoint(x: 152, y: 18), CGPoint(x: 142, y: 66)])
+        ]
+        let nextChordStrokes = [
+            Self.pkStroke(points: [CGPoint(x: 172, y: 20), CGPoint(x: 192, y: 42), CGPoint(x: 174, y: 66)]),
+            Self.pkStroke(points: [CGPoint(x: 206, y: 24), CGPoint(x: 214, y: 16), CGPoint(x: 224, y: 24), CGPoint(x: 222, y: 34), CGPoint(x: 212, y: 40), CGPoint(x: 206, y: 34)]),
+            Self.pkStroke(points: [CGPoint(x: 236, y: 18), CGPoint(x: 256, y: 18), CGPoint(x: 244, y: 66)])
+        ]
+        let previousDrawingData = Self.drawingData(strokes: previousStrokes)
+        let absorbedDrawingData = Self.drawingData(strokes: previousStrokes + nextChordStrokes)
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.42,
+                bestCandidateText: "C7(b9)",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.42),
+                drawingData: previousDrawingData,
+                strokeCount: previousStrokes.count
+            )
+        ])
+        let readableDraftID = state.draftChords[0].id
+
+        state.replaceDraftChords(with: [
+            ChordInkDraftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                targetFraction: 0.51,
+                visualOrder: nil,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.51),
+                layoutPageSize: nil,
+                drawingData: absorbedDrawingData,
+                candidateTexts: [],
+                bestCandidateText: nil,
+                confidence: 0,
+                strokeCount: previousStrokes.count + nextChordStrokes.count
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 2)
+        XCTAssertEqual(state.draftChords[0].id, readableDraftID)
+        XCTAssertEqual(state.draftChords[0].previewText, "C7(b9)")
+        XCTAssertEqual(state.draftChords[0].drawingData, previousDrawingData)
+        XCTAssertNil(state.draftChords[1].previewText)
+        XCTAssertEqual(state.draftChords[1].drawingData, absorbedDrawingData)
+        XCTAssertEqual(state.renderableDraftChords.map(\.previewText), ["C7(b9)"])
         XCTAssertEqual(state.unresolvedChordCount, 1)
         XCTAssertFalse(state.canRenderAllDraftChords)
     }

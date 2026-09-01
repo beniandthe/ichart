@@ -1052,6 +1052,10 @@ struct StrokeClusterer {
             return true
         }
 
+        if shouldMergeAsTriangleMajorConstruction(lhs, rhs) {
+            return true
+        }
+
         guard !shouldKeepSeparateAsMinorSuffixAndExtension(lhs, rhs) else {
             return false
         }
@@ -1250,6 +1254,108 @@ struct StrokeClusterer {
             && horizontalGap <= max(5, ordered.circle.bounds.width * 0.55)
             && verticalMiss <= max(5, ordered.circle.bounds.height * 0.55)
             && (horizontalOverlap > 0 || verticalOverlap > 0)
+    }
+
+    private func shouldMergeAsTriangleMajorConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        guard lhs.strokes.count == 1,
+              rhs.strokes.count == 1,
+              let lhsStroke = lhs.strokes.first,
+              let rhsStroke = rhs.strokes.first else {
+            return false
+        }
+
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX
+            ? (left: lhsStroke, right: rhsStroke)
+            : (left: rhsStroke, right: lhsStroke)
+        let combinedBounds = InkBounds.enclosing([lhs.bounds, rhs.bounds])
+        let horizontalGap = lhs.bounds.horizontalGap(to: rhs.bounds)
+        let verticalOverlap = lhs.bounds.verticalOverlap(with: rhs.bounds)
+        let smallerHeight = max(min(lhs.bounds.height, rhs.bounds.height), 1)
+
+        guard combinedBounds.width >= 8,
+              combinedBounds.width <= 28,
+              combinedBounds.height >= 8,
+              combinedBounds.height <= 28,
+              combinedBounds.width / max(combinedBounds.height, 1) >= 0.55,
+              combinedBounds.width / max(combinedBounds.height, 1) <= 1.75,
+              horizontalGap <= max(3, combinedBounds.width * 0.20),
+              verticalOverlap >= smallerHeight * 0.35 else {
+            return false
+        }
+
+        return isTriangleMajorLeftLeg(ordered.left, in: combinedBounds)
+            && isTriangleMajorRightLegWithBase(ordered.right, in: combinedBounds)
+    }
+
+    private func isTriangleMajorLeftLeg(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let firstPoint = stroke.points.first,
+              let lastPoint = stroke.points.last else {
+            return false
+        }
+
+        let startX = normalizedXRatio(of: firstPoint, in: bounds)
+        let startY = normalizedYRatio(of: firstPoint, in: bounds)
+        let endX = normalizedXRatio(of: lastPoint, in: bounds)
+        let endY = normalizedYRatio(of: lastPoint, in: bounds)
+
+        return stroke.points.count >= 3
+            && stroke.bounds.height >= 6
+            && stroke.bounds.width <= max(8, stroke.bounds.height * 0.85)
+            && stroke.straightness >= 0.50
+            && stroke.diagonalAngleMagnitude >= 45
+            && stroke.diagonalAngleMagnitude <= 82
+            && firstPoint.x >= lastPoint.x + max(2, bounds.width * 0.12)
+            && lastPoint.y >= firstPoint.y + max(5, bounds.height * 0.35)
+            && startX >= 0.08
+            && startX <= 0.58
+            && startY <= 0.36
+            && endX <= startX - 0.08
+            && endY >= 0.62
+    }
+
+    private func isTriangleMajorRightLegWithBase(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let firstPoint = stroke.points.first,
+              let lastPoint = stroke.points.last else {
+            return false
+        }
+
+        let startX = normalizedXRatio(of: firstPoint, in: bounds)
+        let startY = normalizedYRatio(of: firstPoint, in: bounds)
+        let endX = normalizedXRatio(of: lastPoint, in: bounds)
+        let endY = normalizedYRatio(of: lastPoint, in: bounds)
+        let lowerPoints = stroke.points.filter { point in
+            normalizedYRatio(of: point, in: bounds) >= 0.68
+        }
+        let lowerMinX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.min() ?? endX
+        let lowerMaxX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.max() ?? endX
+        let reachesRightCorner = stroke.points.contains { point in
+            normalizedXRatio(of: point, in: bounds) >= 0.72
+                && normalizedYRatio(of: point, in: bounds) >= 0.50
+        }
+
+        return stroke.points.count >= 8
+            && stroke.bounds.width >= 7
+            && stroke.bounds.height >= 7
+            && stroke.horizontalDirectionChangeCount >= 1
+            && startX >= 0.08
+            && startX <= 0.62
+            && startY <= 0.34
+            && endX <= 0.26
+            && endY >= 0.62
+            && reachesRightCorner
+            && lowerMinX <= 0.26
+            && lowerMaxX >= 0.72
+    }
+
+    private func normalizedXRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.x - bounds.minX) / max(bounds.width, 1)
+    }
+
+    private func normalizedYRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.y - bounds.minY) / max(bounds.height, 1)
     }
 
     private func shouldMergeAsPlusConstruction(

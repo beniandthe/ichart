@@ -194,11 +194,19 @@ enum ChordDraftBarlineSpacingMode: String, CaseIterable, Identifiable {
 
 struct ChordInkDraftAnchor: Hashable {
     var measureID: UUID
+    var laneSystemIndex: Int?
     var fractionBucket: Int
 
-    init(measureID: UUID, fraction: Double?) {
+    init(measureID: UUID, laneLocation: ChordInkDraftLaneLocation?, visualOrder: Double?, fraction: Double?) {
         self.measureID = measureID
-        let clampedFraction = min(max(fraction ?? 0, 0), 0.9999)
+        if let laneLocation {
+            self.laneSystemIndex = laneLocation.systemIndex
+        } else if let visualOrder {
+            self.laneSystemIndex = Int(floor(visualOrder))
+        } else {
+            self.laneSystemIndex = nil
+        }
+        let clampedFraction = min(max(laneLocation?.fraction ?? fraction ?? 0, 0), 0.9999)
         self.fractionBucket = Int((clampedFraction * 32).rounded())
     }
 }
@@ -231,7 +239,12 @@ struct ChordInkDraftInput: Hashable {
     var strokeCount: Int
 
     var anchor: ChordInkDraftAnchor {
-        ChordInkDraftAnchor(measureID: measureID, fraction: targetFraction)
+        ChordInkDraftAnchor(
+            measureID: measureID,
+            laneLocation: laneLocation,
+            visualOrder: visualOrder,
+            fraction: targetFraction
+        )
     }
 }
 
@@ -475,8 +488,6 @@ struct ChordInkDraft: Identifiable, Hashable {
 }
 
 private struct ChordInkDraftStrokeFingerprint: Hashable {
-    private static let minimumDetachedAddedStrokeGap: CGFloat = 24
-
     var strokeBounds: [CGRect]
     var quantizedStrokeBounds: Set<QuantizedChordInkDraftStrokeBounds>
 
@@ -497,14 +508,17 @@ private struct ChordInkDraftStrokeFingerprint: Hashable {
         quantizedStrokeBounds = Set(visibleBounds.map(QuantizedChordInkDraftStrokeBounds.init(bounds:)))
     }
 
-    func absorbs(_ previous: ChordInkDraftStrokeFingerprint) -> Bool {
+    func absorbs(
+        _ previous: ChordInkDraftStrokeFingerprint,
+        requiredAddedStrokeGap: CGFloat
+    ) -> Bool {
         guard strokeBounds.count > previous.strokeBounds.count,
               quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds),
               let addedStrokeGap = minimumAddedStrokeGap(after: previous) else {
             return false
         }
 
-        return addedStrokeGap >= Self.minimumDetachedAddedStrokeGap
+        return addedStrokeGap >= requiredAddedStrokeGap
     }
 
     private func minimumAddedStrokeGap(after previous: ChordInkDraftStrokeFingerprint) -> CGFloat? {
@@ -635,6 +649,9 @@ extension DraftBarline {
 }
 
 struct ChordPreviewState: Equatable {
+    private static let minimumDetachedAddedStrokeGap: CGFloat = 24
+    private static let minimumUnresolvedAddedStrokeGap: CGFloat = 10
+
     var draftChords: [ChordInkDraft] = []
     var draftBarlines: [DraftBarline] = []
     var layoutPageSize: CGSize?
@@ -733,7 +750,13 @@ struct ChordPreviewState: Equatable {
                     return false
                 }
 
-                return incomingFingerprint.absorbs(previousFingerprint)
+                let minimumAddedStrokeGap = incomingPreviewText == nil
+                    ? Self.minimumUnresolvedAddedStrokeGap
+                    : Self.minimumDetachedAddedStrokeGap
+                return incomingFingerprint.absorbs(
+                    previousFingerprint,
+                    requiredAddedStrokeGap: minimumAddedStrokeGap
+                )
             }
             .sorted { lhs, rhs in
                 if lhs.strokeCount != rhs.strokeCount {
@@ -761,13 +784,25 @@ struct ChordPreviewState: Equatable {
             return false
         }
 
-        if let lhsLane = lhs.laneLocation?.systemIndex,
-           let rhsLane = rhs.laneLocation?.systemIndex,
-           lhsLane != rhsLane {
+        let lhsLane = laneSystemIndex(lhs)
+        let rhsLane = laneSystemIndex(rhs)
+        if lhsLane != rhsLane {
             return false
         }
 
         return visualOrder(rhs) + 0.08 >= visualOrder(lhs)
+    }
+
+    private static func laneSystemIndex(_ draft: ChordInkDraft) -> Int? {
+        if let laneLocation = draft.laneLocation {
+            return laneLocation.systemIndex
+        }
+
+        guard let visualOrder = draft.visualOrder else {
+            return nil
+        }
+
+        return Int(floor(visualOrder))
     }
 
     private static func isOrderedBefore(_ lhs: ChordInkDraft, _ rhs: ChordInkDraft) -> Bool {

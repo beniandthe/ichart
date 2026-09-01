@@ -1,32 +1,35 @@
 struct ChordInkSemanticGlyphContextualizer {
+    private static let rootPositionCMinimumConfidence = 0.90
+    private static let rootPositionFlatConflictMinimumConfidence = 0.90
+
     func contextualizedGlyphCandidateGroups(
         _ glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster],
         roleContext: ChordInkTheoryRoleContext? = nil
     ) -> [[GlyphCandidate]] {
-        guard clusters.count == glyphCandidateGroups.count,
+        var contextualGroups = contextualizingRootPositionEvidence(in: glyphCandidateGroups)
+
+        guard clusters.count == contextualGroups.count,
               clusters.count >= 4,
               clusters.count <= 6 else {
-            return glyphCandidateGroups
+            return contextualGroups
         }
 
         let roleContext = roleContext ?? ChordInkTheoryRoleContext(
-            glyphCandidateGroups: glyphCandidateGroups,
+            glyphCandidateGroups: contextualGroups,
             clusters: clusters
         )
         guard let prefixLength = roleContext.rootDescriptorPrefixLength else {
-            return glyphCandidateGroups
+            return contextualGroups
         }
 
         let suffixLength = clusters.count - prefixLength
         guard suffixLength == 3 || suffixLength == 4 else {
-            return glyphCandidateGroups
+            return contextualGroups
         }
 
-        var contextualGroups = glyphCandidateGroups
-        var didPromoteDominantAlteredContext = false
         if let sevenIndex = dominantAlteredSevenLookalikeIndex(
-            in: glyphCandidateGroups,
+            in: contextualGroups,
             clusters: clusters,
             startingAt: prefixLength
         ) {
@@ -35,7 +38,6 @@ struct ChordInkSemanticGlyphContextualizer {
                 confidence: 0.82,
                 in: contextualGroups[sevenIndex]
             )
-            didPromoteDominantAlteredContext = true
         }
 
         let suffixGroups = Array(contextualGroups[prefixLength...])
@@ -70,7 +72,7 @@ struct ChordInkSemanticGlyphContextualizer {
             suffixClusters: suffixClusters,
             rootBounds: clusters[0].bounds
         ) else {
-            return didPromoteDominantAlteredContext ? contextualGroups : glyphCandidateGroups
+            return contextualGroups
         }
 
         contextualGroups[prefixLength] = promotingContextualCandidate(
@@ -97,6 +99,59 @@ struct ChordInkSemanticGlyphContextualizer {
         }
 
         return contextualGroups
+    }
+
+    private func contextualizingRootPositionEvidence(
+        in groups: [[GlyphCandidate]]
+    ) -> [[GlyphCandidate]] {
+        guard !groups.isEmpty else {
+            return groups
+        }
+
+        var contextualGroups = groups
+        contextualGroups[0] = contextualizingRootPositionC(in: contextualGroups[0])
+        return contextualGroups
+    }
+
+    private func contextualizingRootPositionC(
+        in group: [GlyphCandidate]
+    ) -> [GlyphCandidate] {
+        guard let cIndex = group.firstIndex(where: { candidate in
+            candidate.text == "C"
+                && candidate.source == .heuristic
+                && candidate.confidence >= Self.rootPositionCMinimumConfidence
+        }),
+              let flatIndex = group.firstIndex(where: { candidate in
+                  candidate.text == "b"
+                      && candidate.source == .heuristic
+                      && candidate.confidence >= Self.rootPositionFlatConflictMinimumConfidence
+              }),
+              group[flatIndex].confidence > group[cIndex].confidence,
+              !hasCompetingHeuristicRootOverC(in: group, cConfidence: group[cIndex].confidence) else {
+            return group
+        }
+
+        var contextualGroup = group
+        contextualGroup[cIndex].confidence = min(1.0, group[flatIndex].confidence + 0.01)
+        return contextualGroup.sorted { lhs, rhs in
+            if lhs.confidence != rhs.confidence {
+                return lhs.confidence > rhs.confidence
+            }
+
+            return lhs.text < rhs.text
+        }
+    }
+
+    private func hasCompetingHeuristicRootOverC(
+        in group: [GlyphCandidate],
+        cConfidence: Double
+    ) -> Bool {
+        group.contains { candidate in
+            candidate.text != "C"
+                && "ABCDEFG".contains(candidate.text)
+                && candidate.source == .heuristic
+                && candidate.confidence >= cConfidence
+        }
     }
 
     private func dominantAlteredSevenLookalikeIndex(

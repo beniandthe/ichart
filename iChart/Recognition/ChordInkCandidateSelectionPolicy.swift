@@ -13,11 +13,11 @@ struct ChordInkCandidateSelectionPolicy {
                candidate.confidence >= 0.85 && "ABCDEFG".contains(candidate.text)
            }) {
             selected.removeAll { candidate in
-                candidate.text == "b" || candidate.text == "#"
+                candidate.text == "b"
+                    || candidate.text == "#"
+                    || candidate.text == rootCandidate.text
             }
-            if !selected.contains(where: { $0.text == rootCandidate.text }) {
-                selected.insert(rootCandidate, at: 0)
-            }
+            selected.insert(rootCandidate, at: 0)
         }
 
         func promoteCandidate(
@@ -273,6 +273,14 @@ struct ChordInkCandidateSelectionPolicy {
             }
         }
         let currentColumn = sortedColumns[index]
+        let explicitHalfDiminishedConfidence = currentColumn.first { candidate in
+            candidate.text == "ø"
+        }?.confidence ?? 0
+        let triangleConfidence = currentColumn.first { candidate in
+            candidate.text == "△"
+        }?.confidence ?? 0
+        let triangleOwnsLookalikeBody = triangleConfidence >= 0.55
+            && explicitHalfDiminishedConfidence < 0.50
         let currentLooksLikeRoundHalfDiminishedBody = currentColumn.contains { candidate in
             candidate.confidence >= 0.42 && ["ø", "B", "D", "G", "O", "0", "3", "8"].contains(candidate.text)
         }
@@ -286,6 +294,7 @@ struct ChordInkCandidateSelectionPolicy {
         return hasRootBefore
             && hasSevenAfter
             && currentLooksLikeRoundHalfDiminishedBody
+            && !triangleOwnsLookalikeBody
             && !currentIsRootAccidental
             && !currentHasHardQualityConflict
     }

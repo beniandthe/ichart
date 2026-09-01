@@ -425,6 +425,21 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         }
     }
 
+    func testDeviceSplitTrianglePairRanksMajorTriangleFirst() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+        let triangleIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "△"))
+        let triangleCluster = try XCTUnwrap(clusters[safe: triangleIndex])
+        let candidates = recognizer.rankedCandidates(for: triangleCluster, templates: templates, limit: 6)
+        let candidateSummary = candidates
+            .map { "\($0.text):\(String(format: "%.4f", $0.confidence))" }
+            .joined(separator: ",")
+
+        XCTAssertEqual(candidates.first?.text, "△", candidateSummary)
+        XCTAssertLessThan(candidateRank(of: "△", in: candidates), candidateRank(of: "/", in: candidates), candidateSummary)
+    }
+
     func testRecognizerReturnsAmbiguousCandidatesInsteadOfForcingOneAnswer() throws {
         let fixture = try InkFixtureLoader.load("C", file: #filePath)
         let cluster = try XCTUnwrap(clusterer.cluster(fixture.strokes).first)

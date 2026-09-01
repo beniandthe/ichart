@@ -4,6 +4,66 @@ import XCTest
 final class ChordInkSemanticGlyphContextualizerTests: XCTestCase {
     private let contextualizer = ChordInkSemanticGlyphContextualizer()
 
+    func testPromotesRootPositionCOverFlatLookalike() throws {
+        let groups = [[
+            glyph("b", confidence: 0.98, source: .heuristic),
+            glyph("C", confidence: 0.95, source: .heuristic),
+            glyph("G", confidence: 0.71, source: .template)
+        ]]
+
+        let contextualGroups = contextualizer.contextualizedGlyphCandidateGroups(
+            groups,
+            clusters: [
+                cluster(minX: 0, minY: 0, maxX: 16, maxY: 24)
+            ]
+        )
+
+        XCTAssertEqual(contextualGroups[0].first?.text, "C")
+        XCTAssertGreaterThan(
+            try XCTUnwrap(confidence("C", in: contextualGroups[0])),
+            try XCTUnwrap(confidence("b", in: contextualGroups[0]))
+        )
+    }
+
+    func testKeepsFlatAccidentalStrongAfterOwnedRoot() {
+        let groups = [
+            [glyph("C", confidence: 0.95, source: .heuristic)],
+            [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ]
+        ]
+
+        let contextualGroups = contextualizer.contextualizedGlyphCandidateGroups(
+            groups,
+            clusters: [
+                cluster(minX: 0, minY: 0, maxX: 16, maxY: 24),
+                cluster(minX: 20, minY: 0, maxX: 36, maxY: 24)
+            ]
+        )
+
+        XCTAssertEqual(contextualGroups[1].first?.text, "b")
+        XCTAssertEqual(confidence("b", in: contextualGroups[1]), 0.98)
+    }
+
+    func testDoesNotPromoteCOverCompetingHeuristicRoot() {
+        let groups = [[
+            glyph("b", confidence: 0.98, source: .heuristic),
+            glyph("G", confidence: 0.97, source: .heuristic),
+            glyph("C", confidence: 0.95, source: .heuristic)
+        ]]
+
+        let contextualGroups = contextualizer.contextualizedGlyphCandidateGroups(
+            groups,
+            clusters: [
+                cluster(minX: 0, minY: 0, maxX: 16, maxY: 24)
+            ]
+        )
+
+        XCTAssertEqual(contextualGroups[0].first?.text, "b")
+        XCTAssertEqual(confidence("C", in: contextualGroups[0]), 0.95)
+    }
+
     func testUsesRoleContextRootAccidentalPrefixForDominantSuspendedContext() {
         let groups = dominantSuspendedGroups(rootGroup: [glyph("D", confidence: 0.94)])
         let clusters = dominantSuspendedClusters()
