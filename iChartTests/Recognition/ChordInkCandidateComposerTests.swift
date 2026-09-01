@@ -282,6 +282,28 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(displayTexts.first, "Cb")
     }
 
+    func testRecognitionComposerRejectsOversizedOpenLoopDetachedGRootAsFlatAccidental() {
+        let result = recognitionComposer.composeRecognitionCandidates(
+            from: [
+                [glyph("C", confidence: 0.96, source: .heuristic)],
+                [
+                    glyph("b", confidence: 0.9996, source: .template),
+                    glyph("G", confidence: 0.97, source: .heuristic)
+                ]
+            ],
+            clusters: [
+                cluster(minX: 0, minY: 20, maxX: 24, maxY: 60),
+                widerOpenLoopFlatLikeCluster(minX: 41, minY: 23, maxX: 64, maxY: 53)
+            ]
+        )
+        let displayTexts = result.candidates.compactMap { candidate in
+            ChordRecognitionCompendium.match(candidate.text)?.displayText
+        }
+
+        XCTAssertFalse(displayTexts.contains("Cb"))
+        XCTAssertEqual(displayTexts.first, "C")
+    }
+
     func testRecognitionComposerRejectsNarrowDetachedGRootAsFlatAccidental() {
         let result = recognitionComposer.composeRecognitionCandidates(
             from: [

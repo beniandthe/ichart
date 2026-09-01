@@ -264,6 +264,7 @@ struct ChordInkCandidateEvidencePolicy {
         }
         let hasOpenLoopBodyEndpoint = stroke.points.count >= 12
             && stroke.bounds.width >= 6
+            && stroke.bounds.width <= 18
             && stroke.bounds.height >= 14
             && stroke.bounds.height <= 30
             && stroke.aspectRatio >= 0.35
