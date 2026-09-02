@@ -837,7 +837,7 @@ enum LeadSheetSimpleRowGroupAffordanceGeometry {
                 LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
-                    paperFrame: pageLayout.paperFrame,
+                    paperFrame: pageLayout.paperFrame(for: system),
                     layoutStyle: layoutStyle
                 )
             }
@@ -881,7 +881,8 @@ enum LeadSheetSimpleChordRowEqualizationPolicy {
             return [:]
         }
 
-        let maxSystemWidth = max(1, pageLayout.paperFrame.width - 68)
+        let paperFrame = pageLayout.paperFrame(for: system)
+        let maxSystemWidth = max(1, paperFrame.width - 68)
         let rawRowBodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
             chart: chart,
             maxSystemWidth: maxSystemWidth
@@ -889,7 +890,7 @@ enum LeadSheetSimpleChordRowEqualizationPolicy {
         let rawRowEndX = firstMeasure.frame.minX + rawRowBodyWidth
         let terminalFrame = LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
             for: system,
-            paperFrame: pageLayout.paperFrame,
+            paperFrame: paperFrame,
             layoutStyle: chart.layoutStyle
         )
         let terminalDisplayExtension = max(

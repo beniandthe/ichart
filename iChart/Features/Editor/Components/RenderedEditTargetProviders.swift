@@ -208,7 +208,7 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
             system.measures.last?.id == measure.id
                 && LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingBoundary(
                     for: system,
-                    paperFrame: context.pageLayout.paperFrame,
+                    paperFrame: context.pageLayout.paperFrame(for: system),
                     layoutStyle: context.layoutStyle
                 )
         }
@@ -364,7 +364,7 @@ struct RepeatSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                         marker,
                         after: measure,
                         in: system,
-                        paperFrame: context.pageLayout.paperFrame,
+                        paperFrame: context.pageLayout.paperFrame(for: system),
                         layoutStyle: context.layoutStyle
                     )
                     return RenderedEditHitTarget(
@@ -452,7 +452,7 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                 let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
-                    paperFrame: context.pageLayout.paperFrame,
+                    paperFrame: context.pageLayout.paperFrame(for: system),
                     layoutStyle: context.layoutStyle
                 )
                 let objectID = RenderedEditObjectID.measure(measureID)

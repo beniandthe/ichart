@@ -917,7 +917,7 @@ enum ChordDraftPreviewImplicitBarlinePolicy {
                   !systemsWithTerminalDraftBarlines.contains(system.index),
                   LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
                     for: system,
-                    paperFrame: pageLayout.paperFrame,
+                    paperFrame: pageLayout.paperFrame(for: system),
                     layoutStyle: chart.layoutStyle
                   ) != nil else {
                 return nil
@@ -1184,7 +1184,7 @@ enum ChordDraftBarlineRecognizer {
         for system in pageLayout.systems {
             guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
             ),
                   laneFrame.insetBy(dx: -8, dy: -8).contains(center) else {
                 continue
@@ -1627,17 +1627,17 @@ extension Chart {
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
               let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
               ) else {
             return nil
         }
 
         let laneX = laneFrame.minX + laneFrame.width * CGFloat(laneLocation.fraction)
         if rejectsCommittedTerminalFiller,
-           LeadSheetSimpleChordTerminalBarlineGeometry.terminalBoundaryContainsLaneX(
+            LeadSheetSimpleChordTerminalBarlineGeometry.terminalBoundaryContainsLaneX(
             laneX,
             in: system,
-            paperFrame: pageLayout.paperFrame,
+            paperFrame: pageLayout.paperFrame(for: system),
             layoutStyle: layoutStyle
            ) {
             return nil
@@ -1653,7 +1653,7 @@ extension Chart {
                 display: LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
-                    paperFrame: pageLayout.paperFrame,
+                    paperFrame: pageLayout.paperFrame(for: system),
                     layoutStyle: layoutStyle
                 )
             )
@@ -1808,7 +1808,7 @@ extension Chart {
         for system in sourcePageLayout.systems {
             guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
-                    paperFrame: sourcePageLayout.paperFrame
+                    paperFrame: sourcePageLayout.paperFrame(for: system)
                   ) else {
                 continue
             }
@@ -1874,7 +1874,7 @@ extension Chart {
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
               let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
               ) else {
             return false
         }
@@ -1883,7 +1883,7 @@ extension Chart {
         return LeadSheetSimpleChordTerminalBarlineGeometry.terminalBoundaryContainsLaneX(
             laneX,
             in: system,
-            paperFrame: pageLayout.paperFrame,
+            paperFrame: pageLayout.paperFrame(for: system),
             layoutStyle: layoutStyle
         )
     }
@@ -1937,7 +1937,7 @@ extension Chart {
               let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
               let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
               ) else {
             return nil
         }
@@ -1947,7 +1947,7 @@ extension Chart {
            LeadSheetSimpleChordTerminalBarlineGeometry.terminalFillerContainsLaneX(
             laneX,
             in: system,
-            paperFrame: pageLayout.paperFrame,
+            paperFrame: pageLayout.paperFrame(for: system),
             layoutStyle: layoutStyle
            ) {
             return nil
@@ -1963,7 +1963,7 @@ extension Chart {
                 display: LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
-                    paperFrame: pageLayout.paperFrame,
+                    paperFrame: pageLayout.paperFrame(for: system),
                     layoutStyle: layoutStyle
                 )
             )

@@ -103,6 +103,70 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(layout.header.titleFrame.width, layout.paperFrame.width)
     }
 
+    func testAppendPageCreatesSeparatePaperWithCompactTopMargin() throws {
+        var chart = Chart.blank(
+            title: "Two Page Simple Sheet",
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        let firstNewMeasureID = try XCTUnwrap(chart.appendPage())
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let firstPaperPage = try XCTUnwrap(layout.pages.first)
+        let secondPaperPage = try XCTUnwrap(layout.pages.dropFirst().first)
+        let firstSystem = try XCTUnwrap(layout.systems.first)
+        let secondPageSystem = try XCTUnwrap(
+            layout.systems.first { system in
+                system.measures.contains { $0.sourceMeasureID == firstNewMeasureID }
+            }
+        )
+        let firstPageTopGap = firstSystem.frame.minY - firstPaperPage.frame.minY
+        let secondPageTopGap = secondPageSystem.frame.minY - secondPaperPage.frame.minY
+
+        XCTAssertEqual(layout.pages.count, 2)
+        XCTAssertEqual(secondPaperPage.frame.minY - firstPaperPage.frame.maxY, 28, accuracy: 0.001)
+        XCTAssertEqual(layout.paperFrame(for: secondPageSystem), secondPaperPage.frame)
+        XCTAssertEqual(secondPaperPage.systemIDs, [secondPageSystem.id])
+        XCTAssertEqual(secondPageSystem.measures.map(\.sourceMeasureID), [firstNewMeasureID])
+        XCTAssertEqual(secondPageSystem.measures.first?.barlineAfter, .double)
+
+        #if canImport(UIKit)
+        let secondPageMeasure = try XCTUnwrap(secondPageSystem.measures.first)
+        let secondPageBoundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+            after: secondPageMeasure,
+            before: nil,
+            excludingRepeatMarkerIDs: [],
+            in: secondPageSystem,
+            paperFrame: secondPaperPage.frame,
+            layoutStyle: chart.layoutStyle
+        )
+        let secondPageTerminalBarlineFrame = try XCTUnwrap(
+            LeadSheetSimpleChordTerminalBarlineGeometry.barlineFrame(
+                for: secondPageSystem,
+                paperFrame: secondPaperPage.frame,
+                layoutStyle: chart.layoutStyle
+            )
+        )
+        guard case .normalBarline(.double, let renderedBarlineFrame) = secondPageBoundary else {
+            return XCTFail("Expected one starter measure with a final page-end barline.")
+        }
+        XCTAssertEqual(renderedBarlineFrame, secondPageTerminalBarlineFrame)
+        XCTAssertGreaterThan(
+            renderedBarlineFrame.midX,
+            secondPageMeasure.trailingBarlineFrame.midX + 1
+        )
+        #endif
+
+        XCTAssertFalse(secondPaperPage.includesHeader)
+        XCTAssertFalse(secondPaperPage.frame.intersects(layout.header.frame))
+        XCTAssertLessThan(secondPageTopGap, 60)
+        XCTAssertGreaterThan(firstPageTopGap, secondPageTopGap + 80)
+        XCTAssertGreaterThanOrEqual(layout.pageBounds.height, secondPaperPage.frame.maxY + 30)
+    }
+
     func testPaperExpandsToLandscapeViewportWidth() {
         let chart = Chart.blank(title: "Landscape Writing Space", measureCount: 8, layoutStyle: .rhythmSectionSheet)
 

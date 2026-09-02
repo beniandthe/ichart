@@ -25,16 +25,19 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 10)
             .frame(height: 38)
-            .foregroundStyle(configuration.isPressed ? Color.white : Color.primary.opacity(0.72))
+            .foregroundStyle(configuration.isPressed ? Color.white : EditorToolAccent.semanticRead)
             .background(
                 configuration.isPressed
                     ? EditorToolAccent.semanticRead
-                    : Color(uiColor: .tertiarySystemBackground)
+                    : Color(uiColor: .systemBackground)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.black.opacity(configuration.isPressed ? 0 : 0.08), lineWidth: 1)
+                    .stroke(
+                        EditorToolAccent.semanticRead.opacity(configuration.isPressed ? 0 : 0.48),
+                        lineWidth: 1.25
+                    )
             )
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
@@ -341,7 +344,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .page:
             "Review the chart in Select before export: title, chords, rows, text, and empty measures."
         case .pageExport:
-            "Tap Page, then Export to create the finished PDF. The editable chart stays in Charts."
+            "Tap Settings, then Export to create the finished PDF. The editable chart stays in Charts."
         case .pageHeader:
             "Header lets you type or handwrite the chart header."
         case .pageKey:
@@ -501,7 +504,7 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         case .page:
             "Review in Select"
         case .pageExport:
-            "Page > Export"
+            "Settings > Export"
         case .pageHeader:
             "Header"
         case .pageKey:
@@ -1349,6 +1352,10 @@ struct EditorView: View {
                             .accessibilityLabel(activeToolExplainer.text)
                     }
 
+                    if canvasMode == .chordEntry {
+                        chordToolWorkflowGuide(maxWidth: minWidth)
+                    }
+
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -1500,7 +1507,7 @@ struct EditorView: View {
 
     private var pageToolLabel: some View {
         EditorMenuTabLabel(
-            title: "Page",
+            title: "Settings",
             systemImage: "doc.text",
             isSelected: canvasMode == .headerEntry,
             isTourHighlighted: isPageTourSectionActive
@@ -1527,6 +1534,13 @@ struct EditorView: View {
             Label("Export", systemImage: "square.and.arrow.up")
         }
         .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+
+        Button {
+            handleAddPageTapped()
+        } label: {
+            Label("Add Page", systemImage: "doc.badge.plus")
+        }
+        .disabled(!chart.hasCompletedInitialSetup || canvasMode.locksDocumentActions)
 
         Menu {
             Button {
@@ -2004,72 +2018,126 @@ struct EditorView: View {
     }
 
     private func activeToolControls(minWidth: CGFloat) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(1)
-
-                if canvasMode.allowsAnyInkEditing {
-                    InkToolModeTab(mode: $inkToolMode) { _ in
-                        completeEditorGuidedTourStep(.chordModes)
-                        completeEditorGuidedTourStep(.freeWriteMode)
-                    }
-                        .tourActionHighlight(
-                            isActive: editorGuidedTourStep == .chordModes || editorGuidedTourStep == .freeWriteMode,
-                            cornerRadius: 10,
-                            tint: canvasMode == .freeHand ? EditorToolAccent.persistentInk : EditorToolAccent.semanticRead
-                        )
-                }
-
-                if canvasMode == .measureEdit {
-                    measureActiveToolActions
-                }
-
-                if canvasMode == .repeatEdit {
-                    repeatActiveToolActions
-                }
-
-                if canvasMode == .headerEntry {
-                    headerActiveToolActions
-                }
-
-                if canvasMode == .rhythmicNotationEdit,
-                   isDedicatedRhythmToolAvailable {
-                    rhythmActiveToolActions
-                    rhythmDiagnosticStatusChip
-                }
-
-                if canvasMode == .chordEntry {
-                    chordDraftActiveToolActions
-                    chordDiagnosticStatusChip
-                }
-
-                Button {
-                    activateSelectTool()
-                } label: {
-                    Label("Done", systemImage: "checkmark")
-                }
-                .buttonStyle(ActiveToolDoneButtonStyle())
-                .accessibilityLabel("Done")
-                .tourActionHighlight(
-                    isActive: isEditorGuidedTourDoneActionHighlighted,
-                    cornerRadius: 10,
-                    tint: EditorToolAccent.semanticRead
-                )
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                activeToolControlStrip(minWidth: max(1, minWidth - 94))
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-            )
-            .frame(minWidth: minWidth, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            activeToolDoneButton
+                .layoutPriority(1)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: minWidth, alignment: .center)
+    }
+
+    private func activeToolControlStrip(minWidth: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            activeToolControlItems
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+        .frame(minWidth: minWidth, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var activeToolControlItems: some View {
+        Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.primary)
+            .lineLimit(1)
+
+        if canvasMode.allowsAnyInkEditing {
+            InkToolModeTab(mode: $inkToolMode) { _ in
+                completeEditorGuidedTourStep(.chordModes)
+                completeEditorGuidedTourStep(.freeWriteMode)
+            }
+                .tourActionHighlight(
+                    isActive: editorGuidedTourStep == .chordModes || editorGuidedTourStep == .freeWriteMode,
+                    cornerRadius: 10,
+                    tint: canvasMode == .freeHand ? EditorToolAccent.persistentInk : EditorToolAccent.semanticRead
+                )
+        }
+
+        if canvasMode == .measureEdit {
+            measureActiveToolActions
+        }
+
+        if canvasMode == .repeatEdit {
+            repeatActiveToolActions
+        }
+
+        if canvasMode == .headerEntry {
+            headerActiveToolActions
+        }
+
+        if canvasMode == .rhythmicNotationEdit,
+           isDedicatedRhythmToolAvailable {
+            rhythmActiveToolActions
+            rhythmDiagnosticStatusChip
+        }
+
+        if canvasMode == .chordEntry {
+            chordDraftActiveToolActions
+            chordDiagnosticStatusChip
+        }
+    }
+
+    private var activeToolDoneButton: some View {
+        Button {
+            activateSelectTool()
+        } label: {
+            Label("Done", systemImage: "checkmark")
+        }
+        .buttonStyle(ActiveToolDoneButtonStyle())
+        .fixedSize()
+        .accessibilityLabel("Done")
+        .tourActionHighlight(
+            isActive: isEditorGuidedTourDoneActionHighlighted,
+            cornerRadius: 10,
+            tint: EditorToolAccent.semanticRead
+        )
+    }
+
+    private func chordToolWorkflowGuide(maxWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Chord Workflow", systemImage: "checklist")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(EditorToolAccent.semanticRead)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(chordToolWorkflowBullets, id: \.self) { bullet in
+                    Label(bullet, systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.primary.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: maxWidth, alignment: .leading)
+        .background(EditorToolAccent.semanticRead.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(EditorToolAccent.semanticRead.opacity(0.22), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private var chordToolWorkflowBullets: [String] {
+        [
+            "Write inside the blue lanes.",
+            "V1.2 supports chords and barlines.",
+            "Check the preview, then tap Render Chords.",
+            "If a chord is wrong or missing, erase it or tap Discard."
+        ]
     }
 
     private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
@@ -2743,6 +2811,18 @@ struct EditorView: View {
 
     private var exportButtonTitle: String {
         "Export PDF"
+    }
+
+    private func handleAddPageTapped() {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+
+        activateSelectTool(clearsMeasureSelection: true)
+        runEditorOperation("Adding page...") {
+            selectedMeasureID = chart.appendPage()
+        }
     }
 
     private func handleExportTapped() {
@@ -5465,7 +5545,16 @@ struct EditorView: View {
             for: chart,
             pageWidth: availableSize.width
         )
-        return max(availableSize.height, 1200, CGFloat(visibleSystemCount) * 168 + 320)
+        let estimatedCanvasHeight = LeadSheetPageLayoutEngine.estimatedCanvasHeight(
+            for: chart,
+            pageSize: availableSize
+        )
+        return max(
+            availableSize.height,
+            1200,
+            estimatedCanvasHeight,
+            CGFloat(visibleSystemCount) * 168 + 320
+        )
     }
 
     @ViewBuilder

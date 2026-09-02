@@ -2,6 +2,20 @@ import XCTest
 @testable import iChart
 
 final class ChartTypographyResolverTests: XCTestCase {
+    func testNewChartsStartWithFinaleBroadwayTypography() {
+        let simpleChart = Chart.blank(title: "Simple Default", layoutStyle: .simpleChordSheet)
+        let rhythmChart = Chart.blank(title: "Rhythm Default", layoutStyle: .rhythmSectionSheet)
+        let draftChart = Chart.draft(title: "Draft Default", layoutStyle: .simpleChordSheet)
+
+        XCTAssertEqual(simpleChart.notationFont, .finaleBroadway)
+        XCTAssertEqual(simpleChart.typography.matchedSet, .finaleBroadway)
+        XCTAssertEqual(rhythmChart.notationFont, .finaleBroadway)
+        XCTAssertEqual(rhythmChart.typography.matchedSet, .finaleBroadway)
+        XCTAssertEqual(draftChart.notationFont, .finaleBroadway)
+        XCTAssertEqual(draftChart.typography.matchedSet, .finaleBroadway)
+        XCTAssertEqual(ChartTypographySettings.default().matchedSet, .finaleBroadway)
+    }
+
     func testLegacyChartWithoutTypographyDefaultsFromNotationFont() throws {
         var chart = Chart.blank(title: "Legacy Fonts")
         chart.notationFont = .finaleJazz

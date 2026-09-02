@@ -234,7 +234,7 @@ enum LeadSheetCanvasInteractionTargeting {
             let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                 lastMeasure,
                 in: system,
-                paperFrame: pageLayout.paperFrame,
+                paperFrame: pageLayout.paperFrame(for: system),
                 layoutStyle: layoutStyle
             )
             if displayMeasure.frame.insetBy(dx: -6, dy: -6).contains(location) {
@@ -358,7 +358,7 @@ enum LeadSheetCanvasInteractionTargeting {
         for system in pageLayout.systems {
             guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
             ),
                   laneFrame.insetBy(dx: -8, dy: -8).contains(measureAnchor) else {
                 continue

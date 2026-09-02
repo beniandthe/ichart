@@ -96,6 +96,7 @@ struct ChartLayoutMeasureDefaults: Hashable {
     var initialMeasureCount: Int
     var preferredMeasuresPerSystem: Int
     var maximumMeasuresPerSystem: Int?
+    var addedPageMeasureCount: Int
     var systemSpacingMode: SpacingMode
     var beatGridPreset: BeatGridPreset
 
@@ -103,12 +104,14 @@ struct ChartLayoutMeasureDefaults: Hashable {
         initialMeasureCount: Int,
         preferredMeasuresPerSystem: Int,
         maximumMeasuresPerSystem: Int? = nil,
+        addedPageMeasureCount: Int = 1,
         systemSpacingMode: SpacingMode,
         beatGridPreset: BeatGridPreset
     ) {
         self.initialMeasureCount = max(1, initialMeasureCount)
         self.preferredMeasuresPerSystem = max(1, preferredMeasuresPerSystem)
         self.maximumMeasuresPerSystem = maximumMeasuresPerSystem.map { max(1, $0) }
+        self.addedPageMeasureCount = max(1, addedPageMeasureCount)
         self.systemSpacingMode = systemSpacingMode
         self.beatGridPreset = beatGridPreset
     }

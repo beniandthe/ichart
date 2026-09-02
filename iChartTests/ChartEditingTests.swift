@@ -603,6 +603,97 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.measures.map(\.index), Array(1...4))
     }
 
+    func testAppendPageAddsSimpleChordStarterMeasureAndPreservesChartSettings() throws {
+        var chart = Chart.blank(
+            title: "Second Page",
+            key: .bFlatMajor,
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        chart.setMatchedFontFamily(.finaleJazz)
+        chart.setInstrumentTranspositionView(.bb)
+        chart.setEngravingPreset(.wide)
+        let defaults = chart.layoutStyle.profile.measureDefaults
+        let originalMeasureCount = chart.measures.count
+        let secondMeasureID = chart.measures[1].id
+        let thirdMeasureID = chart.measures[2].id
+        let activeMeter = Meter(numerator: 3, denominator: 4)
+        _ = chart.applyMeterChange(activeMeter, after: secondMeasureID, scope: .toEndOfPiece)
+        XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: thirdMeasureID))
+
+        let firstNewMeasureID = try XCTUnwrap(chart.appendPage())
+        let addedMeasures = Array(chart.measures.dropFirst(originalMeasureCount))
+        let addedRow = try XCTUnwrap(
+            chart.systems.first { $0.measures.first?.id == firstNewMeasureID }
+        )
+
+        XCTAssertEqual(addedMeasures.count, defaults.addedPageMeasureCount)
+        XCTAssertEqual(addedMeasures.first?.id, firstNewMeasureID)
+        XCTAssertEqual(addedMeasures.count, 1)
+        XCTAssertEqual(addedRow.lineBreakRule, .forced)
+        XCTAssertTrue(addedRow.startsNewPage)
+        XCTAssertFalse(chart.canRemoveSystemBreak(before: firstNewMeasureID))
+        XCTAssertEqual(addedRow.measures.map(\.id), [firstNewMeasureID])
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.chordEvents.isEmpty })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.cueTextIDs.isEmpty })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.roadmapObjectIDs.isEmpty })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.authoringState == .committed })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.beatGridPreset == .simple })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.resolvedMeter(defaultMeter: chart.defaultMeter) == activeMeter })
+        XCTAssertTrue(addedMeasures.allSatisfy { chart.effectiveKey(for: $0) == .eFlatMajor })
+        XCTAssertEqual(addedMeasures.first?.barlineAfter, .double)
+        XCTAssertEqual(chart.documentKey, .bFlatMajor)
+        XCTAssertEqual(chart.defaultTranspositionView, .bb)
+        XCTAssertEqual(chart.notationFont, .finaleJazz)
+        XCTAssertEqual(chart.typography.matchedSet, .finaleJazz)
+        XCTAssertEqual(chart.engravingPreset, .wide)
+        XCTAssertEqual(chart.measures.map(\.index), Array(1...(originalMeasureCount + defaults.addedPageMeasureCount)))
+    }
+
+    func testAppendPageAddsRhythmSectionStarterMeasureWithRhythmDefaults() throws {
+        var chart = Chart.blank(
+            title: "Second Rhythm Page",
+            key: .eFlatMajor,
+            measureCount: 4,
+            layoutStyle: .rhythmSectionSheet
+        )
+        chart.defaultMeter = Meter(numerator: 6, denominator: 8)
+        chart.setStylePreset(.rehearsalDraft)
+        chart.setInstrumentTranspositionView(.eb)
+        let defaults = chart.layoutStyle.profile.measureDefaults
+        let originalMeasureCount = chart.measures.count
+
+        let firstNewMeasureID = try XCTUnwrap(chart.appendPage())
+        let addedMeasures = Array(chart.measures.dropFirst(originalMeasureCount))
+        let addedRow = try XCTUnwrap(
+            chart.systems.first { $0.measures.first?.id == firstNewMeasureID }
+        )
+
+        XCTAssertEqual(addedMeasures.count, defaults.addedPageMeasureCount)
+        XCTAssertEqual(addedMeasures.first?.id, firstNewMeasureID)
+        XCTAssertEqual(addedMeasures.count, 1)
+        XCTAssertEqual(addedRow.lineBreakRule, .forced)
+        XCTAssertTrue(addedRow.startsNewPage)
+        XCTAssertFalse(chart.canRemoveSystemBreak(before: firstNewMeasureID))
+        XCTAssertEqual(addedRow.measures.map(\.id), [firstNewMeasureID])
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.beatGridPreset == .eighthSubdivision })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.resolvedMeter(defaultMeter: chart.defaultMeter) == chart.defaultMeter })
+        XCTAssertTrue(addedMeasures.allSatisfy { $0.authoringState == .committed })
+        XCTAssertEqual(addedMeasures.first?.barlineAfter, .double)
+        XCTAssertEqual(chart.documentKey, .eFlatMajor)
+        XCTAssertEqual(chart.defaultTranspositionView, .eb)
+        XCTAssertEqual(chart.stylePreset, .rehearsalDraft)
+        XCTAssertEqual(chart.layoutStyle, .rhythmSectionSheet)
+    }
+
+    func testAppendPageRejectsChartsBeforeInitialSetup() {
+        var chart = Chart.draft(title: "Pending Setup", layoutStyle: .simpleChordSheet)
+        let originalChart = chart
+
+        XCTAssertNil(chart.appendPage())
+        XCTAssertEqual(chart, originalChart)
+    }
+
     func testAddEndingSpanCreatesTypedSpanAttachedToBoundaryMeasures() throws {
         var chart = Chart.blank(title: "Endings", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let startMeasureID = chart.measures[1].id
@@ -1607,6 +1698,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chordProfile.measureDefaults.initialMeasureCount, 1)
         XCTAssertEqual(chordProfile.measureDefaults.preferredMeasuresPerSystem, 4)
         XCTAssertEqual(chordProfile.measureDefaults.maximumMeasuresPerSystem, 20)
+        XCTAssertEqual(chordProfile.measureDefaults.addedPageMeasureCount, 1)
         XCTAssertEqual(chordProfile.measureDefaults.systemSpacingMode, .compact)
         XCTAssertEqual(chordProfile.measureDefaults.beatGridPreset, .simple)
 
@@ -1622,6 +1714,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(rhythmProfile.measureDefaults.initialMeasureCount, 8)
         XCTAssertEqual(rhythmProfile.measureDefaults.preferredMeasuresPerSystem, 3)
         XCTAssertNil(rhythmProfile.measureDefaults.maximumMeasuresPerSystem)
+        XCTAssertEqual(rhythmProfile.measureDefaults.addedPageMeasureCount, 1)
         XCTAssertEqual(rhythmProfile.measureDefaults.systemSpacingMode, .relaxed)
         XCTAssertEqual(rhythmProfile.measureDefaults.beatGridPreset, .eighthSubdivision)
 
@@ -1637,6 +1730,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(leadProfile.measureDefaults.initialMeasureCount, 4)
         XCTAssertEqual(leadProfile.measureDefaults.preferredMeasuresPerSystem, 4)
         XCTAssertNil(leadProfile.measureDefaults.maximumMeasuresPerSystem)
+        XCTAssertEqual(leadProfile.measureDefaults.addedPageMeasureCount, 1)
         XCTAssertEqual(leadProfile.measureDefaults.systemSpacingMode, .automatic)
         XCTAssertEqual(leadProfile.measureDefaults.beatGridPreset, .simple)
     }
@@ -1659,6 +1753,7 @@ final class ChartEditingTests: XCTestCase {
             initialMeasureCount: 0,
             preferredMeasuresPerSystem: 0,
             maximumMeasuresPerSystem: 0,
+            addedPageMeasureCount: 0,
             systemSpacingMode: .compact,
             beatGridPreset: .simple
         )
@@ -1672,6 +1767,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(sanitizedDefaults.initialMeasureCount, 1)
         XCTAssertEqual(sanitizedDefaults.preferredMeasuresPerSystem, 1)
         XCTAssertEqual(sanitizedDefaults.maximumMeasuresPerSystem, 1)
+        XCTAssertEqual(sanitizedDefaults.addedPageMeasureCount, 1)
         XCTAssertTrue(ChartLayoutStyle.allCases.allSatisfy { $0.profile.measureDefaults.initialMeasureCount >= 1 })
         XCTAssertEqual(blankChart.measures.count, 1)
         XCTAssertEqual(blankChart.measures.first?.barlineAfter, .double)
@@ -1968,6 +2064,26 @@ final class ChartEditingTests: XCTestCase {
         let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
 
         XCTAssertEqual(decodedChart.measures.first?.chordEvents.first?.sourceCandidateSignature, [])
+    }
+
+    func testChartSystemDecodingDefaultsMissingPageBreakFlagForOlderSnapshots() throws {
+        var chart = Chart.blank(title: "Legacy Page Break Snapshot", measureCount: 8, layoutStyle: .simpleChordSheet)
+        _ = chart.appendPage()
+        let encodedData = try JSONEncoder().encode(chart)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        var systems = try XCTUnwrap(object["systems"] as? [[String: Any]])
+        systems = systems.map { system in
+            var legacySystem = system
+            legacySystem.removeValue(forKey: "startsNewPage")
+            return legacySystem
+        }
+        object["systems"] = systems
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
+
+        XCTAssertTrue(decodedChart.systems.allSatisfy { !$0.startsNewPage })
+        XCTAssertEqual(decodedChart.measures.count, chart.measures.count)
     }
 
     func testNotationGlyphCatalogProvidesSemanticSmuflSymbols() {
