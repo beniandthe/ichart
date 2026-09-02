@@ -125,6 +125,25 @@ Rules:
 - For patch-only builds, name the user-visible fix, crash fix, performance fix,
   or review-facing correction that changed.
 
+### Build 51 / V1.2.1
+
+Public App Store "What's New":
+
+> iChart 1.2.1 improves the chart-writing workflow with clearer chord-tool guidance, Help and Settings updates, true multi-page Add Page export behavior, and more predictable Simple Chord Sheet chord placement.
+
+TestFlight / review-facing update notes:
+
+- Includes the current UI/UX pass for first-use guidance, Help, Settings,
+  chord-tool labeling, and chart setup copy.
+- Adds true Add Page behavior so later pages are separate chart pages, inherit
+  chart settings, and export as multi-page PDFs.
+- Updates Simple Chord Sheet chord rendering to use deterministic placement
+  slots for more predictable chord positioning.
+- Keeps chord recognition in the explicit draft workflow until the user chooses
+  `Render Chords`.
+- Maintains the existing account, local library, PDF export, Pro subscription,
+  and Forums boundaries.
+
 ### Build 38 / V1.1
 
 Public App Store "What's New":
