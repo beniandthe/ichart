@@ -4,8 +4,39 @@ import Foundation
 struct LeadSheetPageLayout: Hashable {
     var pageBounds: CGRect
     var paperFrame: CGRect
+    var pages: [LeadSheetPaperPageLayout]
     var header: LeadSheetHeaderLayout
     var systems: [LeadSheetSystemLayout]
+
+    init(
+        pageBounds: CGRect,
+        paperFrame: CGRect,
+        pages: [LeadSheetPaperPageLayout]? = nil,
+        header: LeadSheetHeaderLayout,
+        systems: [LeadSheetSystemLayout]
+    ) {
+        self.pageBounds = pageBounds
+        self.paperFrame = paperFrame
+        self.pages = pages ?? [
+            LeadSheetPaperPageLayout(
+                index: 0,
+                frame: paperFrame,
+                systemIDs: systems.map(\.id),
+                includesHeader: true
+            )
+        ]
+        self.header = header
+        self.systems = systems
+    }
+}
+
+struct LeadSheetPaperPageLayout: Identifiable, Hashable {
+    var index: Int
+    var frame: CGRect
+    var systemIDs: [UUID]
+    var includesHeader: Bool
+
+    var id: Int { index }
 }
 
 struct LeadSheetHeaderLayout: Hashable {
@@ -272,6 +303,11 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
 
 enum LeadSheetPageLayoutEngine {
     private static let minimumResponsivePageWidth: CGFloat = 720
+    private static let minimumResponsivePageHeight: CGFloat = 1_100
+    private static let paperTopMargin: CGFloat = 30
+    private static let paperBottomMargin: CGFloat = 30
+    private static let paperPageGap: CGFloat = 28
+    private static let continuationPageFirstSystemTopInset: CGFloat = 44
     private static let mediumOpenMeasureWidth: CGFloat = 252
     private static let preferredCommittedMeasureWidth: CGFloat = 140
     private static let systemTrailingPadding: CGFloat = 6
@@ -416,55 +452,153 @@ enum LeadSheetPageLayoutEngine {
         includesChordInkContinuationLanes: Bool = false
     ) -> LeadSheetPageLayout {
         let visualPolicy = VisualPolicy(chart: chart)
+        let usesPagedLayout = hasExplicitPageBreaks(for: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
-            height: max(pageSize.height, 1100)
+            height: max(pageSize.height, minimumResponsivePageHeight)
         )
-        let pageBounds = CGRect(origin: .zero, size: resolvedPageSize)
+        let logicalPageHeight = usesPagedLayout
+            ? minimumResponsivePageHeight
+            : resolvedPageSize.height
         let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageSize.width)
         let horizontalInset = max(0, (resolvedPageSize.width - paperWidth) / 2)
         let paperX = horizontalInset
-        let paperY: CGFloat = 30
-        let paperHeight = max(
-            resolvedPageSize.height - 60,
-            estimatedPaperHeight(for: chart, paperWidth: paperWidth)
+        let minimumPaperHeight = max(1, logicalPageHeight - paperTopMargin - paperBottomMargin)
+        let prototypePaperFrame = CGRect(
+            x: paperX,
+            y: paperTopMargin,
+            width: paperWidth,
+            height: minimumPaperHeight
         )
-        let paperFrame = CGRect(x: paperX, y: paperY, width: paperWidth, height: paperHeight)
-
-        let headerFrame = CGRect(
-            x: paperFrame.minX + 34,
-            y: paperFrame.minY + 24,
-            width: paperFrame.width - 68,
-            height: 108
-        )
-        let header = headerLayout(for: chart, in: headerFrame, visualPolicy: visualPolicy)
-
-        let systemFrames = systemLayouts(
+        let prototypeHeaderFrame = headerFrame(in: prototypePaperFrame)
+        let firstPageSystemTopOffset = prototypeHeaderFrame.maxY + 24 - prototypePaperFrame.minY
+        let plans = systemPlans(
             for: chart,
-            paperFrame: paperFrame,
-            firstSystemTop: headerFrame.maxY + 24,
+            paperFrame: prototypePaperFrame,
+            firstSystemTop: prototypeHeaderFrame.maxY + 24,
             includesChordInkContinuationLanes: includesChordInkContinuationLanes,
             visualPolicy: visualPolicy
+        )
+        let planPages = pagedSystemPlans(plans, chart: chart)
+        let metrics = visualPolicy.metrics
+        var paperPages = [LeadSheetPaperPageLayout]()
+        var systemFrames = [LeadSheetSystemLayout]()
+        var nextPaperY = paperTopMargin
+        var header: LeadSheetHeaderLayout?
+
+        for (pageIndex, pagePlans) in planPages.enumerated() {
+            let firstSystemTopOffset = pageIndex == 0
+                ? firstPageSystemTopOffset
+                : continuationPageFirstSystemTopInset
+            let paperHeight = paperHeight(
+                systemCount: pagePlans.count,
+                firstSystemTopOffset: firstSystemTopOffset,
+                metrics: metrics,
+                minimumPaperHeight: minimumPaperHeight
+            )
+            let paperFrame = CGRect(
+                x: paperX,
+                y: nextPaperY,
+                width: paperWidth,
+                height: paperHeight
+            )
+            let firstSystemTop: CGFloat
+            if pageIndex == 0 {
+                let resolvedHeaderFrame = headerFrame(in: paperFrame)
+                header = headerLayout(for: chart, in: resolvedHeaderFrame, visualPolicy: visualPolicy)
+                firstSystemTop = resolvedHeaderFrame.maxY + 24
+            } else {
+                firstSystemTop = paperFrame.minY + continuationPageFirstSystemTopInset
+            }
+            let pageSystems = systemLayouts(
+                for: pagePlans,
+                chart: chart,
+                paperFrame: paperFrame,
+                firstSystemTop: firstSystemTop,
+                startingSystemIndex: systemFrames.count,
+                visualPolicy: visualPolicy
+            )
+            systemFrames.append(contentsOf: pageSystems)
+            paperPages.append(
+                LeadSheetPaperPageLayout(
+                    index: pageIndex,
+                    frame: paperFrame,
+                    systemIDs: pageSystems.map(\.id),
+                    includesHeader: pageIndex == 0
+                )
+            )
+            nextPaperY = paperFrame.maxY + paperPageGap
+        }
+
+        let firstPaperFrame = paperPages.first?.frame ?? prototypePaperFrame
+        let pageBounds = CGRect(
+            origin: .zero,
+            size: CGSize(
+                width: resolvedPageSize.width,
+                height: max(
+                    resolvedPageSize.height,
+                    (paperPages.last?.frame.maxY ?? firstPaperFrame.maxY) + paperBottomMargin
+                )
+            )
         )
 
         return LeadSheetPageLayout(
             pageBounds: pageBounds,
-            paperFrame: paperFrame,
-            header: header,
+            paperFrame: firstPaperFrame,
+            pages: paperPages,
+            header: header ?? headerLayout(
+                for: chart,
+                in: headerFrame(in: firstPaperFrame),
+                visualPolicy: visualPolicy
+            ),
             systems: systemFrames
         )
     }
 
-    private static func estimatedPaperHeight(for chart: Chart, paperWidth: CGFloat) -> CGFloat {
-        let metrics = VisualPolicy(chart: chart).metrics
-        let systemCount = max(1, packedSystemPlans(for: chart, maxSystemWidth: paperWidth - 68).count)
-        let headerHeight: CGFloat = 164
-        let footerHeight: CGFloat = 54
-        return headerHeight
-            + CGFloat(systemCount) * metrics.systemHeight
-            + CGFloat(max(0, systemCount - 1)) * metrics.systemSpacing
-            + footerHeight
-            + max(0, paperWidth * 0.18)
+    static func estimatedCanvasHeight(for chart: Chart, pageSize: CGSize) -> CGFloat {
+        let visualPolicy = VisualPolicy(chart: chart)
+        let usesPagedLayout = hasExplicitPageBreaks(for: chart)
+        let resolvedPageSize = CGSize(
+            width: max(pageSize.width, minimumResponsivePageWidth),
+            height: max(pageSize.height, minimumResponsivePageHeight)
+        )
+        let logicalPageHeight = usesPagedLayout
+            ? minimumResponsivePageHeight
+            : resolvedPageSize.height
+        let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageSize.width)
+        let paperFrame = CGRect(
+            x: 0,
+            y: paperTopMargin,
+            width: paperWidth,
+            height: max(1, logicalPageHeight - paperTopMargin - paperBottomMargin)
+        )
+        let resolvedHeaderFrame = headerFrame(in: paperFrame)
+        let plans = systemPlans(
+            for: chart,
+            paperFrame: paperFrame,
+            firstSystemTop: resolvedHeaderFrame.maxY + 24,
+            includesChordInkContinuationLanes: false,
+            visualPolicy: visualPolicy
+        )
+        let planPages = pagedSystemPlans(plans, chart: chart)
+        let metrics = visualPolicy.metrics
+        let minimumPaperHeight = max(1, logicalPageHeight - paperTopMargin - paperBottomMargin)
+        let pageHeights = planPages.enumerated().map { pageIndex, pagePlans in
+            paperHeight(
+                systemCount: pagePlans.count,
+                firstSystemTopOffset: pageIndex == 0
+                    ? resolvedHeaderFrame.maxY + 24 - paperFrame.minY
+                    : continuationPageFirstSystemTopInset,
+                metrics: metrics,
+                minimumPaperHeight: minimumPaperHeight
+            )
+        }
+        let totalPaperHeight = pageHeights.reduce(0, +)
+        let gapHeight = CGFloat(max(0, pageHeights.count - 1)) * paperPageGap
+        return max(
+            resolvedPageSize.height,
+            paperTopMargin + totalPaperHeight + gapHeight + paperBottomMargin
+        )
     }
 
     static func estimatedSystemCount(for chart: Chart, pageWidth: CGFloat) -> Int {
@@ -609,15 +743,41 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func systemLayouts(
+    private static func headerFrame(in paperFrame: CGRect) -> CGRect {
+        CGRect(
+            x: paperFrame.minX + 34,
+            y: paperFrame.minY + 24,
+            width: paperFrame.width - 68,
+            height: 108
+        )
+    }
+
+    private static func paperHeight(
+        systemCount: Int,
+        firstSystemTopOffset: CGFloat,
+        metrics: LeadSheetEngravingMetrics,
+        minimumPaperHeight: CGFloat
+    ) -> CGFloat {
+        guard systemCount > 0 else {
+            return minimumPaperHeight
+        }
+
+        let systemsHeight = firstSystemTopOffset
+            + CGFloat(systemCount) * metrics.systemHeight
+            + CGFloat(max(0, systemCount - 1)) * metrics.systemSpacing
+            + 54
+        return max(minimumPaperHeight, systemsHeight)
+    }
+
+    private static func systemPlans(
         for chart: Chart,
         paperFrame: CGRect,
         firstSystemTop: CGFloat,
         includesChordInkContinuationLanes: Bool,
         visualPolicy: VisualPolicy
-    ) -> [LeadSheetSystemLayout] {
+    ) -> [PackedLeadSheetSystemPlan] {
         let metrics = visualPolicy.metrics
-        let plans = includesChordInkContinuationLanes
+        return includesChordInkContinuationLanes
             ? pageFilledPackedSystemPlans(
                 for: chart,
                 paperFrame: paperFrame,
@@ -625,8 +785,62 @@ enum LeadSheetPageLayoutEngine {
                 metrics: metrics
             )
             : packedSystemPlans(for: chart, maxSystemWidth: paperFrame.width - 68)
+    }
+
+    private static func pagedSystemPlans(
+        _ plans: [PackedLeadSheetSystemPlan],
+        chart: Chart
+    ) -> [[PackedLeadSheetSystemPlan]] {
+        let pageBreakStartIDs = pageBreakStartMeasureIDs(for: chart)
+        guard !plans.isEmpty else {
+            return [[]]
+        }
+
+        var pages = [[PackedLeadSheetSystemPlan]]()
+        var currentPage = [PackedLeadSheetSystemPlan]()
+
+        for plan in plans {
+            if !currentPage.isEmpty,
+               let firstMeasureID = plan.firstSourceMeasureID,
+               pageBreakStartIDs.contains(firstMeasureID) {
+                pages.append(currentPage)
+                currentPage = []
+            }
+            currentPage.append(plan)
+        }
+
+        if !currentPage.isEmpty {
+            pages.append(currentPage)
+        }
+
+        return pages.isEmpty ? [[]] : pages
+    }
+
+    private static func hasExplicitPageBreaks(for chart: Chart) -> Bool {
+        !pageBreakStartMeasureIDs(for: chart).isEmpty
+    }
+
+    private static func pageBreakStartMeasureIDs(for chart: Chart) -> Set<UUID> {
+        Set(
+            chart.systems
+                .dropFirst()
+                .filter(\.startsNewPage)
+                .compactMap(\.measures.first?.id)
+        )
+    }
+
+    private static func systemLayouts(
+        for plans: [PackedLeadSheetSystemPlan],
+        chart: Chart,
+        paperFrame: CGRect,
+        firstSystemTop: CGFloat,
+        startingSystemIndex: Int,
+        visualPolicy: VisualPolicy
+    ) -> [LeadSheetSystemLayout] {
+        let metrics = visualPolicy.metrics
 
         return plans.enumerated().map { systemIndex, plan in
+            let resolvedSystemIndex = startingSystemIndex + systemIndex
             let systemFrame = CGRect(
                 x: paperFrame.minX + 34,
                 y: firstSystemTop + CGFloat(systemIndex) * (metrics.systemHeight + metrics.systemSpacing),
@@ -636,7 +850,7 @@ enum LeadSheetPageLayoutEngine {
             return systemLayout(
                 for: plan,
                 chart: chart,
-                index: systemIndex,
+                index: resolvedSystemIndex,
                 frame: systemFrame,
                 visualPolicy: visualPolicy
             )
@@ -3452,6 +3666,34 @@ enum LeadSheetPageLayoutEngine {
 }
 
 extension LeadSheetPageLayout {
+    var paperFrames: [CGRect] {
+        pages.map(\.frame)
+    }
+
+    var paperEnvelope: CGRect {
+        paperFrames.dropFirst().reduce(paperFrames.first ?? paperFrame) { partialFrame, frame in
+            partialFrame.union(frame)
+        }
+    }
+
+    func paperFrame(for system: LeadSheetSystemLayout) -> CGRect {
+        paperFrame(forSystemID: system.id)
+    }
+
+    func paperFrame(forSystemID systemID: UUID) -> CGRect {
+        pages.first { $0.systemIDs.contains(systemID) }?.frame ?? paperFrame
+    }
+
+    func paperFrame(containing point: CGPoint, hitSlop: CGFloat = 0) -> CGRect? {
+        pages.first { page in
+            page.frame.insetBy(dx: -hitSlop, dy: -hitSlop).contains(point)
+        }?.frame
+    }
+
+    func containsPaper(_ point: CGPoint, hitSlop: CGFloat = 0) -> Bool {
+        paperFrame(containing: point, hitSlop: hitSlop) != nil
+    }
+
     func selectableNotes() -> [LeadSheetSelectableNote] {
         systems.flatMap { system in
             system.measures.flatMap { measure in
@@ -3539,6 +3781,10 @@ private struct PackedLeadSheetSystemPlan: Hashable {
     var leadingSignatureWidth: CGFloat
     var frameWidth: CGFloat
     var measures: [PackedLeadSheetMeasurePlan]
+
+    var firstSourceMeasureID: UUID? {
+        measures.compactMap(\.measure?.id).first
+    }
 }
 
 private struct PackedLeadSheetMeasurePlan: Hashable {

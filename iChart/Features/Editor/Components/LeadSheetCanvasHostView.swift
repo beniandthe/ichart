@@ -1350,7 +1350,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let renderer = notationRenderer
         context.clear(rect)
-        renderer.drawPaper(pageLayout.paperFrame, in: context)
+        for paperFrame in pageLayout.paperFrames {
+            renderer.drawPaper(paperFrame, in: context)
+        }
         if restrictsParentScrollToOutsideMargins {
             drawPageScrollDragAreas(pageLayout)
         }
@@ -1366,7 +1368,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for system in pageLayout.systems {
-            drawSystem(system, paperFrame: pageLayout.paperFrame, using: renderer)
+            drawSystem(
+                system,
+                paperFrame: pageLayout.paperFrame(for: system),
+                using: renderer
+            )
         }
 
         if !interactionMode.allowsPageInkEditing {
@@ -1498,11 +1504,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return false
         }
 
-        return LeadSheetScrollMarginPolicy.allowsPageScrollStart(
-            at: point,
-            paperFrame: pageLayout?.paperFrame,
-            restrictsToOutsideMargins: true
-        )
+        guard let pageLayout else {
+            return true
+        }
+
+        return !pageLayout.containsPaper(point, hitSlop: LeadSheetScrollMarginPolicy.paperHitSlop)
     }
 
     fileprivate func shouldBlockParentScrollTouch(_ touch: UITouch) -> Bool {
@@ -2067,12 +2073,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        LeadSheetSavedInkRenderer.drawPageInk(
-            chart.pageHandwrittenNotationData,
-            coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
-            chart: chart,
-            in: pageLayout
-        )
+        guard let context = UIGraphicsGetCurrentContext() else {
+            return
+        }
+
+        for paperFrame in pageLayout.paperFrames {
+            context.saveGState()
+            UIBezierPath(rect: paperFrame).addClip()
+            LeadSheetSavedInkRenderer.drawPageInk(
+                chart.pageHandwrittenNotationData,
+                coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+                chart: chart,
+                in: pageLayout
+            )
+            context.restoreGState()
+        }
     }
 
     private func drawSavedHeaderInk() {
@@ -2202,7 +2217,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageLayout.systems.reduce(into: [UUID: CGRect]()) { result, system in
             guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
             ) else {
                 return
             }
@@ -2225,7 +2240,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
            let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
            let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
             for: system,
-            paperFrame: pageLayout.paperFrame
+            paperFrame: pageLayout.paperFrame(for: system)
            ) {
             return laneFrame
         }
@@ -2311,7 +2326,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func drawPageScrollDragAreas(_ pageLayout: LeadSheetPageLayout) {
         let dragAreaFrames = LeadSheetScrollMarginPolicy.dragAreaFrames(
             in: bounds,
-            paperFrame: pageLayout.paperFrame
+            paperFrame: pageLayout.paperEnvelope
         )
 
         for dragAreaFrame in dragAreaFrames {
@@ -2321,7 +2336,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             guard let railFrame = scrollDragRailFrame(
                 in: dragAreaFrame,
-                around: pageLayout.paperFrame
+                around: pageLayout.paperEnvelope
             ) else {
                 continue
             }
@@ -2656,7 +2671,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
             measure,
             in: system,
-            paperFrame: pageLayout.paperFrame,
+            paperFrame: pageLayout.paperFrame(for: system),
             layoutStyle: chart.layoutStyle
         )
         return displayMeasureResizePreviewLayout(displayMeasure)
@@ -2716,13 +2731,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func measureResizeDisplayedToManualWidthScale() -> CGFloat {
         guard chart.layoutStyle == .simpleChordSheet,
-              let pageLayout else {
+              let pageLayout,
+              let selectedMeasureID,
+              let selectedSystem = measureAndSystemLayout(for: selectedMeasureID)?.system else {
             return 1
         }
 
         return LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
             chart: chart,
-            maxSystemWidth: max(1, pageLayout.paperFrame.width - 68)
+            maxSystemWidth: max(1, pageLayout.paperFrame(for: selectedSystem).width - 68)
         )
     }
 
@@ -3829,7 +3846,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func handleNoteSelectionTap(at location: CGPoint) {
         guard let pageLayout,
-              pageLayout.paperFrame.contains(location) else {
+              pageLayout.containsPaper(location) else {
             return
         }
 
@@ -4101,10 +4118,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
+            let activePaperFrame = paperFrame(containing: activeChordResizeDrag.initialFrame, in: pageLayout)
             activeChordResizeDrag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(
                 for: activeChordResizeDrag,
                 at: location,
-                boundedBy: pageLayout.paperFrame
+                boundedBy: activePaperFrame
             )
             self.activeChordResizeDrag = activeChordResizeDrag
             setNeedsDisplay()
@@ -4156,16 +4174,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             .first { $0.id == chordID }
     }
 
+    private func paperFrame(containing frame: CGRect, in pageLayout: LeadSheetPageLayout) -> CGRect {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        return pageLayout.paperFrame(containing: center) ?? pageLayout.paperFrame
+    }
+
     private func chordMoveDragWithPositionPreview(
         _ drag: ActiveChordMoveDrag,
         at location: CGPoint,
         in pageLayout: LeadSheetPageLayout
     ) -> ActiveChordMoveDrag {
         var updatedDrag = drag
+        let activePaperFrame = paperFrame(containing: drag.initialFrame, in: pageLayout)
         updatedDrag.currentFrame = LeadSheetChordMoveDragPolicy.previewFrame(
             for: drag,
             at: location,
-            boundedBy: pageLayout.paperFrame
+            boundedBy: activePaperFrame
         )
         updatedDrag.currentPositionPreview = LeadSheetChordMoveDragPolicy.positionPreview(
             at: location,
@@ -4179,8 +4203,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         var snappedFrame = updatedDrag.currentFrame
         snappedFrame.origin.x = min(
-            max(activeGuideX, pageLayout.paperFrame.minX),
-            max(pageLayout.paperFrame.minX, pageLayout.paperFrame.maxX - snappedFrame.width)
+            max(activeGuideX, activePaperFrame.minX),
+            max(activePaperFrame.minX, activePaperFrame.maxX - snappedFrame.width)
         )
         updatedDrag.currentFrame = snappedFrame
         return updatedDrag

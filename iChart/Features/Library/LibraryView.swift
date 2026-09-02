@@ -391,7 +391,7 @@ private struct IChartTutorialSection: Identifiable {
                 IChartTutorialStep(
                     id: "export-pdf",
                     title: "Export PDF",
-                    detail: "Tap Page, then Export. iChart creates the finished PDF while the editable chart stays in Charts.",
+                    detail: "Tap Settings, then Export. iChart creates the finished PDF while the editable chart stays in Charts.",
                     guardrail: "If Export is disabled, tap Done and finish setup first."
                 )
             ]
@@ -524,11 +524,11 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "editor-page-export",
-            title: "Page And Export",
+            title: "Settings And Export",
             systemImageName: "square.and.arrow.up",
-            body: "Use Page for chart settings and PDF export.",
+            body: "Use Settings for chart settings and PDF export.",
             bullets: [
-                "Page has title/header, key, transposition, style, fonts, pen feel, engraving, and export.",
+                "Settings has title/header, key, transposition, style, fonts, pen feel, engraving, and export.",
                 "Export makes a PDF. Your editable chart stays in Charts.",
                 "If Export is unavailable, tap Done and finish setup first."
             ]

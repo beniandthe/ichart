@@ -266,7 +266,7 @@ struct Chart: Identifiable, Codable, Hashable {
         layoutStyle: ChartLayoutStyle = .leadSheet,
         documentKey: DocumentKey,
         documentFont: ChartFontPreset,
-        notationFont: NotationFontPreset = .petaluma,
+        notationFont: NotationFontPreset = .finaleBroadway,
         typography: ChartTypographySettings? = nil,
         defaultTranspositionView: TranspositionView,
         chordTranspositionSemitones: Int = 0,
@@ -508,7 +508,43 @@ struct ChartSystem: Identifiable, Codable, Hashable {
     var index: Int
     var spacingMode: SpacingMode
     var lineBreakRule: LineBreakRule
+    var startsNewPage: Bool
     var measures: [Measure]
+
+    init(
+        id: UUID,
+        index: Int,
+        spacingMode: SpacingMode,
+        lineBreakRule: LineBreakRule,
+        startsNewPage: Bool = false,
+        measures: [Measure]
+    ) {
+        self.id = id
+        self.index = index
+        self.spacingMode = spacingMode
+        self.lineBreakRule = lineBreakRule
+        self.startsNewPage = startsNewPage
+        self.measures = measures
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case index
+        case spacingMode
+        case lineBreakRule
+        case startsNewPage
+        case measures
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        index = try container.decode(Int.self, forKey: .index)
+        spacingMode = try container.decode(SpacingMode.self, forKey: .spacingMode)
+        lineBreakRule = try container.decode(LineBreakRule.self, forKey: .lineBreakRule)
+        startsNewPage = try container.decodeIfPresent(Bool.self, forKey: .startsNewPage) ?? false
+        measures = try container.decode([Measure].self, forKey: .measures)
+    }
 }
 
 enum ChartType: String, Codable, CaseIterable, Hashable {

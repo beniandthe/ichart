@@ -307,7 +307,8 @@ extension Chart {
               let location = measureLocation(id: measureID),
               location.systemIndex > 0,
               location.measureIndex == 0,
-              systems[location.systemIndex].lineBreakRule == .forced else {
+              systems[location.systemIndex].lineBreakRule == .forced,
+              !systems[location.systemIndex].startsNewPage else {
             return false
         }
 
@@ -568,6 +569,49 @@ extension Chart {
         insertPreparedMeasures(newMeasures, at: insertionIndex)
         updatedAt = .now
         return newMeasures.map(\.id)
+    }
+
+    @discardableResult
+    mutating func appendPage() -> UUID? {
+        guard hasCompletedInitialSetup else {
+            return nil
+        }
+
+        let measureDefaults = layoutStyle.profile.measureDefaults
+        let addedMeasureCount = measureDefaults.addedPageMeasureCount
+        let insertionIndex = measures.count
+        let newMeasures = (0..<addedMeasureCount).map { offset in
+            Self.makeMeasure(
+                index: insertionIndex + offset + 1,
+                authoringState: .committed,
+                barlineAfter: offset == addedMeasureCount - 1 ? .double : .single,
+                beatGridPreset: measureDefaults.beatGridPreset
+            )
+        }
+        guard let firstNewMeasureID = newMeasures.first?.id else {
+            return nil
+        }
+
+        var flattenedMeasures = measures
+        if let lastIndex = flattenedMeasures.indices.last,
+           flattenedMeasures[lastIndex].authoringState == .open {
+            flattenedMeasures[lastIndex].authoringState = .committed
+        }
+        flattenedMeasures.append(contentsOf: newMeasures)
+
+        var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
+        forcedBreakStartIDs.formUnion(keyChangeSystemBreakMeasureIDs)
+        var pageBreakStartIDs = currentPageBreakStartIDs()
+        pageBreakStartIDs.insert(firstNewMeasureID)
+        forcedBreakStartIDs.insert(firstNewMeasureID)
+
+        rebuildSystems(
+            using: flattenedMeasures,
+            forcedBreakStartIDsOverride: forcedBreakStartIDs,
+            pageBreakStartIDsOverride: pageBreakStartIDs
+        )
+        updatedAt = .now
+        return firstNewMeasureID
     }
 
     func canDeleteMeasure(id measureID: UUID) -> Bool {
@@ -2513,6 +2557,15 @@ extension Chart {
         )
     }
 
+    private func currentPageBreakStartIDs() -> Set<UUID> {
+        Set(
+            systems
+                .dropFirst()
+                .filter(\.startsNewPage)
+                .compactMap(\.measures.first?.id)
+        )
+    }
+
     private mutating func removeMeasure(
         at location: (systemIndex: Int, measureIndex: Int)
     ) {
@@ -2836,12 +2889,18 @@ extension Chart {
 
     private mutating func rebuildSystems(
         using flattenedMeasures: [Measure],
-        forcedBreakStartIDsOverride: Set<UUID>? = nil
+        forcedBreakStartIDsOverride: Set<UUID>? = nil,
+        pageBreakStartIDsOverride: Set<UUID>? = nil
     ) {
         ensureInitialSystem()
 
         let systemTemplates = systems.map {
-            (id: $0.id, spacingMode: $0.spacingMode, lineBreakRule: $0.lineBreakRule)
+            (
+                id: $0.id,
+                spacingMode: $0.spacingMode,
+                lineBreakRule: $0.lineBreakRule,
+                startsNewPage: $0.startsNewPage
+            )
         }
         keyChanges = normalizedKeyChanges(for: flattenedMeasures)
         let keyChangeMeasureIDs = Set(keyChanges.map(\.measureID))
@@ -2853,25 +2912,35 @@ extension Chart {
             normalizedMeasures[measureIndex].index = measureIndex + 1
         }
         if supportsManualSystemBreaks {
-            let forcedBreakStartIDs = forcedBreakStartIDsOverride
-                ?? currentForcedSystemBreakStartIDs(in: normalizedMeasures)
+            let pageBreakStartIDs = pageBreakStartIDsOverride
+                ?? currentPageBreakStartIDs(in: normalizedMeasures)
+            let forcedBreakStartIDs = (forcedBreakStartIDsOverride
+                ?? currentForcedSystemBreakStartIDs(in: normalizedMeasures))
+                .union(pageBreakStartIDs)
             rebuildManualSystemBreakSystems(
                 using: normalizedMeasures,
                 systemTemplates: systemTemplates,
                 forcedBreakStartIDs: forcedBreakStartIDs,
+                pageBreakStartIDs: pageBreakStartIDs,
                 measureCap: layoutStyle == .simpleChordSheet ? simpleSystemMeasureCap : nil
             )
             return
         }
 
         if normalizedMeasures.isEmpty {
-            let template = systemTemplates.first ?? (UUID(), .automatic, .automatic)
+            let template = systemTemplates.first ?? (
+                UUID(),
+                SpacingMode.automatic,
+                LineBreakRule.automatic,
+                false
+            )
             systems = [
                 ChartSystem(
                     id: template.0,
                     index: 0,
                     spacingMode: template.1,
                     lineBreakRule: template.2,
+                    startsNewPage: false,
                     measures: []
                 )
             ]
@@ -2880,7 +2949,10 @@ extension Chart {
             return
         }
 
-        let forcedBreakStartIDs = forcedBreakStartIDsOverride ?? keyChangeSystemBreakMeasureIDs
+        let pageBreakStartIDs = pageBreakStartIDsOverride
+            ?? currentPageBreakStartIDs(in: normalizedMeasures)
+        let forcedBreakStartIDs = (forcedBreakStartIDsOverride ?? keyChangeSystemBreakMeasureIDs)
+            .union(pageBreakStartIDs)
         var rebuiltSystems: [ChartSystem] = []
         var cursor = 0
         var systemIndex = 0
@@ -2895,16 +2967,19 @@ extension Chart {
             let measuresChunk = Array(normalizedMeasures[cursor..<chunkEnd])
             let template = systemTemplates.indices.contains(systemIndex)
                 ? systemTemplates[systemIndex]
-                : (UUID(), .automatic, .automatic)
+                : (UUID(), SpacingMode.automatic, LineBreakRule.automatic, false)
+            let firstMeasureID = measuresChunk.first?.id
             let lineBreakRule: LineBreakRule = {
                 guard systemIndex > 0,
-                      let firstMeasureID = measuresChunk.first?.id,
+                      let firstMeasureID,
                       forcedBreakStartIDs.contains(firstMeasureID) else {
                     return .automatic
                 }
 
                 return .forced
             }()
+            let startsNewPage = systemIndex > 0
+                && firstMeasureID.map(pageBreakStartIDs.contains) == true
 
             rebuiltSystems.append(
                 ChartSystem(
@@ -2912,6 +2987,7 @@ extension Chart {
                     index: systemIndex,
                     spacingMode: template.1,
                     lineBreakRule: lineBreakRule,
+                    startsNewPage: startsNewPage,
                     measures: measuresChunk
                 )
             )
@@ -2936,10 +3012,30 @@ extension Chart {
         )
     }
 
+    private func currentPageBreakStartIDs(in normalizedMeasures: [Measure]) -> Set<UUID> {
+        let measureIDs = Set(normalizedMeasures.map(\.id))
+        return Set(
+            systems
+                .dropFirst()
+                .filter(\.startsNewPage)
+                .compactMap { system in
+                    system.measures.first { measureIDs.contains($0.id) }?.id
+                }
+        )
+    }
+
     private mutating func rebuildManualSystemBreakSystems(
         using normalizedMeasures: [Measure],
-        systemTemplates: [(id: UUID, spacingMode: SpacingMode, lineBreakRule: LineBreakRule)],
+        systemTemplates: [
+            (
+                id: UUID,
+                spacingMode: SpacingMode,
+                lineBreakRule: LineBreakRule,
+                startsNewPage: Bool
+            )
+        ],
         forcedBreakStartIDs: Set<UUID>,
+        pageBreakStartIDs: Set<UUID>,
         measureCap: Int?
     ) {
         let defaultSpacingMode = layoutStyle.profile.measureDefaults.systemSpacingMode
@@ -2955,13 +3051,17 @@ extension Chart {
             let systemIndex = rebuiltSystems.count
             let template = systemTemplates.indices.contains(systemIndex)
                 ? systemTemplates[systemIndex]
-                : (UUID(), defaultSpacingMode, currentLineBreakRule)
+                : (UUID(), defaultSpacingMode, currentLineBreakRule, false)
+            let firstMeasureID = currentMeasures.first?.id
+            let startsNewPage = systemIndex > 0
+                && firstMeasureID.map(pageBreakStartIDs.contains) == true
             rebuiltSystems.append(
                 ChartSystem(
                     id: template.0,
                     index: systemIndex,
                     spacingMode: template.1,
                     lineBreakRule: systemIndex == 0 ? .automatic : currentLineBreakRule,
+                    startsNewPage: startsNewPage,
                     measures: currentMeasures
                 )
             )
@@ -2987,13 +3087,19 @@ extension Chart {
         flushCurrentSystem()
 
         if rebuiltSystems.isEmpty {
-            let template = systemTemplates.first ?? (UUID(), defaultSpacingMode, .automatic)
+            let template = systemTemplates.first ?? (
+                UUID(),
+                defaultSpacingMode,
+                LineBreakRule.automatic,
+                false
+            )
             rebuiltSystems = [
                 ChartSystem(
                     id: template.0,
                     index: 0,
                     spacingMode: template.1,
                     lineBreakRule: .automatic,
+                    startsNewPage: false,
                     measures: []
                 )
             ]

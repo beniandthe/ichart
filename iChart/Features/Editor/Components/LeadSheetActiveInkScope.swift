@@ -179,7 +179,7 @@ enum LeadSheetActiveInkScope {
     }
 
     static func pageWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {
-        pageLayout.paperFrame.insetBy(dx: 10, dy: 10)
+        pageLayout.paperEnvelope.insetBy(dx: 10, dy: 10)
     }
 
     static func chordWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {
@@ -204,7 +204,7 @@ enum LeadSheetActiveInkScope {
                 partialFrame.union(laneFrame)
             }
             .insetBy(dx: -2, dy: -2)
-            .intersection(pageLayout.paperFrame)
+            .intersection(pageLayout.paperEnvelope)
 
         let resolvedFrame = frame.isNull || frame.isEmpty ? firstFrame : frame
         return LeadSheetActiveInkRegion(frame: resolvedFrame, inputFrames: laneFrames)
@@ -212,7 +212,7 @@ enum LeadSheetActiveInkScope {
 
     static func chordWritingSystemLaneFrames(for pageLayout: LeadSheetPageLayout) -> [CGRect] {
         pageLayout.systems.compactMap { system in
-            chordWritingSystemLaneFrame(for: system, paperFrame: pageLayout.paperFrame)
+            chordWritingSystemLaneFrame(for: system, paperFrame: pageLayout.paperFrame(for: system))
         }
     }
 

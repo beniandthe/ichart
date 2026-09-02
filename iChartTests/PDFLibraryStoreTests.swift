@@ -23,7 +23,7 @@ final class PDFLibraryStoreTests: XCTestCase {
             layoutStyle: .simpleChordSheet,
             transpositionView: .concert,
             chordTranspositionSemitones: 0,
-            pageCount: 1,
+            pageCount: 3,
             fileSizeBytes: 23,
             exportedAt: Date(timeIntervalSinceReferenceDate: 10)
         )
@@ -34,11 +34,17 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.items(for: .chartExport).count, 1)
         XCTAssertEqual(store.items(for: .forumDownload).count, 0)
         XCTAssertEqual(savedPDF.chartTitle, "My Chart")
+        XCTAssertEqual(savedPDF.pageCount, 3)
+        XCTAssertEqual(savedPDF.pageCountText, "3 pages")
+        XCTAssertEqual(store.items.first?.pageCount, 3)
+        XCTAssertEqual(store.items.first?.pageCountText, "3 pages")
         XCTAssertTrue(FileManager.default.fileExists(atPath: savedPDF.url.path(percentEncoded: false)))
 
         let reloadedStore = IChartPDFLibraryStore(baseDirectory: root.appendingPathComponent("library", isDirectory: true))
         XCTAssertEqual(reloadedStore.items.count, 1)
-        XCTAssertNotNil(reloadedStore.exportedPDF(for: reloadedStore.items[0]))
+        let reloadedPDF = try XCTUnwrap(reloadedStore.exportedPDF(for: reloadedStore.items[0]))
+        XCTAssertEqual(reloadedPDF.pageCount, 3)
+        XCTAssertEqual(reloadedPDF.pageCountText, "3 pages")
     }
 
     func testDuplicatePDFNamesAreKeptAsSeparateLibraryItems() throws {

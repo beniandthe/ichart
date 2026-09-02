@@ -102,6 +102,83 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertGreaterThan(pageBounds.height, pageBounds.width)
     }
 
+    func testAppendPageExportCreatesSeparatePDFPages() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: "Two Page Export",
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        _ = try XCTUnwrap(chart.appendPage())
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedPDF = try await exporter.exportPDF(for: chart)
+        let document = try XCTUnwrap(PDFDocument(url: exportedPDF.url))
+        let firstPageText = document.page(at: 0)?.string ?? ""
+        let secondPageText = document.page(at: 1)?.string ?? ""
+
+        XCTAssertEqual(exportedPDF.pageCount, 2)
+        XCTAssertEqual(exportedPDF.pageCountText, "2 pages")
+        XCTAssertEqual(document.pageCount, 2)
+        XCTAssertTrue(firstPageText.contains("Two Page Export"))
+        XCTAssertFalse(secondPageText.contains("Two Page Export"))
+    }
+
+    func testAppendPageExportIncludesEveryChartPage() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        var chart = Chart.blank(
+            title: "Three Page Export",
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        let secondPageMeasureID = try XCTUnwrap(chart.appendPage())
+        let thirdPageMeasureID = try XCTUnwrap(chart.appendPage())
+        _ = try XCTUnwrap(
+            chart.addCueText(
+                "second page export marker",
+                anchorMeasureID: secondPageMeasureID,
+                position: .above
+            )
+        )
+        _ = try XCTUnwrap(
+            chart.addCueText(
+                "third page export marker",
+                anchorMeasureID: thirdPageMeasureID,
+                position: .above
+            )
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedPDF = try await exporter.exportPDF(for: chart)
+        let document = try XCTUnwrap(PDFDocument(url: exportedPDF.url))
+        let firstPageText = document.page(at: 0)?.string ?? ""
+        let secondPageText = document.page(at: 1)?.string ?? ""
+        let thirdPageText = document.page(at: 2)?.string ?? ""
+
+        XCTAssertEqual(exportedPDF.pageCount, 3)
+        XCTAssertEqual(exportedPDF.pageCountText, "3 pages")
+        XCTAssertEqual(document.pageCount, 3)
+        XCTAssertTrue(firstPageText.contains("Three Page Export"))
+        XCTAssertFalse(secondPageText.contains("Three Page Export"))
+        XCTAssertFalse(thirdPageText.contains("Three Page Export"))
+        XCTAssertTrue(secondPageText.contains("second page export marker"))
+        XCTAssertFalse(firstPageText.contains("second page export marker"))
+        XCTAssertFalse(thirdPageText.contains("second page export marker"))
+        XCTAssertTrue(thirdPageText.contains("third page export marker"))
+        XCTAssertFalse(firstPageText.contains("third page export marker"))
+        XCTAssertFalse(secondPageText.contains("third page export marker"))
+    }
+
     func testRhythmSectionExportProofRendersStructuredObjects() async throws {
         let exportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

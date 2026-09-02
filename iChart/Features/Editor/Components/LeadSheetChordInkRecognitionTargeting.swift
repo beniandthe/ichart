@@ -394,7 +394,7 @@ enum LeadSheetChordInkRecognitionTargeting {
             guard system.measures.contains(where: { $0.chordInkTargetMeasureID == measureID }),
                   let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
-                    paperFrame: pageLayout.paperFrame
+                    paperFrame: pageLayout.paperFrame(for: system)
                   ) else {
                 continue
             }
@@ -413,7 +413,7 @@ enum LeadSheetChordInkRecognitionTargeting {
            let system = pageLayout.systems.first(where: { $0.index == laneLocation.systemIndex }),
            let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
             for: system,
-            paperFrame: pageLayout.paperFrame
+            paperFrame: pageLayout.paperFrame(for: system)
            ) {
             return (system.index, laneFrame)
         }
@@ -429,7 +429,7 @@ enum LeadSheetChordInkRecognitionTargeting {
             .compactMap { system -> (systemIndex: Int, laneFrame: CGRect, area: CGFloat)? in
                 guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
-                    paperFrame: pageLayout.paperFrame
+                    paperFrame: pageLayout.paperFrame(for: system)
                 ) else {
                     return nil
                 }
@@ -582,7 +582,7 @@ enum LeadSheetChordInkRecognitionTargeting {
                   let measureID = targetMeasure.chordInkTargetMeasureID,
                   let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                     for: system,
-                    paperFrame: pageLayout.paperFrame
+                    paperFrame: pageLayout.paperFrame(for: system)
                   ),
                   laneFrame.insetBy(dx: -8, dy: -8).contains(center) else {
                 continue
