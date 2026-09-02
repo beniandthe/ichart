@@ -132,6 +132,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(secondPaperPage.systemIDs, [secondPageSystem.id])
         XCTAssertEqual(secondPageSystem.measures.map(\.sourceMeasureID), [firstNewMeasureID])
         XCTAssertEqual(secondPageSystem.measures.first?.barlineAfter, .double)
+
+        #if canImport(UIKit)
         let secondPageMeasure = try XCTUnwrap(secondPageSystem.measures.first)
         let secondPageBoundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
             after: secondPageMeasure,
@@ -156,6 +158,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             renderedBarlineFrame.midX,
             secondPageMeasure.trailingBarlineFrame.midX + 1
         )
+        #endif
+
         XCTAssertFalse(secondPaperPage.includesHeader)
         XCTAssertFalse(secondPaperPage.frame.intersects(layout.header.frame))
         XCTAssertLessThan(secondPageTopGap, 60)
