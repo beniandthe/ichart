@@ -1697,21 +1697,41 @@ enum LeadSheetPageLayoutEngine {
             meter: meter,
             useSimpleLaneFractions: isSimpleChordSheet
         )
-        let rawChordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
-            let nextPlacementIndex = placementIndex + 1
-            let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
-                ? displayedPlacements[nextPlacementIndex]
-                : nil
-            return chordLayout(
-                for: placement,
-                nextPlacement: nextPlacement,
+        let repeatMarkerLayouts = repeatMarkerLayouts(
+            for: measure,
+            chart: chart,
+            staffFrame: staffFrame
+        )
+        let rawChordLayouts: [LeadSheetChordLayout]
+        if isSimpleChordSheet {
+            rawChordLayouts = simpleChordLayouts(
+                for: displayedPlacements,
                 chart: chart,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
                 staffFrame: staffFrame,
                 measureID: measure.id,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                repeatMarkerLayouts: repeatMarkerLayouts,
+                meterChangeFrame: meterChangeFrame
             )
+        } else {
+            rawChordLayouts = displayedPlacements.enumerated().map { placementIndex, placement in
+                let nextPlacementIndex = placementIndex + 1
+                let nextPlacement = displayedPlacements.indices.contains(nextPlacementIndex)
+                    ? displayedPlacements[nextPlacementIndex]
+                    : nil
+                return chordLayout(
+                    for: placement,
+                    nextPlacement: nextPlacement,
+                    chart: chart,
+                    meter: meter,
+                    chordBandFrame: chordBandFrame,
+                    staffFrame: staffFrame,
+                    measureID: measure.id,
+                    visualPolicy: visualPolicy
+                )
+            }
         }
         let chordLayouts: [LeadSheetChordLayout]
         if isSimpleChordSheet {
@@ -1734,11 +1754,6 @@ enum LeadSheetPageLayoutEngine {
             staffFrame: staffFrame,
             staffLineYPositions: staffLineYPositions
         ) ?? []
-        let repeatMarkerLayouts = repeatMarkerLayouts(
-            for: measure,
-            chart: chart,
-            staffFrame: staffFrame
-        )
         let cueTextLayouts = cueTextLayouts(
             for: measure,
             chart: chart,
@@ -1769,6 +1784,156 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
+    private static func simpleChordLayouts(
+        for placements: [MeasureChordPlacement],
+        chart: Chart,
+        meter: Meter,
+        chordBandFrame: CGRect,
+        staffFrame: CGRect,
+        measureID: UUID,
+        visualPolicy: VisualPolicy,
+        repeatMarkerLayouts: [LeadSheetRepeatMarkerLayout],
+        meterChangeFrame: CGRect?
+    ) -> [LeadSheetChordLayout] {
+        let leadingRepeatMaxX = repeatMarkerLayouts
+            .filter { $0.edge == .leading }
+            .map(\.frame.maxX)
+            .max()
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
+            referenceFrame: chordBandFrame,
+            leadingRepeatMarkerMaxX: leadingRepeatMaxX,
+            meterChangeFrame: meterChangeFrame
+        )
+        let slotStartXs = simpleChordSlotStartXs(
+            count: placements.count,
+            meter: meter,
+            guideFrame: guideFrame
+        )
+        let fitFrames = simpleChordSlotFitFrames(
+            for: placements,
+            chart: chart,
+            chordBandFrame: chordBandFrame,
+            slotStartXs: slotStartXs,
+            measureID: measureID
+        )
+
+        return placements.enumerated().map { placementIndex, placement in
+            chordLayout(
+                for: placement,
+                nextPlacement: nil,
+                chart: chart,
+                meter: meter,
+                chordBandFrame: chordBandFrame,
+                staffFrame: staffFrame,
+                measureID: measureID,
+                visualPolicy: visualPolicy,
+                simpleFitFrameOverride: fitFrames[placementIndex]
+            )
+        }
+    }
+
+    private static func simpleChordSlotStartXs(
+        count: Int,
+        meter: Meter,
+        guideFrame: CGRect
+    ) -> [CGFloat] {
+        guard count > 0 else {
+            return []
+        }
+
+        let guideXs = LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)
+        if count <= guideXs.count {
+            return simpleChordPreferredGuideIndexes(
+                count: count,
+                guideCount: guideXs.count
+            )
+            .map { guideXs[$0] }
+            .sorted()
+        }
+
+        let firstSlotX = guideXs.first ?? guideFrame.minX
+        let availableWidth = max(1, guideFrame.maxX - firstSlotX)
+        return (0..<count).map { index in
+            firstSlotX + availableWidth * CGFloat(index) / CGFloat(count)
+        }
+    }
+
+    private static func simpleChordPreferredGuideIndexes(
+        count: Int,
+        guideCount: Int
+    ) -> [Int] {
+        guard count > 0,
+              guideCount > 0 else {
+            return []
+        }
+
+        var indexes = [0]
+        if count > 1 {
+            let midpointIndex = min(guideCount - 1, max(0, guideCount / 2))
+            if !indexes.contains(midpointIndex) {
+                indexes.append(midpointIndex)
+            }
+        }
+
+        for index in 1..<guideCount where indexes.count < count {
+            if !indexes.contains(index) {
+                indexes.append(index)
+            }
+        }
+
+        return Array(indexes.prefix(count))
+    }
+
+    private static func simpleChordSlotFitFrames(
+        for placements: [MeasureChordPlacement],
+        chart: Chart,
+        chordBandFrame: CGRect,
+        slotStartXs: [CGFloat],
+        measureID: UUID
+    ) -> [CGRect] {
+        placements.enumerated().map { placementIndex, placement in
+            let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measureID)
+            let displayedText = displayedSymbol.displayText
+            let minimumFitFrameWidth = simpleChordMinimumFitFrameWidth(
+                for: placement,
+                displayedSymbol: displayedSymbol,
+                displayedText: displayedText,
+                chordBandFrame: chordBandFrame
+            )
+            let startX = slotStartXs.indices.contains(placementIndex)
+                ? slotStartXs[placementIndex]
+                : chordBandFrame.minX
+            let nextStartX = slotStartXs.indices.contains(placementIndex + 1)
+                ? slotStartXs[placementIndex + 1]
+                : nil
+            return simpleChordFitFrame(
+                startX: startX,
+                nextStartX: nextStartX,
+                chordBandFrame: chordBandFrame,
+                minimumWidth: minimumFitFrameWidth
+            )
+        }
+    }
+
+    private static func simpleChordMinimumFitFrameWidth(
+        for placement: MeasureChordPlacement,
+        displayedSymbol: ChordSymbol?,
+        displayedText: String,
+        chordBandFrame: CGRect
+    ) -> CGFloat {
+        max(
+            chordBandFrame.height * 0.92,
+            estimatedSimpleChordTextWidth(
+                for: displayedSymbol,
+                fallbackText: displayedText,
+                fontSize: preferredSimpleChordFontSize()
+            ) + 2,
+            placement.chordEvent.manualDisplayWidth
+                .map { CGFloat(ChordEvent.clampedManualDisplayWidth($0)) }
+                ?? 1
+        )
+    }
+
     private static func chordLayout(
         for placement: MeasureChordPlacement,
         nextPlacement: MeasureChordPlacement?,
@@ -1777,7 +1942,8 @@ enum LeadSheetPageLayoutEngine {
         chordBandFrame: CGRect,
         staffFrame: CGRect,
         measureID: UUID,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        simpleFitFrameOverride: CGRect? = nil
     ) -> LeadSheetChordLayout {
         let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measureID)
         let displayedText = displayedSymbol.displayText
@@ -1791,23 +1957,17 @@ enum LeadSheetPageLayoutEngine {
         )
 
         if visualPolicy.layoutStyle == .simpleChordSheet {
-            let minimumFitFrameWidth = max(
-                chordBandFrame.height * 0.92,
-                estimatedSimpleChordTextWidth(
-                    for: displayedSymbol,
-                    fallbackText: displayedText,
-                    fontSize: preferredSimpleChordFontSize()
-                ) + 2,
-                placement.chordEvent.manualDisplayWidth
-                    .map { CGFloat(ChordEvent.clampedManualDisplayWidth($0)) }
-                    ?? 1
-            )
-            let fitFrame = simpleChordFitFrame(
+            let fitFrame = simpleFitFrameOverride ?? simpleChordFitFrame(
                 for: placement,
                 nextPlacement: nextPlacement,
                 meter: meter,
                 chordBandFrame: chordBandFrame,
-                minimumWidth: minimumFitFrameWidth
+                minimumWidth: simpleChordMinimumFitFrameWidth(
+                    for: placement,
+                    displayedSymbol: displayedSymbol,
+                    displayedText: displayedText,
+                    chordBandFrame: chordBandFrame
+                )
             )
             return LeadSheetChordLayout(
                 id: placement.chordEvent.id,
@@ -2343,6 +2503,31 @@ enum LeadSheetPageLayoutEngine {
             y: chordBandFrame.minY,
             width: min(
                 max(1, rawMaxX - boundedMinX, minimumWidth),
+                max(1, chordBandFrame.maxX - boundedMinX)
+            ),
+            height: chordBandFrame.height
+        )
+    }
+
+    private static func simpleChordFitFrame(
+        startX: CGFloat,
+        nextStartX: CGFloat?,
+        chordBandFrame: CGRect,
+        minimumWidth: CGFloat
+    ) -> CGRect {
+        let boundedMinX = min(
+            max(chordBandFrame.minX, startX),
+            max(chordBandFrame.minX, chordBandFrame.maxX - minimumWidth)
+        )
+        let proposedMaxX = nextStartX.map {
+            min(max($0 - simpleChordMinimumFrameGap, boundedMinX + 1), chordBandFrame.maxX)
+        } ?? chordBandFrame.maxX
+
+        return CGRect(
+            x: boundedMinX,
+            y: chordBandFrame.minY,
+            width: min(
+                max(1, proposedMaxX - boundedMinX, minimumWidth),
                 max(1, chordBandFrame.maxX - boundedMinX)
             ),
             height: chordBandFrame.height

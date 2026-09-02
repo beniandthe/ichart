@@ -1063,7 +1063,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
     }
     #endif
 
-    func testSimpleChordSheetCommittedChordCanMoveAcrossOpenLane() throws {
+    func testSimpleChordSheetCommittedChordMoveKeepsStoredFractionWhileRenderingOnFirstSlot() throws {
         var chart = Chart.draft(title: "Open Lane Move", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
             title: "Open Lane Move",
@@ -1097,16 +1097,16 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         let movedMeasure = try XCTUnwrap(movedLayout.systems.first?.measures.first)
         let movedChord = try XCTUnwrap(movedMeasure.chordLayouts.first)
         let movedEvent = try XCTUnwrap(chart.measure(id: measureID)?.chordEvents.first)
-        let expectedMinX = movedMeasure.chordBandFrame.minX + movedMeasure.chordBandFrame.width * 0.86
+        let firstGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: movedMeasure, in: chart).first)
 
-        XCTAssertGreaterThan(movedChord.frame.minX, movedMeasure.chordBandFrame.minX + movedMeasure.chordBandFrame.width * 0.72)
-        XCTAssertEqual(movedChord.fitFrame.minX, expectedMinX, accuracy: 0.001)
+        XCTAssertEqual(movedChord.fitFrame.minX, firstGuideX, accuracy: 0.001)
+        XCTAssertEqual(movedChord.frame.minX, firstGuideX, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(movedEvent.manualLaneFraction), 0.86, accuracy: 0.0001)
         XCTAssertGreaterThan(movedEvent.startPosition.subdivisionsPerBeat, 2)
         XCTAssertLessThanOrEqual(movedChord.frame.maxX, movedMeasure.chordBandFrame.maxX)
     }
 
-    func testSimpleChordSheetManualChordPlacementCanSitTightAgainstMeasureBarlines() throws {
+    func testSimpleChordSheetManualChordPlacementRendersSingleChordOnFirstSlot() throws {
         var leftChart = Chart.blank(title: "Tight Left", measureCount: 1, layoutStyle: .simpleChordSheet)
         let leftMeasureID = try XCTUnwrap(leftChart.measures.first?.id)
         let leftChordID = try XCTUnwrap(
@@ -1131,9 +1131,12 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
         let leftMeasure = try XCTUnwrap(leftLayout.systems.first?.measures.first)
         let leftChord = try XCTUnwrap(leftMeasure.chordLayouts.first)
+        let leftGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: leftMeasure, in: leftChart).first)
+        let leftEvent = try XCTUnwrap(leftChart.measure(id: leftMeasureID)?.chordEvents.first)
 
-        XCTAssertLessThanOrEqual(leftChord.frame.minX - leftMeasure.frame.minX, 1.1)
-        XCTAssertEqual(leftChord.frame.minX, leftMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(leftChord.frame.minX, leftGuideX, accuracy: 0.001)
+        XCTAssertEqual(leftChord.fitFrame.minX, leftGuideX, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(leftEvent.manualLaneFraction), 0, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(leftChord.frame.minX, leftMeasure.frame.minX)
 
         var rightChart = Chart.blank(title: "Tight Right", measureCount: 1, layoutStyle: .simpleChordSheet)
@@ -1160,13 +1163,16 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
         let rightMeasure = try XCTUnwrap(rightLayout.systems.first?.measures.first)
         let rightChord = try XCTUnwrap(rightMeasure.chordLayouts.first)
+        let rightGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: rightMeasure, in: rightChart).first)
+        let rightEvent = try XCTUnwrap(rightChart.measure(id: rightMeasureID)?.chordEvents.first)
 
-        XCTAssertLessThanOrEqual(rightMeasure.frame.maxX - rightChord.frame.maxX, 1.1)
-        XCTAssertEqual(rightChord.frame.maxX, rightMeasure.chordBandFrame.maxX, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(rightChord.frame.maxX, rightMeasure.frame.maxX)
+        XCTAssertEqual(rightChord.frame.minX, rightGuideX, accuracy: 0.001)
+        XCTAssertEqual(rightChord.fitFrame.minX, rightGuideX, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(rightEvent.manualLaneFraction), 0.9999, accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(rightChord.frame.maxX, rightMeasure.chordBandFrame.maxX)
     }
 
-    func testSimpleChordSheetSingleChordUsesMeasureFitFrame() throws {
+    func testSimpleChordSheetSingleChordUsesFirstPlacementSlotFitFrame() throws {
         var chart = Chart.blank(title: "Simple Chord Fit", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         try appendChord("C", to: measureID, in: &chart, atFraction: 0.05)
@@ -1178,8 +1184,9 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
         let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
+        let firstGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: firstMeasure, in: chart).first)
 
-        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.fitFrame.minX, firstGuideX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.height, chordLayout.fitFrame.height, accuracy: 0.001)
@@ -1201,8 +1208,9 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         let firstMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
         let chordLayout = try XCTUnwrap(firstMeasure.chordLayouts.first)
+        let firstGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: firstMeasure, in: chart).first)
 
-        XCTAssertEqual(chordLayout.fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(chordLayout.fitFrame.minX, firstGuideX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertEqual(chordLayout.frame.minX, chordLayout.fitFrame.minX, accuracy: 0.001)
         XCTAssertLessThan(chordLayout.frame.maxX, firstMeasure.chordBandFrame.midX)
@@ -1258,9 +1266,12 @@ final class LeadSheetPageLayoutTests: XCTestCase {
 
         XCTAssertEqual(chordLayouts.map(\.text), ["C", "D7"])
         XCTAssertEqual(chordEvents.map(\.startPosition.displayText), ["1", "3"])
-        XCTAssertEqual(chordLayouts[0].fitFrame.minX, firstMeasure.chordBandFrame.minX, accuracy: 0.001)
-        XCTAssertEqual(chordLayouts[0].fitFrame.maxX, firstMeasure.chordBandFrame.midX, accuracy: 0.001)
-        XCTAssertEqual(chordLayouts[1].fitFrame.minX, firstMeasure.chordBandFrame.midX, accuracy: 0.001)
+        let guideXs = try simpleChordPlacementGuideXs(for: firstMeasure, in: chart)
+        let firstGuideX = try XCTUnwrap(guideXs.first)
+        let midpointGuideX = try XCTUnwrap(guideXs.dropFirst(2).first)
+        XCTAssertEqual(chordLayouts[0].fitFrame.minX, firstGuideX, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[0].fitFrame.maxX, midpointGuideX - 16, accuracy: 0.001)
+        XCTAssertEqual(chordLayouts[1].fitFrame.minX, midpointGuideX, accuracy: 0.001)
         XCTAssertEqual(chordLayouts[1].fitFrame.maxX, firstMeasure.chordBandFrame.maxX, accuracy: 0.001)
         XCTAssertGreaterThan(chordLayouts[0].fitFrame.width, CGFloat(44))
         XCTAssertGreaterThan(chordLayouts[1].fitFrame.width, CGFloat(44))
@@ -1271,7 +1282,81 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         }
     }
 
-    func testSimpleChordSheetSingleChordBeatSubdivisionsMoveTowardRightBarline() throws {
+    func testSimpleChordSheetRenderedChordsUsePlacementGuideSlots() throws {
+        var chart = Chart.blank(title: "Simple Chord Slots", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordTexts = ["C", "D", "E", "F"]
+
+        for (index, text) in chordTexts.enumerated() {
+            let chordID = try XCTUnwrap(
+                chart.appendRecognizedChordEvent(
+                    try ChordSymbolParser.parse(text),
+                    rawInput: text,
+                    to: measureID,
+                    atFraction: Double(index) / Double(chordTexts.count)
+                )
+            )
+            _ = chart.setChordEventManualLaneFraction(Double(index) / Double(chordTexts.count), for: chordID)
+        }
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1400)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordLayouts = measure.chordLayouts
+        let guideXs = try simpleChordPlacementGuideXs(for: measure, in: chart)
+
+        XCTAssertEqual(chordLayouts.map(\.text), chordTexts)
+        XCTAssertEqual(chordLayouts.count, guideXs.count)
+        for (chordLayout, guideX) in zip(chordLayouts, guideXs) {
+            XCTAssertEqual(chordLayout.fitFrame.minX, guideX, accuracy: 0.001)
+            XCTAssertEqual(chordLayout.frame.minX, guideX, accuracy: 0.001)
+        }
+    }
+
+    func testSimpleChordSheetOverflowChordsDistributeEvenlyFromFirstSlot() throws {
+        var chart = Chart.blank(title: "Simple Chord Overflow Slots", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let chordTexts = ["C", "D", "E", "F", "G", "A"]
+
+        for (index, text) in chordTexts.enumerated() {
+            let fraction = Double(index) / Double(chordTexts.count)
+            let chordID = try XCTUnwrap(
+                chart.appendRecognizedChordEvent(
+                    try ChordSymbolParser.parse(text),
+                    rawInput: text,
+                    to: measureID,
+                    atFraction: fraction
+                )
+            )
+            _ = chart.setChordEventManualLaneFraction(fraction, for: chordID)
+        }
+
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1400, height: 1400)
+        )
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chordLayouts = measure.chordLayouts
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
+            for: measure,
+            referenceFrame: measure.chordBandFrame
+        )
+        let firstSlotX = try XCTUnwrap(simpleChordPlacementGuideXs(for: measure, in: chart).first)
+        let expectedSpacing = (guideFrame.maxX - firstSlotX) / CGFloat(chordTexts.count)
+        let expectedStarts = chordTexts.indices.map { index in
+            firstSlotX + expectedSpacing * CGFloat(index)
+        }
+
+        XCTAssertEqual(chordLayouts.map(\.text), chordTexts)
+        for (chordLayout, expectedStart) in zip(chordLayouts, expectedStarts) {
+            XCTAssertEqual(chordLayout.fitFrame.minX, expectedStart, accuracy: 0.001)
+            XCTAssertEqual(chordLayout.frame.minX, expectedStart, accuracy: 0.001)
+        }
+    }
+
+    func testSimpleChordSheetSingleChordBeatSubdivisionsPreserveSavedPositionsWithoutMovingRenderSlot() throws {
         var chart = Chart.blank(title: "Simple Beat Placement", measureCount: 6, layoutStyle: .simpleChordSheet)
         let measureIDs = chart.measures.map(\.id)
         let targetFractions = [0.05, 0.26, 0.38, 0.51, 0.74, 0.86]
@@ -1300,21 +1385,19 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(savedPositions, expectedPositions)
         XCTAssertEqual(chordLayouts.map(\.text), Array(repeating: "C", count: measureIDs.count))
 
-        for (leftLayout, rightLayout) in zip(chordLayouts, chordLayouts.dropFirst()) {
-            XCTAssertGreaterThan(
-                rightLayout.frame.minX,
-                leftLayout.frame.minX + 8
-            )
+        for (measure, chordLayout) in zip(measures, chordLayouts) {
+            let firstGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: measure, in: chart).first)
+            XCTAssertEqual(chordLayout.fitFrame.minX, firstGuideX, accuracy: 0.001)
+            XCTAssertEqual(chordLayout.frame.minX, firstGuideX, accuracy: 0.001)
         }
 
         let lastMeasure = try XCTUnwrap(measures.last)
         let lastChord = try XCTUnwrap(chordLayouts.last)
-        let trailingGap = lastMeasure.chordBandFrame.maxX - lastChord.frame.maxX
-        XCTAssertLessThan(trailingGap, lastMeasure.chordBandFrame.width * 0.12)
+        XCTAssertLessThan(lastChord.fitFrame.minX, lastMeasure.chordBandFrame.midX)
         XCTAssertLessThanOrEqual(lastChord.frame.maxX, lastMeasure.chordBandFrame.maxX)
     }
 
-    func testSimpleChordSheetLateSingleLongChordAnchorsToLateBeatPosition() throws {
+    func testSimpleChordSheetLateSingleLongChordKeepsFirstRenderSlot() throws {
         var chart = Chart.blank(title: "Simple Late Chord Fit", measureCount: 3, layoutStyle: .simpleChordSheet)
         let measureIDs = chart.measures.map(\.id)
         let chordText = "Db7(#11)/F#"
@@ -1346,9 +1429,12 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             XCTAssertGreaterThan(width, CGFloat(18))
         }
 
-        XCTAssertGreaterThan(chordLayouts[1].frame.minX, chordLayouts[0].frame.minX)
-        XCTAssertGreaterThan(chordLayouts[2].frame.minX, chordLayouts[1].frame.minX)
-        XCTAssertLessThan(chordLayouts[2].frame.width, beatOneWidth)
+        for (measure, chordLayout) in zip(layout.systems.flatMap(\.measures).prefix(3), chordLayouts) {
+            let firstGuideX = try XCTUnwrap(simpleChordPlacementGuideXs(for: measure, in: chart).first)
+            XCTAssertEqual(chordLayout.fitFrame.minX, firstGuideX, accuracy: 0.001)
+            XCTAssertEqual(chordLayout.frame.minX, firstGuideX, accuracy: 0.001)
+        }
+        XCTAssertEqual(chordLayouts[2].frame.width, beatOneWidth, accuracy: 0.001)
         XCTAssertLessThanOrEqual(chordLayouts[2].frame.maxX, layout.systems.flatMap(\.measures)[2].chordBandFrame.maxX)
     }
 
@@ -3704,6 +3790,22 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         }
         gaps.append(chordBandFrame.maxX - lastChord.frame.maxX)
         return gaps
+    }
+
+    private func simpleChordPlacementGuideXs(
+        for measureLayout: LeadSheetMeasureLayout,
+        in chart: Chart,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [CGFloat] {
+        let measureID = try XCTUnwrap(measureLayout.sourceMeasureID, file: file, line: line)
+        let measure = try XCTUnwrap(chart.measure(id: measureID), file: file, line: line)
+        let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
+            for: measureLayout,
+            referenceFrame: measureLayout.chordBandFrame
+        )
+        return LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)
     }
 
     private func makeBlankLeadSheet() -> Chart {
