@@ -1,7 +1,14 @@
 import Combine
 import CryptoKit
 import Foundation
+import PDFKit
 import Supabase
+
+private enum IChartForumPDFMetadata {
+    static func pageCount(in data: Data) -> Int {
+        max(PDFDocument(data: data)?.pageCount ?? 1, 1)
+    }
+}
 
 struct IChartForumSongSummary: Identifiable, Equatable {
     let song: ForumSong
@@ -834,7 +841,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
             layoutStyle: post.layoutStyle,
             transpositionView: .concert,
             chordTranspositionSemitones: 0,
-            pageCount: 1,
+            pageCount: IChartForumPDFMetadata.pageCount(in: data),
             fileSizeBytes: data.count,
             exportedAt: Date()
         )
@@ -1729,7 +1736,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             layoutStyle: post.layoutStyle,
             transpositionView: .concert,
             chordTranspositionSemitones: 0,
-            pageCount: 1,
+            pageCount: IChartForumPDFMetadata.pageCount(in: data),
             fileSizeBytes: data.count,
             exportedAt: Date()
         )

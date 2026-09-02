@@ -34,87 +34,7 @@ struct ActiveChordResizeDrag {
     var startLocation: CGPoint
 }
 
-enum LeadSheetChordMovePositionGuidePolicy {
-    static let snapTolerance: CGFloat = 18
-    static let leadingArtifactInset: CGFloat = 12
-    static let artifactGap: CGFloat = 6
-
-    static func guideFractions(for meter: Meter) -> [Double] {
-        let beatCount = max(1, meter.numerator)
-        return (0..<beatCount).map { beatIndex in
-            Double(beatIndex) / Double(beatCount)
-        }
-    }
-
-    static func guideXs(for meter: Meter, in referenceFrame: CGRect) -> [CGFloat] {
-        guideFractions(for: meter).map { fraction in
-            referenceFrame.minX + referenceFrame.width * CGFloat(fraction)
-        }
-    }
-
-    static func guideFrame(
-        for measure: LeadSheetMeasureLayout,
-        referenceFrame: CGRect
-    ) -> CGRect {
-        let leadingRepeatMaxX = measure.repeatMarkerLayouts
-            .filter { $0.edge == .leading }
-            .map(\.frame.maxX)
-            .max()
-        let reservedArtifactMaxX = [
-            leadingRepeatMaxX,
-            measure.meterChangeFrame?.maxX
-        ]
-            .compactMap { $0 }
-            .max()
-        let artifactSafeMinX = reservedArtifactMaxX.map { $0 + artifactGap }
-            ?? referenceFrame.minX
-        let preferredMinX = max(
-            referenceFrame.minX + leadingArtifactInset,
-            artifactSafeMinX
-        )
-        let resolvedMinX = min(
-            max(referenceFrame.minX, preferredMinX),
-            max(referenceFrame.minX, referenceFrame.maxX - 1)
-        )
-
-        return CGRect(
-            x: resolvedMinX,
-            y: referenceFrame.minY,
-            width: max(1, referenceFrame.maxX - resolvedMinX),
-            height: referenceFrame.height
-        )
-    }
-
-    static func resolvedFraction(
-        rawFraction: Double,
-        referenceFrame: CGRect,
-        guideFrame: CGRect,
-        meter: Meter,
-        tolerance: CGFloat = snapTolerance
-    ) -> (fraction: Double, activeGuideX: CGFloat?) {
-        let clampedFraction = ChordEvent.clampedManualLaneFraction(rawFraction)
-        let rawX = referenceFrame.minX + referenceFrame.width * CGFloat(clampedFraction)
-        let guideXs = guideXs(for: meter, in: guideFrame)
-        guard let closestGuideX = guideXs.min(by: { lhs, rhs in
-            abs(lhs - rawX) < abs(rhs - rawX)
-        }) else {
-            return (clampedFraction, nil)
-        }
-
-        guard abs(closestGuideX - rawX) <= tolerance else {
-            return (clampedFraction, nil)
-        }
-
-        let snappedFraction = Double(
-            (closestGuideX - referenceFrame.minX)
-                / max(1, referenceFrame.width)
-        )
-        return (
-            ChordEvent.clampedManualLaneFraction(snappedFraction),
-            closestGuideX
-        )
-    }
-}
+typealias LeadSheetChordMovePositionGuidePolicy = LeadSheetChordPlacementGuidePolicy
 
 enum LeadSheetChordMoveDragPolicy {
     static func previewFrame(
@@ -314,7 +234,7 @@ enum LeadSheetCanvasInteractionTargeting {
             let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                 lastMeasure,
                 in: system,
-                paperFrame: pageLayout.paperFrame,
+                paperFrame: pageLayout.paperFrame(for: system),
                 layoutStyle: layoutStyle
             )
             if displayMeasure.frame.insetBy(dx: -6, dy: -6).contains(location) {
@@ -438,7 +358,7 @@ enum LeadSheetCanvasInteractionTargeting {
         for system in pageLayout.systems {
             guard let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
-                paperFrame: pageLayout.paperFrame
+                paperFrame: pageLayout.paperFrame(for: system)
             ),
                   laneFrame.insetBy(dx: -8, dy: -8).contains(measureAnchor) else {
                 continue

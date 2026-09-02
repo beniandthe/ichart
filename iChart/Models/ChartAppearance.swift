@@ -432,7 +432,7 @@ struct ChartTypographySettings: Codable, Hashable {
         )
     }
 
-    static func `default`(for notationFont: NotationFontPreset = .petaluma) -> ChartTypographySettings {
+    static func `default`(for notationFont: NotationFontPreset = .finaleBroadway) -> ChartTypographySettings {
         ChartTypographySettings(matchedSet: ChartFontFamilyPreset(notationFont: notationFont))
     }
 

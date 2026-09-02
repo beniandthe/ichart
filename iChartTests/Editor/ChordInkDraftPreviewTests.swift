@@ -1842,19 +1842,51 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(renderedChordSystemIndex, 2)
         XCTAssertTrue(chart.systems[0].measures.allSatisfy(\.chordEvents.isEmpty))
         XCTAssertTrue(chart.systems[1].measures.allSatisfy(\.chordEvents.isEmpty))
-        XCTAssertEqual(chart.systems[2].measures.first?.chordEvents.map { $0.symbol.displayText }, ["D△7"])
-        let renderedLane = try XCTUnwrap(
+        let targetMeasure = try XCTUnwrap(chart.systems[2].measures.first)
+        let targetChord = try XCTUnwrap(targetMeasure.chordEvents.first)
+        XCTAssertEqual(targetMeasure.chordEvents.map { $0.symbol.displayText }, ["D△7"])
+        let renderedMeasure = try XCTUnwrap(renderedLayout.systems[2].measures.first)
+        let commitLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: pageSize,
+            includesChordInkContinuationLanes: true
+        )
+        let commitMeasure = try XCTUnwrap(commitLayout.systems[2].measures.first)
+        let commitLane = try XCTUnwrap(
             LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
-                for: renderedLayout.systems[2],
-                paperFrame: renderedLayout.paperFrame
+                for: commitLayout.systems[2],
+                paperFrame: commitLayout.paperFrame
             )
         )
-        let renderedChordLayout = try XCTUnwrap(renderedLayout.systems[2].measures.first?.chordLayouts.first)
+        let expectedLaneX = commitLane.minX + commitLane.width * 0.64
+        let expectedStoredFraction = Double(
+            (expectedLaneX - commitMeasure.chordBandFrame.minX)
+                / max(1, commitMeasure.chordBandFrame.width)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(targetChord.manualLaneFraction),
+            expectedStoredFraction,
+            accuracy: 0.0001
+        )
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
+            for: renderedMeasure,
+            referenceFrame: renderedMeasure.chordBandFrame
+        )
+        let firstGuideX = try XCTUnwrap(
+            LeadSheetChordPlacementGuidePolicy
+                .guideXs(
+                    for: targetMeasure.resolvedMeter(defaultMeter: chart.defaultMeter),
+                    in: guideFrame
+                )
+                .first
+        )
+        let renderedChordLayout = try XCTUnwrap(renderedMeasure.chordLayouts.first)
         XCTAssertEqual(
             renderedChordLayout.frame.minX,
-            renderedLane.minX + renderedLane.width * 0.64,
-            accuracy: 8
+            firstGuideX,
+            accuracy: 0.001
         )
+        XCTAssertEqual(renderedChordLayout.fitFrame.minX, firstGuideX, accuracy: 0.001)
     }
 
     func testDraftBatchRenderKeepsDraftChordsOnSeparateContinuationLines() throws {

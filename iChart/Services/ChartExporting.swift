@@ -172,32 +172,35 @@ private struct ChartPDFRenderer {
             for: chart,
             pageSize: CGSize(width: layoutCanvasWidth, height: minimumLayoutCanvasHeight)
         )
-        let pageRect = CGRect(origin: .zero, size: pageLayout.paperFrame.size)
+        let firstPageRect = CGRect(origin: .zero, size: pageLayout.paperFrame.size)
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
             kCGPDFContextCreator as String: "iChart",
             kCGPDFContextTitle as String: chart.title
         ]
 
-        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+        let renderer = UIGraphicsPDFRenderer(bounds: firstPageRect, format: format)
 
         return renderer.pdfData { rendererContext in
-            rendererContext.beginPage()
-            UIColor.white.setFill()
-            UIBezierPath(rect: pageRect).fill()
+            for paperPage in pageLayout.pages {
+                let pageRect = CGRect(origin: .zero, size: paperPage.frame.size)
+                rendererContext.beginPage(withBounds: pageRect, pageInfo: [:])
+                UIColor.white.setFill()
+                UIBezierPath(rect: pageRect).fill()
 
-            guard let cgContext = UIGraphicsGetCurrentContext() else {
-                return
+                guard let cgContext = UIGraphicsGetCurrentContext() else {
+                    return
+                }
+
+                cgContext.saveGState()
+                cgContext.translateBy(
+                    x: -paperPage.frame.minX,
+                    y: -paperPage.frame.minY
+                )
+                drawLeadSheetPage(pageLayout, paperPage: paperPage, in: cgContext)
+                cgContext.restoreGState()
+                drawForumCreditFooter(in: pageRect)
             }
-
-            cgContext.saveGState()
-            cgContext.translateBy(
-                x: -pageLayout.paperFrame.minX,
-                y: -pageLayout.paperFrame.minY
-            )
-            drawLeadSheetPage(pageLayout, in: cgContext)
-            cgContext.restoreGState()
-            drawForumCreditFooter(in: pageRect)
         }
     }
 
@@ -223,11 +226,18 @@ private struct ChartPDFRenderer {
         NSString(string: forumCredit.footerText).draw(in: footerRect, withAttributes: attributes)
     }
 
-    private func drawLeadSheetPage(_ pageLayout: LeadSheetPageLayout, in context: CGContext) {
+    private func drawLeadSheetPage(
+        _ pageLayout: LeadSheetPageLayout,
+        paperPage: LeadSheetPaperPageLayout,
+        in context: CGContext
+    ) {
         let renderer = LeadSheetNotationRenderer(chart: chart)
-        renderer.drawPaper(pageLayout.paperFrame, in: context, showsShadow: false)
-        renderer.drawHeader(pageLayout.header)
-        if chart.headerInputMode == .handwritten {
+        renderer.drawPaper(paperPage.frame, in: context, showsShadow: false)
+        if paperPage.includesHeader {
+            renderer.drawHeader(pageLayout.header)
+        }
+        if paperPage.includesHeader,
+           chart.headerInputMode == .handwritten {
             LeadSheetSavedInkRenderer.drawHeaderInk(
                 chart.pageHandwrittenHeaderData,
                 coordinateSpace: chart.pageHandwrittenHeaderCoordinateSpace,
@@ -235,15 +245,21 @@ private struct ChartPDFRenderer {
             )
         }
 
-        for system in pageLayout.systems {
-            drawSystem(system, paperFrame: pageLayout.paperFrame, using: renderer)
+        let pageSystems = pageLayout.systems.filter { system in
+            paperPage.systemIDs.contains(system.id)
+        }
+        for system in pageSystems {
+            drawSystem(system, paperFrame: paperPage.frame, using: renderer)
         }
 
+        context.saveGState()
+        UIBezierPath(rect: paperPage.frame).addClip()
         LeadSheetSavedInkRenderer.drawPageInk(
             chart.pageHandwrittenNotationData,
             coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
             in: pageLayout
         )
+        context.restoreGState()
     }
 
     private func drawSystem(
