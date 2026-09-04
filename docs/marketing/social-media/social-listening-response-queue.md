@@ -25,6 +25,8 @@ Use with: `social-listening-growth-system.md`
 | SL-025 | High | Posted 2026-08-05 | TikTok | https://www.tiktok.com/@lydianmood34/video/7532996484686548254 | gigging musicians / chart learners | Two days to learn 24 songs; chart/number-system language. | Commented from `@useichart`. |
 | SL-026 | High | Posted 2026-08-05 | TikTok | https://www.tiktok.com/@philipconradmusic/video/7653921505537019166 | bassists / live-gig chart users | Quick charts, iReal Pro, instant transposition. | Commented from `@useichart` with forum-angle reply. |
 | SL-027 | Medium | Posted 2026-08-05 | TikTok | https://www.tiktok.com/@callumgarland.guitarist/video/7476771652827680022 | guitarists / gig chart app users | forScore / iReal Pro chart-app split. | Commented from `@useichart` with founder-context reply. |
+| SL-028 | High | Posted 2026-09-03 | Threads | https://www.threads.com/@novelleymusic/post/DcwbRsVCAWy | gigging musicians / live chart users | Musician asked whether performers play from memory or keep lyrics/chords visible; high-fit discussion around charts as quick-reference material. | Replied from `@useichart` with approved "Shameless plug here" tone and `https://useichart.com` link. |
+| SL-029 | High | Posted 2026-09-03 | Threads | https://www.threads.com/@useichart/post/Dc13OmCEpCd | Musicians of Threads / teachers / bandleaders / gigging musicians | Direct post into `Musicians of Threads` topic with 70.5K members; positioned iChart 1.2.1 around handwritten chart speed, editing, transposition, organization, lessons, gigs, and band distribution. | Posted two-part thread from `@useichart`; continuation: https://www.threads.com/@useichart/post/Dc13O9kErPJ. |
 
 ## Curated Follow Queue
 

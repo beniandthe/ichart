@@ -20,6 +20,9 @@ follow-up.
 
 - Lead with the musician problem, not the product.
 - If posting as the founder, disclose it warmly: "Hi! I built an app, iChart..."
+- For product-introduction replies, a casual "Shameless plug here:" setup is
+  acceptable when the thread naturally invites tools, gigs, charts, or builder
+  context. Keep the pitch transparent, human, and tied to the exact problem.
 - Do not drop a link unless it directly answers the question or someone asks.
 - Do not criticize iReal Pro, forScore, OnSong, Finale, Sibelius, or MuseScore.
 - Skip etiquette-only iPad-on-stage or gear threads unless chart creation,
