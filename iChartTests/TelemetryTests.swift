@@ -88,6 +88,38 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [secondEvent.clientEventID])
     }
 
+    func testLiveTelemetryIsDisabledDuringXCTest() {
+        let configuration = IChartSupabaseConfiguration(
+            url: URL(string: "https://example.supabase.co")!,
+            publishableKey: "publishable-test-key"
+        )
+
+        XCTAssertFalse(IChartTelemetryService.allowsLiveTelemetry(environment: [
+            "XCTestConfigurationFilePath": "/tmp/iChart.xctestconfiguration"
+        ]))
+        XCTAssertNil(IChartTelemetryService.live(
+            clients: nil,
+            configuration: configuration,
+            environment: [
+                "XCTestConfigurationFilePath": "/tmp/iChart.xctestconfiguration"
+            ]
+        ))
+    }
+
+    func testLiveTelemetryCanStartOutsideXCTestWhenConfigured() {
+        let configuration = IChartSupabaseConfiguration(
+            url: URL(string: "https://example.supabase.co")!,
+            publishableKey: "publishable-test-key"
+        )
+
+        XCTAssertTrue(IChartTelemetryService.allowsLiveTelemetry(environment: [:]))
+        XCTAssertNotNil(IChartTelemetryService.live(
+            clients: nil,
+            configuration: configuration,
+            environment: [:]
+        ))
+    }
+
     private func event(named name: String) -> IChartTelemetryEvent {
         IChartTelemetryEvent(
             clientEventID: UUID(),

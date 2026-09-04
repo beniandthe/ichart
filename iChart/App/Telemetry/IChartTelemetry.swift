@@ -177,8 +177,13 @@ actor IChartTelemetryService {
         self.now = now
     }
 
-    static func live(clients: IChartSupabaseClients?) -> IChartTelemetryService? {
-        guard let configuration = IChartSupabaseConfiguration.current() else {
+    static func live(
+        clients: IChartSupabaseClients?,
+        configuration: IChartSupabaseConfiguration? = IChartSupabaseConfiguration.current(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> IChartTelemetryService? {
+        guard Self.allowsLiveTelemetry(environment: environment),
+              let configuration else {
             return nil
         }
 
@@ -192,6 +197,20 @@ actor IChartTelemetryService {
             queueStore: .live(),
             installationID: resolvedInstallationID()
         )
+    }
+
+    static func allowsLiveTelemetry(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        ![
+            "XCTestBundlePath",
+            "XCTestConfigurationFilePath",
+            "XCInjectBundleInto"
+        ].contains { key in
+            guard let value = environment[key] else {
+                return false
+            }
+
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     func record(_ eventName: String, properties: IChartTelemetryProperties = [:]) async {
