@@ -2969,6 +2969,11 @@ struct EditorView: View {
         let generatedSequenceLimitCount = payloads.filter {
             $0.result.metrics.compositionMetrics.hitGeneratedSequenceLimit
         }.count
+        let issueBuckets = ChordInkPreviewIssueBucketPolicy.counts(
+            results: payloads.map(\.result),
+            decisions: decisions,
+            barlineCount: updatedState.draftBarlines.count
+        )
         let matchedConfidences = payloads.compactMap { payload -> Double? in
             payload.result.match == nil ? nil : payload.result.confidence
         }
@@ -2978,7 +2983,10 @@ struct EditorView: View {
 
         var properties: IChartTelemetryProperties = [
             "batch_size": .int(payloads.count),
+            "barline_count": .int(updatedState.draftBarlines.count),
+            "barline_sequence_issue_count": .int(issueBuckets.barlineSequenceIssueCount),
             "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
+            "candidate_limit_issue_count": .int(issueBuckets.candidateLimitIssueCount),
             "close_race_count": .int(closeRaceCount),
             "cluster_count": .int(payloads.reduce(0) { $0 + $1.result.metrics.clusterCount }),
             "confirm_count": .int(confirmCount),
@@ -2991,9 +2999,14 @@ struct EditorView: View {
             "draft_count": .int(updatedState.draftChords.count),
             "flow": .string(ChordInkRecognitionFlow.draftPreview.telemetryValue),
             "generated_sequence_limit_count": .int(generatedSequenceLimitCount),
+            "alteration_issue_count": .int(issueBuckets.alterationIssueCount),
+            "dim_quality_issue_count": .int(issueBuckets.dimQualityIssueCount),
+            "extension_issue_count": .int(issueBuckets.extensionIssueCount),
+            "issue_count": .int(issueBuckets.issueCount),
             "layout_style": .string(layoutStyle),
             "matched_count": .int(matchedCount),
             "no_read_count": .int(noReadCount),
+            "quality_issue_count": .int(issueBuckets.qualityIssueCount),
             "raw_candidate_count": .int(payloads.reduce(0) { $0 + $1.result.rawCandidates.count }),
             "recognition_target_count": .int(payloads.count),
             "result": .string(previewResultSummary(
@@ -3001,8 +3014,13 @@ struct EditorView: View {
                 matchedCount: matchedCount,
                 noReadCount: noReadCount
             )),
+            "root_accidental_issue_count": .int(issueBuckets.rootAccidentalIssueCount),
+            "root_issue_count": .int(issueBuckets.rootIssueCount),
+            "slash_bass_issue_count": .int(issueBuckets.slashBassIssueCount),
             "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
+            "triangle_quality_issue_count": .int(issueBuckets.triangleQualityIssueCount),
             "trusted_count": .int(trustedCount),
+            "unknown_issue_count": .int(issueBuckets.unknownIssueCount),
             "unresolved_count": .int(updatedState.unresolvedChordCount)
         ]
 

@@ -2169,6 +2169,18 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             "no_read_count": .int(1),
             "close_race_count": .int(1),
             "generated_sequence_limit_count": .int(0),
+            "issue_count": .int(2),
+            "root_issue_count": .int(1),
+            "root_accidental_issue_count": .int(1),
+            "quality_issue_count": .int(1),
+            "triangle_quality_issue_count": .int(1),
+            "dim_quality_issue_count": .int(0),
+            "extension_issue_count": .int(1),
+            "alteration_issue_count": .int(0),
+            "slash_bass_issue_count": .int(0),
+            "barline_sequence_issue_count": .int(1),
+            "candidate_limit_issue_count": .int(0),
+            "unknown_issue_count": .int(0),
             "raw_candidate_count": .int(4),
             "recognition_target_count": .int(2),
             "cluster_count": .int(3),
@@ -2186,6 +2198,18 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(sanitized["no_read_count"], .int(1))
         XCTAssertEqual(sanitized["close_race_count"], .int(1))
         XCTAssertEqual(sanitized["generated_sequence_limit_count"], .int(0))
+        XCTAssertEqual(sanitized["issue_count"], .int(2))
+        XCTAssertEqual(sanitized["root_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["root_accidental_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["quality_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["triangle_quality_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["dim_quality_issue_count"], .int(0))
+        XCTAssertEqual(sanitized["extension_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["alteration_issue_count"], .int(0))
+        XCTAssertEqual(sanitized["slash_bass_issue_count"], .int(0))
+        XCTAssertEqual(sanitized["barline_sequence_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["candidate_limit_issue_count"], .int(0))
+        XCTAssertEqual(sanitized["unknown_issue_count"], .int(0))
         XCTAssertEqual(sanitized["raw_candidate_count"], .int(4))
         XCTAssertEqual(sanitized["recognition_target_count"], .int(2))
         XCTAssertEqual(sanitized["cluster_count"], .int(3))
