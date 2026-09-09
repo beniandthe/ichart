@@ -347,6 +347,81 @@ enum LeadSheetRoadmapLabelFitting {
     }
 }
 
+enum LeadSheetRoadmapMarkerTypography {
+    private static let notationSymbolMultiplier: CGFloat = 1.12
+    private static let targetNotationGlyphHeightInStaffSpaces: CGFloat = 3.5
+    private static let minimumNormalizationScale: CGFloat = 0.65
+    private static let maximumNormalizationScale: CGFloat = 1.85
+
+    static func baseFontSize(
+        layoutStyle: ChartLayoutStyle,
+        type: RoadmapType,
+        scale: CGFloat
+    ) -> CGFloat {
+        if layoutStyle == .simpleChordSheet {
+            return (type.isStandaloneNotationMarker ? 22 : 20) * scale
+        }
+
+        return (layoutStyle == .rhythmSectionSheet ? 15.2 : 14.8) * scale
+    }
+
+    static func minimumFontSize(
+        layoutStyle: ChartLayoutStyle,
+        type: RoadmapType,
+        scale: CGFloat
+    ) -> CGFloat {
+        if layoutStyle == .simpleChordSheet {
+            return (type.isStandaloneNotationMarker ? 21 : 17.5) * scale
+        }
+
+        return (layoutStyle == .rhythmSectionSheet ? 8.5 : 8) * scale
+    }
+
+    static func notationSymbolPointSize(
+        for symbolGlyph: String,
+        baseFontSize: CGFloat,
+        notationFont: NotationFontPreset
+    ) -> CGFloat {
+        baseFontSize
+            * notationSymbolMultiplier
+            * notationSymbolNormalizationScale(
+                for: symbolGlyph,
+                notationFont: notationFont
+            )
+    }
+
+    static func notationSymbolNormalizationScale(
+        for symbolGlyph: String,
+        notationFont: NotationFontPreset
+    ) -> CGFloat {
+        guard let symbol = notationSymbol(for: symbolGlyph),
+              let boundingBox = SmuflFontMetadataStore.metrics(
+                for: symbol,
+                in: notationFont.releaseSafePreset
+              )?.boundingBox,
+              boundingBox.height.isFinite,
+              boundingBox.height > 0 else {
+            return 1
+        }
+
+        let scale = targetNotationGlyphHeightInStaffSpaces / CGFloat(boundingBox.height)
+        return min(max(scale, minimumNormalizationScale), maximumNormalizationScale)
+    }
+
+    private static func notationSymbol(
+        for glyph: String
+    ) -> NotationGlyphCatalog.Symbol? {
+        switch glyph {
+        case NotationGlyphCatalog.coda:
+            return .coda
+        case NotationGlyphCatalog.segno:
+            return .segno
+        default:
+            return nil
+        }
+    }
+}
+
 enum LeadSheetRoadmapMarkerLabelGeometry {
     static func labelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
         if markerLayout.type.containsNotationMarkerGlyph {
@@ -359,6 +434,87 @@ enum LeadSheetRoadmapMarkerLabelGeometry {
         }
 
         return markerLayout.frame.insetBy(dx: 2, dy: 1)
+    }
+}
+
+enum LeadSheetStaffLineGeometry {
+    static func horizontalSpan(
+        for system: LeadSheetSystemLayout,
+        layoutStyle: ChartLayoutStyle
+    ) -> (minX: CGFloat, maxX: CGFloat) {
+        guard layoutStyle == .rhythmSectionSheet,
+              let firstMeasure = system.measures.first,
+              let lastMeasure = system.measures.last else {
+            return (system.frame.minX, system.frame.maxX)
+        }
+
+        let structuralStartX = rhythmSectionSystemStartX(
+            for: firstMeasure,
+            staffSpace: system.staffSpace
+        )
+        // The first Rhythm measure owns a leading setup extension for the clef,
+        // key signature, and (on the first system) meter. A leading repeat sits
+        // at the musical measure boundary, to the right of that extension. Staff
+        // lines still have to run behind the setup notation, so a repeat must
+        // never become the visible start of the staff.
+        let startX = min(system.frame.minX, structuralStartX)
+        let endX = rhythmSectionSystemEndX(
+            for: lastMeasure,
+            staffSpace: system.staffSpace
+        )
+        let minX = min(startX, endX)
+        let maxX = max(startX, endX)
+
+        // Repeat markers and editable measure frames are derived independently.
+        // Never let a transient invalid or collapsed edge suppress the staff.
+        guard minX.isFinite,
+              maxX.isFinite,
+              maxX - minX >= max(1, system.staffSpace) else {
+            return (system.frame.minX, system.frame.maxX)
+        }
+
+        return (minX, maxX)
+    }
+
+    private static func rhythmSectionSystemStartX(
+        for measure: LeadSheetMeasureLayout,
+        staffSpace: CGFloat
+    ) -> CGFloat {
+        if let leadingRepeatFrame = measure.repeatMarkerLayouts
+            .filter({ $0.edge == .leading })
+            .map(\.frame)
+            .min(by: { $0.minX < $1.minX }) {
+            return leadingRepeatFrame.minX
+        }
+
+        let barline = measure.leadingBarline ?? .single
+        let x = measure.frame.minX
+        switch barline {
+        case .single:
+            return x
+        case .double, .final:
+            return x - LeadSheetBarlineMetrics.separation(staffSpace: staffSpace)
+        }
+    }
+
+    private static func rhythmSectionSystemEndX(
+        for measure: LeadSheetMeasureLayout,
+        staffSpace: CGFloat
+    ) -> CGFloat {
+        if let trailingRepeatFrame = measure.repeatMarkerLayouts
+            .filter({ $0.edge == .trailing })
+            .map(\.frame)
+            .max(by: { $0.maxX < $1.maxX }) {
+            return trailingRepeatFrame.maxX
+        }
+
+        let x = measure.trailingBarlineFrame.midX
+        switch measure.barlineAfter {
+        case .single:
+            return x
+        case .double, .final:
+            return x + LeadSheetBarlineMetrics.separation(staffSpace: staffSpace) / 2
+        }
     }
 }
 
@@ -615,7 +771,10 @@ struct LeadSheetNotationRenderer {
 
     func drawStaffLines(for system: LeadSheetSystemLayout) {
         let staffSpace = system.staffSpace
-        let horizontalSpan = staffLineHorizontalSpan(for: system, staffSpace: staffSpace)
+        let horizontalSpan = LeadSheetStaffLineGeometry.horizontalSpan(
+            for: system,
+            layoutStyle: chart.layoutStyle
+        )
         for lineY in system.staffLineYPositions {
             let path = UIBezierPath()
             path.move(to: CGPoint(x: horizontalSpan.minX, y: lineY))
@@ -623,62 +782,6 @@ struct LeadSheetNotationRenderer {
             path.lineWidth = style.staffLineWidth(staffSpace: staffSpace)
             style.inkColor.withAlphaComponent(style.staffLineAlpha).setStroke()
             path.stroke()
-        }
-    }
-
-    private func staffLineHorizontalSpan(
-        for system: LeadSheetSystemLayout,
-        staffSpace: CGFloat
-    ) -> (minX: CGFloat, maxX: CGFloat) {
-        guard chart.layoutStyle == .rhythmSectionSheet,
-              let firstMeasure = system.measures.first,
-              let lastMeasure = system.measures.last else {
-            return (system.frame.minX, system.frame.maxX)
-        }
-
-        let startX = rhythmSectionSystemStartX(for: firstMeasure, staffSpace: staffSpace)
-        let endX = rhythmSectionSystemEndX(for: lastMeasure, staffSpace: staffSpace)
-        return (min(startX, endX), max(startX, endX))
-    }
-
-    private func rhythmSectionSystemStartX(
-        for measure: LeadSheetMeasureLayout,
-        staffSpace: CGFloat
-    ) -> CGFloat {
-        if let leadingRepeatFrame = measure.repeatMarkerLayouts
-            .filter({ $0.edge == .leading })
-            .map(\.frame)
-            .min(by: { $0.minX < $1.minX }) {
-            return leadingRepeatFrame.minX
-        }
-
-        let barline = measure.leadingBarline ?? .single
-        let x = measure.frame.minX
-        switch barline {
-        case .single:
-            return x
-        case .double, .final:
-            return x - style.barlineSeparation(staffSpace: staffSpace)
-        }
-    }
-
-    private func rhythmSectionSystemEndX(
-        for measure: LeadSheetMeasureLayout,
-        staffSpace: CGFloat
-    ) -> CGFloat {
-        if let trailingRepeatFrame = measure.repeatMarkerLayouts
-            .filter({ $0.edge == .trailing })
-            .map(\.frame)
-            .max(by: { $0.maxX < $1.maxX }) {
-            return trailingRepeatFrame.maxX
-        }
-
-        let x = measure.trailingBarlineFrame.midX
-        switch measure.barlineAfter {
-        case .single:
-            return x
-        case .double, .final:
-            return x + style.barlineSeparation(staffSpace: staffSpace) / 2
         }
     }
 
@@ -1280,12 +1383,11 @@ struct LeadSheetNotationRenderer {
     }
 
     private func roadmapMarkerBaseFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
-        let scale = markerLayout.scale
-        if chart.layoutStyle == .simpleChordSheet {
-            return (markerLayout.type.isStandaloneNotationMarker ? 22 : 20) * scale
-        }
-
-        return (chart.layoutStyle == .rhythmSectionSheet ? 15.2 : 14.8) * scale
+        LeadSheetRoadmapMarkerTypography.baseFontSize(
+            layoutStyle: chart.layoutStyle,
+            type: markerLayout.type,
+            scale: markerLayout.scale
+        )
     }
 
     private func roadmapMarkerLabelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
@@ -1293,17 +1395,20 @@ struct LeadSheetNotationRenderer {
     }
 
     private func roadmapMarkerMinimumFontSize(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGFloat {
-        let scale = markerLayout.scale
-        if chart.layoutStyle == .simpleChordSheet {
-            return (markerLayout.type.isStandaloneNotationMarker ? 21 : 17.5) * scale
-        }
-
-        return (chart.layoutStyle == .rhythmSectionSheet ? 8.5 : 8) * scale
+        LeadSheetRoadmapMarkerTypography.minimumFontSize(
+            layoutStyle: chart.layoutStyle,
+            type: markerLayout.type,
+            scale: markerLayout.scale
+        )
     }
 
     private func roadmapSymbolFont(for symbolGlyph: String, baseFont: UIFont) -> UIFont {
         style.notationGlyphFont(
-            size: baseFont.pointSize * 1.12,
+            size: LeadSheetRoadmapMarkerTypography.notationSymbolPointSize(
+                for: symbolGlyph,
+                baseFontSize: baseFont.pointSize,
+                notationFont: style.notationFont
+            ),
             requiring: symbolGlyph
         )
     }

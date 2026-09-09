@@ -5,6 +5,55 @@ import XCTest
 @testable import iChart
 
 final class ChordInkDraftPreviewTests: XCTestCase {
+    func testCachedRecognitionReusesResolvedDraftOnlyForSameAnchorAndDrawing() {
+        let measureID = UUID()
+        let drawingData = Data([0x01, 0x02, 0x03])
+        let laneLocation = ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.42)
+        let previousDraft = ChordInkDraft(input: ChordInkDraftInput(
+            measureID: measureID,
+            measureIndex: 3,
+            targetFraction: 0.42,
+            visualOrder: 1.42,
+            laneLocation: laneLocation,
+            layoutPageSize: CGSize(width: 800, height: 1_200),
+            drawingData: drawingData,
+            candidateTexts: ["B", "D"],
+            bestCandidateText: "B",
+            confidence: 3.8,
+            strokeCount: 2
+        ))
+
+        let reused = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
+            previousDraft: previousDraft,
+            measureID: measureID,
+            measureIndex: 3,
+            targetFraction: 0.42,
+            visualOrder: 1.42,
+            laneLocation: laneLocation,
+            layoutPageSize: CGSize(width: 800, height: 1_200),
+            drawingData: drawingData,
+            strokeCount: 2,
+            isRecognitionCacheHit: true
+        )
+        let changedDrawing = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
+            previousDraft: previousDraft,
+            measureID: measureID,
+            measureIndex: 3,
+            targetFraction: 0.42,
+            visualOrder: 1.42,
+            laneLocation: laneLocation,
+            layoutPageSize: CGSize(width: 800, height: 1_200),
+            drawingData: Data([0x09]),
+            strokeCount: 2,
+            isRecognitionCacheHit: true
+        )
+
+        XCTAssertEqual(reused?.candidateTexts, ["B", "D"])
+        XCTAssertEqual(reused?.bestCandidateText, "B")
+        XCTAssertEqual(reused?.confidence, 3.8)
+        XCTAssertNil(changedDrawing)
+    }
+
     func testDraftPreviewRecognitionLoadPolicyRejectsOversizedSingleDraftTarget() {
         XCTAssertTrue(
             ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
@@ -419,6 +468,68 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNil(state.draftChords[1].previewText)
         XCTAssertEqual(state.draftChords[1].drawingData, absorbedDrawingData)
         XCTAssertEqual(state.renderableDraftChords.map(\.previewText), ["C7(b9)"])
+        XCTAssertEqual(state.unresolvedChordCount, 1)
+        XCTAssertFalse(state.canRenderAllDraftChords)
+    }
+
+    func testDraftStateHoldsReadablePreviewWhenSameChordAddsUnresolvedInteriorStrokes() {
+        let measureID = UUID()
+        let previousStrokes = [
+            Self.pkStroke(points: [
+                CGPoint(x: 10, y: 18),
+                CGPoint(x: 10, y: 66)
+            ]),
+            Self.pkStroke(points: [
+                CGPoint(x: 10, y: 20),
+                CGPoint(x: 46, y: 42),
+                CGPoint(x: 12, y: 66)
+            ])
+        ]
+        let interiorDetailStroke = Self.pkStroke(points: [
+            CGPoint(x: 24, y: 28),
+            CGPoint(x: 36, y: 52)
+        ])
+        let previousDrawingData = Self.drawingData(strokes: previousStrokes)
+        let expandedDrawingData = Self.drawingData(
+            strokes: previousStrokes + [interiorDetailStroke]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.42,
+                bestCandidateText: "Bb6(b13)",
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.42),
+                drawingData: previousDrawingData,
+                strokeCount: previousStrokes.count
+            )
+        ])
+        let readableDraftID = state.draftChords[0].id
+
+        state.replaceDraftChords(with: [
+            ChordInkDraftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                targetFraction: 0.42,
+                visualOrder: nil,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.42),
+                layoutPageSize: nil,
+                drawingData: expandedDrawingData,
+                candidateTexts: [],
+                bestCandidateText: nil,
+                confidence: 0,
+                strokeCount: previousStrokes.count + 1
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 2)
+        XCTAssertEqual(state.draftChords[0].id, readableDraftID)
+        XCTAssertEqual(state.draftChords[0].previewText, "Bb6(b13)")
+        XCTAssertEqual(state.draftChords[0].drawingData, previousDrawingData)
+        XCTAssertNil(state.draftChords[1].previewText)
+        XCTAssertEqual(state.draftChords[1].drawingData, expandedDrawingData)
+        XCTAssertEqual(state.renderableDraftChords.map(\.previewText), ["Bb6(b13)"])
         XCTAssertEqual(state.unresolvedChordCount, 1)
         XCTAssertFalse(state.canRenderAllDraftChords)
     }

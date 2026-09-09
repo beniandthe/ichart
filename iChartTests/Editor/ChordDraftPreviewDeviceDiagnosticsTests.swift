@@ -159,4 +159,32 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(loadedEvents.first?.stage, "targeting")
         XCTAssertNil(loadedEvents.first?.layoutStyle)
     }
+
+    func testRecorderRetainsPriorChartEventsUntilSizeLimitIsExceeded() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(
+            url: temporaryDirectory.appendingPathComponent("chord-draft-preview-debug.jsonl")
+        )
+        let firstEvent = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 10),
+            stage: "finish_single"
+        )
+        let nextSession = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 11),
+            stage: "reset"
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        try recorder.append(firstEvent)
+        XCTAssertFalse(try recorder.resetIfLargerThan(8_000_000))
+        try recorder.append(nextSession)
+        XCTAssertEqual(try recorder.loadEvents(), [firstEvent, nextSession])
+
+        XCTAssertTrue(try recorder.resetIfLargerThan(0))
+        XCTAssertEqual(try recorder.loadEvents(), [])
+    }
 }

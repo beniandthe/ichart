@@ -10,6 +10,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         metrics.recordLayoutInvalidation()
         metrics.recordChartWriteBack()
+        metrics.recordInkPersistenceBackingRedrawSkipped()
         metrics.recordDragState(kind: .chordMove, state: .began)
         metrics.recordDragState(kind: .chordMove, state: .changed)
         metrics.recordDragState(kind: .chordMove, state: .changed)
@@ -18,6 +19,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let snapshot = metrics.testSnapshot
         XCTAssertEqual(snapshot["layout_invalidations"], 1)
         XCTAssertEqual(snapshot["chart_writebacks"], 1)
+        XCTAssertEqual(snapshot["ink_persistence_backing_redraw_skips"], 1)
         XCTAssertEqual(snapshot["drag_begins"], 1)
         XCTAssertEqual(snapshot["drag_changes"], 2)
         XCTAssertEqual(snapshot["drag_commits"], 1)
@@ -195,6 +197,32 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
     }
 
+    func testPersistentInkSerializationReportsWhetherItNormalizedTheDrawing() throws {
+        let whiteDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [CGPoint(x: 4, y: 5), CGPoint(x: 30, y: 18)],
+                creationDate: Date(timeIntervalSince1970: 51),
+                color: .white
+            )
+        ])
+        let normalizedDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(whiteDrawing)
+
+        let whiteSerialization = LeadSheetPersistentInkColorPolicy.serialization(for: whiteDrawing)
+        let normalizedSerialization = LeadSheetPersistentInkColorPolicy.serialization(for: normalizedDrawing)
+        let emptySerialization = LeadSheetPersistentInkColorPolicy.serialization(for: PKDrawing())
+
+        XCTAssertTrue(whiteSerialization.normalizationNeeded)
+        XCTAssertFalse(normalizedSerialization.normalizationNeeded)
+        XCTAssertFalse(emptySerialization.normalizationNeeded)
+        XCTAssertNil(emptySerialization.drawingData)
+        let persistedWhiteDrawing = try PKDrawing(data: XCTUnwrap(whiteSerialization.drawingData))
+        XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(persistedWhiteDrawing))
+        XCTAssertEqual(
+            normalizedSerialization.drawingData,
+            LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: normalizedDrawing)
+        )
+    }
+
     func testPersistentInkCoordinateSpaceTransformsLandscapeDrawingIntoPortraitFrame() throws {
         let sourceDrawing = PKDrawing(strokes: [
             stroke(
@@ -267,7 +295,70 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
         XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midX - pageScaledMidX), 20)
+    }
+
+    func testPageInkFromRemovedMeasureDoesNotCompressIntoShorterDocument() throws {
+        let removedMeasureID = UUID()
+        let survivingMeasureID = UUID()
+        let sourceCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 724,
+            height: 2944,
+            measureAnchors: [
+                try XCTUnwrap(
+                    PersistentInkMeasureAnchor(
+                        measureID: survivingMeasureID,
+                        frame: CGRect(x: 80, y: 220, width: 280, height: 92)
+                    )
+                ),
+                try XCTUnwrap(
+                    PersistentInkMeasureAnchor(
+                        measureID: removedMeasureID,
+                        frame: CGRect(x: 80, y: 1560, width: 280, height: 92)
+                    )
+                )
+            ]
+        )
+        let targetCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 724,
+            height: 1248,
+            measureAnchors: [
+                try XCTUnwrap(
+                    PersistentInkMeasureAnchor(
+                        measureID: survivingMeasureID,
+                        frame: CGRect(x: 80, y: 220, width: 280, height: 92)
+                    )
+                )
+            ]
+        )
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 140, y: 1590),
+                    CGPoint(x: 170, y: 1608)
+                ],
+                creationDate: Date(timeIntervalSince1970: 56.5),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
+        let wholeDocumentScaledMidY = sourceBounds.midY
+            * targetCoordinateSpace.size.height / sourceCoordinateSpace.size.height
+
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX, accuracy: 1)
+        XCTAssertEqual(transformedBounds.midY, sourceBounds.midY, accuracy: 1)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
+        XCTAssertGreaterThan(abs(transformedBounds.midY - wholeDocumentScaledMidY), 800)
     }
 
     func testPersistentInkCoordinateSpaceAnchorsSimpleChordInkAboveMeasureFrame() throws {
@@ -317,7 +408,61 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(sourceBounds.midY, sourceMeasureFrame.minY)
         XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
         XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midY - pageScaledMidY), 20)
+    }
+
+    func testUnanchoredPageInkKeepsStrokeShapeAcrossRotation() throws {
+        let measureID = UUID()
+        let sourceCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 700,
+            height: 1_200,
+            measureAnchors: [
+                try XCTUnwrap(
+                    PersistentInkMeasureAnchor(
+                        measureID: measureID,
+                        frame: CGRect(x: 80, y: 180, width: 140, height: 72)
+                    )
+                )
+            ]
+        )
+        let targetCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 1_100,
+            height: 900,
+            measureAnchors: [
+                try XCTUnwrap(
+                    PersistentInkMeasureAnchor(
+                        measureID: measureID,
+                        frame: CGRect(x: 90, y: 160, width: 240, height: 72)
+                    )
+                )
+            ]
+        )
+        let sourceDrawing = PKDrawing(strokes: [
+            stroke(
+                points: [CGPoint(x: 500, y: 700), CGPoint(x: 560, y: 724)],
+                creationDate: Date(timeIntervalSince1970: 57.5),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace
+        )
+        let sourceBounds = try XCTUnwrap(sourceDrawing.strokes.first?.renderBounds)
+        let transformedBounds = try XCTUnwrap(transformedDrawing.strokes.first?.renderBounds)
+
+        XCTAssertEqual(
+            transformedBounds.midX,
+            sourceBounds.midX / sourceCoordinateSpace.size.width * targetCoordinateSpace.size.width,
+            accuracy: 1
+        )
+        XCTAssertEqual(transformedBounds.midY, sourceBounds.midY, accuracy: 1)
+        XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
+        XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
     }
 
     func testPageInkCoordinateSpaceCapturesChordAnchorsRelativeToPageFrame() throws {
@@ -425,6 +570,358 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(transformedBounds.midX, sourceBounds.midX + 60, accuracy: 1)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midX - scaledMidX), 20)
+    }
+
+    func testSimplePageInkRemainsFixedAcrossKeyAndChordTransposition() throws {
+        let chart = try simpleChordFreeWriteRotationReproChart()
+        let pageSize = CGSize(width: 792, height: 1_120)
+        let currentLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let currentFrame = LeadSheetActiveInkScope.pageWritingFrame(for: currentLayout)
+        let currentCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: currentLayout,
+                relativeTo: currentFrame
+            )
+        )
+        let chordAnchor = try XCTUnwrap(currentCoordinateSpace.chordAnchors?.first)
+        let chordRegistrationPoint = try XCTUnwrap(chordAnchor.registrationPoint?.point)
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: chordRegistrationPoint.x + 2, y: chordRegistrationPoint.y - 10),
+                    CGPoint(x: chordRegistrationPoint.x + 16, y: chordRegistrationPoint.y + 4)
+                ],
+                creationDate: Date(timeIntervalSince1970: 59.5),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            ),
+            stroke(
+                points: [CGPoint(x: 180, y: 720), CGPoint(x: 260, y: 736)],
+                creationDate: Date(timeIntervalSince1970: 59.6),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        var keyChangedChart = chart
+        XCTAssertTrue(
+            keyChangedChart.setDisplayedDocumentKey(chart.displayedDocumentKey.transposed(by: 1))
+        )
+        var chordTransposedChart = chart
+        chordTransposedChart.transposeChordsByHalfSteps(1)
+
+        for (label, targetChart) in [
+            ("key", keyChangedChart),
+            ("transpose", chordTransposedChart)
+        ] {
+            let targetLayout = LeadSheetPageLayoutEngine.pageLayout(
+                for: targetChart,
+                pageSize: pageSize
+            )
+            let targetFrame = LeadSheetActiveInkScope.pageWritingFrame(for: targetLayout)
+            let targetCoordinateSpace = try XCTUnwrap(
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                    for: targetLayout,
+                    relativeTo: targetFrame
+                )
+            )
+            let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                drawing,
+                sourceCoordinateSpace: currentCoordinateSpace,
+                targetCoordinateSpace: targetCoordinateSpace
+            )
+
+            XCTAssertEqual(transformedDrawing.strokes.count, drawing.strokes.count)
+            for (sourceStroke, targetStroke) in zip(drawing.strokes, transformedDrawing.strokes) {
+                XCTAssertEqual(
+                    targetStroke.renderBounds.midX,
+                    sourceStroke.renderBounds.midX,
+                    accuracy: 0.5,
+                    "\(label) moved page ink horizontally."
+                )
+                XCTAssertEqual(
+                    targetStroke.renderBounds.midY,
+                    sourceStroke.renderBounds.midY,
+                    accuracy: 0.5,
+                    "\(label) moved page ink vertically."
+                )
+            }
+        }
+    }
+
+    func testDenseSimplePageInkRemainsFixedAcrossKeyAndChordTransposition() throws {
+        var chart = Chart.blank(
+            title: "Dense Stable Simple Ink",
+            key: .cMajor,
+            measureCount: 4,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        for (text, fraction) in [("C", 0.05), ("E/G", 0.3), ("G/B", 0.55), ("B7/D#", 0.8)] {
+            XCTAssertTrue(
+                chart.appendRecognizedChord(
+                    try ChordSymbolParser.parse(text),
+                    rawInput: text,
+                    to: measureID,
+                    atFraction: fraction
+                )
+            )
+        }
+
+        let pageSize = CGSize(width: 900, height: 1_400)
+        let currentLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let currentFrame = LeadSheetActiveInkScope.pageWritingFrame(for: currentLayout)
+        let currentCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: currentLayout,
+                relativeTo: currentFrame
+            )
+        )
+        let chordRegistrationPoint = try XCTUnwrap(
+            currentCoordinateSpace.chordAnchors?.first?.registrationPoint?.point
+        )
+        let lastMeasureFrame = try XCTUnwrap(currentCoordinateSpace.measureAnchors?.last?.frame.rect)
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: chordRegistrationPoint.x + 2, y: chordRegistrationPoint.y - 10),
+                    CGPoint(x: chordRegistrationPoint.x + 16, y: chordRegistrationPoint.y + 4)
+                ],
+                creationDate: Date(timeIntervalSince1970: 59.7),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            ),
+            stroke(
+                points: [
+                    CGPoint(x: lastMeasureFrame.midX - 12, y: lastMeasureFrame.midY),
+                    CGPoint(x: lastMeasureFrame.midX + 12, y: lastMeasureFrame.midY + 8)
+                ],
+                creationDate: Date(timeIntervalSince1970: 59.8),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        var keyChangedChart = chart
+        XCTAssertTrue(keyChangedChart.setDisplayedDocumentKey(.cSharpMajor))
+        var chordTransposedChart = chart
+        chordTransposedChart.transposeChordsByHalfSteps(1)
+
+        for (label, targetChart) in [("key", keyChangedChart), ("transpose", chordTransposedChart)] {
+            let targetLayout = LeadSheetPageLayoutEngine.pageLayout(for: targetChart, pageSize: pageSize)
+            let targetFrame = LeadSheetActiveInkScope.pageWritingFrame(for: targetLayout)
+            let targetCoordinateSpace = try XCTUnwrap(
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                    for: targetLayout,
+                    relativeTo: targetFrame
+                )
+            )
+            let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                drawing,
+                sourceCoordinateSpace: currentCoordinateSpace,
+                targetCoordinateSpace: targetCoordinateSpace
+            )
+
+            XCTAssertEqual(
+                targetCoordinateSpace.measureAnchors,
+                currentCoordinateSpace.measureAnchors,
+                "\(label) changed Simple Sheet measure anchors."
+            )
+            XCTAssertEqual(
+                targetCoordinateSpace.chordAnchors?.map(\.registrationPoint),
+                currentCoordinateSpace.chordAnchors?.map(\.registrationPoint),
+                "\(label) changed Simple Sheet chord registration points."
+            )
+            for (sourceStroke, targetStroke) in zip(drawing.strokes, transformedDrawing.strokes) {
+                XCTAssertEqual(targetStroke.renderBounds.midX, sourceStroke.renderBounds.midX, accuracy: 0.5)
+                XCTAssertEqual(targetStroke.renderBounds.midY, sourceStroke.renderBounds.midY, accuracy: 0.5)
+            }
+        }
+    }
+
+    func testReplayDeviceSimplePageInkRemainsFixedAcrossKeyAndChordTransposition() throws {
+        guard ProcessInfo.processInfo.environment["ICHART_REPLAY_PAGE_INK_SETTINGS"] == "1" else {
+            throw XCTSkip("Set ICHART_REPLAY_PAGE_INK_SETTINGS=1 with ICHART_STATE to replay saved page ink.")
+        }
+        guard let statePath = ProcessInfo.processInfo.environment["ICHART_STATE"] else {
+            throw XCTSkip("Set ICHART_STATE to a device or simulator library-state.json.")
+        }
+
+        let repository = FileChartRepository(url: URL(fileURLWithPath: statePath))
+        let snapshot = try XCTUnwrap(try repository.loadSnapshot())
+        let requestedTitle = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_TITLE"]
+        let chart = try XCTUnwrap(snapshot.charts.first { candidate in
+            candidate.layoutStyle == .simpleChordSheet
+                && candidate.pageHandwrittenNotationData?.isEmpty == false
+                && (requestedTitle == nil || candidate.title == requestedTitle)
+        })
+        let drawingData = try XCTUnwrap(chart.pageHandwrittenNotationData)
+        let sourceDrawing = try PKDrawing(data: drawingData)
+        let sourceCoordinateSpace = try XCTUnwrap(chart.pageHandwrittenNotationCoordinateSpace)
+        let pageSize = CGSize(
+            width: sourceCoordinateSpace.width + 76,
+            height: sourceCoordinateSpace.height + 80
+        )
+        let currentLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let currentFrame = LeadSheetActiveInkScope.pageWritingFrame(for: currentLayout)
+        let currentCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: currentLayout,
+                relativeTo: currentFrame
+            )
+        )
+        let currentDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: currentCoordinateSpace
+        )
+
+        var keyChangedChart = chart
+        XCTAssertTrue(
+            keyChangedChart.setDisplayedDocumentKey(chart.displayedDocumentKey.transposed(by: 1))
+        )
+        var chordTransposedChart = chart
+        chordTransposedChart.transposeChordsByHalfSteps(1)
+
+        for (label, targetChart) in [
+            ("key", keyChangedChart),
+            ("transpose", chordTransposedChart)
+        ] {
+            let targetLayout = LeadSheetPageLayoutEngine.pageLayout(
+                for: targetChart,
+                pageSize: pageSize
+            )
+            let targetFrame = LeadSheetActiveInkScope.pageWritingFrame(for: targetLayout)
+            let targetCoordinateSpace = try XCTUnwrap(
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                    for: targetLayout,
+                    relativeTo: targetFrame
+                )
+            )
+            let transformedDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                currentDrawing,
+                sourceCoordinateSpace: currentCoordinateSpace,
+                targetCoordinateSpace: targetCoordinateSpace
+            )
+            let movements = zip(currentDrawing.strokes, transformedDrawing.strokes).map { source, target in
+                hypot(
+                    target.renderBounds.midX - source.renderBounds.midX,
+                    target.renderBounds.midY - source.renderBounds.midY
+                )
+            }
+            let movedStrokeCount = movements.filter { $0 > 0.5 }.count
+            let maximumMovement = movements.max() ?? 0
+            let sourceMeasureFrames = Dictionary(
+                uniqueKeysWithValues: (currentCoordinateSpace.measureAnchors ?? []).map {
+                    ($0.measureID, $0.frame.rect)
+                }
+            )
+            let changedMeasureFrames = (targetCoordinateSpace.measureAnchors ?? []).filter { anchor in
+                sourceMeasureFrames[anchor.measureID] != anchor.frame.rect
+            }.count
+            let maximumMovementText = String(format: "%.2f", maximumMovement)
+
+            print(
+                "page_ink_settings label=\(label) strokes=\(sourceDrawing.strokes.count) "
+                    + "moved=\(movedStrokeCount) max=\(maximumMovementText) "
+                    + "changed_measures=\(changedMeasureFrames) "
+                    + "saved=\(Int(sourceCoordinateSpace.width))x\(Int(sourceCoordinateSpace.height)) "
+                    + "current=\(Int(currentCoordinateSpace.width))x\(Int(currentCoordinateSpace.height)) "
+                    + "target=\(Int(targetCoordinateSpace.width))x\(Int(targetCoordinateSpace.height))"
+            )
+
+            XCTAssertEqual(transformedDrawing.strokes.count, currentDrawing.strokes.count)
+            XCTAssertEqual(movedStrokeCount, 0, "\(label) moved saved page ink by up to \(maximumMovement) points.")
+        }
+    }
+
+    func testReplayRhythmKeyChangeKeepsDeviceRowsAndInkVerticallyStable() throws {
+        guard ProcessInfo.processInfo.environment["ICHART_REPLAY_RHYTHM_KEY_LAYOUT"] == "1" else {
+            throw XCTSkip(
+                "Set ICHART_REPLAY_RHYTHM_KEY_LAYOUT=1 with ICHART_STATE_BEFORE and ICHART_STATE_AFTER."
+            )
+        }
+        guard let beforeStatePath = ProcessInfo.processInfo.environment["ICHART_STATE_BEFORE"],
+              let afterStatePath = ProcessInfo.processInfo.environment["ICHART_STATE_AFTER"] else {
+            throw XCTSkip("Set both captured device library-state paths.")
+        }
+
+        let beforeSnapshot = try XCTUnwrap(
+            try FileChartRepository(url: URL(fileURLWithPath: beforeStatePath)).loadSnapshot()
+        )
+        let afterSnapshot = try XCTUnwrap(
+            try FileChartRepository(url: URL(fileURLWithPath: afterStatePath)).loadSnapshot()
+        )
+        let requestedTitle = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_TITLE"]
+            ?? "Nadie Como Tú"
+        let beforeChart = try XCTUnwrap(beforeSnapshot.charts.first { $0.title == requestedTitle })
+        let afterChart = try XCTUnwrap(afterSnapshot.charts.first { $0.id == beforeChart.id })
+        let beforeDrawingData = try XCTUnwrap(beforeChart.pageHandwrittenNotationData)
+        let afterDrawingData = try XCTUnwrap(afterChart.pageHandwrittenNotationData)
+        let savedCoordinateSpace = try XCTUnwrap(beforeChart.pageHandwrittenNotationCoordinateSpace)
+        let pageSize = CGSize(width: 800, height: 2_168)
+        let beforeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: beforeChart,
+            pageSize: pageSize
+        )
+        let afterLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: afterChart,
+            pageSize: pageSize
+        )
+        let beforeRows = beforeLayout.systems.map {
+            $0.measures.compactMap(\.sourceMeasureID)
+        }
+        let afterRows = afterLayout.systems.map {
+            $0.measures.compactMap(\.sourceMeasureID)
+        }
+
+        XCTAssertEqual(beforeDrawingData, afterDrawingData, "The key transaction rewrote the saved ink bytes.")
+        XCTAssertEqual(beforeRows, afterRows, "The key transaction changed rendered measure rows.")
+        XCTAssertEqual(beforeRows.map(\.count), [4, 4, 5, 2, 5, 2])
+
+        let beforePageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: beforeLayout)
+        let afterPageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: afterLayout)
+        let beforeCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: beforeLayout,
+                relativeTo: beforePageFrame
+            )
+        )
+        let afterCoordinateSpace = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: afterLayout,
+                relativeTo: afterPageFrame
+            )
+        )
+        let sourceDrawing = try PKDrawing(data: beforeDrawingData)
+        let beforeDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            sourceDrawing,
+            sourceCoordinateSpace: savedCoordinateSpace,
+            targetCoordinateSpace: beforeCoordinateSpace
+        )
+        let afterDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            beforeDrawing,
+            sourceCoordinateSpace: beforeCoordinateSpace,
+            targetCoordinateSpace: afterCoordinateSpace
+        )
+        let movements = zip(beforeDrawing.strokes, afterDrawing.strokes).map { source, target in
+            (
+                x: abs(target.renderBounds.midX - source.renderBounds.midX),
+                y: abs(target.renderBounds.midY - source.renderBounds.midY)
+            )
+        }
+        let maximumHorizontalMovement = movements.map(\.x).max() ?? 0
+        let maximumVerticalMovement = movements.map(\.y).max() ?? 0
+
+        print(
+            "rhythm_key_layout title=\(requestedTitle) strokes=\(sourceDrawing.strokes.count) "
+                + "rows_before=\(beforeRows.map(\.count)) rows_after=\(afterRows.map(\.count)) "
+                + "max_dx=\(String(format: "%.2f", maximumHorizontalMovement)) "
+                + "max_dy=\(String(format: "%.2f", maximumVerticalMovement))"
+        )
+
+        XCTAssertEqual(afterDrawing.strokes.count, beforeDrawing.strokes.count)
+        XCTAssertLessThanOrEqual(
+            maximumVerticalMovement,
+            0.5,
+            "Changing key moved existing page ink between systems."
+        )
     }
 
     func testLegacySimpleChordPageInkUsesInferredChordAnchorsAcrossRotation() throws {
@@ -604,6 +1101,49 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(medianLuminance, 0.25)
     }
 
+    func testSavedInkRendererReusesIdenticalRasterizedInkImage() throws {
+        LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: 4, y: 18),
+                    CGPoint(x: 18, y: 4),
+                    CGPoint(x: 34, y: 28)
+                ],
+                creationDate: Date(timeIntervalSince1970: 61),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+        let drawingData = try XCTUnwrap(
+            LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing)
+        )
+
+        let firstImage = try XCTUnwrap(
+            LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                size: CGSize(width: 40, height: 40),
+                scale: 1
+            )
+        )
+        let secondImage = try XCTUnwrap(
+            LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                size: CGSize(width: 40, height: 40),
+                scale: 1
+            )
+        )
+        let differentlySizedImage = try XCTUnwrap(
+            LeadSheetSavedInkRenderer.renderedInkImage(
+                drawingData,
+                size: CGSize(width: 41, height: 40),
+                scale: 1
+            )
+        )
+
+        XCTAssertTrue(firstImage === secondImage)
+        XCTAssertFalse(firstImage === differentlySizedImage)
+    }
+
     func testSavedInkRendererForcesAdaptiveWhitePixelsToPersistentInkColor() throws {
         let adaptiveWhiteImage = strokeImage(
             color: .white,
@@ -647,6 +1187,386 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(telemetrySnapshot.renderedInkSampleCount, 0)
         XCTAssertLessThan(telemetrySnapshot.renderedInkMedianLuminance, 0.25)
         XCTAssertLessThan(telemetrySnapshot.renderedInkLightPixelRatio, 0.1)
+    }
+
+    func testInkTelemetryCanSkipBitmapRenderingOnThePersistenceHotPath() {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [CGPoint(x: 8, y: 26), CGPoint(x: 38, y: 34)],
+                creationDate: Date(timeIntervalSince1970: 76),
+                color: LeadSheetPersistentInkColorPolicy.inkColor
+            )
+        ])
+
+        let snapshot = LeadSheetInkTelemetrySnapshot.capture(
+            drawing: drawing,
+            includesRenderedInkDiagnostics: false
+        )
+
+        XCTAssertEqual(snapshot.renderedInkSampleCount, 0)
+        XCTAssertEqual(snapshot.renderedInkMedianLuminance, -1)
+        XCTAssertEqual(snapshot.renderedInkLightPixelRatio, 0)
+        XCTAssertEqual(snapshot.strokeCount, 1)
+    }
+
+    func testInkTelemetrySamplingAvoidsQuadraticDenseDrawingScans() {
+        let checkpoint = LeadSheetInkTelemetrySamplingCheckpoint(strokeCount: 48, uptime: 100)
+
+        XCTAssertFalse(
+            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
+                strokeCount: 53,
+                uptime: 105,
+                previous: checkpoint,
+                normalizationNeeded: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
+                strokeCount: 60,
+                uptime: 105,
+                previous: checkpoint,
+                normalizationNeeded: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
+                strokeCount: 53,
+                uptime: 112,
+                previous: checkpoint,
+                normalizationNeeded: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
+                strokeCount: 49,
+                uptime: 101,
+                previous: checkpoint,
+                normalizationNeeded: true
+            )
+        )
+    }
+
+    func testInkSerializationSessionRunsWorkOffMainAndDeliversOnMain() {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [CGPoint(x: 2, y: 3), CGPoint(x: 24, y: 19)],
+                creationDate: Date(timeIntervalSince1970: 77),
+                color: .white
+            )
+        ])
+        let session = LeadSheetInkSerializationSession(
+            queue: DispatchQueue(label: "test.ink-serialization")
+        )
+        let completionExpectation = expectation(description: "serialization completion")
+
+        session.start(
+            request: LeadSheetInkSerializationRequest(
+                drawing: drawing,
+                normalizesPersistentInk: true,
+                capturesSnapshot: true
+            )
+        ) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(result.strokeCount, 1)
+            XCTAssertTrue(result.serialization.normalizationNeeded)
+            XCTAssertNotNil(result.serialization.drawingData)
+            XCTAssertNotNil(result.inkSnapshot)
+            completionExpectation.fulfill()
+        }
+
+        wait(for: [completionExpectation], timeout: 2)
+    }
+
+    func testInkSerializationSessionCancellationSuppressesStaleCompletion() {
+        let queue = DispatchQueue(label: "test.ink-serialization-cancel")
+        queue.suspend()
+        let session = LeadSheetInkSerializationSession(queue: queue)
+        let completionExpectation = expectation(description: "stale serialization completion")
+        completionExpectation.isInverted = true
+
+        session.start(
+            request: LeadSheetInkSerializationRequest(
+                drawing: PKDrawing(),
+                normalizesPersistentInk: true,
+                capturesSnapshot: false
+            )
+        ) { _ in
+            completionExpectation.fulfill()
+        }
+        session.cancelPendingWork()
+        queue.resume()
+
+        wait(for: [completionExpectation], timeout: 0.15)
+    }
+
+    func testSavedInkPreparationSessionRunsWorkOffMainAndDeliversOnMain() {
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [CGPoint(x: 4, y: 8), CGPoint(x: 28, y: 22)],
+                creationDate: Date(timeIntervalSince1970: 78),
+                color: .white
+            )
+        ])
+        let session = LeadSheetSavedInkPreparationSession(
+            queue: DispatchQueue(label: "test.saved-ink-preparation")
+        )
+        let completionExpectation = expectation(description: "saved ink preparation completion")
+
+        session.start(
+            request: LeadSheetSavedInkPreparationRequest(
+                drawingData: drawing.dataRepresentation(),
+                sourceCoordinateSpace: PersistentInkCoordinateSpace(width: 320, height: 480),
+                targetCoordinateSpace: PersistentInkCoordinateSpace(width: 640, height: 960)
+            ),
+            after: 0
+        ) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(result.strokeCount, 1)
+            XCTAssertEqual(result.drawing.strokes.count, 1)
+            completionExpectation.fulfill()
+        }
+
+        wait(for: [completionExpectation], timeout: 2)
+    }
+
+    func testSavedInkPreparationSessionCancellationSuppressesStaleCompletion() {
+        let queue = DispatchQueue(label: "test.saved-ink-preparation-cancel")
+        queue.suspend()
+        let session = LeadSheetSavedInkPreparationSession(queue: queue)
+        let completionExpectation = expectation(description: "stale saved ink preparation completion")
+        completionExpectation.isInverted = true
+
+        session.start(
+            request: LeadSheetSavedInkPreparationRequest(
+                drawingData: PKDrawing().dataRepresentation(),
+                sourceCoordinateSpace: nil,
+                targetCoordinateSpace: nil
+            ),
+            after: 0
+        ) { _ in
+            completionExpectation.fulfill()
+        }
+        session.cancelPendingWork()
+        queue.resume()
+
+        wait(for: [completionExpectation], timeout: 0.15)
+    }
+
+    func testSavedInkReloadPolicyIgnoresTargetOnlyChordAnchors() throws {
+        let measureID = UUID()
+        let savedChordID = UUID()
+        let newlyRenderedChordID = UUID()
+        let measureAnchor = try XCTUnwrap(
+            PersistentInkMeasureAnchor(
+                measureID: measureID,
+                frame: CGRect(x: 20, y: 60, width: 280, height: 80)
+            )
+        )
+        let savedChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: savedChordID,
+                frame: CGRect(x: 32, y: 48, width: 44, height: 28)
+            )
+        )
+        let newlyRenderedChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: newlyRenderedChordID,
+                frame: CGRect(x: 180, y: 48, width: 44, height: 28)
+            )
+        )
+        let source = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor]
+        )
+        let currentTarget = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor]
+        )
+        let targetAfterRenderingNewChord = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor, newlyRenderedChordAnchor]
+        )
+
+        XCTAssertTrue(
+            LeadSheetSavedInkCanvasReloadPolicy.targetCoordinateSpacesAreEquivalent(
+                sourceCoordinateSpace: source,
+                currentTargetCoordinateSpace: currentTarget,
+                proposedTargetCoordinateSpace: targetAfterRenderingNewChord
+            )
+        )
+    }
+
+    func testSavedInkReloadPolicyInvalidatesWhenExistingChordAnchorMoves() throws {
+        let measureID = UUID()
+        let savedChordID = UUID()
+        let measureAnchor = try XCTUnwrap(
+            PersistentInkMeasureAnchor(
+                measureID: measureID,
+                frame: CGRect(x: 20, y: 60, width: 280, height: 80)
+            )
+        )
+        let currentChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: savedChordID,
+                frame: CGRect(x: 32, y: 48, width: 44, height: 28)
+            )
+        )
+        let movedChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: savedChordID,
+                frame: CGRect(x: 96, y: 48, width: 44, height: 28)
+            )
+        )
+        let source = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [currentChordAnchor]
+        )
+        let currentTarget = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [currentChordAnchor]
+        )
+        let movedTarget = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [movedChordAnchor]
+        )
+
+        XCTAssertFalse(
+            LeadSheetSavedInkCanvasReloadPolicy.targetCoordinateSpacesAreEquivalent(
+                sourceCoordinateSpace: source,
+                currentTargetCoordinateSpace: currentTarget,
+                proposedTargetCoordinateSpace: movedTarget
+            )
+        )
+    }
+
+    func testSavedInkCanvasStateKeepsResidentDrawingWhenOnlyNewTargetChordWasAdded() throws {
+        let measureID = UUID()
+        let savedChordID = UUID()
+        let newlyRenderedChordID = UUID()
+        let measureAnchor = try XCTUnwrap(
+            PersistentInkMeasureAnchor(
+                measureID: measureID,
+                frame: CGRect(x: 20, y: 60, width: 280, height: 80)
+            )
+        )
+        let savedChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: savedChordID,
+                frame: CGRect(x: 32, y: 48, width: 44, height: 28)
+            )
+        )
+        let newlyRenderedChordAnchor = try XCTUnwrap(
+            PersistentInkChordAnchor(
+                measureID: measureID,
+                chordID: newlyRenderedChordID,
+                frame: CGRect(x: 180, y: 48, width: 44, height: 28)
+            )
+        )
+        let source = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor]
+        )
+        let currentTarget = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor]
+        )
+        let targetAfterRenderingNewChord = PersistentInkCoordinateSpace(
+            width: 320,
+            height: 480,
+            measureAnchors: [measureAnchor],
+            chordAnchors: [savedChordAnchor, newlyRenderedChordAnchor]
+        )
+        let drawingData = Data([0x01, 0x02, 0x03])
+        let frame = CGRect(x: 10, y: 10, width: 320, height: 480)
+
+        XCTAssertEqual(
+            LeadSheetSavedInkCanvasState(
+                drawingData: drawingData,
+                sourceCoordinateSpace: source,
+                targetCoordinateSpace: currentTarget,
+                frame: frame
+            ),
+            LeadSheetSavedInkCanvasState(
+                drawingData: drawingData,
+                sourceCoordinateSpace: source,
+                targetCoordinateSpace: targetAfterRenderingNewChord,
+                frame: frame
+            )
+        )
+    }
+
+    func testSavedInkCanvasStateRejectsDifferentDrawingOrFrame() {
+        let coordinateSpace = PersistentInkCoordinateSpace(width: 320, height: 480)
+        let state = LeadSheetSavedInkCanvasState(
+            drawingData: Data([0x01]),
+            sourceCoordinateSpace: coordinateSpace,
+            targetCoordinateSpace: coordinateSpace,
+            frame: CGRect(x: 10, y: 10, width: 320, height: 480)
+        )
+
+        XCTAssertNotEqual(
+            state,
+            LeadSheetSavedInkCanvasState(
+                drawingData: Data([0x02]),
+                sourceCoordinateSpace: coordinateSpace,
+                targetCoordinateSpace: coordinateSpace,
+                frame: state.frame
+            )
+        )
+        XCTAssertNotEqual(
+            state,
+            LeadSheetSavedInkCanvasState(
+                drawingData: state.drawingData,
+                sourceCoordinateSpace: coordinateSpace,
+                targetCoordinateSpace: coordinateSpace,
+                frame: state.frame.offsetBy(dx: 1, dy: 0)
+            )
+        )
+    }
+
+    func testInkSerializationCacheRequiresExactDrawingRevisionAndScope() {
+        let pageSerialization = LeadSheetPersistentInkSerialization(
+            drawingData: Data([0x01, 0x02, 0x03]),
+            normalizationNeeded: false
+        )
+        var cache = LeadSheetInkSerializationCache()
+
+        cache.record(
+            pageSerialization,
+            drawingRevision: 7,
+            scopeIdentity: .page
+        )
+
+        XCTAssertEqual(
+            cache.serialization(drawingRevision: 7, scopeIdentity: .page)?.drawingData,
+            pageSerialization.drawingData
+        )
+        XCTAssertNil(cache.serialization(drawingRevision: 8, scopeIdentity: .page))
+        XCTAssertNil(cache.serialization(drawingRevision: 7, scopeIdentity: .chords))
+
+        cache.invalidate()
+        XCTAssertNil(cache.serialization(drawingRevision: 7, scopeIdentity: .page))
     }
 
     func testPersistentInkNormalizationPreservesUnrecognizedNonemptyData() {
@@ -724,6 +1644,196 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertTrue(indices.isEmpty)
+    }
+
+    func testActiveInkEraseSpatialIndexMatchesFullScanAndBoundsDenseCandidateWork() {
+        let strokes = (0..<400).map { index in
+            let column = index % 20
+            let row = index / 20
+            let origin = CGPoint(
+                x: CGFloat(column * 120),
+                y: CGFloat(row * 120)
+            )
+            return stroke(
+                points: [
+                    origin,
+                    CGPoint(x: origin.x + 24, y: origin.y + 32)
+                ],
+                creationDate: Date(timeIntervalSince1970: TimeInterval(2_000 + index))
+            )
+        }
+        let drawing = PKDrawing(strokes: strokes)
+        let startPoint = CGPoint(x: -8, y: 18)
+        let endPoint = CGPoint(x: 40, y: 18)
+
+        let fullScan = LeadSheetActiveInkErasePolicy.strokeIndicesToErase(
+            in: drawing,
+            from: startPoint,
+            to: endPoint
+        )
+        let indexed = LeadSheetActiveInkEraseSpatialIndex(drawing: drawing).query(
+            from: startPoint,
+            to: endPoint
+        )
+
+        XCTAssertEqual(indexed.strokeIndices, fullScan)
+        XCTAssertEqual(indexed.totalStrokeCount, 400)
+        XCTAssertLessThan(indexed.candidateCount, 10)
+    }
+
+    func testActiveInkEraseSpatialIndexRemainsCorrectAcrossIncrementalRemovals() {
+        let strokes = (0..<400).map { index in
+            let column = index % 20
+            let row = index / 20
+            let origin = CGPoint(
+                x: CGFloat(column * 120),
+                y: CGFloat(row * 120)
+            )
+            return stroke(
+                points: [origin, CGPoint(x: origin.x + 24, y: origin.y + 32)],
+                creationDate: Date(timeIntervalSince1970: TimeInterval(9_000 + index))
+            )
+        }
+        var currentDrawing = PKDrawing(strokes: strokes)
+        var index = LeadSheetActiveInkEraseSpatialIndex(drawing: currentDrawing)
+
+        for row in 0..<8 {
+            let startPoint = CGPoint(x: -8, y: CGFloat(row * 120 + 18))
+            let endPoint = CGPoint(x: 40, y: CGFloat(row * 120 + 18))
+            let fullScan = LeadSheetActiveInkErasePolicy.strokeIndicesToErase(
+                in: currentDrawing,
+                from: startPoint,
+                to: endPoint
+            )
+            let indexed = index.query(from: startPoint, to: endPoint)
+
+            XCTAssertEqual(indexed.strokeIndices, fullScan)
+            XCTAssertEqual(indexed.totalStrokeCount, currentDrawing.strokes.count)
+            XCTAssertLessThan(indexed.candidateCount, 10)
+
+            index.removeStrokes(at: indexed.strokeIndices)
+            currentDrawing = currentDrawing.removingStrokes(at: indexed.strokeIndices)
+        }
+
+        XCTAssertEqual(currentDrawing.strokes.count, 392)
+        let removedRegion = index.query(
+            from: CGPoint(x: -8, y: 18),
+            to: CGPoint(x: 40, y: 18)
+        )
+        XCTAssertTrue(removedRegion.strokeIndices.isEmpty)
+        XCTAssertEqual(removedRegion.totalStrokeCount, 392)
+        XCTAssertEqual(removedRegion.candidateCount, 0)
+    }
+
+    func testActiveInkErasePreparationRunsOffMainAndDeliversReadyIndexOnMain() {
+        let strokes = (0..<400).map { index in
+            let column = index % 20
+            let row = index / 20
+            let origin = CGPoint(x: CGFloat(column * 120), y: CGFloat(row * 120))
+            return stroke(
+                points: [origin, CGPoint(x: origin.x + 24, y: origin.y + 32)],
+                creationDate: Date(timeIntervalSince1970: TimeInterval(3_000 + index))
+            )
+        }
+        let session = LeadSheetActiveInkErasePreparationSession(
+            queue: DispatchQueue(label: "test.ink-erase-preparation")
+        )
+        let completionExpectation = expectation(description: "erase index preparation completion")
+
+        session.start(drawing: PKDrawing(strokes: strokes)) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertFalse(result.preparedOnMainThread)
+            XCTAssertEqual(result.strokeCount, 400)
+            let query = result.spatialIndex.query(
+                from: CGPoint(x: -8, y: 18),
+                to: CGPoint(x: 40, y: 18)
+            )
+            XCTAssertEqual(query.totalStrokeCount, 400)
+            XCTAssertEqual(query.strokeIndices, Set([0]))
+            completionExpectation.fulfill()
+        }
+
+        wait(for: [completionExpectation], timeout: 2)
+    }
+
+    func testActiveInkErasePreparationCancellationSuppressesStaleCompletion() {
+        let queue = DispatchQueue(label: "test.ink-erase-preparation-cancel")
+        queue.suspend()
+        let session = LeadSheetActiveInkErasePreparationSession(queue: queue)
+        let completionExpectation = expectation(description: "stale erase index preparation completion")
+        completionExpectation.isInverted = true
+
+        session.start(drawing: PKDrawing()) { _ in
+            completionExpectation.fulfill()
+        }
+        session.cancelPendingWork()
+        queue.resume()
+
+        wait(for: [completionExpectation], timeout: 0.15)
+    }
+
+    func testManualInkEraseSamplingCoalescesTinyMovesButKeepsFinalPoint() {
+        let origin = CGPoint(x: 20, y: 20)
+
+        XCTAssertFalse(
+            LeadSheetManualInkEraseSamplingPolicy.shouldProcessSegment(
+                from: origin,
+                to: CGPoint(x: 22, y: 21),
+                forcesFinalSample: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetManualInkEraseSamplingPolicy.shouldProcessSegment(
+                from: origin,
+                to: CGPoint(x: 24, y: 20),
+                forcesFinalSample: false
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetManualInkEraseSamplingPolicy.shouldProcessSegment(
+                from: origin,
+                to: origin,
+                forcesFinalSample: true
+            )
+        )
+    }
+
+    func testManualInkEraseSamplingUsesLongerGapForDenseDrawingWithoutExceedingEraserRadius() {
+        let sparseDistance = LeadSheetManualInkEraseSamplingPolicy.segmentDistance(strokeCount: 32)
+        let denseDistance = LeadSheetManualInkEraseSamplingPolicy.segmentDistance(strokeCount: 400)
+        let cappedDistance = LeadSheetManualInkEraseSamplingPolicy.segmentDistance(strokeCount: 4_000)
+
+        XCTAssertEqual(sparseDistance, LeadSheetManualInkEraseSamplingPolicy.minimumSegmentDistance)
+        XCTAssertGreaterThan(denseDistance, sparseDistance)
+        XCTAssertEqual(cappedDistance, LeadSheetManualInkEraseSamplingPolicy.maximumSegmentDistance)
+        XCTAssertLessThan(cappedDistance, LeadSheetActiveInkErasePolicy.eraseRadius)
+        XCTAssertFalse(
+            LeadSheetManualInkEraseSamplingPolicy.shouldProcessSegment(
+                from: CGPoint(x: 0, y: 0),
+                to: CGPoint(x: 8, y: 0),
+                forcesFinalSample: false,
+                strokeCount: 400
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetManualInkEraseSamplingPolicy.shouldProcessSegment(
+                from: CGPoint(x: 0, y: 0),
+                to: CGPoint(x: 12, y: 0),
+                forcesFinalSample: false,
+                strokeCount: 400
+            )
+        )
+    }
+
+    func testManualInkEraseToolSelectionPreservesHostSuppliedStrokeCount() {
+        let canvasView = LeadSheetScopedInkCanvasView()
+        canvasView.manualEraseSamplingStrokeCount = 400
+
+        canvasView.manualEraseEnabled = true
+        XCTAssertEqual(canvasView.manualEraseSamplingStrokeCount, 400)
+
+        canvasView.manualEraseEnabled = false
+        XCTAssertEqual(canvasView.manualEraseSamplingStrokeCount, 400)
     }
 
     func testChordEntryKeepsSimulatorPointerInputForAutomation() {
@@ -1749,6 +2859,48 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(result.targets[0].laneLocation?.fraction ?? 1, barlineFraction)
         XCTAssertGreaterThan(result.targets[1].laneLocation?.fraction ?? 0, barlineFraction)
         XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+    }
+
+    func testChordBatchTargetingStopsBeforeAdditionalClusteringWhenCancelled() throws {
+        var chart = Chart.draft(title: "Cancelled Batch Targeting", layoutStyle: .simpleChordSheet)
+        chart.completeInitialSetup(
+            title: "Cancelled Batch Targeting",
+            key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine,
+            startingMeasureCount: 1
+        )
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1200)
+        )
+        let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let drawing = PKDrawing(strokes: [
+            stroke(
+                points: [
+                    CGPoint(x: laneFrame.minX + 40 - chordFrame.minX, y: laneFrame.minY - chordFrame.minY),
+                    CGPoint(x: laneFrame.minX + 55 - chordFrame.minX, y: laneFrame.maxY - chordFrame.minY)
+                ],
+                creationDate: Date(timeIntervalSince1970: 40)
+            )
+        ])
+        var continuationChecks = 0
+
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+            for: drawing,
+            chordFrame: chordFrame,
+            pageLayout: layout,
+            shouldContinue: {
+                continuationChecks += 1
+                return continuationChecks < 3
+            }
+        )
+
+        XCTAssertTrue(result.isCancelled)
+        XCTAssertTrue(result.targets.isEmpty)
+        XCTAssertEqual(result.diagnostics.selectedRoute, "cancelled")
+        XCTAssertEqual(continuationChecks, 3)
     }
 
     func testChordTargetingUsesCommittedSimpleTerminalSpan() throws {
@@ -2780,6 +3932,28 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(smooth, 0.030, accuracy: 0.001)
     }
 
+    func testPassiveInkPersistenceDelayAdaptsToDensePages() {
+        let pageScope = LeadSheetActiveInkScope.page(
+            frame: CGRect(x: 0, y: 0, width: 640, height: 1_040)
+        )
+        let sparseDelay = LeadSheetPassiveInkPersistencePolicy.idleDelay(
+            for: pageScope,
+            strokeCount: 24
+        )
+        let denseDelay = LeadSheetPassiveInkPersistencePolicy.idleDelay(
+            for: pageScope,
+            strokeCount: 96
+        )
+        let cappedDelay = LeadSheetPassiveInkPersistencePolicy.idleDelay(
+            for: pageScope,
+            strokeCount: 1_000
+        )
+
+        XCTAssertEqual(sparseDelay, LeadSheetPassiveInkPersistencePolicy.defaultIdleDelay, accuracy: 0.001)
+        XCTAssertGreaterThan(denseDelay, sparseDelay)
+        XCTAssertEqual(cappedDelay, LeadSheetPassiveInkPersistencePolicy.maximumIdleDelay, accuracy: 0.001)
+    }
+
     func testFreehandTabTitleStaysStableWhenActive() {
         XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Write")
         XCTAssertEqual(EditorCanvasMode.repeatEdit.freeHandTabTitle, "Free-Write")
@@ -3191,6 +4365,295 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 sessionState: dirtyInkSessionState()
             )
         )
+    }
+
+    func testInkCanvasSyncPolicyReprojectsOnlyResidentDrawingForTargetScope() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
+                currentScopeIdentity: .page,
+                targetScopeIdentity: .page,
+                shouldPreserveDirtyActiveCanvas: false
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
+                currentScopeIdentity: nil,
+                targetScopeIdentity: .chords,
+                shouldPreserveDirtyActiveCanvas: false
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
+                currentScopeIdentity: .page,
+                targetScopeIdentity: .chords,
+                shouldPreserveDirtyActiveCanvas: false
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyDoesNotReprojectDirtyResidentDrawing() {
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
+                currentScopeIdentity: .page,
+                targetScopeIdentity: .page,
+                shouldPreserveDirtyActiveCanvas: true
+            )
+        )
+    }
+
+    func testInkCanvasSyncPolicyLoadsFreshOrSwitchedScopeWithoutSerializingStaleCanvas() {
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldLoadIncomingCanvasDirectly(
+                currentScopeIdentity: nil,
+                targetScopeIdentity: .chords
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetInkCanvasSyncPolicy.shouldLoadIncomingCanvasDirectly(
+                currentScopeIdentity: .page,
+                targetScopeIdentity: .chords
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldLoadIncomingCanvasDirectly(
+                currentScopeIdentity: .page,
+                targetScopeIdentity: .page
+            )
+        )
+    }
+
+    @MainActor
+    func testCanvasKeepsSavedPageInkInPassiveVectorSurfaceAcrossToolSwitches() throws {
+        var chart = Chart.blank(
+            title: "Passive Page Ink",
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        let pageSize = CGSize(width: 800, height: 1_200)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+            for: layout,
+            relativeTo: pageFrame
+        )
+        let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 10))])
+        chart.pageHandwrittenNotationData = drawing.dataRepresentation()
+        chart.pageHandwrittenNotationCoordinateSpace = coordinateSpace
+
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+        view.chart = chart
+        let inkCanvases = view.subviews.compactMap { $0 as? PKCanvasView }
+        XCTAssertEqual(inkCanvases.count, 3)
+        let savedHeaderCanvas = inkCanvases[0]
+        let savedPageCanvas = inkCanvases[1]
+        let authoringCanvas = try XCTUnwrap(inkCanvases.last)
+
+        XCTAssertTrue(
+            waitForMainRunLoop {
+                !savedPageCanvas.isHidden && savedPageCanvas.drawing.strokes.count == 1
+            },
+            "Saved page ink should finish its background preparation without blocking chart setup."
+        )
+        XCTAssertTrue(savedHeaderCanvas.isHidden)
+        XCTAssertFalse(savedPageCanvas.isUserInteractionEnabled)
+        XCTAssertFalse(savedPageCanvas.isHidden)
+        XCTAssertEqual(savedPageCanvas.drawing.strokes.count, 1)
+        XCTAssertTrue(authoringCanvas.isHidden)
+
+        view.interactionMode = .freeHand
+
+        XCTAssertTrue(savedPageCanvas.isHidden)
+        XCTAssertFalse(authoringCanvas.isHidden)
+        XCTAssertEqual(authoringCanvas.drawing.strokes.count, 1)
+
+        view.interactionMode = .browse
+
+        XCTAssertFalse(savedPageCanvas.isHidden)
+        XCTAssertEqual(savedPageCanvas.drawing.strokes.count, 1)
+        XCTAssertTrue(authoringCanvas.isHidden)
+    }
+
+    @MainActor
+    func testCanvasKeepsSavedHeaderInkInPassiveVectorSurfaceAcrossToolSwitches() throws {
+        var chart = Chart.blank(
+            title: "Passive Header Ink",
+            measureCount: 8,
+            layoutStyle: .rhythmSectionSheet
+        )
+        chart.headerInputMode = .handwritten
+        let pageSize = CGSize(width: 800, height: 1_200)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let headerFrame = layout.header.handwrittenFrame
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
+            for: headerFrame
+        )
+        let drawing = PKDrawing(strokes: [snapshotStroke(creationDate: Date(timeIntervalSince1970: 20))])
+        chart.pageHandwrittenHeaderData = drawing.dataRepresentation()
+        chart.pageHandwrittenHeaderCoordinateSpace = coordinateSpace
+
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+        view.chart = chart
+        let inkCanvases = view.subviews.compactMap { $0 as? PKCanvasView }
+        XCTAssertEqual(inkCanvases.count, 3)
+        let savedHeaderCanvas = inkCanvases[0]
+        let savedPageCanvas = inkCanvases[1]
+        let authoringCanvas = try XCTUnwrap(inkCanvases.last)
+
+        XCTAssertTrue(
+            waitForMainRunLoop {
+                !savedHeaderCanvas.isHidden && savedHeaderCanvas.drawing.strokes.count == 1
+            },
+            "Saved header ink should finish its background preparation without blocking chart setup."
+        )
+        XCTAssertFalse(savedHeaderCanvas.isUserInteractionEnabled)
+        XCTAssertFalse(savedHeaderCanvas.isHidden)
+        XCTAssertEqual(savedHeaderCanvas.drawing.strokes.count, 1)
+        XCTAssertTrue(savedPageCanvas.isHidden)
+        XCTAssertTrue(authoringCanvas.isHidden)
+
+        view.interactionMode = .headerEntry
+
+        XCTAssertTrue(savedHeaderCanvas.isHidden)
+        XCTAssertFalse(authoringCanvas.isHidden)
+        XCTAssertEqual(authoringCanvas.drawing.strokes.count, 1)
+
+        view.interactionMode = .browse
+
+        XCTAssertFalse(savedHeaderCanvas.isHidden)
+        XCTAssertEqual(savedHeaderCanvas.drawing.strokes.count, 1)
+        XCTAssertTrue(authoringCanvas.isHidden)
+    }
+
+    @MainActor
+    func testCanvasEnteringChordModeReplacesDenseStalePageCanvasForBothChartStyles() throws {
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(
+                title: "Dense Scope Switch",
+                measureCount: 32,
+                layoutStyle: layoutStyle
+            )
+            let pageSize = CGSize(width: 800, height: 1_200)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+            let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+            let pageDrawing = PKDrawing(strokes: (0..<320).map { index in
+                let x = CGFloat((index % 20) * 28 + 10)
+                let y = CGFloat((index / 20) * 34 + 10)
+                return stroke(
+                    points: [CGPoint(x: x, y: y), CGPoint(x: x + 12, y: y + 9)],
+                    creationDate: Date(timeIntervalSince1970: TimeInterval(4_000 + index))
+                )
+            })
+            let chordDrawing = PKDrawing(strokes: [
+                stroke(
+                    points: [CGPoint(x: 20, y: 20), CGPoint(x: 42, y: 54)],
+                    creationDate: Date(timeIntervalSince1970: 5_000)
+                )
+            ])
+            chart.pageHandwrittenNotationData = pageDrawing.dataRepresentation()
+            chart.pageHandwrittenNotationCoordinateSpace =
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                    for: layout,
+                    relativeTo: pageFrame
+                )
+            chart.pageHandwrittenChordData = chordDrawing.dataRepresentation()
+            chart.pageHandwrittenChordCoordinateSpace = PersistentInkCoordinateSpace(
+                size: LeadSheetActiveInkScope.chordWritingFrame(for: layout).size
+            )
+
+            let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+            view.chart = chart
+            let inkCanvases = view.subviews.compactMap { $0 as? PKCanvasView }
+            let savedPageCanvas = inkCanvases[1]
+            let authoringCanvas = try XCTUnwrap(inkCanvases.last)
+            XCTAssertTrue(
+                waitForMainRunLoop {
+                    savedPageCanvas.drawing.strokes.count == 320
+                }
+            )
+
+            view.interactionMode = .freeHand
+            XCTAssertEqual(authoringCanvas.drawing.strokes.count, 320)
+            view.interactionMode = .browse
+            XCTAssertEqual(savedPageCanvas.drawing.strokes.count, 320)
+
+            view.interactionMode = .chordEntry
+            XCTAssertEqual(authoringCanvas.drawing.strokes.count, 1)
+            XCTAssertEqual(
+                LeadSheetInkDrawingSnapshot(drawing: authoringCanvas.drawing),
+                LeadSheetInkDrawingSnapshot(drawing: chordDrawing)
+            )
+        }
+    }
+
+    @MainActor
+    func testDirectDirtyPageToChordSwitchPersistsPendingStrokeBeforeCanvasReuseForBothChartStyles() throws {
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(
+                title: "Dirty Scope Switch",
+                measureCount: 32,
+                layoutStyle: layoutStyle
+            )
+            let pageSize = CGSize(width: 800, height: 1_200)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+            let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+            let originalPageDrawing = PKDrawing(strokes: (0..<24).map { index in
+                let x = CGFloat((index % 8) * 36 + 10)
+                let y = CGFloat((index / 8) * 42 + 10)
+                return stroke(
+                    points: [CGPoint(x: x, y: y), CGPoint(x: x + 14, y: y + 11)],
+                    creationDate: Date(timeIntervalSince1970: TimeInterval(6_000 + index))
+                )
+            })
+            let pendingStroke = stroke(
+                points: [CGPoint(x: 410, y: 280), CGPoint(x: 438, y: 302)],
+                creationDate: Date(timeIntervalSince1970: 7_000)
+            )
+            let expectedPageDrawing = PKDrawing(
+                strokes: originalPageDrawing.strokes + [pendingStroke]
+            )
+            let chordDrawing = PKDrawing(strokes: [
+                stroke(
+                    points: [CGPoint(x: 20, y: 20), CGPoint(x: 42, y: 54)],
+                    creationDate: Date(timeIntervalSince1970: 8_000)
+                )
+            ])
+            chart.pageHandwrittenNotationData = originalPageDrawing.dataRepresentation()
+            chart.pageHandwrittenNotationCoordinateSpace =
+                LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                    for: layout,
+                    relativeTo: pageFrame
+                )
+            chart.pageHandwrittenChordData = chordDrawing.dataRepresentation()
+            chart.pageHandwrittenChordCoordinateSpace = PersistentInkCoordinateSpace(
+                size: LeadSheetActiveInkScope.chordWritingFrame(for: layout).size
+            )
+
+            let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+            view.chart = chart
+            let authoringCanvas = try XCTUnwrap(
+                view.subviews.compactMap { $0 as? PKCanvasView }.last
+            )
+
+            view.interactionMode = .freeHand
+            XCTAssertEqual(authoringCanvas.drawing.strokes.count, 24)
+            authoringCanvas.drawing = expectedPageDrawing
+            view.canvasViewDrawingDidChange(authoringCanvas)
+
+            view.interactionMode = .chordEntry
+
+            let persistedPageData = try XCTUnwrap(view.chart.pageHandwrittenNotationData)
+            let persistedPageDrawing = try PKDrawing(data: persistedPageData)
+            XCTAssertEqual(persistedPageDrawing.strokes.count, 25)
+            XCTAssertEqual(
+                LeadSheetInkDrawingSnapshot(drawing: persistedPageDrawing),
+                LeadSheetInkDrawingSnapshot(drawing: expectedPageDrawing)
+            )
+            XCTAssertEqual(authoringCanvas.drawing.strokes.count, 1)
+            XCTAssertEqual(
+                LeadSheetInkDrawingSnapshot(drawing: authoringCanvas.drawing),
+                LeadSheetInkDrawingSnapshot(drawing: chordDrawing)
+            )
+        }
     }
 
     func testLiveInkNormalizationPolicyNeverNormalizesPassiveCanvas() {
@@ -3720,6 +5183,280 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testCanvasChartUpdatePolicySkipsLayoutForPageInkPersistenceOnly() {
+        let original = Chart.blank(title: "Ink", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        var inkUpdate = original
+        inkUpdate.pageHandwrittenNotationData = Data([0x01, 0x02])
+        inkUpdate.pageHandwrittenNotationCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 640,
+            height: 1_040
+        )
+        inkUpdate.updatedAt = original.updatedAt.addingTimeInterval(1)
+
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+                previousChart: original,
+                nextChart: inkUpdate
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: original,
+                nextChart: inkUpdate,
+                activeInkScopeIdentity: .page
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: original,
+                nextChart: inkUpdate,
+                activeInkScopeIdentity: .chords
+            )
+        )
+
+        var headerInkUpdate = inkUpdate
+        headerInkUpdate.pageHandwrittenHeaderData = Data([0x03, 0x04])
+        headerInkUpdate.pageHandwrittenHeaderCoordinateSpace = PersistentInkCoordinateSpace(
+            width: 640,
+            height: 140
+        )
+        headerInkUpdate.updatedAt = inkUpdate.updatedAt.addingTimeInterval(1)
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+                previousChart: inkUpdate,
+                nextChart: headerInkUpdate
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: inkUpdate,
+                nextChart: headerInkUpdate,
+                activeInkScopeIdentity: .header
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: inkUpdate,
+                nextChart: headerInkUpdate,
+                activeInkScopeIdentity: .page
+            )
+        )
+
+        var rhythmicInkUpdate = headerInkUpdate
+        XCTAssertTrue(
+            rhythmicInkUpdate.setMeasureHandwrittenRhythmicNotationDrawing(
+                Data([0x05, 0x06]),
+                coordinateSpace: PersistentInkCoordinateSpace(width: 180, height: 80),
+                for: rhythmicInkUpdate.measures[0].id
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+                previousChart: headerInkUpdate,
+                nextChart: rhythmicInkUpdate
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: headerInkUpdate,
+                nextChart: rhythmicInkUpdate,
+                activeInkScopeIdentity: .rhythmicMeasure(rhythmicInkUpdate.measures[0].id)
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: headerInkUpdate,
+                nextChart: rhythmicInkUpdate,
+                activeInkScopeIdentity: .rhythmicMeasure(rhythmicInkUpdate.measures[1].id)
+            )
+        )
+
+        var timestampOnlyUpdate = rhythmicInkUpdate
+        timestampOnlyUpdate.updatedAt = rhythmicInkUpdate.updatedAt.addingTimeInterval(1)
+        XCTAssertFalse(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: rhythmicInkUpdate,
+                nextChart: timestampOnlyUpdate,
+                activeInkScopeIdentity: nil
+            )
+        )
+
+        var layoutUpdate = rhythmicInkUpdate
+        _ = layoutUpdate.setMeasureManualLayoutWidth(180, for: layoutUpdate.measures[0].id)
+        XCTAssertTrue(
+            LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+                previousChart: rhythmicInkUpdate,
+                nextChart: layoutUpdate
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+                previousChart: rhythmicInkUpdate,
+                nextChart: layoutUpdate,
+                activeInkScopeIdentity: .rhythmicMeasure(rhythmicInkUpdate.measures[0].id)
+            )
+        )
+    }
+
+    func testCanvasChartUpdateReasonsSkipLiveInkPersistenceRedrawsOnly() {
+        XCTAssertTrue(LeadSheetCanvasChartUpdateReason.persistActiveInk.isLiveInkPersistenceOnly)
+        XCTAssertTrue(LeadSheetCanvasChartUpdateReason.persistRhythmOnFinalize.isLiveInkPersistenceOnly)
+        XCTAssertTrue(LeadSheetCanvasChartUpdateReason.persistRhythmStable.isLiveInkPersistenceOnly)
+        XCTAssertFalse(LeadSheetCanvasChartUpdateReason.moveChord.isLiveInkPersistenceOnly)
+        XCTAssertFalse(LeadSheetCanvasChartUpdateReason.finalizeRhythmTapRender.isLiveInkPersistenceOnly)
+    }
+
+    func testCanvasBoundsLayoutPolicySkipsRepeatedSameSizeLayoutPasses() {
+        let size = CGSize(width: 900, height: 1_400)
+
+        XCTAssertTrue(
+            LeadSheetCanvasBoundsLayoutPolicy.requiresLayoutRefresh(
+                previousSize: nil,
+                currentSize: size,
+                hasLayout: false
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetCanvasBoundsLayoutPolicy.requiresLayoutRefresh(
+                previousSize: size,
+                currentSize: size,
+                hasLayout: true
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetCanvasBoundsLayoutPolicy.requiresLayoutRefresh(
+                previousSize: size,
+                currentSize: CGSize(width: 1_366, height: 1_024),
+                hasLayout: true
+            )
+        )
+    }
+
+    func testViewportAnchorKeepsSameMeasureAtTopAcrossOrientation() throws {
+        let chart = Chart.blank(
+            title: "Rotation Anchor",
+            measureCount: 32,
+            layoutStyle: .rhythmSectionSheet
+        )
+        let portraitLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let landscapeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1_366, height: 1_024)
+        )
+        let sourceSystem = try XCTUnwrap(portraitLayout.systems.dropFirst(2).first)
+        let sourceMeasureID = try XCTUnwrap(sourceSystem.measures.first?.sourceMeasureID)
+        let sourceVisibleTopY = sourceSystem.frame.minY + 18
+
+        let anchor = LeadSheetViewportAnchorPolicy.anchor(
+            forVisibleTopY: sourceVisibleTopY,
+            in: portraitLayout
+        )
+        let targetVisibleTopY = LeadSheetViewportAnchorPolicy.visibleTopY(
+            for: anchor,
+            in: landscapeLayout
+        )
+        let targetSystem = try XCTUnwrap(landscapeLayout.systems.first(where: { system in
+            system.measures.contains(where: { $0.sourceMeasureID == sourceMeasureID })
+        }))
+
+        XCTAssertEqual(anchor.reference, .measure(sourceMeasureID))
+        XCTAssertEqual(targetVisibleTopY, targetSystem.frame.minY + 18, accuracy: 0.001)
+    }
+
+    func testSimpleChordViewportAnchorKeepsSameMeasureAtTopAcrossOrientation() throws {
+        let chart = Chart.blank(
+            title: "Simple Rotation Anchor",
+            measureCount: 140,
+            layoutStyle: .simpleChordSheet
+        )
+        let portraitLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let landscapeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1_366, height: 1_024)
+        )
+        let sourceSystem = try XCTUnwrap(portraitLayout.systems.dropFirst(2).first)
+        let sourceMeasureID = try XCTUnwrap(sourceSystem.measures.first?.sourceMeasureID)
+        let sourceVisibleTopY = sourceSystem.frame.minY + 18
+
+        let anchor = LeadSheetViewportAnchorPolicy.anchor(
+            forVisibleTopY: sourceVisibleTopY,
+            in: portraitLayout
+        )
+        let targetVisibleTopY = LeadSheetViewportAnchorPolicy.visibleTopY(
+            for: anchor,
+            in: landscapeLayout
+        )
+        let targetSystem = try XCTUnwrap(landscapeLayout.systems.first(where: { system in
+            system.measures.contains(where: { $0.sourceMeasureID == sourceMeasureID })
+        }))
+
+        XCTAssertEqual(anchor.reference, .measure(sourceMeasureID))
+        XCTAssertEqual(targetVisibleTopY, targetSystem.frame.minY + 18, accuracy: 0.001)
+    }
+
+    func testViewportAnchorKeepsHeaderVisiblePositionAcrossOrientation() {
+        let chart = Chart.blank(
+            title: "Header Anchor",
+            measureCount: 8,
+            layoutStyle: .rhythmSectionSheet
+        )
+        let portraitLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let landscapeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1_366, height: 1_024)
+        )
+        let visibleTopY = portraitLayout.header.frame.minY + 12
+
+        let anchor = LeadSheetViewportAnchorPolicy.anchor(
+            forVisibleTopY: visibleTopY,
+            in: portraitLayout
+        )
+
+        XCTAssertEqual(anchor.reference, .documentTop)
+        XCTAssertEqual(
+            LeadSheetViewportAnchorPolicy.visibleTopY(for: anchor, in: landscapeLayout),
+            visibleTopY,
+            accuracy: 0.001
+        )
+    }
+
+    func testSimpleChordViewportAnchorKeepsHeaderVisiblePositionAcrossOrientation() {
+        let chart = Chart.blank(
+            title: "Simple Header Anchor",
+            measureCount: 8,
+            layoutStyle: .simpleChordSheet
+        )
+        let portraitLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let landscapeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 1_366, height: 1_024)
+        )
+        let visibleTopY = portraitLayout.header.frame.minY + 12
+        let anchor = LeadSheetViewportAnchorPolicy.anchor(
+            forVisibleTopY: visibleTopY,
+            in: portraitLayout
+        )
+
+        XCTAssertEqual(anchor.reference, .documentTop)
+        XCTAssertEqual(
+            LeadSheetViewportAnchorPolicy.visibleTopY(for: anchor, in: landscapeLayout),
+            visibleTopY,
+            accuracy: 0.001
+        )
+    }
+
     func testChordDiagnosticPreviewScrollAcceptsPencilInput() {
         XCTAssertFalse(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 0))
         XCTAssertTrue(ChordDiagnosticPreviewScrollPolicy.isScrollEnabled(itemCount: 1))
@@ -3794,6 +5531,76 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(simpleFrame, LeadSheetActiveInkScope.pageWritingFrame(for: simplePage))
         XCTAssertEqual(rhythmFrame, LeadSheetActiveInkScope.pageWritingFrame(for: rhythmPage))
         XCTAssertEqual(leadFrame, LeadSheetActiveInkScope.pageWritingFrame(for: leadPage))
+    }
+
+    func testDenseRhythmFreehandCoordinateSpaceDoesNotChangeWithViewportHeight() throws {
+        let chart = Chart.blank(
+            title: "Stable Rhythm Ink Coordinates",
+            measureCount: 32,
+            layoutStyle: .rhythmSectionSheet
+        )
+        let compactViewportLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_100)
+        )
+        let tallViewportLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 3_200)
+        )
+        let compactFrame = LeadSheetActiveInkScope.pageWritingFrame(for: compactViewportLayout)
+        let tallFrame = LeadSheetActiveInkScope.pageWritingFrame(for: tallViewportLayout)
+        let compactCoordinates = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: compactViewportLayout,
+                relativeTo: compactFrame
+            )
+        )
+        let tallCoordinates = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: tallViewportLayout,
+                relativeTo: tallFrame
+            )
+        )
+
+        XCTAssertEqual(compactViewportLayout.pages.count, tallViewportLayout.pages.count)
+        XCTAssertEqual(compactFrame, tallFrame)
+        XCTAssertEqual(compactCoordinates, tallCoordinates)
+        XCTAssertEqual(compactCoordinates.measureAnchors?.count, 32)
+    }
+
+    func testDenseSimpleFreehandCoordinateSpaceDoesNotChangeWithViewportHeight() throws {
+        let chart = Chart.blank(
+            title: "Stable Simple Ink Coordinates",
+            measureCount: 140,
+            layoutStyle: .simpleChordSheet
+        )
+        let compactViewportLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_100)
+        )
+        let tallViewportLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 3_200)
+        )
+        let compactFrame = LeadSheetActiveInkScope.pageWritingFrame(for: compactViewportLayout)
+        let tallFrame = LeadSheetActiveInkScope.pageWritingFrame(for: tallViewportLayout)
+        let compactCoordinates = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: compactViewportLayout,
+                relativeTo: compactFrame
+            )
+        )
+        let tallCoordinates = try XCTUnwrap(
+            LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: tallViewportLayout,
+                relativeTo: tallFrame
+            )
+        )
+
+        XCTAssertEqual(compactViewportLayout.pages.count, tallViewportLayout.pages.count)
+        XCTAssertEqual(compactFrame, tallFrame)
+        XCTAssertEqual(compactCoordinates, tallCoordinates)
+        XCTAssertEqual(compactCoordinates.measureAnchors?.count, 140)
     }
 
     func testHeaderActiveInkScopeUsesHeaderFrameForAllV1Styles() {
@@ -5206,6 +7013,18 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             ink: PKInk(.pen, color: color),
             path: PKStrokePath(controlPoints: controlPoints, creationDate: creationDate)
         )
+    }
+
+    @MainActor
+    private func waitForMainRunLoop(
+        timeout: TimeInterval = 2,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 }
 #endif

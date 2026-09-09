@@ -70,7 +70,7 @@ struct ChordInkDraftVisibleDrawingContext {
     var invisibleStrokeIndices: Set<Int>
 
     var visibleStrokeCount: Int {
-        drawing.strokes.count
+        originalStrokeIndices.count
     }
 
     func originalStrokeIndices(for visibleStrokeIndices: Set<Int>) -> Set<Int> {
@@ -244,6 +244,50 @@ struct ChordInkDraftInput: Hashable {
             laneLocation: laneLocation,
             visualOrder: visualOrder,
             fraction: targetFraction
+        )
+    }
+}
+
+enum ChordInkDraftPreviewResolutionReusePolicy {
+    static func reusedInput(
+        previousDraft: ChordInkDraft?,
+        measureID: UUID,
+        measureIndex: Int,
+        targetFraction: Double?,
+        visualOrder: Double?,
+        laneLocation: ChordInkDraftLaneLocation?,
+        layoutPageSize: CGSize?,
+        drawingData: Data,
+        strokeCount: Int,
+        isRecognitionCacheHit: Bool
+    ) -> ChordInkDraftInput? {
+        guard isRecognitionCacheHit,
+              let previousDraft else {
+            return nil
+        }
+        let incomingAnchor = ChordInkDraftAnchor(
+            measureID: measureID,
+            laneLocation: laneLocation,
+            visualOrder: visualOrder,
+            fraction: targetFraction
+        )
+        guard previousDraft.anchor == incomingAnchor,
+              previousDraft.drawingData == drawingData else {
+            return nil
+        }
+
+        return ChordInkDraftInput(
+            measureID: measureID,
+            measureIndex: measureIndex,
+            targetFraction: targetFraction,
+            visualOrder: visualOrder,
+            laneLocation: laneLocation,
+            layoutPageSize: layoutPageSize,
+            drawingData: drawingData,
+            candidateTexts: previousDraft.candidateTexts,
+            bestCandidateText: previousDraft.bestCandidateText,
+            confidence: previousDraft.confidence,
+            strokeCount: strokeCount
         )
     }
 }
@@ -512,13 +556,17 @@ private struct ChordInkDraftStrokeFingerprint: Hashable {
         _ previous: ChordInkDraftStrokeFingerprint,
         requiredAddedStrokeGap: CGFloat
     ) -> Bool {
-        guard strokeBounds.count > previous.strokeBounds.count,
-              quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds),
+        guard extends(previous),
               let addedStrokeGap = minimumAddedStrokeGap(after: previous) else {
             return false
         }
 
         return addedStrokeGap >= requiredAddedStrokeGap
+    }
+
+    func extends(_ previous: ChordInkDraftStrokeFingerprint) -> Bool {
+        strokeBounds.count > previous.strokeBounds.count
+            && quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds)
     }
 
     private func minimumAddedStrokeGap(after previous: ChordInkDraftStrokeFingerprint) -> CGFloat? {
@@ -704,7 +752,22 @@ struct ChordPreviewState: Equatable {
                 isStale: false
             )
 
-            if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
+            if previousDraft?.previewText == incomingDraft.previewText,
+               previousDraft?.drawingData == incomingDraft.drawingData {
+                resolvedDrafts.append(incomingDraft)
+            } else if let previousDraft,
+                      Self.shouldHoldPreviousRenderableDraft(
+                        previousDraft,
+                        whileResolving: incomingDraft
+                      ) {
+                // Adding detail inside the same chord can briefly produce no
+                // supported read. Keep the last renderable preview visible but
+                // pair it with an unresolved draft so the stale text cannot be
+                // committed until recognition resolves the expanded ink.
+                resolvedDrafts.append(previousDraft)
+                preservedDraftIDs.insert(previousDraft.id)
+                resolvedDrafts.append(Self.unresolvedAbsorbedDraft(from: input))
+            } else if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
                 by: incomingDraft,
                 from: previousRenderableDrafts,
                 excluding: preservedDraftIDs
@@ -721,6 +784,25 @@ struct ChordPreviewState: Equatable {
             .sorted(by: Self.isOrderedBefore)
         layoutPageSize = deduplicatedInputs.compactMap(\.layoutPageSize).first ?? layoutPageSize
         self.updatedAt = updatedAt
+    }
+
+    private static func shouldHoldPreviousRenderableDraft(
+        _ previousDraft: ChordInkDraft,
+        whileResolving incomingDraft: ChordInkDraft
+    ) -> Bool {
+        guard previousDraft.isRenderable,
+              incomingDraft.previewText == nil,
+              previousDraft.anchor == incomingDraft.anchor,
+              let previousFingerprint = ChordInkDraftStrokeFingerprint(
+                drawingData: previousDraft.drawingData
+              ),
+              let incomingFingerprint = ChordInkDraftStrokeFingerprint(
+                drawingData: incomingDraft.drawingData
+              ) else {
+            return false
+        }
+
+        return incomingFingerprint.extends(previousFingerprint)
     }
 
     private static func absorbedPreviousRenderableDraft(

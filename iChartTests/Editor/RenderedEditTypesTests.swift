@@ -94,6 +94,30 @@ final class RenderedEditTypesTests: XCTestCase {
         XCTAssertEqual(bestTarget?.objectID, firstObjectID)
     }
 
+    func testHighestPriorityTargetUsesNearestCenterToBreakPriorityTie() {
+        let firstObjectID = RenderedEditObjectID.chord(UUID())
+        let secondObjectID = RenderedEditObjectID.chord(UUID())
+        var firstTarget = hitTarget(
+            objectID: firstObjectID,
+            action: .select,
+            priority: .objectBodySelect
+        )
+        var secondTarget = hitTarget(
+            objectID: secondObjectID,
+            action: .select,
+            priority: .objectBodySelect
+        )
+        firstTarget.frame = CGRect(x: 10, y: 20, width: 40, height: 40)
+        secondTarget.frame = CGRect(x: 30, y: 20, width: 40, height: 40)
+
+        let bestTarget = RenderedEditHitTarget.highestPriority(
+            in: [firstTarget, secondTarget],
+            nearestTo: CGPoint(x: 58, y: 40)
+        )
+
+        XCTAssertEqual(bestTarget?.objectID, secondObjectID)
+    }
+
     func testSelectFirstResolutionConvertsUnselectedMutatingTapIntoSelection() {
         let objectID = RenderedEditObjectID.committedChordBarline(afterMeasureID: UUID())
         let deleteTarget = hitTarget(

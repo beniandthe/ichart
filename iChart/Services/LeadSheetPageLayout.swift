@@ -433,8 +433,8 @@ enum LeadSheetPageLayoutEngine {
         }
     }
 
-    private static func paperHorizontalInset(for resolvedPageWidth: CGFloat) -> CGFloat {
-        resolvedPageWidth >= 1180 ? 18 : 24
+    private static func paperHorizontalInset(for _: CGFloat) -> CGFloat {
+        24
     }
 
     private static func paperWidth(for chart: Chart, resolvedPageWidth: CGFloat) -> CGFloat {
@@ -452,14 +452,14 @@ enum LeadSheetPageLayoutEngine {
         includesChordInkContinuationLanes: Bool = false
     ) -> LeadSheetPageLayout {
         let visualPolicy = VisualPolicy(chart: chart)
-        let usesPagedLayout = hasExplicitPageBreaks(for: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
             height: max(pageSize.height, minimumResponsivePageHeight)
         )
-        let logicalPageHeight = usesPagedLayout
-            ? minimumResponsivePageHeight
-            : resolvedPageSize.height
+        // Paper is a fixed logical page. The editor canvas can grow to contain
+        // more pages, but a tall viewport must never turn one paper page into an
+        // indefinitely long sheet.
+        let logicalPageHeight = minimumResponsivePageHeight
         let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageSize.width)
         let horizontalInset = max(0, (resolvedPageSize.width - paperWidth) / 2)
         let paperX = horizontalInset
@@ -479,28 +479,25 @@ enum LeadSheetPageLayoutEngine {
             includesChordInkContinuationLanes: includesChordInkContinuationLanes,
             visualPolicy: visualPolicy
         )
-        let planPages = pagedSystemPlans(plans, chart: chart)
         let metrics = visualPolicy.metrics
+        let planPages = pagedSystemPlans(
+            plans,
+            chart: chart,
+            paperHeight: minimumPaperHeight,
+            firstPageSystemTopOffset: firstPageSystemTopOffset,
+            metrics: metrics
+        )
         var paperPages = [LeadSheetPaperPageLayout]()
         var systemFrames = [LeadSheetSystemLayout]()
         var nextPaperY = paperTopMargin
         var header: LeadSheetHeaderLayout?
 
         for (pageIndex, pagePlans) in planPages.enumerated() {
-            let firstSystemTopOffset = pageIndex == 0
-                ? firstPageSystemTopOffset
-                : continuationPageFirstSystemTopInset
-            let paperHeight = paperHeight(
-                systemCount: pagePlans.count,
-                firstSystemTopOffset: firstSystemTopOffset,
-                metrics: metrics,
-                minimumPaperHeight: minimumPaperHeight
-            )
             let paperFrame = CGRect(
                 x: paperX,
                 y: nextPaperY,
                 width: paperWidth,
-                height: paperHeight
+                height: minimumPaperHeight
             )
             let firstSystemTop: CGFloat
             if pageIndex == 0 {
@@ -557,14 +554,11 @@ enum LeadSheetPageLayoutEngine {
 
     static func estimatedCanvasHeight(for chart: Chart, pageSize: CGSize) -> CGFloat {
         let visualPolicy = VisualPolicy(chart: chart)
-        let usesPagedLayout = hasExplicitPageBreaks(for: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
             height: max(pageSize.height, minimumResponsivePageHeight)
         )
-        let logicalPageHeight = usesPagedLayout
-            ? minimumResponsivePageHeight
-            : resolvedPageSize.height
+        let logicalPageHeight = minimumResponsivePageHeight
         let paperWidth = paperWidth(for: chart, resolvedPageWidth: resolvedPageSize.width)
         let paperFrame = CGRect(
             x: 0,
@@ -580,19 +574,16 @@ enum LeadSheetPageLayoutEngine {
             includesChordInkContinuationLanes: false,
             visualPolicy: visualPolicy
         )
-        let planPages = pagedSystemPlans(plans, chart: chart)
         let metrics = visualPolicy.metrics
         let minimumPaperHeight = max(1, logicalPageHeight - paperTopMargin - paperBottomMargin)
-        let pageHeights = planPages.enumerated().map { pageIndex, pagePlans in
-            paperHeight(
-                systemCount: pagePlans.count,
-                firstSystemTopOffset: pageIndex == 0
-                    ? resolvedHeaderFrame.maxY + 24 - paperFrame.minY
-                    : continuationPageFirstSystemTopInset,
-                metrics: metrics,
-                minimumPaperHeight: minimumPaperHeight
-            )
-        }
+        let planPages = pagedSystemPlans(
+            plans,
+            chart: chart,
+            paperHeight: minimumPaperHeight,
+            firstPageSystemTopOffset: resolvedHeaderFrame.maxY + 24 - paperFrame.minY,
+            metrics: metrics
+        )
+        let pageHeights = Array(repeating: minimumPaperHeight, count: planPages.count)
         let totalPaperHeight = pageHeights.reduce(0, +)
         let gapHeight = CGFloat(max(0, pageHeights.count - 1)) * paperPageGap
         return max(
@@ -752,23 +743,6 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func paperHeight(
-        systemCount: Int,
-        firstSystemTopOffset: CGFloat,
-        metrics: LeadSheetEngravingMetrics,
-        minimumPaperHeight: CGFloat
-    ) -> CGFloat {
-        guard systemCount > 0 else {
-            return minimumPaperHeight
-        }
-
-        let systemsHeight = firstSystemTopOffset
-            + CGFloat(systemCount) * metrics.systemHeight
-            + CGFloat(max(0, systemCount - 1)) * metrics.systemSpacing
-            + 54
-        return max(minimumPaperHeight, systemsHeight)
-    }
-
     private static func systemPlans(
         for chart: Chart,
         paperFrame: CGRect,
@@ -789,7 +763,10 @@ enum LeadSheetPageLayoutEngine {
 
     private static func pagedSystemPlans(
         _ plans: [PackedLeadSheetSystemPlan],
-        chart: Chart
+        chart: Chart,
+        paperHeight: CGFloat,
+        firstPageSystemTopOffset: CGFloat,
+        metrics: LeadSheetEngravingMetrics
     ) -> [[PackedLeadSheetSystemPlan]] {
         let pageBreakStartIDs = pageBreakStartMeasureIDs(for: chart)
         guard !plans.isEmpty else {
@@ -806,6 +783,19 @@ enum LeadSheetPageLayoutEngine {
                 pages.append(currentPage)
                 currentPage = []
             }
+
+            let topOffset = pages.isEmpty
+                ? firstPageSystemTopOffset
+                : continuationPageFirstSystemTopInset
+            let capacity = systemCapacity(
+                paperHeight: paperHeight,
+                firstSystemTopOffset: topOffset,
+                metrics: metrics
+            )
+            if currentPage.count >= capacity {
+                pages.append(currentPage)
+                currentPage = []
+            }
             currentPage.append(plan)
         }
 
@@ -816,8 +806,14 @@ enum LeadSheetPageLayoutEngine {
         return pages.isEmpty ? [[]] : pages
     }
 
-    private static func hasExplicitPageBreaks(for chart: Chart) -> Bool {
-        !pageBreakStartMeasureIDs(for: chart).isEmpty
+    private static func systemCapacity(
+        paperHeight: CGFloat,
+        firstSystemTopOffset: CGFloat,
+        metrics: LeadSheetEngravingMetrics
+    ) -> Int {
+        let usableHeight = max(0, paperHeight - firstSystemTopOffset - 54)
+        let stride = max(1, metrics.systemHeight + metrics.systemSpacing)
+        return max(1, Int(floor((usableHeight + metrics.systemSpacing) / stride)))
     }
 
     private static func pageBreakStartMeasureIDs(for chart: Chart) -> Set<UUID> {
@@ -1323,6 +1319,11 @@ enum LeadSheetPageLayoutEngine {
             visualPolicy: visualPolicy,
             systemIndex: currentSystemIndex
         )
+        var currentPackingLeadingSignatureWidth = packingLeadingSignatureWidth(
+            for: chart,
+            visualPolicy: visualPolicy,
+            systemIndex: currentSystemIndex
+        )
         var currentBodyWidth: CGFloat = 0
         let forcedBreakStartIDs: Set<UUID>
         if chart.layoutStyle == .rhythmSectionSheet || chart.layoutStyle == .leadSheet {
@@ -1352,6 +1353,11 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy,
                 systemIndex: currentSystemIndex
             )
+            currentPackingLeadingSignatureWidth = packingLeadingSignatureWidth(
+                for: chart,
+                visualPolicy: visualPolicy,
+                systemIndex: currentSystemIndex
+            )
             currentBodyWidth = 0
         }
 
@@ -1361,7 +1367,7 @@ enum LeadSheetPageLayoutEngine {
             }
 
             let preferredWidth = preferredWidth(for: measure, chart: chart)
-            let nextFrameWidth = currentLeadingSignatureWidth
+            let nextFrameWidth = currentPackingLeadingSignatureWidth
                 + currentBodyWidth
                 + preferredWidth
                 + systemTrailingPadding
@@ -1429,18 +1435,39 @@ enum LeadSheetPageLayoutEngine {
         return plans.map { plan in
             standardizedRhythmSectionSystemPlan(
                 plan,
-                standardMeasureWidth: standardMeasureWidth
+                standardMeasureWidth: standardMeasureWidth,
+                maxSystemWidth: maxSystemWidth
             )
         }
     }
 
     private static func standardizedRhythmSectionSystemPlan(
         _ plan: PackedLeadSheetSystemPlan,
-        standardMeasureWidth: CGFloat
+        standardMeasureWidth: CGFloat,
+        maxSystemWidth: CGFloat
     ) -> PackedLeadSheetSystemPlan {
-        let standardizedMeasures = plan.measures.map { measurePlan in
+        let manualWidths = plan.measures.compactMap { measurePlan -> CGFloat? in
+            guard let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth else {
+                return nil
+            }
+            return CGFloat(manualLayoutWidth)
+        }
+        let isPersistentlyEqualizedRow = plan.measures.count > 1
+            && manualWidths.count == plan.measures.count
+            && (manualWidths.max() ?? 0) - (manualWidths.min() ?? 0) <= 0.5
+        let responsiveEqualWidth = max(
+            1,
+            (maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding)
+                / CGFloat(max(1, plan.measures.count))
+        )
+        var standardizedMeasures = plan.measures.map { measurePlan in
             let width: CGFloat
-            if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
+            if isPersistentlyEqualizedRow {
+                // Equal Row and Join Row store a shared manual width as intent.
+                // Resolve that intent against the current paper width so the
+                // row stays even and keeps both margins after rotation.
+                width = responsiveEqualWidth
+            } else if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
                 width = Measure.clampedManualLayoutWidth(CGFloat(manualLayoutWidth))
             } else {
                 width = standardMeasureWidth
@@ -1451,6 +1478,24 @@ enum LeadSheetPageLayoutEngine {
                 chordInkTargetMeasureID: measurePlan.chordInkTargetMeasureID,
                 width: width
             )
+        }
+        let availableBodyWidth = max(
+            1,
+            maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding
+        )
+        let resolvedBodyWidth = standardizedMeasures.map(\.width).reduce(0, +)
+        if resolvedBodyWidth > availableBodyWidth {
+            // A wide key signature consumes more of the left gutter, but it
+            // must not create or remove musical rows. Preserve the row's
+            // measure proportions and fit its body into the remaining width.
+            let fitScale = availableBodyWidth / resolvedBodyWidth
+            standardizedMeasures = standardizedMeasures.map { measurePlan in
+                PackedLeadSheetMeasurePlan(
+                    measure: measurePlan.measure,
+                    chordInkTargetMeasureID: measurePlan.chordInkTargetMeasureID,
+                    width: measurePlan.width * fitScale
+                )
+            }
         }
         let bodyWidth = standardizedMeasures.map(\.width).reduce(0, +)
 
@@ -1666,13 +1711,10 @@ enum LeadSheetPageLayoutEngine {
         let defaultWidth = max(1, preferredCommittedMeasureWidth * metrics.measureWidthScale)
         let minimumDisplayWidth = metrics.chordBandHeight * 0.92
         let readableChordWidths = placements.map { placement in
-            let displayedSymbol = chart.displayedChordSymbol(for: placement.chordEvent, in: measure.id)
-            let displayedText = displayedSymbol.displayText
             return max(
                 minimumDisplayWidth,
-                estimatedSimpleChordTextWidth(
-                    for: displayedSymbol,
-                    fallbackText: displayedText,
+                maximumSimpleChordTextWidth(
+                    for: placement.chordEvent,
                     fontSize: fontSize
                 ) + 2
             )
@@ -1723,6 +1765,27 @@ enum LeadSheetPageLayoutEngine {
         }
 
         return max(metrics.continuationSystemSignatureWidth, 42 + keySignatureWidth)
+    }
+
+    private static func packingLeadingSignatureWidth(
+        for chart: Chart,
+        visualPolicy: VisualPolicy,
+        systemIndex: Int
+    ) -> CGFloat {
+        guard chart.layoutStyle == .rhythmSectionSheet else {
+            return leadingSignatureWidth(
+                for: chart,
+                visualPolicy: visualPolicy,
+                systemIndex: systemIndex
+            )
+        }
+
+        // Row membership expresses musical layout, so it must be independent
+        // of how many accidentals happen to be drawn. The actual signature
+        // gutter is retained on the packed plan and its body is fitted later.
+        return systemIndex == 0
+            ? visualPolicy.rhythmFirstSystemSignatureWidth
+            : visualPolicy.rhythmContinuationSignatureWidth
     }
 
     private static func maxKeySignatureAccidentalCount(for chart: Chart) -> CGFloat {
@@ -2019,7 +2082,7 @@ enum LeadSheetPageLayoutEngine {
             meterChangeFrame: meterChangeFrame
         )
         let slotStartXs = simpleChordSlotStartXs(
-            count: placements.count,
+            for: placements,
             meter: meter,
             guideFrame: guideFrame
         )
@@ -2047,22 +2110,63 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func simpleChordSlotStartXs(
-        count: Int,
+        for placements: [MeasureChordPlacement],
         meter: Meter,
         guideFrame: CGRect
     ) -> [CGFloat] {
+        let count = placements.count
         guard count > 0 else {
             return []
         }
 
         let guideXs = LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)
         if count <= guideXs.count {
-            return simpleChordPreferredGuideIndexes(
+            let preferredIndexes = simpleChordPreferredGuideIndexes(
                 count: count,
                 guideCount: guideXs.count
             )
-            .map { guideXs[$0] }
             .sorted()
+            guard count > 1 else {
+                guard let placement = placements.first,
+                      !placement.isRhythmMapped,
+                      let manualLaneFraction = placement.chordEvent.manualLaneFraction,
+                      placement.chordEvent.startPosition.subdivisionsPerBeat > 1 else {
+                    return preferredIndexes.map { guideXs[$0] }
+                }
+
+                let targetX = guideFrame.minX
+                    + guideFrame.width * CGFloat(ChordEvent.clampedManualLaneFraction(manualLaneFraction))
+                let desiredIndex = guideXs.indices.min { lhs, rhs in
+                    abs(guideXs[lhs] - targetX) < abs(guideXs[rhs] - targetX)
+                } ?? preferredIndexes[0]
+                return [guideXs[desiredIndex]]
+            }
+
+            // With multiple chords, a committed drag must be allowed to select
+            // a later beat guide; otherwise the drag preview and final rendered
+            // result disagree (for example, beat four snaps back to beat three
+            // in a three-chord measure).
+
+            let desiredIndexes = placements.enumerated().map { index, placement in
+                guard !placement.isRhythmMapped,
+                      let manualLaneFraction = placement.chordEvent.manualLaneFraction else {
+                    return preferredIndexes[index]
+                }
+
+                let targetX = guideFrame.minX
+                    + guideFrame.width * CGFloat(ChordEvent.clampedManualLaneFraction(manualLaneFraction))
+                return guideXs.indices.min { lhs, rhs in
+                    abs(guideXs[lhs] - targetX) < abs(guideXs[rhs] - targetX)
+                } ?? preferredIndexes[index]
+            }
+
+            var resolvedIndexes = [Int]()
+            for (index, desiredIndex) in desiredIndexes.enumerated() {
+                let minimumIndex = (resolvedIndexes.last ?? -1) + 1
+                let maximumIndex = guideXs.count - (count - index)
+                resolvedIndexes.append(min(maximumIndex, max(minimumIndex, desiredIndex)))
+            }
+            return resolvedIndexes.map { guideXs[$0] }
         }
 
         let firstSlotX = guideXs.first ?? guideFrame.minX
@@ -2199,15 +2303,18 @@ enum LeadSheetPageLayoutEngine {
         }
 
         let textWidth = estimatedChordTextWidth(for: displayedText)
+        let requestedWidth = placement.chordEvent.manualDisplayWidth
+            .map { CGFloat(ChordEvent.clampedManualDisplayWidth($0)) }
+            ?? textWidth
         let minimumChordX = visualPolicy.layoutStyle == .rhythmSectionSheet
             ? staffFrame.minX + rhythmSectionChordLeadingInset
             : chordBandFrame.minX + 1
+        let resolvedWidth = min(requestedWidth, max(1, chordBandFrame.maxX - minimumChordX))
         let chordX = min(
-            max(minimumChordX, attackCenterX - textWidth / 2),
-            chordBandFrame.maxX - textWidth
+            max(minimumChordX, attackCenterX - resolvedWidth / 2),
+            chordBandFrame.maxX - resolvedWidth
         )
         let resolvedChordX = max(minimumChordX, chordX)
-        let resolvedWidth = min(textWidth, max(1, chordBandFrame.maxX - resolvedChordX))
 
         let structuredChordRenderOffset = visualPolicy.layoutStyle == .rhythmSectionSheet
             ? rhythmSectionChordRenderOffset
@@ -2793,6 +2900,39 @@ enum LeadSheetPageLayoutEngine {
                 primaryFontSize: fontSize,
                 suffixFontSize: suffixFontSize
             )
+    }
+
+    private static func maximumSimpleChordTextWidth(
+        for chordEvent: ChordEvent,
+        fontSize: CGFloat
+    ) -> CGFloat {
+        guard chordEvent.symbol.kind == .rooted else {
+            return estimatedSimpleChordTextWidth(
+                for: chordEvent.symbol,
+                fallbackText: chordEvent.symbol.displayText,
+                fontSize: fontSize
+            )
+        }
+
+        // Simple Sheet does not draw a key signature, so a display-only key or
+        // transposition change must not resize measures or move chord hit areas
+        // and anchored ink. Reserve the widest reachable root/slash spelling
+        // while keeping the visible chord frame sized to the spelling on screen.
+        return (0..<12).flatMap { semitones -> [ChordSymbol] in
+            let transposed = chordEvent.symbol.transposedForChartDisplay(by: semitones)
+            return [
+                transposed.spelledForChartDisplay(using: .flats),
+                transposed.spelledForChartDisplay(using: .sharps)
+            ]
+        }
+        .map { symbol in
+            estimatedSimpleChordTextWidth(
+                for: symbol,
+                fallbackText: symbol.displayText,
+                fontSize: fontSize
+            )
+        }
+        .max() ?? 16
     }
 
     private static func estimatedSimpleChordTextWidth(

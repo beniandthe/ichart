@@ -308,7 +308,8 @@ extension Chart {
               location.systemIndex > 0,
               location.measureIndex == 0,
               systems[location.systemIndex].lineBreakRule == .forced,
-              !systems[location.systemIndex].startsNewPage else {
+              !systems[location.systemIndex].startsNewPage,
+              keyChange(atStartOf: measureID) == nil else {
             return false
         }
 
@@ -319,6 +320,71 @@ extension Chart {
         let mergedMeasureCount = systems[location.systemIndex - 1].measures.count
             + systems[location.systemIndex].measures.count
         return mergedMeasureCount <= simpleSystemMeasureCap
+    }
+
+    func measureIDsForJoiningRow(startingAt measureID: UUID) -> [UUID]? {
+        guard supportsManualSystemBreaks,
+              let location = measureLocation(id: measureID),
+              location.systemIndex > 0,
+              location.measureIndex == 0,
+              systems[location.systemIndex].lineBreakRule == .forced,
+              !systems[location.systemIndex].startsNewPage,
+              keyChange(atStartOf: measureID) == nil else {
+            return nil
+        }
+
+        let destinationMeasureIDs = systems[location.systemIndex - 1].measures.map(\.id)
+        guard layoutStyle != .simpleChordSheet
+                || destinationMeasureIDs.count + 1 <= simpleSystemMeasureCap else {
+            return nil
+        }
+
+        return destinationMeasureIDs + [measureID]
+    }
+
+    @discardableResult
+    mutating func joinRow(
+        startingAt measureID: UUID,
+        equalizedManualWidths: [UUID: CGFloat]
+    ) -> Bool {
+        guard let joinedRowMeasureIDs = measureIDsForJoiningRow(startingAt: measureID),
+              !joinedRowMeasureIDs.isEmpty,
+              joinedRowMeasureIDs.allSatisfy({ equalizedManualWidths[$0] != nil }) else {
+            return false
+        }
+
+        // Apply to a candidate so an invalid break removal cannot leave behind
+        // a partially resized row.
+        var candidate = self
+        for joinedMeasureID in joinedRowMeasureIDs {
+            guard let width = equalizedManualWidths[joinedMeasureID] else {
+                return false
+            }
+            _ = candidate.setMeasureManualLayoutWidth(width, for: joinedMeasureID)
+        }
+        let flattenedMeasures = candidate.measures
+        guard let selectedIndex = flattenedMeasures.firstIndex(where: { $0.id == measureID }) else {
+            return false
+        }
+        let followingMeasureID = flattenedMeasures.indices.contains(selectedIndex + 1)
+            ? flattenedMeasures[selectedIndex + 1].id
+            : nil
+        var forcedBreakStartIDs = candidate.currentForcedSystemBreakStartIDs()
+        forcedBreakStartIDs.remove(measureID)
+        if let followingMeasureID {
+            // Join Row moves exactly the selected leading measure upward. Keep
+            // the rest of its source row together by moving the explicit break
+            // to the following measure instead of dissolving the whole row.
+            forcedBreakStartIDs.insert(followingMeasureID)
+        }
+        candidate.rebuildSystems(
+            using: flattenedMeasures,
+            forcedBreakStartIDsOverride: forcedBreakStartIDs
+        )
+        candidate.updatedAt = .now
+
+        self = candidate
+        return true
     }
 
     @discardableResult
@@ -661,7 +727,11 @@ extension Chart {
     }
 
     func canDeleteCommittedSimpleChordBarline(after measureID: UUID) -> Bool {
-        guard layoutStyle == .simpleChordSheet,
+        layoutStyle == .simpleChordSheet && canJoinMeasure(after: measureID)
+    }
+
+    func canJoinMeasure(after measureID: UUID) -> Bool {
+        guard layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet,
               let leftLocation = measureLocation(id: measureID) else {
             return false
         }
@@ -675,15 +745,53 @@ extension Chart {
 
         let leftMeasure = flattenedMeasures[leftIndex]
         let rightMeasure = flattenedMeasures[leftIndex + 1]
-        return leftMeasure.authoringState == .committed
-            && leftMeasure.barlineAfter == .single
-            && keyChange(atStartOf: rightMeasure.id) == nil
-            && effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure)
+        guard leftMeasure.authoringState == .committed,
+              leftMeasure.barlineAfter == .single,
+              keyChange(atStartOf: rightMeasure.id) == nil,
+              effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure) else {
+            return false
+        }
+
+        if layoutStyle == .rhythmSectionSheet,
+           let rightLocation = measureLocation(id: rightMeasure.id),
+           rightLocation.systemIndex != leftLocation.systemIndex {
+            // Joining must not silently erase a user-authored row or page boundary.
+            return false
+        }
+
+        guard layoutStyle == .rhythmSectionSheet else {
+            return true
+        }
+
+        // A Rhythm measure currently has one meter-length timing map. Until the
+        // model can represent a two-measure map inside one measure, refuse any
+        // join that would have to discard or reinterpret rhythmic notation.
+        let carriesUnsupportedRhythmContent: (Measure) -> Bool = { measure in
+            measure.rhythmMap != nil
+                || !measure.pitchedNoteEvents.isEmpty
+                || measure.handwrittenRhythmicNotationData != nil
+        }
+        let hasRightAnchoredFreehand = freehandSymbols.contains {
+            $0.anchorMeasureID == rightMeasure.id
+        }
+        return leftMeasure.beatGridPreset == rightMeasure.beatGridPreset
+            && !carriesUnsupportedRhythmContent(leftMeasure)
+            && !carriesUnsupportedRhythmContent(rightMeasure)
+            && !hasRightAnchoredFreehand
     }
 
     @discardableResult
     mutating func deleteCommittedSimpleChordBarline(after measureID: UUID) -> Bool {
-        guard canDeleteCommittedSimpleChordBarline(after: measureID),
+        guard layoutStyle == .simpleChordSheet else {
+            return false
+        }
+
+        return joinMeasure(after: measureID)
+    }
+
+    @discardableResult
+    mutating func joinMeasure(after measureID: UUID) -> Bool {
+        guard canJoinMeasure(after: measureID),
               let leftLocation = measureLocation(id: measureID) else {
             return false
         }
@@ -725,6 +833,34 @@ extension Chart {
                 return lhs.offset < rhs.offset
             }
             .map { $0.element }
+
+        for cueTextIndex in cueTexts.indices {
+            guard let beatFraction = cueTexts[cueTextIndex].beatFraction else {
+                continue
+            }
+
+            if cueTexts[cueTextIndex].anchorMeasureID == leftMeasure.id {
+                cueTexts[cueTextIndex].beatFraction = CueText.clampedBeatFraction(beatFraction * leftScale)
+            } else if cueTexts[cueTextIndex].anchorMeasureID == rightMeasure.id {
+                cueTexts[cueTextIndex].beatFraction = CueText.clampedBeatFraction(
+                    leftScale + beatFraction * rightScale
+                )
+            }
+        }
+
+        for roadmapObjectIndex in roadmapObjects.indices {
+            guard let horizontalOffset = roadmapObjects[roadmapObjectIndex].horizontalOffsetWithinMeasure else {
+                continue
+            }
+
+            if roadmapObjects[roadmapObjectIndex].startMeasureID == leftMeasure.id {
+                roadmapObjects[roadmapObjectIndex].horizontalOffsetWithinMeasure =
+                    RoadmapObject.clampedHorizontalOffset(horizontalOffset * leftScale)
+            } else if roadmapObjects[roadmapObjectIndex].startMeasureID == rightMeasure.id {
+                roadmapObjects[roadmapObjectIndex].horizontalOffsetWithinMeasure =
+                    RoadmapObject.clampedHorizontalOffset(leftScale + horizontalOffset * rightScale)
+            }
+        }
 
         leftMeasure.chordEvents = mergedChordEvents
         leftMeasure.barlineAfter = rightMeasure.barlineAfter
@@ -827,9 +963,12 @@ extension Chart {
     @discardableResult
     mutating func setPageHandwrittenNotationDrawing(
         _ drawingData: Data?,
-        coordinateSpace: PersistentInkCoordinateSpace? = nil
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Bool {
-        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
+        let normalizedData = assumesNormalizedPersistentInk
+            ? normalizedNonemptyPersistentInkData(drawingData)
+            : normalizedPersistentInkDrawingData(drawingData)
         let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
         guard pageHandwrittenNotationData != normalizedData
             || pageHandwrittenNotationCoordinateSpace != normalizedCoordinateSpace else {
@@ -845,9 +984,12 @@ extension Chart {
     @discardableResult
     mutating func setPageHandwrittenHeaderDrawing(
         _ drawingData: Data?,
-        coordinateSpace: PersistentInkCoordinateSpace? = nil
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Bool {
-        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
+        let normalizedData = assumesNormalizedPersistentInk
+            ? normalizedNonemptyPersistentInkData(drawingData)
+            : normalizedPersistentInkDrawingData(drawingData)
         let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
         guard pageHandwrittenHeaderData != normalizedData
             || pageHandwrittenHeaderCoordinateSpace != normalizedCoordinateSpace else {
@@ -863,9 +1005,12 @@ extension Chart {
     @discardableResult
     mutating func setPageHandwrittenChordDrawing(
         _ drawingData: Data?,
-        coordinateSpace: PersistentInkCoordinateSpace? = nil
+        coordinateSpace: PersistentInkCoordinateSpace? = nil,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Bool {
-        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
+        let normalizedData = assumesNormalizedPersistentInk
+            ? normalizedNonemptyPersistentInkData(drawingData)
+            : normalizedPersistentInkDrawingData(drawingData)
         let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
         guard pageHandwrittenChordData != normalizedData
             || pageHandwrittenChordCoordinateSpace != normalizedCoordinateSpace else {
@@ -882,13 +1027,16 @@ extension Chart {
     mutating func setMeasureHandwrittenRhythmicNotationDrawing(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
-        for measureID: UUID
+        for measureID: UUID,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Bool {
         guard let location = measureLocation(id: measureID) else {
             return false
         }
 
-        let normalizedData = normalizedPersistentInkDrawingData(drawingData)
+        let normalizedData = assumesNormalizedPersistentInk
+            ? normalizedNonemptyPersistentInkData(drawingData)
+            : normalizedPersistentInkDrawingData(drawingData)
         let normalizedCoordinateSpace = persistentInkCoordinateSpace(coordinateSpace, for: normalizedData)
         guard systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationData != normalizedData
             || systems[location.systemIndex].measures[location.measureIndex].handwrittenRhythmicNotationCoordinateSpace != normalizedCoordinateSpace else {
@@ -2818,6 +2966,11 @@ extension Chart {
             if roadmapObjects[roadmapObjectIndex].endMeasureID == sourceMeasureID {
                 roadmapObjects[roadmapObjectIndex].endMeasureID = targetMeasureID
             }
+        }
+
+        for freehandSymbolIndex in freehandSymbols.indices
+            where freehandSymbols[freehandSymbolIndex].anchorMeasureID == sourceMeasureID {
+            freehandSymbols[freehandSymbolIndex].anchorMeasureID = targetMeasureID
         }
     }
 

@@ -4,6 +4,68 @@ import PencilKit
 import UIKit
 
 enum LeadSheetSavedInkRenderer {
+    private final class RenderCacheKey: NSObject {
+        private let drawingData: Data
+        private let boundsX: Double
+        private let boundsY: Double
+        private let boundsWidth: Double
+        private let boundsHeight: Double
+        private let sourceCoordinateSpace: PersistentInkCoordinateSpace?
+        private let targetCoordinateSpace: PersistentInkCoordinateSpace?
+        private let scale: Double
+
+        init(
+            drawingData: Data,
+            bounds: CGRect,
+            sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+            targetCoordinateSpace: PersistentInkCoordinateSpace?,
+            scale: CGFloat
+        ) {
+            self.drawingData = drawingData
+            boundsX = Double(bounds.origin.x)
+            boundsY = Double(bounds.origin.y)
+            boundsWidth = Double(bounds.width)
+            boundsHeight = Double(bounds.height)
+            self.sourceCoordinateSpace = sourceCoordinateSpace
+            self.targetCoordinateSpace = targetCoordinateSpace
+            self.scale = Double(scale)
+        }
+
+        override var hash: Int {
+            var hasher = Hasher()
+            hasher.combine(drawingData)
+            hasher.combine(boundsX)
+            hasher.combine(boundsY)
+            hasher.combine(boundsWidth)
+            hasher.combine(boundsHeight)
+            hasher.combine(sourceCoordinateSpace)
+            hasher.combine(targetCoordinateSpace)
+            hasher.combine(scale)
+            return hasher.finalize()
+        }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? RenderCacheKey else {
+                return false
+            }
+            return drawingData == other.drawingData
+                && boundsX == other.boundsX
+                && boundsY == other.boundsY
+                && boundsWidth == other.boundsWidth
+                && boundsHeight == other.boundsHeight
+                && sourceCoordinateSpace == other.sourceCoordinateSpace
+                && targetCoordinateSpace == other.targetCoordinateSpace
+                && scale == other.scale
+        }
+    }
+
+    private static let renderedInkImageCache: NSCache<RenderCacheKey, UIImage> = {
+        let cache = NSCache<RenderCacheKey, UIImage>()
+        cache.countLimit = 12
+        cache.totalCostLimit = 96 * 1_024 * 1_024
+        return cache
+    }()
+
     static func drawPageInk(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
@@ -74,14 +136,30 @@ enum LeadSheetSavedInkRenderer {
         targetCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         scale: CGFloat = UIScreen.main.scale
     ) -> UIImage? {
+        guard let drawingData,
+              !drawingData.isEmpty,
+              bounds.width > 0,
+              bounds.height > 0 else {
+            return nil
+        }
+
+        let cacheKey = RenderCacheKey(
+            drawingData: drawingData,
+            bounds: bounds,
+            sourceCoordinateSpace: sourceCoordinateSpace,
+            targetCoordinateSpace: targetCoordinateSpace,
+            scale: scale
+        )
+        if let cachedImage = renderedInkImageCache.object(forKey: cacheKey) {
+            return cachedImage
+        }
+
         guard let drawing = normalizedDrawing(
             for: drawingData,
             sourceCoordinateSpace: sourceCoordinateSpace,
             targetCoordinateSpace: targetCoordinateSpace,
             targetFrame: bounds
-        ),
-              bounds.width > 0,
-              bounds.height > 0 else {
+        ) else {
             return nil
         }
 
@@ -90,7 +168,17 @@ enum LeadSheetSavedInkRenderer {
             image = drawing.image(from: bounds, scale: scale)
         }
         let renderedImage = image ?? drawing.image(from: bounds, scale: scale)
-        return imageByForcingPersistentInkColor(renderedImage, scale: scale)
+        let persistentInkImage = imageByForcingPersistentInkColor(renderedImage, scale: scale)
+        renderedInkImageCache.setObject(
+            persistentInkImage,
+            forKey: cacheKey,
+            cost: renderedImageCost(bounds: bounds, scale: scale)
+        )
+        return persistentInkImage
+    }
+
+    static func resetRenderedInkImageCacheForTesting() {
+        renderedInkImageCache.removeAllObjects()
     }
 
     static func imageByForcingPersistentInkColor(
@@ -147,6 +235,20 @@ enum LeadSheetSavedInkRenderer {
             return nil
         }
         return drawing.strokes.isEmpty ? nil : drawing
+    }
+
+    private static func renderedImageCost(bounds: CGRect, scale: CGFloat) -> Int {
+        let resolvedScale = max(1, Double(scale))
+        let byteCount = Double(bounds.width)
+            * Double(bounds.height)
+            * resolvedScale
+            * resolvedScale
+            * 4
+        guard byteCount.isFinite,
+              byteCount > 0 else {
+            return 0
+        }
+        return Int(min(byteCount.rounded(.up), Double(Int.max)))
     }
 }
 #endif

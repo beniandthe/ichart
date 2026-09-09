@@ -11,6 +11,22 @@ enum PencilKitInkAdapter {
         drawing.strokes.map(inkStroke(from:))
     }
 
+    static func inkStrokes(
+        from drawing: PKDrawing,
+        shouldContinue: () -> Bool
+    ) -> [InkStroke]? {
+        let strokes = drawing.strokes
+        var result = [InkStroke]()
+        result.reserveCapacity(strokes.count)
+        for stroke in strokes {
+            guard shouldContinue() else {
+                return nil
+            }
+            result.append(inkStroke(from: stroke))
+        }
+        return result
+    }
+
     private static func inkStroke(from stroke: PKStroke) -> InkStroke {
         InkStroke(
             points: stroke.path.map { strokePoint in

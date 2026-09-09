@@ -179,6 +179,37 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertFalse(secondPageText.contains("third page export marker"))
     }
 
+    func testThirtyTwoMeasureRhythmExportUsesMultipleFixedPages() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        let chart = Chart.blank(
+            title: "Thirty Two Measure Rhythm Export",
+            measureCount: 32,
+            layoutStyle: .rhythmSectionSheet
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        let exportedPDF = try await exporter.exportPDF(for: chart)
+        let document = try XCTUnwrap(PDFDocument(url: exportedPDF.url))
+        let pageBounds = try (0..<document.pageCount).map { pageIndex in
+            try XCTUnwrap(document.page(at: pageIndex)?.bounds(for: .mediaBox))
+        }
+
+        XCTAssertGreaterThan(document.pageCount, 1)
+        XCTAssertEqual(exportedPDF.pageCount, document.pageCount)
+        XCTAssertTrue(pageBounds.allSatisfy { $0.height > $0.width })
+        for bounds in pageBounds.dropFirst() {
+            XCTAssertEqual(bounds.width, pageBounds[0].width, accuracy: 0.01)
+            XCTAssertEqual(bounds.height, pageBounds[0].height, accuracy: 0.01)
+        }
+        XCTAssertTrue(document.page(at: 0)?.string?.contains("THIRTY TWO MEASURE RHYTHM EXPORT") == true)
+        XCTAssertFalse(document.page(at: 1)?.string?.contains("THIRTY TWO MEASURE RHYTHM EXPORT") == true)
+    }
+
     func testRhythmSectionExportProofRendersStructuredObjects() async throws {
         let exportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

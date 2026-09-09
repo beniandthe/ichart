@@ -2,6 +2,31 @@
 import PencilKit
 import UIKit
 
+struct LeadSheetInkTelemetrySamplingCheckpoint: Equatable {
+    var strokeCount: Int
+    var uptime: TimeInterval
+}
+
+enum LeadSheetInkTelemetrySamplingPolicy {
+    static let minimumStrokeDelta = 12
+    static let maximumInterval: TimeInterval = 12
+
+    static func shouldCapture(
+        strokeCount: Int,
+        uptime: TimeInterval,
+        previous: LeadSheetInkTelemetrySamplingCheckpoint?,
+        normalizationNeeded: Bool
+    ) -> Bool {
+        guard !normalizationNeeded,
+              let previous else {
+            return true
+        }
+
+        return abs(strokeCount - previous.strokeCount) >= minimumStrokeDelta
+            || uptime - previous.uptime >= maximumInterval
+    }
+}
+
 struct LeadSheetInkTelemetrySnapshot {
     var strokeCount: Int
     var pointCount: Int
@@ -43,7 +68,8 @@ struct LeadSheetInkTelemetrySnapshot {
 
     static func capture(
         drawing: PKDrawing,
-        canvasView: PKCanvasView? = nil
+        canvasView: PKCanvasView? = nil,
+        includesRenderedInkDiagnostics: Bool = true
     ) -> LeadSheetInkTelemetrySnapshot {
         var opacities: [Double] = []
         var widths: [Double] = []
@@ -51,8 +77,10 @@ struct LeadSheetInkTelemetrySnapshot {
         var pointCount = 0
         var lightStrokeCount = 0
         var hasMask = false
+        var normalizationNeeded = false
+        let strokes = drawing.strokes
 
-        for stroke in drawing.strokes {
+        for stroke in strokes {
             if let strokeLuminance = colorLuminance(stroke.ink.color) {
                 strokeColorLuminances.append(strokeLuminance)
             }
@@ -61,6 +89,10 @@ struct LeadSheetInkTelemetrySnapshot {
             }
             if stroke.mask != nil {
                 hasMask = true
+            }
+            if stroke.ink.inkType != .pen
+                || !LeadSheetPersistentInkColorPolicy.matchesPersistentInkColor(stroke.ink.color) {
+                normalizationNeeded = true
             }
 
             for point in stroke.path {
@@ -72,10 +104,12 @@ struct LeadSheetInkTelemetrySnapshot {
 
         let toolDiagnostics = toolDiagnostics(for: canvasView)
         let canvasDiagnostics = canvasDiagnostics(for: canvasView)
-        let renderedDiagnostics = renderedInkDiagnostics(for: drawing)
+        let renderedDiagnostics = includesRenderedInkDiagnostics
+            ? renderedInkDiagnostics(for: drawing)
+            : (medianLuminance: -1, lightPixelRatio: 0, sampleCount: 0)
 
         return LeadSheetInkTelemetrySnapshot(
-            strokeCount: drawing.strokes.count,
+            strokeCount: strokes.count,
             pointCount: pointCount,
             lightStrokeCount: lightStrokeCount,
             strokeColorMinLuminance: strokeColorLuminances.min() ?? -1,
@@ -88,7 +122,7 @@ struct LeadSheetInkTelemetrySnapshot {
             medianWidth: median(widths),
             maxWidth: widths.max() ?? 0,
             hasMask: hasMask,
-            normalizationNeeded: LeadSheetPersistentInkColorPolicy.needsNormalization(drawing),
+            normalizationNeeded: normalizationNeeded,
             toolInkType: toolDiagnostics.inkType,
             toolColorLuminance: toolDiagnostics.colorLuminance,
             toolIsInking: toolDiagnostics.isInking,

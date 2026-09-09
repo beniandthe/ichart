@@ -34,6 +34,20 @@ struct LeadSheetInkPersistenceCoordinator {
         pipelineMetrics.recordSkippedPersistence(strokeCount: strokeCount)
     }
 
+    mutating func recordManualErase(
+        strokeCount: Int,
+        candidateCount: Int,
+        removedStrokeCount: Int,
+        durationMilliseconds: Double
+    ) {
+        pipelineMetrics.recordManualErase(
+            strokeCount: strokeCount,
+            candidateCount: candidateCount,
+            removedStrokeCount: removedStrokeCount,
+            durationMilliseconds: durationMilliseconds
+        )
+    }
+
     mutating func flushMetrics(reason: String) {
         pipelineMetrics.flush(reason: reason)
     }
@@ -65,7 +79,8 @@ struct LeadSheetInkPersistenceCoordinator {
                   let updatedChart = scopeIdentity.chartByPersistingDrawingData(
                     pendingInk.drawingData,
                     coordinateSpace: pendingInk.coordinateSpace,
-                    in: resolvedChart
+                    in: resolvedChart,
+                    assumesNormalizedPersistentInk: true
                   ) else {
                 pendingPersistedInkByScopeIdentity[scopeIdentity] = nil
                 continue

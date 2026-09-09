@@ -45,13 +45,15 @@ enum LeadSheetRhythmicNotationFinalization {
         _ liveDrawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
         for measureID: UUID,
-        in chart: Chart
+        in chart: Chart,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Chart? {
         var updatedChart = chart
         guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
             liveDrawingData,
             coordinateSpace: coordinateSpace,
-            for: measureID
+            for: measureID,
+            assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
         ) else {
             return nil
         }

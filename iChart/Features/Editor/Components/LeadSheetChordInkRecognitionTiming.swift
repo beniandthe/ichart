@@ -6,6 +6,7 @@ struct ChordInkRecognitionTiming {
     var recognitionStartedAt: Date
     var recognitionFinishedAt: Date
     var strokeCount: Int
+    var cacheHit: Bool = false
 
     var requestedDelayMilliseconds: Double {
         requestedDelay * 1_000

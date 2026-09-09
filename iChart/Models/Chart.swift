@@ -14,6 +14,14 @@ func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
     #endif
 }
 
+func normalizedNonemptyPersistentInkData(_ drawingData: Data?) -> Data? {
+    guard let drawingData,
+          !drawingData.isEmpty else {
+        return nil
+    }
+    return drawingData
+}
+
 struct PersistentInkCoordinateSpace: Codable, Hashable {
     var width: Double
     var height: Double

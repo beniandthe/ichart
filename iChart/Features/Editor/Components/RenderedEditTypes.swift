@@ -94,6 +94,25 @@ struct RenderedEditHitTarget: Hashable {
         }
     }
 
+    static func highestPriority(
+        in candidates: [RenderedEditHitTarget],
+        nearestTo location: CGPoint
+    ) -> RenderedEditHitTarget? {
+        candidates.reduce(nil) { bestCandidate, candidate in
+            guard let bestCandidate else {
+                return candidate
+            }
+
+            if candidate.priority != bestCandidate.priority {
+                return candidate.priority > bestCandidate.priority ? candidate : bestCandidate
+            }
+
+            let candidateDistance = candidate.frame.centerSquaredDistance(to: location)
+            let bestDistance = bestCandidate.frame.centerSquaredDistance(to: location)
+            return candidateDistance < bestDistance ? candidate : bestCandidate
+        }
+    }
+
     func selectingOnly() -> RenderedEditHitTarget {
         RenderedEditHitTarget(
             objectID: objectID,
@@ -112,6 +131,14 @@ struct RenderedEditHitTarget: Hashable {
         default:
             return .objectBodySelect
         }
+    }
+}
+
+private extension CGRect {
+    func centerSquaredDistance(to point: CGPoint) -> CGFloat {
+        let deltaX = midX - point.x
+        let deltaY = midY - point.y
+        return deltaX * deltaX + deltaY * deltaY
     }
 }
 

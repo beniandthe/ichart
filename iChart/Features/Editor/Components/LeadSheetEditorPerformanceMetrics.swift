@@ -16,6 +16,7 @@ struct LeadSheetEditorPerformanceMetrics {
 
     private var layoutInvalidationCount = 0
     private var chartWriteBackCount = 0
+    private var inkPersistenceBackingRedrawSkipCount = 0
     private var dragBeginCount = 0
     private var dragChangeCount = 0
     private var dragCommitCount = 0
@@ -37,6 +38,11 @@ struct LeadSheetEditorPerformanceMetrics {
     mutating func recordChartWriteBack() {
         chartWriteBackCount += 1
         flushIfNeeded(reason: "chart_writeback")
+    }
+
+    mutating func recordInkPersistenceBackingRedrawSkipped() {
+        inkPersistenceBackingRedrawSkipCount += 1
+        flushIfNeeded(reason: "ink_persistence_redraw_skip")
     }
 
     mutating func recordDragState(
@@ -75,6 +81,7 @@ struct LeadSheetEditorPerformanceMetrics {
                 "reason": reason,
                 "layout_invalidations": "\(layoutInvalidationCount)",
                 "chart_writebacks": "\(chartWriteBackCount)",
+                "ink_persistence_backing_redraw_skips": "\(inkPersistenceBackingRedrawSkipCount)",
                 "drag_begins": "\(dragBeginCount)",
                 "drag_changes": "\(dragChangeCount)",
                 "drag_commits": "\(dragCommitCount)",
@@ -94,6 +101,7 @@ struct LeadSheetEditorPerformanceMetrics {
         [
             "layout_invalidations": layoutInvalidationCount,
             "chart_writebacks": chartWriteBackCount,
+            "ink_persistence_backing_redraw_skips": inkPersistenceBackingRedrawSkipCount,
             "drag_begins": dragBeginCount,
             "drag_changes": dragChangeCount,
             "drag_commits": dragCommitCount,
@@ -140,6 +148,7 @@ struct LeadSheetEditorPerformanceMetrics {
     private var hasEvents: Bool {
         layoutInvalidationCount > 0
             || chartWriteBackCount > 0
+            || inkPersistenceBackingRedrawSkipCount > 0
             || dragBeginCount > 0
             || dragChangeCount > 0
             || dragCommitCount > 0
@@ -149,6 +158,7 @@ struct LeadSheetEditorPerformanceMetrics {
     private mutating func flushIfNeeded(reason: String) {
         let eventCount = layoutInvalidationCount
             + chartWriteBackCount
+            + inkPersistenceBackingRedrawSkipCount
             + dragBeginCount
             + dragChangeCount
             + dragCommitCount
@@ -165,6 +175,7 @@ struct LeadSheetEditorPerformanceMetrics {
     private mutating func reset() {
         layoutInvalidationCount = 0
         chartWriteBackCount = 0
+        inkPersistenceBackingRedrawSkipCount = 0
         dragBeginCount = 0
         dragChangeCount = 0
         dragCommitCount = 0

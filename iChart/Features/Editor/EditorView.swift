@@ -714,6 +714,10 @@ struct EditorView: View {
         Meter(numerator: 12, denominator: 8)
     ]
     private static let showsChordFixtureCaptureTools = false
+    private static let chordPreviewTelemetryQueue = DispatchQueue(
+        label: "com.ichart.chord-preview-telemetry",
+        qos: .utility
+    )
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ChartLibraryStore
@@ -2219,6 +2223,14 @@ struct EditorView: View {
                         action: deleteSelectedRoadmapMarker
                     )
                 } else if selectedMeasureID != nil {
+                    if canRemoveSystemBreakBeforeSelectedMeasure {
+                        activeToolButton(
+                            title: "Join Row",
+                            systemImage: "arrow.up.to.line",
+                            action: handleJoinSelectedMeasureRow
+                        )
+                    }
+
                     activeToolButton(
                         title: "Even Row",
                         systemImage: "rectangle.split.3x1",
@@ -2297,13 +2309,15 @@ struct EditorView: View {
             )
 
             activeToolButton(
-                title: canRemoveSystemBreakBeforeSelectedMeasure ? "Join" : "New Row",
-                systemImage: canRemoveSystemBreakBeforeSelectedMeasure ? "arrow.up.to.line" : "arrow.down.to.line",
+                title: selectedMeasureStartsJoinableRow ? "Join Row" : "New Row",
+                systemImage: selectedMeasureStartsJoinableRow ? "arrow.up.to.line" : "arrow.down.to.line",
                 isTourHighlighted: editorGuidedTourStep == .measureNewRow,
-                isDisabled: !canInsertSystemBreakBeforeSelectedMeasure && !canRemoveSystemBreakBeforeSelectedMeasure
+                isDisabled: selectedMeasureStartsJoinableRow
+                    ? !canRemoveSystemBreakBeforeSelectedMeasure
+                    : !canInsertSystemBreakBeforeSelectedMeasure
             ) {
                 if canRemoveSystemBreakBeforeSelectedMeasure {
-                    handleRemoveSystemBreakBeforeSelectedMeasure()
+                    handleJoinSelectedMeasureRow()
                 } else {
                     handleNewSystemBeforeSelectedMeasure()
                 }
@@ -2314,6 +2328,13 @@ struct EditorView: View {
                 systemImage: "rectangle.split.3x1",
                 isDisabled: !canEvenSelectedMeasureRow,
                 action: handleEvenSelectedMeasureRow
+            )
+
+            activeToolButton(
+                title: "Merge Next",
+                systemImage: "rectangle.compress.vertical",
+                isDisabled: !canJoinSelectedMeasure,
+                action: handleJoinSelectedMeasure
             )
 
             activeToolButton(
@@ -3124,7 +3145,16 @@ struct EditorView: View {
             return false
         }
 
-        return chart.canRemoveSystemBreak(before: targetMeasureID)
+        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
+            && !joinRowEqualizedManualWidths(startingAt: targetMeasureID).isEmpty
+    }
+
+    private var selectedMeasureStartsJoinableRow: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
     }
 
     private var canRemoveCueTextAtSelectedMeasure: Bool {
@@ -3205,12 +3235,32 @@ struct EditorView: View {
     }
 
     private var canEvenSelectedMeasureRow: Bool {
-        guard chart.layoutStyle == .simpleChordSheet,
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
               let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
         }
 
-        return simpleChordRowMeasureIDs(containing: targetMeasureID).count > 1
+        return renderedMeasureRowIDs(containing: targetMeasureID).count > 1
+    }
+
+    private var canJoinSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID(),
+              chart.canJoinMeasure(after: targetMeasureID) else {
+            return false
+        }
+
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return pageLayout.systems.contains { system in
+            let measureIDs = system.measures.compactMap(\.sourceMeasureID)
+            guard let selectedIndex = measureIDs.firstIndex(of: targetMeasureID) else {
+                return false
+            }
+
+            return measureIDs.indices.contains(selectedIndex + 1)
+        }
     }
 
     @discardableResult
@@ -3251,12 +3301,12 @@ struct EditorView: View {
     private func handleEvenSelectedMeasureRow() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
-              chart.layoutStyle == .simpleChordSheet,
+              chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
               let targetMeasureID else {
             return
         }
 
-        let equalizedWidths = simpleChordRowEqualizedManualWidths(containing: targetMeasureID)
+        let equalizedWidths = measureRowEqualizedManualWidths(containing: targetMeasureID)
         guard equalizedWidths.count > 1 else {
             return
         }
@@ -3271,33 +3321,39 @@ struct EditorView: View {
         }
     }
 
-    private func simpleChordRowMeasureIDs(containing measureID: UUID) -> [UUID] {
-        guard chart.layoutStyle == .simpleChordSheet else {
+    private func handleJoinSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              canJoinSelectedMeasure,
+              chart.joinMeasure(after: targetMeasureID) else {
+            return
+        }
+
+        clearPendingMeasureStackState()
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func renderedMeasureRowIDs(containing measureID: UUID) -> [UUID] {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
             return []
         }
 
-        for system in chart.systems {
-            let measureIDs = system.measures.map(\.id)
-            guard let selectedIndex = measureIDs.firstIndex(of: measureID) else {
-                continue
-            }
-
-            guard let maximumMeasuresPerSystem = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
-                  maximumMeasuresPerSystem > 0,
-                  maximumMeasuresPerSystem < measureIDs.count else {
-                return measureIDs
-            }
-
-            let chunkStart = (selectedIndex / maximumMeasuresPerSystem) * maximumMeasuresPerSystem
-            let chunkEnd = min(chunkStart + maximumMeasuresPerSystem, measureIDs.count)
-            return Array(measureIDs[chunkStart..<chunkEnd])
-        }
-
-        return []
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return pageLayout.systems
+            .first { system in
+                system.measures.contains { $0.sourceMeasureID == measureID }
+            }?
+            .measures
+            .compactMap(\.sourceMeasureID)
+            ?? []
     }
 
-    private func simpleChordRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
-        guard chart.layoutStyle == .simpleChordSheet else {
+    private func measureRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
             return [:]
         }
 
@@ -3311,8 +3367,31 @@ struct EditorView: View {
             return [:]
         }
 
-        return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
-            for: system,
+        switch chart.layoutStyle {
+        case .simpleChordSheet:
+            return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+                for: system,
+                in: pageLayout,
+                chart: chart
+            )
+        case .rhythmSectionSheet:
+            return LeadSheetRhythmSectionRowEqualizationPolicy.manualLayoutWidths(
+                for: system,
+                in: pageLayout,
+                chart: chart
+            )
+        case .leadSheet:
+            return [:]
+        }
+    }
+
+    private func joinRowEqualizedManualWidths(startingAt measureID: UUID) -> [UUID: CGFloat] {
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return LeadSheetJoinRowEqualizationPolicy.manualLayoutWidths(
+            startingAt: measureID,
             in: pageLayout,
             chart: chart
         )
@@ -3509,11 +3588,14 @@ struct EditorView: View {
         completeEditorGuidedTourStep(.measureNewRow)
     }
 
-    private func handleRemoveSystemBreakBeforeSelectedMeasure() {
+    private func handleJoinSelectedMeasureRow() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              chart.removeSystemBreak(before: targetMeasureID) else {
+              chart.joinRow(
+                startingAt: targetMeasureID,
+                equalizedManualWidths: joinRowEqualizedManualWidths(startingAt: targetMeasureID)
+              ) else {
             return
         }
 
@@ -4437,6 +4519,7 @@ struct EditorView: View {
     }
 
     private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
+        let replacementStartedAt = ProcessInfo.processInfo.systemUptime
         guard canvasMode == .chordEntry,
               pendingChordInkConfirmation == nil,
               pendingChordInkBatchConfirmation == nil,
@@ -4447,9 +4530,36 @@ struct EditorView: View {
             return
         }
 
+        let previousDraftByAnchor = Dictionary(
+            chordPreviewState.draftChords.map { ($0.anchor, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var reusedResolutionCount = 0
         let inputs = payloads.compactMap { payload -> ChordInkDraftInput? in
             guard let measure = chart.measure(id: payload.target.measureID) else {
                 return nil
+            }
+
+            let incomingAnchor = ChordInkDraftAnchor(
+                measureID: payload.target.measureID,
+                laneLocation: payload.laneLocation,
+                visualOrder: payload.visualOrder,
+                fraction: payload.target.fraction
+            )
+            if let reusedInput = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
+                previousDraft: previousDraftByAnchor[incomingAnchor],
+                measureID: payload.target.measureID,
+                measureIndex: measure.index,
+                targetFraction: payload.target.fraction,
+                visualOrder: payload.visualOrder,
+                laneLocation: payload.laneLocation,
+                layoutPageSize: payload.layoutPageSize,
+                drawingData: payload.drawingData,
+                strokeCount: payload.timing.strokeCount,
+                isRecognitionCacheHit: payload.timing.cacheHit
+            ) {
+                reusedResolutionCount += 1
+                return reusedInput
             }
 
             let resolution = ChordInkRenderResolutionPolicy.resolution(
@@ -4483,15 +4593,30 @@ struct EditorView: View {
         )
         chordPreviewState = updatedPreviewState
 
-        IChartTelemetry.record(
-            "chord.preview_updated",
-            properties: Self.chordDraftPreviewTelemetryProperties(
-                payloads: payloads,
-                inputs: inputs,
-                updatedState: updatedPreviewState,
-                layoutStyle: chart.layoutStyle.rawValue
-            )
+        IChartPerformanceTrace.record(
+            "chord.preview.replace",
+            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - replacementStartedAt) * 1_000,
+            metadata: [
+                "targets": "\(payloads.count)",
+                "drafts": "\(updatedPreviewState.draftChords.count)",
+                "cache_hits": "\(payloads.filter { $0.timing.cacheHit }.count)",
+                "reused_resolutions": "\(reusedResolutionCount)",
+                "layout_style": chart.layoutStyle.rawValue
+            ]
         )
+
+        let layoutStyle = chart.layoutStyle.rawValue
+        Self.chordPreviewTelemetryQueue.async {
+            IChartTelemetry.record(
+                "chord.preview_updated",
+                properties: Self.chordDraftPreviewTelemetryProperties(
+                    payloads: payloads,
+                    inputs: inputs,
+                    updatedState: updatedPreviewState,
+                    layoutStyle: layoutStyle
+                )
+            )
+        }
     }
 
     private func handleChordInkDraftBarlinesChanged(_ barlines: [DraftBarline]) {
@@ -5538,15 +5663,7 @@ struct EditorView: View {
         }
     }
 
-    private func editorHorizontalPadding(for width: CGFloat) -> CGFloat {
-        if width >= 1180 {
-            return 10
-        }
-
-        if width >= 820 {
-            return 14
-        }
-
+    private func editorHorizontalPadding(for _: CGFloat) -> CGFloat {
         return 10
     }
 
@@ -6489,6 +6606,20 @@ private struct InkResponsivenessSheetView: View {
     }
 }
 
+enum CueTextEntryPanelGeometry {
+    static let maximumWidth: CGFloat = 420
+    static let horizontalMargin: CGFloat = 20
+    static let headerHeight: CGFloat = 36
+    static let inputHeight: CGFloat = 72
+    static let verticalSpacing: CGFloat = 10
+    static let verticalPadding: CGFloat = 14
+    static let panelHeight = headerHeight + inputHeight + verticalSpacing + verticalPadding * 2
+
+    static func panelWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(maximumWidth, max(1, availableWidth - horizontalMargin * 2))
+    }
+}
+
 private struct CueTextEntryPanelView: View {
     @Binding var text: String
     let actionTitle: String
@@ -6504,14 +6635,16 @@ private struct CueTextEntryPanelView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.black.opacity(0.14)
+                // Keep outside taps routed back to the editor without visually
+                // turning the entire iPad canvas into a modal text surface.
+                Color.clear
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
                         requestTextFocus()
                     }
 
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: CueTextEntryPanelGeometry.verticalSpacing) {
                     HStack {
                         PencilOnlyActionButton(title: "Cancel", style: .plain) {
                             onCancel()
@@ -6536,6 +6669,9 @@ private struct CueTextEntryPanelView: View {
                             cornerRadius: 8
                         )
                     }
+                    // UIKit-backed buttons otherwise accept the full vertical
+                    // proposal from this overlay and stretch the panel on iPad.
+                    .frame(height: CueTextEntryPanelGeometry.headerHeight)
 
                     ZStack(alignment: .topLeading) {
                         RoundedRectangle(cornerRadius: 8)
@@ -6559,14 +6695,18 @@ private struct CueTextEntryPanelView: View {
                         )
                         .accessibilityLabel("Text")
                     }
-                    .frame(height: 118)
+                    .frame(height: CueTextEntryPanelGeometry.inputHeight)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .onTapGesture {
                         requestTextFocus()
                     }
                 }
-                .padding(18)
-                .frame(width: min(proxy.size.width - 48, 520))
+                .padding(CueTextEntryPanelGeometry.verticalPadding)
+                .frame(
+                    width: CueTextEntryPanelGeometry.panelWidth(for: proxy.size.width),
+                    height: CueTextEntryPanelGeometry.panelHeight,
+                    alignment: .top
+                )
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -6604,7 +6744,7 @@ private struct CueTextInputView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.autocapitalizationType = .sentences
         textView.autocorrectionType = .yes
-        textView.isScrollEnabled = false
+        textView.isScrollEnabled = true
         textView.isEditable = true
         textView.isSelectable = true
         textView.keyboardDismissMode = .interactive
