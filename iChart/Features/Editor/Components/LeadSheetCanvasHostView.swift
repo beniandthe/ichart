@@ -108,7 +108,6 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     let inkToolMode: EditorInkToolMode
     var recognizesChordInk: Bool = true
     var chordPreviewState: ChordPreviewState = ChordPreviewState()
-    var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
@@ -178,7 +177,6 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.inkToolMode = inkToolMode
         view.recognizesChordInk = recognizesChordInk
         view.chordPreviewState = chordPreviewState
-        view.inkResponsivenessValue = inkResponsivenessValue
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
         view.onMeasureSelectionChanged = { measureID in
             context.coordinator.selectedMeasureID.wrappedValue = measureID
@@ -1634,7 +1632,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     // so retain it once for main-thread scheduling, telemetry, and empty checks.
     private var activeCanvasStrokeCount = 0
     private var inkAuthoringSessionState = LeadSheetInkAuthoringSessionState()
-    var inkResponsivenessValue: Double = LeadSheetInkResponsivenessPolicy.defaultValue
     private var inkSchedulingCoordinator = LeadSheetInkSchedulingCoordinator()
     private var inkSerializationCache = LeadSheetInkSerializationCache()
     private var activeInkEraseSpatialIndex: LeadSheetActiveInkEraseSpatialIndex?
@@ -5881,7 +5878,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 "mode": interactionMode,
                 "role": activeRole,
                 "strokeCount": strokeCount,
-                "coalescingDelay": LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: inkResponsivenessValue)
+                "coalescingDelay": LeadSheetInkSchedulingCoordinator.inputCoalescingDelay
             ]
         )
         let workItem = DispatchWorkItem { [weak self] in
@@ -5890,7 +5887,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         inkSchedulingCoordinator.scheduleInputCoalescing(
             workItem,
-            after: LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: inkResponsivenessValue)
+            after: LeadSheetInkSchedulingCoordinator.inputCoalescingDelay
         )
     }
 

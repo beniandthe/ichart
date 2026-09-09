@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum IChartQuickStartSetupPolicy {
+    static let minimumStartingMeasureCount = 4
+
+    static func initialMeasureCount(
+        profileDefault: Int,
+        isGuidedSimpleChart: Bool
+    ) -> Int {
+        guard isGuidedSimpleChart else {
+            return profileDefault
+        }
+
+        return max(minimumStartingMeasureCount, profileDefault)
+    }
+}
+
 struct ChartSetupSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
@@ -42,11 +57,17 @@ struct ChartSetupSheetView: View {
                 : setupPolicy.creationDefaultClef
         )
         _selectedStylePreset = State(initialValue: chart.wrappedValue.stylePreset)
-        _startingMeasureCount = State(
-            initialValue: chart.wrappedValue.hasCompletedInitialSetup
-                ? max(1, chart.wrappedValue.measures.count)
-                : profileDefaults.initialMeasureCount
-        )
+        let initialMeasureCount: Int
+        if chart.wrappedValue.hasCompletedInitialSetup {
+            initialMeasureCount = max(1, chart.wrappedValue.measures.count)
+        } else {
+            initialMeasureCount = IChartQuickStartSetupPolicy.initialMeasureCount(
+                profileDefault: profileDefaults.initialMeasureCount,
+                isGuidedSimpleChart: showsCreateTourBanner
+                    && chart.wrappedValue.layoutStyle == .simpleChordSheet
+            )
+        }
+        _startingMeasureCount = State(initialValue: initialMeasureCount)
     }
 
     var body: some View {
@@ -114,52 +135,45 @@ struct ChartSetupSheetView: View {
     }
 
     private var createTourBanner: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.orange)
-                    .frame(width: 30, height: 30)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartTourStyle.orange)
+                .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Create The Page")
-                        .font(.headline.weight(.bold))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text("Quick Start")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(IChartTourStyle.orange)
+
+                    Text("1 of 8")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(IChartTourStyle.navy.opacity(0.74))
+
+                    Text("Create A Page")
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(IChartTourStyle.navy)
-
-                    Text("For the example, use C, 4/4, and set Starting Measures to 8 before creating the page.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Label("The walkthrough cannot continue until Create Blank Page finishes.", systemImage: "checkmark.shield")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(IChartTourStyle.navy)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Four measures are ready. Change the setup if you want, then tap Create Blank Page.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 10) {
-                Label("Tap Create Blank Page", systemImage: "hand.tap")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.navy)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(IChartTourStyle.orangeSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(IChartTourStyle.orange.opacity(0.72), lineWidth: 1.4)
-                    }
-
-                Spacer(minLength: 0)
-
-                Button("Skip Tour", action: onSkipTour)
-                    .buttonStyle(.bordered)
-                    .tint(IChartTourStyle.navy)
+            Button(action: onSkipTour) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(IChartTourStyle.navy.opacity(0.72))
+            .accessibilityLabel("End Quick Start")
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(IChartTourStyle.paper)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -167,7 +181,7 @@ struct ChartSetupSheetView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(IChartTourStyle.navy.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: IChartTourStyle.navy.opacity(0.16), radius: 14, y: 7)
+        .shadow(color: IChartTourStyle.navy.opacity(0.12), radius: 10, y: 5)
     }
 
     private var setupPolicy: ChartLayoutSetupPolicy {

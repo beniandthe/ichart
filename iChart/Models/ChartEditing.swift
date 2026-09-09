@@ -387,6 +387,61 @@ extension Chart {
         return true
     }
 
+    func canMoveMeasureToRowBelow(
+        _ measureID: UUID,
+        nextRowStartingAt nextMeasureID: UUID
+    ) -> Bool {
+        guard supportsManualSystemBreaks,
+              let selectedIndex = measures.firstIndex(where: { $0.id == measureID }),
+              measures.indices.contains(selectedIndex + 1),
+              measures[selectedIndex + 1].id == nextMeasureID,
+              selectedIndex > 0,
+              !currentForcedSystemBreakStartIDs().contains(measureID),
+              !currentPageBreakStartIDs().contains(measureID),
+              !currentPageBreakStartIDs().contains(nextMeasureID),
+              keyChange(atStartOf: measureID) == nil,
+              keyChange(atStartOf: nextMeasureID) == nil else {
+            return false
+        }
+
+        return true
+    }
+
+    @discardableResult
+    mutating func moveMeasureToRowBelow(
+        _ measureID: UUID,
+        nextRowStartingAt nextMeasureID: UUID,
+        equalizedManualWidths: [UUID: CGFloat]
+    ) -> Bool {
+        guard canMoveMeasureToRowBelow(measureID, nextRowStartingAt: nextMeasureID),
+              equalizedManualWidths[measureID] != nil,
+              equalizedManualWidths[nextMeasureID] != nil,
+              equalizedManualWidths.keys.allSatisfy({ measure(id: $0) != nil }) else {
+            return false
+        }
+
+        // Apply the complete width and row-break transaction to a candidate so
+        // a rejected layout cannot leave either neighboring row partially moved.
+        var candidate = self
+        for (affectedMeasureID, width) in equalizedManualWidths {
+            guard candidate.setMeasureManualLayoutWidth(width, for: affectedMeasureID) != nil else {
+                return false
+            }
+        }
+
+        var forcedBreakStartIDs = candidate.currentForcedSystemBreakStartIDs()
+        forcedBreakStartIDs.remove(nextMeasureID)
+        forcedBreakStartIDs.insert(measureID)
+        candidate.rebuildSystems(
+            using: candidate.measures,
+            forcedBreakStartIDsOverride: forcedBreakStartIDs
+        )
+        candidate.updatedAt = .now
+
+        self = candidate
+        return true
+    }
+
     @discardableResult
     mutating func insertSystemBreak(before measureID: UUID) -> Bool {
         guard canInsertSystemBreak(before: measureID) else {

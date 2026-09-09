@@ -181,7 +181,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .tutorial:
-            "Tutorial"
+            "Quick Start"
         case .howTo:
             "How To"
         case .faq:
@@ -198,7 +198,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .tutorial:
-            "Simple sheet walkthrough"
+            "Make your first chart"
         case .howTo:
             "Use the chart tools"
         case .faq:
@@ -232,7 +232,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var detailTitle: String {
         switch self {
         case .tutorial:
-            "Simple Sheet Walkthrough"
+            "Quick Start"
         case .howTo:
             "How To Use The Tools"
         case .faq:
@@ -249,9 +249,9 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     var detailText: String {
         switch self {
         case .tutorial:
-            "A Simple Chord Sheet example, plus the hands-on tour."
+            "One short path to a first Simple Chord Sheet, plus an optional guide on the chart."
         case .howTo:
-            "Simple help for Edit, Chord, Render Chords, the Corridor Lane, Free-Write, and Export."
+            "Simple help for Select, Chords, Ink, Measures, Tools, and Export PDF."
         case .faq:
             "Answers about Forums and why iChart uses accounts."
         case .userPolicy:
@@ -264,159 +264,38 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
     }
 }
 
-private struct IChartTutorialSection: Identifiable {
-    let id: String
-    let title: String
-    let summary: String
-    let systemImageName: String
-    let steps: [IChartTutorialStep]
-
-    static let all: [IChartTutorialSection] = simpleSheetWalkthrough
-
-    private static let simpleSheetWalkthrough: [IChartTutorialSection] = [
-        IChartTutorialSection(
-            id: "simple-example-start",
-            title: "1. Start The Example",
-            summary: "Make one Simple Chord Sheet with a normal setup.",
-            systemImageName: "music.note.list",
-            steps: [
-                IChartTutorialStep(
-                    id: "open-charts",
-                    title: "Open Charts",
-                    detail: "Tap Charts, then New Chart. This walkthrough makes one editable chart.",
-                    guardrail: "Do not start from PDFs, Forums, Projects, or Rhythm Section Sheet."
-                ),
-                IChartTutorialStep(
-                    id: "choose-simple",
-                    title: "Choose Simple Chord Sheet",
-                    detail: "Pick Simple Chord Sheet for a chord-first page with large measures and clear chord placement.",
-                    guardrail: "If you picked a different sheet type, cancel and choose Simple Chord Sheet."
-                ),
-                IChartTutorialStep(
-                    id: "create-page",
-                    title: "Create The Page",
-                    detail: "Use a normal starting setup: C, 4/4, and eight measures. Tap Create Blank Page to enter the editor.",
-                    guardrail: "You cannot enter the editor until the page is created."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "simple-example-chords",
-            title: "2. Write Chords",
-            summary: "Write the example chords, check the preview, then render them.",
-            systemImageName: "pencil",
-            steps: [
-                IChartTutorialStep(
-                    id: "enter-chord-tool",
-                    title: "Enter Chord",
-                    detail: "Tap Chord, keep Write selected, and write inside the highlighted chord lane.",
-                    guardrail: "Use Chord when you want iChart to read what you write."
-                ),
-                IChartTutorialStep(
-                    id: "write-example-progression",
-                    title: "Write A Four-Chord Example",
-                    detail: "Write C in measure 1, F in measure 2, G in measure 3, and C in measure 4. Wait for the preview under your writing before rendering.",
-                    guardrail: "If the preview is wrong, erase or discard the writing and try again."
-                ),
-                IChartTutorialStep(
-                    id: "resolve-recognition",
-                    title: "Fix Any Question Marks",
-                    detail: "If iChart asks you to choose a chord, pick the right one or type it. If iChart cannot read a chord, erase it or discard it and write it again.",
-                    guardrail: "Render Chords will not work until every chord has a readable preview."
-                ),
-                IChartTutorialStep(
-                    id: "render-chords",
-                    title: "Render Chords",
-                    detail: "Tap Render Chords when the preview is right. This puts the chords and any lane barlines onto the chart.",
-                    guardrail: "If the button is disabled, fix the chord iChart could not read. If a popup already added the chord, continue."
-                ),
-                IChartTutorialStep(
-                    id: "leave-chord-mode",
-                    title: "Return To Select",
-                    detail: "Tap Done after the chords are on the chart. Edit is the safe place to check, scroll, and move things.",
-                    guardrail: "Tap Done before using another tool so new writing goes in the right place."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "simple-example-layout",
-            title: "3. Shape The Form",
-            summary: "Use Measures for simple row and measure changes.",
-            systemImageName: "rectangle.split.3x1",
-            steps: [
-                IChartTutorialStep(
-                    id: "enter-measures",
-                    title: "Enter Measures",
-                    detail: "Tap Measures and select the measure you want to change.",
-                    guardrail: "The selected measure is where the next measure action happens."
-                ),
-                IChartTutorialStep(
-                    id: "add-stack-if-needed",
-                    title: "Add Or Stack Measures",
-                    detail: "Use Add for one more measure or Stack for several measures at once.",
-                    guardrail: "Tap the measure you want to change before tapping Add or Stack."
-                ),
-                IChartTutorialStep(
-                    id: "new-row-cleanup",
-                    title: "Make The Rows Readable",
-                    detail: "Use New Row to start a new system and Even Row when a Simple sheet row needs equal measure widths.",
-                    guardrail: "Leave Chord first; then change rows."
-                ),
-                IChartTutorialStep(
-                    id: "finish-measures",
-                    title: "Return To Select",
-                    detail: "Tap Done when the example form is readable.",
-                    guardrail: "Return to Edit before adding text or exporting."
-                )
-            ]
-        ),
-        IChartTutorialSection(
-            id: "simple-example-text-export",
-            title: "4. Add Text And Export",
-            summary: "Add one cue, check the page, then export.",
-            systemImageName: "square.and.arrow.up",
-            steps: [
-                IChartTutorialStep(
-                    id: "add-text",
-                    title: "Add One Cue",
-                    detail: "Tap Text, choose text above the selected measure, and add a short cue like Intro, Verse, or Solo.",
-                    guardrail: "Text needs a selected measure. If Add Text does nothing, tap Edit, tap the measure, then try again."
-                ),
-                IChartTutorialStep(
-                    id: "review-page",
-                    title: "Review The Chart",
-                    detail: "Check the title, chords, row breaks, text, and empty measures. Move chords or text in Edit if they collide.",
-                    guardrail: "Do not export while you are writing. Tap Done first."
-                ),
-                IChartTutorialStep(
-                    id: "export-pdf",
-                    title: "Export PDF",
-                    detail: "Tap Settings, then Export. iChart creates the finished PDF while the editable chart stays in Charts.",
-                    guardrail: "If Export is disabled, tap Done and finish setup first."
-                )
-            ]
-        )
-    ]
-
-}
-
-private struct IChartTutorialStep: Identifiable {
+private struct IChartQuickStartStep: Identifiable {
     let id: String
     let title: String
     let detail: String
-    let guardrail: String?
 
-    init(
-        id: String,
-        title: String,
-        detail: String,
-        guardrail: String? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.detail = detail
-        self.guardrail = guardrail
-    }
+    static let all: [IChartQuickStartStep] = [
+        IChartQuickStartStep(
+            id: "create",
+            title: "Create A Simple Sheet",
+            detail: "Tap New Chart and choose Simple Chord Sheet. Quick Start prepares four measures; change the setup if you want, then create the page."
+        ),
+        IChartQuickStartStep(
+            id: "chords",
+            title: "Write And Render Chords",
+            detail: "Tap Chords, write C, F, G, C, check the previews, and tap Render Chords. Choose the intended chord if iChart asks."
+        ),
+        IChartQuickStartStep(
+            id: "form",
+            title: "Shape The Form",
+            detail: "Tap Measures, select a measure, then use Add, Layout, or Delete. Layout also moves measures between rows and evens their widths."
+        ),
+        IChartQuickStartStep(
+            id: "cue",
+            title: "Add A Cue And Review",
+            detail: "Open Tools > Text to add a cue. Tap Done for Select, then tap any chord, text, marker, barline, or measure you want to change."
+        ),
+        IChartQuickStartStep(
+            id: "export",
+            title: "Export When Ready",
+            detail: "Tap Export PDF. Your editable chart stays in Charts. Use How To for Ink, repeats, time changes, form markers, and document settings."
+        )
+    ]
 }
 
 private struct IChartHelpArticleSection: Identifiable {
@@ -446,20 +325,21 @@ private struct IChartHelpArticleSection: Identifiable {
     private static let howTo: [IChartHelpArticleSection] = [
         IChartHelpArticleSection(
             id: "editor-edit-checkpoint",
-            title: "Edit",
+            title: "Select",
             systemImageName: "cursorarrow",
-            body: "Use Edit when you want to check the page or change something already on it.",
+            body: "Use Select when you want to check the page or change something already on it.",
             bullets: [
-                "Tap Done to leave the current tool and return to Edit.",
+                "Tap Done to leave the current tool and return to Select.",
+                "You can switch directly between Chords, Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
             ]
         ),
         IChartHelpArticleSection(
             id: "editor-corridor-lane",
-            title: "Chord And Corridor Lane",
+            title: "Chords And Corridor Lane",
             systemImageName: "pencil",
-            body: "Use Chord when you want iChart to read the chords you write.",
+            body: "Use Chords when you want iChart to read the chords you write.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
                 "The small text under your writing is the preview.",
@@ -482,22 +362,23 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-rendered-objects",
             title: "Changing Chords, Text, And Markers",
             systemImageName: "square.and.pencil",
-            body: "After something is on the chart, use Edit to change it.",
+            body: "After something is on the chart, use Select to change it.",
             bullets: [
-                "Tap a chord in Edit to correct or delete it.",
-                "Tap text or roadmap markers in Edit to move, resize, edit, or delete them.",
-                "Tap a chord barline in Edit when you want to remove it."
+                "Tap a chord in Select to correct or delete it.",
+                "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
+                "Tap a chord barline in Select when you want to remove it."
             ]
         ),
         IChartHelpArticleSection(
             id: "editor-structure-tools",
-            title: "Measures, Repeats, Coda, Text, And Time",
+            title: "Measures And Tools",
             systemImageName: "rectangle.split.3x1",
-            body: "These tools work from the measure you select.",
+            body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
-                "Measures adds, stacks, deletes, starts a new row, joins a row, or evens a row.",
-                "Repeats adds one-bar repeats, repeat starts and ends, endings, and remove buttons.",
-                "Coda, Text, and Time use the selected measure as their starting point."
+                "Measures groups Add, Layout, and Delete actions for the selected measure.",
+                "Open Layout for Start New Row, Join Row Above, Move to Row Below, or Even Row Widths.",
+                "Tools > Repeats adds one-bar repeats, repeat starts and ends, endings, and removal actions.",
+                "Tools > Time Signature, Text, and Form Markers use the selected measure as their target."
             ]
         ),
         IChartHelpArticleSection(
@@ -513,24 +394,24 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "editor-free-write",
-            title: "Free-Write",
+            title: "Ink",
             systemImageName: "pencil.and.scribble",
-            body: "Free-Write keeps your handwriting exactly as you draw it.",
+            body: "Ink keeps your free-writing exactly as you draw it.",
             bullets: [
                 "Use it for rhythm notes, reminders, and marks iChart should not turn into chords.",
-                "The Rhythm tab is hidden for now; use Free-Write for handwritten rhythm notes.",
-                "Tap Done before using another tool or exporting."
+                "iChart never reads or interprets Ink; it remains persistent handwriting.",
+                "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),
         IChartHelpArticleSection(
             id: "editor-page-export",
-            title: "Settings And Export",
+            title: "Document Settings And Export",
             systemImageName: "square.and.arrow.up",
-            body: "Use Settings for chart settings and PDF export.",
+            body: "Tap the chart title for document settings; Export PDF stays visible in the navigation bar.",
             bullets: [
-                "Settings has title/header, key, transposition, style, fonts, pen feel, engraving, and export.",
-                "Export makes a PDF. Your editable chart stays in Charts.",
-                "If Export is unavailable, tap Done and finish setup first."
+                "The chart-title menu has header, key, instrument view, transposition, style, fonts, and engraving.",
+                "Export PDF creates the finished file. Your editable chart stays in Charts.",
+                "If Export PDF is unavailable, tap Done and finish setup first."
             ]
         )
     ]
@@ -727,7 +608,6 @@ private struct IChartHelpArticleSection: Identifiable {
 
 private enum IChartGuidedTourStep: String, Identifiable {
     case welcome
-    case charts
     case newChart
     case simpleChart
 
@@ -736,11 +616,9 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var title: String {
         switch self {
         case .welcome:
-            "Simple Sheet Walkthrough"
-        case .charts:
-            "Start With Charts"
+            "Quick Start"
         case .newChart:
-            "Create The Example Chart"
+            "Create A Chart"
         case .simpleChart:
             "Choose Simple Chord Sheet"
         }
@@ -749,34 +627,19 @@ private enum IChartGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .welcome:
-            "Build one clear Simple Chord Sheet from start to export: create the page, write example chords, render only when safe, shape the rows, add one cue, and export."
-        case .charts:
-            "Tap Charts in the sidebar. The walkthrough starts from the editable chart library."
+            "Make your first usable chart with one short, optional guide."
         case .newChart:
-            "Tap New Chart. The next screen must be the sheet-type picker."
+            "Tap New Chart."
         case .simpleChart:
-            "Choose Simple Chord Sheet. This walkthrough is only for the chord-first simple page."
-        }
-    }
-
-    var guardrailText: String? {
-        switch self {
-        case .welcome:
-            "The tour does not cover Projects, Forums, PDFs, Rhythm Section, or account setup."
-        case .charts:
-            "If another sidebar tab is open, switch back to Charts before continuing."
-        case .newChart:
-            "If New Chart is disabled, resolve the Basic chart limit before starting."
-        case .simpleChart:
-            "If you tap the wrong sheet type, cancel and start New Chart again."
+            "Choose Simple Chord Sheet."
         }
     }
 
     var primaryActionTitle: String? {
         switch self {
         case .welcome:
-            "Start Walkthrough"
-        case .charts, .newChart, .simpleChart:
+            "Start Quick Start"
+        case .newChart, .simpleChart:
             nil
         }
     }
@@ -785,8 +648,6 @@ private enum IChartGuidedTourStep: String, Identifiable {
         switch self {
         case .welcome:
             nil
-        case .charts:
-            "Tap Charts"
         case .newChart:
             "Tap New Chart"
         case .simpleChart:
@@ -1221,7 +1082,7 @@ struct LibraryView: View {
                     onSkip: finishGuidedTour
                 )
                 .padding(.horizontal, 24)
-                .padding(.vertical, guidedTourStep == .welcome ? 22 : 12)
+                .padding(.vertical, 12)
                 .background(.regularMaterial)
                 .overlay(alignment: .bottom) {
                     Divider()
@@ -1597,6 +1458,7 @@ struct LibraryView: View {
                     IChartHelpTopicDetail(
                         topic: activeTopic,
                         theme: homeTheme,
+                        canStartGuidedTour: store.canCreateChart,
                         onStartGuidedTour: startGuidedTourFromHelp
                     )
                         .padding(.top, 16)
@@ -1719,14 +1581,6 @@ struct LibraryView: View {
             refreshForumHomeIfVisible()
         }
 
-        guard guidedTourStep == .charts, tab == .charts else {
-            return
-        }
-
-        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
-        withAnimation(.easeInOut(duration: 0.18)) {
-            guidedTourStep = .newChart
-        }
     }
 
     private func requestNewChart(projectID: ChartProject.ID?) {
@@ -1853,6 +1707,11 @@ struct LibraryView: View {
     }
 
     private func updateAccountLandingPresentation() {
+        if IChartSimulatorPreviewLaunch.showsEditorUIFixture {
+            showingAccountLanding = false
+            return
+        }
+
         let shouldPresent = authStore.state.shouldPresentFirstRunAccountLanding
             && (!hasSeenAccountLanding || !authStore.state.isVerifiedSignedIn)
 
@@ -1913,6 +1772,10 @@ struct LibraryView: View {
     }
 
     private func startGuidedTourFromHelp() {
+        guard store.canCreateChart else {
+            return
+        }
+
         hasSeenGuidedTourOffer = true
         selectedHelpTopic = .tutorial
         selectedHomeTab = .charts
@@ -2178,13 +2041,60 @@ private struct IChartGuidedTourPrompt: View {
     let onSkip: () -> Void
 
     var body: some View {
-        Group {
-            if step == .welcome {
-                grandWelcome
-            } else {
-                compactRail
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartTourStyle.orange)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(step.title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(tourTitleColor)
+
+                Text(step.message)
+                    .font(.subheadline)
+                    .foregroundStyle(tourMessageColor)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let targetText = step.targetText {
+                Label(targetText, systemImage: "hand.tap")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(IChartTourStyle.orangeSoft.opacity(theme.isDark ? 0.86 : 1))
+                    .clipShape(Capsule())
+            }
+
+            if let primaryActionTitle = step.primaryActionTitle {
+                Button(primaryActionTitle, action: onPrimaryAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(IChartTourStyle.orange)
+                    .fixedSize()
+            }
+
+            Button(action: onSkip) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(tourTitleColor.opacity(0.72))
+            .accessibilityLabel("End Quick Start")
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tourPanelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
+        }
+        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.28 : 0.12), radius: 10, y: 5)
         .accessibilityElement(children: .contain)
     }
 
@@ -2203,147 +2113,30 @@ private struct IChartGuidedTourPrompt: View {
     private var tourBorderColor: Color {
         theme.isDark ? IChartTourStyle.orange.opacity(0.82) : IChartTourStyle.navy.opacity(0.90)
     }
-
-    private var grandWelcome: some View {
-        HStack(alignment: .center, spacing: 20) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(IChartTourStyle.orangeSoft.opacity(theme.isDark ? 0.22 : 1))
-
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 42, weight: .semibold))
-                    .foregroundStyle(IChartTourStyle.orange)
-            }
-            .frame(width: 86, height: 86)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(step.title)
-                    .font(.largeTitle.weight(.bold))
-                    .foregroundStyle(tourTitleColor)
-
-                Text(step.message)
-                    .font(.title3)
-                    .foregroundStyle(tourMessageColor)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                guardrailRow
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            actionButtons
-                .fixedSize()
-        }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tourPanelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
-        }
-        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
-    }
-
-    private var compactRail: some View {
-        HStack(alignment: .center, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.orange)
-                    .frame(width: 28, height: 28)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(step.title)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(tourTitleColor)
-
-                    Text(step.message)
-                        .font(.subheadline)
-                        .foregroundStyle(tourMessageColor)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    guardrailRow
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let targetText = step.targetText {
-                Label(targetText, systemImage: "hand.tap")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.navy)
-                    .frame(width: 210, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(IChartTourStyle.orangeSoft.opacity(theme.isDark ? 0.86 : 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(IChartTourStyle.orange.opacity(0.72), lineWidth: 1.4)
-                    }
-            }
-
-            actionButtons
-                .fixedSize()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tourPanelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
-        }
-            .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.34 : 0.18), radius: 18, y: 9)
-    }
-
-    @ViewBuilder
-    private var guardrailRow: some View {
-        if let guardrailText = step.guardrailText {
-            Label(guardrailText, systemImage: "checkmark.shield")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.isDark ? IChartTourStyle.orangeSoft : IChartTourStyle.navy)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 2)
-        }
-    }
-
-    private var actionButtons: some View {
-        HStack(spacing: 10) {
-            if let primaryActionTitle = step.primaryActionTitle {
-                Button(primaryActionTitle, action: onPrimaryAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(IChartTourStyle.orange)
-            }
-
-            Button("Skip Tour", action: onSkip)
-                .buttonStyle(.bordered)
-                .tint(IChartTourStyle.navy)
-        }
-    }
 }
 
 private struct IChartGuidedTourSheetCallout: View {
     let step: IChartGuidedTourStep
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(step.title, systemImage: "hand.tap")
-                .font(.headline.weight(.bold))
-                .foregroundStyle(IChartTourStyle.navy)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(IChartTourStyle.orange)
+                .frame(width: 24, height: 24)
 
-            Text(step.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let guardrailText = step.guardrailText {
-                Label(guardrailText, systemImage: "checkmark.shield")
-                    .font(.caption.weight(.semibold))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(step.title)
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(IChartTourStyle.navy)
+
+                Text(step.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(IChartTourStyle.paper)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2351,7 +2144,7 @@ private struct IChartGuidedTourSheetCallout: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(IChartTourStyle.navy.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: IChartTourStyle.navy.opacity(0.14), radius: 12, y: 6)
+        .shadow(color: IChartTourStyle.navy.opacity(0.10), radius: 8, y: 4)
         .accessibilityElement(children: .combine)
     }
 }
@@ -4810,13 +4603,18 @@ private struct IChartHelpTopicRow: View {
 private struct IChartHelpTopicDetail: View {
     let topic: IChartHelpTopic
     let theme: IChartHomeTheme
+    let canStartGuidedTour: Bool
     let onStartGuidedTour: () -> Void
 
     @ViewBuilder
     var body: some View {
         switch topic {
         case .tutorial:
-            IChartTutorialGuide(theme: theme, onStartGuidedTour: onStartGuidedTour)
+            IChartTutorialGuide(
+                theme: theme,
+                canStartGuidedTour: canStartGuidedTour,
+                onStartGuidedTour: onStartGuidedTour
+            )
         case .howTo, .faq, .userPolicy, .legal, .contactUs:
             IChartHelpArticlePage(
                 topic: topic,
@@ -5018,130 +4816,69 @@ private struct IChartHelpArticleSectionView: View {
 
 private struct IChartTutorialGuide: View {
     let theme: IChartHomeTheme
+    let canStartGuidedTour: Bool
     let onStartGuidedTour: () -> Void
 
-    @State private var expandedSectionIDs = Set(IChartTutorialSection.all.prefix(1).map(\.id))
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Simple Sheet Walkthrough", systemImage: "graduationcap")
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Quick Start", systemImage: "sparkles")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
+            Text("Make a first Simple Chord Sheet with one short guide that stays on the chart while you try it.")
+                .font(.subheadline)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Button(action: onStartGuidedTour) {
-                Label("Start Simple Sheet Walkthrough", systemImage: "sparkles")
+                Label("Start Quick Start", systemImage: "play.fill")
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .tint(IChartHomeBrand.blue)
+            .disabled(!canStartGuidedTour)
+            .accessibilityHint(
+                canStartGuidedTour
+                    ? "Opens Charts and guides you through a new Simple Chord Sheet."
+                    : "Quick Start needs one free chart slot."
+            )
 
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(IChartTutorialSection.all) { section in
-                    IChartTutorialSectionCard(
-                        section: section,
-                        theme: theme,
-                        isExpanded: expandedSectionIDs.contains(section.id)
-                    ) {
-                        toggleSection(section.id)
-                    }
+            if !canStartGuidedTour {
+                Label(
+                    "Quick Start creates one practice chart. Free a chart slot to begin.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.panelSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(IChartQuickStartStep.all.enumerated()), id: \.element.id) { index, step in
+                    IChartQuickStartStepRow(
+                        number: index + 1,
+                        step: step,
+                        theme: theme
+                    )
                 }
             }
+
+            Label(
+                "Need a specific command? How To keeps the complete tool reference.",
+                systemImage: "book.closed"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.panelSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
     }
-
-    private func toggleSection(_ id: String) {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            if expandedSectionIDs.contains(id) {
-                expandedSectionIDs.remove(id)
-            } else {
-                expandedSectionIDs.insert(id)
-            }
-        }
-    }
 }
 
-private struct IChartTutorialSectionCard: View {
-    let section: IChartTutorialSection
-    let theme: IChartHomeTheme
-    let isExpanded: Bool
-    let onToggle: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button(action: onToggle) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: section.systemImageName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(IChartHomeBrand.blue)
-                        .frame(width: 28, height: 28)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(section.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(theme.panelTitle)
-
-                        Text(section.summary)
-                            .font(.caption)
-                            .foregroundStyle(theme.panelSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.panelSecondary.opacity(0.75))
-                        .frame(width: 20, height: 20)
-                        .padding(.top, 4)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(section.steps.enumerated()), id: \.element.id) { index, step in
-                        IChartTutorialStepRow(number: index + 1, step: step, theme: theme)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(expandedHelpDetailBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(expandedHelpDetailBorder, lineWidth: 1)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(theme.emptyStateBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isExpanded ? expandedHelpDetailBorder : theme.panelBorder, lineWidth: isExpanded ? 1.25 : 1)
-        }
-    }
-
-    private var expandedHelpDetailBackground: Color {
-        IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)
-    }
-
-    private var expandedHelpDetailBorder: Color {
-        IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)
-    }
-}
-
-private struct IChartTutorialStepRow: View {
+private struct IChartQuickStartStepRow: View {
     let number: Int
-    let step: IChartTutorialStep
+    let step: IChartQuickStartStep
     let theme: IChartHomeTheme
 
     var body: some View {
@@ -5162,15 +4899,15 @@ private struct IChartTutorialStepRow: View {
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                if let guardrail = step.guardrail {
-                    Label(guardrail, systemImage: "checkmark.shield")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(IChartHomeBrand.blue)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
             }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.panelBorder, lineWidth: 1)
         }
     }
 }

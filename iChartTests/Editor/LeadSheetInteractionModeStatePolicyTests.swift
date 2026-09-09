@@ -1995,14 +1995,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(EditorCanvasMode.chordEntry.drawsAllChordObjectEditControls)
     }
 
-    func testTextEditModeKeepsCueTextEditableWithoutMeasureSelection() {
+    func testTextEditModeKeepsCueTextEditableAndAllowsMeasureTargeting() {
         let policy = LeadSheetInteractionModeStatePolicy.resolve(for: .textEdit)
 
-        XCTAssertFalse(policy.selectionTapEnabled)
+        XCTAssertTrue(policy.selectionTapEnabled)
         XCTAssertTrue(policy.renderedEditTapEnabled)
         XCTAssertTrue(policy.renderedObjectMovePanEnabled)
         XCTAssertFalse(policy.renderedEditOverlayHidden)
-        XCTAssertFalse(EditorCanvasMode.textEdit.allowsMeasureSelection)
+        XCTAssertTrue(EditorCanvasMode.textEdit.allowsMeasureSelection)
         XCTAssertTrue(EditorCanvasMode.textEdit.allowsCueTextEditing)
         XCTAssertFalse(EditorCanvasMode.textEdit.allowsChordObjectEditing)
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
@@ -3913,23 +3913,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(EditorCanvasMode.freeHand.restrictsPageScrollToOutsideMargins)
     }
 
-    func testInkResponsivenessPolicyClampsValues() {
-        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(-0.4), 0)
-        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(1.4), 1)
-        XCTAssertEqual(LeadSheetInkResponsivenessPolicy.normalized(0.65), 0.65)
-    }
-
-    func testInkResponsivenessPolicyMapsHigherValuesToMoreInputCoalescing() {
-        let direct = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: 0)
-        let balanced = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(
-            for: LeadSheetInkResponsivenessPolicy.defaultValue
+    func testInkInputCoalescingUsesOneInternalCadence() {
+        XCTAssertEqual(
+            LeadSheetInkSchedulingCoordinator.inputCoalescingDelay,
+            0.017,
+            accuracy: 0.001
         )
-        let smooth = LeadSheetInkResponsivenessPolicy.inputCoalescingDelay(for: 1)
-
-        XCTAssertLessThan(direct, balanced)
-        XCTAssertLessThan(balanced, smooth)
-        XCTAssertEqual(direct, 0.004, accuracy: 0.001)
-        XCTAssertEqual(smooth, 0.030, accuracy: 0.001)
     }
 
     func testPassiveInkPersistenceDelayAdaptsToDensePages() {
@@ -3954,12 +3943,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(cappedDelay, LeadSheetPassiveInkPersistencePolicy.maximumIdleDelay, accuracy: 0.001)
     }
 
-    func testFreehandTabTitleStaysStableWhenActive() {
-        XCTAssertEqual(EditorCanvasMode.browse.freeHandTabTitle, "Free-Write")
-        XCTAssertEqual(EditorCanvasMode.repeatEdit.freeHandTabTitle, "Free-Write")
-        XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.freeHandTabTitle, "Free-Write")
-        XCTAssertEqual(EditorCanvasMode.headerEntry.freeHandTabTitle, "Free-Write")
-        XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabTitle, "Free-Write")
+    func testInkToolSymbolStaysStableWhenActive() {
         XCTAssertEqual(EditorCanvasMode.freeHand.freeHandTabSymbol, "pencil.and.scribble")
     }
 
@@ -3977,13 +3961,14 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testActiveToolMetadataMatchesPrimaryEditorModes() {
-        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Edit")
+        XCTAssertEqual(EditorCanvasMode.browse.activeToolTitle, "Select")
         XCTAssertEqual(EditorCanvasMode.measureEdit.activeToolTitle, "Measures")
         XCTAssertEqual(EditorCanvasMode.repeatEdit.activeToolTitle, "Repeats")
+        XCTAssertEqual(EditorCanvasMode.timeSignatureEdit.activeToolTitle, "Time Signature")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")
         XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
-        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chord")
-        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free-Write")
+        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chords")
+        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Ink")
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 

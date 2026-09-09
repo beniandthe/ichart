@@ -2274,6 +2274,127 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(afterLayout.systems[0].frame.maxX, afterLayout.paperFrame.maxX - 34, accuracy: 0.001)
     }
 
+    func testMoveMeasureToRowBelowEqualizesBothRhythmRows() throws {
+        var chart = Chart.blank(title: "Move Down Rhythm", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let selectedMeasureID = measureIDs[3]
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[4]))
+
+        let beforeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let plan = try XCTUnwrap(
+            LeadSheetMoveMeasureToRowBelowPolicy.plan(
+                for: selectedMeasureID,
+                in: beforeLayout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(plan.sourceRowMeasureIDs, Array(measureIDs[0..<3]))
+        XCTAssertEqual(plan.destinationRowMeasureIDs, Array(measureIDs[3..<8]))
+        XCTAssertEqual(Set(plan.equalizedManualWidths.keys), Set(measureIDs))
+        XCTAssertTrue(
+            chart.moveMeasureToRowBelow(
+                selectedMeasureID,
+                nextRowStartingAt: plan.nextRowFirstMeasureID,
+                equalizedManualWidths: plan.equalizedManualWidths
+            )
+        )
+
+        let afterLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        XCTAssertEqual(afterLayout.systems[0].measures.compactMap(\.sourceMeasureID), Array(measureIDs[0..<3]))
+        XCTAssertEqual(afterLayout.systems[1].measures.compactMap(\.sourceMeasureID), Array(measureIDs[3..<8]))
+        for system in afterLayout.systems.prefix(2) {
+            let bodyWidths = system.measures.map(\.staffFrame.width)
+            let firstBodyWidth = try XCTUnwrap(bodyWidths.first)
+            XCTAssertTrue(bodyWidths.allSatisfy { abs($0 - firstBodyWidth) <= 0.001 })
+            XCTAssertEqual(system.frame.maxX, afterLayout.paperFrame.maxX - 34, accuracy: 0.001)
+        }
+    }
+
+    func testSimpleChordSheetMoveMeasureToRowBelowPreservesChordAndEqualizesBothRows() throws {
+        var chart = Chart.blank(title: "Move Down Simple", measureCount: 8, layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let selectedMeasureID = measureIDs[3]
+        try appendChord("C7", to: selectedMeasureID, in: &chart, atFraction: 0.25)
+        let selectedChordID = try XCTUnwrap(chart.measure(id: selectedMeasureID)?.chordEvents.first?.id)
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[4]))
+
+        let beforeLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        let plan = try XCTUnwrap(
+            LeadSheetMoveMeasureToRowBelowPolicy.plan(
+                for: selectedMeasureID,
+                in: beforeLayout,
+                chart: chart
+            )
+        )
+
+        XCTAssertEqual(plan.sourceRowMeasureIDs, Array(measureIDs[0..<3]))
+        XCTAssertEqual(plan.destinationRowMeasureIDs, Array(measureIDs[3..<8]))
+        XCTAssertTrue(
+            chart.moveMeasureToRowBelow(
+                selectedMeasureID,
+                nextRowStartingAt: plan.nextRowFirstMeasureID,
+                equalizedManualWidths: plan.equalizedManualWidths
+            )
+        )
+        XCTAssertEqual(chart.chordEvent(id: selectedChordID)?.symbol.displayText, "C7")
+
+        let afterLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        XCTAssertEqual(afterLayout.systems[0].measures.compactMap(\.sourceMeasureID), Array(measureIDs[0..<3]))
+        XCTAssertEqual(afterLayout.systems[1].measures.compactMap(\.sourceMeasureID), Array(measureIDs[3..<8]))
+        for system in afterLayout.systems.prefix(2) {
+            let widths = system.measures.map(\.frame.width)
+            let firstWidth = try XCTUnwrap(widths.first)
+            XCTAssertTrue(widths.allSatisfy { abs($0 - firstWidth) <= 0.001 })
+            XCTAssertEqual(system.frame.maxX, afterLayout.paperFrame.maxX - 34, accuracy: 0.001)
+        }
+    }
+
+    func testMoveMeasureToRowBelowRequiresLastMeasureAndSamePage() throws {
+        var chart = Chart.blank(title: "Move Down Guard", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSystemBreak(before: measureIDs[4]))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+
+        XCTAssertNil(
+            LeadSheetMoveMeasureToRowBelowPolicy.plan(
+                for: measureIDs[2],
+                in: layout,
+                chart: chart
+            )
+        )
+
+        var pageChart = Chart.blank(title: "Move Down Page Guard", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let previousPageLastMeasureID = try XCTUnwrap(pageChart.measures.last?.id)
+        _ = try XCTUnwrap(pageChart.appendPage())
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: pageChart,
+            pageSize: CGSize(width: 900, height: 1_400)
+        )
+        XCTAssertNil(
+            LeadSheetMoveMeasureToRowBelowPolicy.plan(
+                for: previousPageLastMeasureID,
+                in: pageLayout,
+                chart: pageChart
+            )
+        )
+    }
+
     func testRhythmSectionEditableMeasureFrameExcludesLeadingSignatureReserve() throws {
         let chart = Chart.blank(title: "Rhythm Selection", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(

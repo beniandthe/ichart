@@ -79,21 +79,14 @@ Implementation contract:
 - Preserve the existing chord commit cleanup path and rhythm V4 commit/fail-closed authority.
 - Keep chord recognition, rhythm recognition, OCR, score thresholds, compendium behavior, and personal handwriting fixtures unchanged.
 
-## Slice 5: User Pen Responsiveness Setting
+## Slice 5: Post-Stroke Ink Scheduling
 
-User direction:
+Current status (September 9, 2026):
 
-- Commit the new ink working state before adding more behavior.
-- Add a user setting that lets the writer choose pen responsiveness with a drag bar or plus/minus control.
-
-Implementation contract:
-
-- Store the setting as an app/user preference, not a chart document field.
-- Expose the control under Page > Pen Responsiveness.
-- Provide a slider plus minus/plus buttons and a balanced reset.
-- Apply the setting immediately to the live canvas host.
-- Treat the setting as input scheduling only: it changes how much drawing-change follow-up work is coalesced before persistence or recognition timers start.
-- Do not change chord recognition, rhythm recognition, OCR, score thresholds, compendium behavior, default diagnostics, or personal handwriting fixtures.
+- The former Page > Pen Responsiveness preference was removed after physical-iPad review showed no perceptible effect.
+- Source tracing confirmed that it changed only the post-stroke persistence/recognition debounce, not PencilKit's live rendering or Pencil latency.
+- Post-stroke work now uses one internal 17-millisecond coalescing cadence, matching the former balanced behavior without exposing a misleading setting.
+- Chord recognition, rhythm recognition, OCR, score thresholds, compendium behavior, default diagnostics, and personal handwriting fixtures remain unchanged.
 
 ## Slice 6: Measure Double Barlines
 

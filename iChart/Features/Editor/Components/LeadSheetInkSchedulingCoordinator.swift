@@ -2,6 +2,10 @@
 import Foundation
 
 struct LeadSheetInkSchedulingCoordinator {
+    // Keep post-stroke work off the immediate Pencil callback while using one
+    // predictable internal cadence. This does not alter PencilKit rendering.
+    static let inputCoalescingDelay: TimeInterval = 0.017
+
     private var inputCoalescingWorkItem: DispatchWorkItem?
     private var persistenceWorkItem: DispatchWorkItem?
 

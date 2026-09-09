@@ -70,6 +70,64 @@ final class LeadSheetNotationRendererTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderedRoadmapCodaHasMatchedVisualSizeInBroadwayAndPetalumaForBothSheetStyles() throws {
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for markerScale in [CGFloat(RoadmapObject.minimumScale), CGFloat(RoadmapObject.maximumScale)] {
+                let broadwayBounds = try renderedRoadmapMarkerBounds(
+                    type: .codaMarker,
+                    notationFont: .finaleBroadway,
+                    layoutStyle: layoutStyle,
+                    markerScale: markerScale
+                )
+                let petalumaBounds = try renderedRoadmapMarkerBounds(
+                    type: .codaMarker,
+                    notationFont: .petaluma,
+                    layoutStyle: layoutStyle,
+                    markerScale: markerScale
+                )
+
+                XCTAssertEqual(
+                    broadwayBounds.height,
+                    petalumaBounds.height,
+                    accuracy: max(1, broadwayBounds.height * 0.06),
+                    "Expected the fully rendered Coda to have matched height for \(layoutStyle) at marker scale \(markerScale)"
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func testRenderedRoadmapSegnoHasMatchedVisualSizeInBroadwayAndPetalumaForBothSheetStyles() throws {
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for markerScale in [CGFloat(RoadmapObject.minimumScale), CGFloat(RoadmapObject.maximumScale)] {
+                let broadwayBounds = try renderedRoadmapMarkerBounds(
+                    type: .segno,
+                    notationFont: .finaleBroadway,
+                    layoutStyle: layoutStyle,
+                    markerScale: markerScale
+                )
+                let petalumaBounds = try renderedRoadmapMarkerBounds(
+                    type: .segno,
+                    notationFont: .petaluma,
+                    layoutStyle: layoutStyle,
+                    markerScale: markerScale
+                )
+
+                XCTAssertEqual(
+                    broadwayBounds.height,
+                    petalumaBounds.height,
+                    accuracy: max(1, broadwayBounds.height * 0.06),
+                    "Expected the fully rendered Segno to have matched height for \(layoutStyle) at marker scale \(markerScale)"
+                )
+            }
+        }
+    }
+
+    @MainActor
     func testRoadmapSegnoHasMatchedVisualSizeInBroadwayAndPetalumaForBothSheetStyles() throws {
         NotationFontRegistrar.registerBundledFontsIfNeeded()
 
@@ -122,6 +180,103 @@ final class LeadSheetNotationRendererTests: XCTestCase {
         let font = try XCTUnwrap(UIFont(name: notationFont.postScriptName, size: pointSize))
         let path = try XCTUnwrap(NotationGlyphPathCache.path(for: glyph, font: font))
         return path.boundingBoxOfPath
+    }
+
+    @MainActor
+    private func renderedRoadmapMarkerBounds(
+        type: RoadmapType,
+        notationFont: NotationFontPreset,
+        layoutStyle: ChartLayoutStyle,
+        markerScale: CGFloat
+    ) throws -> CGRect {
+        var chart = Chart.blank(
+            title: "Roadmap Marker Rendering",
+            measureCount: 1,
+            layoutStyle: layoutStyle
+        )
+        chart.notationFont = notationFont
+
+        let baseWidth: CGFloat = layoutStyle == .simpleChordSheet ? 42 : 28
+        let baseHeight: CGFloat = layoutStyle == .simpleChordSheet ? 44 : 32
+        let markerFrame = CGRect(
+            x: 32,
+            y: 32,
+            width: baseWidth * markerScale,
+            height: baseHeight * markerScale
+        )
+        let markerLayout = LeadSheetRoadmapMarkerLayout(
+            roadmapObjectID: UUID(),
+            type: type,
+            text: type.defaultDisplayText,
+            frame: markerFrame,
+            movementFrame: markerFrame,
+            anchorMeasureID: try XCTUnwrap(chart.measures.first?.id),
+            scale: markerScale
+        )
+        let labelFrame = LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: markerLayout)
+        let canvasSize = CGSize(
+            width: max(160, labelFrame.maxX + 32),
+            height: max(160, labelFrame.maxY + 32)
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: canvasSize, format: format).image { _ in
+            LeadSheetNotationRenderer(chart: chart).drawRoadmapMarker(markerLayout)
+        }
+
+        return try opaquePixelBounds(in: image)
+    }
+
+    private func opaquePixelBounds(in image: UIImage) throws -> CGRect {
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let context = try XCTUnwrap(
+            CGContext(
+                data: &pixels,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            )
+        )
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<height {
+            for x in 0..<width {
+                let alpha = pixels[y * bytesPerRow + x * bytesPerPixel + 3]
+                guard alpha > 8 else {
+                    continue
+                }
+
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        XCTAssertGreaterThanOrEqual(maxX, minX)
+        XCTAssertGreaterThanOrEqual(maxY, minY)
+        let imageScale = image.scale
+        return CGRect(
+            x: CGFloat(minX) / imageScale,
+            y: CGFloat(minY) / imageScale,
+            width: CGFloat(maxX - minX + 1) / imageScale,
+            height: CGFloat(maxY - minY + 1) / imageScale
+        )
     }
 #endif
 

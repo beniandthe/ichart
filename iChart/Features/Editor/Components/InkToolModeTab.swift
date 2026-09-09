@@ -14,7 +14,10 @@ struct InkToolModeTab: View {
                     Label(toolMode.accessibilityLabel, systemImage: toolMode.systemImageName)
                         .labelStyle(.iconOnly)
                         .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 42, height: 38)
+                        .frame(
+                            minWidth: EditorCommandLayoutPolicy.minimumTapTarget,
+                            minHeight: EditorCommandLayoutPolicy.minimumTapTarget
+                        )
                         .foregroundStyle(mode == toolMode ? Color.white : Color.primary.opacity(0.74))
                         .background(buttonBackground(for: toolMode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

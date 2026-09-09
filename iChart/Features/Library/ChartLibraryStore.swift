@@ -468,7 +468,33 @@ final class ChartLibraryStore: ObservableObject {
             loadError = error
         }
 
-        let snapshot = loadedSnapshot ?? (loadError == nil ? .empty : .preview)
+        let snapshot: ChartLibrarySnapshot
+        if IChartSimulatorPreviewLaunch.showsEditorUIFixture {
+            let charts = [
+                ChartSamples.straightAheadSwing,
+                Chart.blank(
+                    title: "Simple Sheet UI Fixture",
+                    key: .eFlatMajor,
+                    measureCount: 8,
+                    layoutStyle: .simpleChordSheet
+                ),
+                Chart.blank(
+                    title: "Rhythm Section UI Fixture",
+                    key: .eFlatMajor,
+                    measureCount: 8,
+                    layoutStyle: .rhythmSectionSheet
+                )
+            ]
+            snapshot = ChartLibrarySnapshot(
+                charts: charts,
+                selectedChartID: charts.first?.id,
+                entitlements: .free
+            )
+        } else if let loadedSnapshot {
+            snapshot = loadedSnapshot
+        } else {
+            snapshot = loadError == nil ? .empty : .preview
+        }
         #if DEBUG && targetEnvironment(simulator)
         let chordDiagnosticsResetter: (() -> Void)? = {
             try? ChordEntryDiagnosticsRecorder.live().reset()

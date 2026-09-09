@@ -26,23 +26,6 @@ enum LeadSheetPassiveInkPersistencePolicy {
     }
 }
 
-enum LeadSheetInkResponsivenessPolicy {
-    static let storageKey = "iChartInkResponsivenessValue"
-    static let defaultValue = 0.5
-    static let minimumValue = 0.0
-    static let maximumValue = 1.0
-    static let step = 0.05
-
-    static func normalized(_ value: Double) -> Double {
-        min(max(value, minimumValue), maximumValue)
-    }
-
-    static func inputCoalescingDelay(for value: Double) -> TimeInterval {
-        let normalizedValue = normalized(value)
-        return 0.004 + (normalizedValue * 0.026)
-    }
-}
-
 enum LeadSheetSavedInkCanvasReloadPolicy {
     static let geometrySettleDelay: TimeInterval = 0.05
 

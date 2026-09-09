@@ -37,14 +37,6 @@ enum EditorCanvasMode: Hashable {
         }
     }
 
-    var freeHandTabTitle: String {
-        switch self {
-        case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
-                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
-            return "Free-Write"
-        }
-    }
-
     var freeHandTabSymbol: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
@@ -67,23 +59,23 @@ enum EditorCanvasMode: Hashable {
     var activeToolTitle: String {
         switch self {
         case .browse:
-            return "Edit"
+            return "Select"
         case .measureEdit:
             return "Measures"
         case .repeatEdit:
             return "Repeats"
         case .timeSignatureEdit:
-            return "Time"
+            return "Time Signature"
         case .rhythmicNotationEdit:
             return "Rhythm"
         case .headerEntry:
             return "Header"
         case .chordEntry:
-            return "Chord"
+            return "Chords"
         case .noteEdit:
             return "Rhythm Edit"
         case .freeHand:
-            return "Free-Write"
+            return "Ink"
         case .textEdit:
             return "Text"
         }
@@ -143,7 +135,31 @@ enum EditorCanvasMode: Hashable {
             && self != .headerEntry
             && self != .chordEntry
             && self != .noteEdit
-            && self != .textEdit
+    }
+
+    var activeToolInstruction: String? {
+        switch self {
+        case .browse:
+            return nil
+        case .measureEdit:
+            return "Tap a measure, then choose an action."
+        case .repeatEdit:
+            return "Tap measures to build or remove repeats."
+        case .timeSignatureEdit:
+            return "Tap the measure where the new meter begins."
+        case .rhythmicNotationEdit:
+            return "Write rhythm inside the selected measure."
+        case .headerEntry:
+            return "Write in the page header."
+        case .chordEntry:
+            return "Write chords inside the blue lanes."
+        case .noteEdit:
+            return "Select a rendered rhythm note."
+        case .freeHand:
+            return "Write persistent ink; iChart never reads or interprets it."
+        case .textEdit:
+            return "Tap a measure, then add text above or below."
+        }
     }
 
     var allowsNoteSelection: Bool {

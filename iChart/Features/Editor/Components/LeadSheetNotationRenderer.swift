@@ -751,6 +751,22 @@ struct LeadSheetNotationRenderer {
         let baseFontSize = roadmapMarkerBaseFontSize(for: markerLayout)
         let label = markerLayout.text.uppercased()
         let labelFrame = roadmapMarkerLabelFrame(for: markerLayout)
+        let color = style.inkColor.withAlphaComponent(isRhythmSection ? 0.94 : 0.88)
+
+        // Standalone Coda and Segno markers must not pass through attributed-text
+        // fitting. Some SMuFL fonts (notably Finale Broadway) expose a line height
+        // several times taller than the visible outline, which makes the text
+        // fitter shrink an otherwise correctly normalized glyph. Centering the
+        // actual outline keeps its visible size stable across notation fonts.
+        if drawStandaloneRoadmapNotationMarker(
+            markerLayout.type,
+            in: labelFrame,
+            baseFontSize: baseFontSize,
+            color: color
+        ) {
+            return
+        }
+
         let fontSize = LeadSheetRoadmapLabelFitting.fittedBaseFontSize(
             for: label,
             in: labelFrame,
@@ -764,7 +780,7 @@ struct LeadSheetNotationRenderer {
             label,
             in: labelFrame,
             font: style.textFont(size: fontSize),
-            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.94 : 0.88),
+            color: color,
             alignment: .center
         )
     }
@@ -1411,6 +1427,63 @@ struct LeadSheetNotationRenderer {
             ),
             requiring: symbolGlyph
         )
+    }
+
+    @discardableResult
+    private func drawStandaloneRoadmapNotationMarker(
+        _ type: RoadmapType,
+        in rect: CGRect,
+        baseFontSize: CGFloat,
+        color: UIColor
+    ) -> Bool {
+        let glyph: String
+        switch type {
+        case .codaMarker:
+            glyph = NotationGlyphCatalog.coda
+        case .segno:
+            glyph = NotationGlyphCatalog.segno
+        default:
+            return false
+        }
+
+        let font = style.notationGlyphFont(
+            size: LeadSheetRoadmapMarkerTypography.notationSymbolPointSize(
+                for: glyph,
+                baseFontSize: baseFontSize,
+                notationFont: style.notationFont
+            ),
+            requiring: glyph
+        )
+        guard let glyphPath = NotationGlyphPathCache.path(for: glyph, font: font),
+              let context = UIGraphicsGetCurrentContext() else {
+            return false
+        }
+
+        let pathBounds = glyphPath.boundingBoxOfPath
+        guard pathBounds.width.isFinite,
+              pathBounds.height.isFinite,
+              pathBounds.width > 0,
+              pathBounds.height > 0 else {
+            return false
+        }
+
+        let fitScale = min(
+            1,
+            min(rect.width / pathBounds.width, rect.height / pathBounds.height)
+        )
+        let origin = CGPoint(
+            x: rect.midX - pathBounds.midX * fitScale,
+            y: rect.midY + pathBounds.midY * fitScale
+        )
+
+        context.saveGState()
+        context.translateBy(x: origin.x, y: origin.y)
+        context.scaleBy(x: fitScale, y: -fitScale)
+        context.addPath(glyphPath)
+        context.setFillColor(color.cgColor)
+        context.fillPath()
+        context.restoreGState()
+        return true
     }
 
     private func drawPitchedNote(_ noteLayout: LeadSheetNoteLayout) {

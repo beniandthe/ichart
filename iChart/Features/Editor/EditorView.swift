@@ -24,7 +24,7 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
         configuration.label
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 10)
-            .frame(height: 38)
+            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
             .foregroundStyle(configuration.isPressed ? Color.white : EditorToolAccent.semanticRead)
             .background(
                 configuration.isPressed
@@ -43,484 +43,95 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
     }
 }
 
-private enum IChartEditorGuidedTourStep: String, Identifiable {
+enum IChartEditorGuidedTourStep: String, Identifiable {
     case setup
-    case chordTool
-    case chordModes
-    case chordWrite
-    case chordConfirm
-    case chordRender
-    case chordCorrection
-    case chordUnreadable
-    case chordMove
-    case chordDone
-    case measureTool
-    case measureAdd
-    case measureStack
-    case measureFirst
-    case measureDouble
-    case measureNewRow
-    case measureDelete
-    case measureRange
-    case measureDone
-    case repeatsTool
-    case repeatsOneBar
-    case repeatsStart
-    case repeatsEnd
-    case repeatsFirstEnding
-    case repeatsSecondEnding
-    case repeatsDeleteRepeat
-    case repeatsDeleteEnding
-    case repeatsDone
-    case codaTool
-    case codaMarker
-    case codaMoveDelete
-    case codaDone
-    case textTool
-    case textAddPosition
-    case textAddConfirm
-    case textMoveResizeDelete
-    case textDone
-    case timeTool
-    case timeSelectMeasure
-    case timeChooseMeter
-    case timeApplyScope
-    case timeDone
-    case freeWriteTool
-    case freeWriteMode
-    case freeWriteDone
-    case page
-    case pageExport
-    case pageHeader
-    case pageKey
-    case pageInstrument
-    case pageTranspose
-    case pageStyle
-    case pageFonts
-    case pagePen
-    case pageEngraving
+    case writeChords
+    case renderChords
+    case shapeForm
+    case addCue
+    case review
+    case export
     case finish
 
     var id: String { rawValue }
 
-    private static let simpleSheetWalkthroughSteps: [IChartEditorGuidedTourStep] = [
+    static let quickStartSteps: [IChartEditorGuidedTourStep] = [
         .setup,
-        .chordTool,
-        .chordModes,
-        .chordWrite,
-        .chordConfirm,
-        .chordRender,
-        .chordDone,
-        .measureTool,
-        .measureStack,
-        .measureNewRow,
-        .measureDone,
-        .textTool,
-        .textAddPosition,
-        .textAddConfirm,
-        .textDone,
-        .page,
-        .pageExport,
+        .writeChords,
+        .renderChords,
+        .shapeForm,
+        .addCue,
+        .review,
+        .export,
         .finish
     ]
 
     var progressText: String? {
-        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+        guard let index = Self.quickStartSteps.firstIndex(of: self) else {
             return nil
         }
 
-        return "Step \(index + 1) of \(Self.simpleSheetWalkthroughSteps.count)"
+        return "\(index + 1) of \(Self.quickStartSteps.count)"
     }
 
     var title: String {
         switch self {
         case .setup:
-            "Create The Page"
-        case .chordTool:
-            "Enter Chord"
-        case .chordModes:
-            "Use Write Mode"
-        case .chordWrite:
-            "Write The Example"
-        case .chordConfirm:
-            "Resolve Choices"
-        case .chordRender:
-            "Render Chords"
-        case .chordCorrection:
-            "Edit A Rendered Chord"
-        case .chordUnreadable:
-            "If iChart Misses"
-        case .chordMove:
-            "Move Chords"
-        case .chordDone:
-            "Leave Chord Mode"
-        case .measureTool:
+            "Create A Page"
+        case .writeChords:
+            "Write Four Chords"
+        case .renderChords:
+            "Check And Render"
+        case .shapeForm:
             "Shape The Form"
-        case .measureAdd:
-            "Add"
-        case .measureStack:
-            "Add Measures"
-        case .measureFirst:
-            "First"
-        case .measureDouble:
-            "Double"
-        case .measureNewRow:
-            "Clean Rows"
-        case .measureDelete:
-            "Delete"
-        case .measureRange:
-            "Range Delete"
-        case .measureDone:
-            "Finish Measures"
-        case .repeatsTool:
-            "Repeats Tool"
-        case .repeatsOneBar:
-            "One Bar"
-        case .repeatsStart:
-            "Start Repeat"
-        case .repeatsEnd:
-            "End Repeat"
-        case .repeatsFirstEnding:
-            "First Ending"
-        case .repeatsSecondEnding:
-            "Second Ending"
-        case .repeatsDeleteRepeat:
-            "Delete Repeat"
-        case .repeatsDeleteEnding:
-            "Delete Ending"
-        case .repeatsDone:
-            "Finish Repeats"
-        case .codaTool:
-            "Coda Tool"
-        case .codaMarker:
-            "Place A Marker"
-        case .codaMoveDelete:
-            "Move Or Delete"
-        case .codaDone:
-            "Finish Coda"
-        case .textTool:
+        case .addCue:
             "Add A Cue"
-        case .textAddPosition:
-            "Place Text"
-        case .textAddConfirm:
-            "Type The Cue"
-        case .textMoveResizeDelete:
-            "Move, Size, Delete"
-        case .textDone:
-            "Finish Text"
-        case .timeTool:
-            "Time Tool"
-        case .timeSelectMeasure:
-            "Select A Measure"
-        case .timeChooseMeter:
-            "Choose A Time"
-        case .timeApplyScope:
-            "Apply The Change"
-        case .timeDone:
-            "Finish Time"
-        case .freeWriteTool:
-            "Free-Write"
-        case .freeWriteMode:
-            "Persistent Ink"
-        case .freeWriteDone:
-            "Finish Free-Write"
-        case .page:
-            "Final Check"
-        case .pageExport:
-            "Export PDF"
-        case .pageHeader:
-            "Header"
-        case .pageKey:
-            "Key Signature"
-        case .pageInstrument:
-            "Instrument View"
-        case .pageTranspose:
-            "Transpose"
-        case .pageStyle:
-            "Style"
-        case .pageFonts:
-            "Fonts"
-        case .pagePen:
-            "Pen Responsiveness"
-        case .pageEngraving:
-            "Engraving"
+        case .review:
+            "Review The Page"
+        case .export:
+            "Export When Ready"
         case .finish:
-            "Walkthrough Complete"
+            "Quick Start Complete"
         }
     }
 
     var message: String {
         switch self {
         case .setup:
-            "Use a normal example setup: C, 4/4, eight starting measures, and the selected Simple Chord Sheet style. Create Blank Page opens the editor."
-        case .chordTool:
-            "Tap Chord to write symbols iChart should read. The example starts with a simple four-chord progression."
-        case .chordModes:
-            "Keep Write selected. Erase removes chord writing before you render."
-        case .chordWrite:
-            "Write C, F, G, and C across the first four highlighted measures. Wait for preview text under your writing. If you draw a barline in the lane, it previews there too."
-        case .chordConfirm:
-            "If iChart opens a choice sheet, choose the intended chord or type it. If no sheet appears, continue."
-        case .chordRender:
-            "Tap Render Chords when the previews are right. This puts the chords and any lane barlines onto the chart."
-        case .chordCorrection:
-            "If it is not your chord, delete it or double tap the chord to type the one you want."
-        case .chordUnreadable:
-            "If iChart cannot read the chord, erase and rewrite the ink, or type the chord and confirm it."
-        case .chordMove:
-            "Chords on the chart can be dragged and placed around a measure."
-        case .chordDone:
-            "Tap Done after the example chords are rendered so the editor returns to Select."
-        case .measureTool:
-            "Tap Measures to adjust the Simple sheet form after the chords are in place."
-        case .measureAdd:
-            "Add inserts one measure after the selected measure."
-        case .measureStack:
-            "Use Stack only if the example needs more measures. Otherwise use Next to keep the eight-measure setup."
-        case .measureFirst:
-            "First inserts a new first measure at the beginning of the chart."
-        case .measureDouble:
-            "Double creates a double barline on the selected measure."
-        case .measureNewRow:
-            "Select the measure that should start a new row, then tap New Row. Even Row can clean up widths after that."
-        case .measureDelete:
-            "Delete removes the highlighted selected measure."
-        case .measureRange:
-            "Range starts at the selected measure; select another measure to delete the full span."
-        case .measureDone:
-            "Tap Done once the example has a readable row layout."
-        case .repeatsTool:
-            "Repeats adds repeat symbols and endings to highlighted measures."
-        case .repeatsOneBar:
-            "One Bar marks the selected measure as a one-bar repeat."
-        case .repeatsStart:
-            "Start begins a repeat at the currently highlighted measure."
-        case .repeatsEnd:
-            "Select another measure, then tap End Rep to close the repeat loop."
-        case .repeatsFirstEnding:
-            "1st starts a first ending. Select the end measure if needed, then tap End 1st to confirm the span."
-        case .repeatsSecondEnding:
-            "2nd starts a second ending. Select the end measure if needed, then tap End 2nd to confirm."
-        case .repeatsDeleteRepeat:
-            "Remove Repeat deletes repeat markings attached to the selected measure."
-        case .repeatsDeleteEnding:
-            "Remove Ending deletes an ending attached to the selected measure."
-        case .repeatsDone:
-            "Tap Done when you are done with repeat structure."
-        case .codaTool:
-            "Coda places roadmap markers on the selected measure."
-        case .codaMarker:
-            "Choose a marker to place on the current selected measure."
-        case .codaMoveDelete:
-            "After placing a marker, drag it around that measure or tap its x to delete it."
-        case .codaDone:
-            "Move on when you are done placing roadmap markers."
-        case .textTool:
-            "Tap Text to add one short cue to the example chart."
-        case .textAddPosition:
-            "Choose Add Text Above Selected Measure for a simple section label or cue."
-        case .textAddConfirm:
-            "Type a short cue like Intro, Verse, or Solo, then tap Add."
-        case .textMoveResizeDelete:
-            "Select placed text to move it, make it smaller or larger, or delete it."
-        case .textDone:
-            "Tap Done after the cue appears on the chart."
-        case .timeTool:
-            "Time changes meter at a selected measure."
-        case .timeSelectMeasure:
-            "Select the measure where the new time signature should start."
-        case .timeChooseMeter:
-            "Choose the new time signature."
-        case .timeApplyScope:
-            "Apply it with new measures, to the end of the piece, or until the next time change."
-        case .timeDone:
-            "Tap Done when you are done changing time."
-        case .freeWriteTool:
-            "Free-Write is persistent ink mode."
-        case .freeWriteMode:
-            "Nothing in Free-Write is read by iChart. It stays as raw ink and can be erased any time."
-        case .freeWriteDone:
-            "Tap Done when you are done free-writing."
-        case .page:
-            "Review the chart in Select before export: title, chords, rows, text, and empty measures."
-        case .pageExport:
-            "Tap Settings, then Export to create the finished PDF. The editable chart stays in Charts."
-        case .pageHeader:
-            "Header lets you type or handwrite the chart header."
-        case .pageKey:
-            "Key changes the chart key signature or adds a key change at the selected measure."
-        case .pageInstrument:
-            "Instrument Transposition changes the reading view for transposing instruments."
-        case .pageTranspose:
-            "Transpose moves the written chords up or down."
-        case .pageStyle:
-            "Style changes the chart look."
-        case .pageFonts:
-            "Fonts controls the chart fonts."
-        case .pagePen:
-            "Pen Responsiveness adjusts ink feel."
-        case .pageEngraving:
-            "Engraving controls page layout."
+            "Four measures are ready. Change the setup if you want, then create the page."
+        case .writeChords:
+            "Tap Chords and write C, F, G, C in the first four measures. The small labels are previews."
+        case .renderChords:
+            "If iChart asks, choose the intended chord. When the previews look right, tap Render Chords."
+        case .shapeForm:
+            "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
+        case .addCue:
+            "Open Tools > Text, choose a measure, then Above or Below. Add a short cue like Intro or Verse."
+        case .review:
+            "Tap Done. In Select, tap anything you want to move, edit, resize, or delete."
+        case .export:
+            "Tap Export PDF when the chart is ready. Your editable chart stays in Charts."
         case .finish:
-            "The Simple Chord Sheet example is complete. You can restart this walkthrough from Help."
-        }
-    }
-
-    var guardrailText: String? {
-        switch self {
-        case .setup:
-            "Create Blank Page is required. The tour cannot progress into the editor until setup is complete."
-        case .chordTool:
-            "Use Chord for readable chord symbols only; use Free-Write later for raw handwritten marks."
-        case .chordModes:
-            "If Write is not selected, switch to Write before adding example chords."
-        case .chordWrite:
-            "The preview is only a preview. It is not on the chart until you tap Render Chords or choose from a popup."
-        case .chordConfirm:
-            "Resolve any sheet that appears. If nothing appears, use Next."
-        case .chordRender:
-            "If Render Chords is disabled, fix the chord iChart could not read. If a popup already added the chord, use Next."
-        case .chordDone:
-            "Done is the safe exit from Chord mode before layout or text edits."
-        case .measureTool:
-            "Every measure action uses the selected measure as its target."
-        case .measureStack:
-            "Stack is optional in this example. Do not add measures if the page already has enough."
-        case .measureNewRow:
-            "If New Row is disabled, select a measure that can legally start a new row."
-        case .measureDone:
-            "Select mode is the checkpoint before adding text."
-        case .textTool:
-            "Text requires a selected measure. Select the target measure first if needed."
-        case .textAddPosition:
-            "If the menu action does nothing, return to Select and tap the measure that should own the text."
-        case .textAddConfirm:
-            "Add stays blocked until the text field is not blank."
-        case .textDone:
-            "Leave Text mode before export."
-        case .page:
-            "Do not export from a writing mode. Tap Done first."
-        case .pageExport:
-            "If Export is disabled, complete setup and leave the active tool."
-        case .finish:
-            "The walkthrough only covered the Simple Chord Sheet example."
-        default:
-            nil
+            "You know the core loop. Ink and every advanced structure tool remain available in Help > How To."
         }
     }
 
     var targetText: String? {
         switch self {
         case .setup:
-            "Tap Create Blank Page"
-        case .chordTool:
-            "Tap Chord"
-        case .chordModes:
-            "Keep Write selected"
-        case .chordWrite:
-            "Write C, F, G, C"
-        case .chordConfirm:
-            "Resolve sheet, or Next"
-        case .chordRender:
-            "Tap Render Chords"
-        case .chordCorrection:
-            "Double tap a rendered chord to edit"
-        case .chordUnreadable:
-            "Rewrite ink or type and Confirm"
-        case .chordMove:
-            "Drag a rendered chord"
-        case .chordDone:
-            "Tap Done"
-        case .measureTool:
-            "Tap Measures"
-        case .measureAdd:
-            "Tap Add"
-        case .measureStack:
-            "Stack only if needed"
-        case .measureFirst:
-            "Tap First"
-        case .measureDouble:
-            "Tap Double"
-        case .measureNewRow:
-            "Select measure, then New Row"
-        case .measureDelete:
-            "Tap Delete"
-        case .measureRange:
-            "Tap Range"
-        case .measureDone:
-            "Tap Done"
-        case .repeatsTool:
-            "Tap Repeats"
-        case .repeatsOneBar:
-            "Tap One Bar"
-        case .repeatsStart:
-            "Tap Start"
-        case .repeatsEnd:
-            "Select another measure, then tap End Rep"
-        case .repeatsFirstEnding:
-            "Tap 1st, then End 1st"
-        case .repeatsSecondEnding:
-            "Tap 2nd, then End 2nd"
-        case .repeatsDeleteRepeat:
-            "Tap Remove Repeat"
-        case .repeatsDeleteEnding:
-            "Tap Remove Ending"
-        case .repeatsDone:
-            "Tap Done"
-        case .codaTool:
-            "Tap Coda"
-        case .codaMarker:
-            "Tap a marker"
-        case .codaMoveDelete:
-            "Drag marker or tap x"
-        case .codaDone:
-            nil
-        case .textTool:
-            "Tap Text"
-        case .textAddPosition:
-            "Choose Add Text Above"
-        case .textAddConfirm:
-            "Type cue, then Add"
-        case .textMoveResizeDelete:
-            "Select text"
-        case .textDone:
-            "Tap Done"
-        case .timeTool:
-            "Tap Time"
-        case .timeSelectMeasure:
-            "Select a measure"
-        case .timeChooseMeter:
-            "Choose a time"
-        case .timeApplyScope:
-            "Choose the scope"
-        case .timeDone:
-            "Tap Done"
-        case .freeWriteTool:
-            "Tap Free-Write"
-        case .freeWriteMode:
-            "Write or erase persistent ink"
-        case .freeWriteDone:
-            "Tap Done"
-        case .page:
-            "Review in Select"
-        case .pageExport:
-            "Settings > Export"
-        case .pageHeader:
-            "Header"
-        case .pageKey:
-            "Key"
-        case .pageInstrument:
-            "Instrument"
-        case .pageTranspose:
-            "Transpose"
-        case .pageStyle:
-            "Style"
-        case .pageFonts:
-            "Fonts"
-        case .pagePen:
-            "Pen Responsiveness"
-        case .pageEngraving:
-            "Engraving"
+            "Create Blank Page"
+        case .writeChords:
+            "Chords • write C, F, G, C"
+        case .renderChords:
+            "Render Chords"
+        case .shapeForm:
+            "Measures • Add / Layout / Delete"
+        case .addCue:
+            "Tools > Text"
+        case .review:
+            "Done • then Select"
+        case .export:
+            "Export PDF"
         case .finish:
             nil
         }
@@ -530,34 +141,27 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         switch self {
         case .setup:
             nil
-        case .chordConfirm:
-            "No Sheet? Next"
-        case .chordRender:
-            "Render Or Continue"
-        case .measureStack:
-            "Skip If Enough"
-        case .pageExport:
-            "Done Exporting"
+        case .export:
+            "Skip Export"
         case .finish:
-            "Finish Tour"
+            "Done"
         default:
-            "Next"
+            "Continue"
         }
     }
 
     var nextStep: IChartEditorGuidedTourStep? {
-        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+        guard let index = Self.quickStartSteps.firstIndex(of: self) else {
             return nil
         }
 
         let nextIndex = index + 1
-        guard Self.simpleSheetWalkthroughSteps.indices.contains(nextIndex) else {
+        guard Self.quickStartSteps.indices.contains(nextIndex) else {
             return nil
         }
 
-        return Self.simpleSheetWalkthroughSteps[nextIndex]
+        return Self.quickStartSteps[nextIndex]
     }
-
 }
 
 private struct IChartEditorGuidedTourRail: View {
@@ -571,27 +175,27 @@ private struct IChartEditorGuidedTourRail: View {
     private let ink = IChartTourStyle.ink
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles")
-                    .font(.title3.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(actionAccent)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
+                        Text("Quick Start")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(actionAccent)
+
                         if let progressText = step.progressText {
                             Text(progressText)
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(actionAccent)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(IChartTourStyle.orangeSoft)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(accent.opacity(0.74))
                         }
 
                         Text(step.title)
-                            .font(.headline.weight(.bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(accent)
                     }
 
@@ -599,34 +203,33 @@ private struct IChartEditorGuidedTourRail: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    if let guardrailText = step.guardrailText {
-                        Label(guardrailText, systemImage: "checkmark.shield")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(accent)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 2)
-                    }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let targetText = step.targetText {
-                Label(targetText, systemImage: "hand.tap")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(accent)
-                    .frame(width: 250, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(IChartTourStyle.orangeSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(actionAccent.opacity(0.72), lineWidth: 1.4)
-                    }
+                Button(action: onFinish) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(accent.opacity(0.72))
+                .accessibilityLabel("End Quick Start")
             }
 
             HStack(spacing: 10) {
+                if let targetText = step.targetText {
+                    Label(targetText, systemImage: "hand.tap")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(IChartTourStyle.orangeSoft)
+                        .clipShape(Capsule())
+                }
+
+                Spacer(minLength: 0)
+
                 if let forwardActionTitle = step.forwardActionTitle {
                     Button(forwardActionTitle) {
                         if step == .finish {
@@ -637,21 +240,11 @@ private struct IChartEditorGuidedTourRail: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(actionAccent)
-                    .tourActionHighlight(
-                        isActive: true,
-                        cornerRadius: 9,
-                        tint: actionAccent
-                    )
                 }
-
-                Button("Skip Tour", action: onFinish)
-                    .buttonStyle(.bordered)
-                    .tint(accent)
             }
-            .fixedSize()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(paper.opacity(0.96))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -659,22 +252,8 @@ private struct IChartEditorGuidedTourRail: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(accent.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: accent.opacity(0.18), radius: 18, y: 9)
+        .shadow(color: accent.opacity(0.12), radius: 10, y: 5)
         .accessibilityElement(children: .contain)
-    }
-}
-
-private struct IChartEditorGuidedTourPrompt: View {
-    let step: IChartEditorGuidedTourStep
-    let onNext: () -> Void
-    let onFinish: () -> Void
-
-    var body: some View {
-        IChartEditorGuidedTourRail(
-            step: step,
-            onNext: onNext,
-            onFinish: onFinish
-        )
     }
 }
 
@@ -729,7 +308,6 @@ struct EditorView: View {
     @State private var showingSetupSheet = false
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
-    @State private var showingInkResponsivenessSheet = false
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
@@ -774,8 +352,6 @@ struct EditorView: View {
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
-    private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
     private let onExit: (() -> Void)?
@@ -852,7 +428,7 @@ struct EditorView: View {
                 CueTextEntryPanelView(
                     text: $cueTextDraft,
                     actionTitle: editingCueTextID == nil ? "Add" : "Apply",
-                    highlightsAction: editorGuidedTourStep == .textAddConfirm,
+                    highlightsAction: editorGuidedTourStep == .addCue,
                     onAdd: handleCueTextEntryAccepted,
                     onCancel: clearPendingCueTextEntry
                 )
@@ -890,12 +466,9 @@ struct EditorView: View {
         .sheet(isPresented: $showingTypographySheet) {
             ChartTypographySheetView(chart: $chart)
         }
-        .sheet(isPresented: $showingInkResponsivenessSheet) {
-            InkResponsivenessSheetView(value: $inkResponsivenessValue)
-        }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
-                highlightsAddAction: editorGuidedTourStep == .measureStack,
+                highlightsAddAction: editorGuidedTourStep == .shapeForm,
                 onAdd: { measureCount in
                     handleMeasureStackInsertionAccepted(measureCount, insertion: insertion)
                 },
@@ -908,7 +481,7 @@ struct EditorView: View {
             ChordInkConfirmationSheetView(
                 confirmation: confirmation,
                 showsFixtureCaptureTools: Self.showsChordFixtureCaptureTools,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
+                highlightsForwardActions: editorGuidedTourStep == .renderChords,
                 onAcceptCandidate: { candidateText in
                     handleChordInkCandidateAccepted(candidateText, confirmation: confirmation)
                 },
@@ -928,7 +501,7 @@ struct EditorView: View {
         .sheet(item: $pendingChordInkBatchConfirmation) { batch in
             ChordInkBatchConfirmationSheetView(
                 batch: batch,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
+                highlightsForwardActions: editorGuidedTourStep == .renderChords,
                 onAcceptAll: { candidateTextByID in
                     handleChordInkBatchAccepted(candidateTextByID, batch: batch)
                 },
@@ -967,7 +540,6 @@ struct EditorView: View {
                             sourceMeasureID: sourceMeasureID,
                             meter: meter
                         )
-                        completeEditorGuidedTourStep(.timeChooseMeter)
                     }
                 }
             }
@@ -982,7 +554,7 @@ struct EditorView: View {
         .sheet(item: $pendingTimeSignaturePlacement) { placement in
             TimeSignatureScopeSheetView(
                 meter: placement.meter,
-                highlightsApplyActions: editorGuidedTourStep == .timeApplyScope,
+                highlightsApplyActions: false,
                 onApplyCount: { additionalMeasureCount in
                     handleTimeSignatureSelection(
                         placement.meter,
@@ -1060,7 +632,6 @@ struct EditorView: View {
             if mode.allowsAnyInkEditing {
                 inkToolMode = .write
             }
-            advanceEditorGuidedTourIfNeeded(for: mode)
         }
         .onChange(of: chart) { previousChart, updatedChart in
             if !previousChart.hasCompletedInitialSetup,
@@ -1121,47 +692,10 @@ struct EditorView: View {
         pendingSimpleChartTour = false
         if chart.hasCompletedInitialSetup {
             canvasMode = .browse
-            editorGuidedTourStep = .chordTool
+            editorGuidedTourStep = .writeChords
         } else {
             editorGuidedTourStep = .setup
         }
-    }
-
-    private func advanceEditorGuidedTourIfNeeded(for mode: EditorCanvasMode) {
-        switch (editorGuidedTourStep, mode) {
-        case (.chordTool, .chordEntry):
-            completeEditorGuidedTourStep(.chordTool)
-        case (.chordDone, .browse):
-            completeEditorGuidedTourStep(.chordDone)
-        case (.measureTool, .measureEdit):
-            completeEditorGuidedTourStep(.measureTool)
-        case (.measureDone, .browse):
-            completeEditorGuidedTourStep(.measureDone)
-        case (.repeatsTool, .repeatEdit):
-            completeEditorGuidedTourStep(.repeatsTool)
-        case (.repeatsDone, .browse):
-            completeEditorGuidedTourStep(.repeatsDone)
-        case (.textDone, .browse):
-            completeEditorGuidedTourStep(.textDone)
-        case (.timeTool, .timeSignatureEdit):
-            completeEditorGuidedTourStep(.timeTool)
-        case (.timeDone, .browse):
-            completeEditorGuidedTourStep(.timeDone)
-        case (.freeWriteTool, .freeHand):
-            completeEditorGuidedTourStep(.freeWriteTool)
-        case (.freeWriteDone, .browse):
-            completeEditorGuidedTourStep(.freeWriteDone)
-        default:
-            break
-        }
-    }
-
-    private func advanceEditorGuidedTourAfterPageToolTapIfNeeded() {
-        completeEditorGuidedTourStep(.page)
-    }
-
-    private func advanceEditorGuidedTourAfterCodaToolTapIfNeeded() {
-        completeEditorGuidedTourStep(.codaTool)
     }
 
     private func advanceEditorGuidedTourAfterSetupIfNeeded(_ updatedChart: Chart) {
@@ -1182,41 +716,12 @@ struct EditorView: View {
         switch currentStep {
         case .finish:
             finishEditorGuidedTour()
-        case .chordTool:
-            if canvasMode != .chordEntry {
-                handleChordTabTapped()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        case .chordRender:
-            if canRenderChordDrafts || chordPreviewState.unresolvedChordCount > 0 {
-                handleRenderChordDrafts()
-            } else {
-                completeEditorGuidedTourStep(currentStep)
-            }
-        case .chordDone, .measureDone, .repeatsDone, .timeDone, .freeWriteDone:
+        case .review:
             activateSelectTool()
             completeEditorGuidedTourStep(currentStep)
-        case .measureTool:
-            _ = enterMeasureEditMode()
-            completeEditorGuidedTourStep(currentStep)
-        case .repeatsTool:
-            _ = enterRepeatEditMode()
-            completeEditorGuidedTourStep(currentStep)
-        case .codaTool:
-            completeEditorGuidedTourStep(currentStep)
-        case .textTool:
-            completeEditorGuidedTourStep(currentStep)
-        case .timeTool:
-            if canvasMode != .timeSignatureEdit {
-                handleTimeSignatureTabTapped()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        case .freeWriteTool:
-            if canvasMode != .freeHand {
-                toggleFreeHandMode()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        default:
+        case .setup:
+            break
+        case .writeChords, .renderChords, .shapeForm, .addCue, .export:
             completeEditorGuidedTourStep(currentStep)
         }
     }
@@ -1268,36 +773,86 @@ struct EditorView: View {
     }
 
     private var editorNavigationChrome: some View {
-        HStack(spacing: 12) {
-            Button {
-                exitEditor()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.headline)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .accessibilityLabel("Exit Chart")
+        GeometryReader { geometry in
+            let columnWidth = EditorCommandLayoutPolicy.navigationColumnWidth(
+                for: geometry.size.width
+            )
 
-            Text(chart.title)
-                .font(.headline.weight(.semibold))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-
-            Button {
-                activateSelectTool(clearsMeasureSelection: true)
-                handleExportTapped()
-            } label: {
-                if isExporting {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                } else {
-                    Label(exportButtonTitle, systemImage: "square.and.arrow.up")
+            HStack(spacing: 0) {
+                Button {
+                    exitEditor()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                        .frame(width: 44, height: 44)
                 }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Exit Chart")
+                .frame(width: columnWidth, alignment: .leading)
+
+                Menu {
+                    if canvasMode.locksDocumentActions {
+                        Text("Choose Done before changing document settings.")
+                    }
+
+                    Group {
+                        pageToolMenuContent
+                    }
+                    .disabled(
+                        !EditorCommandLayoutPolicy.canActivate(
+                            .documentSettings,
+                            chartIsReady: chart.hasCompletedInitialSetup,
+                            from: canvasMode
+                        )
+                    )
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(chart.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.headline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Document settings for \(chart.title)")
+                .frame(width: columnWidth, alignment: .center)
+
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    handleExportTapped()
+                } label: {
+                    Group {
+                        if isExporting {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        } else {
+                            Label(exportButtonTitle, systemImage: "square.and.arrow.up")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+                .accessibilityLabel(isExporting ? "Exporting PDF" : exportButtonTitle)
+                .tourActionHighlight(
+                    isActive: editorGuidedTourStep == .export,
+                    cornerRadius: 10,
+                    tint: IChartTourStyle.orange
+                )
+                .frame(width: columnWidth, alignment: .trailing)
             }
-            .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
         }
+        .frame(height: EditorCommandLayoutPolicy.minimumTapTarget)
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .background(.regularMaterial)
@@ -1345,21 +900,6 @@ struct EditorView: View {
 
             Group {
                 if showsActiveToolControls {
-                    if let activeToolExplainer {
-                        Text(activeToolExplainer.text)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(activeToolExplainer.color)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.86)
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: minWidth, alignment: .center)
-                            .accessibilityLabel(activeToolExplainer.text)
-                    }
-
-                    if canvasMode == .chordEntry {
-                        chordToolWorkflowGuide(maxWidth: minWidth)
-                    }
-
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -1398,17 +938,12 @@ struct EditorView: View {
     }
 
     private var isEditorGuidedTourDoneActionHighlighted: Bool {
-        switch editorGuidedTourStep {
-        case .chordDone, .measureDone, .repeatsDone, .textDone, .timeDone, .freeWriteDone:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .review
     }
 
     private var isChordTourSectionActive: Bool {
         switch editorGuidedTourStep {
-        case .chordTool, .chordModes, .chordWrite, .chordConfirm, .chordRender, .chordCorrection, .chordUnreadable, .chordMove, .chordDone:
+        case .writeChords, .renderChords:
             true
         default:
             false
@@ -1416,106 +951,16 @@ struct EditorView: View {
     }
 
     private var isMeasureTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .measureTool, .measureAdd, .measureStack, .measureFirst, .measureDouble, .measureNewRow, .measureDelete, .measureRange, .measureDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isRepeatsTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .repeatsTool, .repeatsOneBar, .repeatsStart, .repeatsEnd, .repeatsFirstEnding, .repeatsSecondEnding, .repeatsDeleteRepeat, .repeatsDeleteEnding, .repeatsDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isCodaTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .codaTool, .codaMarker, .codaMoveDelete, .codaDone:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .shapeForm
     }
 
     private var isTextTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .textTool, .textAddPosition, .textAddConfirm, .textMoveResizeDelete, .textDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isTimeTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .timeTool, .timeSelectMeasure, .timeChooseMeter, .timeApplyScope, .timeDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isFreeWriteTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .freeWriteTool, .freeWriteMode, .freeWriteDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isPageTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .page, .pageExport, .pageHeader, .pageKey, .pageInstrument, .pageTranspose, .pageStyle, .pageFonts, .pagePen, .pageEngraving:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .addCue
     }
 
     private var isDedicatedRhythmToolAvailable: Bool {
         RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool
             && chart.layoutStyle.profile.allowsRhythmicNotationInk
-    }
-
-    private var activeToolExplainer: (text: String, color: Color)? {
-        switch canvasMode {
-        case .freeHand:
-            return (
-                "Persistent-ink mode. This ink is never read or interpreted by iChart.",
-                EditorToolAccent.persistentInk
-            )
-        default:
-            return nil
-        }
-    }
-
-    @ViewBuilder
-    private var pageToolControl: some View {
-        Menu {
-            pageToolMenuContent
-        } label: {
-            pageToolLabel
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                advanceEditorGuidedTourAfterPageToolTapIfNeeded()
-            }
-        )
-    }
-
-    private var pageToolLabel: some View {
-        EditorMenuTabLabel(
-            title: "Settings",
-            systemImage: "doc.text",
-            isSelected: canvasMode == .headerEntry,
-            isTourHighlighted: isPageTourSectionActive
-        )
     }
 
     @ViewBuilder
@@ -1530,14 +975,6 @@ struct EditorView: View {
 
             Divider()
         }
-
-        Button {
-            activateSelectTool(clearsMeasureSelection: true)
-            handleExportTapped()
-        } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
 
         Button {
             handleAddPageTapped()
@@ -1700,13 +1137,6 @@ struct EditorView: View {
             Label("Fonts", systemImage: "textformat")
         }
 
-        Button {
-            activateSelectTool(clearsMeasureSelection: true)
-            showingInkResponsivenessSheet = true
-        } label: {
-            Label("Pen Responsiveness", systemImage: "pencil.tip")
-        }
-
         Menu {
             ForEach(EngravingPreset.allCases, id: \.self) { preset in
                 Button {
@@ -1763,27 +1193,6 @@ struct EditorView: View {
     }
 
     @ViewBuilder
-    private var codaToolControl: some View {
-        Menu {
-            codaToolMenuContent
-        } label: {
-            codaToolLabel
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
-            }
-        )
-    }
-
-    private var codaToolLabel: some View {
-        EditorCodaTabLabel(
-            isSelected: selectedRoadmapMarkerID != nil,
-            isTourHighlighted: isCodaTourSectionActive
-        )
-    }
-
-    @ViewBuilder
     private var codaToolMenuContent: some View {
         if selectedRoadmapMarker != nil {
             Button {
@@ -1818,207 +1227,175 @@ struct EditorView: View {
         }
     }
 
-    @ViewBuilder
-    private var textToolControl: some View {
-        Menu {
-            textToolMenuContent
-        } label: {
-            textToolLabel
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                completeEditorGuidedTourStep(.textTool)
-            }
-        )
-    }
-
-    private var textToolLabel: some View {
-        EditorMenuTabLabel(
-            title: "Text",
-            systemImage: "text.bubble",
-            isSelected: canvasMode == .textEdit || showingCueTextEntry || selectedCueTextID != nil,
-            isTourHighlighted: isTextTourSectionActive
-        )
-    }
-
-    @ViewBuilder
-    private var textToolMenuContent: some View {
-        if selectedCueText != nil {
-            Button {
-                handleEditSelectedCueText()
-            } label: {
-                Label("Edit Selected Text", systemImage: "pencil")
-            }
-
-            Button {
-                resizeSelectedCueText(by: CueText.scaleStep)
-            } label: {
-                Label("Make Text Larger", systemImage: "plus.magnifyingglass")
-            }
-            .disabled(!canGrowSelectedCueText)
-
-            Button {
-                resizeSelectedCueText(by: -CueText.scaleStep)
-            } label: {
-                Label("Make Text Smaller", systemImage: "minus.magnifyingglass")
-            }
-            .disabled(!canShrinkSelectedCueText)
-
-            Button(role: .destructive) {
-                deleteSelectedCueText()
-            } label: {
-                Label("Delete Selected Text", systemImage: "trash")
-            }
-
-            Divider()
-        }
-
-        Button {
-            handleAddCueText(position: .below)
-        } label: {
-            Label("Add Text Below Selected Measure", systemImage: "text.bubble")
-        }
-
-        Button {
-            handleAddCueText(position: .above)
-        } label: {
-            Label("Add Text Above Selected Measure", systemImage: "text.bubble")
-        }
-
-        Button(role: .destructive) {
-            handleRemoveCueTextsAtSelectedMeasure()
-        } label: {
-            Label("Remove Text at Selected Measure", systemImage: "trash")
-        }
-        .disabled(!canRemoveCueTextAtSelectedMeasure)
-    }
-
     private func toolStrip(minWidth: CGFloat) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                pageToolControl
-                    .disabled(canvasMode.locksDocumentActions)
-                    .buttonStyle(.plain)
+        HStack(spacing: 4) {
+            ForEach(EditorCommandLayoutPolicy.primaryDestinations) { destination in
+                primaryToolControl(for: destination)
+                    .frame(maxWidth: .infinity)
+            }
 
-                Button {
-                    handleActiveToolDoneTapped()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Edit",
-                        systemImage: "cursorarrow",
-                        isSelected: canvasMode == .browse
-                            && selectedCueTextID == nil
-                            && selectedRoadmapMarkerID == nil
-                    )
-                }
-                .buttonStyle(.plain)
+            toolsMenuControl
+                .frame(maxWidth: .infinity)
+        }
+        .padding(4)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .frame(width: minWidth, alignment: .center)
+    }
 
-                Button {
-                    handleMeasureEditRequested()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Measures",
-                        systemImage: "rectangle.split.3x1",
-                        isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive,
-                        isTourHighlighted: isMeasureTourSectionActive
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions || canvasMode == .textEdit)
-                .buttonStyle(.plain)
+    @ViewBuilder
+    private func primaryToolControl(
+        for destination: EditorCommandDestination
+    ) -> some View {
+        switch destination {
+        case .select:
+            Button {
+                handleActiveToolDoneTapped()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Select",
+                    systemImage: "cursorarrow",
+                    isSelected: canvasMode == .browse
+                )
+            }
+            .buttonStyle(.plain)
 
+        case .chords:
+            Button {
+                handleChordTabTapped()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Chords",
+                    systemImage: "pencil",
+                    isSelected: canvasMode == .chordEntry,
+                    selectedColor: EditorToolAccent.semanticRead,
+                    isTourHighlighted: isChordTourSectionActive
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .chords,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+
+        case .ink:
+            Button {
+                selectedMeasureID = nil
+                selectedNoteSelection = nil
+                pendingTimeSignatureSourceMeasureID = nil
+                pendingTimeSignaturePlacement = nil
+                toggleFreeHandMode()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Ink",
+                    systemImage: canvasMode.freeHandTabSymbol,
+                    isSelected: canvasMode == .freeHand,
+                    selectedColor: EditorToolAccent.persistentInk,
+                    isTourHighlighted: false
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .ink,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+            .accessibilityLabel("Ink")
+            .accessibilityHint("Persistent free-writing that iChart does not interpret")
+
+        case .measures:
+            Button {
+                handleMeasureEditRequested()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Measures",
+                    systemImage: "rectangle.split.3x1",
+                    isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive,
+                    isTourHighlighted: isMeasureTourSectionActive
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .measures,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+
+        case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
+            EmptyView()
+        }
+    }
+
+    private var toolsMenuControl: some View {
+        Menu {
+            Section("Structure") {
                 Button {
                     handleRepeatToolTapped()
                 } label: {
-                    EditorMenuTabLabel(
-                        title: "Repeats",
-                        systemImage: "repeat",
-                        isSelected: canvasMode == .repeatEdit || isRepeatContinuationActive,
-                        isTourHighlighted: isRepeatsTourSectionActive
-                    )
+                    Label("Repeats", systemImage: "repeat")
                 }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
-
-                codaToolControl
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
-
-                textToolControl
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
 
                 Button {
                     handleTimeSignatureTabTapped()
                 } label: {
-                    EditorMenuTabLabel(
-                        title: "Time",
-                        systemImage: "metronome",
-                        isSelected: canvasMode == .timeSignatureEdit,
-                        isTourHighlighted: isTimeTourSectionActive
-                    )
+                    Label("Time Signature", systemImage: "metronome")
                 }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
 
                 if isDedicatedRhythmToolAvailable {
                     Button {
                         handleRhythmicNotationTabTapped()
                     } label: {
-                        EditorMenuTabLabel(
-                            title: "Rhythm",
-                            systemImage: "music.note",
-                            isSelected: canvasMode == .rhythmicNotationEdit
-                        )
+                        Label("Rhythm", systemImage: "music.note")
                     }
-                    .disabled(canvasMode.locksDocumentActions)
-                    .buttonStyle(.plain)
                 }
-
-                Button {
-                    handleChordTabTapped()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Chord",
-                        systemImage: "pencil",
-                        isSelected: canvasMode == .chordEntry,
-                        selectedColor: EditorToolAccent.semanticRead,
-                        isTourHighlighted: isChordTourSectionActive
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions && canvasMode != .chordEntry)
-                .buttonStyle(.plain)
-
-                Button {
-                    selectedMeasureID = nil
-                    selectedNoteSelection = nil
-                    pendingTimeSignatureSourceMeasureID = nil
-                    pendingTimeSignaturePlacement = nil
-                    toggleFreeHandMode()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: canvasMode.freeHandTabTitle,
-                        systemImage: canvasMode.freeHandTabSymbol,
-                        isSelected: canvasMode == .freeHand,
-                        selectedColor: EditorToolAccent.persistentInk,
-                        isTourHighlighted: isFreeWriteTourSectionActive
-                    )
-                }
-                .disabled(
-                    (canvasMode.locksDocumentActions && canvasMode != .freeHand)
-                        || (!chart.hasCompletedInitialSetup && canvasMode != .freeHand)
-                )
-                .buttonStyle(.plain)
             }
-            .padding(7)
-            .background(Color.white.opacity(0.68))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+
+            Section("Annotate") {
+                Button {
+                    handleTextToolTapped()
+                } label: {
+                    Label("Text", systemImage: "text.bubble")
+                }
+
+                Menu {
+                    codaToolMenuContent
+                } label: {
+                    Label("Form Markers", systemImage: "signpost.right")
+                }
+            }
+        } label: {
+            EditorMenuTabLabel(
+                title: "Tools",
+                systemImage: "ellipsis.circle",
+                isSelected: EditorCommandLayoutPolicy.isToolsMenuActive(for: canvasMode),
+                isTourHighlighted: isToolsMenuTourHighlighted
             )
-            .frame(minWidth: minWidth, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .disabled(
+            !EditorCommandLayoutPolicy.canActivate(
+                .repeats,
+                chartIsReady: chart.hasCompletedInitialSetup,
+                from: canvasMode
+            )
+        )
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tools")
+        .accessibilityHint("Repeats, time signatures, text, and form markers")
+    }
+
+    private var isToolsMenuTourHighlighted: Bool {
+        isTextTourSectionActive
     }
 
     private func activeToolControls(minWidth: CGFloat) -> some View {
@@ -2051,21 +1428,10 @@ struct EditorView: View {
 
     @ViewBuilder
     private var activeToolControlItems: some View {
-        Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.primary)
-            .lineLimit(1)
+        activeToolContextLabel
 
         if canvasMode.allowsAnyInkEditing {
-            InkToolModeTab(mode: $inkToolMode) { _ in
-                completeEditorGuidedTourStep(.chordModes)
-                completeEditorGuidedTourStep(.freeWriteMode)
-            }
-                .tourActionHighlight(
-                    isActive: editorGuidedTourStep == .chordModes || editorGuidedTourStep == .freeWriteMode,
-                    cornerRadius: 10,
-                    tint: canvasMode == .freeHand ? EditorToolAccent.persistentInk : EditorToolAccent.semanticRead
-                )
+            InkToolModeTab(mode: $inkToolMode)
         }
 
         if canvasMode == .measureEdit {
@@ -2083,19 +1449,58 @@ struct EditorView: View {
         if canvasMode == .rhythmicNotationEdit,
            isDedicatedRhythmToolAvailable {
             rhythmActiveToolActions
-            rhythmDiagnosticStatusChip
+            if latestRhythmPreview != nil {
+                rhythmDiagnosticStatusChip
+            }
         }
 
         if canvasMode == .chordEntry {
-            chordDraftActiveToolActions
-            chordDiagnosticStatusChip
+            if !chordPreviewState.isEmpty {
+                chordDraftActiveToolActions
+                chordDiagnosticStatusChip
+            }
+        }
+
+        if canvasMode == .textEdit {
+            textActiveToolActions
         }
     }
 
+    private var activeToolContextLabel: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.primary)
+
+            if let instruction = activeToolInstructionText {
+                Text(instruction)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var activeToolInstructionText: String? {
+        if canvasMode == .repeatEdit {
+            if pendingRepeatStartMeasureID != nil {
+                return "Tap the last measure, then end the repeat."
+            }
+            if let pendingEndingType {
+                return "Tap the last measure, then end \(endingToolTitle(for: pendingEndingType))."
+            }
+        }
+        if canvasMode == .measureEdit,
+           pendingDeleteStartMeasureID != nil {
+            return "Tap the last measure, then finish the range delete."
+        }
+        return canvasMode.activeToolInstruction
+    }
+
     private var activeToolDoneButton: some View {
-        Button {
-            activateSelectTool()
-        } label: {
+        Button(action: handleActiveToolDoneTapped) {
             Label("Done", systemImage: "checkmark")
         }
         .buttonStyle(ActiveToolDoneButtonStyle())
@@ -2106,42 +1511,6 @@ struct EditorView: View {
             cornerRadius: 10,
             tint: EditorToolAccent.semanticRead
         )
-    }
-
-    private func chordToolWorkflowGuide(maxWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Chord Workflow", systemImage: "checklist")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(EditorToolAccent.semanticRead)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(chordToolWorkflowBullets, id: \.self) { bullet in
-                    Label(bullet, systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.primary.opacity(0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: maxWidth, alignment: .leading)
-        .background(EditorToolAccent.semanticRead.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(EditorToolAccent.semanticRead.opacity(0.22), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-    }
-
-    private var chordToolWorkflowBullets: [String] {
-        [
-            "Write inside the blue lanes.",
-            "V1.2 supports chords and barlines.",
-            "Check the preview, then tap Render Chords.",
-            "If a chord is wrong or missing, erase it or tap Discard."
-        ]
     }
 
     private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
@@ -2280,163 +1649,218 @@ struct EditorView: View {
 
     private var measureActiveToolActions: some View {
         HStack(spacing: 5) {
-            activeToolButton(
-                title: "Add",
-                systemImage: "plus.square",
-                isTourHighlighted: editorGuidedTourStep == .measureAdd,
-                action: handleAddMeasureAfterSelected
-            )
-
-            activeToolButton(
-                title: "Stack",
-                systemImage: "square.stack.3d.up",
-                isTourHighlighted: editorGuidedTourStep == .measureStack,
-                action: handleAddMeasureStackAfterSelectedRequested
-            )
-
-            activeToolButton(
-                title: "First",
-                systemImage: "backward.end",
-                isTourHighlighted: editorGuidedTourStep == .measureFirst,
-                action: handleAddMeasureAtBeginning
-            )
-
-            activeToolButton(
-                title: "Double",
-                systemImage: "pause",
-                isTourHighlighted: editorGuidedTourStep == .measureDouble,
-                action: handleAddDoubleBarlineMeasure
-            )
-
-            activeToolButton(
-                title: selectedMeasureStartsJoinableRow ? "Join Row" : "New Row",
-                systemImage: selectedMeasureStartsJoinableRow ? "arrow.up.to.line" : "arrow.down.to.line",
-                isTourHighlighted: editorGuidedTourStep == .measureNewRow,
-                isDisabled: selectedMeasureStartsJoinableRow
-                    ? !canRemoveSystemBreakBeforeSelectedMeasure
-                    : !canInsertSystemBreakBeforeSelectedMeasure
-            ) {
-                if canRemoveSystemBreakBeforeSelectedMeasure {
-                    handleJoinSelectedMeasureRow()
-                } else {
-                    handleNewSystemBeforeSelectedMeasure()
-                }
-            }
-
-            activeToolButton(
-                title: "Even Row",
-                systemImage: "rectangle.split.3x1",
-                isDisabled: !canEvenSelectedMeasureRow,
-                action: handleEvenSelectedMeasureRow
-            )
-
-            activeToolButton(
-                title: "Merge Next",
-                systemImage: "rectangle.compress.vertical",
-                isDisabled: !canJoinSelectedMeasure,
-                action: handleJoinSelectedMeasure
-            )
-
-            activeToolButton(
-                title: "Delete",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .measureDelete,
-                isDisabled: !canDeleteSelectedMeasure,
-                action: handleDeleteSelectedMeasure
-            )
-
-            activeToolButton(
-                title: pendingDeleteStartMeasureID == nil ? "Range" : "Delete To",
-                systemImage: pendingDeleteStartMeasureID == nil ? "trash.circle" : "checkmark.circle",
-                isSelected: pendingDeleteStartMeasureID != nil,
-                isDestructive: pendingDeleteStartMeasureID != nil,
-                isTourHighlighted: editorGuidedTourStep == .measureRange,
-                isDisabled: pendingDeleteStartMeasureID == nil
-                    ? !canDeleteSelectedMeasure
-                    : !canDeleteThroughSelectedMeasure,
-                action: handleMeasureRangeDeleteTapped
-            )
-
             if pendingDeleteStartMeasureID != nil {
                 activeToolButton(
-                    title: "Clear",
+                    title: "Delete To",
+                    systemImage: "checkmark.circle",
+                    isSelected: true,
+                    isDestructive: true,
+                    isTourHighlighted: editorGuidedTourStep == .shapeForm,
+                    isDisabled: !canDeleteThroughSelectedMeasure,
+                    action: handleMeasureRangeDeleteTapped
+                )
+
+                activeToolButton(
+                    title: "Cancel",
                     systemImage: "xmark.circle",
                     action: clearPendingMeasureDeleteState
                 )
+            } else {
+                Menu {
+                    Button {
+                        handleAddMeasureAfterSelected()
+                    } label: {
+                        Label("Add One After", systemImage: "plus.square")
+                    }
+
+                    Button {
+                        handleAddMeasureStackAfterSelectedRequested()
+                    } label: {
+                        Label("Add Multiple After…", systemImage: "square.stack.3d.up")
+                    }
+
+                    Button {
+                        handleAddMeasureAtBeginning()
+                    } label: {
+                        Label("Add at Beginning", systemImage: "backward.end")
+                    }
+
+                    Button {
+                        handleAddDoubleBarlineMeasure()
+                    } label: {
+                        Label("Add Double Barline", systemImage: "pause")
+                    }
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Add",
+                        systemImage: "plus.square",
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button {
+                        if canRemoveSystemBreakBeforeSelectedMeasure {
+                            handleJoinSelectedMeasureRow()
+                        } else {
+                            handleNewSystemBeforeSelectedMeasure()
+                        }
+                    } label: {
+                        Label(
+                            selectedMeasureStartsJoinableRow ? "Join Row Above" : "Start New Row",
+                            systemImage: selectedMeasureStartsJoinableRow
+                                ? "arrow.up.to.line"
+                                : "arrow.down.to.line"
+                        )
+                    }
+                    .disabled(
+                        selectedMeasureStartsJoinableRow
+                            ? !canRemoveSystemBreakBeforeSelectedMeasure
+                            : !canInsertSystemBreakBeforeSelectedMeasure
+                    )
+
+                    Button {
+                        handleMoveSelectedMeasureToRowBelow()
+                    } label: {
+                        Label("Move to Row Below", systemImage: "arrow.down.to.line")
+                    }
+                    .disabled(!canMoveSelectedMeasureToRowBelow)
+
+                    Button {
+                        handleEvenSelectedMeasureRow()
+                    } label: {
+                        Label("Even Row Widths", systemImage: "rectangle.split.3x1")
+                    }
+                    .disabled(!canEvenSelectedMeasureRow)
+
+                    Button {
+                        handleJoinSelectedMeasure()
+                    } label: {
+                        Label("Merge with Next Measure", systemImage: "rectangle.compress.vertical")
+                    }
+                    .disabled(!canJoinSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Layout",
+                        systemImage: "rectangle.3.group",
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button(role: .destructive) {
+                        handleDeleteSelectedMeasure()
+                    } label: {
+                        Label("Delete Measure", systemImage: "trash")
+                    }
+                    .disabled(!canDeleteSelectedMeasure)
+
+                    Button(role: .destructive) {
+                        handleMeasureRangeDeleteTapped()
+                    } label: {
+                        Label("Delete Range…", systemImage: "trash.circle")
+                    }
+                    .disabled(!canDeleteSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
     private var repeatActiveToolActions: some View {
         HStack(spacing: 5) {
-            activeToolButton(
-                title: "One Bar",
-                systemImage: "repeat",
-                isTourHighlighted: editorGuidedTourStep == .repeatsOneBar,
-                action: handleRepeatSelectedMeasure
-            )
-
-            activeToolButton(
-                title: "Start",
-                systemImage: "repeat.circle",
-                isSelected: pendingRepeatStartMeasureID != nil,
-                isTourHighlighted: editorGuidedTourStep == .repeatsStart,
-                action: handleStartRepeatHere
-            )
-
-            activeToolButton(
-                title: "End Rep",
-                systemImage: "checkmark.circle",
-                isTourHighlighted: editorGuidedTourStep == .repeatsEnd,
-                isDisabled: pendingRepeatStartMeasureID == nil,
-                action: handleEndRepeatHere
-            )
-
-            activeToolButton(
-                title: pendingEndingButtonTitle(for: .ending1),
-                systemImage: "1.circle",
-                isSelected: pendingEndingType == .ending1,
-                isTourHighlighted: editorGuidedTourStep == .repeatsFirstEnding,
-                isDisabled: isEndingButtonDisabled(for: .ending1)
-            ) {
-                handleRepeatActiveEndingTapped(.ending1)
-            }
-
-            activeToolButton(
-                title: pendingEndingButtonTitle(for: .ending2),
-                systemImage: "2.circle",
-                isSelected: pendingEndingType == .ending2,
-                isTourHighlighted: editorGuidedTourStep == .repeatsSecondEnding,
-                isDisabled: isEndingButtonDisabled(for: .ending2)
-            ) {
-                handleRepeatActiveEndingTapped(.ending2)
-            }
-
-            activeToolButton(
-                title: "Remove Repeat",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .repeatsDeleteRepeat,
-                isDisabled: !canRemoveRepeatAtSelectedMeasure,
-                action: handleRemoveRepeatAtSelectedMeasure
-            )
-
-            activeToolButton(
-                title: "Remove Ending",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .repeatsDeleteEnding,
-                isDisabled: !canRemoveEndingAtSelectedMeasure,
-                action: handleRemoveEndingAtSelectedMeasure
-            )
-
-            if isRepeatContinuationActive {
+            if pendingRepeatStartMeasureID != nil {
                 activeToolButton(
-                    title: "Clear",
+                    title: "End Repeat",
+                    systemImage: "checkmark.circle",
+                    isSelected: true,
+                    isTourHighlighted: false,
+                    action: handleEndRepeatHere
+                )
+
+                activeToolButton(
+                    title: "Cancel",
                     systemImage: "xmark.circle",
                     action: clearPendingRepeatState
                 )
+            } else if let pendingEndingType {
+                activeToolButton(
+                    title: "End \(endingToolTitle(for: pendingEndingType))",
+                    systemImage: pendingEndingType == .ending1 ? "1.circle" : "2.circle",
+                    isSelected: true,
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(pendingEndingType)
+                }
+
+                activeToolButton(
+                    title: "Cancel",
+                    systemImage: "xmark.circle",
+                    action: clearPendingRepeatState
+                )
+            } else {
+                activeToolButton(
+                    title: "One Bar",
+                    systemImage: "repeat",
+                    isTourHighlighted: false,
+                    action: handleRepeatSelectedMeasure
+                )
+
+                activeToolButton(
+                    title: "Start Repeat",
+                    systemImage: "repeat.circle",
+                    isTourHighlighted: false,
+                    action: handleStartRepeatHere
+                )
+
+                activeToolButton(
+                    title: "1st",
+                    systemImage: "1.circle",
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(.ending1)
+                }
+
+                activeToolButton(
+                    title: "2nd",
+                    systemImage: "2.circle",
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(.ending2)
+                }
+
+                Menu {
+                    Button(role: .destructive) {
+                        handleRemoveRepeatAtSelectedMeasure()
+                    } label: {
+                        Label("Remove Repeat", systemImage: "trash")
+                    }
+                    .disabled(!canRemoveRepeatAtSelectedMeasure)
+
+                    Button(role: .destructive) {
+                        handleRemoveEndingAtSelectedMeasure()
+                    } label: {
+                        Label("Remove Ending", systemImage: "trash")
+                    }
+                    .disabled(!canRemoveEndingAtSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Remove",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        isTourHighlighted: false
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -2479,7 +1903,7 @@ struct EditorView: View {
             activeToolButton(
                 title: "Render Chords",
                 systemImage: "checkmark.circle",
-                isTourHighlighted: editorGuidedTourStep == .chordRender,
+                isTourHighlighted: editorGuidedTourStep == .renderChords,
                 isDisabled: !canRenderChordDrafts,
                 action: handleRenderChordDrafts
             )
@@ -2491,6 +1915,69 @@ struct EditorView: View {
                 isDisabled: chordPreviewState.isEmpty,
                 action: handleDiscardChordDrafts
             )
+        }
+    }
+
+    @ViewBuilder
+    private var textActiveToolActions: some View {
+        if selectedCueText != nil {
+            HStack(spacing: 5) {
+                activeToolButton(
+                    title: "Edit",
+                    systemImage: "pencil",
+                    action: handleEditSelectedCueText
+                )
+
+                activeToolButton(
+                    title: "Larger",
+                    systemImage: "plus.magnifyingglass",
+                    isDisabled: !canGrowSelectedCueText
+                ) {
+                    resizeSelectedCueText(by: CueText.scaleStep)
+                }
+
+                activeToolButton(
+                    title: "Smaller",
+                    systemImage: "minus.magnifyingglass",
+                    isDisabled: !canShrinkSelectedCueText
+                ) {
+                    resizeSelectedCueText(by: -CueText.scaleStep)
+                }
+
+                activeToolButton(
+                    title: "Delete",
+                    systemImage: "trash",
+                    isDestructive: true,
+                    action: deleteSelectedCueText
+                )
+            }
+        } else {
+            HStack(spacing: 5) {
+                activeToolButton(
+                    title: "Above",
+                    systemImage: "text.line.first.and.arrowtriangle.forward",
+                    isTourHighlighted: editorGuidedTourStep == .addCue,
+                    isDisabled: resolvedMeasureActionTargetID() == nil
+                ) {
+                    handleAddCueText(position: .above)
+                }
+
+                activeToolButton(
+                    title: "Below",
+                    systemImage: "text.line.last.and.arrowtriangle.forward",
+                    isDisabled: resolvedMeasureActionTargetID() == nil
+                ) {
+                    handleAddCueText(position: .below)
+                }
+
+                activeToolButton(
+                    title: "Remove",
+                    systemImage: "trash",
+                    isDestructive: true,
+                    isDisabled: !canRemoveCueTextAtSelectedMeasure,
+                    action: handleRemoveCueTextsAtSelectedMeasure
+                )
+            }
         }
     }
 
@@ -2507,7 +1994,7 @@ struct EditorView: View {
         }
 
         switch completedStep {
-        case .chordDone, .measureDone, .repeatsDone, .textDone, .timeDone, .freeWriteDone:
+        case .review:
             completeEditorGuidedTourStep(completedStep)
         default:
             break
@@ -2533,7 +2020,7 @@ struct EditorView: View {
                 .labelStyle(.titleAndIcon)
                 .lineLimit(1)
                 .padding(.horizontal, 8)
-                .frame(height: 34)
+                .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
                 .foregroundStyle(
                     isSelected
                     ? Color.white
@@ -2555,6 +2042,41 @@ struct EditorView: View {
             cornerRadius: 9,
             tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
         )
+    }
+
+    private func activeToolMenuLabel(
+        title: String,
+        systemImage: String,
+        isSelected: Bool = false,
+        isDestructive: Bool = false,
+        isTourHighlighted: Bool = false
+    ) -> some View {
+        let selectedBackgroundColor = isDestructive
+            ? Color.red
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+            .foregroundStyle(
+                isSelected
+                    ? Color.white
+                    : (isDestructive ? Color.red : Color.primary)
+            )
+            .background(
+                isSelected
+                    ? selectedBackgroundColor
+                    : Color(uiColor: .tertiarySystemBackground)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .tourActionHighlight(
+                isActive: isTourHighlighted,
+                cornerRadius: 9,
+                tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
+            )
     }
 
     private var isMeasureDeleteContinuationActive: Bool {
@@ -2602,7 +2124,6 @@ struct EditorView: View {
             inkToolMode: inkToolMode,
             recognizesChordInk: true,
             chordPreviewState: chordPreviewState,
-            inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
@@ -2866,7 +2387,7 @@ struct EditorView: View {
                     let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
                     activeSheet = .export(libraryPDF)
                     isExporting = false
-                    completeEditorGuidedTourStep(.pageExport)
+                    completeEditorGuidedTourStep(.export)
                     IChartTelemetry.record(
                         "pdf.export_succeeded",
                         properties: [
@@ -3157,6 +2678,14 @@ struct EditorView: View {
         return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
     }
 
+    private var canMoveSelectedMeasureToRowBelow: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return moveMeasureToRowBelowPlan(for: targetMeasureID) != nil
+    }
+
     private var canRemoveCueTextAtSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
@@ -3397,6 +2926,20 @@ struct EditorView: View {
         )
     }
 
+    private func moveMeasureToRowBelowPlan(
+        for measureID: UUID
+    ) -> LeadSheetMoveMeasureToRowBelowPlan? {
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return LeadSheetMoveMeasureToRowBelowPolicy.plan(
+            for: measureID,
+            in: pageLayout,
+            chart: chart
+        )
+    }
+
     @discardableResult
     private func enterRepeatEditMode() -> Bool {
         guard chart.hasCompletedInitialSetup else {
@@ -3435,7 +2978,7 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = chart.insertMeasureAtBeginning()
-        completeEditorGuidedTourStep(.measureFirst)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleAddMeasureAfterSelected() {
@@ -3485,7 +3028,7 @@ struct EditorView: View {
 
         pendingMeasureStackInsertion = nil
         selectedMeasureID = insertedMeasureIDs.last ?? insertion.anchorMeasureID
-        completeEditorGuidedTourStep(.measureStack)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleAddDoubleBarlineMeasure() {
@@ -3515,9 +3058,9 @@ struct EditorView: View {
 
         switch barlineAfter {
         case .single:
-            completeEditorGuidedTourStep(.measureAdd)
+            completeEditorGuidedTourStep(.shapeForm)
         case .double:
-            completeEditorGuidedTourStep(.measureDouble)
+            completeEditorGuidedTourStep(.shapeForm)
         case .final:
             break
         }
@@ -3535,7 +3078,7 @@ struct EditorView: View {
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
             ?? chart.resolvedAuthoringMeasureID()
-        completeEditorGuidedTourStep(.measureDelete)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleStartDeleteRangeHere() {
@@ -3569,7 +3112,7 @@ struct EditorView: View {
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
             ?? chart.resolvedAuthoringMeasureID()
-        completeEditorGuidedTourStep(.measureRange)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleNewSystemBeforeSelectedMeasure() {
@@ -3585,7 +3128,7 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.measureNewRow)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleJoinSelectedMeasureRow() {
@@ -3604,7 +3147,28 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.measureNewRow)
+        completeEditorGuidedTourStep(.shapeForm)
+    }
+
+    private func handleMoveSelectedMeasureToRowBelow() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              let plan = moveMeasureToRowBelowPlan(for: targetMeasureID),
+              chart.moveMeasureToRowBelow(
+                targetMeasureID,
+                nextRowStartingAt: plan.nextRowFirstMeasureID,
+                equalizedManualWidths: plan.equalizedManualWidths
+              ) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleMeasureRangeDeleteTapped() {
@@ -3632,7 +3196,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsOneBar)
     }
 
     private func handleStartRepeatHere() {
@@ -3647,7 +3210,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsStart)
     }
 
     private func handleEndRepeatHere() {
@@ -3671,7 +3233,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsEnd)
     }
 
     private func handleRemoveRepeatAtSelectedMeasure() {
@@ -3687,7 +3248,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsDeleteRepeat)
     }
 
     private func handleRepeatActiveEndingTapped(_ type: RoadmapType) {
@@ -3759,14 +3319,6 @@ struct EditorView: View {
         self.pendingEndingType = nil
         selectedMeasureID = targetMeasureID
 
-        switch pendingEndingType {
-        case .ending1:
-            completeEditorGuidedTourStep(.repeatsFirstEnding)
-        case .ending2:
-            completeEditorGuidedTourStep(.repeatsSecondEnding)
-        default:
-            break
-        }
     }
 
     private func handleRemoveEndingAtSelectedMeasure() {
@@ -3781,7 +3333,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsDeleteEnding)
     }
 
     private func handleAddPointRoadmapMarker(_ type: RoadmapType) {
@@ -3804,7 +3355,6 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
         selectedRoadmapMarkerID = markerID
         canvasMode = .browse
-        completeEditorGuidedTourStep(.codaMarker)
     }
 
     private func handleAddCueText(position: CuePosition) {
@@ -3828,7 +3378,6 @@ struct EditorView: View {
         cueTextDraft = ""
         canvasMode = .textEdit
         showingCueTextEntry = true
-        completeEditorGuidedTourStep(.textAddPosition)
     }
 
     private func handleCueTextEntryAccepted() {
@@ -3863,19 +3412,22 @@ struct EditorView: View {
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
         canvasMode = .textEdit
-        completeEditorGuidedTourStep(.textAddConfirm)
+        completeEditorGuidedTourStep(.addCue)
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        let shouldStayInTextMode = canvasMode == .textEdit
+        guard chart.hasCompletedInitialSetup,
               let targetMeasureID,
               chart.deleteCueTexts(attachedTo: targetMeasureID) > 0 else {
             return
         }
 
         pendingDeleteStartMeasureID = nil
+        selectedCueTextID = nil
         selectedMeasureID = targetMeasureID
+        canvasMode = shouldStayInTextMode ? .textEdit : .browse
     }
 
     private func handleCueTextEditRequestedFromCanvas(_ cueTextID: UUID) {
@@ -4036,6 +3588,29 @@ struct EditorView: View {
         selectedRoadmapMarkerID = nil
     }
 
+    private func handleTextToolTapped() {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+
+        if canvasMode == .textEdit {
+            activateSelectTool()
+            return
+        }
+
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        selectedNoteSelection = nil
+        if selectedMeasureID == nil {
+            selectedMeasureID = chart.resolvedAuthoringMeasureID()
+        }
+        canvasMode = .textEdit
+    }
+
     private func handleTimeSignatureTabTapped() {
         guard chart.hasCompletedInitialSetup else {
             showingSetupSheet = true
@@ -4102,7 +3677,7 @@ struct EditorView: View {
     @discardableResult
     private func clearRenderedRhythm(in measureID: UUID) -> Bool {
         guard isDedicatedRhythmToolAvailable else {
-            noteEditErrorMessage = "Use Free-Write for page-level handwritten rhythm notes in this version."
+            noteEditErrorMessage = "Use Ink for page-level handwritten rhythm notes in this version."
             showingNoteEditError = true
             return false
         }
@@ -4469,7 +4044,6 @@ struct EditorView: View {
         selectedMeasureID = measureID
         pendingTimeSignaturePlacement = nil
         pendingTimeSignatureSourceMeasureID = measureID
-        completeEditorGuidedTourStep(.timeSelectMeasure)
     }
 
     private func handleTimeSignatureSelection(
@@ -4486,7 +4060,6 @@ struct EditorView: View {
         if appliedMeasureID == nil {
             canvasMode = .browse
         }
-        completeEditorGuidedTourStep(.timeApplyScope)
     }
 
     private func handleKeyChangeSelection(_ key: DocumentKey) {
@@ -4671,9 +4244,8 @@ struct EditorView: View {
         chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         chordInkAutomaticRewriteFailures.reset()
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         IChartTelemetry.record(
             "chord.preview_rendered",
@@ -4844,9 +4416,8 @@ struct EditorView: View {
                 "measure_count": .int(chart.measures.count)
             ]
         )
-        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
-            || editorGuidedTourStep == .chordConfirm
-            || editorGuidedTourStep == .chordRender
+        let isGuidedChordConfirmation = editorGuidedTourStep == .writeChords
+            || editorGuidedTourStep == .renderChords
         let trustedTextsByID = Dictionary(
             uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
                 guard confirmation.decision.action == .trusted,
@@ -4924,11 +4495,10 @@ struct EditorView: View {
     }
 
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
-        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
-            || editorGuidedTourStep == .chordConfirm
-            || editorGuidedTourStep == .chordRender
+        let isGuidedChordConfirmation = editorGuidedTourStep == .writeChords
+            || editorGuidedTourStep == .renderChords
 
-        completeEditorGuidedTourStep(.chordWrite)
+        completeEditorGuidedTourStep(.writeChords)
 
         if !isGuidedChordConfirmation,
            confirmation.decision.action == .trusted,
@@ -5092,9 +4662,8 @@ struct EditorView: View {
         selectedNoteSelection = nil
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         #if DEBUG && targetEnvironment(simulator)
         logChordInkCommitTiming(
@@ -5215,9 +4784,8 @@ struct EditorView: View {
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         IChartTelemetry.record(
             "chord.batch_committed",
@@ -5249,7 +4817,6 @@ struct EditorView: View {
             candidateTexts: chordEvent.sourceCandidateSignature,
             enharmonicChoiceTexts: chart.enharmonicChordSpellingTexts(for: chordEvent, in: measure.id)
         )
-        completeEditorGuidedTourStep(.chordCorrection)
     }
 
     private func handleChordDeleted(_ chordEvent: ChordEvent) {
@@ -5554,7 +5121,6 @@ struct EditorView: View {
     private func handleChordInkRewriteRequested() {
         chordInkAutomaticRewriteFailures.reset()
         clearChordInkForRewrite()
-        completeEditorGuidedTourStep(.chordUnreadable)
     }
 
     private func clearChordInkForRewrite() {
@@ -6520,89 +6086,6 @@ private struct RhythmEditChoiceRow: View {
         .background(isSelected ? Color.blue.opacity(0.10) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
-    }
-}
-
-private struct InkResponsivenessSheetView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var value: Double
-
-    private var normalizedBinding: Binding<Double> {
-        Binding(
-            get: { LeadSheetInkResponsivenessPolicy.normalized(value) },
-            set: { value = LeadSheetInkResponsivenessPolicy.normalized($0) }
-        )
-    }
-
-    private var percentageText: String {
-        "\(Int((LeadSheetInkResponsivenessPolicy.normalized(value) * 100).rounded()))%"
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Pen Responsiveness") {
-                    HStack(spacing: 14) {
-                        Button {
-                            adjust(-LeadSheetInkResponsivenessPolicy.step)
-                        } label: {
-                            Image(systemName: "minus")
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Decrease pen responsiveness")
-
-                        Slider(
-                            value: normalizedBinding,
-                            in: LeadSheetInkResponsivenessPolicy.minimumValue...LeadSheetInkResponsivenessPolicy.maximumValue,
-                            step: LeadSheetInkResponsivenessPolicy.step
-                        ) {
-                            Text("Pen Responsiveness")
-                        } minimumValueLabel: {
-                            Text("Direct")
-                                .font(.caption)
-                        } maximumValueLabel: {
-                            Text("Smooth")
-                                .font(.caption)
-                        }
-
-                        Button {
-                            adjust(LeadSheetInkResponsivenessPolicy.step)
-                        } label: {
-                            Image(systemName: "plus")
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Increase pen responsiveness")
-                    }
-
-                    HStack {
-                        Spacer()
-                        Text(percentageText)
-                            .font(.headline.monospacedDigit())
-                        Spacer()
-                    }
-
-                    Button("Balanced") {
-                        value = LeadSheetInkResponsivenessPolicy.defaultValue
-                    }
-                }
-            }
-            .navigationTitle("Pen")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func adjust(_ delta: Double) {
-        value = LeadSheetInkResponsivenessPolicy.normalized(value + delta)
     }
 }
 
