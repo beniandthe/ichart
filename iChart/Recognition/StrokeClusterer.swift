@@ -69,7 +69,8 @@ struct StrokeClusterer {
             .flatMap { cluster in
                 splitAttachedRootFlatModifier(in: cluster) ?? [cluster]
             }
-        let normalizedClusters = rootNormalizedClusters
+        let modifierSeparatedClusters = splitDetachedMinorSuffixesFromSharp(in: rootNormalizedClusters)
+        let normalizedClusters = modifierSeparatedClusters
             .flatMap { cluster in
                 splitAdjacentOneGlyphs(in: cluster) ?? [cluster]
             }
@@ -413,6 +414,59 @@ struct StrokeClusterer {
         }
 
         return [left, right]
+    }
+
+    /// Greedy construction merging may encounter a lower minor stroke before
+    /// the sharp's crossbars. Recover its visible separation by geometry, not
+    /// by assuming that the modifier was the last source stroke. This does not
+    /// assign a glyph: the ordinary recognizer still reads each resulting part.
+    private func splitDetachedMinorSuffixesFromSharp(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        let ordered = clusters.sorted {
+            if $0.bounds.minX != $1.bounds.minX { return $0.bounds.minX < $1.bounds.minX }
+            return ($0.originalIndexes.min() ?? 0) < ($1.originalIndexes.min() ?? 0)
+        }
+        return ordered.enumerated().flatMap { index, cluster -> [MutableInkCluster] in
+            guard index > 0,
+                  ordered[index - 1].isRootBodyCandidate,
+                  // The leading root can also have a geometric 7 lookalike;
+                  // only a later numeric anchor has the dominant-seven role.
+                  (index == 1 || !ordered[index - 1].isDominantSevenInkAnchor),
+                  cluster.strokes.count == cluster.originalIndexes.count,
+                  cluster.strokes.count >= 5, cluster.strokes.count <= 7 else {
+                return [cluster]
+            }
+            var partitions: [[MutableInkCluster]] = []
+            for suffixIndex in cluster.strokes.indices {
+                let suffix = MutableInkCluster(
+                    strokes: [cluster.strokes[suffixIndex]],
+                    originalIndexes: [cluster.originalIndexes[suffixIndex]],
+                    recognitionHints: cluster.recognitionHints
+                )
+                guard suffix.isMinorSuffixCandidate else { continue }
+                let remainingIndexes = cluster.strokes.indices.filter { $0 != suffixIndex }
+                let sharp = MutableInkCluster(
+                    strokes: remainingIndexes.map { cluster.strokes[$0] },
+                    originalIndexes: remainingIndexes.map { cluster.originalIndexes[$0] },
+                    recognitionHints: cluster.recognitionHints
+                )
+                let detachedToRight = suffix.bounds.minX >= sharp.bounds.maxX + 1
+                let detachedBelow = suffix.bounds.minY >= sharp.bounds.maxY + 1
+                guard sharp.isSharpGlyphCandidate,
+                      sharp.hasTwoCrossingSharpBars,
+                      suffix.bounds.minX >= sharp.bounds.minX + sharp.bounds.width * 0.40,
+                      suffix.bounds.minY >= sharp.bounds.maxY - max(2, sharp.bounds.height * 0.15),
+                      detachedToRight || detachedBelow,
+                      sharp.bounds.horizontalGap(to: suffix.bounds) <= 10,
+                      sharp.bounds.verticalMiss(to: suffix.bounds) <= 14 else {
+                    continue
+                }
+                partitions.append([sharp, suffix])
+            }
+            // Competing partitions are ambiguous, not a license to pick one.
+            return partitions.count == 1 ? partitions[0] : [cluster]
+        }
     }
 
     private func mergeSharpConstructionFragments(

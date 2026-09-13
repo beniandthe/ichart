@@ -4,6 +4,37 @@ import XCTest
 final class StrokeClustererTests: XCTestCase {
     private let clusterer = StrokeClusterer()
 
+    func testDetachedMinorSuffixDoesNotBecomeSharpConstructionWhenOwnedStrokeOrderChanges() throws {
+        for name in ["CSharpMinorCaptured03", "CSharpmCaptured03", "ESharpmCaptured03", "FSharpMinorCaptured02"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            for reversesOrder in [false, true] {
+                let input = reversesOrder ? Array(fixture.strokes.reversed()) : fixture.strokes
+                let strokes = input.map { InkStroke(points: $0.points, bounds: $0.bounds) }
+                let clusters = clusterer.indexedClusters(strokes)
+                let details = "\(name) reversed=\(reversesOrder) groups=\(clusters.map(\.originalIndexes))"
+                XCTAssertEqual(clusters.count, 3, details)
+                XCTAssertEqual(clusters.last?.originalIndexes, [reversesOrder ? 0 : strokes.count - 1], details)
+                XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices), details)
+                let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+                XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, details)
+            }
+        }
+    }
+
+    func testRepeatedSharpCrossbarWithinStemBodyDoesNotBecomeMinorSuffix() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let root = try XCTUnwrap(templates.first { $0.text == "F" })
+        let sharp = try XCTUnwrap(templates.first { $0.text == "#" })
+        let repeatedBar = try XCTUnwrap(sharp.strokes.last)
+        let input = root.strokes + sharp.strokes + [repeatedBar]
+        for strokes in [input, Array(input.reversed())] {
+            let clusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [3, 5])
+            XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices))
+            XCTAssertEqual(ChordInkRecognizer().recognize(strokes: strokes).match?.displayText, "F#")
+        }
+    }
+
     func testCompletedRaisedDeviceSharpKeepsBothStemsAndCrossbarsTogether() throws {
         let fixture = try InkFixtureLoader.load("FSharpRaisedBarsSimpleDeviceCaptured01", file: #filePath)
         for strokes in [fixture.strokes, Array(fixture.strokes.reversed())] {

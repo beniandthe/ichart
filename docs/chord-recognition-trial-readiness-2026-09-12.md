@@ -2,7 +2,7 @@
 
 ## Decision
 
-The user reopened the deeper recognition iteration on September 12 and deferred the near-term trial cutoff. V16 remains the validated, installed physical baseline. V18 is the current local follow-up; normal gates pass, but newly expanded articulation diagnostics expose unresolved trusted-wrong reads. This is not shipping acceptance, perfect recognition or an uploaded release.
+The user reopened the deeper recognition iteration on September 12 and deferred the near-term trial cutoff. V16 remains the validated, installed physical baseline. V19 is the current local follow-up. It closes the four sharp/minor construction-order failures, but expanded stroke-direction evidence remains unresolved. This is not shipping acceptance, perfect recognition or an uploaded release.
 
 Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. The exact V16 Release candidate is now development-signed, installed and launched on the physical iPad. Fresh handwriting acceptance and distribution remain separate gates.
 
@@ -115,6 +115,76 @@ from 504 to 335. It is rejected as an unconditional pipeline change; better
 coverage does not justify more confident wrong reads. No experimental input
 normalizer or external point-cloud implementation has been incorporated
 into V18. V18 is not installed or pushed, and V16 remains on the iPad.
+
+## V19: detached minor suffixes and sharp construction order
+
+The four V18 trusted-wrong order failures shared one upstream cause: greedy
+sharp construction could absorb a visibly detached minor stroke when that
+stroke arrived before the sharp's crossbars. V19 partitions it only when
+there is a unique geometrically valid split: the remaining strokes must
+form a complete two-stem/two-crossbar sharp, and the single minor-shaped
+stroke must be visibly detached near its lower/right edge. It preserves
+every original stroke/index and does not inject a glyph or choose a chord.
+Overlapping repeated crossbars and ambiguous competing partitions stay fused.
+The leading root's geometric seven lookalike is not a dominant-seven anchor.
+
+The new original/reversed-order regression first failed with 12 assertions
+on V18; the overlapping repeated-crossbar control passed. Both now pass.
+Native focused validation selects 51 tests / 49 passed / two explicit
+opt-in skips / zero failures. The full native suite selects 1,417 tests /
+1,358 passed / 59 opt-in skips / zero failures. Release transport/privacy,
+configuration and the seven prior plus two new recognition regressions pass
+all 29 selected tests.
+
+The full SwiftPM suite selects 997 tests / 944 passed / 53 explicit opt-in
+skips / zero failures. The final source manifest remains byte-identical
+across these gates: 873 files, SHA-256
+`782ee8d41885b8914eec50b721ff3ce5b171d282f9659bcc86ffd3ba561f3590`.
+
+The separate full archive selects all four requested tests, including glyph
+rank and full-corpus clustering. All 660 identity primaries remain correct
+(382 trusted / 278 requiring confirmation). Across the usual nine conditions,
+5,940 attempts have zero trusted-wrong reads and zero hidden correct
+recoveries. These conditions still preserve stroke articulation.
+
+The expanded private order audit now reports 579 correct primaries, 343
+trusted correct, 236 confirmation-primary correct, zero trusted-wrong reads,
+three visible recoveries, eight manual-only results and 70 no-reads across
+660 cases (649 changed inputs). All four reproduced sharp/minor failures
+are corrected. This is a curated diagnostic, not a population accuracy or
+hardware acceptance measurement; missed order-dependent reads remain.
+
+V19's separate private reverse-each-stroke diagnostic still has 20
+trusted-wrong reads, 78 correct primaries and 504 no-reads across all 660
+samples. A narrower control reverses only sufficiently straight horizontal
+segments (width at least four points, width/height at least 1.8, straightness
+at least 0.55). It changes 430 inputs and produces 15 trusted-wrong reads,
+407 correct primaries and 139 no-reads. Both preserve the underlying geometry.
+This isolates a line-direction dependency worth testing separately; it is
+not evidence that the earlier rejected input normalizer is safe to ship.
+
+### Point-cloud comparison: not incorporated
+
+A private comparison uses the unmodified, New-BSD-licensed official
+[$P implementation](https://depts.washington.edu/acelab/proj/dollar/pdollar.html)
+against the app's existing 33 templates, without added training data or
+confidence tuning. It examines 2,228 aligned glyphs and skips 24 fixtures
+without a one-to-one label/cluster mapping. Original cluster membership is
+held fixed for the reversed variant, so this is not a full-pipeline test.
+The native classifier includes its existing heuristics; pure $P does not.
+
+| Matcher / input | Correct top one | Expected glyph in top three |
+| --- | ---: | ---: |
+| Native / original | 1,759 | 2,141 |
+| Native / reversed paths | 826 | 1,265 |
+| Pure $P / original | 1,278 | 1,738 |
+| Pure $P / reversed paths | 1,230 | 1,720 |
+
+Point-cloud matching is more tolerant of this direction change but materially
+worse on the original captures. It is not an accepted replacement. No
+external matcher or unconditional line-direction normalizer is in V19;
+hardware latency and trust effects cannot be inferred from these glyph ranks.
+V19 remains local, not installed, pushed or uploaded. V16 remains on the iPad.
 
 ## What this candidate fixes
 
