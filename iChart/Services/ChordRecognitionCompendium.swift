@@ -149,7 +149,7 @@ enum ChordRecognitionCompendium {
         ChordCoverageFamily(name: "dominant sixth/seventh/ninth/eleventh/thirteenth", examples: ["C6", "C7", "C9", "C11", "C13"]),
         ChordCoverageFamily(name: "six-nine", examples: ["C6/9", "C-6/9"]),
         ChordCoverageFamily(name: "add chords", examples: ["Cadd2", "Cadd9", "Cadd11"]),
-        ChordCoverageFamily(name: "altered dominants", examples: ["C7(b9)", "C7(#9)", "C7(#11)", "C7(b13)", "C7alt"]),
+        ChordCoverageFamily(name: "altered and color-tone chords", examples: ["C(#5)", "C(b9)", "C7(#9)", "C7(#11)", "C7(b13)", "C7alt"]),
         ChordCoverageFamily(name: "suspended chords", examples: ["Csus", "Csus2", "Csus4", "C7sus", "C9sus"]),
         ChordCoverageFamily(name: "diminished and half-diminished", examples: ["C°", "C°7", "Cø7", "Cm7b5"]),
         ChordCoverageFamily(name: "minor sixth and minor-major", examples: ["Cm6", "C-△7", "C-△9"]),

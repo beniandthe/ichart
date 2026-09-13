@@ -75,7 +75,8 @@ enum LeadSheetPersistentInkColorPolicy {
             ink: PKInk(.pen, color: inkColor),
             path: stroke.path,
             transform: stroke.transform,
-            mask: stroke.mask
+            mask: stroke.mask,
+            randomSeed: stroke.randomSeed
         )
     }
 

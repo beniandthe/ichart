@@ -346,6 +346,7 @@ final class LeadSheetNotationRendererTests: XCTestCase {
         XCTAssertLessThan(rhythmLineWidth, LeadSheetBarlineMetrics.thickWidth(staffSpace: staffSpace, strokeScale: 1))
     }
 
+    #if canImport(UIKit)
     func testRhythmLeadingRepeatKeepsStaffLinesBehindSetupNotation() throws {
         var chart = Chart.blank(
             title: "Rhythm Repeat Staff",
@@ -387,4 +388,5 @@ final class LeadSheetNotationRendererTests: XCTestCase {
         XCTAssertLessThanOrEqual(span.minX, timeSignatureFrame.minX)
         XCTAssertGreaterThan(leadingRepeatFrame.minX, span.minX)
     }
+    #endif
 }

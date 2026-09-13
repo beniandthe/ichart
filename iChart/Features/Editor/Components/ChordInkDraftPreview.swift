@@ -70,7 +70,7 @@ struct ChordInkDraftVisibleDrawingContext {
     var invisibleStrokeIndices: Set<Int>
 
     var visibleStrokeCount: Int {
-        originalStrokeIndices.count
+        Set(originalStrokeIndices).count
     }
 
     func originalStrokeIndices(for visibleStrokeIndices: Set<Int>) -> Set<Int> {
@@ -99,6 +99,42 @@ struct ChordInkDraftVisibleDrawingContext {
             strokeIndices: originalStrokeIndices(for: recognition.strokeIndices)
         )
     }
+
+    /// A draft barline can be deleted only by removing its original PencilKit
+    /// stroke from the live canvas. Bitmap erasing can split one original
+    /// stroke into several visible fragments, so treating one of those
+    /// fragments as a removable barline could also delete unrelated visible
+    /// chord ink. Keep barline recognition only when the visible fragment has
+    /// one-to-one ownership of its original stroke.
+    func barlineRecognitionWithUnambiguousSourceStrokes(
+        _ recognition: ChordDraftBarlineRecognition
+    ) -> ChordDraftBarlineRecognition {
+        let visibleFragmentCountByOriginalIndex = originalStrokeIndices.reduce(
+            into: [Int: Int](),
+            { counts, originalIndex in
+                counts[originalIndex, default: 0] += 1
+            }
+        )
+        let safeVisibleStrokeIndices = Set(
+            recognition.strokeIndices.filter { visibleIndex in
+                guard originalStrokeIndices.indices.contains(visibleIndex) else {
+                    return false
+                }
+                let originalIndex = originalStrokeIndices[visibleIndex]
+                return visibleFragmentCountByOriginalIndex[originalIndex] == 1
+            }
+        )
+
+        return ChordDraftBarlineRecognition(
+            barlines: recognition.barlines.filter { barline in
+                guard let visibleSourceStrokeIndex = barline.sourceStrokeIndex else {
+                    return false
+                }
+                return safeVisibleStrokeIndices.contains(visibleSourceStrokeIndex)
+            },
+            strokeIndices: safeVisibleStrokeIndices
+        )
+    }
 }
 
 enum ChordInkDraftVisibleStrokePolicy {
@@ -111,11 +147,13 @@ enum ChordInkDraftVisibleStrokePolicy {
         var invisibleStrokeIndices = Set<Int>()
 
         for (index, stroke) in drawing.strokes.enumerated() {
-            if isVisible(stroke) {
-                visibleStrokes.append(stroke)
-                originalStrokeIndices.append(index)
-            } else {
+            let fragments = PencilKitInkAdapter.visibleStrokeFragments(from: stroke)
+                .filter(isVisible)
+            if fragments.isEmpty {
                 invisibleStrokeIndices.insert(index)
+            } else {
+                visibleStrokes.append(contentsOf: fragments)
+                originalStrokeIndices.append(contentsOf: repeatElement(index, count: fragments.count))
             }
         }
 
@@ -237,6 +275,9 @@ struct ChordInkDraftInput: Hashable {
     var bestCandidateText: String?
     var confidence: Double
     var strokeCount: Int
+    var recognitionResult: ChordInkRecognitionResult? = nil
+    var primaryDecision: ChordInkRecognitionDecision? = nil
+    var recognitionDecision: ChordInkRecognitionDecision? = nil
 
     var anchor: ChordInkDraftAnchor {
         ChordInkDraftAnchor(
@@ -287,7 +328,10 @@ enum ChordInkDraftPreviewResolutionReusePolicy {
             candidateTexts: previousDraft.candidateTexts,
             bestCandidateText: previousDraft.bestCandidateText,
             confidence: previousDraft.confidence,
-            strokeCount: strokeCount
+            strokeCount: strokeCount,
+            recognitionResult: previousDraft.recognitionResult,
+            primaryDecision: previousDraft.primaryDecision,
+            recognitionDecision: previousDraft.recognitionDecision
         )
     }
 }
@@ -486,6 +530,9 @@ struct ChordInkDraft: Identifiable, Hashable {
     var confidence: Double
     var strokeCount: Int
     var isStale: Bool
+    var recognitionResult: ChordInkRecognitionResult?
+    var primaryDecision: ChordInkRecognitionDecision?
+    var recognitionDecision: ChordInkRecognitionDecision?
 
     init(id: UUID = UUID(), input: ChordInkDraftInput, selectedText: String? = nil, isStale: Bool = false) {
         self.id = id
@@ -503,6 +550,9 @@ struct ChordInkDraft: Identifiable, Hashable {
         self.confidence = input.confidence
         self.strokeCount = input.strokeCount
         self.isStale = isStale
+        self.recognitionResult = input.recognitionResult
+        self.primaryDecision = input.primaryDecision
+        self.recognitionDecision = input.recognitionDecision
     }
 
     var previewText: String? {
@@ -515,6 +565,14 @@ struct ChordInkDraft: Identifiable, Hashable {
         }
 
         return ChordRecognitionCompendium.match(previewText) != nil
+    }
+
+    var requiresConfirmation: Bool {
+        if let recognitionDecision {
+            return recognitionDecision.action == .confirm
+        }
+
+        return recognitionResult != nil
     }
 
     var sourceCandidateSignature: [String] {
@@ -711,6 +769,14 @@ struct ChordPreviewState: Equatable {
 
     var renderableDraftChords: [ChordInkDraft] {
         draftChords.filter(\.isRenderable)
+    }
+
+    var draftsRequiringConfirmation: [ChordInkDraft] {
+        renderableDraftChords.filter(\.requiresConfirmation)
+    }
+
+    var requiresChordConfirmation: Bool {
+        !draftsRequiringConfirmation.isEmpty
     }
 
     var unresolvedChordCount: Int {

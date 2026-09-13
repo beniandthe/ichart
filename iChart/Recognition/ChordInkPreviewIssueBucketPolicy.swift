@@ -68,10 +68,10 @@ fileprivate enum ChordInkPreviewIssueFamily: Hashable {
 enum ChordInkPreviewIssueBucketPolicy {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let accidentalTexts: Set<String> = ["b", "#"]
-    private static let qualityTexts: Set<String> = ["-", "m", "△", "Δ", "∆", "°", "ø", "•", "+", "s", "u", "a", "l", "t"]
+    private static let qualityTexts: Set<String> = ["-", "m", "△", "Δ", "∆", "°", "ø", "•", "+", "s", "u", "a", "d", "l", "t"]
     private static let triangleTexts: Set<String> = ["△", "Δ", "∆"]
     private static let diminishedTexts: Set<String> = ["°", "ø", "•"]
-    private static let extensionTexts: Set<String> = ["6", "7", "9", "1", "3"]
+    private static let extensionTexts: Set<String> = ["2", "6", "7", "9", "1", "3"]
 
     static func counts(
         results: [ChordInkRecognitionResult],

@@ -2195,7 +2195,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(decodedChart.renderedClef, .bass)
     }
 
-    func testChordEventDecodingDefaultsMissingSourceCandidateSignature() throws {
+    func testChordEventDecodingDefaultsMissingRecognitionProvenance() throws {
         var chart = Chart.blank(title: "Older Chord Snapshot", key: .cMajor, measureCount: 1)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let symbol = try XCTUnwrap(ChordRecognitionCompendium.match("C")?.symbol)
@@ -2215,6 +2215,7 @@ final class ChartEditingTests: XCTestCase {
         var chordEvents = try XCTUnwrap(firstMeasure["chordEvents"] as? [[String: Any]])
         var firstChordEvent = try XCTUnwrap(chordEvents.first)
         firstChordEvent.removeValue(forKey: "sourceCandidateSignature")
+        firstChordEvent.removeValue(forKey: "sourceRecognitionPipelineVersion")
         chordEvents[0] = firstChordEvent
         firstMeasure["chordEvents"] = chordEvents
         measures[0] = firstMeasure
@@ -2226,6 +2227,9 @@ final class ChartEditingTests: XCTestCase {
         let decodedChart = try JSONDecoder().decode(Chart.self, from: legacyData)
 
         XCTAssertEqual(decodedChart.measures.first?.chordEvents.first?.sourceCandidateSignature, [])
+        XCTAssertNil(
+            decodedChart.measures.first?.chordEvents.first?.sourceRecognitionPipelineVersion
+        )
     }
 
     func testChartSystemDecodingDefaultsMissingPageBreakFlagForOlderSnapshots() throws {
@@ -2647,6 +2651,10 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chord.rawInput, "D flat")
         XCTAssertEqual(chord.sourceInkData, sourceInkData)
         XCTAssertEqual(chord.sourceCandidateSignature, ["Db", "D"])
+        XCTAssertEqual(
+            chord.sourceRecognitionPipelineVersion,
+            ChordInkRecognitionPipelineIdentity.version
+        )
         XCTAssertEqual(chord.startPosition.displayText, "3")
     }
 

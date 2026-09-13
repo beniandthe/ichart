@@ -27,7 +27,10 @@ struct StrokeClusterer {
     func indexedClusters(_ strokes: [InkStroke]) -> [IndexedInkCluster] {
         mutableClusters(for: strokes).map { cluster in
             IndexedInkCluster(
-                cluster: InkCluster(strokes: cluster.strokes),
+                cluster: InkCluster(
+                    strokes: cluster.strokes,
+                    recognitionHints: cluster.recognitionHints.isEmpty ? nil : cluster.recognitionHints
+                ),
                 originalIndexes: cluster.originalIndexes
             )
         }
@@ -77,7 +80,12 @@ struct StrokeClusterer {
                 splitMinorSeventhSuffix(in: cluster) ?? [cluster]
             }
         let suffixNormalizedClusters = mergeDominantFlatNineSuffixFragments(in: normalizedClusters)
-        let wrapperNormalizedClusters = removeDominantAlterationParenthesisWrappers(in: suffixNormalizedClusters)
+        let bareAlterationNormalizedClusters = normalizeExplicitBareParenthesizedAlterations(
+            in: suffixNormalizedClusters
+        )
+        let wrapperNormalizedClusters = removeDominantAlterationParenthesisWrappers(
+            in: bareAlterationNormalizedClusters
+        )
         let alteredFlatNormalizedClusters = mergeDominantAlterationFlatFragments(in: wrapperNormalizedClusters)
         let semanticClusters = mergeDominantAlteredFiveSuffixFragments(in: alteredFlatNormalizedClusters)
         let finalClusters = semanticClusters.flatMap { cluster in
@@ -104,6 +112,11 @@ struct StrokeClusterer {
         in clusters: [MutableInkCluster]
     ) -> [MutableInkCluster] {
         let orderedClusters = clusters.sorted { lhs, rhs in
+            if abs(lhs.bounds.minX - rhs.bounds.minX) <= 4,
+               lhs.bounds.horizontalOverlap(with: rhs.bounds) > 0 {
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
             if lhs.bounds.minX != rhs.bounds.minX {
                 return lhs.bounds.minX < rhs.bounds.minX
             }
@@ -416,10 +429,26 @@ struct StrokeClusterer {
                     let rhs = workingClusters[rhsIndex]
                     guard lhs.canMergeAsSharpFragment,
                           rhs.canMergeAsSharpFragment,
-                          !lhs.isSlashLikeSeparator,
-                          !rhs.isSlashLikeSeparator,
-                          !shouldKeepSeparateAsMinorSuffixAndExtension(lhs, rhs),
-                          shouldMergeAsSharpConstruction(lhs, rhs) else {
+                          !shouldKeepSeparateAsMinorSuffixAndExtension(lhs, rhs) else {
+                        continue
+                    }
+                    // A slanted second stem can look like a slash on its own,
+                    // leaving the first stem plus two bars as a false F/ø.
+                    // Completed two-stem/two-crossbar geometry wins over those
+                    // fragment labels; incomplete or merely nearby strokes do
+                    // not bypass the existing separator/construction guards.
+                    guard (
+                            !lhs.isSlashLikeSeparator
+                                && !rhs.isSlashLikeSeparator
+                                && shouldMergeAsSharpConstruction(lhs, rhs)
+                          ) || shouldReassembleCrossedSharpWithSlantedStem(
+                            lhs, rhs,
+                            otherClusters: {
+                                workingClusters.enumerated().compactMap {
+                                    $0.offset == lhsIndex || $0.offset == rhsIndex ? nil : $0.element
+                                }
+                            }
+                          ) else {
                         continue
                     }
 
@@ -432,6 +461,38 @@ struct StrokeClusterer {
         }
 
         return workingClusters
+    }
+
+    private func shouldReassembleCrossedSharpWithSlantedStem(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster,
+        otherClusters: () -> [MutableInkCluster]
+    ) -> Bool {
+        let pieces = lhs.strokes.count == 1 ? (stem: lhs, bars: rhs) : (stem: rhs, bars: lhs)
+        guard pieces.stem.strokes.count == 1,
+              pieces.bars.strokes.count == 3,
+              pieces.stem.isSlashLikeSeparator,
+              pieces.stem.looseSharpVerticalStrokeCount == 1,
+              pieces.bars.looseSharpVerticalStrokeCount == 1,
+              pieces.bars.looseSharpHorizontalStrokeCount == 2 else {
+            return false
+        }
+        let merged = lhs.merged(with: rhs)
+        let mergedBounds = merged.bounds
+        guard merged.isSharpGlyphCandidate,
+              merged.isSharpConstructionPart,
+              merged.hasTwoCrossingSharpBars else {
+            return false
+        }
+        // A complete sharp must follow a distinct nearby body. This excludes
+        // stealing an A/F root's construction strokes to fabricate its #.
+        return otherClusters().contains { anchor in
+            let anchorBounds = anchor.bounds
+            return anchor.hasRootConstructionBody
+                && anchorBounds.maxX <= mergedBounds.minX + 2
+                && anchorBounds.horizontalGap(to: mergedBounds) <= max(20, anchorBounds.height * 0.65)
+                && anchorBounds.verticalMiss(to: mergedBounds) <= max(20, anchorBounds.height * 0.70)
+        }
     }
 
     private func mergeRootConstructionFragments(
@@ -850,7 +911,8 @@ struct StrokeClusterer {
     private func splitMinorSeventhSuffix(
         in cluster: MutableInkCluster
     ) -> [MutableInkCluster]? {
-        guard cluster.strokes.count == 2 else {
+        guard !cluster.recognitionHints.contains(.parenthesizedAlteration),
+              cluster.strokes.count == 2 else {
             return nil
         }
 
@@ -1443,8 +1505,13 @@ struct StrokeClusterer {
     }
 
     private func timingAllowsMerge(_ lhs: MutableInkCluster, _ rhs: MutableInkCluster) -> Bool {
-        guard let lhsEnd = lhs.endTimeOffset,
-              let rhsStart = rhs.startTimeOffset else {
+        // PKStrokePoint.timeOffset restarts at zero for every PencilKit path,
+        // so comparing offsets from different strokes does not describe their
+        // writing order. Only use timing when the adapter retained each path's
+        // creation offset on the drawing timeline; legacy fixtures safely fall
+        // back to geometry.
+        guard let lhsEnd = lhs.timelineEndTimeOffset,
+              let rhsStart = rhs.timelineStartTimeOffset else {
             return true
         }
 
@@ -1453,8 +1520,8 @@ struct StrokeClusterer {
             return forwardGap <= configuration.maxTimeGap
         }
 
-        guard let rhsEnd = rhs.endTimeOffset,
-              let lhsStart = lhs.startTimeOffset else {
+        guard let rhsEnd = rhs.timelineEndTimeOffset,
+              let lhsStart = lhs.timelineStartTimeOffset else {
             return true
         }
 
@@ -1588,10 +1655,257 @@ struct StrokeClusterer {
         return startsAtRootEdge && closeEnoughToBelongToThisChord && modifierSized
     }
 
+    /// Bare color tones such as `Ab(#5)` and `Db(b3)` do not have the
+    /// dominant-seven anchor used by the legacy alteration-wrapper pass. Keep
+    /// their handling local to an explicit root + opening parenthesis +
+    /// accidental window so ordinary 7, 11, and 13 strokes are never globally
+    /// rewritten as punctuation.
+    private func normalizeExplicitBareParenthesizedAlterations(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var orderedClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+        var searchIndex = orderedClusters.startIndex
+
+        while searchIndex < orderedClusters.endIndex {
+            if let splitClusters = splitExplicitBareAccidentalNumber(
+                after: searchIndex,
+                in: orderedClusters
+            ) {
+                let fusedIndex = searchIndex + 1
+                orderedClusters.replaceSubrange(
+                    fusedIndex...fusedIndex,
+                    with: splitClusters
+                )
+            }
+
+            guard isExplicitBareAlterationOpening(
+                at: searchIndex,
+                in: orderedClusters
+            ) else {
+                searchIndex += 1
+                continue
+            }
+
+            let accidentalIndex = searchIndex + 1
+            let suffixStartIndex = accidentalIndex + 1
+            let initialUpperBound = min(orderedClusters.endIndex, searchIndex + 6)
+
+            if suffixStartIndex < initialUpperBound,
+               let fusedWrapperIndex = orderedClusters[suffixStartIndex..<initialUpperBound]
+                .indices
+                .first(where: { index in
+                    splitExplicitBareTrailingWrapper(
+                        in: orderedClusters[index]
+                    ) != nil
+                }),
+               let splitClusters = splitExplicitBareTrailingWrapper(
+                   in: orderedClusters[fusedWrapperIndex]
+               ) {
+                orderedClusters.replaceSubrange(
+                    fusedWrapperIndex...fusedWrapperIndex,
+                    with: splitClusters
+                )
+            }
+
+            let upperBound = min(orderedClusters.endIndex, searchIndex + 7)
+            let closingIndex = orderedClusters[suffixStartIndex..<upperBound]
+                .indices
+                .first { candidateIndex in
+                    guard candidateIndex > suffixStartIndex else {
+                        return false
+                    }
+
+                    let numberIndices = Array(suffixStartIndex..<candidateIndex)
+                    let candidate = orderedClusters[candidateIndex]
+                    let looksLikeClosingWrapper = candidate.isClosingParenthesizedAlterationWrapperCandidate
+                        || candidate.isLooseClosingParenthesizedAlterationWrapperCandidate
+                        || candidate.isTrailingParenthesizedAlterationWrapperCandidate
+
+                    return looksLikeClosingWrapper
+                        && hasCompleteBareAlterationNumber(
+                            at: numberIndices,
+                            in: orderedClusters
+                        )
+                        && orderedClusters[candidateIndex - 1].bounds
+                            .horizontalGap(to: candidate.bounds) <= 24
+                        && isTerminalAlterationWrapper(
+                            at: candidateIndex,
+                            in: orderedClusters
+                        )
+                }
+
+            guard let closingIndex else {
+                searchIndex += 1
+                continue
+            }
+
+            for index in accidentalIndex..<closingIndex {
+                orderedClusters[index].recognitionHints.insert(.parenthesizedAlteration)
+            }
+
+            orderedClusters.remove(at: closingIndex)
+            orderedClusters.remove(at: searchIndex)
+            searchIndex = max(orderedClusters.startIndex, searchIndex - 1)
+        }
+
+        return orderedClusters
+    }
+
+    private func splitExplicitBareAccidentalNumber(
+        after openingIndex: Int,
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster]? {
+        guard openingIndex > clusters.startIndex,
+              clusters.indices.contains(openingIndex + 2),
+              clusters[openingIndex].strokes.count == 1,
+              clusters[openingIndex].isOpeningParenthesizedAlterationWrapperCandidate,
+              hasLocalBareAlterationRootPrefix(before: openingIndex, in: clusters) else {
+            return nil
+        }
+
+        let fusedCluster = clusters[openingIndex + 1]
+        guard fusedCluster.strokes.count == 2 else {
+            return nil
+        }
+
+        let orderedPairs = zip(fusedCluster.originalIndexes, fusedCluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+        let accidentalCluster = MutableInkCluster(
+            strokes: [orderedPairs[0].1],
+            originalIndexes: [orderedPairs[0].0]
+        )
+        let numberCluster = MutableInkCluster(
+            strokes: [orderedPairs[1].1],
+            originalIndexes: [orderedPairs[1].0]
+        )
+        let closingCluster = clusters[openingIndex + 2]
+        let hasClosingWrapper = closingCluster.isClosingParenthesizedAlterationWrapperCandidate
+            || closingCluster.isLooseClosingParenthesizedAlterationWrapperCandidate
+            || closingCluster.isTrailingParenthesizedAlterationWrapperCandidate
+
+        guard isExplicitBareAlterationAccidentalCandidate(accidentalCluster),
+              numberCluster.isLooseAlterationNumberCandidate,
+              hasClosingWrapper,
+              accidentalCluster.bounds.horizontalGap(to: numberCluster.bounds) <= 24,
+              numberCluster.bounds.horizontalGap(to: closingCluster.bounds) <= 24,
+              isTerminalAlterationWrapper(at: openingIndex + 2, in: clusters) else {
+            return nil
+        }
+
+        return [accidentalCluster, numberCluster]
+    }
+
+    private func splitExplicitBareTrailingWrapper(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count >= 2 else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+        guard let wrapperPair = orderedPairs.last else {
+            return nil
+        }
+
+        let numberPairs = orderedPairs.dropLast()
+        let numberCluster = MutableInkCluster(
+            strokes: numberPairs.map(\.1),
+            originalIndexes: numberPairs.map(\.0)
+        )
+        let wrapperCluster = MutableInkCluster(
+            strokes: [wrapperPair.1],
+            originalIndexes: [wrapperPair.0]
+        )
+        let numberFragments = numberPairs.map { pair in
+            MutableInkCluster(strokes: [pair.1], originalIndexes: [pair.0])
+        }
+        let hasCompleteNumber = hasCompleteBareAlterationNumber(in: numberFragments)
+            || hasCompleteBareAlterationNumber(in: [numberCluster])
+        let looksLikeClosingWrapper = wrapperCluster.isClosingParenthesizedAlterationWrapperCandidate
+            || wrapperCluster.isLooseClosingParenthesizedAlterationWrapperCandidate
+            || wrapperCluster.isTrailingParenthesizedAlterationWrapperCandidate
+
+        guard looksLikeClosingWrapper,
+              hasCompleteNumber,
+              wrapperCluster.bounds.minX >= numberCluster.bounds.maxX - 2,
+              numberCluster.bounds.horizontalGap(to: wrapperCluster.bounds) <= 24 else {
+            return nil
+        }
+
+        if hasCompleteBareAlterationNumber(in: numberFragments) {
+            return numberFragments + [wrapperCluster]
+        }
+
+        return [numberCluster, wrapperCluster]
+    }
+
+    private func hasCompleteBareAlterationNumber(
+        at indices: [Int],
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        hasCompleteBareAlterationNumber(
+            in: indices.compactMap { index in
+                clusters.indices.contains(index) ? clusters[index] : nil
+            }
+        )
+    }
+
+    private func hasCompleteBareAlterationNumber(
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard !clusters.isEmpty, clusters.count <= 2 else {
+            return false
+        }
+
+        if clusters.count == 2 {
+            return clusters[0].isStandaloneOneGlyphCandidate
+                && (clusters[1].isStandaloneOneGlyphCandidate
+                    || clusters[1].isStandaloneThreeGlyphCandidate)
+        }
+
+        let cluster = clusters[0]
+        if cluster.strokes.count == 1,
+           cluster.isStandaloneOneGlyphCandidate {
+            return false
+        }
+
+        return cluster.isAlterationNumberCandidate
+            || cluster.isLooseAlterationNumberCandidate
+            || cluster.isLooseAlteredFiveFragmentCandidate
+    }
+
     private func removeDominantAlterationParenthesisWrappers(
         in clusters: [MutableInkCluster]
     ) -> [MutableInkCluster] {
-        let orderedClusters = clusters.sorted { lhs, rhs in
+        var orderedClusters = clusters.sorted { lhs, rhs in
+            // Parenthesis strokes can slightly overhang the following root in x.
+            // Preserve writing order for those overlapping glyphs so the close
+            // wrapper remains attached to the alteration it terminates instead
+            // of becoming the first glyph of the next chord.
+            if abs(lhs.bounds.minX - rhs.bounds.minX) <= 4,
+               lhs.bounds.horizontalOverlap(with: rhs.bounds) > 0 {
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
             if lhs.bounds.minX != rhs.bounds.minX {
                 return lhs.bounds.minX < rhs.bounds.minX
             }
@@ -1615,6 +1929,25 @@ struct StrokeClusterer {
                 || isClosingDominantAlterationWrapper(at: index, in: orderedClusters)
         }
         let removalIndexSet = Set(removalIndices)
+        let openingWrapperIndices = removalIndices.filter { index in
+            isOpeningDominantAlterationWrapper(at: index, in: orderedClusters)
+        }
+        let closingWrapperIndices = removalIndices.filter { index in
+            isClosingDominantAlterationWrapper(at: index, in: orderedClusters)
+        }
+        var contentIndices = Set<Int>()
+
+        for openingIndex in openingWrapperIndices {
+            if let closingIndex = closingWrapperIndices.first(where: { candidateIndex in
+                candidateIndex > openingIndex && candidateIndex - openingIndex <= 6
+            }) {
+                contentIndices.formUnion((openingIndex + 1)..<closingIndex)
+            }
+        }
+
+        for index in contentIndices where orderedClusters.indices.contains(index) {
+            orderedClusters[index].recognitionHints.insert(.parenthesizedAlteration)
+        }
 
         return orderedClusters.enumerated().compactMap { index, cluster in
             removalIndexSet.contains(index) ? nil : cluster
@@ -1784,14 +2117,24 @@ struct StrokeClusterer {
         at index: Int,
         in clusters: [MutableInkCluster]
     ) -> Bool {
+        let isExplicitBareAlterationOpening = isExplicitBareAlterationOpening(
+            at: index,
+            in: clusters
+        )
         guard !clusters[index].isSuspendedSLikeCandidate
-                || hasDominantSevenCandidate(before: index, in: clusters) else {
+                || hasDominantSevenCandidate(before: index, in: clusters)
+                || isExplicitBareAlterationOpening else {
             return false
+        }
+
+        if isExplicitBareAlterationOpening {
+            return true
         }
 
         if index >= 1,
            index + 1 < clusters.count,
            clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate,
+           !isProbableDetachedRootBody(at: index, in: clusters),
            !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
            clusters[index + 1].isWrittenAlterationAccidentalCandidate,
            clusters[index - 1].isLooseAlterationNumberCandidate,
@@ -1802,6 +2145,7 @@ struct StrokeClusterer {
 
         guard index + 1 < clusters.count,
               let sevenIndex = nearestDominantSevenIndex(before: index, in: clusters),
+              !isProbableDetachedRootBody(at: index, in: clusters),
               clusters[index].isOpeningParenthesizedAlterationWrapperCandidate
                 || clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate,
               !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
@@ -1813,12 +2157,155 @@ struct StrokeClusterer {
             && clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) <= 24
     }
 
+    private func isExplicitBareAlterationOpening(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let isStrictOpeningWrapper = clusters.indices.contains(index)
+            && clusters[index].strokes.count == 1
+            && clusters[index].strokes[0].isOpeningParenthesizedAlterationWrapperCandidate
+        let hasClosingWrapper = hasExplicitAlterationClosingWrapper(
+            after: index,
+            in: clusters
+        )
+        let precedingGap = index > clusters.startIndex
+            ? clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds)
+            : .infinity
+        let isCompactPairedWrapper = isStrictOpeningWrapper
+            && hasClosingWrapper
+            && precedingGap <= 14
+        let isDistinctFromDominantSeven = !clusters[index].isDominantSevenInkAnchor
+            || clusters[index].isSuspendedSLikeCandidate
+            || isCompactPairedWrapper
+        let hasAlterationNumber = index + 2 < clusters.count
+            && (clusters[index + 2].isLooseAlterationNumberCandidate
+                || splitExplicitBareTrailingWrapper(in: clusters[index + 2]) != nil)
+        guard index > clusters.startIndex,
+              index + 2 < clusters.count,
+              (clusters[index].isOpeningParenthesizedAlterationWrapperCandidate
+                || clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate),
+              isDistinctFromDominantSeven,
+              !isProbableDetachedRootBody(at: index, in: clusters),
+              !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
+              isExplicitBareAlterationAccidentalCandidate(clusters[index + 1]),
+              clusters[index + 1].bounds.width <= 28,
+              clusters[index + 1].bounds.height <= 42,
+              hasAlterationNumber,
+              hasLocalBareAlterationRootPrefix(before: index, in: clusters),
+              !hasImmediateDominantSeven(before: index, in: clusters),
+              clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) <= 24,
+              clusters[index + 1].bounds.horizontalGap(to: clusters[index + 2].bounds) <= 24 else {
+            return false
+        }
+
+        return true
+    }
+
+    private func isExplicitBareAlterationAccidentalCandidate(
+        _ cluster: MutableInkCluster
+    ) -> Bool {
+        if cluster.isWrittenAlterationAccidentalCandidate {
+            return true
+        }
+
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        let bounds = cluster.bounds
+        let aspectRatio = bounds.width / max(bounds.height, 1)
+        let angle = abs(stroke.angleDegrees)
+
+        // A quickly written flat can collapse into one narrow loop and miss
+        // the general flat classifier. Accept that shape only inside the
+        // already-verified root + opening-wrapper + number window.
+        return stroke.points.count >= 8
+            && bounds.width >= 2
+            && bounds.width <= 12
+            && bounds.height >= 10
+            && bounds.height <= 28
+            && aspectRatio >= 0.10
+            && aspectRatio <= 0.85
+            && stroke.straightness <= 0.45
+            && angle >= 45
+            && angle <= 125
+            && !stroke.hasEarlyTopHorizontalRun
+    }
+
+    private func hasLocalBareAlterationRootPrefix(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = max(clusters.startIndex, index - 2)
+        return clusters[lowerBound..<index].contains { cluster in
+            cluster.isRootBodyCandidate
+                || cluster.hasRootConstructionBody
+                || cluster.hasRootConstructionVerticalStem
+        }
+    }
+
+    private func hasImmediateDominantSeven(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index > clusters.startIndex else {
+            return false
+        }
+
+        let cluster = clusters[index - 1]
+        return !cluster.isRootBodyCandidate
+            && !cluster.hasRootConstructionBody
+            && !cluster.hasRootConstructionVerticalStem
+            && !isExplicitBareAlterationAccidentalCandidate(cluster)
+            && (cluster.isDominantSevenAlterationAnchor
+                || cluster.isDominantSevenSuffixAnchor)
+    }
+
+    private func hasExplicitAlterationClosingWrapper(
+        after openingIndex: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = openingIndex + 2
+        let upperBound = min(clusters.endIndex, openingIndex + 6)
+        guard lowerBound < upperBound else {
+            return false
+        }
+
+        return clusters[lowerBound..<upperBound].indices.contains { index in
+            if splitExplicitBareTrailingWrapper(in: clusters[index]) != nil {
+                return isTerminalAlterationWrapper(at: index, in: clusters)
+            }
+
+            guard index > lowerBound else {
+                return false
+            }
+
+            let numberIndices = Array(lowerBound..<index)
+            let candidate = clusters[index]
+            let looksLikeClosingWrapper = candidate.isClosingParenthesizedAlterationWrapperCandidate
+                || candidate.isLooseClosingParenthesizedAlterationWrapperCandidate
+                || candidate.isTrailingParenthesizedAlterationWrapperCandidate
+
+            return looksLikeClosingWrapper
+                && hasCompleteBareAlterationNumber(at: numberIndices, in: clusters)
+                && clusters[index - 1].bounds.horizontalGap(to: candidate.bounds) <= 24
+                && isTerminalAlterationWrapper(at: index, in: clusters)
+        }
+    }
+
     private func isClosingDominantAlterationWrapper(
         at index: Int,
         in clusters: [MutableInkCluster]
     ) -> Bool {
-        guard !clusters[index].isSuspendedSLikeCandidate
+        guard !isProbableDetachedRootBody(at: index, in: clusters),
+              !clusters[index].isSuspendedSLikeCandidate
                 || hasDominantSevenCandidate(before: index, in: clusters) else {
+            return false
+        }
+
+        if clusters[index].isAlterationNumberCandidate,
+           !hasOpeningAlterationWrapper(before: index, in: clusters) {
             return false
         }
 
@@ -1878,6 +2365,74 @@ struct StrokeClusterer {
             && looksLikeClosingWrapper
             && clusters[sevenIndex].bounds.horizontalGap(to: clusters[index].bounds) <= 118
             && clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 24
+    }
+
+    private func isProbableDetachedRootBody(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index > clusters.startIndex,
+              clusters[index].isRootBodyCandidate else {
+            return false
+        }
+
+        let current = clusters[index]
+        let previous = clusters[index - 1]
+        let horizontalGap = previous.bounds.horizontalGap(to: current.bounds)
+        let minimumRootGap = max(8, min(18, current.bounds.width * 0.55))
+        let verticalDrop = current.bounds.recognitionMidY - previous.bounds.recognitionMidY
+        let minimumRootDrop = max(
+            7,
+            min(current.bounds.height, previous.bounds.height) * 0.28
+        )
+
+        return horizontalGap >= minimumRootGap
+            && verticalDrop >= minimumRootDrop
+    }
+
+    private func hasProbableRootPrefix(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        clusters[..<index].contains { cluster in
+            cluster.isRootBodyCandidate
+                || cluster.hasRootConstructionBody
+                || cluster.hasRootConstructionVerticalStem
+        }
+    }
+
+    private func hasOpeningAlterationWrapper(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = max(clusters.startIndex, index - 5)
+        return clusters[lowerBound..<index].indices.contains { candidateIndex in
+            guard candidateIndex > clusters.startIndex,
+                  hasProbableRootPrefix(before: candidateIndex, in: clusters) else {
+                return false
+            }
+
+            let cluster = clusters[candidateIndex]
+            return cluster.isOpeningParenthesizedAlterationWrapperCandidate
+                || cluster.isLooseOpeningParenthesizedAlterationWrapperCandidate
+        }
+    }
+
+    private func isTerminalAlterationWrapper(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard clusters.indices.contains(index + 1) else {
+            return true
+        }
+
+        let current = clusters[index]
+        let next = clusters[index + 1]
+        let nextDropsToRootBaseline = next.isRootBodyCandidate
+            && next.bounds.recognitionMidY >= current.bounds.recognitionMidY + 7
+
+        return nextDropsToRootBaseline
+            || current.bounds.horizontalGap(to: next.bounds) > 18
     }
 
     private func nearestDominantSevenIndex(

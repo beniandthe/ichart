@@ -5,6 +5,7 @@ import {
 
 const maxBodyBytes = 128_000;
 const maxEventsPerBatch = 50;
+const maxPropertiesPerEvent = 64;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedEventNames = new Set([
@@ -48,6 +49,7 @@ const allowedEventNames = new Set([
   "chord.recognition_failed",
   "chord.confirmation_presented",
   "chord.correction_applied",
+  "chord.rendered_correction_applied",
   "chord.batch_committed",
   "chord.preview_updated",
   "chord.preview_rendered",
@@ -149,7 +151,9 @@ const allowedPropertyKeys = new Set([
   "quality_issue_count",
   "reason",
   "recognition_ms",
+  "recognition_pipeline_version",
   "recognition_target_count",
+  "review_candidate_count",
   "raw_candidate_count",
   "render_action",
   "rendered_count",
@@ -179,6 +183,12 @@ const allowedPropertyKeys = new Set([
   "target_coordinate_width",
   "to_mode",
   "triangle_quality_issue_count",
+  "trust_corroborated_count",
+  "trust_outcome",
+  "trust_probe_count",
+  "trust_rejected_count",
+  "trust_symbol_support_count",
+  "trust_validation_ms",
   "trusted_count",
   "unknown_issue_count",
   "unresolved_count",
@@ -337,7 +347,7 @@ export function sanitizedProperties(value) {
   const entries = Object.entries(value)
     .filter(([key]) => allowedPropertyKeys.has(key))
     .sort(([left], [right]) => left.localeCompare(right))
-    .slice(0, 40);
+    .slice(0, maxPropertiesPerEvent);
   const sanitized = {};
 
   for (const [key, rawValue] of entries) {

@@ -632,9 +632,18 @@ final class ChordSymbolParserTests: XCTestCase {
     }
 
     func testParserRejectsUnsupportedGlyphNoiseDescriptors() {
-        for spelling in ["CC", "CG7", "C△C", "C-△", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "C7()", "C7(9)", "Db(b9)", "Db(b9)(b9)", "Db7(b9)(b9)", "Db7b9b9"] {
+        for spelling in ["CC", "CG7", "C△C", "C-△", "C6△7", "C7△", "B6△7", "Bfoo", "E3", "E2", "E8", "C°9", "Cø9", "Cø7b5", "C+b9", "C+(b9)", "C7()", "C7(9)", "Db(b9)(b9)", "Db7(b9)(b9)", "Db7b9b9"] {
             XCTAssertThrowsError(try ChordSymbolParser.parse(spelling), spelling)
             XCTAssertNil(ChordRecognitionCompendium.match(spelling), spelling)
+        }
+    }
+
+    func testParsesExplicitBareAlteredColorTonesFromDeviceStressRow() throws {
+        for spelling in ["Ab(#5)", "B#(b9)", "C#(#9)", "Db(b3)", "Eb(#11)", "Gb(b13)"] {
+            let symbol = try ChordSymbolParser.parse(spelling)
+
+            XCTAssertEqual(symbol.displayText, spelling, spelling)
+            XCTAssertEqual(ChordRecognitionCompendium.match(spelling)?.displayText, spelling, spelling)
         }
     }
 
@@ -675,7 +684,7 @@ final class ChordSymbolParserTests: XCTestCase {
             "major seventh",
             "six-nine",
             "add chords",
-            "altered dominants",
+            "altered and color-tone chords",
             "suspended chords",
             "diminished and half-diminished",
             "minor-major",

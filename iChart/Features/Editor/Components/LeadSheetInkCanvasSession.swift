@@ -327,10 +327,17 @@ final class LeadSheetInkSerializationSession {
 }
 
 struct LeadSheetInkDrawingSnapshot: Equatable {
+    private struct VisiblePathRangeSignature: Equatable {
+        var lowerBound: CGFloat
+        var upperBound: CGFloat
+    }
+
     private struct StrokeSignature: Equatable {
         var pointCount: Int
         var bounds: CGRect
         var sampledPoints: [CGPoint]
+        var transformComponents: [CGFloat]
+        var visiblePathRanges: [VisiblePathRangeSignature]?
     }
 
     private var strokeSignatures: [StrokeSignature]
@@ -358,7 +365,16 @@ struct LeadSheetInkDrawingSnapshot: Equatable {
             return StrokeSignature(
                 pointCount: pointCount,
                 bounds: Self.rounded(stroke.renderBounds),
-                sampledPoints: sampledPoints
+                sampledPoints: sampledPoints,
+                transformComponents: Self.transformComponents(stroke.transform),
+                visiblePathRanges: stroke.mask.map { _ in
+                    stroke.maskedPathRanges.map { range in
+                        VisiblePathRangeSignature(
+                            lowerBound: Self.preciselyRounded(range.lowerBound),
+                            upperBound: Self.preciselyRounded(range.upperBound)
+                        )
+                    }
+                }
             )
         }
 
@@ -377,9 +393,22 @@ struct LeadSheetInkDrawingSnapshot: Equatable {
                 sampledPoints: [
                     CGPoint(x: value, y: value),
                     CGPoint(x: value + 1, y: value + 1)
-                ]
+                ],
+                transformComponents: Self.transformComponents(.identity),
+                visiblePathRanges: nil
             )
         }
+    }
+
+    private static func transformComponents(_ transform: CGAffineTransform) -> [CGFloat] {
+        [
+            preciselyRounded(transform.a),
+            preciselyRounded(transform.b),
+            preciselyRounded(transform.c),
+            preciselyRounded(transform.d),
+            preciselyRounded(transform.tx),
+            preciselyRounded(transform.ty)
+        ]
     }
 
     private static func rounded(_ point: CGPoint) -> CGPoint {
@@ -397,6 +426,10 @@ struct LeadSheetInkDrawingSnapshot: Equatable {
 
     private static func rounded(_ value: CGFloat) -> CGFloat {
         (value * 2).rounded() / 2
+    }
+
+    private static func preciselyRounded(_ value: CGFloat) -> CGFloat {
+        (value * 1_000_000).rounded() / 1_000_000
     }
 }
 

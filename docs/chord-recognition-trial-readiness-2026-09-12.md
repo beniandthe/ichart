@@ -1,0 +1,110 @@
+# Chord-recognition trial readiness — 2026-09-12
+
+## Decision
+
+Freeze recognition at `maximum-trust-v16-2026-09-12` for a small, monitored user trial rather than continuing to tune against the same writer and curated fixtures. This is an engineering candidate, not a claim of perfect recognition or an uploaded release.
+
+Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. Signing, fresh hardware acceptance and distribution remain separate gates.
+
+## What this candidate fixes
+
+Both Rhythm Section and Simple Chord Sheet use the same maximum-trust recognizer, production preparation and explicit review/render contract.
+
+- Native-size geometry remains the primary read; transformed recovery suggestions cannot become automatic accepts.
+- A supported primary read needs independent symbol evidence and all required robustness checks before trusted rendering. Ambiguous evidence remains in review.
+- Original stroke chronology determines chord ownership, not glyph meaning. Completed chords must keep their exact source strokes as later entries arrive.
+- Exact retained fourth/fifth-system ink was replayed through production preparation, not only isolated glyph tests. The new narrow convex D and inset-return D now produce the expected D primary.
+- Broader interleaving coverage exposed three pre-existing F#/slash-bass, Gb-minor and G#-altered ownership families. The same new regressions failed on the installed baseline. V16 repairs bounded unfinished-stem construction and unequal-height neighbor ownership without relaxing trust thresholds.
+- Preview choices retain trust/review state through atomic rendering. Correction memory requires explicit correction and exact geometry; deleting a chord is not recognition feedback.
+- Recognition-result caching and stale-work cancellation preserve ink persistence and avoid using serialized PencilKit metadata as semantic identity.
+
+The two new fifth-line D intents are visually inferred from retained handwriting and the preceding D-writing exercise; they are not independently user-labeled evaluation data.
+
+## Recognition evidence and its limits
+
+The full native ten-test archive passes on the V16 recognition core. Later finalization changes telemetry and platform compilation boundaries only; source manifests verify that the recognition, chord-service and model code are unchanged.
+
+- 660 original curated fixtures: correct primary for all 660; 383 trusted-correct and 277 correct-primary requiring confirmation. No native identity no-reads or trusted-wrong reads.
+- Nine deterministic conditions: 5,940 recognition attempts with no trusted-wrong results or hidden correct recoveries. These are repeated transformations of the same fixtures, not 5,940 independent users or writings. Transformed inputs can still need manual entry or produce no read.
+- Completed ownership: 7,178 prefixes and 22,178 completed-chord checks across 110 rows at both 0.80- and 2.75-second cadences; zero ownership changes.
+- Seven exact retained/fresh production-prefix row gates pass, spanning both chart styles, plus the 13-chord committed-source replay.
+- Simulator identity timing: median 7.171 ms, p95 80.003 ms, maximum 323.021 ms in the archive trust audit. These are XCTest measurements, not physical Pencil latency or a promise about every device.
+- Deliberately lossy thinning still produced 74/660 no-reads and 82 manual-only confirmations. Missing geometric evidence cannot safely be recovered by inventing a confident chord.
+
+These fixtures were used to guide repairs. They are not a held-out, multi-writer accuracy study. The confirmation frequency is part of the conservative trust contract, not a 100% automatic-recognition claim.
+
+## Final validation
+
+The final frozen R04 candidate passes:
+
+| Gate | Selected | Passed | Skipped | Failed |
+| --- | ---: | ---: | ---: | ---: |
+| Native full application suite | 1,405 | 1,346 | 59 | 0 |
+| Release telemetry/privacy/configuration | 20 | 20 | 0 | 0 |
+| Release 660-fixture identity archive | 1 | 1 | 0 | 0 |
+| Thread Sanitizer, including retained fifth line and transport | 129 | 129 | 0 | 0 |
+| SwiftPM XCTest suite | 985 | 932 | 53 | 0 |
+| Telemetry ingest Node contract | 12 | 12 | 0 | 0 |
+
+Skips are explicit opt-in live-service, fixture/replay and specialized test gates, not failures counted as passes. The secondary Swift Testing runner's zero-test line is not used as XCTest proof.
+
+Release static analysis succeeds with zero errors and zero analyzer findings. Nine compiler warnings remain: six existing UIDevice actor-isolation annotations, two existing SDK deprecations, and the unreachable Simulator-preview branch outside Debug Simulator builds. This is not a warning-free build or proof of all production races.
+
+The command-line build boundary was repaired without removing native iPad tests: app-only preview helpers are unavailable to SwiftPM, and UIKit-only tests now use appropriate platform guards.
+
+## Telemetry for the trial
+
+Normal Release telemetry is enabled outside XCTest. Both signed-out and signed-in clients use the configured production endpoint; signed-out requests use the public `apikey` without a fabricated bearer session. Signed-in requests use the actual user-session JWT.
+
+Production ingest v9 is already deployed under the user's explicit diagnostic-field approval. Real pre-V13 preview events demonstrate retention and scalar types for pipeline/trust/review/root-issue fields; this is transport/storage proof, not handwriting accuracy or V16 hardware acceptance. No synthetic recognition events were injected to manufacture that proof.
+
+The final client adds:
+
+- An `app.launched` pipeline version and `source` of `debug_build` or `release_build`, joinable to the same installation/session.
+- Content-free preparation failures, excluding cancellation, erased/empty ink and barline-only ink. No target means an unknown intended-chord denominator; no invented no-read count.
+- Version/style context on preview, review, render/discard and commit events.
+- Rendered correction categories attributed to the original stored read version when known. Legacy and manual entries remain unattributed. Imported metadata must match a bounded pipeline-version format, so arbitrary chart content cannot cross this field.
+- Persistent best-effort retries after offline/failing requests and on foreground activity, using original event IDs. Successful batches remove acknowledged events without losing concurrent appends.
+- Bounded requests: up to 40 events and 120,000 bytes per batch, up to four batches per flush, 15-second request timeout and a 1,000-event persisted queue. This is not a guarantee that every event is delivered under indefinite offline use or app termination.
+
+Diagnostics do not upload chord strings, chart titles, artist names, raw strokes/drawings, screenshots, PDFs or editable chart documents. Raw local glyph/stroke diagnostic recording remains Debug-only and is not enabled for customers.
+
+`release_build` identifies a build configuration, not an external person. Exclude known internal installations—including development-signed Release QA—from user-cohort reporting. Use the exact pipeline and session build source, split chart styles, and keep attempt/batch/snapshot metrics distinct. Cache hits, repeated previews and retries are not new writings.
+
+Review/no-read/correction/render rates and recognition timings are useful trial signals. They are not measured recognition accuracy without independently labeled intended chords. A correction can also be editorial; its category must be retained rather than treating every edit as a misread.
+
+## Privacy and backend checks
+
+The actual app-owned `PrivacyInfo.xcprivacy` is packaged at the Release app root. It declares non-tracking linked first-party data collection and required reasons for own-container file metadata, elapsed timing and own-app UserDefaults. Dependency manifests remain present separately.
+
+The local privacy notice now discloses installation/session identifiers, signed-in account linkage and recognition diagnostics. The hosted policy is still the August 13 version; this local change has not been deployed. Verify hosted notice and App Store Connect privacy answers before distributing to new users.
+
+Production telemetry is RLS-enabled and server-only: anon/authenticated clients have no direct SELECT/INSERT grants; service role ingests events. The existing security advisory for RLS without client policies is intentional for this server-only table. No auth, billing or table-grant changes were made.
+
+The private 180-day cleanup helper exists, but there is no matching scheduled cleanup job. Approval to enable a daily telemetry-only retention job is outstanding; no purge or schedule was run. Do not claim automatic 180-day retention.
+
+## Remaining release gates
+
+1. User-approved macOS key access, followed by strict signature/pipeline/source verification of the exact device candidate. The development-signed Release QA attempt reached codesign for a dependency resource bundle and waited at key access; it was canceled before further source edits. No passwords were copied, keychain permissions changed or new V16 app installed. The first QA-only signing configuration attempt failed for a dependency's missing development team; the explicit same-team correction reached signing. App Store Release signing settings were not changed.
+2. Fresh V16 physical acceptance in both styles: write B/C/D/G and modifiers at natural size and pace, continue through later systems, check incomplete previews versus completed reads, Review & Render, correction, erasure, dense-page Pencil feel and cold-relaunch persistence. Use a throwaway chart for destructive layout tests; keep the evidence charts intact.
+3. Confirm TestFlight beta versus App Store free-trial distribution. TestFlight is useful for real handwriting feedback, but purchases use sandbox and do not measure normal trial conversion or revenue.
+4. Verify the current App Store Connect build number and assign a unique upload build before the signed distribution archive/export. The local engineering archive remains 1.2.1 (51); it is not upload-ready.
+5. Publish/verify the privacy notice and review store privacy metadata, then authorize upload/distribution. The existing subscription/free-trial system was not changed, and no new live purchase or sandbox transaction was exercised in this pass.
+
+The currently installed physical candidate remains V13. The fresh preflight library copy is byte-identical to its preserved postlaunch library: 269,115 bytes, three charts. Install/launch and historical persisted data are not fresh V16 recognition acceptance.
+
+## Source and GitHub handoff
+
+Final R04 source manifest: 871 app/test/configuration/contract/privacy files; SHA-256 `b1b570d6c8671172c2104d227de09c458a8cf661c981b2ab29f399e7c8396ad9`. Documentation is excluded. Before/after source equality is verified across all final gates. A fresh postchecks device copy also remains byte-identical to the preflight library.
+
+The V16 full archive, final test summaries, source manifests, unsigned Release archive and private device evidence are retained outside the repository in local QA. Do not add chart-library snapshots, diagnostic JSONL, PDFs, screenshots, signing material or real installation identifiers to this public repository. Newly added fixtures contain only deidentified chord geometry, expected labels and rebased relative timing.
+
+At pre-push inspection, remote main matches local main; the current branch has no remote head and is three commits ahead before the new checkpoint. Older PR/Actions results are not this candidate's CI. GitHub push, pull request, hosted privacy deployment, upload, distribution and App Store submission have not been performed.
+
+## Primary references
+
+- [Apple app privacy details](https://developer.apple.com/app-store/app-privacy-details/).
+- [Apple required-reason API declarations](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api).
+- [Supabase publishable API keys](https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys).
+- [Supabase Edge Function authentication headers](https://supabase.com/docs/guides/functions/auth-headers).
+- [TestFlight subscription testing uses sandbox](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testing-subscriptions-and-in-app-purchases-in-testflight).

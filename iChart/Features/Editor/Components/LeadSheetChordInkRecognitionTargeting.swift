@@ -157,7 +157,19 @@ enum LeadSheetChordInkRecognitionTargeting {
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
-        let inkStrokes = preparedInkStrokes ?? PencilKitInkAdapter.inkStrokes(from: drawing)
+        let targetingDrawing: PKDrawing
+        let inkStrokes: [InkStroke]
+        if let preparedInkStrokes {
+            targetingDrawing = drawing
+            inkStrokes = preparedInkStrokes
+        } else {
+            targetingDrawing = PKDrawing(
+                strokes: drawing.strokes.flatMap(
+                    PencilKitInkAdapter.visibleStrokeFragments(from:)
+                )
+            )
+            inkStrokes = PencilKitInkAdapter.inkStrokes(from: targetingDrawing)
+        }
         let draftBarlineClusters = draftBarlineLaneClusters(
             for: inkStrokes,
             context: targetingContext,
@@ -246,7 +258,7 @@ enum LeadSheetChordInkRecognitionTargeting {
 
         var targets: [LeadSheetChordInkRecognitionBatchTarget] = []
         targets.reserveCapacity(clusters.count)
-        let drawingStrokes = drawing.strokes
+        let drawingStrokes = targetingDrawing.strokes
         for cluster in clusters {
             guard shouldContinue() else {
                 return cancelledResult(
@@ -885,10 +897,15 @@ enum LeadSheetChordInkRecognitionTargeting {
         for orderedStrokes: [(index: Int, stroke: InkStroke)]
     ) -> [ChordInkBatchCluster] {
         let groups = ChordInkSequentialGrouper().groups(for: orderedStrokes)
-        guard groups.count > 1 else {
+        guard groups.count > 1,
+              groups.first?.rootConfidence != nil else {
             return []
         }
 
+        // Construction ownership can retain explicit no-read buckets. Those
+        // buckets alone are not a root-led split and must not bypass the raw
+        // fragment-collapse guards. A supported leading root still keeps its
+        // later detached construction separate, including pending no-reads.
         return groups.map { group in
             ChordInkBatchCluster(
                 strokeIndices: group.strokeIndices,

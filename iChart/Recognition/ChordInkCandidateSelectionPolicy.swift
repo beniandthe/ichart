@@ -47,6 +47,14 @@ struct ChordInkCandidateSelectionPolicy {
             promoteCandidate("6", minimumConfidence: 0.72)
         }
 
+        if shouldExposeAddQualityDCandidate(at: index, in: sortedColumns) {
+            promoteCandidate("d", minimumConfidence: 0.78)
+        }
+
+        if shouldExposeUncapturedTwoCandidate(at: index, in: sortedColumns) {
+            promoteCandidate("2", minimumConfidence: 0.78)
+        }
+
         if shouldExposePlainSuspendedSCandidate(at: index, in: sortedColumns) {
             promoteCandidate("s", minimumConfidence: 0.84, fallbackConfidence: 0.72)
         }
@@ -108,6 +116,88 @@ struct ChordInkCandidateSelectionPolicy {
         }
 
         return selected
+    }
+
+    /// `add` is the only supported quality with two adjacent lowercase d
+    /// glyphs. Keep both actual template reads in the candidate beam when the
+    /// surrounding columns spell the full quality; never synthesize a missing d.
+    private func shouldExposeAddQualityDCandidate(
+        at index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        addDescriptorStartIndices(in: sortedColumns).contains { descriptorStart in
+            guard index == descriptorStart + 1 || index == descriptorStart + 2 else {
+                return false
+            }
+
+            return descriptorStart + 3 < sortedColumns.count
+                && hasCandidate("a", minimumConfidence: 0.42, at: descriptorStart, in: sortedColumns)
+                && hasCandidate("d", minimumConfidence: 0.34, at: descriptorStart + 1, in: sortedColumns)
+                && hasCandidate("d", minimumConfidence: 0.34, at: descriptorStart + 2, in: sortedColumns)
+        }
+    }
+
+    /// Digit 2 was absent from the original glyph alphabet. Expose it only in
+    /// complete `add2` or `sus2` context and only when the gated template
+    /// recognizer supplied real shape evidence for this column.
+    private func shouldExposeUncapturedTwoCandidate(
+        at index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard index == sortedColumns.count - 1,
+              hasCandidate("2", minimumConfidence: 0.34, at: index, in: sortedColumns) else {
+            return false
+        }
+
+        let hasAddPrefix = addDescriptorStartIndices(in: sortedColumns).contains { descriptorStart in
+            index == descriptorStart + 3
+                && hasCandidate("a", minimumConfidence: 0.42, at: descriptorStart, in: sortedColumns)
+                && hasCandidate("d", minimumConfidence: 0.34, at: descriptorStart + 1, in: sortedColumns)
+                && hasCandidate("d", minimumConfidence: 0.34, at: descriptorStart + 2, in: sortedColumns)
+        }
+        let hasSuspendedPrefix = index >= 3
+            && hasCandidate("s", minimumConfidence: 0.42, at: index - 3, in: sortedColumns)
+            && hasCandidate("u", minimumConfidence: 0.42, at: index - 2, in: sortedColumns)
+            && hasCandidate("s", minimumConfidence: 0.42, at: index - 1, in: sortedColumns)
+
+        return hasAddPrefix || hasSuspendedPrefix
+    }
+
+    private func addDescriptorStartIndices(
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> [Int] {
+        guard sortedColumns.count >= 5,
+              sortedColumns[0].contains(where: { candidate in
+                  candidate.confidence >= 0.50 && "ABCDEFG".contains(candidate.text)
+              }) else {
+            return []
+        }
+
+        return [1, 2].filter { index in
+            guard sortedColumns.indices.contains(index) else {
+                return false
+            }
+
+            if index == 2 {
+                return sortedColumns[1].contains { candidate in
+                    candidate.confidence >= 0.55 && (candidate.text == "#" || candidate.text == "b")
+                }
+            }
+
+            return true
+        }
+    }
+
+    private func hasCandidate(
+        _ text: String,
+        minimumConfidence: Double,
+        at index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        sortedColumns.indices.contains(index)
+            && sortedColumns[index].contains { candidate in
+                candidate.text == text && candidate.confidence >= minimumConfidence
+            }
     }
 
     private func shouldExposePlainFinalExtensionCandidate(
@@ -243,13 +333,19 @@ struct ChordInkCandidateSelectionPolicy {
         let currentHasContextualFour = sortedColumns[index].contains { candidate in
             candidate.text == "4" && candidate.source == .composer
         }
+        let currentHasExplicitTwo = sortedColumns[index].contains { candidate in
+            candidate.text == "2"
+                && candidate.source != .composer
+                && candidate.confidence >= 0.55
+        }
         let currentHasStrongQualityConflict = sortedColumns[index].contains { candidate in
             candidate.confidence >= 0.86
-                && ["-", "m", "7", "°", "ø", "△", "+", "/", "6", "9", "1", "3", "5"].contains(candidate.text)
+                && ["-", "m", "2", "7", "°", "ø", "△", "+", "/", "6", "9", "1", "3", "5"].contains(candidate.text)
         }
 
         return suffixTexts == ["s", "u", "s"]
             && currentHasFour
+            && !currentHasExplicitTwo
             && (!currentHasStrongQualityConflict || currentHasContextualFour)
     }
 

@@ -59,5 +59,21 @@ final class InkTypesTests: XCTestCase {
 
         XCTAssertEqual(stroke.points.count, 2)
         XCTAssertEqual(stroke.bounds, InkBounds(minX: 1, minY: 2, maxX: 5, maxY: 8))
+        XCTAssertNil(stroke.creationTimeOffset)
+        XCTAssertNil(stroke.timelineStartTimeOffset)
+        XCTAssertNil(stroke.timelineEndTimeOffset)
+    }
+
+    func testStrokeCombinesAbsoluteCreationTimeWithRelativePointOffsets() {
+        let stroke = InkStroke(
+            points: [
+                InkPoint(x: 1, y: 2, timeOffset: 0.2),
+                InkPoint(x: 5, y: 8, timeOffset: 0.7)
+            ],
+            creationTimeOffset: 100
+        )
+
+        XCTAssertEqual(stroke.timelineStartTimeOffset, 100.2)
+        XCTAssertEqual(stroke.timelineEndTimeOffset, 100.7)
     }
 }

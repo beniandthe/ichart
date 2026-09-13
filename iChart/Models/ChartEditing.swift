@@ -1280,6 +1280,7 @@ extension Chart {
         atFraction fraction: Double?,
         sourceInkData: Data? = nil,
         sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil,
         spellingIntent: ChordSpellingIntent? = nil
     ) -> Bool {
         appendRecognizedChordEvent(
@@ -1289,6 +1290,7 @@ extension Chart {
             atFraction: fraction,
             sourceInkData: sourceInkData,
             sourceCandidateSignature: sourceCandidateSignature,
+            sourceRecognitionPipelineVersion: sourceRecognitionPipelineVersion,
             spellingIntent: spellingIntent
         ) != nil
     }
@@ -1301,6 +1303,7 @@ extension Chart {
         atFraction fraction: Double?,
         sourceInkData: Data? = nil,
         sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil,
         spellingIntent: ChordSpellingIntent? = nil
     ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
@@ -1315,13 +1318,16 @@ extension Chart {
             excluding: nil,
             mode: .append
         )
+        let resolvedRecognitionPipelineVersion = sourceRecognitionPipelineVersion
+            ?? (sourceInkData == nil ? nil : ChordInkRecognitionPipelineIdentity.version)
         let chordEventID = measure.appendChordEvent(
             symbol: symbol,
             spellingIntent: resolvedSpellingIntent,
             rawInput: rawInput,
             suggestion: suggestion,
             sourceInkData: sourceInkData,
-            sourceCandidateSignature: sourceCandidateSignature
+            sourceCandidateSignature: sourceCandidateSignature,
+            sourceRecognitionPipelineVersion: resolvedRecognitionPipelineVersion
         )
         systems[location.systemIndex].measures[location.measureIndex] = measure
         updatedAt = .now
@@ -1336,6 +1342,7 @@ extension Chart {
         atFraction fraction: Double?,
         sourceInkData: Data,
         sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil,
         spellingIntent: ChordSpellingIntent? = nil
     ) -> UUID? {
         guard let chordEventID = appendRecognizedChordEvent(
@@ -1345,6 +1352,7 @@ extension Chart {
             atFraction: fraction,
             sourceInkData: sourceInkData,
             sourceCandidateSignature: sourceCandidateSignature,
+            sourceRecognitionPipelineVersion: sourceRecognitionPipelineVersion,
             spellingIntent: spellingIntent
         ) else {
             return nil

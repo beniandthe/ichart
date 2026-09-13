@@ -173,18 +173,17 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
         XCTAssertEqual(recognizer.receivedStrokeCounts, [1])
     }
 
-    func testSessionReusesRecognitionResultForUnchangedTargetDrawing() {
+    func testSessionReusesRecognitionResultForUnchangedStrokesAfterArchiveReserialization() {
         let expectedResult = Self.result(for: "F#-7", confidence: 4.6)
         let recognizer = StubChordInkRecognizer(results: [expectedResult])
         let session = ChordInkRecognitionSession(
             queue: DispatchQueue(label: "com.ichart.tests.chord-session.cache"),
             recognizer: recognizer
         )
-        let drawingData = Data([0x01, 0x04, 0x09])
         var firstRequest = Self.request(strokeCount: 3)
-        firstRequest.drawingData = drawingData
+        firstRequest.drawingData = Data([0x01, 0x04, 0x09])
         var secondRequest = Self.request(strokeCount: 3)
-        secondRequest.drawingData = drawingData
+        secondRequest.drawingData = Data([0x09, 0x04, 0x01])
         let firstCompletion = expectation(description: "first recognition")
         let secondCompletion = expectation(description: "cached recognition")
 
@@ -202,6 +201,39 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
         wait(for: [secondCompletion], timeout: 1)
 
         XCTAssertEqual(recognizer.receivedStrokeCounts, [3])
+    }
+
+    func testSessionDoesNotReuseRecognitionResultWhenArchiveBytesMatchButStrokesChange() {
+        let firstResult = Self.result(for: "C", confidence: 4.6)
+        let secondResult = Self.result(for: "G", confidence: 4.6)
+        let recognizer = StubChordInkRecognizer(results: [firstResult, secondResult])
+        let session = ChordInkRecognitionSession(
+            queue: DispatchQueue(label: "com.ichart.tests.chord-session.semantic-cache"),
+            recognizer: recognizer
+        )
+        let sharedArchiveBytes = Data([0x01, 0x04, 0x09])
+        var firstRequest = Self.request(strokeCount: 1)
+        firstRequest.drawingData = sharedArchiveBytes
+        var secondRequest = Self.request(strokeCount: 2)
+        secondRequest.drawingData = sharedArchiveBytes
+        let firstCompletion = expectation(description: "first geometry")
+        let secondCompletion = expectation(description: "different geometry")
+
+        session.start(request: firstRequest) { payload in
+            XCTAssertFalse(payload.timing.cacheHit)
+            XCTAssertEqual(payload.result, firstResult)
+            firstCompletion.fulfill()
+        }
+        wait(for: [firstCompletion], timeout: 1)
+
+        session.start(request: secondRequest) { payload in
+            XCTAssertFalse(payload.timing.cacheHit)
+            XCTAssertEqual(payload.result, secondResult)
+            secondCompletion.fulfill()
+        }
+        wait(for: [secondCompletion], timeout: 1)
+
+        XCTAssertEqual(recognizer.receivedStrokeCounts, [1, 2])
     }
 
     func testPreparationSessionDropsCancelledQueuedWork() {

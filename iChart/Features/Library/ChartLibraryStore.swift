@@ -469,7 +469,14 @@ final class ChartLibraryStore: ObservableObject {
         }
 
         let snapshot: ChartLibrarySnapshot
-        if IChartSimulatorPreviewLaunch.showsEditorUIFixture {
+        #if DEBUG && targetEnvironment(simulator)
+        let showsEditorUIFixture = IChartSimulatorPreviewLaunch.showsEditorUIFixture
+        #else
+        // SwiftPM excludes app-only helpers; previews are also unavailable
+        // outside Debug Simulator builds. Preserve normal loading everywhere.
+        let showsEditorUIFixture = false
+        #endif
+        if showsEditorUIFixture {
             let charts = [
                 ChartSamples.straightAheadSwing,
                 Chart.blank(

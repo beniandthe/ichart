@@ -24,6 +24,7 @@ struct ChordEntryDiagnosticEvent: Codable, Equatable {
     var suggestedCandidateTexts: [String]
     var rawCandidates: [String]
     var candidateScores: [ChordInkCandidateScore]
+    var reviewCandidateScores: [ChordInkCandidateScore]? = nil
     var confidence: Double
     var recognitionReason: String
     var wasCloseRace: Bool
@@ -35,6 +36,7 @@ struct ChordEntryDiagnosticEvent: Codable, Equatable {
     var primaryWasCloseRace: Bool? = nil
     var primaryConfidenceGap: Double? = nil
     var recognitionMetrics: ChordInkRecognitionMetrics? = nil
+    var trustEvidence: ChordInkTrustEvidence? = nil
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
     var primarySymbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil

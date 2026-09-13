@@ -84,6 +84,7 @@ enum ChordInkRecognitionPreparation {
                 startedAt: startedAt
             )
         }
+        let sourceStrokeCount = sourceDrawing.strokes.count
 
         let visibleSourceContext = ChordInkDraftVisibleStrokePolicy.visibleDrawingContext(
             from: sourceDrawing
@@ -97,11 +98,9 @@ enum ChordInkRecognitionPreparation {
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
             )
         }
-        let draftSourceDrawing = request.flow == .draftPreview
-            ? visibleSourceContext.drawing
-            : sourceDrawing
+        let visibleSourceDrawing = visibleSourceContext.drawing
         guard let sourceStrokes = PencilKitInkAdapter.inkStrokes(
-            from: draftSourceDrawing,
+            from: visibleSourceDrawing,
             shouldContinue: shouldContinue
         ) else {
             return result(
@@ -116,19 +115,29 @@ enum ChordInkRecognitionPreparation {
                 requestID: request.requestID,
                 outcome: .noVisibleStrokes,
                 startedAt: startedAt,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 visibleStrokeCount: 0,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
             )
         }
 
-        let visibleBarlineRecognition = request.flow == .draftPreview
-            ? ChordDraftBarlineRecognizer.recognize(
+        let visibleBarlineRecognition: ChordDraftBarlineRecognition
+        if request.flow == .draftPreview {
+            let rawVisibleBarlineRecognition = ChordDraftBarlineRecognizer.recognize(
                 strokes: sourceStrokes,
                 chordFrame: request.chordFrame,
                 pageLayout: request.pageLayout
             )
-            : ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
+            visibleBarlineRecognition = visibleSourceContext
+                .barlineRecognitionWithUnambiguousSourceStrokes(
+                    rawVisibleBarlineRecognition
+                )
+        } else {
+            visibleBarlineRecognition = ChordDraftBarlineRecognition(
+                barlines: [],
+                strokeIndices: []
+            )
+        }
         let barlineRecognition = request.flow == .draftPreview
             ? visibleSourceContext.remappedBarlineRecognition(visibleBarlineRecognition)
             : visibleBarlineRecognition
@@ -137,18 +146,16 @@ enum ChordInkRecognitionPreparation {
                 requestID: request.requestID,
                 outcome: .cancelled,
                 startedAt: startedAt,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
             )
         }
         let recognitionDrawing = request.flow == .draftPreview
-            ? sourceDrawing.removingStrokes(
-                at: barlineRecognition.strokeIndices.union(
-                    visibleSourceContext.invisibleStrokeIndices
-                )
+            ? visibleSourceDrawing.removingStrokes(
+                at: visibleBarlineRecognition.strokeIndices
             )
-            : sourceDrawing
+            : visibleSourceDrawing
         let recognitionStrokes = request.flow == .draftPreview
             ? sourceStrokes.enumerated().compactMap { index, stroke in
                 visibleBarlineRecognition.strokeIndices.contains(index) ? nil : stroke
@@ -156,19 +163,20 @@ enum ChordInkRecognitionPreparation {
             : sourceStrokes
         let recognitionStrokeCount = recognitionStrokes.count
         // The source data was normalized before this preparation request was
-        // created. Removing draft barline/invisible strokes does not change ink
-        // attributes, so serializing the filtered drawing directly avoids a
-        // second full color-normalization scan on the recognition queue.
-        let recognitionDrawingData = request.flow == .draftPreview
-            ? (recognitionStrokeCount == 0 ? nil : recognitionDrawing.dataRepresentation())
-            : request.drawingData
+        // created. The recognition drawing also expands any bitmap-erased mask
+        // into independent visible fragments so targeting, saved source ink,
+        // and semantic correction evidence all describe what the musician can
+        // still see rather than the erased underlying path.
+        let recognitionDrawingData = recognitionStrokeCount == 0
+            ? nil
+            : recognitionDrawing.dataRepresentation()
         guard let recognitionDrawingData else {
             return result(
                 requestID: request.requestID,
                 outcome: .noRecognitionData,
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
@@ -181,7 +189,7 @@ enum ChordInkRecognitionPreparation {
                 outcome: .cancelled,
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
@@ -203,7 +211,7 @@ enum ChordInkRecognitionPreparation {
                 outcome: .cancelled,
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
@@ -216,7 +224,7 @@ enum ChordInkRecognitionPreparation {
         )
         ChordDraftPreviewDeviceDiagnostics.recordTargeting(
             flow: request.flow,
-            sourceStrokeCount: sourceStrokes.count,
+            sourceStrokeCount: sourceStrokeCount,
             recognitionStrokeCount: recognitionStrokeCount,
             visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
             ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -242,7 +250,7 @@ enum ChordInkRecognitionPreparation {
                     outcome: .skippedWeakBatchTargets,
                     startedAt: startedAt,
                     barlines: barlineRecognition.barlines,
-                    sourceStrokeCount: sourceStrokes.count,
+                    sourceStrokeCount: sourceStrokeCount,
                     recognitionStrokeCount: recognitionStrokeCount,
                     visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                     ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -270,7 +278,7 @@ enum ChordInkRecognitionPreparation {
                 outcome: .ready(requests: sessionRequests, usesBatch: true),
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -296,7 +304,7 @@ enum ChordInkRecognitionPreparation {
                 outcome: .skippedSingleTarget,
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -323,7 +331,7 @@ enum ChordInkRecognitionPreparation {
                 outcome: .noTarget,
                 startedAt: startedAt,
                 barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokes.count,
+                sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -362,7 +370,7 @@ enum ChordInkRecognitionPreparation {
             outcome: .ready(requests: [sessionRequest], usesBatch: false),
             startedAt: startedAt,
             barlines: barlineRecognition.barlines,
-            sourceStrokeCount: sourceStrokes.count,
+            sourceStrokeCount: sourceStrokeCount,
             recognitionStrokeCount: recognitionStrokeCount,
             visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
             ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
@@ -465,7 +473,7 @@ final class ChordInkRecognitionPreparationSession {
 
 final class ChordInkRecognitionSession {
     private struct CacheKey: Hashable {
-        var drawingData: Data
+        var strokes: [InkStroke]
         var options: ChordInkRecognitionOptions
     }
 
@@ -624,7 +632,13 @@ final class ChordInkRecognitionSession {
         for request: ChordInkRecognitionSessionRequest,
         recognizer: ChordInkRecognizing
     ) -> (result: ChordInkRecognitionResult, cacheHit: Bool) {
-        let key = CacheKey(drawingData: request.drawingData, options: request.options)
+        // Recognition consumes only the prepared strokes and options. PencilKit
+        // may reserialize an unchanged drawing with different archive metadata,
+        // so raw drawing bytes make a valid cache miss every time an earlier
+        // chord is revisited in a growing row. Key the cache by the exact
+        // recognition input instead; request.drawingData still flows through
+        // the payload for persistence and correction evidence.
+        let key = CacheKey(strokes: request.strokes, options: request.options)
         if let result = cachedResults[key] {
             return (result, true)
         }

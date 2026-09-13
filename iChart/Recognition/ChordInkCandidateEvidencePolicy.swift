@@ -45,6 +45,15 @@ struct ChordInkCandidateEvidencePolicy {
             return true
         }
 
+        if symbol.extensions.isEmpty,
+           !symbol.alterations.isEmpty,
+           !hasOwnedBareAlterationEvidence(
+               candidate,
+               clusters: clusters
+           ) {
+            return false
+        }
+
         if symbol.slashBass != nil,
            !hasOwnedSlashBassEvidence(
                candidate,
@@ -92,6 +101,27 @@ struct ChordInkCandidateEvidencePolicy {
         }
 
         return true
+    }
+
+    private func hasOwnedBareAlterationEvidence(
+        _ candidate: ChordInkCandidate,
+        clusters: [InkCluster]
+    ) -> Bool {
+        let upperBound = min(candidate.glyphCandidates.count, clusters.count)
+        guard upperBound > 1,
+              let alterationStart = clusters[..<upperBound].firstIndex(where: {
+                  $0.hasRecognitionHint(.parenthesizedAlteration)
+              }),
+              alterationStart > clusters.startIndex,
+              candidate.glyphCandidates.indices.contains(alterationStart),
+              candidate.glyphCandidates[alterationStart].text == "b"
+                || candidate.glyphCandidates[alterationStart].text == "#" else {
+            return false
+        }
+
+        return clusters[alterationStart..<upperBound].allSatisfy {
+            $0.hasRecognitionHint(.parenthesizedAlteration)
+        }
     }
 
     private func allowsRootAccidentalEvidence(
@@ -228,7 +258,10 @@ struct ChordInkCandidateEvidencePolicy {
         clusters: [InkCluster],
         roleContext: ChordInkTheoryRoleContext
     ) -> Bool {
-        guard let slashIndex = candidate.glyphCandidates.firstIndex(where: { $0.text == "/" }),
+        // A six-nine chord may contain an internal extension separator before
+        // its actual slash-bass separator (`C6/9/E`). Bass ownership therefore
+        // belongs to the final slash, matching the parser's grammar.
+        guard let slashIndex = candidate.glyphCandidates.lastIndex(where: { $0.text == "/" }),
               candidate.glyphCandidates.indices.contains(slashIndex + 1),
               candidateColumns.indices.contains(slashIndex),
               clusters.indices.contains(slashIndex),
@@ -662,11 +695,21 @@ struct ChordInkCandidateEvidencePolicy {
         }
 
         if glyphCandidates[index].text == "6",
-           hasQualityBefore(index, in: glyphCandidates) {
+           hasQualityBefore(index, in: glyphCandidates)
+            || isSixNineDescriptorStart(at: index, in: glyphCandidates) {
             return true
         }
 
         return false
+    }
+
+    private func isSixNineDescriptorStart(
+        at index: Int,
+        in glyphCandidates: [GlyphCandidate]
+    ) -> Bool {
+        glyphCandidates.indices.contains(index + 2)
+            && glyphCandidates[index + 1].text == "/"
+            && glyphCandidates[index + 2].text == "9"
     }
 
     private func hasExtensionBefore(

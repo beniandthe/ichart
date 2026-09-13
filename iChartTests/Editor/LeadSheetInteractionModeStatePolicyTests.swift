@@ -160,7 +160,8 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                     CGPoint(x: 25, y: 9)
                 ],
                 creationDate: Date(timeIntervalSince1970: 40),
-                color: .white
+                color: .white,
+                randomSeed: 0xA11CE
             )
         ])
         let sourceSnapshot = try XCTUnwrap(LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
@@ -171,6 +172,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let normalizedSnapshot = try XCTUnwrap(LeadSheetInkDrawingSnapshot(drawing: normalizedDrawing))
 
         XCTAssertEqual(sourceSnapshot, normalizedSnapshot)
+        XCTAssertEqual(normalizedDrawing.strokes.first?.randomSeed, 0xA11CE)
         XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(normalizedDrawing))
         XCTAssertEqual(normalizedDrawing.strokes.first?.ink.inkType, .pen)
         assertPersistentInkColor(try XCTUnwrap(normalizedDrawing.strokes.first?.ink.color))
@@ -3110,6 +3112,51 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(result.targets.flatMap(\.strokes).count, 3)
     }
 
+    func testChordBatchTargetingKeepsDetachedPendingConstructionAfterCompletedRootForBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Completed Root Then Construction", layoutStyle: style)
+            chart.completeInitialSetup(
+                title: "Completed Root Then Construction",
+                key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4),
+                staffStyle: .fiveLine,
+                startingMeasureCount: 1
+            )
+            let layout = LeadSheetPageLayoutEngine.pageLayout(
+                for: chart,
+                pageSize: CGSize(width: 900, height: 1200)
+            )
+            let laneFrame = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingInputFrames(for: layout).first)
+            let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+            let pointSets = deviceCThenDetachedDPointSets(
+                offsetX: laneFrame.minX + 64 - chordFrame.minX - 193.9,
+                offsetY: laneFrame.midY - chordFrame.minY - 68
+            )
+            let strokes = pointSets.enumerated().map { index, points in
+                stroke(points: points, creationDate: Date(timeIntervalSince1970: 80 + TimeInterval(index)))
+            }
+
+            for count in 2...3 {
+                let drawing = PKDrawing(strokes: Array(strokes.prefix(count)))
+                let adaptedStrokes = PencilKitInkAdapter.inkStrokes(from: drawing)
+                let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+                    for: drawing,
+                    chordFrame: chordFrame,
+                    pageLayout: layout
+                )
+                XCTAssertEqual(result.targets.count, 2, "style=\(style) prefix=\(count) route=\(result.diagnostics.selectedRoute)")
+                guard result.targets.count == 2 else { continue }
+                XCTAssertEqual(result.targets[0].strokes, [adaptedStrokes[0]])
+                XCTAssertEqual(result.targets[1].strokes, Array(adaptedStrokes.dropFirst()))
+                XCTAssertEqual(
+                    ChordInkRecognizer().recognize(strokes: result.targets[0].strokes).match?.displayText,
+                    "C",
+                    "style=\(style) prefix=\(count)"
+                )
+            }
+        }
+    }
+
     func testChordBatchTargetingDoesNotAbsorbDetachedDIntoPriorCOpenLaneRoot() throws {
         var chart = Chart.draft(title: "Open Lane C Then D", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
@@ -3401,11 +3448,41 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             chordFrame: chordFrame,
             pageLayout: layout
         )
+        let adaptedStrokes = PencilKitInkAdapter.inkStrokes(from: drawing)
+        let sequentialGroups = ChordInkSequentialGrouper().groups(
+            for: adaptedStrokes.enumerated().map {
+                (index: $0.offset, stroke: $0.element)
+            }
+        )
+        let sequentialGroupSummary = sequentialGroups.map { group in
+            let rootText = group.rootText ?? "nil"
+            let rootConfidence = group.rootConfidence.map { String($0) } ?? "nil"
+            return "indices=\(group.strokeIndices) root=\(rootText) confidence=\(rootConfidence) modifierLed=\(group.rootWasModifierLed) rootBounds=\(group.rootBounds) bounds=\(group.bounds)"
+        }.joined(separator: " | ")
+        let glyphSummary = StrokeClusterer().indexedClusters(adaptedStrokes).map { cluster in
+            let candidates = GestureTemplateRecognizer().rankedCandidates(
+                for: cluster.cluster,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            let candidateSummary = candidates.map { "\($0.text):\($0.confidence)" }
+            return "indices=\(cluster.originalIndexes) bounds=\(cluster.cluster.bounds) candidates=\(candidateSummary)"
+        }.joined(separator: " | ")
+        let expectedChunkSummary = [[0, 1, 2], [3, 4], [5], [6, 7]].map { indices in
+            let cluster = InkCluster(strokes: indices.map { adaptedStrokes[$0] })
+            let candidates = GestureTemplateRecognizer().rankedCandidates(
+                for: cluster,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            let candidateSummary = candidates.map { "\($0.text):\($0.confidence)" }
+            return "indices=\(indices) candidates=\(candidateSummary)"
+        }.joined(separator: " | ")
 
         XCTAssertEqual(
             result.targets.count,
             4,
-            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount)"
+            "route=\(result.diagnostics.selectedRoute) draft=\(result.diagnostics.draftBarlineClusterCount) laneSequence=\(result.diagnostics.laneSequentialClusterCount) measure=\(result.diagnostics.measureLaneClusterCount) fallback=\(result.diagnostics.fallbackClusterCount) selected=\(result.diagnostics.selectedClusterCount) groups=[\(sequentialGroupSummary)] glyphs=[\(glyphSummary)] expectedChunks=[\(expectedChunkSummary)]"
         )
         XCTAssertEqual(result.diagnostics.selectedRoute, "lane_root_sequence")
         XCTAssertEqual(result.diagnostics.laneSequentialClusterCount, 4)
@@ -4939,6 +5016,108 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 currentInkSnapshot: LeadSheetInkDrawingSnapshot(drawing: currentDrawing),
                 desiredDrawingData: nil
             )
+        )
+    }
+
+    func testInkDrawingSnapshotDistinguishesInteriorBitmapMaskChanges() throws {
+        let points = [
+            CGPoint(x: 0, y: 20),
+            CGPoint(x: 10, y: 20),
+            CGPoint(x: 20, y: 20),
+            CGPoint(x: 30, y: 20),
+            CGPoint(x: 40, y: 20),
+            CGPoint(x: 50, y: 20)
+        ]
+        let endpointMask = UIBezierPath()
+        endpointMask.append(UIBezierPath(rect: CGRect(x: -2, y: 10, width: 18, height: 20)))
+        endpointMask.append(UIBezierPath(rect: CGRect(x: 34, y: 10, width: 18, height: 20)))
+        let endpointAndMiddleMask = UIBezierPath()
+        endpointAndMiddleMask.append(endpointMask)
+        endpointAndMiddleMask.append(
+            UIBezierPath(rect: CGRect(x: 18, y: 10, width: 14, height: 20))
+        )
+        let endpointDrawing = PKDrawing(strokes: [
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSinceReferenceDate: 1_000),
+                mask: endpointMask
+            )
+        ])
+        let endpointAndMiddleDrawing = PKDrawing(strokes: [
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSinceReferenceDate: 1_000),
+                mask: endpointAndMiddleMask
+            )
+        ])
+
+        XCTAssertEqual(
+            try XCTUnwrap(endpointDrawing.strokes.first).renderBounds,
+            try XCTUnwrap(endpointAndMiddleDrawing.strokes.first).renderBounds
+        )
+        let endpointSnapshot = try XCTUnwrap(
+            LeadSheetInkDrawingSnapshot(drawing: endpointDrawing)
+        )
+        let endpointAndMiddleSnapshot = try XCTUnwrap(
+            LeadSheetInkDrawingSnapshot(drawing: endpointAndMiddleDrawing)
+        )
+
+        XCTAssertNotEqual(endpointSnapshot, endpointAndMiddleSnapshot)
+        XCTAssertFalse(
+            LeadSheetInkAuthoringSessionPolicy.canUseScheduledSnapshot(
+                currentInkSnapshot: endpointAndMiddleSnapshot,
+                scheduledInkSnapshot: endpointSnapshot
+            ),
+            "An interior bitmap erase must invalidate work scheduled for the earlier visible path."
+        )
+        XCTAssertFalse(
+            LeadSheetInkCanvasSyncPolicy.shouldTreatCanvasAsSynced(
+                currentInkSnapshot: endpointSnapshot,
+                desiredDrawingData: endpointAndMiddleDrawing.dataRepresentation()
+            ),
+            "A mask-only edit must not be skipped as archive-metadata churn during canvas sync."
+        )
+        XCTAssertTrue(
+            ChordInkRestoredDraftPreviewPolicy.shouldBootstrap(
+                interactionMode: .chordEntry,
+                recognizesChordInk: true,
+                previewState: ChordPreviewState(),
+                restoredDrawingData: endpointAndMiddleDrawing.dataRepresentation(),
+                isDirtyChordInk: false,
+                currentInkSnapshot: endpointAndMiddleSnapshot,
+                lastBootstrappedSnapshot: endpointSnapshot
+            ),
+            "Restored chord preview must revisit the drawing after a mask-only semantic change."
+        )
+    }
+
+    func testInkDrawingSnapshotDistinguishesTransformsWithEqualRenderBounds() throws {
+        let points = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: 10, y: 0),
+            CGPoint(x: 10, y: 20)
+        ]
+        let identityDrawing = PKDrawing(strokes: [
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSinceReferenceDate: 1_000)
+            )
+        ])
+        let reflectedDrawing = PKDrawing(strokes: [
+            stroke(
+                points: points,
+                creationDate: Date(timeIntervalSinceReferenceDate: 1_000),
+                transform: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 10, ty: 0)
+            )
+        ])
+
+        XCTAssertEqual(
+            try XCTUnwrap(identityDrawing.strokes.first).renderBounds,
+            try XCTUnwrap(reflectedDrawing.strokes.first).renderBounds
+        )
+        XCTAssertNotEqual(
+            LeadSheetInkDrawingSnapshot(drawing: identityDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: reflectedDrawing)
         )
     }
 
@@ -6981,7 +7160,10 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         points: [CGPoint],
         creationDate: Date,
         color: UIColor = .black,
-        size: CGSize = CGSize(width: 2, height: 2)
+        size: CGSize = CGSize(width: 2, height: 2),
+        transform: CGAffineTransform = .identity,
+        mask: UIBezierPath? = nil,
+        randomSeed: UInt32 = 0
     ) -> PKStroke {
         let controlPoints = points.enumerated().map { index, point in
             PKStrokePoint(
@@ -6996,7 +7178,10 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         }
         return PKStroke(
             ink: PKInk(.pen, color: color),
-            path: PKStrokePath(controlPoints: controlPoints, creationDate: creationDate)
+            path: PKStrokePath(controlPoints: controlPoints, creationDate: creationDate),
+            transform: transform,
+            mask: mask,
+            randomSeed: randomSeed
         )
     }
 

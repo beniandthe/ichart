@@ -8,7 +8,7 @@ private enum ChordInkManualEntryShortcut {
 private typealias ChordInkPencilOnlyButton = PencilOnlyActionButton
 
 struct PendingChordInkConfirmation: Identifiable {
-    let id = UUID()
+    let id: UUID
     let measureID: UUID
     let measureIndex: Int
     let result: ChordInkRecognitionResult
@@ -26,6 +26,7 @@ struct PendingChordInkConfirmation: Identifiable {
     }
 
     init(
+        id: UUID = UUID(),
         measureID: UUID,
         measureIndex: Int,
         result: ChordInkRecognitionResult,
@@ -37,6 +38,7 @@ struct PendingChordInkConfirmation: Identifiable {
         decision: ChordInkRecognitionDecision,
         candidateTexts: [String]? = nil
     ) {
+        self.id = id
         self.measureID = measureID
         self.measureIndex = measureIndex
         self.result = result
@@ -63,14 +65,106 @@ struct PendingChordInkConfirmation: Identifiable {
     var visibleCandidateTexts: [String] {
         Array(candidateTexts.prefix(3))
     }
+
+    var reviewMessage: String? {
+        decision.action == .confirm ? decision.reason : nil
+    }
 }
 
 struct PendingChordInkBatchConfirmation: Identifiable {
+    enum Source: Hashable {
+        case recognitionProposal
+        case draftPreview
+    }
+
     let id = UUID()
     let confirmations: [PendingChordInkConfirmation]
+    var source: Source = .recognitionProposal
 
     var displayTitle: String {
-        "\(confirmations.count) Chords"
+        confirmations.count == 1 ? "1 Chord" : "\(confirmations.count) Chords"
+    }
+
+    var instructionText: String {
+        switch source {
+        case .recognitionProposal:
+            return "Review each chord, then render them together."
+        case .draftPreview:
+            return "Check the uncertain reads, then render the draft."
+        }
+    }
+
+    var actionTitle: String {
+        confirmations.count == 1 ? "Render Chord" : "Render All"
+    }
+}
+
+enum ChordInkDraftReviewPolicy {
+    static func batch(for state: ChordPreviewState) -> PendingChordInkBatchConfirmation? {
+        let drafts = state.renderableDraftChords
+        let confirmations = drafts.compactMap { draft -> PendingChordInkConfirmation? in
+            guard let result = draft.recognitionResult else {
+                return nil
+            }
+
+            let primaryDecision = draft.primaryDecision
+                ?? ChordInkRecognitionPolicy.decision(for: result)
+            let decision = draft.recognitionDecision ?? ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: primaryDecision.acceptedText,
+                reason: "I couldn't verify every part of this chord. Choose a suggestion or type it in.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+            return PendingChordInkConfirmation(
+                id: draft.id,
+                measureID: draft.measureID,
+                measureIndex: draft.measureIndex,
+                result: result,
+                drawingData: draft.drawingData,
+                targetFraction: draft.targetFraction,
+                primaryDecision: primaryDecision,
+                decision: decision,
+                candidateTexts: draft.candidateTexts
+            )
+        }
+
+        guard !confirmations.isEmpty,
+              confirmations.count == drafts.count else {
+            return nil
+        }
+
+        return PendingChordInkBatchConfirmation(
+            confirmations: confirmations,
+            source: .draftPreview
+        )
+    }
+
+    static func reviewedState(
+        from state: ChordPreviewState,
+        candidateTextByDraftID: [UUID: String]
+    ) -> ChordPreviewState? {
+        let renderableDrafts = state.renderableDraftChords
+        guard !renderableDrafts.isEmpty,
+              renderableDrafts.allSatisfy({ draft in
+                  guard let candidateText = candidateTextByDraftID[draft.id],
+                        !candidateText.isEmpty else {
+                      return false
+                  }
+                  return ChordRecognitionCompendium.match(candidateText) != nil
+              }) else {
+            return nil
+        }
+
+        var reviewedState = state
+        for index in reviewedState.draftChords.indices {
+            let draftID = reviewedState.draftChords[index].id
+            if let candidateText = candidateTextByDraftID[draftID] {
+                reviewedState.draftChords[index].selectedText = candidateText
+            }
+        }
+        return reviewedState
     }
 }
 
@@ -163,7 +257,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     Text(batch.displayTitle)
                         .font(.system(.title2, design: .rounded).weight(.bold))
 
-                    Text("Review each chord, then render them together.")
+                    Text(batch.instructionText)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -185,7 +279,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .frame(maxWidth: .infinity)
 
                     ChordInkPencilOnlyButton(
-                        title: "Render All",
+                        title: batch.actionTitle,
                         style: .borderedProminent,
                         isEnabled: canRenderAll
                     ) {
@@ -251,6 +345,13 @@ struct ChordInkBatchConfirmationSheetView: View {
             )
             .frame(minHeight: 46)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
+
+            if let reviewMessage = confirmation.reviewMessage {
+                Text(reviewMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if !confirmation.visibleCandidateTexts.isEmpty {
                 HStack(spacing: 8) {
@@ -457,6 +558,14 @@ struct ChordInkConfirmationSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+
+                if let reviewMessage = confirmation.reviewMessage {
+                    Text(reviewMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 TextField("Type chord", text: $manualCandidateText)
                     .font(.system(.title2, design: .rounded).weight(.semibold))

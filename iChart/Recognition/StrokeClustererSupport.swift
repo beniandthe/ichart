@@ -3,6 +3,7 @@ import Foundation
 struct MutableInkCluster: Hashable {
     var strokes: [InkStroke]
     var originalIndexes: [Int]
+    var recognitionHints: Set<InkClusterRecognitionHint> = []
 
     var bounds: InkBounds {
         InkBounds.enclosing(strokes.map(\.bounds))
@@ -20,6 +21,24 @@ struct MutableInkCluster: Hashable {
             .flatMap(\.points)
             .compactMap(\.timeOffset)
             .max()
+    }
+
+    var timelineStartTimeOffset: TimeInterval? {
+        let timestamps = strokes.compactMap(\.timelineStartTimeOffset)
+        guard timestamps.count == strokes.count else {
+            return nil
+        }
+
+        return timestamps.min()
+    }
+
+    var timelineEndTimeOffset: TimeInterval? {
+        let timestamps = strokes.compactMap(\.timelineEndTimeOffset)
+        guard timestamps.count == strokes.count else {
+            return nil
+        }
+
+        return timestamps.max()
     }
 
     var isRootBodyCandidate: Bool {
@@ -446,7 +465,12 @@ struct MutableInkCluster: Hashable {
             && looseSharpVerticalStrokeCount >= 2
             && looseSharpHorizontalStrokeCount >= 1
             && bounds.width >= 8
-            && bounds.height >= 12
+            // Chord alterations are commonly written smaller than the root.
+            // Requiring a 12-point tall construction left a complete four-line
+            // sharp just below that cutoff, so literal parentheses were kept
+            // as glyphs and became a spurious second alteration. The two-stem
+            // plus crossbar requirements remain the stronger shape evidence.
+            && bounds.height >= 10
     }
 
     var isPlusVerticalConstructionPart: Bool {
@@ -507,6 +531,41 @@ struct MutableInkCluster: Hashable {
         looseSharpHorizontalStrokeCount > 0
     }
 
+    /// Counts alone can borrow an F's bars, or mistake a detached slash for
+    /// a sharp stem. Both distinct crossbars must span the same two separated
+    /// stems before the completed construction can override a fragment guard.
+    var hasTwoCrossingSharpBars: Bool {
+        let stems = strokes.filter(\.isLooseSharpVerticalCandidate)
+        let bars = strokes.filter(\.isLooseSharpHorizontalCandidate)
+        guard stems.count >= 2, bars.count >= 2 else { return false }
+        let constructionBounds = bounds
+        let tolerance = max(2, min(constructionBounds.width, constructionBounds.height) * 0.10)
+
+        for firstIndex in stems.indices.dropLast() {
+            for secondIndex in stems.indices where secondIndex > firstIndex {
+                let first = stems[firstIndex].bounds
+                let second = stems[secondIndex].bounds
+                guard abs(first.recognitionMidX - second.recognitionMidX) >= max(3, constructionBounds.width * 0.10) else {
+                    continue
+                }
+                let crossingBars = bars.filter { bar in
+                    [first, second].allSatisfy { stem in
+                        stem.recognitionMidX >= bar.bounds.minX - tolerance
+                            && stem.recognitionMidX <= bar.bounds.maxX + tolerance
+                            && bar.bounds.recognitionMidY >= stem.minY - tolerance
+                            && bar.bounds.recognitionMidY <= stem.maxY + tolerance
+                    }
+                }
+                let heights = crossingBars.map { $0.bounds.recognitionMidY }
+                if let top = heights.min(), let bottom = heights.max(),
+                   bottom - top >= max(2, constructionBounds.height * 0.10) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     var isSharpConstructionPart: Bool {
         guard !strokes.isEmpty,
               strokes.allSatisfy({ $0.isSharpConstructionStrokeCandidate }) else {
@@ -562,7 +621,8 @@ struct MutableInkCluster: Hashable {
     func merged(with other: MutableInkCluster) -> MutableInkCluster {
         MutableInkCluster(
             strokes: strokes + other.strokes,
-            originalIndexes: originalIndexes + other.originalIndexes
+            originalIndexes: originalIndexes + other.originalIndexes,
+            recognitionHints: recognitionHints.union(other.recognitionHints)
         )
     }
 }
@@ -933,9 +993,9 @@ extension InkStroke {
 
     var isDiminishedCircleConstructionCandidate: Bool {
         bounds.width >= 4
-            && bounds.width <= 17
+            && bounds.width <= 24
             && bounds.height >= 4
-            && bounds.height <= 20
+            && bounds.height <= 28
             && aspectRatio >= 0.42
             && aspectRatio <= 1.55
             && points.count >= 8

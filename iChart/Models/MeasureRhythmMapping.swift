@@ -387,7 +387,8 @@ extension Measure {
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
         sourceInkData: Data? = nil,
-        sourceCandidateSignature: [String] = []
+        sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil
     ) -> UUID {
         let chordEventID = UUID()
         chordEvents.append(
@@ -403,7 +404,8 @@ extension Measure {
                 hitStyle: hitStyle,
                 rawInput: rawInput,
                 sourceInkData: sourceInkData,
-                sourceCandidateSignature: sourceCandidateSignature
+                sourceCandidateSignature: sourceCandidateSignature,
+                sourceRecognitionPipelineVersion: sourceRecognitionPipelineVersion
             )
         )
         return chordEventID

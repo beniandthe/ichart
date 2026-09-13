@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import XCTest
 @testable import iChart
 
@@ -227,3 +228,4 @@ private extension EditorCanvasMode {
         .textEdit
     ]
 }
+#endif

@@ -474,11 +474,6 @@ enum ChordSymbolParser {
             throw ChordSymbolParseError.unsupportedAlteration
         }
 
-        if !alterations.isEmpty,
-           extensions.isEmpty {
-            throw ChordSymbolParseError.unsupportedAlteration
-        }
-
         if quality == "°" {
             guard alterations.isEmpty,
                   extensions.isEmpty || extensions == ["7"] else {
@@ -546,7 +541,7 @@ enum ChordSymbolParser {
     }
 
     private static func isSupportedAlteration(_ token: String) -> Bool {
-        ["b5", "#5", "b9", "#9", "#11", "b13"].contains(token)
+        ["b3", "b5", "#5", "b9", "#9", "#11", "b13"].contains(token)
     }
 
     private static func isUnsupportedMajorDescriptor(_ descriptor: String) -> Bool {

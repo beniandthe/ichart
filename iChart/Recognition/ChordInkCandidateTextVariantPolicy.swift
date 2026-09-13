@@ -122,7 +122,7 @@ struct ChordInkCandidateTextVariantPolicy {
     }
 
     private func expandedSlashBassFlatLookalikeVariant(for text: String) -> String? {
-        guard let slashIndex = text.firstIndex(of: "/") else {
+        guard let slashIndex = text.lastIndex(of: "/") else {
             return nil
         }
 

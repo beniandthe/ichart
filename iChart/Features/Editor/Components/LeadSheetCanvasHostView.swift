@@ -114,7 +114,6 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)? = nil
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)? = nil
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
-    var onChordDeleted: ((ChordEvent) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onChordSelectedFromCanvas: ((UUID) -> Void)? = nil
@@ -206,7 +205,6 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onChordInkDraftPreviewChanged = onChordInkDraftPreviewChanged
         view.onChordInkDraftBarlinesChanged = onChordInkDraftBarlinesChanged
         view.onChordCorrectionRequested = onChordCorrectionRequested
-        view.onChordDeleted = onChordDeleted
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
         view.onChordSelectedFromCanvas = onChordSelectedFromCanvas
         view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
@@ -1512,7 +1510,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)?
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
-    var onChordDeleted: ((ChordEvent) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
     var onChordSelectionChanged: ((UUID?) -> Void)?
     var onCommittedChordBarlineSelectionChanged: ((UUID?) -> Void)?
@@ -1541,7 +1538,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
     private let renderedEditHitOverlayView = RenderedEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
-    private let chordInkRecognizer = ChordInkRecognizer()
+    private let chordInkRecognizer = ChordInkMaximumTrustRecognizer()
     private var chordInkRecognitionOptions: ChordInkRecognitionOptions {
         var options = ChordInkRecognitionOptions.live
         #if DEBUG && targetEnvironment(simulator)
@@ -4482,10 +4479,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func deleteChordEvent(_ chordID: UUID) {
-        guard let deletedChord = chart.chordEvent(id: chordID) else {
-            return
-        }
-
         var updatedChart = chart
         guard updatedChart.deleteChordEvent(chordID) else {
             return
@@ -4493,7 +4486,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         applyUpdatedChart(updatedChart, reason: .deleteChordEvent)
         selectedChordID = nil
-        onChordDeleted?(deletedChord)
         setNeedsDisplay()
     }
 
@@ -6393,6 +6385,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             strokeCount: result.recognitionStrokeCount,
             targetCount: preparedTargetCount
         )
+
+        if let properties = ChordInkRecognitionPreparationTelemetry.failureProperties(
+            for: result,
+            flow: flow,
+            layoutStyle: chart.layoutStyle
+        ) {
+            IChartTelemetry.record("chord.recognition_failed", properties: properties)
+        }
 
         switch result.outcome {
         case .cancelled:

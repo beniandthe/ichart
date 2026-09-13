@@ -28,6 +28,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var rawInput: String?
     var sourceInkData: Data? = nil
     var sourceCandidateSignature: [String] = []
+    var sourceRecognitionPipelineVersion: String? = nil
     var manualDisplayWidth: Double? = nil
     var manualLaneFraction: Double? = nil
 
@@ -45,6 +46,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         rawInput: String?,
         sourceInkData: Data? = nil,
         sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil,
         manualDisplayWidth: Double? = nil,
         manualLaneFraction: Double? = nil
     ) {
@@ -63,6 +65,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.rawInput = rawInput
         self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
         self.sourceCandidateSignature = sourceCandidateSignature
+        self.sourceRecognitionPipelineVersion = sourceRecognitionPipelineVersion
         self.manualDisplayWidth = manualDisplayWidth.map(Self.clampedManualDisplayWidth)
         self.manualLaneFraction = manualLaneFraction.map(Self.clampedManualLaneFraction)
     }
@@ -81,6 +84,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case rawInput
         case sourceInkData
         case sourceCandidateSignature
+        case sourceRecognitionPipelineVersion
         case manualDisplayWidth
         case manualLaneFraction
     }
@@ -113,6 +117,10 @@ struct ChordEvent: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
         )
         sourceCandidateSignature = try container.decodeIfPresent([String].self, forKey: .sourceCandidateSignature) ?? []
+        sourceRecognitionPipelineVersion = try container.decodeIfPresent(
+            String.self,
+            forKey: .sourceRecognitionPipelineVersion
+        )
         manualDisplayWidth = try container.decodeIfPresent(Double.self, forKey: .manualDisplayWidth)
             .map(Self.clampedManualDisplayWidth)
         manualLaneFraction = try container.decodeIfPresent(Double.self, forKey: .manualLaneFraction)
@@ -138,6 +146,10 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         if !sourceCandidateSignature.isEmpty {
             try container.encode(sourceCandidateSignature, forKey: .sourceCandidateSignature)
         }
+        try container.encodeIfPresent(
+            sourceRecognitionPipelineVersion,
+            forKey: .sourceRecognitionPipelineVersion
+        )
         try container.encodeIfPresent(manualDisplayWidth, forKey: .manualDisplayWidth)
         try container.encodeIfPresent(manualLaneFraction, forKey: .manualLaneFraction)
     }

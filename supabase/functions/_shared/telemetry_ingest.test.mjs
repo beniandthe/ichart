@@ -192,13 +192,21 @@ test("telemetry row allows aggregate chord preview handwriting quality without c
         quality_issue_count: 1,
         raw_candidate_count: 18,
         recognition_ms: 14.12567,
+        recognition_pipeline_version: "maximum-trust-v1-2026-09-10",
         recognition_target_count: 4,
+        review_candidate_count: 2,
         result: "partial",
         root_accidental_issue_count: 1,
         root_issue_count: 1,
         slash_bass_issue_count: 1,
         stroke_count: 13,
         triangle_quality_issue_count: 1,
+        trust_corroborated_count: 2,
+        trust_outcome: "corroborated",
+        trust_probe_count: 6,
+        trust_rejected_count: 1,
+        trust_symbol_support_count: 4,
+        trust_validation_ms: 8.12345,
         trusted_count: 3,
         unknown_issue_count: 0,
         unresolved_count: 1,
@@ -234,13 +242,24 @@ test("telemetry row allows aggregate chord preview handwriting quality without c
   assert.equal(row.properties.quality_issue_count, 1);
   assert.equal(row.properties.raw_candidate_count, 18);
   assert.equal(row.properties.recognition_ms, 14.126);
+  assert.equal(
+    row.properties.recognition_pipeline_version,
+    "maximum-trust-v1-2026-09-10",
+  );
   assert.equal(row.properties.recognition_target_count, 4);
+  assert.equal(row.properties.review_candidate_count, 2);
   assert.equal(row.properties.result, "partial");
   assert.equal(row.properties.root_accidental_issue_count, 1);
   assert.equal(row.properties.root_issue_count, 1);
   assert.equal(row.properties.slash_bass_issue_count, 1);
   assert.equal(row.properties.stroke_count, 13);
   assert.equal(row.properties.triangle_quality_issue_count, 1);
+  assert.equal(row.properties.trust_corroborated_count, 2);
+  assert.equal(row.properties.trust_outcome, "corroborated");
+  assert.equal(row.properties.trust_probe_count, 6);
+  assert.equal(row.properties.trust_rejected_count, 1);
+  assert.equal(row.properties.trust_symbol_support_count, 4);
+  assert.equal(row.properties.trust_validation_ms, 8.123);
   assert.equal(row.properties.trusted_count, 3);
   assert.equal(row.properties.unknown_issue_count, 0);
   assert.equal(row.properties.unresolved_count, 1);
@@ -273,6 +292,33 @@ test("telemetry row accepts chord preview render lifecycle events", () => {
     assert.equal(row.properties.barline_count, 1);
     assert.equal(row.properties.unresolved_count, 0);
   }
+});
+
+test("telemetry row accepts content-free rendered chord correction feedback", () => {
+  const row = telemetryRowFromEvent(
+    validEvent({
+      event_name: "chord.rendered_correction_applied",
+      properties: {
+        candidate_count: 3,
+        decision: "candidate_replacement",
+        layout_style: "simpleChordSheet",
+        result: "memory_updated",
+        source: "recognized_ink",
+        previous_chord_text: "C",
+        accepted_chord_text: "G",
+      },
+    }),
+    validContext
+  );
+
+  assert.ok(row);
+  assert.equal(row.event_name, "chord.rendered_correction_applied");
+  assert.equal(row.properties.candidate_count, 3);
+  assert.equal(row.properties.decision, "candidate_replacement");
+  assert.equal(row.properties.result, "memory_updated");
+  assert.equal(row.properties.source, "recognized_ink");
+  assert.equal(row.properties.previous_chord_text, undefined);
+  assert.equal(row.properties.accepted_chord_text, undefined);
 });
 
 test("ingest stores valid signed-out telemetry batches", async () => {

@@ -103,6 +103,16 @@ private struct IChartTelemetryBatch: Encodable {
     let events: [IChartTelemetryEvent]
 }
 
+enum IChartTelemetryBuildSource {
+    static var value: String {
+        #if DEBUG
+        "debug_build"
+        #else
+        "release_build"
+        #endif
+    }
+}
+
 enum IChartTelemetry {
     private static let lock = NSLock()
     private static var configuredService: IChartTelemetryService?
@@ -133,6 +143,10 @@ enum IChartTelemetry {
         }
     }
 
+    static func flushPendingEventsIfNeeded() async {
+        await service?.flushIfNeeded()
+    }
+
     private static var service: IChartTelemetryService? {
         lock.lock()
         defer { lock.unlock() }
@@ -156,6 +170,8 @@ actor IChartTelemetryService {
     private static let opportunisticFlushInterval: TimeInterval = 20
     private static let opportunisticFlushQueueThreshold = 8
     private static let maxBatchSize = 40
+    private static let maximumBatchBodyBytes = 120_000
+    private static let maximumBatchesPerFlush = 4
 
     init(
         endpointURL: URL,
@@ -246,8 +262,15 @@ actor IChartTelemetryService {
         }
     }
 
+    func flushIfNeeded() async {
+        guard shouldFlushOpportunistically() else {
+            return
+        }
+        await flush()
+    }
+
     func flush() async {
-        guard !isFlushing else {
+        guard !Task.isCancelled, !isFlushing else {
             return
         }
 
@@ -255,29 +278,61 @@ actor IChartTelemetryService {
         lastFlushAttemptAt = now()
         defer { isFlushing = false }
 
-        let events: [IChartTelemetryEvent]
-        do {
-            events = try Array(queueStore.loadEvents().prefix(Self.maxBatchSize))
-        } catch {
-            return
-        }
-
-        guard !events.isEmpty else {
-            return
-        }
-
-        do {
-            try await send(events)
-            try queueStore.removeEvents(withIDs: Set(events.map(\.clientEventID)))
-        } catch {
-            return
+        // Catch up after an offline period without leaving all but the first
+        // batch waiting for another editor event. Bound each attempt so a slow
+        // connection or continuous writing cannot make one flush run forever.
+        for _ in 0..<Self.maximumBatchesPerFlush {
+            guard !Task.isCancelled else {
+                return
+            }
+            do {
+                guard let batch = try nextBatch() else {
+                    return
+                }
+                try await send(body: batch.body)
+                // Reload before removal: recording can append while send awaits.
+                try queueStore.removeEvents(withIDs: Set(batch.events.map(\.clientEventID)))
+            } catch {
+                // Keep the original event IDs for an idempotent later retry.
+                return
+            }
         }
     }
 
-    private func send(_ events: [IChartTelemetryEvent]) async throws {
-        let batch = IChartTelemetryBatch(context: currentContext(), events: events)
+    private func nextBatch() throws -> (events: [IChartTelemetryEvent], body: Data)? {
+        let queuedEvents = try queueStore.loadEvents().prefix(Self.maxBatchSize)
+        guard !queuedEvents.isEmpty else {
+            return nil
+        }
+
+        let context = currentContext()
+        var byteCount = try Self.encoder.encode(
+            IChartTelemetryBatch(context: context, events: [])
+        ).count
+        var events: [IChartTelemetryEvent] = []
+        for event in queuedEvents {
+            let addedBytes = try Self.encoder.encode(event).count + (events.isEmpty ? 0 : 1)
+            guard byteCount + addedBytes <= Self.maximumBatchBodyBytes else {
+                break
+            }
+            events.append(event)
+            byteCount += addedBytes
+        }
+        guard !events.isEmpty else {
+            return nil
+        }
+
+        let body = try Self.encoder.encode(IChartTelemetryBatch(context: context, events: events))
+        guard body.count <= Self.maximumBatchBodyBytes else {
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+        return (events, body)
+    }
+
+    private func send(body: Data) async throws {
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15
         request.setValue(publishableKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -286,7 +341,7 @@ actor IChartTelemetryService {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
 
-        request.httpBody = try Self.encoder.encode(batch)
+        request.httpBody = body
 
         let (_, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -460,6 +515,8 @@ final class IChartTelemetryQueueStore {
 }
 
 enum IChartTelemetryPrivacy {
+    private static let maximumPropertyCount = 64
+
     static let allowedEventNames: Set<String> = [
         "app.launched",
         "app.bootstrap_completed",
@@ -501,6 +558,7 @@ enum IChartTelemetryPrivacy {
         "chord.recognition_failed",
         "chord.confirmation_presented",
         "chord.correction_applied",
+        "chord.rendered_correction_applied",
         "chord.batch_committed",
         "chord.preview_updated",
         "chord.preview_rendered",
@@ -602,7 +660,9 @@ enum IChartTelemetryPrivacy {
         "quality_issue_count",
         "reason",
         "recognition_ms",
+        "recognition_pipeline_version",
         "recognition_target_count",
+        "review_candidate_count",
         "raw_candidate_count",
         "render_action",
         "rendered_count",
@@ -632,6 +692,12 @@ enum IChartTelemetryPrivacy {
         "target_coordinate_width",
         "to_mode",
         "triangle_quality_issue_count",
+        "trust_corroborated_count",
+        "trust_outcome",
+        "trust_probe_count",
+        "trust_rejected_count",
+        "trust_symbol_support_count",
+        "trust_validation_ms",
         "trusted_count",
         "unknown_issue_count",
         "unresolved_count",
@@ -643,7 +709,7 @@ enum IChartTelemetryPrivacy {
             uniqueKeysWithValues: properties
                 .filter { allowedPropertyKeys.contains($0.key) }
                 .sorted { $0.key < $1.key }
-                .prefix(40)
+                .prefix(maximumPropertyCount)
                 .map { key, value in
                     (String(key.prefix(64)), sanitizedValue(value))
                 }

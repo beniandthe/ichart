@@ -26,7 +26,9 @@ final class TelemetryTests: XCTestCase {
             "no_read_count": .int(1),
             "quality_issue_count": .int(1),
             "raw_candidate_count": .int(9),
+            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
             "recognition_target_count": .int(3),
+            "review_candidate_count": .int(2),
             "root_accidental_issue_count": .int(1),
             "root_issue_count": .int(1),
             "slash_bass_issue_count": .int(1),
@@ -35,6 +37,12 @@ final class TelemetryTests: XCTestCase {
             "target_coordinate_width": .double(1024),
             "target_coordinate_height": .double(1366),
             "triangle_quality_issue_count": .int(1),
+            "trust_corroborated_count": .int(2),
+            "trust_outcome": .string("corroborated"),
+            "trust_probe_count": .int(6),
+            "trust_rejected_count": .int(1),
+            "trust_symbol_support_count": .int(4),
+            "trust_validation_ms": .double(8.12345),
             "trusted_count": .int(1),
             "unknown_issue_count": .int(0),
             "unresolved_count": .int(1),
@@ -68,7 +76,12 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(sanitized["no_read_count"], .int(1))
         XCTAssertEqual(sanitized["quality_issue_count"], .int(1))
         XCTAssertEqual(sanitized["raw_candidate_count"], .int(9))
+        XCTAssertEqual(
+            sanitized["recognition_pipeline_version"],
+            .string(ChordInkRecognitionPipelineIdentity.version)
+        )
         XCTAssertEqual(sanitized["recognition_target_count"], .int(3))
+        XCTAssertEqual(sanitized["review_candidate_count"], .int(2))
         XCTAssertEqual(sanitized["root_accidental_issue_count"], .int(1))
         XCTAssertEqual(sanitized["root_issue_count"], .int(1))
         XCTAssertEqual(sanitized["slash_bass_issue_count"], .int(1))
@@ -77,6 +90,12 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(sanitized["target_coordinate_width"], .double(1024))
         XCTAssertEqual(sanitized["target_coordinate_height"], .double(1366))
         XCTAssertEqual(sanitized["triangle_quality_issue_count"], .int(1))
+        XCTAssertEqual(sanitized["trust_corroborated_count"], .int(2))
+        XCTAssertEqual(sanitized["trust_outcome"], .string("corroborated"))
+        XCTAssertEqual(sanitized["trust_probe_count"], .int(6))
+        XCTAssertEqual(sanitized["trust_rejected_count"], .int(1))
+        XCTAssertEqual(sanitized["trust_symbol_support_count"], .int(4))
+        XCTAssertEqual(sanitized["trust_validation_ms"], .double(8.123))
         XCTAssertEqual(sanitized["trusted_count"], .int(1))
         XCTAssertEqual(sanitized["unknown_issue_count"], .int(0))
         XCTAssertEqual(sanitized["unresolved_count"], .int(1))
@@ -140,6 +159,29 @@ final class TelemetryTests: XCTestCase {
             configuration: configuration,
             environment: [:]
         ))
+    }
+
+    func testTelemetryAllowsContentFreeRenderedChordCorrectionFeedback() {
+        XCTAssertTrue(
+            IChartTelemetryPrivacy.allowedEventNames.contains("chord.rendered_correction_applied")
+        )
+
+        let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
+            "candidate_count": .int(3),
+            "decision": .string("candidate_replacement"),
+            "layout_style": .string("simpleChordSheet"),
+            "result": .string("memory_updated"),
+            "source": .string("recognized_ink"),
+            "previous_chord_text": .string("C"),
+            "accepted_chord_text": .string("G")
+        ])
+
+        XCTAssertEqual(sanitized["candidate_count"], .int(3))
+        XCTAssertEqual(sanitized["decision"], .string("candidate_replacement"))
+        XCTAssertEqual(sanitized["result"], .string("memory_updated"))
+        XCTAssertEqual(sanitized["source"], .string("recognized_ink"))
+        XCTAssertNil(sanitized["previous_chord_text"])
+        XCTAssertNil(sanitized["accepted_chord_text"])
     }
 
     private func event(named name: String) -> IChartTelemetryEvent {

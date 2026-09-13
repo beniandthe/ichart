@@ -165,7 +165,7 @@ struct ChordInkSymbolLedgerSnapshot: Codable, Hashable {
     }
 }
 
-enum ChordInkSymbolLedgerAgreement: String, Codable, Hashable {
+enum ChordInkSymbolLedgerAgreement: String, Codable, Hashable, CaseIterable {
     case noPrimaryCandidate
     case noLedgerEvidence
     case stableTextMatchesPrimary

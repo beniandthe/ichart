@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct IChartApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store: ChartLibraryStore
     @StateObject private var authStore: IChartAuthStore
     @StateObject private var cloudSyncStore: ChartCloudSyncStore
@@ -18,6 +19,10 @@ struct IChartApp: App {
         IChartTelemetry.record(
             "app.launched",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                // Join this startup source to the same installation/session
+                // when separating customer Release data from Debug device QA.
+                "source": .string(IChartTelemetryBuildSource.value),
                 "app_phase": .string("init"),
                 "chart_count": .int(libraryStore.charts.count),
                 "project_count": .int(libraryStore.projects.count)
@@ -75,6 +80,29 @@ struct IChartApp: App {
                             "subscription_status": .string(entitlement.status.rawValue)
                         ]
                     )
+                }
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else {
+                        return
+                    }
+                    // Retry a persisted diagnostic backlog while the app is
+                    // active, even if the musician generates no further events.
+                    // No network request is made when the queue is empty.
+                    while !Task.isCancelled {
+                        await IChartTelemetry.flushPendingEventsIfNeeded()
+                        do {
+                            try await Task.sleep(nanoseconds: 20_000_000_000)
+                        } catch {
+                            return
+                        }
+                    }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background {
+                        // Best effort before suspension; unacknowledged events
+                        // stay on disk and retry on the next active session.
+                        IChartTelemetry.flush()
+                    }
                 }
                 .onChange(of: authStore.state) { _, state in
                     cloudSyncStore.authStateChanged(state)

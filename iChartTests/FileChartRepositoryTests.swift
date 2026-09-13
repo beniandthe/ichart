@@ -387,6 +387,10 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedSimpleChord.rawInput, "Bbmaj7")
         XCTAssertEqual(loadedSimpleChord.sourceInkData, simpleCommittedChordInk)
         XCTAssertEqual(loadedSimpleChord.sourceCandidateSignature, ["Bb△7", "Bb"])
+        XCTAssertEqual(
+            loadedSimpleChord.sourceRecognitionPipelineVersion,
+            ChordInkRecognitionPipelineIdentity.version
+        )
 
         XCTAssertEqual(loadedRhythmChart.layoutStyle, .rhythmSectionSheet)
         XCTAssertEqual(loadedRhythmChart.headerInputMode, .typed)
@@ -412,6 +416,10 @@ final class FileChartRepositoryTests: XCTestCase {
         XCTAssertEqual(loadedRhythmChord.rawInput, "G/B")
         XCTAssertEqual(loadedRhythmChord.sourceInkData, rhythmCommittedChordInk)
         XCTAssertEqual(loadedRhythmChord.sourceCandidateSignature, ["G/B"])
+        XCTAssertEqual(
+            loadedRhythmChord.sourceRecognitionPipelineVersion,
+            ChordInkRecognitionPipelineIdentity.version
+        )
     }
 
     private func appendChord(

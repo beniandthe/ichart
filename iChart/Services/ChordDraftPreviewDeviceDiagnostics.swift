@@ -74,7 +74,9 @@ struct ChordDraftPreviewDeviceDiagnosticPayload: Codable, Equatable {
     var recognitionMilliseconds: Double?
     var recognitionTotalMilliseconds: Double?
     var recognitionCacheHit: Bool? = nil
+    var trustEvidence: ChordInkTrustEvidence? = nil
     var topScores: [ChordInkCandidateScore]
+    var reviewScores: [ChordInkCandidateScore]? = nil
     var glyphCandidateColumns: [[ChordDraftPreviewDeviceDiagnosticGlyphCandidate]]?
     var inkStrokes: [InkStroke]? = nil
 }
@@ -113,6 +115,7 @@ struct LeadSheetChordInkRecognitionBatchTargetingDiagnostics: Codable, Equatable
 struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     var timestamp: Date
     var stage: String
+    var recognitionPipelineVersion: String?
     var flow: String?
     var layoutStyle: String?
     var requestID: UUID?
@@ -142,6 +145,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     init(
         timestamp: Date = .now,
         stage: String,
+        recognitionPipelineVersion: String? = ChordInkRecognitionPipelineIdentity.version,
         flow: String? = nil,
         layoutStyle: String? = nil,
         requestID: UUID? = nil,
@@ -164,6 +168,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     ) {
         self.timestamp = timestamp
         self.stage = stage
+        self.recognitionPipelineVersion = recognitionPipelineVersion
         self.flow = flow
         self.layoutStyle = layoutStyle
         self.requestID = requestID
@@ -554,7 +559,9 @@ private extension ChordDraftPreviewDeviceDiagnostics {
             recognitionMilliseconds: payload.timing.recognitionMilliseconds,
             recognitionTotalMilliseconds: payload.timing.recognitionTotalMilliseconds,
             recognitionCacheHit: payload.timing.cacheHit,
+            trustEvidence: payload.result.trustEvidence,
             topScores: Array(payload.result.candidateScores.prefix(8)),
+            reviewScores: Array(payload.result.reviewCandidateScores.prefix(4)),
             glyphCandidateColumns: payload.result.glyphCandidates.map { candidates in
                 candidates.prefix(8).map { candidate in
                     ChordDraftPreviewDeviceDiagnosticGlyphCandidate(
@@ -585,26 +592,27 @@ private extension ChordDraftPreviewDeviceDiagnostics {
     }
 
     static func compactSummary(for event: ChordDraftPreviewDeviceDiagnosticEvent) -> String {
+        let pipeline = event.recognitionPipelineVersion ?? "legacy"
         switch event.stage {
         case "targeting":
-            return "iChart chord draft debug: targeting flow=\(event.flow ?? "none") layout=\(event.layoutStyle ?? "unknown") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
+            return "iChart chord draft debug: targeting pipeline=\(pipeline) flow=\(event.flow ?? "none") layout=\(event.layoutStyle ?? "unknown") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
         case "single_target":
             let target = event.targets.first
-            return "iChart chord draft debug: single_target layout=\(event.layoutStyle ?? "unknown") strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
+            return "iChart chord draft debug: single_target pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
         case "finish_single", "finish_batch":
             let best = event.payloads.map { payload in
                 payload.acceptedText ?? payload.matchText ?? payload.supportedCandidates.first ?? "?"
             }.joined(separator: "|")
             let slowestTotal = event.payloads.compactMap(\.recognitionTotalMilliseconds).max()
             let timing = slowestTotal.map { String(format: " total=%.0fms", $0) } ?? ""
-            return "iChart chord draft debug: \(event.stage) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1)\(timing) best=\(best)\n"
+            return "iChart chord draft debug: \(event.stage) pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1)\(timing) best=\(best)\n"
         case "preview_replace":
             let texts = event.replacements.map { replacement in
                 "\(replacement.previousPreviewText ?? "?")->\(replacement.newPreviewText ?? "?")"
             }.joined(separator: "|")
-            return "iChart chord draft debug: preview_replace layout=\(event.layoutStyle ?? "unknown") drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
+            return "iChart chord draft debug: preview_replace pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
         default:
-            return "iChart chord draft debug: \(event.stage)\n"
+            return "iChart chord draft debug: \(event.stage) pipeline=\(pipeline)\n"
         }
     }
     #endif

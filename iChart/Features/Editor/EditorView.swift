@@ -1901,8 +1901,8 @@ struct EditorView: View {
     private var chordDraftActiveToolActions: some View {
         HStack(spacing: 5) {
             activeToolButton(
-                title: "Render Chords",
-                systemImage: "checkmark.circle",
+                title: chordPreviewState.requiresChordConfirmation ? "Review & Render" : "Render Chords",
+                systemImage: chordPreviewState.requiresChordConfirmation ? "checkmark.message" : "checkmark.circle",
                 isTourHighlighted: editorGuidedTourStep == .renderChords,
                 isDisabled: !canRenderChordDrafts,
                 action: handleRenderChordDrafts
@@ -2130,7 +2130,6 @@ struct EditorView: View {
             onChordInkDraftPreviewChanged: handleChordInkDraftPreviewChanged,
             onChordInkDraftBarlinesChanged: handleChordInkDraftBarlinesChanged,
             onChordCorrectionRequested: handleChordCorrectionRequested,
-            onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
             onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
@@ -2256,12 +2255,17 @@ struct EditorView: View {
     private var chordDiagnosticStatusChip: some View {
         let isReady = canRenderChordDrafts
         let hasDrafts = !chordPreviewState.isEmpty
-        let tint = hasDrafts && !isReady
+        let needsReview = chordPreviewState.requiresChordConfirmation
+        let tint = hasDrafts && (!isReady || needsReview)
             ? Color.orange
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
         return HStack(spacing: 8) {
-            Image(systemName: isReady ? "checkmark.circle.fill" : "waveform.path.ecg")
+            Image(
+                systemName: needsReview
+                    ? "exclamationmark.bubble.fill"
+                    : isReady ? "checkmark.circle.fill" : "waveform.path.ecg"
+            )
                 .font(.caption.weight(.bold))
                 .frame(width: 15)
 
@@ -2324,7 +2328,9 @@ struct EditorView: View {
         }
 
         if canRenderChordDrafts {
-            return "Ready to render"
+            return chordPreviewState.requiresChordConfirmation
+                ? "Review before render"
+                : "Ready to render"
         }
 
         return "Previewing"
@@ -2484,6 +2490,8 @@ struct EditorView: View {
             "confidence_bucket": .string(confidenceBucket(result.confidence)),
             "decision": .string(decision.action.rawValue),
             "flow": .string(flow.telemetryValue),
+            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+            "review_candidate_count": .int(result.reviewCandidateScores.count),
             "render_action": .string(decision.action.rawValue),
             "result": .string(result.match == nil ? "unmatched" : "matched"),
             "stroke_count": .int(result.metrics.strokeCount)
@@ -2491,6 +2499,13 @@ struct EditorView: View {
 
         if let timing {
             properties["recognition_ms"] = .double(timing.recognitionMilliseconds)
+        }
+
+        if let evidence = result.trustEvidence {
+            properties["trust_outcome"] = .string(evidence.outcome.rawValue)
+            properties["trust_probe_count"] = .int(evidence.completedProbeCount)
+            properties["trust_symbol_support_count"] = .int(evidence.symbolSupportCount)
+            properties["trust_validation_ms"] = .double(evidence.validationMilliseconds)
         }
 
         return properties
@@ -2522,6 +2537,9 @@ struct EditorView: View {
         let recognitionMilliseconds = payloads.reduce(0) { partialResult, payload in
             partialResult + payload.timing.recognitionMilliseconds
         }
+        let trustEvidence = payloads.compactMap(\.result.trustEvidence)
+        let trustCorroboratedCount = trustEvidence.filter(\.isCorroborated).count
+        let trustRejectedCount = trustEvidence.count - trustCorroboratedCount
 
         var properties: IChartTelemetryProperties = [
             "batch_size": .int(payloads.count),
@@ -2550,7 +2568,11 @@ struct EditorView: View {
             "no_read_count": .int(noReadCount),
             "quality_issue_count": .int(issueBuckets.qualityIssueCount),
             "raw_candidate_count": .int(payloads.reduce(0) { $0 + $1.result.rawCandidates.count }),
+            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
             "recognition_target_count": .int(payloads.count),
+            "review_candidate_count": .int(payloads.reduce(0) {
+                $0 + $1.result.reviewCandidateScores.count
+            }),
             "result": .string(previewResultSummary(
                 totalCount: payloads.count,
                 matchedCount: matchedCount,
@@ -2561,6 +2583,10 @@ struct EditorView: View {
             "slash_bass_issue_count": .int(issueBuckets.slashBassIssueCount),
             "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
             "triangle_quality_issue_count": .int(issueBuckets.triangleQualityIssueCount),
+            "trust_corroborated_count": .int(trustCorroboratedCount),
+            "trust_probe_count": .int(trustEvidence.reduce(0) { $0 + $1.completedProbeCount }),
+            "trust_rejected_count": .int(trustRejectedCount),
+            "trust_validation_ms": .double(trustEvidence.reduce(0) { $0 + $1.validationMilliseconds }),
             "trusted_count": .int(trustedCount),
             "unknown_issue_count": .int(issueBuckets.unknownIssueCount),
             "unresolved_count": .int(updatedState.unresolvedChordCount)
@@ -3525,8 +3551,7 @@ struct EditorView: View {
     }
 
     private func deleteSelectedChord() {
-        guard let selectedChordID,
-              let chordEvent = chart.chordEvent(id: selectedChordID) else {
+        guard let selectedChordID else {
             return
         }
 
@@ -3538,7 +3563,6 @@ struct EditorView: View {
         self.selectedChordID = nil
         selectedCommittedBarlineMeasureID = nil
         selectedMeasureID = sourceMeasureID ?? selectedMeasureID
-        handleChordDeleted(chordEvent)
         canvasMode = .browse
     }
 
@@ -4151,7 +4175,10 @@ struct EditorView: View {
                 candidateTexts: resolution.candidateTexts,
                 bestCandidateText: resolution.decision.acceptedText ?? payload.result.match?.displayText,
                 confidence: payload.result.confidence,
-                strokeCount: payload.timing.strokeCount
+                strokeCount: payload.timing.strokeCount,
+                recognitionResult: payload.result,
+                primaryDecision: resolution.primaryDecision,
+                recognitionDecision: resolution.decision
             )
         }
 
@@ -4206,6 +4233,7 @@ struct EditorView: View {
             IChartTelemetry.record(
                 "chord.draft_barline_added",
                 properties: [
+                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                     "barline_count": .int(barlines.count),
                     "draft_count": .int(updatedPreviewState.draftChords.count),
                     "unresolved_count": .int(updatedPreviewState.unresolvedBarlineCount),
@@ -4224,15 +4252,52 @@ struct EditorView: View {
             return
         }
 
+        if chordPreviewState.requiresChordConfirmation {
+            guard let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) else {
+                chordInkErrorMessage = "One or more draft chords could not be prepared for review. Keep the ink and try again."
+                showingChordInkError = true
+                return
+            }
+
+            pendingChordInkBatchConfirmation = batch
+            IChartTelemetry.record(
+                "chord.confirmation_presented",
+                properties: [
+                    "batch_size": .int(batch.confirmations.count),
+                    "confirm_count": .int(
+                        batch.confirmations.filter { $0.decision.action == .confirm }.count
+                    ),
+                    "result": .string("draft_review"),
+                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                    "layout_style": .string(chart.layoutStyle.rawValue)
+                ]
+            )
+            return
+        }
+
+        _ = renderChordPreviewState(chordPreviewState, reviewResult: "trusted")
+    }
+
+    @discardableResult
+    private func renderChordPreviewState(
+        _ state: ChordPreviewState,
+        reviewResult: String
+    ) -> Bool {
+
         var updatedChart = chart
         let renderResult = updatedChart.commitChordInkDraftBatch(
-            chordPreviewState,
+            state,
             barlineSpacingMode: .drawn
         )
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
             chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
             showingChordInkError = true
-            return
+            return false
+        }
+        guard renderResult.unresolvedDraftIDs.isEmpty else {
+            chordInkErrorMessage = "One or more reviewed chords could not be rendered. The draft ink is still available."
+            showingChordInkError = true
+            return false
         }
 
         chart = updatedChart
@@ -4250,13 +4315,16 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.preview_rendered",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "draft_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount),
                 "rendered_count": .int(renderResult.renderedChordCount),
                 "barline_count": .int(renderResult.renderedBarlineCount),
                 "unresolved_count": .int(renderResult.unresolvedDraftIDs.count),
+                "decision": .string(reviewResult),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
             ]
         )
+        return true
     }
 
     private func handleDiscardChordDrafts() {
@@ -4278,6 +4346,7 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.preview_discarded",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "draft_count": .int(discardedDraftCount),
                 "barline_count": .int(discardedBarlineCount),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
@@ -4411,6 +4480,7 @@ struct EditorView: View {
             properties: [
                 "batch_size": .int(confirmations.count),
                 "flow": .string(flow.telemetryValue),
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "result": .string("batch"),
                 "layout_style": .string(chart.layoutStyle.rawValue),
                 "measure_count": .int(chart.measures.count)
@@ -4444,7 +4514,9 @@ struct EditorView: View {
             "chord.confirmation_presented",
             properties: [
                 "batch_size": .int(confirmations.count),
-                "result": .string("batch_confirmation")
+                "result": .string("batch_confirmation"),
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                "layout_style": .string(chart.layoutStyle.rawValue)
             ]
         )
     }
@@ -4457,11 +4529,20 @@ struct EditorView: View {
             result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        let didCommit = commitChordInkBatchCandidates(
-            trimmedCandidateTextByID,
-            batch: batch,
-            resolution: .confirmedSuggestion
-        )
+        let didCommit: Bool
+        switch batch.source {
+        case .recognitionProposal:
+            didCommit = commitChordInkBatchCandidates(
+                trimmedCandidateTextByID,
+                batch: batch,
+                resolution: .confirmedSuggestion
+            )
+        case .draftPreview:
+            didCommit = commitReviewedChordDrafts(
+                trimmedCandidateTextByID,
+                batch: batch
+            )
+        }
 
         guard didCommit else {
             return
@@ -4492,6 +4573,24 @@ struct EditorView: View {
         if didUpdateMemory {
             persistChordInkUserCorrectionMemory()
         }
+    }
+
+    private func commitReviewedChordDrafts(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation
+    ) -> Bool {
+        guard batch.source == .draftPreview,
+              batch.confirmations.count == chordPreviewState.renderableDraftChords.count,
+              let reviewedState = ChordInkDraftReviewPolicy.reviewedState(
+                  from: chordPreviewState,
+                  candidateTextByDraftID: candidateTextByID
+              ) else {
+            chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
+            showingChordInkError = true
+            return false
+        }
+
+        return renderChordPreviewState(reviewedState, reviewResult: "confirmed")
     }
 
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
@@ -4525,6 +4624,7 @@ struct EditorView: View {
            !isCompleteFailure,
            let preferredCandidate = chordInkUserCorrectionMemory.preferredCandidate(
                for: confirmation.candidateTexts,
+               drawingData: confirmation.drawingData,
                decision: confirmation.decision
            ) {
             if commitChordInkCandidate(
@@ -4790,6 +4890,8 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.batch_committed",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                "layout_style": .string(chart.layoutStyle.rawValue),
                 "batch_size": .int(committedEvents.count),
                 "decision": .string(resolution.rawValue),
                 "result": .string("committed")
@@ -4819,21 +4921,6 @@ struct EditorView: View {
         )
     }
 
-    private func handleChordDeleted(_ chordEvent: ChordEvent) {
-        guard let sourceInkData = chordEvent.sourceInkData else {
-            return
-        }
-
-        let acceptedText = chordEvent.rawInput ?? chordEvent.symbol.displayText
-        if chordInkUserCorrectionMemory.recordRejectedTrustedCandidate(
-            acceptedText: acceptedText,
-            drawingData: sourceInkData,
-            candidateSignature: chordEvent.sourceCandidateSignature
-        ) {
-            persistChordInkUserCorrectionMemory()
-        }
-    }
-
     private func handleChordCorrectionAccepted(
         _ candidateText: String,
         correction: PendingChordCorrection
@@ -4842,6 +4929,12 @@ struct EditorView: View {
         let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let match = ChordRecognitionCompendium.match(trimmedCandidateText) else {
             chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
+            showingChordInkError = true
+            return
+        }
+
+        guard let originalChordEvent = chart.chordEvent(id: correction.chordEventID) else {
+            chordInkErrorMessage = "That chord is no longer available. Try writing it again."
             showingChordInkError = true
             return
         }
@@ -4858,6 +4951,38 @@ struct EditorView: View {
         }
 
         chart = updatedChart
+
+        let previousRecognitionText = originalChordEvent.rawInput ?? originalChordEvent.symbol.displayText
+        let didUpdateCorrectionMemory = originalChordEvent.sourceInkData.map { sourceInkData in
+            chordInkUserCorrectionMemory.recordRenderedChordCorrection(
+                previousText: previousRecognitionText,
+                displayedPreviousText: correction.currentText,
+                acceptedText: trimmedCandidateText,
+                drawingData: sourceInkData,
+                candidateTexts: originalChordEvent.sourceCandidateSignature
+            )
+        } ?? false
+        if didUpdateCorrectionMemory {
+            persistChordInkUserCorrectionMemory()
+        }
+
+        IChartTelemetry.record(
+            "chord.rendered_correction_applied",
+            properties: [
+                "candidate_count": .int(originalChordEvent.sourceCandidateSignature.count),
+                "decision": .string(Self.renderedChordCorrectionFeedbackKind(
+                    previousRecognitionText: previousRecognitionText,
+                    previousRenderedText: correction.currentText,
+                    acceptedText: trimmedCandidateText,
+                    candidateTexts: originalChordEvent.sourceCandidateSignature
+                )),
+                "layout_style": .string(updatedChart.layoutStyle.rawValue),
+                "result": .string(didUpdateCorrectionMemory ? "memory_updated" : "edit_only")
+            ].merging(ChordInkCorrectionTelemetry.sourceProperties(
+                hasSourceInk: originalChordEvent.sourceInkData != nil,
+                sourceRecognitionPipelineVersion: originalChordEvent.sourceRecognitionPipelineVersion
+            )) { _, sourceValue in sourceValue }
+        )
 
         #if DEBUG && targetEnvironment(simulator)
         recordChordCorrectionDiagnostic(
@@ -4945,6 +5070,7 @@ struct EditorView: View {
             suggestedCandidateTexts: confirmation.candidateTexts,
             rawCandidates: confirmation.result.rawCandidates,
             candidateScores: Array(confirmation.result.candidateScores.prefix(12)),
+            reviewCandidateScores: Array(confirmation.result.reviewCandidateScores.prefix(4)),
             confidence: confirmation.result.confidence,
             recognitionReason: confirmation.decision.reason,
             wasCloseRace: confirmation.decision.isCloseRace,
@@ -4956,6 +5082,7 @@ struct EditorView: View {
             primaryWasCloseRace: confirmation.primaryDecision.isCloseRace,
             primaryConfidenceGap: confirmation.primaryDecision.confidenceGap,
             recognitionMetrics: confirmation.result.metrics,
+            trustEvidence: confirmation.result.trustEvidence,
             symbolLedger: confirmation.result.symbolLedger,
             symbolLedgerAssessment: confirmation.result.symbolLedger?.assessment(
                 primaryDisplayText: match.displayText
@@ -5141,6 +5268,35 @@ struct EditorView: View {
             print("iChart chord user correction memory error: \(error)")
             #endif
         }
+    }
+
+    private static func renderedChordCorrectionFeedbackKind(
+        previousRecognitionText: String,
+        previousRenderedText: String,
+        acceptedText: String,
+        candidateTexts: [String]
+    ) -> String {
+        let previousRecognitionDisplayText = ChordRecognitionCompendium
+            .match(previousRecognitionText)?
+            .displayText
+        let previousRenderedDisplayText = ChordRecognitionCompendium
+            .match(previousRenderedText)?
+            .displayText
+        let acceptedDisplayText = ChordRecognitionCompendium
+            .match(acceptedText)?
+            .displayText
+
+        guard previousRecognitionDisplayText == previousRenderedDisplayText else {
+            return "display_space_mismatch"
+        }
+        guard previousRecognitionDisplayText != acceptedDisplayText else {
+            return "equivalent_spelling"
+        }
+
+        let signature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
+        return acceptedDisplayText.map(signature.contains) == true
+            ? "candidate_replacement"
+            : "outside_candidates"
     }
 
     private func handleNoteSelectionChanged(_ selection: LeadSheetNoteSelection?) {
