@@ -2,11 +2,11 @@
 
 ## Decision
 
-The user reopened the deeper recognition iteration on September 12 and deferred the near-term trial cutoff. V16 remains the validated, installed physical baseline. V17 is a validated local follow-up, not hardware acceptance; neither candidate is a claim of perfect recognition or an uploaded release.
+The user reopened the deeper recognition iteration on September 12 and deferred the near-term trial cutoff. V16 remains the validated, installed physical baseline. V18 is the current local follow-up; normal gates pass, but newly expanded articulation diagnostics expose unresolved trusted-wrong reads. This is not shipping acceptance, perfect recognition or an uploaded release.
 
 Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. The exact V16 Release candidate is now development-signed, installed and launched on the physical iPad. Fresh handwriting acceptance and distribution remain separate gates.
 
-## Reopened iteration: retained V16 correction
+## Reopened iteration: retained V16 correction (V17 checkpoint)
 
 The fresh saved library contains an explicit `Bbmaj7` correction with a V16
 source candidate signature of `Gb13`. Rendering and replaying its exact source
@@ -58,6 +58,63 @@ motivates articulation-invariant matching experiments, not an unmeasured claim
 that a replacement matcher improves iChart. MathWriting's
 [dataset license](https://arxiv.org/html/2404.10690v2) is CC-BY-NC-SA 4.0; no
 dataset, model or code from it has been incorporated into the shipping app.
+
+## V18: root-role repair and expanded articulation evidence
+
+V18 excludes the leading root column from dominant-seventh evidence in all
+five affected candidate-selection fallback rules. A root-position `7`
+lookalike cannot inject `1` at a major triangle, promote a later seven to `3`,
+or supply context for unrelated numeric/accidental fallbacks. Actual
+post-root sevens retain the existing confidence threshold, including strong
+C lookalikes. No trust threshold or candidate-search budget was relaxed.
+
+The new regressions first failed in four of five selected baseline tests
+(14 assertions); the real-seventh control passed. After repair, all five pass.
+The exact native saved-source replay retains `Gb△7` as a confirmation primary,
+shows `Bb△7` among the first three choices, and no longer offers the manufactured
+`Gb13`. The complete ambiguous capture also excludes that candidate across
+the eight scale/root-direction variants. Missing B-stem evidence still does
+not justify automatic B recognition.
+
+V18 normal validation: native 1,415 selected / 1,356 passed / 59 explicit
+opt-in skips / zero failures; SwiftPM 995 selected / 942 passed / 53 opt-in
+skips / zero failures; initial exact-source/focused native 165 selected /
+164 passed / one optional archive skip / zero failures; Release
+transport/privacy/configuration and new regressions 27/27. The separate
+three-test archive audit passes: all 660 identity primaries remain correct
+(382 trusted / 278 confirmation), and 5,940 usual deterministic attempts
+have zero trusted-wrong reads or hidden correct recoveries. Final source
+equality is verified across 873 files, SHA-256
+`efb7d9a621a9b44f1bc0212fa73d2902703d7599fb272261459af25d1edea433`.
+
+The usual archive transformations preserve stroke articulation. Additional
+private diagnostics link directly to this frozen V18 core and change only
+point direction or stroke order inside an already-owned chord. Drawn
+geometry and ascending point timing are preserved; the reordered case
+reassigns the original creation cadence to the new construction order.
+Both diagnostics first verify 660 correct original primaries. These are
+curated repair-guiding stress variants, not independent writers, physical
+Pencil latency measurements or selected XCTest acceptance gates.
+
+| Additional diagnostic | Samples | Correct primary | Trusted wrong | No-read |
+| --- | ---: | ---: | ---: | ---: |
+| Reverse each stroke's point direction | 660 | 78 | 20 | 504 |
+| Reverse stroke construction order | 660 | 573 | 4 | 70 |
+
+The four order-related trusted failures lose a minor suffix inside the sharp
+cluster (`CSharpMinorCaptured03`, `CSharpmCaptured03`, `ESharpmCaptured03`,
+`FSharpMinorCaptured02`). Direction failures include 6/9, minor/augmented,
+suspended/slash, and sharp/major-quality confusion. These failures remain
+open; the older green archive cannot overrule this expanded evidence.
+
+A private, non-shipping experiment reorients sufficiently straight,
+elongated strokes to a consistent line direction. It preserves all 660
+original primaries, but reversed-input trusted-wrong reads rise from 20 to
+27 despite correct primaries increasing from 78 to 229 and no-reads falling
+from 504 to 335. It is rejected as an unconditional pipeline change; better
+coverage does not justify more confident wrong reads. No experimental input
+normalizer or external point-cloud implementation has been incorporated
+into V18. V18 is not installed or pushed, and V16 remains on the iPad.
 
 ## What this candidate fixes
 

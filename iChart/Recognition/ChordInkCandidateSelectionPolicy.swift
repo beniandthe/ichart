@@ -433,11 +433,9 @@ struct ChordInkCandidateSelectionPolicy {
         let previousColumnLooksLikeAlteration = previousColumn.contains { candidate in
             candidate.confidence >= 0.45 && (candidate.text == "#" || candidate.text == "b")
         }
-        let hasDominantSevenBeforeAlteration = sortedColumns[..<(index - 1)].contains { column in
-            column.contains { candidate in
-                candidate.confidence >= 0.50 && candidate.text == "7"
-            }
-        }
+        let hasDominantSevenBeforeAlteration = hasDominantSevenEvidenceAfterRoot(
+            before: index - 1, in: sortedColumns
+        )
 
         return previousColumnLooksLikeAlteration && hasDominantSevenBeforeAlteration
     }
@@ -457,11 +455,9 @@ struct ChordInkCandidateSelectionPolicy {
         let previousColumnLooksLikeAlteration = sortedColumns[index - 1].contains { candidate in
             candidate.confidence >= 0.45 && (candidate.text == "#" || candidate.text == "b")
         }
-        let hasDominantSevenBeforeAlteration = sortedColumns[..<(index - 1)].contains { column in
-            column.contains { candidate in
-                candidate.confidence >= 0.50 && candidate.text == "7"
-            }
-        }
+        let hasDominantSevenBeforeAlteration = hasDominantSevenEvidenceAfterRoot(
+            before: index - 1, in: sortedColumns
+        )
 
         return currentColumnCanCarryOne
             && nextColumnHasExplicitThree
@@ -485,11 +481,9 @@ struct ChordInkCandidateSelectionPolicy {
             let columnLooksLikeAlteration = sortedColumns[candidateIndex].contains { candidate in
                 candidate.confidence >= 0.45 && (candidate.text == "#" || candidate.text == "b")
             }
-            let hasDominantSevenBeforeAlteration = sortedColumns[..<candidateIndex].contains { column in
-                column.contains { candidate in
-                    candidate.confidence >= 0.50 && candidate.text == "7"
-                }
-            }
+            let hasDominantSevenBeforeAlteration = hasDominantSevenEvidenceAfterRoot(
+                before: candidateIndex, in: sortedColumns
+            )
 
             return columnLooksLikeAlteration && hasDominantSevenBeforeAlteration
         }
@@ -510,11 +504,9 @@ struct ChordInkCandidateSelectionPolicy {
         let previousColumnLooksLikeSharp = sortedColumns[index - 1].contains { candidate in
             candidate.confidence >= 0.45 && candidate.text == "#"
         }
-        let hasDominantSevenBeforeSharp = sortedColumns[..<(index - 1)].contains { column in
-            column.contains { candidate in
-                candidate.confidence >= 0.50 && candidate.text == "7"
-            }
-        }
+        let hasDominantSevenBeforeSharp = hasDominantSevenEvidenceAfterRoot(
+            before: index - 1, in: sortedColumns
+        )
         let currentColumnHasStrongCompetingAlterationNumber = sortedColumns[index].contains { candidate in
             candidate.confidence >= 0.60 && (candidate.text == "5" || candidate.text == "9")
         }
@@ -532,16 +524,30 @@ struct ChordInkCandidateSelectionPolicy {
             return false
         }
 
-        let hasDominantSevenBeforeAlteration = sortedColumns[..<index].contains { column in
-            column.contains { candidate in
-                candidate.confidence >= 0.50 && candidate.text == "7"
-            }
-        }
+        let hasDominantSevenBeforeAlteration = hasDominantSevenEvidenceAfterRoot(
+            before: index, in: sortedColumns
+        )
         let nextColumnLooksLikeAlteredNumber = sortedColumns[index + 1].contains { candidate in
             candidate.confidence >= 0.45 && (candidate.text == "5" || candidate.text == "9" || candidate.text == "1")
         }
 
         return hasDominantSevenBeforeAlteration && nextColumnLooksLikeAlteredNumber
+    }
+
+    /// The leading column owns the root, including its digit lookalikes.
+    /// It cannot also establish a dominant seventh for later fallback rules.
+    /// Keep the existing evidence threshold for subsequent columns: a real
+    /// seven can have a strong C alternative without losing its numeric role.
+    private func hasDominantSevenEvidenceAfterRoot(
+        before index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        guard index > 1 else { return false }
+        return sortedColumns[1..<index].contains { column in
+            column.contains { candidate in
+                candidate.confidence >= 0.50 && candidate.text == "7"
+            }
+        }
     }
 }
 

@@ -124,6 +124,137 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(selected.first?.text, "b")
     }
 
+    func testRootSevenLookalikeCannotPromoteThirteenThroughMajorTriangle() {
+        // Rounded values from the retained stemless-B / flat / triangle / 7
+        // capture. The first column's digit lookalikes still belong to a root.
+        let columns = [
+            [
+                glyph("3", confidence: 0.997, source: .heuristic),
+                glyph("7", confidence: 0.985, source: .heuristic),
+                glyph("G", confidence: 0.970, source: .heuristic)
+            ],
+            [glyph("b", confidence: 0.980, source: .heuristic)],
+            [
+                glyph("△", confidence: 0.999, source: .heuristic),
+                glyph("G", confidence: 0.970, source: .heuristic),
+                glyph("5", confidence: 0.620, source: .heuristic)
+            ],
+            [
+                glyph("7", confidence: 0.985, source: .heuristic),
+                glyph("C", confidence: 0.950, source: .heuristic),
+                glyph("△", confidence: 0.640, source: .template),
+                glyph("5", confidence: 0.620, source: .heuristic),
+                glyph("3", confidence: 0.548, source: .template)
+            ]
+        ]
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+        let triangle = policy.selectedGlyphCandidates(forColumnAt: 2, in: columns)
+        let seven = policy.selectedGlyphCandidates(forColumnAt: 3, in: columns)
+
+        XCTAssertEqual(triangle.first?.text, "△")
+        XCTAssertFalse(triangle.contains { $0.text == "1" })
+        XCTAssertEqual(seven.first?.text, "7")
+        XCTAssertFalse(seven.contains { $0.text == "3" })
+        let candidates = composer.compose(glyphCandidates: columns)
+        XCTAssertEqual(candidates.first?.text, "Gb△7")
+        XCTAssertFalse(candidates.contains { $0.text == "Gb13" })
+    }
+
+    func testRootSevenLookalikeCannotPromoteWeakAlterationNumbers() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+        for root in ["A", "B", "C", "D", "E", "F", "G"] {
+            let columns = [
+                [glyph("7", confidence: 0.985), glyph(root, confidence: 0.970)],
+                [glyph("b", confidence: 0.980)],
+                [
+                    glyph("G", confidence: 0.970),
+                    glyph("C", confidence: 0.950),
+                    glyph("△", confidence: 0.700),
+                    glyph("5", confidence: 0.560),
+                    glyph("9", confidence: 0.550),
+                    glyph("1", confidence: 0.520)
+                ]
+            ]
+            let selected = policy.selectedGlyphCandidates(forColumnAt: 2, in: columns)
+
+            XCTAssertFalse(selected.contains { ["5", "9", "1"].contains($0.text) }, root)
+        }
+    }
+
+    func testRootSevenLookalikeCannotInventCompactSharpElevenTail() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+        let columns = [
+            [glyph("7", confidence: 0.985), glyph("C", confidence: 0.970)],
+            [glyph("△", confidence: 0.999)],
+            [glyph("#", confidence: 0.990)],
+            [glyph("C", confidence: 0.950), glyph("G", confidence: 0.900)]
+        ]
+
+        XCTAssertFalse(policy.selectedGlyphCandidates(forColumnAt: 3, in: columns).contains {
+            $0.text == "1"
+        })
+    }
+
+    func testRootSevenLookalikeCannotExposeAlterationAccidentals() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+        let columns = [
+            [glyph("7", confidence: 0.985), glyph("C", confidence: 0.970)],
+            [glyph("m", confidence: 0.990)],
+            [
+                glyph("G", confidence: 0.970),
+                glyph("C", confidence: 0.950),
+                glyph("D", confidence: 0.800),
+                glyph("b", confidence: 0.550),
+                glyph("#", confidence: 0.530)
+            ],
+            [glyph("5", confidence: 0.992)]
+        ]
+
+        XCTAssertFalse(policy.selectedGlyphCandidates(forColumnAt: 2, in: columns).contains {
+            ["b", "#"].contains($0.text)
+        })
+    }
+
+    func testActualPostRootSevenRetainsAlterationFallbacksDespiteRootLookalikes() {
+        let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
+        let root = [glyph("7", confidence: 0.985), glyph("C", confidence: 0.970)]
+        // A real seven can itself have a strong C lookalike. Do not veto it
+        // merely because a root-letter alternative exists in that column.
+        let seven = [glyph("7", confidence: 0.985), glyph("C", confidence: 0.950)]
+        let flatThirteenColumns = [
+            root, seven, [glyph("b", confidence: 0.980)],
+            [
+                glyph("G", confidence: 0.970), glyph("C", confidence: 0.950),
+                glyph("D", confidence: 0.620), glyph("1", confidence: 0.480)
+            ],
+            [
+                glyph("7", confidence: 0.985), glyph("C", confidence: 0.950),
+                glyph("5", confidence: 0.620), glyph("3", confidence: 0.548)
+            ]
+        ]
+        let sharpElevenColumns = [
+            root, seven, [glyph("#", confidence: 0.990)],
+            [glyph("C", confidence: 0.950), glyph("G", confidence: 0.900)]
+        ]
+        let accidentalColumns = [
+            root, seven,
+            [
+                glyph("G", confidence: 0.970), glyph("C", confidence: 0.950),
+                glyph("D", confidence: 0.800), glyph("b", confidence: 0.550)
+            ],
+            [glyph("5", confidence: 0.992)]
+        ]
+
+        XCTAssertEqual(policy.selectedGlyphCandidates(forColumnAt: 3, in: flatThirteenColumns)
+            .first?.text, "1")
+        XCTAssertEqual(policy.selectedGlyphCandidates(forColumnAt: 4, in: flatThirteenColumns)
+            .first?.text, "3")
+        XCTAssertEqual(policy.selectedGlyphCandidates(forColumnAt: 3, in: sharpElevenColumns)
+            .first?.text, "1")
+        XCTAssertTrue(policy.selectedGlyphCandidates(forColumnAt: 2, in: accidentalColumns)
+            .contains { $0.text == "b" })
+    }
+
     func testComposesBbAheadOfInvalidEightFlatLookalike() {
         let candidates = composer.compose(glyphCandidates: [
             [

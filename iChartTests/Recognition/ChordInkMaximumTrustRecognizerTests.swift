@@ -26,6 +26,10 @@ final class ChordInkMaximumTrustRecognizerTests: XCTestCase {
                 XCTAssertEqual(decision.action, .confirm, details)
                 XCTAssertEqual(result.match, native.match, "Recovery cannot replace the primary: \(details)")
                 XCTAssertEqual(result.candidateScores, native.candidateScores, details)
+                // Root-position digit lookalikes cannot manufacture a 13
+                // from this captured major triangle followed by a seven.
+                XCTAssertFalse(result.rawCandidates.contains("Gb13"), details)
+                XCTAssertFalse(result.candidateScores.contains { $0.displayText == "Gb13" }, details)
                 XCTAssertTrue(choices.prefix(3).contains(fixture.expectedDisplayText), details)
                 XCTAssertLessThanOrEqual(result.reviewCandidateScores.count, 4, details)
                 XCTAssertEqual(result.reviewRootAlternatives, [fixture.expectedDisplayText], details)
