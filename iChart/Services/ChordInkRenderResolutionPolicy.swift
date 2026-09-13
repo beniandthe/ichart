@@ -85,6 +85,13 @@ enum ChordInkRenderResolutionPolicy {
             append(primaryDisplayText, to: &preferredTexts)
         }
 
+        if let rootAlternative = result.reviewRootAlternatives.first(where: { text in
+            allChoices.contains { $0.displayText == text && $0.isReviewOnly }
+                && !preferredTexts.contains(text)
+        }) {
+            append(rootAlternative, to: &preferredTexts)
+        }
+
         if let strongestAlternative = allChoices
             .filter({ !preferredTexts.contains($0.displayText) })
             .sorted(by: strongerChoice)

@@ -547,6 +547,10 @@ struct GestureTemplateRecognizer {
             return false
         }
 
+        if hasBroadTriangularOutline(stroke) {
+            return true
+        }
+
         let compactClosedTriangle = stroke.pointCount >= 4
             && stroke.endpointClosureRatio <= 0.18
             && hasClosedTriangleBase(stroke)
@@ -617,6 +621,56 @@ struct GestureTemplateRecognizer {
         let apexX = upperPoints.map { stroke.normalizedXRatio(of: $0) }.reduce(0, +)
             / Double(upperPoints.count)
         return hasStraightBase && apexX >= 0.18 && apexX <= 0.82
+    }
+
+    /// A retraced, wide triangle may start partway down its left edge and
+    /// finish near that edge instead of closing at its first point. Require
+    /// all three drawn sides, not an endpoint/direction convention or a
+    /// widened aspect-ratio shortcut that also admits small round dots.
+    private func hasBroadTriangularOutline(_ stroke: RootStrokeFeatures) -> Bool {
+        guard stroke.pointCount >= 8,
+              stroke.bounds.width >= 7,
+              stroke.bounds.height >= 8,
+              stroke.bounds.height <= 30,
+              stroke.aspectRatio >= 0.55,
+              stroke.aspectRatio <= 1.80 else {
+            return false
+        }
+        let lowerPoints = stroke.points.filter { stroke.normalizedYRatio(of: $0) >= 0.60 }
+        guard let left = lowerPoints.min(by: { $0.x < $1.x }),
+              let right = lowerPoints.max(by: { $0.x < $1.x }),
+              let apex = stroke.points.min(by: { $0.y < $1.y }),
+              right.x - left.x >= stroke.bounds.width * 0.80,
+              abs(left.y - right.y) <= stroke.bounds.height * 0.30,
+              stroke.normalizedXRatio(of: apex) >= 0.20,
+              stroke.normalizedXRatio(of: apex) <= 0.80,
+              normalizedClosedLoopArea(stroke) >= 0.22 else {
+            return false
+        }
+        let edges = [(left, apex), (apex, right), (right, left)]
+        let tolerance = max(stroke.bounds.width, stroke.bounds.height) * 0.12
+        var hasInteriorPoint = [Bool](repeating: false, count: edges.count)
+        for point in stroke.points {
+            var nearestDistance = Double.infinity
+            for (index, edge) in edges.enumerated() {
+                let dx = edge.1.x - edge.0.x
+                let dy = edge.1.y - edge.0.y
+                let lengthSquared = dx * dx + dy * dy
+                guard lengthSquared > 0 else { return false }
+                let projection = ((point.x - edge.0.x) * dx + (point.y - edge.0.y) * dy) / lengthSquared
+                let boundedProjection = min(1, max(0, projection))
+                let distance = hypot(
+                    point.x - edge.0.x - boundedProjection * dx,
+                    point.y - edge.0.y - boundedProjection * dy
+                )
+                nearestDistance = min(nearestDistance, distance)
+                if projection >= 0.25, projection <= 0.75, distance <= tolerance {
+                    hasInteriorPoint[index] = true
+                }
+            }
+            guard nearestDistance <= tolerance else { return false }
+        }
+        return hasInteriorPoint.allSatisfy { $0 }
     }
 
     private func normalizedClosedLoopArea(_ stroke: RootStrokeFeatures) -> Double {
@@ -713,6 +767,7 @@ struct GestureTemplateRecognizer {
             && stroke.aspectRatio <= 1.85
             && stroke.endpointClosureRatio <= 0.90
             && !stroke.hasEarlyTopHorizontalRun
+            && !hasBroadTriangularOutline(stroke)
     }
 
     private func isHalfDiminishedLike(_ features: RootGlyphFeatures) -> Bool {
@@ -798,6 +853,7 @@ struct GestureTemplateRecognizer {
             && loopedPath
             && startsLikeWrittenCircle
             && !looksLikeTriangleReturn
+            && !hasBroadTriangularOutline(stroke)
             // A closed round loop can start along its upper arc. That arc is
             // not a digit's open top shelf; the bounded area/closure check is
             // independent of pen start and direction.

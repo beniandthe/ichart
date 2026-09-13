@@ -2,6 +2,37 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRenderResolutionPolicyTests: XCTestCase {
+    func testExplicitRootRecoveryReservesVisibleSlotWithoutChangingRecognitionDecision() {
+        var result = recognitionResult(
+            matchText: "Gb△7",
+            confidence: 4.8,
+            scores: [
+                candidateScore("Gb△7", confidence: 4.8),
+                candidateScore("Gb△", confidence: 4.7),
+                candidateScore("Gb13", confidence: 4.6)
+            ]
+        )
+        let originalDecision = ChordInkRecognitionPolicy.decision(for: result)
+        result.reviewCandidateScores = [candidateScore("Bb△7", confidence: 4.0)]
+        result.reviewRootAlternatives = ["Bb△7"]
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["Gb△7", "Bb△7", "Gb△"]
+        )
+        XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: result), originalDecision)
+        XCTAssertEqual(result.match?.displayText, "Gb△7")
+    }
+
+    func testRootRecoveryPriorityRequiresAnActualReviewScore() {
+        var result = recognitionResult(
+            matchText: "G",
+            confidence: 4.8,
+            scores: [candidateScore("G", confidence: 4.8), candidateScore("C", confidence: 4.1)]
+        )
+        result.reviewRootAlternatives = ["B", "anything else"]
+        XCTAssertEqual(ChordInkRenderResolutionPolicy.candidateTexts(for: result), ["G", "C"])
+    }
+
     func testRecognitionActionDecodesLegacyAutoRenderValueAsTrusted() throws {
         let data = Data(#""autoRender""#.utf8)
 

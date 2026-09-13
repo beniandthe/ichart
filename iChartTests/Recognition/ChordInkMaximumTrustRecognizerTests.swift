@@ -2,6 +2,46 @@ import XCTest
 @testable import iChart
 
 final class ChordInkMaximumTrustRecognizerTests: XCTestCase {
+    func testStemlessTwoLobeRootOffersMajorSevenBForReviewWithoutReplacingPrimary() throws {
+        let fixture = try InkFixtureLoader.loadReviewFixture(
+            "BFlatMajor7StemlessRootRhythmDeviceCaptured01",
+            file: #filePath
+        )
+        for scale in [0.90, 1.0, 1.10, 1.45] {
+            for reversesRoot in [false, true] {
+                let strokes = fixture.strokes.enumerated().map { strokeIndex, stroke in
+                    let points = strokeIndex == 0 && reversesRoot ? Array(stroke.points.reversed()) : stroke.points
+                    return InkStroke(points: points.enumerated().map { index, point in
+                        InkPoint(x: point.x * scale, y: point.y * scale, timeOffset: stroke.points[index].timeOffset)
+                    }, creationTimeOffset: stroke.creationTimeOffset)
+                }
+                let native = ChordInkRecognizer(normalizesOversizedInput: false).recognize(strokes: strokes)
+                let result = ChordInkMaximumTrustRecognizer().recognize(
+                    strokes: strokes,
+                    options: .includingSymbolLedgerDiagnostics
+                )
+                let decision = ChordInkRecognitionPolicy.decision(for: result)
+                let choices = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+                let details = "scale=\(scale) reversed=\(reversesRoot) primary=\(result.match?.displayText ?? "nil") decision=\(decision.action) choices=\(choices)"
+                XCTAssertEqual(decision.action, .confirm, details)
+                XCTAssertEqual(result.match, native.match, "Recovery cannot replace the primary: \(details)")
+                XCTAssertEqual(result.candidateScores, native.candidateScores, details)
+                XCTAssertTrue(choices.prefix(3).contains(fixture.expectedDisplayText), details)
+                XCTAssertLessThanOrEqual(result.reviewCandidateScores.count, 4, details)
+                XCTAssertEqual(result.reviewRootAlternatives, [fixture.expectedDisplayText], details)
+            }
+        }
+    }
+
+    func testExplicitCGBDConstructionDoesNotReceiveStemlessBReviewAlternatives() throws {
+        for name in ["C", "G", "B", "D", "GCaptured01", "BCaptured01", "DCaptured01"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            let result = ChordInkMaximumTrustRecognizer().recognize(strokes: fixture.strokes)
+            XCTAssertTrue(result.reviewRootAlternatives.isEmpty, "\(name): \(result.reviewRootAlternatives)")
+            XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, name)
+        }
+    }
+
     func testCompactRootLedNoReadOffersBoundedReviewWithoutChangingPrimary() throws {
         for name in ["FSharp7Flat5Captured01", "GSharp7Flat5Captured01"] {
             let fixture = try InkFixtureLoader.load(name, file: #filePath)

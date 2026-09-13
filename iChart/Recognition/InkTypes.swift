@@ -305,6 +305,9 @@ struct ChordInkRecognitionResult: Hashable {
     /// Grammar-supported alternatives offered only in the explicit review UI.
     /// Automatic recognition policy deliberately ignores these scores.
     var reviewCandidateScores: [ChordInkCandidateScore] = []
+    /// Explicit root-conflict recoveries that need a visible review slot.
+    /// Like reviewCandidateScores, these never enter the automatic decision.
+    var reviewRootAlternatives: [String] = []
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
     var trustEvidence: ChordInkTrustEvidence? = nil

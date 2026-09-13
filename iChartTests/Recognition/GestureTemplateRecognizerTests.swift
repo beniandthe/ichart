@@ -5,6 +5,35 @@ final class GestureTemplateRecognizerTests: XCTestCase {
     private let clusterer = StrokeClusterer()
     private let recognizer = GestureTemplateRecognizer()
 
+    func testCapturedBroadRetracedMajorTriangleKeepsQualityAcrossDirectionStartAndScale() throws {
+        let fixture = try InkFixtureLoader.loadReviewFixture(
+            "BFlatMajor7StemlessRootRhythmDeviceCaptured01",
+            file: #filePath
+        )
+        let triangle = fixture.strokes[2]
+        for scale in [0.90, 1.0, 1.45, 2.0] {
+            for reversed in [false, true] {
+                for startIndex in [0, 7, 13, 20] {
+                    let ordered = reversed ? Array(triangle.points.reversed()) : triangle.points
+                    let shifted = Array(ordered[startIndex...]) + Array(ordered[..<startIndex])
+                    let cluster = InkCluster(strokes: [InkStroke(points: shifted.enumerated().map { index, point in
+                        InkPoint(x: point.x * scale, y: point.y * scale, timeOffset: Double(index) * 0.01)
+                    })])
+                    let candidates = recognizer.rankedCandidates(
+                        for: cluster,
+                        templates: ChordGlyphTemplateLibrary.initialTemplates,
+                        limit: 8
+                    )
+                    XCTAssertEqual(
+                        candidates.first?.text,
+                        "△",
+                        "scale=\(scale) reversed=\(reversed) start=\(startIndex) candidates=\(candidates)"
+                    )
+                }
+            }
+        }
+    }
+
     func testExpectedGlyphAppearsInTopThreeForDefaultRegressionFixtures() throws {
         try assertExpectedGlyphAppearsInTopCandidates(
             for: InkFixtureLoader.loadDefaultRegressionFixtures(file: #filePath)

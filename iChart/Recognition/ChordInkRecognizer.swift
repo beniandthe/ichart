@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v16-2026-09-12"
+    static let version = "maximum-trust-v17-2026-09-12"
 }
 
 protocol ChordInkRecognizing {
@@ -479,7 +479,8 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
             return finalized(result, strokes: strokes, options: options)
         }
 
-        if hasImplausiblePlainRootGeometry(result: result, strokes: strokes) {
+        if hasImplausiblePlainRootGeometry(result: result, strokes: strokes)
+            || ChordInkStemlessBReviewPolicy.hasAmbiguousRoot(in: result, strokes: strokes) {
             result.trustEvidence = evidence(
                 outcome: .implausibleRootGeometry,
                 symbolSupportCount: symbolSupportCount,
@@ -672,7 +673,10 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
             augmentedResult = result
         }
 
-        return hidingInternalLedgerIfNeeded(augmentedResult, options: options)
+        return hidingInternalLedgerIfNeeded(
+            ChordInkStemlessBReviewPolicy.addingReviewSuggestions(to: augmentedResult, strokes: strokes),
+            options: options
+        )
     }
 
     /// Page zoom and layout changes can present identical Pencil strokes at a
@@ -701,7 +705,8 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
                 $0.confidence >= 0.72 && ["A", "B", "C", "D", "E", "F", "G"].contains($0.text)
             }) == true
         guard bounds.height > ChordInkRecognitionScaleNormalizer.maximumUnscaledHeight
-                || compactRootLedNoRead else {
+                || compactRootLedNoRead
+                || ChordInkStemlessBReviewPolicy.hasAmbiguousRoot(in: result, strokes: strokes) else {
             return result
         }
 

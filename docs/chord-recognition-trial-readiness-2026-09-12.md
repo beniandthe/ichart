@@ -2,9 +2,62 @@
 
 ## Decision
 
-Freeze recognition at `maximum-trust-v16-2026-09-12` for a small, monitored user trial rather than continuing to tune against the same writer and curated fixtures. This is an engineering candidate, not a claim of perfect recognition or an uploaded release.
+The user reopened the deeper recognition iteration on September 12 and deferred the near-term trial cutoff. V16 remains the validated, installed physical baseline. V17 is a validated local follow-up, not hardware acceptance; neither candidate is a claim of perfect recognition or an uploaded release.
 
 Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. The exact V16 Release candidate is now development-signed, installed and launched on the physical iPad. Fresh handwriting acceptance and distribution remain separate gates.
+
+## Reopened iteration: retained V16 correction
+
+The fresh saved library contains an explicit `Bbmaj7` correction with a V16
+source candidate signature of `Gb13`. Rendering and replaying its exact source
+drawing exposes a stemless two-lobe root (also visually a 3), a flat, a wide
+retraced major triangle, and a seven. The local raw debug trace is older than
+V16 startup, so it is not used as evidence of V16 preview decisions.
+
+At original size, V16 replays `Gb13` requiring confirmation with no useful B
+alternative. At 110% size, the same geometry can become a trusted `Gb13`.
+This is a deterministic stress failure, not proof that this exact size change
+occurred on the iPad. Explicit stored correction establishes intent; the
+missing B stem still does not support an automatic B accept.
+
+V17 adds a bounded stemless-root ambiguity guard, review-only B alternatives,
+and an explicit visible review slot. It also checks all three sides of a broad
+major triangle geometrically, rather than relying on aspect ratio, pen start
+or direction. The native primary and recognition scores remain intact; B
+recovery is never automatic. Both chart styles share these policies.
+
+The new ambiguous capture lives in `Fixtures/InkReview` with an explicit
+confirmation/visible-recovery contract, not in the accepted 660-fixture
+correct-primary archive. It is repair-guiding, single-writer evidence. Its
+triangle passes 32 direction/start/scale variations, and the complete capture
+passes eight scale/direction variations without replacing the native primary.
+
+V17 validation: native full suite 1,410 selected / 1,351 passed / 59
+explicit opt-in skips / zero failures; SwiftPM 990 selected / 937 passed / 53
+opt-in skips / zero failures; exact-source native replay and focused policies
+109 selected / 108 passed / one optional archive skip / zero failures; Release
+transport/privacy/configuration and new recognition regressions 22/22.
+The separate full nine-condition archive, identity and glyph-rank audit passes
+all three selected tests. All 660 identity primaries remain correct (383 trusted,
+277 requiring confirmation). Across 5,940 deterministic recognition attempts,
+there are zero trusted-wrong results and zero hidden correct recoveries;
+transformed inputs still include manual-only confirmations and no-reads.
+The unchanged final source manifest contains 873 files with SHA-256
+`71f3511f7d7765fd2fe95b2314c1976f7642d3d1f9cd5b55124ca6d9d0146982`.
+V17 is not installed, signed for distribution, uploaded or pushed. V16's
+physical startup/preservation and production transport proofs do not become
+V17 hardware acceptance.
+
+Further audits must address within-glyph stroke order/direction and candidate
+role leakage. In the retained example, a root-position `7` lookalike can supply
+dominant-seventh context to later numeric fallback rules; that path remains a
+separate follow-up rather than being claimed fixed by the V17 review guard.
+The current archive transformations preserve articulation. The
+[$P research](https://depts.washington.edu/acelab/proj/dollar/pdollar.html)
+motivates articulation-invariant matching experiments, not an unmeasured claim
+that a replacement matcher improves iChart. MathWriting's
+[dataset license](https://arxiv.org/html/2404.10690v2) is CC-BY-NC-SA 4.0; no
+dataset, model or code from it has been incorporated into the shipping app.
 
 ## What this candidate fixes
 

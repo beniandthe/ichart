@@ -109,6 +109,16 @@ enum InkFixtureLoader {
         try fixtureCorpus(relativeTo: file).fixtures
     }
 
+    /// Intentionally ambiguous captures have a recovery contract, not the
+    /// primary-correct contract of the accepted recognition archive.
+    static func loadReviewFixture(_ name: String, file: StaticString = #filePath) throws -> InkFixture {
+        let fixtureURL = fixturesDirectoryURL(relativeTo: file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("InkReview")
+            .appendingPathComponent("\(name).json")
+        return try JSONDecoder().decode(InkFixture.self, from: Data(contentsOf: fixtureURL))
+    }
+
     static func loadDefaultRegressionFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
         let corpus = try fixtureCorpus(relativeTo: file)
         return try defaultRegressionFixtureNames.map { fixtureName in

@@ -154,12 +154,15 @@ final class ChordEntryPassReplayTests: XCTestCase {
             "Expected a matching chart in \(statePath)."
         )
         let recognizer = ChordInkRecognizer()
+        let productionRecognizer = ChordInkMaximumTrustRecognizer()
         let environment = ProcessInfo.processInfo.environment
         let requestedMeasureIndex = environment["ICHART_REPLAY_MEASURE_INDEX"]
             .flatMap(Int.init)
         let requestedEventIndex = environment["ICHART_REPLAY_EVENT_INDEX"]
             .flatMap(Int.init)
         var replayedEventCount = 0
+        var productionTexts: [String?] = []
+        var productionChoices: [[String]] = []
 
         for measure in chart.measures where requestedMeasureIndex == nil
             || measure.index == requestedMeasureIndex {
@@ -173,6 +176,52 @@ final class ChordEntryPassReplayTests: XCTestCase {
 
                 let strokes = try PencilKitInkAdapter.inkStrokes(from: sourceInkData)
                 let result = recognizer.recognize(strokes: strokes)
+                let productionResult = productionRecognizer.recognize(
+                    strokes: strokes,
+                    options: .includingSymbolLedgerDiagnostics
+                )
+                productionTexts.append(productionResult.match?.displayText)
+                productionChoices.append(
+                    Array(ChordInkRenderResolutionPolicy.candidateTexts(for: productionResult).prefix(3))
+                )
+                printRecognition(
+                    label: "committed_production_measure_\(measure.index)_event_\(eventIndex)",
+                    result: productionResult
+                )
+                print(
+                    "committed_production_choices="
+                        + "\(ChordInkRenderResolutionPolicy.candidateTexts(for: productionResult))"
+                        + " ledger=\(String(describing: productionResult.symbolLedgerAssessment))"
+                )
+                if let outputDirectory = environment["ICHART_REPLAY_COMMITTED_EVIDENCE_OUTPUT"] {
+                    let directoryURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
+                    try FileManager.default.createDirectory(
+                        at: directoryURL,
+                        withIntermediateDirectories: true
+                    )
+                    let drawing = try PKDrawing(data: sourceInkData)
+                    let frame = drawing.bounds.insetBy(dx: -8, dy: -8)
+                    let inkImage = drawing.image(from: frame, scale: 4)
+                    let format = UIGraphicsImageRendererFormat()
+                    format.scale = 4
+                    format.opaque = true
+                    let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+                        UIColor.white.setFill()
+                        context.fill(CGRect(origin: .zero, size: frame.size))
+                        inkImage.draw(in: CGRect(origin: .zero, size: frame.size))
+                    }
+                    let basename = "measure-\(measure.index)-event-\(eventIndex)"
+                    try XCTUnwrap(image.pngData()).write(
+                        to: directoryURL.appendingPathComponent("\(basename).png"),
+                        options: .atomic
+                    )
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    try encoder.encode(strokes).write(
+                        to: directoryURL.appendingPathComponent("\(basename)-strokes.json"),
+                        options: .atomic
+                    )
+                }
                 let decision = ChordInkRecognitionPolicy.decision(for: result)
                 let savedText = chordEvent.rawInput ?? chordEvent.symbol.displayText
                 let matchText = result.match?.displayText ?? "nil"
@@ -243,6 +292,25 @@ final class ChordEntryPassReplayTests: XCTestCase {
             0,
             "The requested saved-state replay filter matched no chord events."
         )
+        if let expectedSequence = environment["ICHART_REPLAY_EXPECTED_SEQUENCE"]?
+            .split(separator: ",")
+            .map(String.init),
+           !expectedSequence.isEmpty {
+            XCTAssertEqual(
+                productionTexts,
+                expectedSequence.map(Optional.some),
+                "Every selected committed source drawing must replay through the production recognizer."
+            )
+        }
+        if let expectedReviewSequence = environment["ICHART_REPLAY_EXPECTED_REVIEW_SEQUENCE"]?
+            .split(separator: ",")
+            .map(String.init),
+           !expectedReviewSequence.isEmpty {
+            XCTAssertEqual(productionChoices.count, expectedReviewSequence.count)
+            for (choices, expectedText) in zip(productionChoices, expectedReviewSequence) {
+                XCTAssertTrue(choices.contains(expectedText), "Expected \(expectedText) in visible review choices: \(choices)")
+            }
+        }
     }
 
     func testReplayPendingChordInkFromSavedState() throws {
