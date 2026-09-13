@@ -4,7 +4,7 @@
 
 Freeze recognition at `maximum-trust-v16-2026-09-12` for a small, monitored user trial rather than continuing to tune against the same writer and curated fixtures. This is an engineering candidate, not a claim of perfect recognition or an uploaded release.
 
-Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. Signing, fresh hardware acceptance and distribution remain separate gates.
+Final R04 telemetry-boundary, native, Release, SwiftPM and concurrency checks pass. The exact V16 Release candidate is now development-signed, installed and launched on the physical iPad. Fresh handwriting acceptance and distribution remain separate gates.
 
 ## What this candidate fixes
 
@@ -52,11 +52,23 @@ Release static analysis succeeds with zero errors and zero analyzer findings. Ni
 
 The command-line build boundary was repaired without removing native iPad tests: app-only preview helpers are unavailable to SwiftPM, and UIKit-only tests now use appropriate platform guards.
 
+## Physical QA delivery checkpoint
+
+After the user returned and confirmed readiness for native signing approval, a separate copy of the exact tested unsigned Release app was development-signed. Strict deep signature verification, the expected certificate/profile and exact QA entitlements all pass. All 44 executable sections retain identical bytes and geometry, and every original resource remains byte-identical. The pipeline is V16; no rebuild, recognition edit, credential-document access or keychain-permission change was needed.
+
+The app installed and launched on the physical iPad at 20:53 PDT on September 12. Native process inspection matches the newly installed V16 bundle. This is a development-signed Release QA build, not an App Store distribution artifact.
+
+The fresh preinstall library is 230,144 bytes; it is the preservation baseline for this installation, not the older 269,115-byte snapshot. All 10 backed-up files are byte-identical before and after installation/prelaunch. All eight existing non-diagnostic files, including the library, correction memory and PDFs, remain byte-identical after startup. Only the local performance trace and telemetry queue changed.
+
+Fresh natural-size writing, later-system behavior, dense-page Pencil feel, review/render, correction, erasure and post-writing cold-relaunch persistence still require user-observed acceptance in both styles. Install/launch and unchanged pre-existing documents do not prove those behaviors.
+
 ## Telemetry for the trial
 
 Normal Release telemetry is enabled outside XCTest. Both signed-out and signed-in clients use the configured production endpoint; signed-out requests use the public `apikey` without a fabricated bearer session. Signed-in requests use the actual user-session JWT.
 
 Production ingest v9 is already deployed under the user's explicit diagnostic-field approval. Real pre-V13 preview events demonstrate retention and scalar types for pipeline/trust/review/root-issue fields; this is transport/storage proof, not handwriting accuracy or V16 hardware acceptance. No synthetic recognition events were injected to manufacture that proof.
+
+The new physical Release startup also reached production. A read-only query matched this exact installation: one real signed-out `app.launched` event with V16, `release_build`, iPadOS and the physical iPad model; both version/source retain JSON string types. It occurred at 03:53:07 UTC and was received at 03:53:08.551 UTC on September 13. There were no V16 startup rows in the preceding prelaunch query. This proves the ordinary signed-out Release transport/storage path on hardware, not external-user collection, recognition accuracy or a new live signed-in acceptance gate.
 
 The final client adds:
 
@@ -85,13 +97,12 @@ The private 180-day cleanup helper exists, but there is no matching scheduled cl
 
 ## Remaining release gates
 
-1. User-approved macOS key access, followed by strict signature/pipeline/source verification of the exact device candidate. The development-signed Release QA attempt reached codesign for a dependency resource bundle and waited at key access; it was canceled before further source edits. No passwords were copied, keychain permissions changed or new V16 app installed. The first QA-only signing configuration attempt failed for a dependency's missing development team; the explicit same-team correction reached signing. App Store Release signing settings were not changed.
-2. Fresh V16 physical acceptance in both styles: write B/C/D/G and modifiers at natural size and pace, continue through later systems, check incomplete previews versus completed reads, Review & Render, correction, erasure, dense-page Pencil feel and cold-relaunch persistence. Use a throwaway chart for destructive layout tests; keep the evidence charts intact.
-3. Confirm TestFlight beta versus App Store free-trial distribution. TestFlight is useful for real handwriting feedback, but purchases use sandbox and do not measure normal trial conversion or revenue.
-4. Verify the current App Store Connect build number and assign a unique upload build before the signed distribution archive/export. The local engineering archive remains 1.2.1 (51); it is not upload-ready.
-5. Publish/verify the privacy notice and review store privacy metadata, then authorize upload/distribution. The existing subscription/free-trial system was not changed, and no new live purchase or sandbox transaction was exercised in this pass.
+1. Fresh V16 physical acceptance in both styles: write B/C/D/G and modifiers at natural size and pace, continue through later systems, check incomplete previews versus completed reads, Review & Render, correction, erasure, dense-page Pencil feel and cold-relaunch persistence. Use a throwaway chart for destructive layout tests; keep the evidence charts intact.
+2. Confirm TestFlight beta versus App Store free-trial distribution. TestFlight is useful for real handwriting feedback, but purchases use sandbox and do not measure normal trial conversion or revenue.
+3. Verify the current App Store Connect build number and assign a unique upload build before the signed distribution archive/export. The local engineering archive remains 1.2.1 (51); it is not upload-ready.
+4. Publish/verify the privacy notice and review store privacy metadata, then authorize upload/distribution. The existing subscription/free-trial system was not changed, and no new live purchase or sandbox transaction was exercised in this pass.
 
-The currently installed physical candidate remains V13. The fresh preflight library copy is byte-identical to its preserved postlaunch library: 269,115 bytes, three charts. Install/launch and historical persisted data are not fresh V16 recognition acceptance.
+The currently installed physical candidate is V16. The original unsigned Release archive remains preserved separately, and App Store Release signing settings were not changed. The earlier canceled signing attempts are historical delivery failures, not failures of this now-signed QA artifact. Fresh V16 recognition acceptance and distribution remain unproven.
 
 ## Source and GitHub handoff
 
@@ -99,7 +110,7 @@ Final R04 source manifest: 871 app/test/configuration/contract/privacy files; SH
 
 The V16 full archive, final test summaries, source manifests, unsigned Release archive and private device evidence are retained outside the repository in local QA. Do not add chart-library snapshots, diagnostic JSONL, PDFs, screenshots, signing material or real installation identifiers to this public repository. Newly added fixtures contain only deidentified chord geometry, expected labels and rebased relative timing.
 
-At pre-push inspection, remote main matches local main; the current branch has no remote head and is three commits ahead before the new checkpoint. Older PR/Actions results are not this candidate's CI. GitHub push, pull request, hosted privacy deployment, upload, distribution and App Store submission have not been performed.
+At the initial pre-push inspection, remote main matched local main and the branch had no remote head. The engineering checkpoint is committed locally as `05a4d95`; the physical delivery report follows without application-source changes. Older PR/Actions results are not this candidate's CI. GitHub push, pull request, hosted privacy deployment, upload, distribution and App Store submission have not been performed.
 
 ## Primary references
 
