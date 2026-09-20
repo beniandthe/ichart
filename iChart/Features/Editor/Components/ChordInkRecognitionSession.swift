@@ -62,6 +62,7 @@ struct ChordInkRecognitionPreparationResult {
     var rawBatchTargetCount: Int
     var boundedBatchTargetCount: Int
     var durationMilliseconds: Double
+    var ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil
 }
 
 enum ChordInkRecognitionPreparation {
@@ -117,7 +118,13 @@ enum ChordInkRecognitionPreparation {
                 startedAt: startedAt,
                 sourceStrokeCount: sourceStrokeCount,
                 visibleStrokeCount: 0,
-                ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
+                ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
+                ownershipSnapshot: ChordInkTargetOwnershipSnapshot(
+                    sourcePencilStrokeCount: sourceStrokeCount,
+                    visibleFragmentSourceStrokeIndices: visibleSourceContext.originalStrokeIndices,
+                    barlineVisibleFragmentIndices: [],
+                    targetVisibleFragmentIndices: []
+                )
             )
         }
 
@@ -156,12 +163,19 @@ enum ChordInkRecognitionPreparation {
                 at: visibleBarlineRecognition.strokeIndices
             )
             : visibleSourceDrawing
-        let recognitionStrokes = request.flow == .draftPreview
-            ? sourceStrokes.enumerated().compactMap { index, stroke in
-                visibleBarlineRecognition.strokeIndices.contains(index) ? nil : stroke
-            }
-            : sourceStrokes
+        let recognitionVisibleFragmentIndices = sourceStrokes.indices.filter { index in
+            request.flow != .draftPreview
+                || !visibleBarlineRecognition.strokeIndices.contains(index)
+        }
+        let recognitionStrokes = recognitionVisibleFragmentIndices.map { sourceStrokes[$0] }
         let recognitionStrokeCount = recognitionStrokes.count
+        let targetlessOwnershipSnapshot = ownershipSnapshot(
+            sourcePencilStrokeCount: sourceStrokeCount,
+            visibleFragmentSourceStrokeIndices: visibleSourceContext.originalStrokeIndices,
+            barlineVisibleFragmentIndices: visibleBarlineRecognition.strokeIndices,
+            recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
+            targetRecognitionStrokeIndices: []
+        )
         // The source data was normalized before this preparation request was
         // created. The recognition drawing also expands any bitmap-erased mask
         // into independent visible fragments so targeting, saved source ink,
@@ -179,7 +193,8 @@ enum ChordInkRecognitionPreparation {
                 sourceStrokeCount: sourceStrokeCount,
                 recognitionStrokeCount: recognitionStrokeCount,
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
-                ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
+                ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
+                ownershipSnapshot: targetlessOwnershipSnapshot
             )
         }
 
@@ -255,7 +270,8 @@ enum ChordInkRecognitionPreparation {
                     visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                     ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                     rawBatchTargetCount: batchTargets.count,
-                    boundedBatchTargetCount: boundedBatchTargets.count
+                    boundedBatchTargetCount: boundedBatchTargets.count,
+                    ownershipSnapshot: targetlessOwnershipSnapshot
                 )
             }
 
@@ -283,7 +299,16 @@ enum ChordInkRecognitionPreparation {
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                 rawBatchTargetCount: batchTargets.count,
-                boundedBatchTargetCount: boundedBatchTargets.count
+                boundedBatchTargetCount: boundedBatchTargets.count,
+                ownershipSnapshot: ownershipSnapshot(
+                    sourcePencilStrokeCount: sourceStrokeCount,
+                    visibleFragmentSourceStrokeIndices: visibleSourceContext.originalStrokeIndices,
+                    barlineVisibleFragmentIndices: visibleBarlineRecognition.strokeIndices,
+                    recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
+                    targetRecognitionStrokeIndices: boundedBatchTargets.map(
+                        \.recognitionStrokeIndices
+                    )
+                )
             )
         }
 
@@ -309,7 +334,8 @@ enum ChordInkRecognitionPreparation {
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                 rawBatchTargetCount: batchTargets.count,
-                boundedBatchTargetCount: boundedBatchTargets.count
+                boundedBatchTargetCount: boundedBatchTargets.count,
+                ownershipSnapshot: targetlessOwnershipSnapshot
             )
         }
 
@@ -336,7 +362,8 @@ enum ChordInkRecognitionPreparation {
                 visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                 rawBatchTargetCount: batchTargets.count,
-                boundedBatchTargetCount: boundedBatchTargets.count
+                boundedBatchTargetCount: boundedBatchTargets.count,
+                ownershipSnapshot: targetlessOwnershipSnapshot
             )
         }
 
@@ -375,7 +402,42 @@ enum ChordInkRecognitionPreparation {
             visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
             ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
             rawBatchTargetCount: batchTargets.count,
-            boundedBatchTargetCount: boundedBatchTargets.count
+            boundedBatchTargetCount: boundedBatchTargets.count,
+            ownershipSnapshot: ownershipSnapshot(
+                sourcePencilStrokeCount: sourceStrokeCount,
+                visibleFragmentSourceStrokeIndices: visibleSourceContext.originalStrokeIndices,
+                barlineVisibleFragmentIndices: visibleBarlineRecognition.strokeIndices,
+                recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
+                targetRecognitionStrokeIndices: [Array(recognitionStrokes.indices)]
+            )
+        )
+    }
+
+    private static func ownershipSnapshot(
+        sourcePencilStrokeCount: Int,
+        visibleFragmentSourceStrokeIndices: [Int],
+        barlineVisibleFragmentIndices: Set<Int>,
+        recognitionVisibleFragmentIndices: [Int],
+        targetRecognitionStrokeIndices: [[Int]]
+    ) -> ChordInkTargetOwnershipSnapshot? {
+        var targetVisibleFragmentIndices: [[Int]] = []
+        targetVisibleFragmentIndices.reserveCapacity(targetRecognitionStrokeIndices.count)
+        for targetIndices in targetRecognitionStrokeIndices {
+            guard targetIndices.allSatisfy({
+                recognitionVisibleFragmentIndices.indices.contains($0)
+            }) else {
+                return nil
+            }
+            targetVisibleFragmentIndices.append(
+                targetIndices.map { recognitionVisibleFragmentIndices[$0] }
+            )
+        }
+
+        return ChordInkTargetOwnershipSnapshot(
+            sourcePencilStrokeCount: sourcePencilStrokeCount,
+            visibleFragmentSourceStrokeIndices: visibleFragmentSourceStrokeIndices,
+            barlineVisibleFragmentIndices: Array(barlineVisibleFragmentIndices),
+            targetVisibleFragmentIndices: targetVisibleFragmentIndices
         )
     }
 
@@ -389,7 +451,8 @@ enum ChordInkRecognitionPreparation {
         visibleStrokeCount: Int = 0,
         ignoredInvisibleStrokeCount: Int = 0,
         rawBatchTargetCount: Int = 0,
-        boundedBatchTargetCount: Int = 0
+        boundedBatchTargetCount: Int = 0,
+        ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil
     ) -> ChordInkRecognitionPreparationResult {
         ChordInkRecognitionPreparationResult(
             requestID: requestID,
@@ -401,7 +464,8 @@ enum ChordInkRecognitionPreparation {
             ignoredInvisibleStrokeCount: ignoredInvisibleStrokeCount,
             rawBatchTargetCount: rawBatchTargetCount,
             boundedBatchTargetCount: boundedBatchTargetCount,
-            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
+            ownershipSnapshot: ownershipSnapshot
         )
     }
 }

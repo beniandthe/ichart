@@ -1325,7 +1325,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(laneLocation.fraction, 0.5, accuracy: 0.04)
     }
 
-    func testProductionPreparationTargetsTransformedInkInLateContinuationLaneForBothChartStyles() throws {
+    func testProductionPreparationTargetsTransformedInkAndEmitsOwnershipSnapshotForBothChartStyles() throws {
         for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let chart: Chart
             if layoutStyle == .simpleChordSheet {
@@ -1405,6 +1405,29 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
             XCTAssertFalse(usesBatch, layoutStyle.rawValue)
             XCTAssertEqual(requests.count, 1, layoutStyle.rawValue)
+            let ownershipSnapshot = try XCTUnwrap(
+                preparation.ownershipSnapshot,
+                layoutStyle.rawValue
+            )
+            XCTAssertEqual(ownershipSnapshot.sourcePencilStrokeCount, 1, layoutStyle.rawValue)
+            XCTAssertEqual(
+                ownershipSnapshot.visibleFragmentSourceStrokeIndices,
+                [0],
+                layoutStyle.rawValue
+            )
+            XCTAssertEqual(
+                ownershipSnapshot.targetGroups,
+                [.init(targetOrdinal: 0, visibleFragmentIndices: [0])],
+                layoutStyle.rawValue
+            )
+            XCTAssertTrue(
+                ownershipSnapshot.barlineVisibleFragmentIndices.isEmpty,
+                layoutStyle.rawValue
+            )
+            XCTAssertTrue(
+                ownershipSnapshot.unassignedVisibleFragmentIndices.isEmpty,
+                layoutStyle.rawValue
+            )
             XCTAssertEqual(request.laneLocation?.systemIndex, targetLaneIndex, layoutStyle.rawValue)
             let targetMeasureIDs = Set(
                 pageLayout.systems[targetLaneIndex].measures.compactMap(\.chordInkTargetMeasureID)

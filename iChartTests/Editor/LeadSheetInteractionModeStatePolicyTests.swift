@@ -3492,7 +3492,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(result.targets[2].visualOrder, result.targets[3].visualOrder)
     }
 
-    func testChordBatchTargetingPreservesOriginalStrokeOrderInsideTargets() throws {
+    func testChordBatchTargetingPreservesStrokeOrderAndOwnershipIndicesInsideTargets() throws {
         var chart = Chart.draft(title: "Batch Stroke Order", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
             title: "Batch Stroke Order",
@@ -3546,6 +3546,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets.map(\.recognitionStrokeIndices), [[0, 1], [2]])
         XCTAssertEqual(targets[0].strokes.count, 2)
         XCTAssertGreaterThan(targets[0].strokes[0].bounds.minX, targets[0].strokes[1].bounds.minX)
         XCTAssertEqual(

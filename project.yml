@@ -98,6 +98,8 @@ targets:
         BUNDLE_LOADER: "$(TEST_HOST)"
     sources:
       - path: iChartTests
+        excludes:
+          - "**/README.md"
     dependencies:
       - target: iChart
 

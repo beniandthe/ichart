@@ -1,6 +1,13 @@
 import XCTest
 @testable import iChart
 
+/// Safety regressions for visible, repeatedly tuned legacy fixtures.
+///
+/// Passing this suite does not measure accuracy on unseen writers and must not
+/// be reported as user-agnostic recognition evidence.
+// Keep the historical XCTest class/method names so old focused commands cannot
+// silently select zero tests. The names are compatibility shims only; this is a
+// legacy safety-regression suite, not writer-independent acceptance evidence.
 final class ChordInkTrustAcceptanceTests: XCTestCase {
     private let recognizer = ChordInkMaximumTrustRecognizer()
 
@@ -85,7 +92,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
     }
 
     func testTrustAcceptanceFixtureSetIncludesRequiredFamilies() throws {
-        let fixtureNames = Set(InkFixtureLoader.trustAcceptanceFixtureNames)
+        let fixtureNames = Set(InkFixtureLoader.legacySafetyRegressionFixtureNames)
 
         XCTAssertTrue(fixtureNames.isSuperset(of: [
             "A",
@@ -109,7 +116,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
     }
 
     func testRecognizesTrustAcceptanceFixtureSet() throws {
-        let fixtures = try InkFixtureLoader.loadTrustAcceptanceFixtures(file: #filePath)
+        let fixtures = try InkFixtureLoader.loadLegacySafetyRegressionFixtures(file: #filePath)
 
         XCTAssertFalse(fixtures.isEmpty)
 
@@ -202,7 +209,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
     }
 
     func testTrustAcceptanceFixturesNeverProduceTrustedWrongReadsUnderDeterministicPerturbations() throws {
-        let fixtures = try InkFixtureLoader.loadTrustAcceptanceFixtures(file: #filePath)
+        let fixtures = try InkFixtureLoader.loadLegacySafetyRegressionFixtures(file: #filePath)
 
         try assertNoTrustedWrongReads(
             fixtures: fixtures,

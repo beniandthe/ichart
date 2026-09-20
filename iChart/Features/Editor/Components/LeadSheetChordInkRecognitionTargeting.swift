@@ -8,6 +8,7 @@ struct LeadSheetChordInkRecognitionBatchTarget {
     var fraction: Double
     var visualOrder: Double
     var laneLocation: ChordInkDraftLaneLocation?
+    var recognitionStrokeIndices: [Int] = []
     var strokes: [InkStroke]
     var drawingData: Data
     var drawing: PKDrawing
@@ -276,7 +277,7 @@ enum LeadSheetChordInkRecognitionTargeting {
                 continue
             }
 
-            var strokePairs: [(PKStroke, InkStroke)] = []
+            var strokePairs: [(index: Int, pencilStroke: PKStroke, inkStroke: InkStroke)] = []
             strokePairs.reserveCapacity(cluster.strokeIndices.count)
             for index in cluster.strokeIndices.sorted() {
                 guard shouldContinue() else {
@@ -292,14 +293,14 @@ enum LeadSheetChordInkRecognitionTargeting {
                       inkStrokes.indices.contains(index) else {
                     continue
                 }
-                strokePairs.append((drawingStrokes[index], inkStrokes[index]))
+                strokePairs.append((index, drawingStrokes[index], inkStrokes[index]))
             }
             guard !strokePairs.isEmpty else {
                 continue
             }
 
             let clusterDrawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(
-                PKDrawing(strokes: strokePairs.map(\.0))
+                PKDrawing(strokes: strokePairs.map { $0.pencilStroke })
             )
             let laneLocation = laneLocation(
                 forInkBounds: cluster.bounds.cgRect,
@@ -314,7 +315,8 @@ enum LeadSheetChordInkRecognitionTargeting {
                         context: targetingContext
                     ),
                 laneLocation: laneLocation,
-                strokes: strokePairs.map(\.1),
+                recognitionStrokeIndices: strokePairs.map { $0.index },
+                strokes: strokePairs.map { $0.inkStroke },
                 drawingData: clusterDrawing.dataRepresentation(),
                 drawing: clusterDrawing
             ))
