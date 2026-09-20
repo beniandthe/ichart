@@ -132,6 +132,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     sources:
       - path: iChart/App/RecognitionStudyApp.swift
+      - path: iChart/Recognition/InkTrajectoryTypes.swift
+      - path: iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift
+      - path: iChart/Recognition/PencilKitInkAdapter.swift
   RecognitionStudyTests:
     type: bundle.unit-test
     platform: iOS

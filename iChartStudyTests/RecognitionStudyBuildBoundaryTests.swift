@@ -84,8 +84,25 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         )
         XCTAssertEqual(
             sourcePaths(in: studySources),
-            ["iChart/App/RecognitionStudyApp.swift"]
+            [
+                "iChart/App/RecognitionStudyApp.swift",
+                "iChart/Recognition/InkTrajectoryTypes.swift",
+                "iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift",
+                "iChart/Recognition/PencilKitInkAdapter.swift"
+            ]
         )
+        for forbiddenPath in [
+            "iChart/Recognition/InkTypes.swift",
+            "iChart/Recognition/ChordInkRecognizer.swift",
+            "iChart/Features/Editor",
+            "iChart/Services",
+            "iChart/Resources"
+        ] {
+            XCTAssertFalse(
+                sourcePaths(in: studySources).contains(forbiddenPath),
+                "Study target must not include \(forbiddenPath)."
+            )
+        }
 
         XCTAssertTrue(studyTests.contains("type: bundle.unit-test"))
         XCTAssertTrue(
@@ -166,6 +183,35 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "Study entry must not construct or reference \(reference)."
             )
         }
+    }
+
+    func testTrajectoryTypesAreSeparatedFromRecognitionPolicyAndModels() throws {
+        let trajectoryTypes = try sourceText(
+            at: "iChart/Recognition/InkTrajectoryTypes.swift"
+        )
+        let recognitionTypes = try sourceText(at: "iChart/Recognition/InkTypes.swift")
+
+        for declaration in [
+            "struct InkPoint: Codable, Hashable",
+            "struct InkBounds: Codable, Hashable",
+            "struct InkStroke: Codable, Hashable"
+        ] {
+            XCTAssertTrue(trajectoryTypes.contains(declaration))
+            XCTAssertFalse(recognitionTypes.contains(declaration))
+        }
+
+        for forbiddenDeclaration in [
+            "InkCluster",
+            "ChordInkBatchClusterer",
+            "ChordInkRecognition",
+            "ChordSymbol"
+        ] {
+            XCTAssertFalse(
+                trajectoryTypes.contains(forbiddenDeclaration),
+                "Shared trajectory types must not absorb \(forbiddenDeclaration)."
+            )
+        }
+        XCTAssertTrue(recognitionTypes.contains("enum InkClusterRecognitionHint"))
     }
 
     private var projectRoot: URL {
