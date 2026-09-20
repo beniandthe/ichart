@@ -148,6 +148,13 @@ trajectory-only model, and dual-view model must compete under the same blind
 protocol. The learned architecture wins only if it improves writer-macro
 accuracy and risk/coverage at acceptable physical-iPad latency.
 
+The first implementation boundary is deliberately pre-model: preserve the
+complete prepared trajectory in a deterministic, versioned packet without
+resampling, truncation, fixed tensor dimensions, or normalization selected from
+the retained archive. Recent dual-view results make trajectory-plus-raster a
+credible experiment, not a foregone winner; concrete encoding and architecture
+choices still require writer-disjoint development data and ablation evidence.
+
 ## Trust and interaction contract
 
 Recognition disposition and target lifecycle are separate concepts.
@@ -459,16 +466,26 @@ Ordinary telemetry must remain separate.
    target-owned, and unassigned-fragment evidence. The snapshot is diagnostic
    evidence only: it does not change candidates, confidence, trust decisions,
    UI, persistence, telemetry, or claim improved accuracy.**
-5. Build an explicitly consented prompted-capture pilot that disables
+5. Preserve prepared trajectories in a versioned, deterministic, lossless
+   packet before selecting model features. **Implemented in this branch with
+   exact point/stroke order, stored bounds, timing availability, coordinate
+   space, and IEEE-754 values. It performs no normalization, resampling,
+   truncation, feature selection, model inference, live integration,
+   persistence, or transport. The packet is raw handwriting data; validity or a
+   byte digest proves neither consent, provenance, writer independence, label
+   correctness, nor recognition accuracy. Its digest identifies exact stored
+   bytes, not semantically equivalent trajectories, and must not be used as the
+   near-neighbor or leakage identity.**
+6. Build an explicitly consented prompted-capture pilot that disables
    correction memory and records base versus adapted outcomes separately.
-6. Split trust into structured dispositions and fix all-draft review batching.
-7. Add a frozen target lifecycle and cooperative cancellation.
-8. Establish classical, raster, trajectory, and dual-view shadow baselines.
-9. Train and convert the leading model to Core ML with fixed, versioned input
+7. Split trust into structured dispositions and fix all-draft review batching.
+8. Add a frozen target lifecycle and cooperative cancellation.
+9. Establish classical, raster, trajectory, and dual-view shadow baselines.
+10. Train and convert the leading model to Core ML with fixed, versioned input
    encoding and an explicit unknown class.
-10. Calibrate on unseen writers, then run the sealed holdout once per frozen
+11. Calibrate on unseen writers, then run the sealed holdout once per frozen
    candidate.
-11. Run multi-writer physical-iPad acceptance in both chart styles, followed by
+12. Run multi-writer physical-iPad acceptance in both chart styles, followed by
     persistence, erasure, responsiveness, and release regression gates.
 
 ## Primary references
@@ -478,12 +495,18 @@ Ordinary telemetry must remain separate.
   https://proceedings.neurips.cc/paper_files/paper/2007/file/4b0250793549726d5c1ea3906726ebfe-Paper.pdf
 - Carbune et al., deployed Gboard online handwriting recognition:
   https://link.springer.com/article/10.1007/s10032-020-00350-4
+- Lodh et al., 2025 preprint on jointly using online trajectories and offline
+  raster features (architecture hypothesis, not validation for this app):
+  https://arxiv.org/abs/2506.20255
 - Oh et al., writer-independent online music-symbol recognition and stroke-order
   sensitivity: https://link.springer.com/article/10.1007/s10032-017-0281-y
 - Guo et al., calibration of modern neural networks:
   https://proceedings.mlr.press/v70/guo17a.html
 - Geifman and El-Yaniv, SelectiveNet:
   https://proceedings.mlr.press/v97/geifman19a
+- Cattelan and Silva, post-hoc confidence estimators for selective
+  classification under distribution shift:
+  https://proceedings.mlr.press/v244/cattelan24a.html
 - Maurer and Pontil, writer-unit empirical-Bernstein construction used by the
   preregistered mean-rate gate:
   https://www.cs.mcgill.ca/~colt2009/papers/012.pdf
