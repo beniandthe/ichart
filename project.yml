@@ -121,7 +121,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+          UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
         UILaunchScreen: {}
         UIRequiresFullScreen: true
@@ -135,6 +135,8 @@ targets:
       - path: iChart/Recognition/InkTrajectoryTypes.swift
       - path: iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift
       - path: iChart/Recognition/PencilKitInkAdapter.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift
   RecognitionStudyTests:
     type: bundle.unit-test
     platform: iOS

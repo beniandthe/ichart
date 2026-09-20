@@ -17,6 +17,13 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SupabaseURL"))
         XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SupabasePublishableKey"))
         XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SupabaseAnonKey"))
+        let sceneManifest = Bundle.main.object(
+            forInfoDictionaryKey: "UIApplicationSceneManifest"
+        ) as? [String: Any]
+        XCTAssertEqual(
+            sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool,
+            false
+        )
         XCTAssertNil(
             Bundle.main.url(
                 forResource: "IChartCanonicalLaunchHandwriting",
@@ -88,13 +95,16 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "iChart/App/RecognitionStudyApp.swift",
                 "iChart/Recognition/InkTrajectoryTypes.swift",
                 "iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift",
-                "iChart/Recognition/PencilKitInkAdapter.swift"
+                "iChart/Recognition/PencilKitInkAdapter.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
             ]
         )
         for forbiddenPath in [
             "iChart/Recognition/InkTypes.swift",
             "iChart/Recognition/ChordInkRecognizer.swift",
             "iChart/Features/Editor",
+            "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift",
             "iChart/Services",
             "iChart/Resources"
         ] {
@@ -139,6 +149,11 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         XCTAssertFalse(studyInfo.contains("CFBundleURLTypes"))
         XCTAssertFalse(studyInfo.contains("Supabase"))
         XCTAssertFalse(studyInfo.contains("IChartCanonicalLaunchHandwriting"))
+        XCTAssertTrue(
+            studyInfo.contains(
+                "<key>UIApplicationSupportsMultipleScenes</key>\n\t\t<false/>"
+            )
+        )
         XCTAssertTrue(productionInfo.contains("<string>iChart</string>"))
         XCTAssertTrue(productionInfo.contains("<string>ichart</string>"))
         XCTAssertFalse(productionInfo.contains("ICHART_DISPLAY_NAME"))
@@ -214,6 +229,256 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         XCTAssertTrue(recognitionTypes.contains("enum InkClusterRecognitionHint"))
     }
 
+    func testStudyContractSourcesRemainOfflineAndUnwired() throws {
+        let canonicalValues = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift"
+        )
+        let captureModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
+        )
+        let combined = canonicalValues + "\n" + captureModels
+
+        XCTAssertEqual(
+            canonicalValues
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import CryptoKit", "import Foundation"]
+        )
+        XCTAssertEqual(
+            captureModels
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import Foundation"]
+        )
+
+        for forbiddenReference in [
+            "FileManager",
+            "write(to:",
+            "URLSession",
+            "NWConnection",
+            "Supabase",
+            "Telemetry",
+            "Export",
+            "PKCanvasView",
+            "PKDrawing",
+            "ChordInkRecognizer",
+            "WriterIndependentEvaluation",
+            "RecognitionStudyLocalCaptureStore"
+        ] {
+            XCTAssertFalse(
+                combined.contains(forbiddenReference),
+                "Study contracts must not reference \(forbiddenReference)."
+            )
+        }
+
+        let studyEntry = try sourceText(at: "iChart/App/RecognitionStudyApp.swift")
+        XCTAssertFalse(studyEntry.contains("RecognitionStudyCaptureEnvelope"))
+        XCTAssertFalse(studyEntry.contains("RecognitionStudyPresentedSurface"))
+        XCTAssertFalse(studyEntry.contains("PencilKitInkAdapter"))
+    }
+
+    func testCanonicalDocumentsAreEncodableOnlyAndDecodeThroughPrivateWires() throws {
+        let canonicalValues = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift"
+        )
+        let captureModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
+        )
+
+        XCTAssertTrue(
+            canonicalValues.contains(
+                "protocol RecognitionStudyCanonicalJSONDocument: Encodable {"
+            )
+        )
+        XCTAssertTrue(
+            canonicalValues.contains(
+                "static func decodeCanonicalData(_ data: Data) throws -> Self"
+            )
+        )
+        XCTAssertTrue(
+            canonicalValues.contains(
+                "static var maximumCanonicalJSONByteCount: Int { get }"
+            )
+        )
+        XCTAssertFalse(
+            canonicalValues.contains("maximumCanonicalJSONByteCount: Int?")
+        )
+        XCTAssertEqual(
+            canonicalValues.components(
+                separatedBy: "static var maximumCanonicalJSONByteCount"
+            ).count - 1,
+            1,
+            "The protocol must not supply a default document-size cap."
+        )
+        XCTAssertFalse(
+            canonicalValues.contains(
+                "protocol RecognitionStudyCanonicalJSONDocument: Decodable"
+            )
+        )
+        XCTAssertFalse(
+            canonicalValues.contains(
+                "protocol RecognitionStudyCanonicalJSONDocument: Codable"
+            )
+        )
+        XCTAssertFalse(
+            canonicalValues.contains("JSONDecoder().decode(Self.self")
+        )
+        XCTAssertFalse(canonicalValues.contains("decodeWireRepresentation"))
+        XCTAssertFalse(captureModels.contains("decodeWireRepresentation"))
+        XCTAssertFalse(captureModels.contains("JSONDecoder"))
+        XCTAssertTrue(
+            canonicalValues.contains("enum RecognitionStudyStrictCanonicalJSON")
+        )
+        XCTAssertTrue(
+            canonicalValues.contains(
+                "let wire = try JSONDecoder().decode(wireType, from: data)"
+            )
+        )
+        XCTAssertTrue(canonicalValues.contains("try document.validateContract()"))
+        XCTAssertTrue(
+            canonicalValues.contains("guard try document.canonicalData() == data")
+        )
+
+        for documentName in [
+            "RecognitionStudyAuthorizationBinding",
+            "RecognitionStudyClientAppContext",
+            "RecognitionStudySessionManifest",
+            "RecognitionStudyPresentedSurface",
+            "RecognitionStudyTrajectoryDescriptor",
+            "RecognitionStudyCaptureEnvelope"
+        ] {
+            let header = try declarationHeader(
+                in: captureModels,
+                kind: "struct",
+                named: documentName
+            )
+            XCTAssertTrue(
+                header.contains("RecognitionStudyCanonicalJSONDocument"),
+                "\(documentName) must use the encodable-only canonical document boundary."
+            )
+            XCTAssertFalse(
+                header.contains("Decodable") || header.contains("Codable"),
+                "\(documentName) must not be directly JSON-decodable."
+            )
+            XCTAssertFalse(
+                captureModels.contains("extension \(documentName)"),
+                "\(documentName) must not acquire decoding in an extension."
+            )
+        }
+
+        for enumName in [
+            "RecognitionStudyArtifactKind",
+            "RecognitionStudyAuthorizationKind",
+            "RecognitionStudyPresentedChartStyle",
+            "RecognitionStudyObservedOrientation",
+            "RecognitionStudyPresentedPaceInstruction",
+            "RecognitionStudyPresentedSizeInstruction",
+            "RecognitionStudyPresentedConstructionInstruction"
+        ] {
+            let header = try declarationHeader(
+                in: captureModels,
+                kind: "enum",
+                named: enumName
+            )
+            XCTAssertTrue(header.contains("Encodable"))
+            XCTAssertFalse(
+                header.contains("Decodable") || header.contains("Codable"),
+                "\(enumName) must not provide a direct decode path."
+            )
+        }
+
+        XCTAssertFalse(captureModels.contains("init(from"))
+        XCTAssertFalse(captureModels.contains("Codable"))
+        XCTAssertEqual(
+            captureModels.components(
+                separatedBy: "static func decodeCanonicalData(_ data: Data) throws -> Self"
+            ).count - 1,
+            6,
+            "Every canonical document must expose exactly one safe decode entry."
+        )
+        XCTAssertEqual(
+            captureModels.components(separatedBy: "static func decode").count - 1,
+            6,
+            "Capture documents must not expose any raw decode method."
+        )
+        XCTAssertEqual(
+            captureModels.components(
+                separatedBy: "static let maximumCanonicalJSONByteCount: Int ="
+            ).count - 1,
+            6,
+            "Every canonical capture document must declare an explicit cap."
+        )
+        let namedV1Limits = [
+            (
+                "maximumAuthorizationBindingV1CanonicalJSONByteCount",
+                "8 * 1024"
+            ),
+            (
+                "maximumClientAppContextV1CanonicalJSONByteCount",
+                "8 * 1024"
+            ),
+            (
+                "maximumSessionManifestV1CanonicalJSONByteCount",
+                "32 * 1024"
+            ),
+            (
+                "maximumPresentedSurfaceV1CanonicalJSONByteCount",
+                "8 * 1024"
+            ),
+            (
+                "maximumTrajectoryDescriptorV1CanonicalJSONByteCount",
+                "8 * 1024"
+            ),
+            (
+                "maximumCaptureEnvelopeV1CanonicalJSONByteCount",
+                "64 * 1024"
+            )
+        ]
+        for (limitName, valueExpression) in namedV1Limits {
+            XCTAssertTrue(
+                captureModels.contains(
+                    "static let \(limitName) = \(valueExpression)"
+                ),
+                "Missing the explicit \(limitName) cap."
+            )
+            XCTAssertEqual(
+                captureModels.components(separatedBy: limitName).count - 1,
+                2,
+                "\(limitName) must be declared once and bound to one document."
+            )
+        }
+        XCTAssertEqual(
+            captureModels.components(separatedBy: "fileprivate init(").count - 1,
+            6,
+            "Wire construction must remain file-private."
+        )
+        XCTAssertTrue(
+            captureModels.contains(
+                "fileprivate enum RecognitionStudyCaptureWire {"
+            )
+        )
+        for wireName in [
+            "AuthorizationBinding",
+            "ClientAppContext",
+            "SessionManifest",
+            "PresentedSurface",
+            "TrajectoryDescriptor",
+            "CaptureEnvelope"
+        ] {
+            XCTAssertTrue(
+                captureModels.contains("struct \(wireName): Decodable"),
+                "Missing implementation-owned Decodable wire \(wireName)."
+            )
+        }
+        XCTAssertEqual(
+            captureModels.components(separatedBy: "Decodable").count - 1,
+            6,
+            "Only the six implementation-owned wire structs may be Decodable."
+        )
+    }
+
     private var projectRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -247,5 +512,17 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 }
                 return String(line.dropFirst("- path: ".count))
             }
+    }
+
+    private func declarationHeader(
+        in source: String,
+        kind: String,
+        named name: String
+    ) throws -> String {
+        let marker = "\(kind) \(name)"
+        let declarationStart = try XCTUnwrap(source.range(of: marker))
+        let suffix = source[declarationStart.lowerBound...]
+        let openingBrace = try XCTUnwrap(suffix.firstIndex(of: "{"))
+        return String(suffix[..<openingBrace])
     }
 }
