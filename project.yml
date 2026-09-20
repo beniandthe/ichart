@@ -8,19 +8,13 @@ options:
 
 settings:
   base:
-    PRODUCT_NAME: iChart
-    PRODUCT_BUNDLE_IDENTIFIER: com.ichart.app
     DEVELOPMENT_TEAM: N6G8X4K46U
     MARKETING_VERSION: "1.2.1"
     CURRENT_PROJECT_VERSION: "51"
-    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     TARGETED_DEVICE_FAMILY: "2"
     SWIFT_VERSION: "5.10"
     ALWAYS_SEARCH_USER_PATHS: false
     SUPPORTS_MACCATALYST: false
-    SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co
-    SUPABASE_PUBLISHABLE_KEY: sb_publishable_ZyyagOMS_Dfyf9pASisrtQ_9Dei0_x7
-    SUPABASE_ANON_KEY: ""
   configs:
     Debug:
       ENABLE_TESTABILITY: true
@@ -43,6 +37,13 @@ targets:
     platform: iOS
     deploymentTarget: "17.0"
     settings:
+      base:
+        PRODUCT_NAME: iChart
+        PRODUCT_BUNDLE_IDENTIFIER: com.ichart.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co
+        SUPABASE_PUBLISHABLE_KEY: sb_publishable_ZyyagOMS_Dfyf9pASisrtQ_9Dei0_x7
+        SUPABASE_ANON_KEY: ""
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
@@ -76,6 +77,8 @@ targets:
       - path: iChart
         excludes:
           - Resources
+          - App/RecognitionStudyApp.swift
+          - Features/RecognitionStudy
       - path: iChart/Resources
         buildPhase: resources
       - path: ThirdParty/NotationFonts/SMuFL
@@ -102,6 +105,48 @@ targets:
           - "**/README.md"
     dependencies:
       - target: iChart
+  RecognitionStudy:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    settings:
+      base:
+        PRODUCT_NAME: RecognitionStudy
+        PRODUCT_BUNDLE_IDENTIFIER: com.ichart.recognitionstudy
+    info:
+      path: iChart/Features/RecognitionStudy/Info.plist
+      properties:
+        CFBundleDisplayName: Recognition Study
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        ITSAppUsesNonExemptEncryption: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    sources:
+      - path: iChart/App/RecognitionStudyApp.swift
+  RecognitionStudyTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    settings:
+      base:
+        PRODUCT_NAME: RecognitionStudyTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.ichart.recognitionstudy.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RecognitionStudy.app/RecognitionStudy"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    sources:
+      - path: iChartStudyTests
+    dependencies:
+      - target: RecognitionStudy
 
 schemes:
   iChart:
@@ -114,3 +159,19 @@ schemes:
     test:
       targets:
         - iChartTests
+  RecognitionStudy:
+    build:
+      targets:
+        RecognitionStudy: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RecognitionStudyTests
+    profile:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Debug
