@@ -96,9 +96,17 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "iChart/Recognition/InkTrajectoryTypes.swift",
                 "iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift",
                 "iChart/Recognition/PencilKitInkAdapter.swift",
+                "iChart/Shared/ChordNotation/ChordNotation.swift",
+                "iChart/Shared/ChordNotation/ChordNotationGrammar.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift",
-                "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift"
+                "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyOutcomeModels.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyLocalOutcomeStore.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCanvasView.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureView.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyVisionChordRecognizer.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyVisionResultProvider.swift"
             ]
         )
         for forbiddenPath in [
@@ -138,7 +146,7 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         )
     }
 
-    func testDedicatedInfoAndPlaceholderContainNoProductionSystems() throws {
+    func testDedicatedInfoAndCaptureEntryContainNoProductionSystems() throws {
         let studyInfo = try sourceText(
             at: "iChart/Features/RecognitionStudy/Info.plist"
         )
@@ -168,13 +176,10 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         )
         XCTAssertTrue(studyEntry.contains("@main\nstruct RecognitionStudyApp: App"))
         XCTAssertTrue(
-            studyEntry.contains("RecognitionStudyEngineeringDryRunView()")
+            studyEntry.contains("RecognitionStudyCaptureView(")
         )
-        XCTAssertTrue(studyEntry.contains("Engineering dry run"))
         XCTAssertTrue(
-            studyEntry.contains(
-                "No study canvas or data collection is implemented in this build."
-            )
+            studyEntry.contains("RecognitionStudyVisionResultProvider()")
         )
         XCTAssertFalse(productionEntry.contains("RECOGNITION_STUDY"))
 

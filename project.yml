@@ -124,7 +124,6 @@ targets:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
         UILaunchScreen: {}
-        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -135,9 +134,17 @@ targets:
       - path: iChart/Recognition/InkTrajectoryTypes.swift
       - path: iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift
       - path: iChart/Recognition/PencilKitInkAdapter.swift
+      - path: iChart/Shared/ChordNotation/ChordNotation.swift
+      - path: iChart/Shared/ChordNotation/ChordNotationGrammar.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyOutcomeModels.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyLocalOutcomeStore.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCanvasView.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureView.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyVisionChordRecognizer.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyVisionResultProvider.swift
   RecognitionStudyTests:
     type: bundle.unit-test
     platform: iOS
