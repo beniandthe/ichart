@@ -137,6 +137,7 @@ targets:
       - path: iChart/Recognition/PencilKitInkAdapter.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift
   RecognitionStudyTests:
     type: bundle.unit-test
     platform: iOS

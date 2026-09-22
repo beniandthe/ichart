@@ -97,14 +97,14 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift",
                 "iChart/Recognition/PencilKitInkAdapter.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift",
-                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift"
             ]
         )
         for forbiddenPath in [
             "iChart/Recognition/InkTypes.swift",
             "iChart/Recognition/ChordInkRecognizer.swift",
             "iChart/Features/Editor",
-            "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift",
             "iChart/Services",
             "iChart/Resources"
         ] {
@@ -276,7 +276,70 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         let studyEntry = try sourceText(at: "iChart/App/RecognitionStudyApp.swift")
         XCTAssertFalse(studyEntry.contains("RecognitionStudyCaptureEnvelope"))
         XCTAssertFalse(studyEntry.contains("RecognitionStudyPresentedSurface"))
+        XCTAssertFalse(studyEntry.contains("RecognitionStudyLocalCaptureStore"))
         XCTAssertFalse(studyEntry.contains("PencilKitInkAdapter"))
+    }
+
+    func testLocalStoreIsOfflineStudyOnlyAndHasNoGenericEnvelopeSaveAPI() throws {
+        let store = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift"
+        )
+
+        XCTAssertEqual(
+            store
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import CryptoKit", "import Foundation"]
+        )
+        XCTAssertTrue(
+            store.contains("actor RecognitionStudyLocalCaptureStore")
+        )
+        XCTAssertTrue(store.contains("func storeCapture("))
+        XCTAssertTrue(store.contains(".localEngineeringDryRun("))
+        XCTAssertFalse(store.contains(".reservedExternalOneUse("))
+        XCTAssertFalse(store.contains("func save("))
+        XCTAssertFalse(store.contains("save(envelope:"))
+
+        for forbiddenReference in [
+            "URLSession",
+            "NWConnection",
+            "Supabase",
+            "Telemetry",
+            "Export",
+            "PKCanvasView",
+            "PKDrawing",
+            "ChordInkRecognizer",
+            "WriterIndependentEvaluation"
+        ] {
+            XCTAssertFalse(
+                store.contains(forbiddenReference),
+                "The local store must not reference \(forbiddenReference)."
+            )
+        }
+
+        for forbiddenSemanticKey in [
+            "\"prompt\"",
+            "\"chord\"",
+            "\"label\"",
+            "\"writer\"",
+            "\"person\"",
+            "\"handedness\"",
+            "\"split\"",
+            "\"consent\"",
+            "\"eligibility\"",
+            "\"leakage\"",
+            "\"candidate\"",
+            "\"confidence\"",
+            "\"prediction\"",
+            "\"trust\"",
+            "rawDrawing"
+        ] {
+            XCTAssertFalse(
+                store.contains(forbiddenSemanticKey),
+                "The local store must not add \(forbiddenSemanticKey)."
+            )
+        }
     }
 
     func testCanonicalDocumentsAreEncodableOnlyAndDecodeThroughPrivateWires() throws {
