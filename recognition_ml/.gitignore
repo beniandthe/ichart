@@ -1,0 +1,15 @@
+data/
+artifacts/
+checkpoints/
+outputs/
+*.mlmodel
+*.mlmodelc/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.egg-info/
+__pycache__/
+*.py[cod]
+.coverage
+.pytest_cache/

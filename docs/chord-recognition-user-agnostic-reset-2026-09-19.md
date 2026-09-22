@@ -478,15 +478,56 @@ Ordinary telemetry must remain separate.
    near-neighbor or leakage identity.**
 6. Build an explicitly consented prompted-capture pilot that disables
    correction memory and records base versus adapted outcomes separately.
+   **An isolated, local-only Recognition Study engineering app is implemented
+   with prompted capture, lossless trajectory storage, base-result review,
+   explicit execution-error/ambiguity/technical-failure outcomes, crash-safe
+   recovery, and correction/adaptation fixed off. It intentionally cannot claim
+   consent, provenance, corpus eligibility, or writer independence. The
+   consented collection service and independently adjudicated corpus remain
+   external work.**
 7. Split trust into structured dispositions and fix all-draft review batching.
-8. Add a frozen target lifecycle and cooperative cancellation.
+   **The learned-route contracts now represent calibrated auto-accept,
+   confirmation, candidate review, and no-read separately and fail closed when
+   artifacts or receipts are absent or invalid. No learned route has production
+   authority in this branch, so the production UI has not been switched to an
+   unproven policy.**
+8. Add a frozen target lifecycle and cooperative cancellation. **Implemented
+   for draft recognition: targets progress through collecting, stable, frozen,
+   and committed states; exact prepared-stroke ownership prevents unrelated
+   later ink from retroactively changing a frozen draft; no-read results retain
+   ownership; and cancelled targeting publishes no partial alternative set.
+   Multiple boundary partitions are preserved as canonical, deduplicated,
+   observation-only hypotheses while the legacy selected partition remains the
+   sole production authority.**
 9. Establish classical, raster, trajectory, and dual-view shadow baselines.
+   **Implemented as deterministic Python comparison baselines and ablations,
+   including a development-writer-only DTW baseline and an external legacy
+   result adapter. They have not been evaluated on a real writer-disjoint
+   corpus, so this is executable infrastructure rather than a quality result.**
 10. Train and convert the leading model to Core ML with fixed, versioned input
-   encoding and an explicit unknown class.
+   encoding and an explicit unknown class. **The strict corpus-v2 loader,
+   deterministic dual-view training/checkpoint pipeline, no-read supervision,
+   versioned Swift feature/runtime contracts, calibration command, and Core ML
+   export/compile smoke path are implemented. No eligible independent-writer
+   corpus, trained weights, calibrated artifact, or promoted production model
+   exists yet.**
 11. Calibrate on unseen writers, then run the sealed holdout once per frozen
-   candidate.
+   candidate. **Calibration, writer-micro/writer-macro reporting, selective-risk
+   metrics, signed receipt validation, and one-use holdout authorization
+   contracts are implemented and fail closed. This step is not complete in the
+   evidentiary sense because no unseen-writer calibration cohort or sealed
+   holdout has been collected or run.**
 12. Run multi-writer physical-iPad acceptance in both chart styles, followed by
     persistence, erasure, responsiveness, and release regression gates.
+    **Not started: the isolated Study target builds for arm64, but it has not
+    been signed and run on the physical iPad, and no multi-writer acceptance
+    evidence exists.**
+
+The software-side foundation through model export is therefore implemented and
+testable. Recognition-quality promotion remains deliberately blocked on new
+people, independently adjudicated data, a frozen trained artifact, calibration,
+one sealed evaluation, and physical-device acceptance. Passing repository tests
+must not be reported as completion of those external evidence gates.
 
 ## Primary references
 
