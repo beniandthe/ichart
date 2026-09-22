@@ -4153,7 +4153,8 @@ struct EditorView: View {
                 layoutPageSize: payload.layoutPageSize,
                 drawingData: payload.drawingData,
                 strokeCount: payload.timing.strokeCount,
-                isRecognitionCacheHit: payload.timing.cacheHit
+                isRecognitionCacheHit: payload.timing.cacheHit,
+                targetLifecycle: payload.targetLifecycle
             ) {
                 reusedResolutionCount += 1
                 return reusedInput
@@ -4178,7 +4179,8 @@ struct EditorView: View {
                 strokeCount: payload.timing.strokeCount,
                 recognitionResult: payload.result,
                 primaryDecision: resolution.primaryDecision,
-                recognitionDecision: resolution.decision
+                recognitionDecision: resolution.decision,
+                targetLifecycle: payload.targetLifecycle
             )
         }
 
@@ -4284,9 +4286,11 @@ struct EditorView: View {
         reviewResult: String
     ) -> Bool {
 
+        var committedState = state
+        committedState.markRenderableDraftsCommitted()
         var updatedChart = chart
         let renderResult = updatedChart.commitChordInkDraftBatch(
-            state,
+            committedState,
             barlineSpacingMode: .drawn
         )
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {

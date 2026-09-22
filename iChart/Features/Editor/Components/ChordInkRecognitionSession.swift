@@ -3,6 +3,47 @@ import CoreGraphics
 import Foundation
 import PencilKit
 
+enum ChordInkRecognitionTargetLifecycleStage: Int, Hashable {
+    case collecting
+    case stable
+    case frozen
+    case committed
+}
+
+struct ChordInkRecognitionTargetOwnership: Hashable {
+    var preparedStrokes: [InkStroke]
+}
+
+struct ChordInkRecognitionFrozenTargetIdentity: Hashable {
+    var anchor: ChordInkDraftAnchor
+    var ownership: ChordInkRecognitionTargetOwnership
+}
+
+struct ChordInkRecognitionTargetLifecycle: Hashable {
+    var generationID: UUID
+    var anchor: ChordInkDraftAnchor
+    var ownership: ChordInkRecognitionTargetOwnership
+    var stage: ChordInkRecognitionTargetLifecycleStage
+
+    var frozenTargetIdentity: ChordInkRecognitionFrozenTargetIdentity {
+        ChordInkRecognitionFrozenTargetIdentity(
+            anchor: anchor,
+            ownership: ownership
+        )
+    }
+
+    func advanced(to nextStage: ChordInkRecognitionTargetLifecycleStage) -> Self? {
+        guard nextStage == stage
+                || nextStage.rawValue == stage.rawValue + 1 else {
+            return nil
+        }
+
+        var advanced = self
+        advanced.stage = nextStage
+        return advanced
+    }
+}
+
 struct ChordInkRecognitionSessionRequest {
     var requestID: UUID
     var scheduledAt: Date
@@ -14,6 +55,20 @@ struct ChordInkRecognitionSessionRequest {
     var laneLocation: ChordInkDraftLaneLocation? = nil
     var layoutPageSize: CGSize? = nil
     var options: ChordInkRecognitionOptions
+
+    var collectingTargetLifecycle: ChordInkRecognitionTargetLifecycle {
+        ChordInkRecognitionTargetLifecycle(
+            generationID: requestID,
+            anchor: ChordInkDraftAnchor(
+                measureID: target.measureID,
+                laneLocation: laneLocation,
+                visualOrder: visualOrder,
+                fraction: target.fraction
+            ),
+            ownership: ChordInkRecognitionTargetOwnership(preparedStrokes: strokes),
+            stage: .collecting
+        )
+    }
 }
 
 struct ChordInkRecognitionProposalPayload {
@@ -25,6 +80,7 @@ struct ChordInkRecognitionProposalPayload {
     var visualOrder: Double? = nil
     var laneLocation: ChordInkDraftLaneLocation? = nil
     var layoutPageSize: CGSize? = nil
+    var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
     var timing: ChordInkRecognitionTiming
 }
 
@@ -63,6 +119,9 @@ struct ChordInkRecognitionPreparationResult {
     var boundedBatchTargetCount: Int
     var durationMilliseconds: Double
     var ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil
+    /// Compact alternatives for observation/evaluation. Production continues
+    /// to consume only `outcome`.
+    var boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil
 }
 
 enum ChordInkRecognitionPreparation {
@@ -233,6 +292,7 @@ enum ChordInkRecognitionPreparation {
             )
         }
         let batchTargets = batchTargetingResult.targets
+        let boundaryHypothesisSet = batchTargetingResult.boundaryHypothesisSet
         let boundedBatchTargets = ChordInkDraftPreviewRecognitionLoadPolicy.boundedBatchTargets(
             batchTargets,
             flow: request.flow
@@ -271,7 +331,8 @@ enum ChordInkRecognitionPreparation {
                     ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                     rawBatchTargetCount: batchTargets.count,
                     boundedBatchTargetCount: boundedBatchTargets.count,
-                    ownershipSnapshot: targetlessOwnershipSnapshot
+                    ownershipSnapshot: targetlessOwnershipSnapshot,
+                    boundaryHypothesisSet: boundaryHypothesisSet
                 )
             }
 
@@ -308,7 +369,8 @@ enum ChordInkRecognitionPreparation {
                     targetRecognitionStrokeIndices: boundedBatchTargets.map(
                         \.recognitionStrokeIndices
                     )
-                )
+                ),
+                boundaryHypothesisSet: boundaryHypothesisSet
             )
         }
 
@@ -335,7 +397,8 @@ enum ChordInkRecognitionPreparation {
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                 rawBatchTargetCount: batchTargets.count,
                 boundedBatchTargetCount: boundedBatchTargets.count,
-                ownershipSnapshot: targetlessOwnershipSnapshot
+                ownershipSnapshot: targetlessOwnershipSnapshot,
+                boundaryHypothesisSet: boundaryHypothesisSet
             )
         }
 
@@ -363,7 +426,8 @@ enum ChordInkRecognitionPreparation {
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
                 rawBatchTargetCount: batchTargets.count,
                 boundedBatchTargetCount: boundedBatchTargets.count,
-                ownershipSnapshot: targetlessOwnershipSnapshot
+                ownershipSnapshot: targetlessOwnershipSnapshot,
+                boundaryHypothesisSet: boundaryHypothesisSet
             )
         }
 
@@ -409,7 +473,8 @@ enum ChordInkRecognitionPreparation {
                 barlineVisibleFragmentIndices: visibleBarlineRecognition.strokeIndices,
                 recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
                 targetRecognitionStrokeIndices: [Array(recognitionStrokes.indices)]
-            )
+            ),
+            boundaryHypothesisSet: boundaryHypothesisSet
         )
     }
 
@@ -452,7 +517,8 @@ enum ChordInkRecognitionPreparation {
         ignoredInvisibleStrokeCount: Int = 0,
         rawBatchTargetCount: Int = 0,
         boundedBatchTargetCount: Int = 0,
-        ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil
+        ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil,
+        boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil
     ) -> ChordInkRecognitionPreparationResult {
         ChordInkRecognitionPreparationResult(
             requestID: requestID,
@@ -465,7 +531,8 @@ enum ChordInkRecognitionPreparation {
             rawBatchTargetCount: rawBatchTargetCount,
             boundedBatchTargetCount: boundedBatchTargetCount,
             durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
-            ownershipSnapshot: ownershipSnapshot
+            ownershipSnapshot: ownershipSnapshot,
+            boundaryHypothesisSet: boundaryHypothesisSet
         )
     }
 }
@@ -581,6 +648,7 @@ final class ChordInkRecognitionSession {
                 visualOrder: request.visualOrder,
                 laneLocation: request.laneLocation,
                 layoutPageSize: request.layoutPageSize,
+                targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
                 timing: ChordInkRecognitionTiming(
                     scheduledAt: request.scheduledAt,
                     requestedDelay: request.requestedDelay,
@@ -639,6 +707,7 @@ final class ChordInkRecognitionSession {
                     visualOrder: request.visualOrder,
                     laneLocation: request.laneLocation,
                     layoutPageSize: request.layoutPageSize,
+                    targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
                     timing: ChordInkRecognitionTiming(
                         scheduledAt: request.scheduledAt,
                         requestedDelay: request.requestedDelay,

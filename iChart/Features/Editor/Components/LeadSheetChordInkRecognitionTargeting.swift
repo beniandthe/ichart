@@ -17,7 +17,124 @@ struct LeadSheetChordInkRecognitionBatchTarget {
 struct LeadSheetChordInkRecognitionBatchTargetingResult {
     var targets: [LeadSheetChordInkRecognitionBatchTarget]
     var diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics
+    /// Alternative ownership partitions are observational data only. The
+    /// `targets` above remain the sole production authority.
+    var boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil
     var isCancelled: Bool = false
+}
+
+enum LeadSheetChordInkBoundaryHypothesisRoute: String, Hashable {
+    case draftBarlineLane = "draft_barline_lane"
+    case laneRootSequence = "lane_root_sequence"
+    case measureLaneRootSequence = "measure_lane_root_sequence"
+    case measureLaneMixed = "measure_lane_mixed"
+    case measureLane = "measure_lane"
+    case gapFallback = "gap_fallback"
+    case wholeRecognitionInk = "whole_recognition_ink"
+}
+
+struct LeadSheetChordInkBoundaryPartitionSignature: Hashable {
+    let targetRecognitionStrokeIndices: [[Int]]
+    let unassignedRecognitionStrokeIndices: [Int]
+}
+
+/// A compact, label-free ownership hypothesis in the recognition-stroke index
+/// space after barline filtering. It cannot alter preview or persistence.
+struct LeadSheetChordInkBoundaryHypothesis: Hashable {
+    static let currentSchemaVersion = 1
+    static let maximumTargetCount = 64
+
+    let schemaVersion: Int
+    let route: LeadSheetChordInkBoundaryHypothesisRoute
+    let recognitionStrokeCount: Int
+    let targetRecognitionStrokeIndices: [[Int]]
+    let unassignedRecognitionStrokeIndices: [Int]
+
+    var canonicalPartitionSignature: LeadSheetChordInkBoundaryPartitionSignature {
+        LeadSheetChordInkBoundaryPartitionSignature(
+            targetRecognitionStrokeIndices: targetRecognitionStrokeIndices.sorted(
+                by: Self.lexicographicallyPrecedes
+            ),
+            unassignedRecognitionStrokeIndices: unassignedRecognitionStrokeIndices
+        )
+    }
+
+    init?(
+        route: LeadSheetChordInkBoundaryHypothesisRoute,
+        recognitionStrokeCount: Int,
+        targetRecognitionStrokeIndices: [[Int]]
+    ) {
+        guard recognitionStrokeCount > 0,
+              !targetRecognitionStrokeIndices.isEmpty,
+              targetRecognitionStrokeIndices.count <= Self.maximumTargetCount else {
+            return nil
+        }
+
+        let domain = Set(0..<recognitionStrokeCount)
+        var claimedIndices = Set<Int>()
+        var canonicalTargetGroups = [[Int]]()
+        canonicalTargetGroups.reserveCapacity(targetRecognitionStrokeIndices.count)
+        for rawGroup in targetRecognitionStrokeIndices {
+            let canonicalGroup = rawGroup.sorted()
+            let groupSet = Set(canonicalGroup)
+            guard !canonicalGroup.isEmpty,
+                  groupSet.count == canonicalGroup.count,
+                  groupSet.isSubset(of: domain),
+                  claimedIndices.isDisjoint(with: groupSet) else {
+                return nil
+            }
+            claimedIndices.formUnion(groupSet)
+            canonicalTargetGroups.append(canonicalGroup)
+        }
+
+        self.schemaVersion = Self.currentSchemaVersion
+        self.route = route
+        self.recognitionStrokeCount = recognitionStrokeCount
+        self.targetRecognitionStrokeIndices = canonicalTargetGroups
+        self.unassignedRecognitionStrokeIndices = Array(
+            domain.subtracting(claimedIndices)
+        ).sorted()
+    }
+
+    private static func lexicographicallyPrecedes(_ lhs: [Int], _ rhs: [Int]) -> Bool {
+        for (left, right) in zip(lhs, rhs) where left != right {
+            return left < right
+        }
+        return lhs.count < rhs.count
+    }
+}
+
+struct LeadSheetChordInkBoundaryHypothesisSet: Hashable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    let recognitionStrokeCount: Int
+    let hypotheses: [LeadSheetChordInkBoundaryHypothesis]
+
+    init?(
+        recognitionStrokeCount: Int,
+        candidates: [LeadSheetChordInkBoundaryHypothesis]
+    ) {
+        guard recognitionStrokeCount > 0 else {
+            return nil
+        }
+
+        var seenPartitions = Set<LeadSheetChordInkBoundaryPartitionSignature>()
+        let deduplicated = candidates.filter { candidate in
+            guard candidate.schemaVersion == LeadSheetChordInkBoundaryHypothesis.currentSchemaVersion,
+                  candidate.recognitionStrokeCount == recognitionStrokeCount else {
+                return false
+            }
+            return seenPartitions.insert(candidate.canonicalPartitionSignature).inserted
+        }
+        guard !deduplicated.isEmpty else {
+            return nil
+        }
+
+        self.schemaVersion = Self.currentSchemaVersion
+        self.recognitionStrokeCount = recognitionStrokeCount
+        self.hypotheses = deduplicated
+    }
 }
 
 private struct DraftBarlineLaneClusterKey: Hashable {
@@ -241,6 +358,16 @@ enum LeadSheetChordInkRecognitionTargeting {
             requiresFragmentCollapseCheck = true
             selectedRoute = "gap_fallback"
         }
+        let boundaryHypothesisSet = boundaryHypothesisSet(
+            recognitionStrokeCount: inkStrokes.count,
+            selectedRoute: selectedRoute,
+            selectedClusters: clusters,
+            draftBarlineClusters: draftBarlineClusters,
+            laneSequentialClusters: laneSequentialClusters,
+            measureLaneClusters: measureLaneClusters,
+            measureLaneResult: measureLaneResult,
+            fallbackClusters: fallbackClusters
+        )
         let emptyResult = LeadSheetChordInkRecognitionBatchTargetingResult(
             targets: [],
             diagnostics: LeadSheetChordInkRecognitionBatchTargetingDiagnostics(
@@ -250,7 +377,8 @@ enum LeadSheetChordInkRecognitionTargeting {
                 measureLaneClusterCount: measureLaneClusters.count,
                 fallbackClusterCount: fallbackClusters.count,
                 selectedClusterCount: clusters.count
-            )
+            ),
+            boundaryHypothesisSet: boundaryHypothesisSet
         )
         guard clusters.count > 1,
               clusters.count <= maximumBatchTargetCount else {
@@ -335,7 +463,8 @@ enum LeadSheetChordInkRecognitionTargeting {
                     measureLaneClusterCount: measureLaneClusters.count,
                     fallbackClusterCount: fallbackClusters.count,
                     selectedClusterCount: clusters.count
-                )
+                ),
+                boundaryHypothesisSet: boundaryHypothesisSet
             )
         }
 
@@ -348,7 +477,67 @@ enum LeadSheetChordInkRecognitionTargeting {
                 measureLaneClusterCount: measureLaneClusters.count,
                 fallbackClusterCount: fallbackClusters.count,
                 selectedClusterCount: clusters.count
-            )
+            ),
+            boundaryHypothesisSet: boundaryHypothesisSet
+        )
+    }
+
+    private static func boundaryHypothesisSet(
+        recognitionStrokeCount: Int,
+        selectedRoute: String,
+        selectedClusters: [ChordInkBatchCluster],
+        draftBarlineClusters: [ChordInkBatchCluster],
+        laneSequentialClusters: [ChordInkBatchCluster],
+        measureLaneClusters: [ChordInkBatchCluster],
+        measureLaneResult: MeasureLaneClusterResult,
+        fallbackClusters: [ChordInkBatchCluster]
+    ) -> LeadSheetChordInkBoundaryHypothesisSet? {
+        let measureRoute: LeadSheetChordInkBoundaryHypothesisRoute
+        if measureLaneResult.allSelectedClustersUseRootLedGrouping {
+            measureRoute = .measureLaneRootSequence
+        } else if measureLaneResult.usedRootLedGrouping {
+            measureRoute = .measureLaneMixed
+        } else {
+            measureRoute = .measureLane
+        }
+
+        var candidates = [LeadSheetChordInkBoundaryHypothesis]()
+        func append(
+            route: LeadSheetChordInkBoundaryHypothesisRoute,
+            clusters: [ChordInkBatchCluster]
+        ) {
+            guard let hypothesis = LeadSheetChordInkBoundaryHypothesis(
+                route: route,
+                recognitionStrokeCount: recognitionStrokeCount,
+                targetRecognitionStrokeIndices: clusters.map(\.strokeIndices)
+            ) else {
+                return
+            }
+            candidates.append(hypothesis)
+        }
+
+        // Put the production-selected partition first so deduplication retains
+        // its route label when another strategy produced identical ownership.
+        if let route = LeadSheetChordInkBoundaryHypothesisRoute(rawValue: selectedRoute) {
+            append(route: route, clusters: selectedClusters)
+        }
+        append(route: .draftBarlineLane, clusters: draftBarlineClusters)
+        append(route: .laneRootSequence, clusters: laneSequentialClusters)
+        append(route: measureRoute, clusters: measureLaneClusters)
+        append(route: .gapFallback, clusters: fallbackClusters)
+
+        if recognitionStrokeCount > 0,
+           let wholeInkHypothesis = LeadSheetChordInkBoundaryHypothesis(
+            route: .wholeRecognitionInk,
+            recognitionStrokeCount: recognitionStrokeCount,
+            targetRecognitionStrokeIndices: [Array(0..<recognitionStrokeCount)]
+           ) {
+            candidates.append(wholeInkHypothesis)
+        }
+
+        return LeadSheetChordInkBoundaryHypothesisSet(
+            recognitionStrokeCount: recognitionStrokeCount,
+            candidates: candidates
         )
     }
 

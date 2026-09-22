@@ -6546,11 +6546,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
-            if payload.result.rawCandidates.isEmpty {
-                publishEmptyChordDraftPreview(clearsBarlines: false)
-            } else {
-                onChordInkDraftPreviewChanged?([payload])
-            }
+            // A stable no-read still carries authoritative target ownership.
+            // Publish it so the per-target reducer can preserve an unchanged
+            // frozen target or reopen only the target whose ink changed.
+            onChordInkDraftPreviewChanged?([payload])
             return
         }
 
@@ -6611,12 +6610,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
-            let visiblePayloads = payloads.filter { !$0.result.rawCandidates.isEmpty }
-            if visiblePayloads.isEmpty {
-                publishEmptyChordDraftPreview(clearsBarlines: false)
-            } else {
-                onChordInkDraftPreviewChanged?(visiblePayloads)
-            }
+            // Do not erase no-read targets from the batch. Their lifecycle and
+            // exact prepared-stroke identity are needed to keep unrelated ink
+            // from retroactively replacing an earlier frozen target.
+            onChordInkDraftPreviewChanged?(payloads)
             return
         }
 

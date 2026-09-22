@@ -571,6 +571,270 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(state.draftChords[1].previewText, "C")
     }
 
+    func testDraftTargetLifecycleFreezesStableOwnershipAgainstLaterRecomputation() throws {
+        let measureID = UUID()
+        let firstGenerationID = UUID()
+        let ownership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 12)]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.24,
+                bestCandidateText: "C",
+                targetLifecycle: targetLifecycle(
+                    generationID: firstGenerationID,
+                    measureID: measureID,
+                    fraction: 0.24,
+                    ownership: ownership
+                )
+            )
+        ])
+
+        let frozenDraft = try XCTUnwrap(state.draftChords.first)
+        XCTAssertEqual(frozenDraft.targetLifecycle?.stage, .frozen)
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.245,
+                bestCandidateText: "G",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: measureID,
+                    fraction: 0.245,
+                    ownership: ownership
+                )
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertEqual(state.draftChords[0].id, frozenDraft.id)
+        XCTAssertEqual(state.draftChords[0].previewText, "C")
+        XCTAssertEqual(state.draftChords[0].anchor, frozenDraft.anchor)
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.generationID, firstGenerationID)
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.stage, .frozen)
+    }
+
+    func testUnrelatedBatchTargetCannotReplaceExistingFrozenTarget() throws {
+        let frozenMeasureID = UUID()
+        let unrelatedMeasureID = UUID()
+        let frozenOwnership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 12)]
+        )
+        let unrelatedOwnership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 72)]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: frozenMeasureID,
+                measureIndex: 0,
+                fraction: 0.24,
+                bestCandidateText: "C",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: frozenMeasureID,
+                    fraction: 0.24,
+                    ownership: frozenOwnership
+                )
+            )
+        ])
+        let frozenDraft = try XCTUnwrap(state.draftChords.first)
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: frozenMeasureID,
+                measureIndex: 0,
+                fraction: 0.245,
+                bestCandidateText: "G",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: frozenMeasureID,
+                    fraction: 0.245,
+                    ownership: frozenOwnership
+                )
+            ),
+            draftInput(
+                measureID: unrelatedMeasureID,
+                measureIndex: 1,
+                fraction: 0.20,
+                bestCandidateText: "D",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: unrelatedMeasureID,
+                    fraction: 0.20,
+                    ownership: unrelatedOwnership
+                )
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 2)
+        let preservedDraft = try XCTUnwrap(
+            state.draftChords.first { $0.measureID == frozenMeasureID }
+        )
+        let unrelatedDraft = try XCTUnwrap(
+            state.draftChords.first { $0.measureID == unrelatedMeasureID }
+        )
+        XCTAssertEqual(preservedDraft.id, frozenDraft.id)
+        XCTAssertEqual(preservedDraft.previewText, "C")
+        XCTAssertEqual(preservedDraft.targetLifecycle, frozenDraft.targetLifecycle)
+        XCTAssertEqual(unrelatedDraft.previewText, "D")
+        XCTAssertEqual(unrelatedDraft.targetLifecycle?.stage, .frozen)
+    }
+
+    func testFrozenTargetIdentityDoesNotTransferAcrossMeasuresWithEqualGeometry() throws {
+        let firstMeasureID = UUID()
+        let secondMeasureID = UUID()
+        let ownership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 12)]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: firstMeasureID,
+                measureIndex: 0,
+                fraction: 0.24,
+                bestCandidateText: "C",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: firstMeasureID,
+                    fraction: 0.24,
+                    ownership: ownership
+                )
+            )
+        ])
+        let firstDraftID = try XCTUnwrap(state.draftChords.first?.id)
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: secondMeasureID,
+                measureIndex: 1,
+                fraction: 0.24,
+                bestCandidateText: "G",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: secondMeasureID,
+                    fraction: 0.24,
+                    ownership: ownership
+                )
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertNotEqual(state.draftChords[0].id, firstDraftID)
+        XCTAssertEqual(state.draftChords[0].measureID, secondMeasureID)
+        XCTAssertEqual(state.draftChords[0].previewText, "G")
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.stage, .frozen)
+    }
+
+    func testFrozenTargetSurvivesLaterNoReadForUnchangedTargetOwnership() throws {
+        let measureID = UUID()
+        let ownership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 12)]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.24,
+                bestCandidateText: "C",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: measureID,
+                    fraction: 0.24,
+                    ownership: ownership
+                )
+            )
+        ])
+        let frozenDraft = try XCTUnwrap(state.draftChords.first)
+
+        state.replaceDraftChords(with: [
+            ChordInkDraftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                targetFraction: 0.245,
+                drawingData: Data("same-target-reserialized".utf8),
+                candidateTexts: [],
+                bestCandidateText: nil,
+                confidence: 0,
+                strokeCount: 1,
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: measureID,
+                    fraction: 0.245,
+                    ownership: ownership
+                )
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertEqual(state.draftChords[0].id, frozenDraft.id)
+        XCTAssertEqual(state.draftChords[0].previewText, "C")
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.stage, .frozen)
+    }
+
+    func testDraftTargetLifecycleReopensOnlyWhenTargetOwnershipChanges() throws {
+        let measureID = UUID()
+        let originalOwnership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [Self.inkStroke(offsetX: 12)]
+        )
+        let editedOwnership = ChordInkRecognitionTargetOwnership(
+            preparedStrokes: [
+                Self.inkStroke(offsetX: 12),
+                Self.inkStroke(offsetX: 28)
+            ]
+        )
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.24,
+                bestCandidateText: "C",
+                targetLifecycle: targetLifecycle(
+                    generationID: UUID(),
+                    measureID: measureID,
+                    fraction: 0.24,
+                    ownership: originalOwnership
+                )
+            )
+        ])
+        let draftID = try XCTUnwrap(state.draftChords.first?.id)
+        let editedGenerationID = UUID()
+
+        state.replaceDraftChords(with: [
+            draftInput(
+                measureID: measureID,
+                measureIndex: 0,
+                fraction: 0.245,
+                bestCandidateText: "Cb",
+                targetLifecycle: targetLifecycle(
+                    generationID: editedGenerationID,
+                    measureID: measureID,
+                    fraction: 0.245,
+                    ownership: editedOwnership
+                )
+            )
+        ])
+
+        XCTAssertEqual(state.draftChords.count, 1)
+        XCTAssertEqual(state.draftChords[0].id, draftID)
+        XCTAssertEqual(state.draftChords[0].previewText, "Cb")
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.generationID, editedGenerationID)
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.ownership, editedOwnership)
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.stage, .frozen)
+
+        state.markRenderableDraftsCommitted()
+
+        XCTAssertEqual(state.draftChords[0].targetLifecycle?.stage, .committed)
+        XCTAssertNil(state.draftChords[0].targetLifecycle?.advanced(to: .stable))
+    }
+
     func testDraftStateReplacesBatchWhenExistingStateHasDuplicateAnchors() {
         let measureID = UUID()
         let input = draftInput(measureID: measureID, measureIndex: 0, fraction: 0.24, bestCandidateText: "C")
@@ -1426,6 +1690,22 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             )
             XCTAssertTrue(
                 ownershipSnapshot.unassignedVisibleFragmentIndices.isEmpty,
+                layoutStyle.rawValue
+            )
+            let hypothesisSet = try XCTUnwrap(
+                preparation.boundaryHypothesisSet,
+                layoutStyle.rawValue
+            )
+            XCTAssertEqual(hypothesisSet.recognitionStrokeCount, 1, layoutStyle.rawValue)
+            XCTAssertEqual(hypothesisSet.hypotheses.count, 1, layoutStyle.rawValue)
+            XCTAssertEqual(
+                hypothesisSet.hypotheses.first?.targetRecognitionStrokeIndices,
+                [[0]],
+                layoutStyle.rawValue
+            )
+            XCTAssertEqual(
+                hypothesisSet.hypotheses.first?.unassignedRecognitionStrokeIndices,
+                [],
                 layoutStyle.rawValue
             )
             XCTAssertEqual(request.laneLocation?.systemIndex, targetLaneIndex, layoutStyle.rawValue)
@@ -2888,7 +3168,8 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         layoutPageSize: CGSize? = nil,
         drawingData: Data = Data("ink".utf8),
         confidence: Double = 4.2,
-        strokeCount: Int = 2
+        strokeCount: Int = 2,
+        targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
     ) -> ChordInkDraftInput {
         ChordInkDraftInput(
             measureID: measureID,
@@ -2901,7 +3182,27 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             candidateTexts: [bestCandidateText],
             bestCandidateText: bestCandidateText,
             confidence: confidence,
-            strokeCount: strokeCount
+            strokeCount: strokeCount,
+            targetLifecycle: targetLifecycle
+        )
+    }
+
+    private func targetLifecycle(
+        generationID: UUID,
+        measureID: UUID,
+        fraction: Double,
+        ownership: ChordInkRecognitionTargetOwnership
+    ) -> ChordInkRecognitionTargetLifecycle {
+        ChordInkRecognitionTargetLifecycle(
+            generationID: generationID,
+            anchor: ChordInkDraftAnchor(
+                measureID: measureID,
+                laneLocation: nil,
+                visualOrder: nil,
+                fraction: fraction
+            ),
+            ownership: ownership,
+            stage: .stable
         )
     }
 
@@ -3047,6 +3348,13 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
     private static func drawingData(strokes: [PKStroke]) -> Data {
         PKDrawing(strokes: strokes).dataRepresentation()
+    }
+
+    private static func inkStroke(offsetX: Double) -> InkStroke {
+        InkStroke(points: [
+            InkPoint(x: offsetX, y: 10, timeOffset: 0),
+            InkPoint(x: offsetX + 8, y: 42, timeOffset: 0.1)
+        ])
     }
 }
 #endif

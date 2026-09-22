@@ -278,6 +278,7 @@ struct ChordInkDraftInput: Hashable {
     var recognitionResult: ChordInkRecognitionResult? = nil
     var primaryDecision: ChordInkRecognitionDecision? = nil
     var recognitionDecision: ChordInkRecognitionDecision? = nil
+    var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
 
     var anchor: ChordInkDraftAnchor {
         ChordInkDraftAnchor(
@@ -300,7 +301,8 @@ enum ChordInkDraftPreviewResolutionReusePolicy {
         layoutPageSize: CGSize?,
         drawingData: Data,
         strokeCount: Int,
-        isRecognitionCacheHit: Bool
+        isRecognitionCacheHit: Bool,
+        targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
     ) -> ChordInkDraftInput? {
         guard isRecognitionCacheHit,
               let previousDraft else {
@@ -331,7 +333,8 @@ enum ChordInkDraftPreviewResolutionReusePolicy {
             strokeCount: strokeCount,
             recognitionResult: previousDraft.recognitionResult,
             primaryDecision: previousDraft.primaryDecision,
-            recognitionDecision: previousDraft.recognitionDecision
+            recognitionDecision: previousDraft.recognitionDecision,
+            targetLifecycle: targetLifecycle
         )
     }
 }
@@ -533,6 +536,7 @@ struct ChordInkDraft: Identifiable, Hashable {
     var recognitionResult: ChordInkRecognitionResult?
     var primaryDecision: ChordInkRecognitionDecision?
     var recognitionDecision: ChordInkRecognitionDecision?
+    var targetLifecycle: ChordInkRecognitionTargetLifecycle?
 
     init(id: UUID = UUID(), input: ChordInkDraftInput, selectedText: String? = nil, isStale: Bool = false) {
         self.id = id
@@ -553,6 +557,7 @@ struct ChordInkDraft: Identifiable, Hashable {
         self.recognitionResult = input.recognitionResult
         self.primaryDecision = input.primaryDecision
         self.recognitionDecision = input.recognitionDecision
+        self.targetLifecycle = input.targetLifecycle
     }
 
     var previewText: String? {
@@ -802,6 +807,16 @@ struct ChordPreviewState: Equatable {
     mutating func replaceDraftChords(with inputs: [ChordInkDraftInput], updatedAt: Date = .now) {
         let deduplicatedInputs = ChordInkDraftPreviewDeduplicationPolicy.deduplicated(inputs)
         let previousRenderableDrafts = draftChords.filter(\.isRenderable)
+        let previousFrozenDraftByIdentity = Dictionary(
+            draftChords.compactMap { draft -> (ChordInkRecognitionFrozenTargetIdentity, ChordInkDraft)? in
+                guard let lifecycle = draft.targetLifecycle,
+                      lifecycle.stage == .frozen else {
+                    return nil
+                }
+                return (lifecycle.frozenTargetIdentity, draft)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         let previousDraftByAnchor = Dictionary(
             draftChords.map { ($0.anchor, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -810,13 +825,30 @@ struct ChordPreviewState: Equatable {
         var resolvedDrafts = [ChordInkDraft]()
 
         for input in deduplicatedInputs {
+            if let incomingLifecycle = input.targetLifecycle,
+               let frozenDraft = previousFrozenDraftByIdentity[incomingLifecycle.frozenTargetIdentity] {
+                // A later page-wide pass may assign the same target a slightly
+                // different interpretation after unrelated ink is added
+                // elsewhere. Exact target anchor plus prepared-stroke
+                // ownership is the authority once frozen, so keep both the
+                // ownership and interpretation until that target changes.
+                if preservedDraftIDs.insert(frozenDraft.id).inserted {
+                    resolvedDrafts.append(frozenDraft)
+                }
+                continue
+            }
+
             let previousDraft = previousDraftByAnchor[input.anchor]
-            let incomingDraft = ChordInkDraft(
+            var incomingDraft = ChordInkDraft(
                 id: previousDraft?.id ?? UUID(),
                 input: input,
                 selectedText: previousDraft?.selectedText,
                 isStale: false
             )
+            if let stableLifecycle = incomingDraft.targetLifecycle,
+               stableLifecycle.stage == .stable {
+                incomingDraft.targetLifecycle = stableLifecycle.advanced(to: .frozen)
+            }
 
             if previousDraft?.previewText == incomingDraft.previewText,
                previousDraft?.drawingData == incomingDraft.drawingData {
@@ -849,6 +881,17 @@ struct ChordPreviewState: Equatable {
         draftChords = resolvedDrafts
             .sorted(by: Self.isOrderedBefore)
         layoutPageSize = deduplicatedInputs.compactMap(\.layoutPageSize).first ?? layoutPageSize
+        self.updatedAt = updatedAt
+    }
+
+    mutating func markRenderableDraftsCommitted(updatedAt: Date = .now) {
+        for index in draftChords.indices where draftChords[index].isRenderable {
+            guard let frozenLifecycle = draftChords[index].targetLifecycle,
+                  frozenLifecycle.stage == .frozen else {
+                continue
+            }
+            draftChords[index].targetLifecycle = frozenLifecycle.advanced(to: .committed)
+        }
         self.updatedAt = updatedAt
     }
 

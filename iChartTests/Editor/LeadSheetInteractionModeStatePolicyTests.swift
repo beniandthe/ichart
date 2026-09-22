@@ -2863,6 +2863,100 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
     }
 
+    func testChordBoundaryHypothesisValidatesCanonicalExhaustiveOwnership() throws {
+        let hypothesis = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 5,
+                targetRecognitionStrokeIndices: [[2, 0], [3]]
+            )
+        )
+
+        XCTAssertEqual(hypothesis.schemaVersion, 1)
+        XCTAssertEqual(hypothesis.targetRecognitionStrokeIndices, [[0, 2], [3]])
+        XCTAssertEqual(hypothesis.unassignedRecognitionStrokeIndices, [1, 4])
+        XCTAssertEqual(
+            hypothesis.canonicalPartitionSignature,
+            LeadSheetChordInkBoundaryPartitionSignature(
+                targetRecognitionStrokeIndices: [[0, 2], [3]],
+                unassignedRecognitionStrokeIndices: [1, 4]
+            )
+        )
+        XCTAssertNil(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 5,
+                targetRecognitionStrokeIndices: []
+            )
+        )
+        XCTAssertNil(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 5,
+                targetRecognitionStrokeIndices: [[0, 0]]
+            )
+        )
+        XCTAssertNil(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 5,
+                targetRecognitionStrokeIndices: [[0, 1], [1, 2]]
+            )
+        )
+        XCTAssertNil(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 5,
+                targetRecognitionStrokeIndices: [[5]]
+            )
+        )
+        XCTAssertNil(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 65,
+                targetRecognitionStrokeIndices: (0..<65).map { [$0] }
+            )
+        )
+    }
+
+    func testChordBoundaryHypothesisSetDeduplicatesEquivalentPartitions() throws {
+        let selected = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 3,
+                targetRecognitionStrokeIndices: [[2], [0, 1]]
+            )
+        )
+        let equivalent = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .measureLane,
+                recognitionStrokeCount: 3,
+                targetRecognitionStrokeIndices: [[1, 0], [2]]
+            )
+        )
+        let wholeInk = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .wholeRecognitionInk,
+                recognitionStrokeCount: 3,
+                targetRecognitionStrokeIndices: [[0, 1, 2]]
+            )
+        )
+        let set = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesisSet(
+                recognitionStrokeCount: 3,
+                candidates: [selected, equivalent, wholeInk]
+            )
+        )
+
+        XCTAssertEqual(set.schemaVersion, 1)
+        XCTAssertEqual(set.hypotheses.count, 2)
+        XCTAssertEqual(set.hypotheses.map(\.route), [.gapFallback, .wholeRecognitionInk])
+        XCTAssertEqual(
+            Set(set.hypotheses.map(\.canonicalPartitionSignature)).count,
+            set.hypotheses.count
+        )
+    }
+
     func testChordBatchTargetingStopsBeforeAdditionalClusteringWhenCancelled() throws {
         var chart = Chart.draft(title: "Cancelled Batch Targeting", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(
@@ -2901,6 +2995,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertTrue(result.isCancelled)
         XCTAssertTrue(result.targets.isEmpty)
+        XCTAssertNil(result.boundaryHypothesisSet)
         XCTAssertEqual(result.diagnostics.selectedRoute, "cancelled")
         XCTAssertEqual(continuationChecks, 3)
     }
@@ -3038,14 +3133,42 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             )
         ])
 
-        let targets = LeadSheetChordInkRecognitionTargeting.batchTargets(
+        let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
             for: drawing,
             chordFrame: chordFrame,
             pageLayout: layout
         )
 
-        XCTAssertEqual(targets.count, 2)
-        XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
+        XCTAssertEqual(result.targets.count, 2)
+        XCTAssertLessThan(result.targets[0].visualOrder, result.targets[1].visualOrder)
+
+        let hypothesisSet = try XCTUnwrap(result.boundaryHypothesisSet)
+        let selectedSignature = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .gapFallback,
+                recognitionStrokeCount: 2,
+                targetRecognitionStrokeIndices: result.targets.map(\.recognitionStrokeIndices)
+            )
+        ).canonicalPartitionSignature
+        let wholeInkSignature = try XCTUnwrap(
+            LeadSheetChordInkBoundaryHypothesis(
+                route: .wholeRecognitionInk,
+                recognitionStrokeCount: 2,
+                targetRecognitionStrokeIndices: [[0, 1]]
+            )
+        ).canonicalPartitionSignature
+        let signatures = Set(hypothesisSet.hypotheses.map(\.canonicalPartitionSignature))
+
+        XCTAssertEqual(hypothesisSet.recognitionStrokeCount, 2)
+        XCTAssertGreaterThanOrEqual(hypothesisSet.hypotheses.count, 2)
+        XCTAssertTrue(signatures.contains(selectedSignature))
+        XCTAssertTrue(signatures.contains(wholeInkSignature))
+        for hypothesis in hypothesisSet.hypotheses {
+            let accountedIndices = hypothesis.targetRecognitionStrokeIndices.flatMap { $0 }
+                + hypothesis.unassignedRecognitionStrokeIndices
+            XCTAssertEqual(accountedIndices.sorted(), [0, 1])
+            XCTAssertEqual(Set(accountedIndices).count, accountedIndices.count)
+        }
     }
 
     func testChordBatchTargetingFallsBackWhenLaneRootSequenceWouldDropContinuationLaneStroke() throws {
