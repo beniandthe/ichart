@@ -481,9 +481,13 @@ Ordinary telemetry must remain separate.
    **An isolated, local-only Recognition Study engineering app is implemented
    with prompted capture, lossless trajectory storage, base-result review,
    explicit execution-error/ambiguity/technical-failure outcomes, crash-safe
-   recovery, and correction/adaptation fixed off. It intentionally cannot claim
-   consent, provenance, corpus eligibility, or writer independence. The
-   consented collection service and independently adjudicated corpus remain
+   recovery, and correction/adaptation fixed off. A strict whole-session intake
+   command now verifies the frozen ten-prompt plan, every local commit/digest
+   binding, source strata, semantic outcome, and deterministic feature artifact.
+   Its receipt is mechanically validated but explicitly ineligible for corpus,
+   training, calibration, and evaluation use. It intentionally cannot claim
+   consent, provenance, ground truth, corpus eligibility, or writer independence.
+   The consented collection service and independently adjudicated corpus remain
    external work.**
 7. Split trust into structured dispositions and fix all-draft review batching.
    **The learned-route contracts now represent calibrated auto-accept,

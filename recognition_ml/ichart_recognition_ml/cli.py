@@ -21,6 +21,7 @@ from .evaluate import run_sealed_model_assessment
 from .export_coreml import export_uncalibrated_coreml
 from .manifest import build_manifest, load_manifest, validate_manifest, write_manifest
 from .models.dual_view import DualViewModelConfig
+from .study_session import import_study_session
 from .train_pipeline import TrainingConfig, train_development_model
 
 
@@ -85,6 +86,17 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--manifest-output", required=True, type=Path)
     export.add_argument("--model-identifier", required=True)
     export.add_argument("--detached-manifest-sha256", required=True)
+
+    study = commands.add_parser(
+        "import-study-session",
+        help=(
+            "Mechanically validate one complete local Recognition Study pass "
+            "and stage deterministic features without creating corpus data."
+        ),
+    )
+    study.add_argument("--study-root", required=True, type=Path)
+    study.add_argument("--output-dir", required=True, type=Path)
+    study.add_argument("--local-session-id")
     return root
 
 
@@ -286,6 +298,22 @@ def _export(arguments: argparse.Namespace, records) -> Dict[str, object]:
 
 
 def run(arguments: argparse.Namespace) -> Dict[str, object]:
+    if arguments.command == "import-study-session":
+        receipt = import_study_session(
+            arguments.study_root,
+            arguments.output_dir,
+            arguments.local_session_id,
+        )
+        return {
+            "authority": "mechanical-validation-only",
+            "capture_count": receipt.capture_count,
+            "corpus_eligible": False,
+            "ok": True,
+            "receipt": str(receipt.receipt_path),
+            "receipt_sha256": receipt.receipt_sha256,
+            "status": "validated-local-engineering-session",
+        }
+
     records = _validated_records(arguments)
     if arguments.command == "validate-records":
         return {"ok": True, "record_count": len(records), "status": "records-valid"}

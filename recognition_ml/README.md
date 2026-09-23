@@ -24,6 +24,9 @@ The checked-in code currently provides:
 - joint-path one-vs-rest calibration math matching the Swift selective policy;
 - an exact, non-overwriting bridge from canonical Recognition Study trajectory
   packets to the frozen trajectory and raster feature artifacts; and
+- a whole-session Recognition Study intake gate that verifies the frozen
+  ten-prompt engineering pass, every capture/outcome commit and digest, and the
+  deterministic features while preserving an explicit non-corpus status; and
 - compiled Core ML shadow-model export with deterministic directory
   fingerprinting and a Swift-compatible sidecar manifest.
 
@@ -71,6 +74,25 @@ python3 -m ichart_recognition_ml validate-manifest \
   --records /protected/corpus/records.jsonl \
   --data-root /protected/corpus/features
 ```
+
+Mechanically validate an exported local Recognition Study pass and stage its
+deterministic features:
+
+```sh
+python3 -m ichart_recognition_ml import-study-session \
+  --study-root /private/export/RecognitionStudy \
+  --local-session-id <local-session-uuid> \
+  --output-dir /private/staging/study-pass-001
+```
+
+`receipt.json` from this command is deliberately marked
+`local-engineering-only-not-corpus-eligible-v1` and
+`mechanical-validation-only`. Prompt intent and the writer's own confirmation
+remain self-reported diagnostics—not independently adjudicated ground truth.
+The command never emits corpus JSONL, assigns a writer or split, establishes
+consent/provenance, or makes a capture eligible for training, calibration, or
+sealed evaluation. A future collection authority must satisfy those missing
+boundaries under a separately versioned protocol.
 
 Install optional tooling only in an isolated research environment:
 
