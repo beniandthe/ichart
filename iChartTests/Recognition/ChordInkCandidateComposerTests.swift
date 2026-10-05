@@ -5,6 +5,80 @@ final class ChordInkCandidateComposerTests: XCTestCase {
     private let composer = ChordInkCandidateComposer()
     private let recognitionComposer = ChordInkRecognitionCandidateComposer()
 
+    func testSmallSequenceBudgetDoesNotExpandUnvisitedLargePrefixes() {
+        let roots = [
+            glyph("C", confidence: 0.99),
+            glyph("D", confidence: 0.98),
+            glyph("E", confidence: 0.97)
+        ]
+        let suffixes = [
+            glyph("7", confidence: 0.95),
+            glyph("9", confidence: 0.90),
+            glyph("5", confidence: 0.85)
+        ]
+        let columns = [roots] + Array(repeating: suffixes, count: 31)
+        var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+        configuration.maxGeneratedSequences = 4
+
+        let result = ChordInkCandidateComposer(configuration: configuration)
+            .composeDetailed(glyphCandidates: columns)
+
+        XCTAssertEqual(result.metrics.selectedColumnCount, 32)
+        XCTAssertEqual(result.metrics.generatedSequenceCount, 4)
+        XCTAssertTrue(result.metrics.hitGeneratedSequenceLimit)
+        XCTAssertEqual(result.candidates, expectedCandidates(
+            sequences: [[roots[0]], [roots[1]], [roots[2]], [roots[0], suffixes[0]]],
+            columns: columns,
+            configuration: configuration
+        ))
+        XCTAssertEqual(result.metrics.returnedCandidateCount, result.candidates.count)
+    }
+
+    func testSequenceBudgetPreservesPrefixTraversalOrderScoresAndLimitBoundary() {
+        let roots = [glyph("C", confidence: 0.99), glyph("G", confidence: 0.95)]
+        let extensions = [glyph("7", confidence: 0.94), glyph("9", confidence: 0.92)]
+        let modifiers = [glyph("#", confidence: 0.91), glyph("+", confidence: 0.90)]
+        let columns = [roots, extensions, modifiers]
+        // Prefixes are visited shortest first, with the final column changing fastest.
+        let sequences = [
+            [roots[0]], [roots[1]],
+            [roots[0], extensions[0]], [roots[0], extensions[1]],
+            [roots[1], extensions[0]], [roots[1], extensions[1]],
+            [roots[0], extensions[0], modifiers[0]], [roots[0], extensions[0], modifiers[1]],
+            [roots[0], extensions[1], modifiers[0]], [roots[0], extensions[1], modifiers[1]],
+            [roots[1], extensions[0], modifiers[0]], [roots[1], extensions[0], modifiers[1]],
+            [roots[1], extensions[1], modifiers[0]], [roots[1], extensions[1], modifiers[1]]
+        ]
+
+        for budget in [0, 1, 2, 3, 5, 6, 7, 13, 14, 15] {
+            var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+            configuration.maxGeneratedSequences = budget
+            let result = ChordInkCandidateComposer(configuration: configuration)
+                .composeDetailed(glyphCandidates: columns)
+
+            XCTAssertEqual(result.metrics.generatedSequenceCount, min(budget, sequences.count), "budget=\(budget)")
+            XCTAssertEqual(result.metrics.hitGeneratedSequenceLimit, budget < sequences.count, "budget=\(budget)")
+            XCTAssertEqual(result.candidates, expectedCandidates(
+                sequences: Array(sequences.prefix(budget)),
+                columns: columns,
+                configuration: configuration
+            ), "budget=\(budget)")
+        }
+    }
+
+    func testEmptyColumnsDoNotHitZeroSequenceBudget() {
+        var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+        configuration.maxGeneratedSequences = 0
+
+        let result = ChordInkCandidateComposer(configuration: configuration)
+            .composeDetailed(glyphCandidates: [[], []])
+
+        XCTAssertTrue(result.candidates.isEmpty)
+        XCTAssertEqual(result.metrics.generatedSequenceCount, 0)
+        XCTAssertEqual(result.metrics.selectedColumnCount, 0)
+        XCTAssertFalse(result.metrics.hitGeneratedSequenceLimit)
+    }
+
     func testRootSelectionMovesStrongCBeforeFlatLookalikeInFirstColumn() {
         let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
 
@@ -1740,6 +1814,45 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         ])
 
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "B°/D")
+    }
+
+    private func expectedCandidates(
+        sequences: [[GlyphCandidate]],
+        columns: [[GlyphCandidate]],
+        configuration: ChordInkCandidateComposerConfiguration
+    ) -> [ChordInkCandidate] {
+        let variantPolicy = ChordInkCandidateTextVariantPolicy()
+        let scoringPolicy = ChordInkCandidateScoringPolicy(scoring: configuration.scoring)
+        var bestByText = [String: ChordInkCandidate]()
+
+        for sequence in sequences {
+            for text in variantPolicy.textVariants(for: sequence) {
+                let candidate = ChordInkCandidate(
+                    text: text,
+                    confidence: scoringPolicy.score(
+                        text: text,
+                        glyphCandidates: sequence,
+                        candidateColumns: columns,
+                        totalClusterCount: columns.count
+                    ),
+                    glyphCandidates: sequence
+                )
+                if let previous = bestByText[text], previous.confidence >= candidate.confidence {
+                    continue
+                }
+                bestByText[text] = candidate
+            }
+        }
+
+        return Array(bestByText.values)
+            .sorted {
+                if $0.confidence != $1.confidence {
+                    return $0.confidence > $1.confidence
+                }
+                return $0.text < $1.text
+            }
+            .prefix(configuration.maxCandidateCount)
+            .map { $0 }
     }
 
     private func glyph(

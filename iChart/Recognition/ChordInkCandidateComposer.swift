@@ -67,13 +67,15 @@ struct ChordInkCandidateComposer {
         let textVariantPolicy = ChordInkCandidateTextVariantPolicy()
 
         for prefixLength in 1...candidateColumns.count {
-            let prefixColumns = Array(candidateColumns.prefix(prefixLength))
-            for sequence in candidateSequences(from: prefixColumns) {
-                guard generatedSequenceCount < configuration.maxGeneratedSequences else {
-                    hitGeneratedSequenceLimit = true
-                    break
-                }
+            guard generatedSequenceCount < configuration.maxGeneratedSequences else {
+                hitGeneratedSequenceLimit = true
+                break
+            }
 
+            let exhaustedPrefix = forEachCandidateSequence(
+                from: candidateColumns.prefix(prefixLength),
+                maximumCount: configuration.maxGeneratedSequences - generatedSequenceCount
+            ) { sequence in
                 generatedSequenceCount += 1
 
                 for variant in textVariantPolicy.textVariants(for: sequence) {
@@ -97,6 +99,11 @@ struct ChordInkCandidateComposer {
                     bestCandidatesByText[variant] = candidate
                 }
             }
+
+            if !exhaustedPrefix {
+                hitGeneratedSequenceLimit = true
+                break
+            }
         }
 
         let candidates = Array(bestCandidatesByText.values)
@@ -115,14 +122,41 @@ struct ChordInkCandidateComposer {
         )
     }
 
-    private func candidateSequences(from columns: [[GlyphCandidate]]) -> [[GlyphCandidate]] {
-        columns.reduce([[]]) { partialSequences, column in
-            partialSequences.flatMap { sequence in
-                column.map { candidate in
-                    sequence + [candidate]
+    /// Visits Cartesian sequences in the same order as expanding each column, without
+    /// allocating the full product. Returns whether every sequence in this prefix was visited.
+    private func forEachCandidateSequence(
+        from columns: ArraySlice<[GlyphCandidate]>,
+        maximumCount: Int,
+        body: ([GlyphCandidate]) -> Void
+    ) -> Bool {
+        var candidateIndices = Array(repeating: 0, count: columns.count)
+        var visitedCount = 0
+
+        while visitedCount < maximumCount {
+            let sequence = zip(columns, candidateIndices).map { column, index in
+                column[index]
+            }
+            body(sequence)
+            visitedCount += 1
+
+            // The final column changes fastest, matching the previous flatMap traversal.
+            var position = candidateIndices.count - 1
+            while position >= 0 {
+                candidateIndices[position] += 1
+                let columnIndex = columns.startIndex + position
+                if candidateIndices[position] < columns[columnIndex].count {
+                    break
                 }
+                candidateIndices[position] = 0
+                position -= 1
+            }
+
+            if position < 0 {
+                return true
             }
         }
+
+        return false
     }
 
 }

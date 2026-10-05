@@ -129,7 +129,7 @@ enum ChordInkBatchClusterer {
     static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
         let indexedStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
             .sorted { lhs, rhs in
                 if lhs.element.bounds.minX == rhs.element.bounds.minX {
