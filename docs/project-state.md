@@ -16,8 +16,8 @@ blocked; record the actual evidence before changing its status.
   export without losing useful work. A musician must be able to complete a chart
   even when the reader misses or misreads a chord.
 
-Normalization implementation is complete. Automated and Release-build results
-are recorded below as they finish. This is an actionable app-development baseline,
+Normalization implementation is complete. Automated, Release-build and physical
+installation results are recorded below. This is an actionable app-development baseline,
 not approval to publish. A build or test count is not evidence of improved fresh
 handwriting recognition. Signing, installation, Pencil interaction, upload, and
 publication must each be recorded separately.
@@ -30,7 +30,7 @@ publication must each be recorded separately.
 | Full input retained for newly taught lessons | Implemented and tested in retained tree; prepared build 60 was not installed at that checkpoint | Keep storage fix and legacy compatibility; discarded legacy points cannot be recovered. |
 | Before/After learning eligibility and internal candidate cleanup | Implemented and tested in retained tree | Retain maintenance fixes; workflow tests do not establish personalization benefit. |
 | Experimental personalized ML | Recorded failed acceptance criteria | Park it; no weight promotion or automatic release dependency. |
-| Normalization and recovery/telemetry work listed below | Implemented; automated gates and unsigned Release build passed | Require the separately recorded physical-device acceptance before release. |
+| Normalization and recovery/telemetry work listed below | Implemented; automated gates, unsigned Release build and signed Debug iPad install/launch passed | Pencil workflow acceptance and telemetry delivery remain separate gates. |
 
 Evidence: [reader boundary](chord-reader-domain-boundary-2026-10-03.md),
 [lesson fidelity](personal-lesson-input-fidelity-2026-10-03.md),
@@ -54,7 +54,7 @@ acceptance checks define completion; none is completed merely by being listed.
 | 2 | Count review repairs and preserve attribution | Batch review corrections emit content-free metrics; current recognition-version names retain correction attribution. No chord text, raw ink, or handwriting examples enter ordinary telemetry. | Implemented; ingest deployment/delivery pending |
 | 2 | Measure preview responsiveness accurately | Record last PencilKit input callback → preview publication, separately from recognizer computation. This includes waiting/preparation, but is not a screen-pixel or Pencil-latency measurement. | Implemented; dense-page device check pending |
 | 2 | Establish ordinary-use measures | Use the metric definitions below, keep internal testing separate where classification is available, and do not infer chord accuracy from preview-event counts. | Defined below |
-| 3 | Validate release candidate in both styles | Complete the release gates below, recording artifact/version and observed result. No unresolved ink-loss or blocked-recovery defect is acceptable. | Automated gates passed; physical acceptance/signing/delivery pending |
+| 3 | Validate release candidate in both styles | Complete the release gates below, recording artifact/version and observed result. No unresolved ink-loss or blocked-recovery defect is acceptable. | Automated gates and signed iPad install/launch passed; user confirms charts open; Pencil acceptance and delivery pending |
 
 New recognizer changes enter this backlog only for a specific reproduced defect.
 Keep the standard-reader comparison fixed, check new wrong reads as well as
@@ -163,17 +163,60 @@ handwriting evidence.
 - CI YAML parses; normal checks retain full SwiftPM/app tests and now include
   the bounded content-free telemetry contract suite. Remote CI and branch
   protection were not run/changed because this branch has not been pushed.
-- No physical install/Pencil acceptance, production ingest deployment, GitHub
-  push, TestFlight upload or publication has occurred in this normalization pass.
+- Production ingest deployment, GitHub push, TestFlight upload and publication
+  have not occurred in this normalization pass. Pencil acceptance is pending.
+
+### Physical candidate 61 delivery — 2026-10-05
+
+- App source: `1bb6e93ef141a32892e587fd2eb740953136e402` on the active branch.
+  The generated project was refreshed from committed `project.yml`; app source
+  was unchanged from the automated gate. Existing results were not rerun or
+  reinterpreted as device acceptance.
+- Fresh Debug device build **passed**, including ordinary Apple Development
+  signing. No provisioning update, keychain change or credential-document access
+  was needed. Strict deep signature verification passed against the normal
+  macOS trust store; the embedded profile includes the actual iPad UDID.
+- Device: Ben’s iPad, iPad Air (4th generation), iOS 26.6.2; wired, paired,
+  Developer Mode enabled. Candidate plist and installed-app query both report
+  **1.2.1 (61)**. It replaced build 57 without uninstalling the app.
+- Evidence directory: `/private/tmp/iChartCandidate61Device-20261005.lagerk/`.
+  `DeviceBuild.xcresult`, `device-build.log`, `install.json`, `launch.json` and
+  `installed-version.json` record build/install/launch. Development app path:
+  `DerivedData/Build/Products/Debug-iphoneos/iChart.app` inside that directory.
+  Comparison opt-in was `NO`; no experimental model/Study resources were found
+  in the bundle. Compiler/deprecation warnings remain; this was not warning-free.
+- Existing Documents and Application Support were privately copied before
+  installation. All 20 Application Support files were byte-identical after
+  installation, before launch. Documents also matched. First launch left all
+  chart objects, projects, cloud metadata, deletion records, profile, evaluation
+  journal, correction memory and stored PDFs unchanged. No ink/profile reset or
+  teaching occurred.
+- First launch changed only three library entitlement fields plus the performance
+  trace. The saved plan changed from `studioSubscription` / `proActive` to
+  `free` / `proExpired` during ordinary subscription refresh. The library still
+  contains all 28 charts. Current Basic policy limits local charts to 3 and locks
+  editing while over that limit. This snapshot prompted a chart-access check;
+  it is not evidence of a persistent restriction. The user subsequently
+  confirmed **"The chart opens normally"** on build 61. No entitlement workaround,
+  purchase, chart deletion or billing-policy change was made. Keep that cache
+  observation distinct from the current human-confirmed access result.
+- Installation, launch and human-confirmed chart opening are complete. Pencil behavior,
+  review/rewrite/render, layout, persistence after editing and PDF export are
+  **not yet accepted on this candidate**. A development-signed Debug app is not
+  a distribution archive or a TestFlight upload.
 
 ### Next bounded pass
 
-Use this branch/worktree, not either parked tree. Once automated/build gates
-pass, install candidate 61 and perform one workflow acceptance pass in each
+Use this branch/worktree, not either parked tree. Candidate 61 is installed and
+the user confirmed charts open normally. Perform one workflow acceptance pass in each
 style: write a mixed draft, edit a proposed chord and enter a missing one, go
 back to ink and reopen review to check the edits, locally rewrite one target,
 render, move/edit a rendered chord, rotate/change key, save/reopen and export.
 Include a dense page and the existing repeat/setup-staff fixture. This is app
 QA, not another handwriting-training protocol. Record actual defects and fix
-them individually. Deploy the reviewed ingest allowlist separately before
+them individually. To avoid adding examples during this QA, turn off "Learn
+from chords I confirm" under Tools → My Handwriting if enabled; preserve the
+existing profile and do not tap Teach or Reset. If an unread target or unsafe
+ownership case does not occur naturally, mark that human check not exercised
+rather than inventing an accuracy result. Deploy the reviewed ingest allowlist separately before
 expecting new trial metrics to arrive; verify a real delivery afterward.
