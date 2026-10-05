@@ -30,7 +30,7 @@ publication must each be recorded separately.
 | Full input retained for newly taught lessons | Implemented and tested in retained tree; prepared build 60 was not installed at that checkpoint | Keep storage fix and legacy compatibility; discarded legacy points cannot be recovered. |
 | Before/After learning eligibility and internal candidate cleanup | Implemented and tested in retained tree | Retain maintenance fixes; workflow tests do not establish personalization benefit. |
 | Experimental personalized ML | Recorded failed acceptance criteria | Park it; no weight promotion or automatic release dependency. |
-| Normalization and recovery/telemetry work listed below | Implemented; automated gates, unsigned Release build and signed Debug iPad install/launch passed | Pencil workflow acceptance and telemetry delivery remain separate gates. |
+| Normalization and recovery/telemetry work listed below | Implemented; automated gates, unsigned Release build, signed Debug iPad install/launch and user-reported short workflow passes completed | New telemetry delivery is verified; distribution and the remaining targeted release checks are separate. |
 
 Evidence: [reader boundary](chord-reader-domain-boundary-2026-10-03.md),
 [lesson fidelity](personal-lesson-input-fidelity-2026-10-03.md),
@@ -46,15 +46,15 @@ acceptance checks define completion; none is completed merely by being listed.
 
 | Priority | Deliverable | Acceptance check | Status |
 | --- | --- | --- | --- |
-| 1 | Repair unread draft chords in review | User can type a valid intended chord for an unread target, navigate rows with a usable keyboard, and continue. Unsupported text remains unresolved. Exact remaining ink is preserved. | Implemented; device acceptance pending |
-| 1 | Rewrite only the selected chord | Rewriting one target preserves every unrelated pending chord and its ink; stale/ambiguous ownership is refused safely. Explicit whole-draft discard remains available with clear meaning. | Implemented; device acceptance pending |
-| 1 | One reliable write → review → repair → render flow | Both styles support mixed correct, uncertain, and unread drafts, cancellation, continued writing, and later editing. Rendering clears only ink covered by accepted objects. | Implemented; device acceptance pending |
+| 1 | Repair unread draft chords in review | User can type a valid intended chord for an unread target, navigate rows with a usable keyboard, and continue. Unsupported text remains unresolved. Exact remaining ink is preserved. | Implemented/tested; shared review flow accepted in both styles. A naturally unread target was not separately identified in the human report. |
+| 1 | Rewrite only the selected chord | Rewriting one target preserves every unrelated pending chord and its ink; stale/ambiguous ownership is refused safely. Explicit whole-draft discard remains available with clear meaning. | Implemented/tested; user completed the short rewrite/review checklist in both styles without reporting a defect. Unsafe-ownership cases remain automated evidence. |
+| 1 | One reliable write → review → repair → render flow | Both styles support mixed correct, uncertain, and unread drafts, cancellation, continued writing, and later editing. Rendering clears only ink covered by accepted objects. | Short workflow passes completed in both styles; saved rendered chords and both PDF exports verified. |
 | 1 | Explicit optional handwriting learning | No forced setup on ordinary chart entry. Existing profiles/examples remain available. Saved preference and reset/opt-out behavior are explicit and tested. | Implemented; existing choices preserved |
 | 1 | Define and enforce release reader behavior | Standard reader is the default. Example-based learning is a separately chosen setting; research comparisons and model packages do not silently participate in normal entry. | Verified; Release artifact contains no experimental model/Study resources |
-| 2 | Count review repairs and preserve attribution | Batch review corrections emit content-free metrics; current recognition-version names retain correction attribution. No chord text, raw ink, or handwriting examples enter ordinary telemetry. | Implemented; ingest deployment/delivery pending |
-| 2 | Measure preview responsiveness accurately | Record last PencilKit input callback → preview publication, separately from recognizer computation. This includes waiting/preparation, but is not a screen-pixel or Pencil-latency measurement. | Implemented; dense-page device check pending |
+| 2 | Count review repairs and preserve attribution | Batch review corrections emit content-free metrics; current recognition-version names retain correction attribution. No chord text, raw ink, or handwriting examples enter ordinary telemetry. | Production ingest v10 deployed with user approval; real build-61 review/render fields retained. Rewrite-event retention verified by an internal schema probe. |
+| 2 | Measure preview responsiveness accurately | Record last PencilKit input callback → preview publication, separately from recognizer computation. This includes waiting/preparation, but is not a screen-pixel or Pencil-latency measurement. | Real build-61 input-to-preview field retained; short workflow accepted. Dense-page stress/visible-ink latency are not established by this sample. |
 | 2 | Establish ordinary-use measures | Use the metric definitions below, keep internal testing separate where classification is available, and do not infer chord accuracy from preview-event counts. | Defined below |
-| 3 | Validate release candidate in both styles | Complete the release gates below, recording artifact/version and observed result. No unresolved ink-loss or blocked-recovery defect is acceptable. | Automated gates and signed iPad install/launch passed; user confirms charts open; Pencil acceptance and delivery pending |
+| 3 | Validate release candidate in both styles | Complete the release gates below, recording artifact/version and observed result. No unresolved ink-loss or blocked-recovery defect is acceptable. | Automated/device short-workflow/export/telemetry gates complete. Remaining targeted regression checks, entitled cloud-backup QA and distribution mechanics are below. |
 
 New recognizer changes enter this backlog only for a specific reproduced defect.
 Keep the standard-reader comparison fixed, check new wrong reads as well as
@@ -163,8 +163,8 @@ handwriting evidence.
 - CI YAML parses; normal checks retain full SwiftPM/app tests and now include
   the bounded content-free telemetry contract suite. Remote CI and branch
   protection were not run/changed because this branch has not been pushed.
-- Production ingest deployment, GitHub push, TestFlight upload and publication
-  have not occurred in this normalization pass. Pencil acceptance is pending.
+- GitHub push, TestFlight upload and publication have not occurred in this
+  normalization pass. Later device QA and ingest deployment receipts are below.
 
 ### Physical candidate 61 delivery — 2026-10-05
 
@@ -200,23 +200,84 @@ handwriting evidence.
   confirmed **"The chart opens normally"** on build 61. No entitlement workaround,
   purchase, chart deletion or billing-policy change was made. Keep that cache
   observation distinct from the current human-confirmed access result.
-- Installation, launch and human-confirmed chart opening are complete. Pencil behavior,
-  review/rewrite/render, layout, persistence after editing and PDF export are
-  **not yet accepted on this candidate**. A development-signed Debug app is not
-  a distribution archive or a TestFlight upload.
+- Installation, launch and human-confirmed chart opening are complete. The
+  subsequent short workflow/export acceptance is recorded below. A
+  development-signed Debug app is not a distribution archive or TestFlight upload.
 
-### Next bounded pass
+### Short workflow acceptance and telemetry — 2026-10-05
 
-Use this branch/worktree, not either parked tree. Candidate 61 is installed and
-the user confirmed charts open normally. Perform one workflow acceptance pass in each
-style: write a mixed draft, edit a proposed chord and enter a missing one, go
-back to ink and reopen review to check the edits, locally rewrite one target,
-render, move/edit a rendered chord, rotate/change key, save/reopen and export.
-Include a dense page and the existing repeat/setup-staff fixture. This is app
-QA, not another handwriting-training protocol. Record actual defects and fix
-them individually. To avoid adding examples during this QA, turn off "Learn
-from chords I confirm" under Tools → My Handwriting if enabled; preserve the
-existing profile and do not tap Teach or Reset. If an unread target or unsafe
-ownership case does not occur naturally, mark that human check not exercised
-rather than inventing an accuracy result. Deploy the reviewed ingest allowlist separately before
-expecting new trial metrics to arrive; verify a real delivery afterward.
+- The user replied **"both complete"** to the short Simple/Rhythm checklist:
+  natural-speed writing, review editing, Back to Ink/reopen, local rewrite,
+  rendering, rotation/key change and save/reopen. No defect was reported. This
+  is user-reported workflow acceptance, not a labeled recognition study or
+  an exhaustive claim about every earlier layout fixture.
+- Private evidence directory:
+  `/private/tmp/iChartCandidate61Acceptance-20261005.jTpe4S/`.
+  `ApplicationSupport/` is a non-destructive device capture. All 28 prior chart
+  objects remain semantically unchanged. Two new charts are saved: Simple has
+  7 rendered chord objects, Rhythm has 6. These are storage counts, not supplied
+  written-target counts or accuracy denominators.
+- All **70 saved handwriting examples are unchanged**. Profile use remains
+  enabled by the existing choice; review learning changed from on to off,
+  with the corresponding profile revision. No new teaching/examples occurred.
+- PDF export was initially not performed. After the separate export request,
+  production received `pdf.export_succeeded` for each style and the device PDF
+  library increased from 13 to 15 entries. Both new files are present, have a
+  PDF header and match their manifest sizes: Simple **159,985 bytes / 1 page**;
+  Rhythm **21,356 bytes / 1 page**. This verifies saved export artifacts, not a
+  separately inspected print-layout proof. Files are in `AfterExports/`.
+- The user explicitly approved deploying the content-free ingest update.
+  `app-telemetry-ingest` on project `pausvvwoazbvmzyrebwl` is **ACTIVE v10**,
+  deployed at **08:58 PDT**. Its three files match reviewed source exactly;
+  `verify_jwt: false` and the existing custom client-key/user authentication
+  behavior are unchanged. No schema, permission, key, billing or recognition
+  change was made. The local ingest contract suite passed **16/16**.
+- New ingest additions are `chord.preview_rewritten` and seven properties:
+  `writing_batch_id`, `rewrite_outcome`, `reviewed_count`, `changed_chord_count`,
+  `repaired_no_read_count`, `review_duration_ms`, `last_stroke_to_preview_ms`.
+  Validation bounds UUIDs, outcomes, counts and durations. This does not add
+  chord text, raw ink, chart identifiers or documents to ordinary telemetry.
+- An explicitly labeled internal probe (`telemetry-v10-probe`,
+  `backend-probe`, `flow: telemetry_schema_probe`) returned **202, stored 2,
+  rejected 0**. A database read verified all added fields were retained and
+  prohibited synthetic chord/title fields were absent. Exclude those probe
+  events from real-device/customer usage; they are not app or accuracy evidence.
+- After the user wrote/rendered one additional chord, production retained real
+  **build-61 Simple** preview, confirmation and render events under one matching
+  writing-batch ID. The render included reviewed count 1, changed count 0,
+  repaired-no-read count 0 and review duration 920.672 ms; the preview included
+  callback-to-preview time 662.528 ms. This proves actual client-to-storage
+  field delivery, not handwriting accuracy or visible Pencil-ink latency. The
+  original paired passes preceded v10; already acknowledged stripped fields
+  cannot be reconstructed retroactively. Future customer builds containing this
+  instrumentation can supply the fields; older distributed builds cannot.
+- Rollback source is recoverable from **`b717073`**: the entrypoint,
+  `_shared/telemetry_ingest.mjs` and `_shared/supabase_subscription_authority_store.mjs`
+  were SHA-256 verified against the production-v9 files. A rollback redeploy
+  creates a new version; do not change authentication settings. The additional
+  private v9 bundle is at `/private/tmp/iChartTelemetryReadiness-20261005.OR8qH8/`.
+
+### Next bounded release checks
+
+Use this branch/worktree, not either parked tree. Do not restart an ML cycle or
+repeat the completed short workflow without a named defect.
+
+1. **Cloud backup/access QA:** the session recorded 15 `cloud.push_failed`
+   events classified only as `sync_error`. Read-only account inspection found
+   the test account's server-side StoreKit subscription is free/inactive,
+   expired and outside grace; local QA access subsequently reports Pro. Cloud
+   policy requires active server entitlement, so this test does not establish
+   backup behavior for an entitled customer. Verify backup/restore with a
+   legitimate active sandbox/test entitlement before calling the full trial
+   ready. Do not fabricate entitlement rows, purchase, change RLS or delete
+   charts to bypass this gate. No cloud/billing mutation was made in this pass.
+2. **Remaining targeted regression checks:** cover dense-page visible Pencil
+   responsiveness, the existing repeat/setup-staff fixture, header/text input,
+   margins and form-marker sizing if not already exercised on this candidate.
+   The broad historical list is not a request to retrain recognition. Preserve
+   exact failing ink; fix only a reproduced defect. Naturally unread and unsafe
+   ownership cases not encountered manually remain explicitly unexercised.
+3. **Distribution:** review and authorize GitHub push/remote CI, prepare a
+   distribution-signed Release archive, verify store/privacy metadata, then
+   separately authorize upload/TestFlight delivery. Debug iPad acceptance is
+   not an App Store signing, archive or upload receipt.
