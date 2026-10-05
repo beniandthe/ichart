@@ -76,10 +76,15 @@ struct PendingChordInkConfirmation: Identifiable {
         self.primaryDecision = primaryDecision
         self.decision = decision
 
-        let userFacingCandidateTexts = candidateTexts ?? Self.candidateTexts(for: result)
+        let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
+            from: candidateTexts ?? Self.candidateTexts(for: result)
+        )
         self.candidateTexts = userFacingCandidateTexts
-        self.bestCandidateText = startsWithEmptyEntry ? nil
-            : initialEntryText ?? decision.acceptedText ?? result.match?.displayText ?? userFacingCandidateTexts.first
+        self.bestCandidateText = ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: startsWithEmptyEntry ? []
+                : [initialEntryText, decision.acceptedText, result.match?.displayText],
+            candidateTexts: userFacingCandidateTexts
+        )
     }
 
     var displayMeasureNumber: Int {
@@ -87,7 +92,7 @@ struct PendingChordInkConfirmation: Identifiable {
     }
 
     var requiresDirectEntry: Bool {
-        candidateTexts.isEmpty && result.match == nil && decision.acceptedText == nil
+        bestCandidateText == nil
     }
 
     var visibleCandidateTexts: [String] {
@@ -295,6 +300,9 @@ struct ChordInkBatchConfirmationSheetView: View {
     @State private var candidateTextByID: [UUID: String]
     // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
     @State private var focusedConfirmationID: UUID?
+    @State private var keyboardFocusRequestIDByID: [UUID: Int] = [:]
+    @State private var keyboardScrollConfirmationID: UUID?
+    @State private var keyboardScrollRequestID = 0
     @State private var confirmsRewriteAll = false
 
     init(
@@ -348,8 +356,8 @@ struct ChordInkBatchConfirmationSheetView: View {
                         .background(IChartTypedSheetScrollSupport())
                     }
                     .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: focusedConfirmationID) { _, id in
-                        if let id {
+                    .onChange(of: keyboardScrollRequestID) { _, _ in
+                        if let id = keyboardScrollConfirmationID {
                             withAnimation { proxy.scrollTo(id, anchor: .top) }
                         }
                     }
@@ -446,7 +454,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     style: .plain,
                     accessibilityLabel: "Type chord for measure \(confirmation.displayMeasureNumber)"
                 ) {
-                    focusedConfirmationID = confirmation.id
+                    requestKeyboard(for: confirmation.id)
                 }
                 .frame(width: 92)
             }
@@ -468,8 +476,9 @@ struct ChordInkBatchConfirmationSheetView: View {
                     }
                 ),
                 font: .systemFont(ofSize: 20, weight: .semibold),
+                keyboardFocusRequestID: keyboardFocusRequestIDByID[confirmation.id] ?? 0,
                 onNext: nextConfirmationID(after: confirmation.id).map { nextID in
-                    { focusedConfirmationID = nextID }
+                    { requestKeyboard(for: nextID) }
                 }
             )
             .frame(height: 52)
@@ -527,6 +536,13 @@ struct ChordInkBatchConfirmationSheetView: View {
               batch.confirmations.indices.contains(index + 1) else { return nil }
         return batch.confirmations[index + 1].id
     }
+
+    private func requestKeyboard(for id: UUID) {
+        focusedConfirmationID = id
+        keyboardFocusRequestIDByID[id, default: 0] += 1
+        keyboardScrollConfirmationID = id
+        keyboardScrollRequestID += 1
+    }
 }
 
 enum ChordInkFixtureCopyResult: Equatable {
@@ -579,6 +595,7 @@ struct ChordInkConfirmationSheetView: View {
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
     @State private var confirmsRewriteAll = false
     @State private var isManualEntryFocused = false
+    @State private var keyboardFocusRequestID = 0
 
     init(
         confirmation: PendingChordInkConfirmation,
@@ -621,6 +638,7 @@ struct ChordInkConfirmationSheetView: View {
                 ChordInkReviewButton(title: "Edit", systemImageName: "keyboard", style: .plain,
                     accessibilityLabel: "Type chord for measure \(confirmation.displayMeasureNumber)") {
                     isManualEntryFocused = true
+                    keyboardFocusRequestID += 1
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -630,7 +648,8 @@ struct ChordInkConfirmationSheetView: View {
                     isFocused: $isManualEntryFocused,
                     font: .preferredFont(forTextStyle: .title2),
                     textAlignment: .center,
-                    borderStyle: .none
+                    borderStyle: .none,
+                    keyboardFocusRequestID: keyboardFocusRequestID
                 )
                     .animation(nil, value: manualCandidateText)
                     #if DEBUG && targetEnvironment(simulator)
@@ -805,6 +824,7 @@ struct ChordCorrectionSheetView: View {
     @State private var candidateText: String
     @State private var teachesHandwriting = false
     @State private var isManualEntryFocused = false
+    @State private var keyboardFocusRequestID = 0
 
     init(
         correction: PendingChordCorrection,
@@ -831,6 +851,7 @@ struct ChordCorrectionSheetView: View {
                 ChordInkReviewButton(title: "Edit", systemImageName: "keyboard", style: .plain,
                     accessibilityLabel: "Type chord for measure \(correction.displayMeasureNumber)") {
                     isManualEntryFocused = true
+                    keyboardFocusRequestID += 1
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -840,7 +861,8 @@ struct ChordCorrectionSheetView: View {
                     isFocused: $isManualEntryFocused,
                     font: .preferredFont(forTextStyle: .title2),
                     textAlignment: .center,
-                    borderStyle: .none
+                    borderStyle: .none,
+                    keyboardFocusRequestID: keyboardFocusRequestID
                 )
                     .animation(nil, value: candidateText)
                     .padding(.horizontal, 18)

@@ -25,6 +25,7 @@ struct ChartHeaderSheetView: View {
     @State private var draftComposerCredit: String
     @State private var draftStyleNote: String
     @State private var focusedField: ChartHeaderTextInputField?
+    @State private var keyboardFocusRequestIDByField: [ChartHeaderTextInputField: Int] = [:]
 
     init(chart: Binding<Chart>) {
         self._chart = chart
@@ -79,6 +80,15 @@ struct ChartHeaderSheetView: View {
                         applyChanges()
                     }
                 }
+                if let focusedField {
+                    ToolbarItem(placement: .topBarLeading) {
+                        PencilOnlyActionButton(title: "Keyboard", systemImageName: "keyboard", style: .plain,
+                            accessibilityLabel: "Use keyboard for header text", acceptsDirectTouches: true) {
+                            requestKeyboard(for: focusedField)
+                        }
+                        .frame(width: 144, height: 44)
+                    }
+                }
             }
         }
         .modifier(ChartHeaderSheetPresentationModifier())
@@ -102,11 +112,20 @@ struct ChartHeaderSheetView: View {
             autocapitalizationType: .words,
             autocorrectionType: .yes,
             borderStyle: .none,
-            onNext: field.next.map { next in { focusedField = next } }
+            keyboardFocusRequestID: keyboardFocusRequestIDByField[field] ?? 0,
+            onNext: field.next.map { next in
+                { requestKeyboard(for: next) }
+            }
         )
             .frame(minHeight: 52)
             .accessibilityLabel(title)
-            .accessibilityHint("Tap to edit with the Apple keyboard and Dictation")
+            .accessibilityHint("Write with Scribble, or tap to use the keyboard and Dictation")
+
+    }
+
+    private func requestKeyboard(for field: ChartHeaderTextInputField) {
+        focusedField = field
+        keyboardFocusRequestIDByField[field, default: 0] += 1
     }
 
     private func applyChanges() {

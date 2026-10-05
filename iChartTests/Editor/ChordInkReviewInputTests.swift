@@ -89,12 +89,18 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Opening review must not open text entry")
         for field in fields {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
-                           "Scrolling must never enter Scribble, including rows whose Edit button has not been tapped")
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true,
+                           "Writing inside a field must remain available before Edit is tapped")
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 10)), false,
+                           "Writing cannot start in the scrolling space beside a field")
         }
         let reviewScroll = try XCTUnwrap(ancestorScrollView(of: first))
-        XCTAssertTrue(reviewScroll.panGestureRecognizer.allowedTouchTypes.contains(
-            NSNumber(value: UITouch.TouchType.pencil.rawValue)), "Review scrolling must accept Pencil as well as finger")
+        let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        XCTAssertFalse(reviewScroll.panGestureRecognizer.allowedTouchTypes.contains(pencil),
+                       "The native pan must not take Pencil starts inside fields")
+        XCTAssertTrue(reviewScroll.gestureRecognizers?.contains { gesture in
+            gesture !== reviewScroll.panGestureRecognizer && gesture.allowedTouchTypes == [pencil]
+        } == true, "Review must provide scoped Pencil scrolling outside fields")
         reviewScroll.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Moving the review viewport must not start typing")
@@ -102,13 +108,21 @@ final class ChordInkReviewInputTests: XCTestCase {
         try await waitForFocus(first)
         XCTAssertTrue(first.isFirstResponder, "Edit must focus its field and survive the SwiftUI state update")
         let scribble = try XCTUnwrap(first.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
-                       "Explicit keyboard entry must not be intercepted by Scribble")
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true,
+                       "Keyboard editing cannot permanently disable subsequent Scribble")
         first.text = "Ebmaj7"
         first.sendActions(for: .editingChanged)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(first.isFirstResponder, "Editing must not dismiss the keyboard")
         XCTAssertEqual(first.text, "Ebmaj7")
+        let selection = first.selectedTextRange
+        firstEdit.sendActions(for: .touchUpInside)
+        try await waitForFocus(first)
+        XCTAssertEqual(first.text, "Ebmaj7", "Repeating Edit after native input must keep the draft")
+        if let selection, let current = first.selectedTextRange {
+            XCTAssertEqual(first.offset(from: first.beginningOfDocument, to: current.start),
+                           first.offset(from: first.beginningOfDocument, to: selection.start))
+        }
         XCTAssertEqual(first.returnKeyType, .next)
         XCTAssertEqual(first.delegate?.textFieldShouldReturn?(first), false)
         try await waitForFocus(second)
@@ -178,7 +192,8 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertFalse(field.isFirstResponder, "An unread preview must not focus itself")
         XCTAssertEqual(field.text, initialText)
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), false)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), true)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 0)), false)
         let edit = try XCTUnwrap(descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
             .first { $0.accessibilityLabel == "Type chord for measure 1" })
         edit.sendActions(for: .touchUpInside)

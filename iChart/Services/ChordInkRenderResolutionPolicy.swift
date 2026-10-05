@@ -4,6 +4,15 @@ struct ChordInkRenderResolution: Equatable {
     var primaryDecision: ChordInkRecognitionDecision
     var decision: ChordInkRecognitionDecision
     var candidateTexts: [String]
+
+    /// A review suggestion is display-only; it does not become accepted
+    /// recognition evidence or change the original trust decision.
+    var bestCandidateText: String? {
+        ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [decision.acceptedText],
+            candidateTexts: candidateTexts
+        )
+    }
 }
 
 enum ChordInkRenderResolutionPolicy {
@@ -79,13 +88,11 @@ enum ChordInkRenderResolutionPolicy {
             guard selection.disposition != .baselineOnly else { return baselineChoices }
             // Reserve an alternative slot without erasing the native default.
             let ordered = [selection.text, baseline.match?.displayText, personal.text].compactMap { $0 } + baselineChoices
-            var seen = Set<String>()
-            return ordered.filter { seen.insert($0).inserted }
+            return ChordRecognitionCompendium.userFacingCandidateTexts(from: ordered)
         }
         let primaryScores = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
-        let primaryDisplayText = result.match?.displayText ?? primaryScores.first?.displayText
         let primaryChoices = primaryScores.enumerated().compactMap { index, score -> ReviewChoice? in
-            guard let displayText = score.displayText else {
+            guard let displayText = supportedDisplayText(for: score) else {
                 return nil
             }
             return ReviewChoice(
@@ -95,8 +102,9 @@ enum ChordInkRenderResolutionPolicy {
                 sourceOrder: index
             )
         }
+        let primaryDisplayText = result.match?.displayText ?? primaryChoices.first?.displayText
         let reviewChoices = result.reviewCandidateScores.enumerated().compactMap { index, score -> ReviewChoice? in
-            guard let displayText = score.displayText else {
+            guard let displayText = supportedDisplayText(for: score) else {
                 return nil
             }
             return ReviewChoice(
@@ -157,6 +165,31 @@ enum ChordInkRenderResolutionPolicy {
         }
 
         return preferredTexts
+    }
+
+    /// Only complete, valid chord text may fill a preview or review entry.
+    /// Raw transcripts and rejected glyphs are never repaired into a chord.
+    static func bestCandidateText(
+        preferredTexts: [String?],
+        candidateTexts: [String]
+    ) -> String? {
+        for text in preferredTexts + candidateTexts.map({ Optional($0) }) {
+            guard let text else { continue }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ChordRecognitionCompendium.match(trimmed) != nil else { continue }
+            return trimmed
+        }
+        return nil
+    }
+
+    private static func supportedDisplayText(for score: ChordInkCandidateScore) -> String? {
+        guard let displayText = score.displayText,
+              let candidateMatch = ChordRecognitionCompendium.match(score.text),
+              let displayMatch = ChordRecognitionCompendium.match(displayText),
+              candidateMatch.displayText == displayMatch.displayText else {
+            return nil
+        }
+        return candidateMatch.displayText
     }
 
     private static func deduplicatedChoices(_ choices: [ReviewChoice]) -> [ReviewChoice] {

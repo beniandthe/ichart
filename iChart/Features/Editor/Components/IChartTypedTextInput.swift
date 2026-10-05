@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// Text entry is deliberately separate from chart ink. Keeping Scribble out of
-/// these controls lets a Pencil drag in a review sheet remain a scroll gesture.
+/// Native text entry lets Scribble start within the control and keyboard editing
+/// on request. Chart ink and outside-field Pencil scrolling remain separate.
 struct IChartTypedTextField: UIViewRepresentable {
     let placeholder: String
     @Binding var text: String
@@ -12,6 +12,7 @@ struct IChartTypedTextField: UIViewRepresentable {
     var font: UIFont = .preferredFont(forTextStyle: .body)
     var textAlignment: NSTextAlignment = .natural
     var borderStyle: UITextField.BorderStyle = .roundedRect
+    var keyboardFocusRequestID = 0
     var onNext: (() -> Void)?
 
     func makeUIView(context: Context) -> IChartTypedUITextField {
@@ -39,12 +40,20 @@ struct IChartTypedTextField: UIViewRepresentable {
         field.returnKeyType = onNext == nil ? .done : .next
         if field.text != text { field.text = text }
         field.requestsFocus = isFocused
+        let explicitlyRequestsKeyboard = keyboardFocusRequestID > 0
+            && context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
+        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
+        if explicitlyRequestsKeyboard { field.requestsFocus = true }
         // Wait until UIKit has applied the complete sibling focus update. A
         // previous row must not resign a newly requested row's first responder.
         DispatchQueue.main.async { [weak field] in
             guard let field else { return }
-            if field.requestsFocus, field.window != nil, !field.isFirstResponder {
-                field.becomeFirstResponder()
+            if field.requestsFocus, field.window != nil {
+                if explicitlyRequestsKeyboard {
+                    IChartNativeKeyboardFocus.request(field)
+                } else if !field.isFirstResponder {
+                    field.becomeFirstResponder()
+                }
             } else if !field.requestsFocus, field.isFirstResponder {
                 DispatchQueue.main.async { [weak field] in
                     guard let field, !field.requestsFocus, field.isFirstResponder else { return }
@@ -58,6 +67,7 @@ struct IChartTypedTextField: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         var parent: IChartTypedTextField
+        var lastKeyboardFocusRequestID = 0
         private weak var activeField: UITextField?
 
         init(parent: IChartTypedTextField) { self.parent = parent }
@@ -120,8 +130,8 @@ struct IChartTypedTextView: UIViewRepresentable {
         context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
         view.requestsFocus = true
         DispatchQueue.main.async { [weak view] in
-            guard let view, view.requestsFocus, view.window != nil, !view.isFirstResponder else { return }
-            view.becomeFirstResponder()
+            guard let view, view.requestsFocus, view.window != nil else { return }
+            IChartNativeKeyboardFocus.request(view)
         }
     }
 
@@ -159,7 +169,9 @@ final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate {
         super.didMoveToWindow()
         if window != nil, requestsFocus { becomeFirstResponder() }
     }
-    func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool { false }
+    func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
+        isEnabled && isUserInteractionEnabled && bounds.contains(location)
+    }
 }
 
 final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate {
@@ -177,7 +189,21 @@ final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate {
         super.didMoveToWindow()
         if window != nil, requestsFocus { becomeFirstResponder() }
     }
-    func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool { false }
+    func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
+        isEditable && isUserInteractionEnabled && bounds.contains(location)
+    }
+}
+
+private enum IChartNativeKeyboardFocus {
+    static func request(_ input: UIView & UITextInput) {
+        let selection = input.selectedTextRange
+        // An Edit request can arrive while Scribble already owns first responder.
+        // Reissue UIKit's ordinary keyboard request without changing text or
+        // leaving Scribble disabled for subsequent writing in the field.
+        if input.isFirstResponder { input.resignFirstResponder() }
+        input.becomeFirstResponder()
+        if let selection { input.selectedTextRange = selection }
+    }
 }
 
 private enum IChartTypingAccessory {
@@ -199,31 +225,98 @@ private enum IChartTypingAccessory {
     }
 }
 
-/// Scope Pencil scrolling to a typed sheet's own scroll view. The chart canvas
-/// keeps its independent drawing and finger-navigation policy.
+/// Finger scrolling uses UIKit's native pan. A separate Pencil pan starts only
+/// outside owned text controls so it cannot compete with field-bound Scribble.
 struct IChartTypedSheetScrollSupport: UIViewRepresentable {
     func makeUIView(context: Context) -> ScrollMarker { ScrollMarker() }
     func updateUIView(_ view: ScrollMarker, context: Context) {
         DispatchQueue.main.async { [weak view] in view?.configureScrollView() }
     }
+    static func dismantleUIView(_ view: ScrollMarker, coordinator: ()) { view.detachScrollView() }
 
-    final class ScrollMarker: UIView {
+    final class ScrollMarker: UIView, UIGestureRecognizerDelegate {
+        private weak var scrollView: UIScrollView?
+        private var originalPanTouchTypes: [NSNumber]?
+        private var startingOffset = CGPoint.zero
+        private lazy var pencilPan: UIPanGestureRecognizer = {
+            let gesture = UIPanGestureRecognizer(target: self, action: #selector(scrollWithPencil(_:)))
+            gesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+            gesture.maximumNumberOfTouches = 1
+            gesture.delegate = self
+            return gesture
+        }()
+
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            configureScrollView()
+            if window == nil { detachScrollView() } else { configureScrollView() }
         }
 
         func configureScrollView() {
             var ancestor = superview
             while let view = ancestor {
                 if let scrollView = view as? UIScrollView {
-                    var touchTypes = scrollView.panGestureRecognizer.allowedTouchTypes
+                    guard self.scrollView !== scrollView else {
+                        pencilPan.isEnabled = scrollView.isScrollEnabled
+                        return
+                    }
+                    detachScrollView()
+                    self.scrollView = scrollView
+                    originalPanTouchTypes = scrollView.panGestureRecognizer.allowedTouchTypes
                     let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
-                    if !touchTypes.contains(pencil) { touchTypes.append(pencil) }
-                    scrollView.panGestureRecognizer.allowedTouchTypes = touchTypes
+                    scrollView.panGestureRecognizer.allowedTouchTypes = scrollView.panGestureRecognizer.allowedTouchTypes
+                        .filter { $0 != pencil }
+                    scrollView.addGestureRecognizer(pencilPan)
+                    pencilPan.isEnabled = scrollView.isScrollEnabled
                     return
                 }
                 ancestor = view.superview
+            }
+        }
+
+        func detachScrollView() {
+            if let scrollView {
+                scrollView.removeGestureRecognizer(pencilPan)
+                if let originalPanTouchTypes { scrollView.panGestureRecognizer.allowedTouchTypes = originalPanTouchTypes }
+            }
+            scrollView = nil
+            originalPanTouchTypes = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard gestureRecognizer === pencilPan, let scrollView else { return false }
+            return Self.allowsPencilScroll(at: touch.location(in: scrollView), in: scrollView)
+        }
+
+        static func allowsPencilScroll(at point: CGPoint, in scrollView: UIScrollView) -> Bool {
+            guard scrollView.isScrollEnabled, scrollView.bounds.contains(point) else { return false }
+            return !containsOwnedTextControl(at: point, in: scrollView, coordinateView: scrollView)
+        }
+
+        private static func containsOwnedTextControl(at point: CGPoint, in view: UIView, coordinateView: UIView) -> Bool {
+            guard !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled else { return false }
+            if view is IChartTypedUITextField || view is IChartTypedUITextView {
+                return view.bounds.contains(view.convert(point, from: coordinateView))
+            }
+            return view.subviews.contains { containsOwnedTextControl(at: point, in: $0, coordinateView: coordinateView) }
+        }
+
+        @objc private func scrollWithPencil(_ gesture: UIPanGestureRecognizer) {
+            guard let scrollView else { return }
+            guard scrollView.isScrollEnabled else {
+                gesture.isEnabled = false
+                return
+            }
+            switch gesture.state {
+            case .began:
+                startingOffset = scrollView.contentOffset
+            case .changed:
+                let translation = gesture.translation(in: scrollView)
+                let inset = scrollView.adjustedContentInset
+                let maximumY = max(-inset.top, scrollView.contentSize.height - scrollView.bounds.height + inset.bottom)
+                let y = min(maximumY, max(-inset.top, startingOffset.y - translation.y))
+                scrollView.setContentOffset(CGPoint(x: startingOffset.x, y: y), animated: false)
+            default:
+                break
             }
         }
     }

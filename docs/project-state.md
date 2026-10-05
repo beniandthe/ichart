@@ -126,6 +126,65 @@ the failed receipts remain separate and are not counted as passing evidence.
   tests cannot certify the iPad's visible software keyboard or palm experience.
   This is not a Release archive, TestFlight upload, GitHub push or publication.
 
+### Mixed input and visible suggestions — build 63
+
+Current device candidate: **1.2.1 (63)**. The user described 62 as "much better"
+but reported that input fields could no longer use Scribble. The typed-only
+bridge above was a regression, not the intended final input policy.
+
+- Header, review/correction and cue fields now allow native Scribble starts
+  inside their own bounds. Keyboard editing remains available; repeated Edit
+  requests preserve text/selection, Next navigates, and Done ends editing
+  without accepting/rendering. Header has one functional Keyboard action, not
+  a per-row mode selector. Outside-field Pencil dragging scrolls the owned
+  sheet; native finger scrolling remains unchanged. The owned Pencil pan is
+  clamped vertical dragging without inertial fling. Native Scribble focus no
+  longer triggers the app's animated review-row scroll.
+- Preview and review use the same complete, valid available suggestion even
+  when recognition requires confirmation. Suggestions are not trusted reads.
+  Native confidence, trust, source-coverage and explicit-render requirements
+  are unchanged. Illegal/mismatched candidate text is excluded; an invalid
+  explicit edit cannot silently fall back to another chord.
+- The chord preview no longer uses a question mark. **Zero valid evidence or
+  unsafe stale ownership shows Add chord**, with direct repair/rewrite available;
+  an arbitrary chord is not invented to fill the field. This is the bounded
+  exception to the request for an always-present chord suggestion.
+- Receipts and exact signed app: `/private/tmp/iChartMixedInput-20261005.J9bDOu/`.
+  The first native run had one header-toolbar lookup failure. The harness was
+  repaired to present a real sheet in a key scene window and search the owned
+  window. The button/action assertions were retained; no app logic changed for
+  that repair. Failed receipts are preserved separately.
+- Full native `AppFinal.xcresult`: **2,102 passed, 0 failed, 103 skipped**
+  (2,205 total), verified with `xcresulttool` summary and results tree. This
+  preceded the final button-width-only adjustment. `FinalInput.xcresult` then
+  passed **47 tests, no failures or skips** on the exact final app source;
+  its actual rendered Header attachment was inspected and the Keyboard label
+  fits on one line. These are UI/invariant checks, not fresh accuracy evidence.
+- SwiftPM parallel runner exited 0 after dispatching 1,631 XCTest cases. Its
+  parallel log does not enumerate skips separately; do not convert that count
+  into a passed-test total or use the separate zero-test Swift Testing footer.
+- `DeviceFinal.xcresult` passed with ordinary Development signing; the preserved
+  `iChart.app` passed strict deep signature verification and reports 1.2.1/63.
+  No experimental model/Study resources were found. Installed version and
+  successful launch are recorded; no credential access or signing prompt was
+  needed. Final app source hashes are alongside the receipts.
+- The user confirmed intentionally cleaning up the older charts. All **18**
+  current Application Support files were byte-identical immediately after
+  installation. After launch, all **4 chart objects are exactly unchanged**,
+  including stored ink; the **70-example profile is byte-identical**. No teaching,
+  profile reset, chart restoration/deletion or billing-policy change occurred.
+  Ordinary launch refresh changed only the three library entitlement fields
+  (`activePlan`, subscription status and verification date) to free/expired,
+  as previously observed. Keep cache state distinct from human-confirmed access.
+  The user subsequently confirmed **Charts open normally** on build 63; no
+  entitlement workaround was performed.
+- **Physical acceptance is pending:** in an existing chart, Scribble a review
+  entry, use Edit to type, Done, then Scribble again; scroll outside fields with
+  Pencil or with a finger. Check Header Keyboard and cue entry as well. No Teach
+  or full recognition score test is needed for this bounded UI change. GitHub
+  push, distribution archive, TestFlight upload and production deployment were
+  not part of this follow-up.
+
 ## Measurement for the trial
 
 Use three product questions. Telemetry is a diagnostic aid; it cannot supply

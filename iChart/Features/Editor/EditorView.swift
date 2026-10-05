@@ -2368,7 +2368,7 @@ struct EditorView: View {
             ChordDiagnosticPreviewItem(
                 id: "chord-\(draft.id.uuidString)",
                 visualOrder: draft.visualOrder ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0),
-                kind: .chord(draft.previewText ?? "?")
+                kind: .chord(draft.previewDisplayText)
             )
         }
         let barlineItems = chordPreviewState.draftBarlines.map { barline in
@@ -2417,7 +2417,7 @@ struct EditorView: View {
         }
 
         let chordText = chordPreviewState.draftChords
-            .map { $0.previewText ?? "unresolved" }
+            .map(\.previewDisplayText)
             .joined(separator: ", ")
         let barlineText = chordPreviewState.draftBarlines.isEmpty
             ? "no draft barlines"
@@ -4257,7 +4257,7 @@ struct EditorView: View {
                 layoutPageSize: payload.layoutPageSize,
                 drawingData: payload.drawingData,
                 candidateTexts: resolution.candidateTexts,
-                bestCandidateText: resolution.decision.acceptedText ?? payload.result.match?.displayText,
+                bestCandidateText: resolution.bestCandidateText,
                 confidence: payload.result.confidence,
                 strokeCount: payload.timing.strokeCount,
                 recognitionResult: payload.result,

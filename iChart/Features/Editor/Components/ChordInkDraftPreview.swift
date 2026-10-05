@@ -442,16 +442,10 @@ enum ChordInkDraftPreviewDeduplicationPolicy {
     }
 
     private static func normalizedPreviewText(_ input: ChordInkDraftInput) -> String? {
-        normalizedText(input.bestCandidateText) ?? input.candidateTexts.compactMap(normalizedText).first
-    }
-
-    private static func normalizedText(_ text: String?) -> String? {
-        guard let text else {
-            return nil
-        }
-
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedText.isEmpty ? nil : trimmedText
+        ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [input.bestCandidateText],
+            candidateTexts: input.candidateTexts
+        )
     }
 
     private static func sameLane(_ lhs: ChordInkDraftInput, _ rhs: ChordInkDraftInput) -> Bool {
@@ -551,8 +545,22 @@ struct ChordInkDraft: Identifiable, Hashable {
         self.laneLocation = input.laneLocation
         self.layoutPageSize = input.layoutPageSize
         self.drawingData = input.drawingData
-        self.candidateTexts = input.candidateTexts
-        self.bestCandidateText = input.bestCandidateText
+        // A stale absorbed target deliberately has no supported suggestion:
+        // source ownership must be repaired before reusing its old read.
+        let resultCandidateTexts = isStale ? []
+            : input.recognitionResult.map(ChordInkRenderResolutionPolicy.candidateTexts(for:)) ?? []
+        let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
+            from: input.candidateTexts + resultCandidateTexts
+        )
+        self.candidateTexts = userFacingCandidateTexts
+        self.bestCandidateText = ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [
+                input.bestCandidateText,
+                isStale ? nil : input.recognitionDecision?.acceptedText,
+                isStale ? nil : input.recognitionResult?.match?.displayText
+            ],
+            candidateTexts: userFacingCandidateTexts
+        )
         self.selectedText = selectedText
         self.confidence = input.confidence
         self.strokeCount = input.strokeCount
@@ -565,7 +573,22 @@ struct ChordInkDraft: Identifiable, Hashable {
     }
 
     var previewText: String? {
-        normalizedText(selectedText) ?? normalizedText(bestCandidateText) ?? candidateTexts.compactMap(normalizedText).first
+        if let selectedText,
+           !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // An invalid explicit edit must stay unresolved; falling back to
+            // recognition here would render a different chord than was entered.
+            return ChordInkRenderResolutionPolicy.bestCandidateText(
+                preferredTexts: [selectedText], candidateTexts: []
+            )
+        }
+        return ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [bestCandidateText],
+            candidateTexts: candidateTexts
+        )
+    }
+
+    var previewDisplayText: String {
+        previewText ?? "Add chord"
     }
 
     var isRenderable: Bool {
@@ -586,15 +609,6 @@ struct ChordInkDraft: Identifiable, Hashable {
 
     var sourceCandidateSignature: [String] {
         ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
-    }
-
-    private func normalizedText(_ text: String?) -> String? {
-        guard let text else {
-            return nil
-        }
-
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedText.isEmpty ? nil : trimmedText
     }
 }
 
