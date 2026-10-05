@@ -5,7 +5,7 @@ struct RecognitionStudyApp: App {
     var body: some Scene {
         WindowGroup {
             RecognitionStudyCaptureView(
-                resultProvider: RecognitionStudyVisionResultProvider()
+                resultProvider: RecognitionStudyResultProviderFactory.make()
             )
         }
     }

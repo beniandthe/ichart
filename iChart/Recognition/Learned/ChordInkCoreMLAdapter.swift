@@ -124,6 +124,8 @@ enum ChordInkCoreMLAdapterError: Error, Equatable, Sendable {
 /// after validating the detached manifest identity, the exact compiled model
 /// directory fingerprint, and the complete Core ML model description.
 final class ChordInkCoreMLModelRuntime: ChordInkLearnedModelRuntime {
+    static let requiredComputeUnits: MLComputeUnits = .cpuOnly
+
     struct BundleResources: Equatable, Sendable {
         let manifestName: String
         let compiledModelName: String
@@ -142,8 +144,7 @@ final class ChordInkCoreMLModelRuntime: ChordInkLearnedModelRuntime {
     static func load(
         resources: BundleResources,
         detachedManifestSHA256: String,
-        bundle: Bundle = .main,
-        configuration: MLModelConfiguration = MLModelConfiguration()
+        bundle: Bundle = .main
     ) throws -> ChordInkCoreMLModelRuntime {
         guard let manifestURL = bundle.url(
             forResource: resources.manifestName,
@@ -166,16 +167,14 @@ final class ChordInkCoreMLModelRuntime: ChordInkLearnedModelRuntime {
         return try load(
             manifestURL: manifestURL,
             detachedManifestSHA256: detachedManifestSHA256,
-            compiledModelURL: compiledModelURL,
-            configuration: configuration
+            compiledModelURL: compiledModelURL
         )
     }
 
     static func load(
         manifestURL: URL,
         detachedManifestSHA256: String,
-        compiledModelURL: URL,
-        configuration: MLModelConfiguration = MLModelConfiguration()
+        compiledModelURL: URL
     ) throws -> ChordInkCoreMLModelRuntime {
         let manifestData: Data
         do {
@@ -203,6 +202,8 @@ final class ChordInkCoreMLModelRuntime: ChordInkLearnedModelRuntime {
 
         let model: MLModel
         do {
+            let configuration = MLModelConfiguration()
+            configuration.computeUnits = requiredComputeUnits
             model = try MLModel(
                 contentsOf: compiledModelURL,
                 configuration: configuration

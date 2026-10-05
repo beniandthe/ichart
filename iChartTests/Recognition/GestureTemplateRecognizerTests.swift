@@ -901,12 +901,12 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         let cluster = try XCTUnwrap(clusterer.cluster(fixture.strokes).first)
         let templates = [
             GestureTemplate(text: "C", strokes: cluster.strokes),
-            GestureTemplate(text: "open-C", strokes: cluster.strokes)
+            GestureTemplate(text: "D", strokes: cluster.strokes)
         ]
 
         let candidates = recognizer.rankedCandidates(for: cluster, templates: templates)
 
-        XCTAssertEqual(candidates.map(\.text), ["C", "open-C"])
+        XCTAssertEqual(candidates.map(\.text), ["C", "D"])
         XCTAssertEqual(candidates[0].confidence, candidates[1].confidence, accuracy: 0.0001)
     }
 
@@ -933,22 +933,45 @@ final class GestureTemplateRecognizerTests: XCTestCase {
 
         let firstCandidates = mutableRecognizer.rankedCandidates(
             for: cluster,
-            templates: [GestureTemplate(text: "cached-A", strokes: cluster.strokes)]
+            templates: [GestureTemplate(text: "C", strokes: cluster.strokes)]
         )
-        XCTAssertEqual(firstCandidates.first?.text, "cached-A")
+        XCTAssertEqual(firstCandidates.first?.text, "C")
 
         let changedTemplateCandidates = mutableRecognizer.rankedCandidates(
             for: cluster,
-            templates: [GestureTemplate(text: "cached-B", strokes: cluster.strokes)]
+            templates: [GestureTemplate(text: "D", strokes: cluster.strokes)]
         )
-        XCTAssertEqual(changedTemplateCandidates.first?.text, "cached-B")
+        XCTAssertEqual(changedTemplateCandidates.first?.text, "D")
 
         mutableRecognizer.configuration.samplePointCount = 24
         let changedSampleCountCandidates = mutableRecognizer.rankedCandidates(
             for: cluster,
-            templates: [GestureTemplate(text: "cached-C", strokes: cluster.strokes)]
+            templates: [GestureTemplate(text: "E", strokes: cluster.strokes)]
         )
-        XCTAssertEqual(changedSampleCountCandidates.first?.text, "cached-C")
+        XCTAssertEqual(changedSampleCountCandidates.first?.text, "E")
+    }
+
+    func testInvalidTemplateLabelsAreRemovedBeforeTheCandidateLimit() {
+        let strokes = [InkStroke(points: [
+            InkPoint(x: 20, y: 0, timeOffset: nil),
+            InkPoint(x: 8, y: 0, timeOffset: nil),
+            InkPoint(x: 0, y: 12, timeOffset: nil),
+            InkPoint(x: 8, y: 24, timeOffset: nil),
+            InkPoint(x: 20, y: 24, timeOffset: nil)
+        ])]
+        let cluster = InkCluster(strokes: strokes)
+        let validTemplates = [GestureTemplate(text: "C", strokes: strokes)]
+        let mixedTemplates = ["", "!", "J", "ñ", "C?", "open-C"].map {
+            GestureTemplate(text: $0, strokes: strokes)
+        } + validTemplates
+
+        for limit in [1, 8] {
+            let expected = recognizer.rankedCandidates(for: cluster, templates: validTemplates, limit: limit)
+            let actual = recognizer.rankedCandidates(for: cluster, templates: mixedTemplates, limit: limit)
+            XCTAssertFalse(expected.isEmpty)
+            XCTAssertEqual(actual, expected)
+            XCTAssertTrue(actual.allSatisfy { ChordRecognitionDomain.isAllowedGlyphToken($0.text) })
+        }
     }
 
     private func assertExpectedGlyphAppearsInTopCandidates(for fixtures: [InkFixture]) throws {

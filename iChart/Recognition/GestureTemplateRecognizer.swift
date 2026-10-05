@@ -10,10 +10,16 @@ struct GestureTemplate: Hashable {
     }
 }
 
+enum GestureTemplateNormalizationMode: Hashable {
+    case legacyJoinedPath
+    case preserveStrokeBoundaries
+}
+
 struct GestureTemplateRecognizerConfiguration: Hashable {
     var samplePointCount: Int
     var aspectRatioWeight: Double
     var strokeCountWeight: Double
+    var normalizationMode: GestureTemplateNormalizationMode = .legacyJoinedPath
 
     static let chordGlyphs = GestureTemplateRecognizerConfiguration(
         samplePointCount: 48,
@@ -38,15 +44,17 @@ struct GestureTemplateRecognizer {
     ) -> [GlyphCandidate] {
         guard let normalizedInput = NormalizedGesture(
             strokes: cluster.strokes,
-            samplePointCount: configuration.samplePointCount
+            samplePointCount: configuration.samplePointCount,
+            mode: configuration.normalizationMode
         ) else {
             return []
         }
         let inputFeatures = RootGlyphFeatures(cluster: cluster)
 
         let preparedTemplates = templateCache.preparedTemplates(
-            from: templates,
-            samplePointCount: configuration.samplePointCount
+            from: templates.filter { ChordRecognitionDomain.isAllowedGlyphToken($0.text) },
+            samplePointCount: configuration.samplePointCount,
+            mode: configuration.normalizationMode
         )
         var candidatesByText = preparedTemplates.reduce(into: [String: GlyphCandidate]()) { bestCandidates, template in
             if template.text == "(",
@@ -113,6 +121,7 @@ struct GestureTemplateRecognizer {
         }
 
         for candidate in heuristicCandidates(for: cluster) {
+            guard ChordRecognitionDomain.isAllowedGlyphToken(candidate.text) else { continue }
             if let currentBestCandidate = candidatesByText[candidate.text],
                currentBestCandidate.confidence >= candidate.confidence {
                 continue
@@ -134,6 +143,20 @@ struct GestureTemplateRecognizer {
         }
 
         return candidates
+    }
+
+    /// Raw sampling only, so invariant tests can distinguish ink from pen-up geometry.
+    static func normalizationSamplesForTesting(
+        strokes: [InkStroke],
+        samplePointCount: Int,
+        mode: GestureTemplateNormalizationMode
+    ) -> [InkPoint]? {
+        NormalizedGesture.sampledPoints(
+            strokes: strokes,
+            rawPoints: strokes.flatMap(\.points),
+            count: max(2, samplePointCount),
+            mode: mode
+        )
     }
 
     private enum ParenthesisDirection {
@@ -2501,14 +2524,18 @@ private struct NormalizedGesture: Hashable {
     var aspectRatio: Double
     var strokeCount: Int
 
-    init?(strokes: [InkStroke], samplePointCount: Int) {
+    init?(strokes: [InkStroke], samplePointCount: Int, mode: GestureTemplateNormalizationMode) {
         let rawPoints = strokes.flatMap(\.points)
-        guard !rawPoints.isEmpty else {
+        guard let sampledPoints = Self.sampledPoints(
+            strokes: strokes,
+            rawPoints: rawPoints,
+            count: max(2, samplePointCount),
+            mode: mode
+        ) else {
             return nil
         }
 
         let bounds = InkBounds.enclosing(rawPoints)
-        let sampledPoints = Self.resampled(rawPoints, count: max(2, samplePointCount))
         let scale = max(bounds.width, bounds.height, 1)
         let scaledPoints = sampledPoints.map { point in
             NormalizedPoint(
@@ -2526,6 +2553,62 @@ private struct NormalizedGesture: Hashable {
         }
         aspectRatio = max(bounds.width, 1) / max(bounds.height, 1)
         strokeCount = strokes.count
+    }
+
+    fileprivate static func sampledPoints(
+        strokes: [InkStroke],
+        rawPoints: [InkPoint],
+        count: Int,
+        mode: GestureTemplateNormalizationMode
+    ) -> [InkPoint]? {
+        guard !rawPoints.isEmpty else { return nil }
+        if mode == .legacyJoinedPath {
+            return resampled(rawPoints, count: count)
+        }
+
+        guard rawPoints.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        let bounds = InkBounds.enclosing(rawPoints)
+        guard bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        let paths = strokes.map(\.points).filter { !$0.isEmpty }
+        guard paths.count <= count else { return nil }
+        let lengths = paths.map { points in
+            zip(points, points.dropFirst()).reduce(0.0) { $0 + $1.0.distance(to: $1.1) }
+        }
+        let totalLength = lengths.reduce(0, +)
+        guard totalLength.isFinite else { return nil }
+        // Preserve the exact old arithmetic for every single finite nonempty stroke.
+        if paths.count == 1 {
+            return resampled(paths[0], count: count)
+        }
+
+        let minimums = lengths.map { $0 > 0 ? 2 : 1 }
+        let minimumCount = minimums.reduce(0, +)
+        guard minimumCount <= count else { return nil }
+        let remaining = count - minimumCount
+        let shares = lengths.map { length in
+            Double(remaining) * (totalLength > 0 ? length / totalLength : 1 / Double(paths.count))
+        }
+        let extras = shares.map { Int(floor($0)) }
+        let residual = remaining - extras.reduce(0, +)
+        guard residual >= 0, residual <= paths.count else { return nil }
+        var counts = paths.indices.map { minimums[$0] + extras[$0] }
+        let residualOrder = paths.indices.sorted { lhs, rhs in
+            let leftRemainder = shares[lhs] - Double(extras[lhs])
+            let rightRemainder = shares[rhs] - Double(extras[rhs])
+            return leftRemainder == rightRemainder ? lhs < rhs : leftRemainder > rightRemainder
+        }
+        for index in residualOrder.prefix(residual) {
+            counts[index] += 1
+        }
+        return paths.indices.flatMap { index in
+            guard counts[index] > 1 else { return [paths[index][0]] }
+            var samples = resampled(paths[index], count: counts[index])
+            if lengths[index] > 0 {
+                samples[0] = paths[index][0]
+                samples[samples.count - 1] = paths[index][paths[index].count - 1]
+            }
+            return samples
+        }
     }
 
     private static func resampled(_ points: [InkPoint], count: Int) -> [InkPoint] {
@@ -2598,16 +2681,19 @@ private final class GestureTemplateNormalizationCache {
     private let lock = NSLock()
     private var cachedTemplates: [GestureTemplate] = []
     private var cachedSamplePointCount = 0
+    private var cachedMode: GestureTemplateNormalizationMode = .legacyJoinedPath
     private var cachedPreparedTemplates: [PreparedGestureTemplate] = []
 
     func preparedTemplates(
         from templates: [GestureTemplate],
-        samplePointCount: Int
+        samplePointCount: Int,
+        mode: GestureTemplateNormalizationMode
     ) -> [PreparedGestureTemplate] {
         lock.lock()
         defer { lock.unlock() }
 
         if cachedSamplePointCount == samplePointCount,
+           cachedMode == mode,
            cachedTemplates == templates {
             return cachedPreparedTemplates
         }
@@ -2615,7 +2701,8 @@ private final class GestureTemplateNormalizationCache {
         let preparedTemplates = templates.compactMap { template -> PreparedGestureTemplate? in
             guard let normalizedGesture = NormalizedGesture(
                 strokes: template.strokes,
-                samplePointCount: samplePointCount
+                samplePointCount: samplePointCount,
+                mode: mode
             ) else {
                 return nil
             }
@@ -2627,6 +2714,7 @@ private final class GestureTemplateNormalizationCache {
         }
         cachedTemplates = templates
         cachedSamplePointCount = samplePointCount
+        cachedMode = mode
         cachedPreparedTemplates = preparedTemplates
         return preparedTemplates
     }

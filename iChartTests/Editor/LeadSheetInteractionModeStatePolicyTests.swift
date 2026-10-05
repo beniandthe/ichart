@@ -1915,6 +1915,20 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testModalReviewButtonsCanOptIntoDirectTouchWithoutChangingCanvasDefaults() {
+        for touchType: UITouch.TouchType in [.direct, .pencil, .indirectPointer] {
+            XCTAssertTrue(PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: touchType, acceptsDirectTouches: true, environment: .device
+            ))
+        }
+        XCTAssertFalse(PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+            touchType: .direct, environment: .device
+        ))
+        XCTAssertFalse(PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+            touchType: .indirect, acceptsDirectTouches: true, environment: .device
+        ))
+    }
+
     func testDeviceCanvasGesturesIgnoreDirectTouchInLiveInkModes() {
         XCTAssertFalse(
             LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(

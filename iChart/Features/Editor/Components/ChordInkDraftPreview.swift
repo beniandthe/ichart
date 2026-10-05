@@ -1267,7 +1267,7 @@ enum ChordDraftBarlineRecognizer {
             return ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
         }
 
-        var acceptedBarlines = [(barline: DraftBarline, strokeIndex: Int)]()
+        var candidateBarlines = [(barline: DraftBarline, strokeIndex: Int)]()
         for indexedStroke in strokes.enumerated() {
             guard let barline = draftBarline(
                 for: indexedStroke.element,
@@ -1277,9 +1277,19 @@ enum ChordDraftBarlineRecognizer {
                 continue
             }
 
-            acceptedBarlines.append((barline, indexedStroke.offset))
+            candidateBarlines.append((barline, indexedStroke.offset))
         }
 
+        let candidateIndices = Set(candidateBarlines.map(\.strokeIndex))
+        let acceptedBarlines = candidateBarlines.filter { candidate in
+            !isOwnedByNeighboringInk(
+                candidate,
+                strokes: strokes,
+                candidateIndices: candidateIndices,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
+        }
         let deDuplicatedBarlines = removeVeryCloseBarlines(acceptedBarlines)
 
         return ChordDraftBarlineRecognition(
@@ -1290,6 +1300,103 @@ enum ChordDraftBarlineRecognizer {
             },
             strokeIndices: Set(deDuplicatedBarlines.map(\.strokeIndex))
         )
+    }
+
+    /// These relative ratios are conservative ambiguity gates, not calibrated
+    /// recognition confidence. A mark touching a local construction, or packed
+    /// between comparable ink on both sides, must remain available to chord
+    /// recognition. An isolated mark still uses the existing acceptance rules.
+    private static func isOwnedByNeighboringInk(
+        _ candidate: (barline: DraftBarline, strokeIndex: Int),
+        strokes: [InkStroke],
+        candidateIndices: Set<Int>,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> Bool {
+        let stroke = strokes[candidate.strokeIndex]
+        let bounds = stroke.bounds
+        let height = bounds.height
+        let centerX = (bounds.minX + bounds.maxX) / 2
+        guard height > 0,
+              let systemIndex = candidate.barline.laneLocation?.systemIndex,
+              let first = stroke.points.first, let last = stroke.points.last else {
+            return false
+        }
+
+        var leftNeighbors = [InkBounds](), rightNeighbors = [InkBounds]()
+        for (index, neighbor) in strokes.enumerated() {
+            // Another possible barline is not evidence of text ownership.
+            guard index != candidate.strokeIndex, !candidateIndices.contains(index) else { continue }
+            let other = neighbor.bounds
+            let otherCenterX = (other.minX + other.maxX) / 2
+            guard other.width >= height * 0.18, other.width <= height * 1.50,
+                  other.height <= height * 1.60,
+                  draftBarlineTarget(
+                    at: CGPoint(x: otherCenterX, y: (other.minY + other.maxY) / 2)
+                        .offsetBy(dx: chordFrame.minX, dy: chordFrame.minY),
+                    in: pageLayout
+                  )?.systemIndex == systemIndex else {
+                continue
+            }
+
+            let localBounds = bounds.union(other)
+            if other.width >= height * 0.20,
+               localBounds.width <= height * 1.80, localBounds.height <= height * 1.80,
+               zip(neighbor.points, neighbor.points.dropFirst()).contains(where: {
+                   segmentsAreClose(first, last, $0.0, $0.1, tolerance: height * 0.08)
+               }) {
+                return true
+            }
+
+            let referenceHeight = min(height, other.height)
+            let verticalOverlap = min(bounds.maxY, other.maxY) - max(bounds.minY, other.minY)
+            guard other.height >= height * 0.55,
+                  verticalOverlap >= referenceHeight * 0.50 else { continue }
+            if otherCenterX < centerX,
+               max(0, bounds.minX - other.maxX) <= referenceHeight * 0.30 {
+                leftNeighbors.append(other)
+            } else if otherCenterX > centerX,
+                      max(0, other.minX - bounds.maxX) <= referenceHeight * 0.30 {
+                rightNeighbors.append(other)
+            }
+        }
+        return leftNeighbors.contains { left in
+            rightNeighbors.contains { right in
+                bounds.union(left).union(right).width <= height * 2.75
+            }
+        }
+    }
+
+    private static func segmentsAreClose(
+        _ a: InkPoint, _ b: InkPoint, _ c: InkPoint, _ d: InkPoint,
+        tolerance: Double
+    ) -> Bool {
+        func cross(_ first: InkPoint, _ second: InkPoint, _ point: InkPoint) -> Double {
+            (second.x - first.x) * (point.y - first.y) - (second.y - first.y) * (point.x - first.x)
+        }
+        let abC = cross(a, b, c), abD = cross(a, b, d)
+        let cdA = cross(c, d, a), cdB = cross(c, d, b)
+        if max(min(a.x, b.x), min(c.x, d.x)) <= min(max(a.x, b.x), max(c.x, d.x)),
+           max(min(a.y, b.y), min(c.y, d.y)) <= min(max(a.y, b.y), max(c.y, d.y)),
+           ((abC >= 0 && abD <= 0) || (abC <= 0 && abD >= 0)),
+           ((cdA >= 0 && cdB <= 0) || (cdA <= 0 && cdB >= 0)) {
+            return true
+        }
+        let distanceSquared = min(
+            min(pointToSegmentDistanceSquared(a, c, d), pointToSegmentDistanceSquared(b, c, d)),
+            min(pointToSegmentDistanceSquared(c, a, b), pointToSegmentDistanceSquared(d, a, b))
+        )
+        return distanceSquared <= tolerance * tolerance
+    }
+
+    private static func pointToSegmentDistanceSquared(_ point: InkPoint, _ a: InkPoint, _ b: InkPoint) -> Double {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let lengthSquared = dx * dx + dy * dy
+        let fraction = lengthSquared > 0
+            ? min(max(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared, 0), 1)
+            : 0
+        let distanceX = point.x - (a.x + fraction * dx), distanceY = point.y - (a.y + fraction * dy)
+        return distanceX * distanceX + distanceY * distanceY
     }
 
     private static func draftBarline(
@@ -1432,6 +1539,7 @@ struct ChordInkDraftBatchRenderResult: Equatable {
     var renderedChordIDs: [UUID]
     var renderedBarlineIDs: [UUID]
     var unresolvedDraftIDs: [UUID]
+    var didRejectIncompleteSourceCoverage = false
 
     var renderedChordCount: Int {
         renderedChordIDs.count
@@ -1473,6 +1581,15 @@ extension Chart {
         _ state: ChordPreviewState,
         barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn
     ) -> ChordInkDraftBatchRenderResult {
+        // A skipped/oversized target is not an empty patch of canvas. Nothing
+        // may be materialized or globally cleared until every current visible
+        // source fragment is represented by the reviewed drafts or barlines.
+        guard ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state) else {
+            return ChordInkDraftBatchRenderResult(
+                renderedChordIDs: [], renderedBarlineIDs: [], unresolvedDraftIDs: [],
+                didRejectIncompleteSourceCoverage: true
+            )
+        }
         let renderableBarlines = state.renderableBarlines
         let sourceLayout = state.layoutPageSize.map {
             LeadSheetPageLayoutEngine.pageLayout(

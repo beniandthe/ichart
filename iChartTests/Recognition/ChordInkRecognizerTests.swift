@@ -11,6 +11,27 @@ final class ChordInkRecognizerTests: XCTestCase {
 
     private let recognizer = ChordInkRecognizer()
 
+    func testIllegalCompleteReadsAreNotScoredChordCandidates() {
+        let candidates = ["Cñ7", "J", "C?", "1"].map {
+            ChordInkCandidate(text: $0, confidence: 5, glyphCandidates: [])
+        }
+        let permissiveMatch: (String) -> ChordRecognitionMatch? = { _ in
+            ChordRecognitionCompendium.match("C7")
+        }
+        let scores = ChordInkRecognizer.candidateScores(
+            from: candidates,
+            minimumConfidence: 3,
+            match: permissiveMatch
+        )
+        XCTAssertTrue(scores.isEmpty)
+        XCTAssertTrue(ChordInkRecognizer.reviewCandidateScores(
+            from: candidates,
+            minimumConfidence: 3,
+            excluding: [],
+            match: permissiveMatch
+        ).isEmpty)
+    }
+
     func testDetachedCapDeviceDHasACompletePrimaryReadInsteadOfAnEmptyReview() throws {
         for name in ["DDetachedCapRhythmDeviceCaptured01", "DDetachedCapSimpleDeviceCaptured01"] {
             let fixture = try InkFixtureLoader.load(name, file: #filePath)
@@ -78,7 +99,7 @@ final class ChordInkRecognizerTests: XCTestCase {
             )
             .compactMap(\.displayText)
 
-        XCTAssertEqual(scores.prefix(8).filter { $0.displayText == nil }.count, 8)
+        XCTAssertTrue(scores.allSatisfy { $0.displayText != nil })
         XCTAssertTrue(supportedDisplayTexts.contains("Db7(b9)"))
         XCTAssertTrue(supportedDisplayTexts.contains("G/B"))
     }

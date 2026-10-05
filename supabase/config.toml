@@ -65,3 +65,18 @@ entrypoint = "./functions/account-deletion/index.mjs"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/app-telemetry-ingest/index.mjs"
+
+[functions.recognition-study-capture-grant]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/recognition-study-capture-grant/index.mjs"
+
+[functions.recognition-study-capture-upload]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/recognition-study-capture-upload/index.mjs"
+
+[functions.recognition-study-consent]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/recognition-study-consent/index.mjs"

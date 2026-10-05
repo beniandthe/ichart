@@ -224,8 +224,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 fraction: 0.82
             )
         ])
-        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(Data("full-draft-ink".utf8)))
-
         let draftID = try XCTUnwrap(state.draftChords.first?.id)
         let reviewedState = try XCTUnwrap(
             ChordInkDraftReviewPolicy.reviewedState(
@@ -242,7 +240,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(commitResult.renderedBarlineCount, 1)
         XCTAssertTrue(commitResult.unresolvedDraftIDs.isEmpty)
         XCTAssertEqual(chart.measures.first?.chordEvents.first?.symbol.displayText, "C9")
-        XCTAssertNil(chart.pageHandwrittenChordData)
+        XCTAssertFalse(commitResult.didRejectIncompleteSourceCoverage)
     }
 
     func testDraftPreviewRecognitionLoadPolicyRejectsOversizedSingleDraftTarget() {
@@ -1386,6 +1384,143 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(recognition.barlines[0].isRenderable)
     }
 
+    func testDraftBarlineRecognizerRetainsTouchingStemAcrossDirectionOrderTranslationAndScale() {
+        let candidate = InkStroke(points: [
+            InkPoint(x: 180, y: 94, timeOffset: 0),
+            InkPoint(x: 180, y: 141, timeOffset: 0.2)
+        ])
+        let body = Self.barlineNeighborStroke(minX: 180, centerY: 118, width: 25, height: 40)
+        for scale in [0.75, 1.0, 1.5] {
+            for offset in [CGPoint.zero, CGPoint(x: 30, y: 50)] {
+                let layout = Self.pageLayout(measureID: UUID(), scale: CGFloat(scale), offset: offset)
+                let chordFrame = CGRect(x: offset.x + 11, y: offset.y + 13, width: 0, height: 0)
+                for reversesPath in [false, true] {
+                    let strokes = [candidate, body].map { stroke in
+                        let points = stroke.points.map {
+                            InkPoint(x: $0.x * scale - 11, y: $0.y * scale - 13, timeOffset: $0.timeOffset)
+                        }
+                        return InkStroke(points: reversesPath ? Array(points.reversed()) : points)
+                    }
+                    let isolated = ChordDraftBarlineRecognizer.recognize(
+                        strokes: [strokes[0]], chordFrame: chordFrame, pageLayout: layout
+                    )
+                    XCTAssertEqual(isolated.strokeIndices, [0], "The existing isolated-stroke gate must still accept this scale")
+                    for ordered in [strokes, Array(strokes.reversed())] {
+                        let before = ordered
+                        let recognition = ChordDraftBarlineRecognizer.recognize(
+                            strokes: ordered, chordFrame: chordFrame, pageLayout: layout
+                        )
+                        XCTAssertTrue(recognition.barlines.isEmpty)
+                        XCTAssertTrue(recognition.strokeIndices.isEmpty)
+                        XCTAssertEqual(ordered, before, "Ownership checks must not alter input ink")
+                    }
+                }
+            }
+        }
+    }
+
+    func testDraftBarlineRecognizerRetainsSteepNarrowMarkBetweenComparableInk() {
+        let layout = Self.pageLayout(measureID: UUID())
+        let candidate = InkStroke(points: [
+            InkPoint(x: 175, y: 100, timeOffset: 0),
+            InkPoint(x: 171, y: 116, timeOffset: 0.1),
+            InkPoint(x: 165, y: 132, timeOffset: 0.2)
+        ])
+        let isolated = ChordDraftBarlineRecognizer.recognize(strokes: [candidate], chordFrame: .zero, pageLayout: layout)
+        XCTAssertEqual(isolated.strokeIndices, [0])
+        XCTAssertGreaterThan(candidate.bounds.width / candidate.bounds.height, 0.24)
+        let left = Self.barlineNeighborStroke(minX: 140, centerY: 116, width: 20, height: 30)
+        let right = Self.barlineNeighborStroke(minX: 180, centerY: 118, width: 20, height: 30)
+        for strokes in [[left, candidate, right], [right, candidate, left]] {
+            let recognition = ChordDraftBarlineRecognizer.recognize(strokes: strokes, chordFrame: .zero, pageLayout: layout)
+            XCTAssertTrue(recognition.barlines.isEmpty)
+            XCTAssertTrue(recognition.strokeIndices.isEmpty)
+        }
+    }
+
+    func testDraftBarlineNeighborGuardRequiresBothCloseFlanksAndComparableHeights() {
+        let layout = Self.pageLayout(measureID: UUID())
+        let candidate = InkStroke(points: [
+            InkPoint(x: 200, y: 94, timeOffset: 0),
+            InkPoint(x: 200, y: 141, timeOffset: 0.2)
+        ])
+        let cases: [(leftGap: Double, rightGap: Double, heightRatio: Double, keepsInk: Bool)] = [
+            (0.29, 0.29, 0.80, true), (0.31, 0.29, 0.80, false),
+            (0.29, 0.31, 0.80, false), (0.31, 0.31, 0.80, false),
+            (0.20, 0.20, 0.54, false), (0.20, 0.20, 0.56, true),
+            (0.20, 0.20, 1.59, true), (0.20, 0.20, 1.61, false)
+        ]
+        for fixture in cases {
+            let height = candidate.bounds.height * fixture.heightRatio
+            let referenceHeight = min(candidate.bounds.height, height)
+            let width = candidate.bounds.height * 0.45
+            let left = Self.barlineNeighborStroke(
+                minX: candidate.bounds.minX - referenceHeight * fixture.leftGap - width,
+                centerY: 117.5, width: width, height: height
+            )
+            let right = Self.barlineNeighborStroke(
+                minX: candidate.bounds.maxX + referenceHeight * fixture.rightGap,
+                centerY: 117.5, width: width, height: height
+            )
+            let recognition = ChordDraftBarlineRecognizer.recognize(
+                strokes: [candidate, left, right], chordFrame: .zero, pageLayout: layout
+            )
+            XCTAssertEqual(recognition.strokeIndices, fixture.keepsInk ? Set<Int>() : [0],
+                           "Ownership requires both close flanks and comparable heights")
+        }
+    }
+
+    func testDraftBarlineRecognizerKeepsSpacedSloppySeparatorBetweenInkConstructions() {
+        let separator = InkStroke(points: [
+            InkPoint(x: 150, y: 100, timeOffset: 0),
+            InkPoint(x: 156, y: 116, timeOffset: 0.1),
+            InkPoint(x: 160, y: 132, timeOffset: 0.2)
+        ])
+        let left = Self.barlineNeighborStroke(minX: 100, centerY: 116, width: 25, height: 32)
+        let right = Self.barlineNeighborStroke(minX: 195, centerY: 116, width: 25, height: 32)
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [left, separator, right], chordFrame: .zero, pageLayout: Self.pageLayout(measureID: UUID())
+        )
+        XCTAssertEqual(recognition.strokeIndices, [1])
+        XCTAssertEqual(recognition.barlines.count, 1)
+        XCTAssertGreaterThan(recognition.barlines[0].metrics.angleDegreesFromVertical, 10)
+        XCTAssertLessThan(recognition.barlines[0].metrics.laneCoverage, 0.8)
+    }
+
+    func testDraftBarlineNeighborGuardDoesNotTreatOtherBarlineCandidatesAsText() {
+        let strokes = [150.0, 162.0, 174.0].map { x in
+            InkStroke(points: [
+                InkPoint(x: x, y: 100, timeOffset: 0),
+                InkPoint(x: x + 6, y: 116, timeOffset: 0.1),
+                InkPoint(x: x + 10, y: 132, timeOffset: 0.2)
+            ])
+        }
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: strokes, chordFrame: .zero, pageLayout: Self.pageLayout(measureID: UUID())
+        )
+        XCTAssertEqual(recognition.strokeIndices, [0, 1, 2])
+        XCTAssertEqual(recognition.barlines.count, 3)
+    }
+
+    func testDraftBarlineNeighborGuardIgnoresInkOnAnotherLane() {
+        var layout = Self.pageLayout(measureID: UUID())
+        var otherSystem = Self.pageLayout(measureID: UUID(), offset: CGPoint(x: 0, y: 120)).systems[0]
+        otherSystem.index = 1
+        layout.systems.append(otherSystem)
+        layout.pages[0].systemIDs.append(otherSystem.id)
+        let candidate = InkStroke(points: [
+            InkPoint(x: 180, y: 94, timeOffset: 0),
+            InkPoint(x: 180, y: 141, timeOffset: 0.2)
+        ])
+        let left = Self.barlineNeighborStroke(minX: 155, centerY: 238, width: 25, height: 40)
+        let right = Self.barlineNeighborStroke(minX: 185, centerY: 238, width: 25, height: 40)
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [candidate, left, right], chordFrame: .zero, pageLayout: layout
+        )
+        XCTAssertEqual(recognition.strokeIndices, [0])
+        XCTAssertEqual(recognition.barlines.first?.laneLocation?.systemIndex, 0)
+    }
+
     func testDraftBarlineRecognizerRejectsOvertallOutOfBandLaneStroke() {
         let measureID = UUID()
         let pageLayout = Self.pageLayout(measureID: measureID)
@@ -2110,7 +2245,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(chart.measures.allSatisfy(\.chordEvents.isEmpty))
         XCTAssertEqual(chart.measures.count, 2)
 
-        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(Data("full-draft-ink".utf8)))
         let result = chart.commitChordInkDraftBatch(state)
 
         XCTAssertEqual(result.renderedChordCount, 1)
@@ -2120,7 +2254,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(chart.measures.count, 3)
         XCTAssertEqual(chart.measures[1].authoringState, .committed)
         XCTAssertEqual(chart.measures[2].authoringState, .open)
-        XCTAssertNil(chart.pageHandwrittenChordData)
+        XCTAssertFalse(result.didRejectIncompleteSourceCoverage)
     }
 
     func testDraftBatchRenderUsesDrawnBarlineSpacingForCommittedMeasureWidths() throws {
@@ -2415,7 +2549,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             draftBarline(measureID: openMeasureID, measureIndex: 1, fraction: 0.66)
         ])
 
-        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(Data("segmented-draft-ink".utf8)))
         let result = chart.commitChordInkDraftBatch(state)
 
         XCTAssertEqual(result.renderedChordCount, 3)
@@ -2426,7 +2559,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(chart.measures[0].chordEvents.map { $0.symbol.displayText }, ["C"])
         XCTAssertEqual(chart.measures[1].chordEvents.map { $0.symbol.displayText }, ["F"])
         XCTAssertEqual(chart.measures[2].chordEvents.map { $0.symbol.displayText }, ["G"])
-        XCTAssertNil(chart.pageHandwrittenChordData)
+        XCTAssertFalse(result.didRejectIncompleteSourceCoverage)
     }
 
     func testRhythmDraftBatchRenderUsesDraftBarlineSegmentsForBlankOpenMeasure() throws {
@@ -2498,7 +2631,6 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             )
         ])
 
-        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(Data("rhythm-segmented-draft-ink".utf8)))
         let result = chart.commitChordInkDraftBatch(state)
 
         XCTAssertEqual(result.renderedChordCount, 3)
@@ -2508,7 +2640,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(chart.measures.map(\.authoringState), [.committed, .committed, .open])
         XCTAssertEqual(chart.measures.map { $0.chordEvents.map { $0.symbol.displayText } }, [["C"], ["F"], ["G"]])
         XCTAssertTrue(chart.measures.flatMap(\.chordEvents).allSatisfy { $0.manualLaneFraction == nil })
-        XCTAssertNil(chart.pageHandwrittenChordData)
+        XCTAssertFalse(result.didRejectIncompleteSourceCoverage)
 
         let renderedLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
         let renderedMeasures = renderedLayout.systems.flatMap(\.measures)
@@ -2600,7 +2732,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         )
     }
 
-    func testRhythmDraftBatchRenderDefensivelyKeepsDraftInkWhenAnyDraftChordUnresolved() throws {
+    func testRhythmDraftBatchRenderDefensivelyKeepsInvalidSourceInk() throws {
         var chart = Chart.draft(title: "Rhythm Unresolved Draft", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(
             title: "Rhythm Unresolved Draft",
@@ -2648,9 +2780,9 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertTrue(chart.setPageHandwrittenChordDrawing(Data("rhythm-unresolved-draft-ink".utf8)))
         let result = chart.commitChordInkDraftBatch(state)
 
-        XCTAssertEqual(result.renderedChordCount, 1)
-        XCTAssertEqual(result.unresolvedDraftIDs.count, 1)
-        XCTAssertEqual(chart.measures.first?.chordEvents.map { $0.symbol.displayText }, ["C"])
+        XCTAssertEqual(result.renderedChordCount, 0)
+        XCTAssertTrue(result.didRejectIncompleteSourceCoverage)
+        XCTAssertTrue(chart.measures.allSatisfy(\.chordEvents.isEmpty))
         XCTAssertNotNil(chart.pageHandwrittenChordData)
     }
 
@@ -3268,16 +3400,28 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         )
     }
 
-    private static func pageLayout(measureID: UUID) -> LeadSheetPageLayout {
+    private static func barlineNeighborStroke(minX: Double, centerY: Double, width: Double, height: Double) -> InkStroke {
+        InkStroke(points: [
+            InkPoint(x: minX, y: centerY - height / 2, timeOffset: 0),
+            InkPoint(x: minX + width, y: centerY - height / 4, timeOffset: 0.05),
+            InkPoint(x: minX + width, y: centerY + height / 4, timeOffset: 0.1),
+            InkPoint(x: minX, y: centerY + height / 2, timeOffset: 0.15)
+        ])
+    }
+
+    private static func pageLayout(measureID: UUID, scale: CGFloat = 1, offset: CGPoint = .zero) -> LeadSheetPageLayout {
+        func frame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+            CGRect(x: x * scale + offset.x, y: y * scale + offset.y, width: width * scale, height: height * scale)
+        }
         let measure = LeadSheetMeasureLayout(
             id: measureID,
             sourceMeasureID: measureID,
             chordInkTargetMeasureID: measureID,
             index: 1,
-            frame: CGRect(x: 90, y: 96, width: 220, height: 84),
-            staffFrame: CGRect(x: 100, y: 112, width: 200, height: 56),
-            chordBandFrame: CGRect(x: 104, y: 104, width: 192, height: 34),
-            writableFrame: CGRect(x: 100, y: 104, width: 200, height: 64),
+            frame: frame(x: 90, y: 96, width: 220, height: 84),
+            staffFrame: frame(x: 100, y: 112, width: 200, height: 56),
+            chordBandFrame: frame(x: 104, y: 104, width: 192, height: 34),
+            writableFrame: frame(x: 100, y: 104, width: 200, height: 64),
             chordLayouts: [],
             noteLayouts: [],
             repeatMarkerLayouts: [],
@@ -3286,13 +3430,13 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             barlineAfter: .single,
             meterChange: nil,
             meterChangeFrame: nil,
-            trailingBarlineFrame: CGRect(x: 300, y: 112, width: 1.6, height: 56),
+            trailingBarlineFrame: frame(x: 300, y: 112, width: 1.6, height: 56),
             isOpen: false
         )
         let system = LeadSheetSystemLayout(
             id: UUID(),
             index: 0,
-            frame: CGRect(x: 80, y: 90, width: 240, height: 100),
+            frame: frame(x: 80, y: 90, width: 240, height: 100),
             staffLineYPositions: [],
             clefFrame: nil,
             keySignatureLayouts: [],
@@ -3308,12 +3452,12 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             measures: [measure]
         )
         return LeadSheetPageLayout(
-            pageBounds: CGRect(x: 0, y: 0, width: 400, height: 400),
-            paperFrame: CGRect(x: 20, y: 20, width: 360, height: 360),
+            pageBounds: frame(x: 0, y: 0, width: 400, height: 400),
+            paperFrame: frame(x: 20, y: 20, width: 360, height: 360),
             header: LeadSheetHeaderLayout(
-                frame: CGRect(x: 40, y: 32, width: 320, height: 40),
-                handwrittenFrame: CGRect(x: 40, y: 32, width: 320, height: 40),
-                titleFrame: CGRect(x: 40, y: 32, width: 320, height: 40),
+                frame: frame(x: 40, y: 32, width: 320, height: 40),
+                handwrittenFrame: frame(x: 40, y: 32, width: 320, height: 40),
+                titleFrame: frame(x: 40, y: 32, width: 320, height: 40),
                 composerFrame: nil,
                 styleNoteFrame: nil,
                 keyFrame: nil,

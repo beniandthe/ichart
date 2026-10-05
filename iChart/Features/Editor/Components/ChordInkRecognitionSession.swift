@@ -55,6 +55,8 @@ struct ChordInkRecognitionSessionRequest {
     var laneLocation: ChordInkDraftLaneLocation? = nil
     var layoutPageSize: CGSize? = nil
     var options: ChordInkRecognitionOptions
+    var evaluationContext: PersonalInkEvaluationContext? = nil
+    var requiresEditReview: Bool = false
 
     var collectingTargetLifecycle: ChordInkRecognitionTargetLifecycle {
         ChordInkRecognitionTargetLifecycle(
@@ -82,6 +84,7 @@ struct ChordInkRecognitionProposalPayload {
     var layoutPageSize: CGSize? = nil
     var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
     var timing: ChordInkRecognitionTiming
+    var evaluationPrediction: PersonalInkEvaluationPrediction? = nil
 }
 
 enum ChordInkRecognitionPreparationOutcome {
@@ -105,6 +108,27 @@ struct ChordInkRecognitionPreparationRequest {
     var flow: ChordInkRecognitionFlow
     var options: ChordInkRecognitionOptions
     var layoutStyle: ChartLayoutStyle
+    var editOwnership: ChordInkEditedTargetOwnership = .init()
+    /// Local evaluation only. Production preparation does not retain a source copy.
+    var capturesEvaluationSource: Bool = false
+}
+
+/// Evidence from the same preparation pass that produced the target requests.
+/// Drawing bytes have the normalization of the request; they are not a new
+/// serialization or a claim of original, unnormalized PencilKit blob identity.
+struct ChordInkRecognitionPreparedSource {
+    var normalizedDrawingData: Data
+    var chordFrame: CGRect
+    var pageLayout: LeadSheetPageLayout?
+    var visibleStrokes: [InkStroke]
+    var recognitionVisibleFragmentIndices: [Int]
+    var ownership: ChordInkTargetOwnershipSnapshot
+    var outcome: String
+
+    var pageBounds: CGRect? { pageLayout?.pageBounds }
+    var recognitionStrokes: [InkStroke] {
+        recognitionVisibleFragmentIndices.map { visibleStrokes[$0] }
+    }
 }
 
 struct ChordInkRecognitionPreparationResult {
@@ -122,12 +146,47 @@ struct ChordInkRecognitionPreparationResult {
     /// Compact alternatives for observation/evaluation. Production continues
     /// to consume only `outcome`.
     var boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil
+    var nextEditOwnership: ChordInkEditedTargetOwnership? = nil
+    var evaluationSource: ChordInkRecognitionPreparedSource? = nil
 }
 
 enum ChordInkRecognitionPreparation {
+    private struct EvaluationSourceInputs {
+        var visibleStrokes: [InkStroke]
+        var recognitionVisibleFragmentIndices: [Int]
+    }
+
     static func prepare(
         _ request: ChordInkRecognitionPreparationRequest,
         shouldContinue: () -> Bool = { true }
+    ) -> ChordInkRecognitionPreparationResult {
+        var sourceInputs: EvaluationSourceInputs?
+        var preparation = prepareOnce(
+            request,
+            shouldContinue: shouldContinue,
+            evaluationSourceInputs: &sourceInputs
+        )
+        if request.capturesEvaluationSource,
+           let sourceInputs,
+           let ownership = preparation.ownershipSnapshot,
+           let outcome = evaluationSourceOutcome(for: preparation.outcome) {
+            preparation.evaluationSource = ChordInkRecognitionPreparedSource(
+                normalizedDrawingData: request.drawingData,
+                chordFrame: request.chordFrame,
+                pageLayout: request.pageLayout,
+                visibleStrokes: sourceInputs.visibleStrokes,
+                recognitionVisibleFragmentIndices: sourceInputs.recognitionVisibleFragmentIndices,
+                ownership: ownership,
+                outcome: outcome
+            )
+        }
+        return preparation
+    }
+
+    private static func prepareOnce(
+        _ request: ChordInkRecognitionPreparationRequest,
+        shouldContinue: () -> Bool,
+        evaluationSourceInputs: inout EvaluationSourceInputs?
     ) -> ChordInkRecognitionPreparationResult {
         let startedAt = ProcessInfo.processInfo.systemUptime
         guard shouldContinue() else {
@@ -167,6 +226,12 @@ enum ChordInkRecognitionPreparation {
                 requestID: request.requestID,
                 outcome: .cancelled,
                 startedAt: startedAt
+            )
+        }
+        if request.capturesEvaluationSource {
+            evaluationSourceInputs = EvaluationSourceInputs(
+                visibleStrokes: sourceStrokes,
+                recognitionVisibleFragmentIndices: Array(sourceStrokes.indices)
             )
         }
         if request.flow == .draftPreview,
@@ -226,6 +291,7 @@ enum ChordInkRecognitionPreparation {
             request.flow != .draftPreview
                 || !visibleBarlineRecognition.strokeIndices.contains(index)
         }
+        evaluationSourceInputs?.recognitionVisibleFragmentIndices = recognitionVisibleFragmentIndices
         let recognitionStrokes = recognitionVisibleFragmentIndices.map { sourceStrokes[$0] }
         let recognitionStrokeCount = recognitionStrokes.count
         let targetlessOwnershipSnapshot = ownershipSnapshot(
@@ -291,8 +357,42 @@ enum ChordInkRecognitionPreparation {
                 ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count
             )
         }
-        let batchTargets = batchTargetingResult.targets
-        let boundaryHypothesisSet = batchTargetingResult.boundaryHypothesisSet
+        // Edit recovery must also see a collapse from two chords to a single
+        // fallback target; otherwise that route silently discards a restored split.
+        var proposedTargets = batchTargetingResult.targets
+        if request.flow == .draftPreview, proposedTargets.count <= 1,
+           let anchor = LeadSheetChordInkRecognitionTargeting.target(
+                for: recognitionDrawing, chordFrame: request.chordFrame, pageLayout: request.pageLayout) {
+            proposedTargets = [.init(measureID: anchor.measureID, fraction: anchor.fraction,
+                visualOrder: LeadSheetChordInkRecognitionTargeting.visualOrder(
+                    for: recognitionDrawing, chordFrame: request.chordFrame, pageLayout: request.pageLayout) ?? 0,
+                laneLocation: LeadSheetChordInkRecognitionTargeting.laneLocation(
+                    for: recognitionDrawing, chordFrame: request.chordFrame, pageLayout: request.pageLayout),
+                recognitionStrokeIndices: Array(recognitionStrokes.indices), strokes: recognitionStrokes,
+                drawingData: recognitionDrawingData, drawing: recognitionDrawing)]
+        }
+        let edited = request.flow == .draftPreview && !proposedTargets.isEmpty
+            ? ChordInkEditedTargetPreparation.resolve(
+                proposedTargets, ownership: request.editOwnership,
+                visibleStrokes: sourceStrokes, recognitionStrokes: recognitionStrokes,
+                recognitionDrawing: recognitionDrawing, chordFrame: request.chordFrame,
+                pageLayout: request.pageLayout)
+            : nil
+        let usesBatchTargeting = batchTargetingResult.targets.count > 1 || (edited?.targets.count ?? 0) > 1
+        let batchTargets = usesBatchTargeting ? (edited?.targets ?? batchTargetingResult.targets) : batchTargetingResult.targets
+        var targetingDiagnostics = batchTargetingResult.diagnostics
+        var boundaryHypothesisSet = batchTargetingResult.boundaryHypothesisSet
+        if usesBatchTargeting && batchTargets.map(\.recognitionStrokeIndices) != proposedTargets.map(\.recognitionStrokeIndices) {
+            targetingDiagnostics.selectedRoute = "edit_continuity"
+            targetingDiagnostics.selectedClusterCount = batchTargets.count
+            if let partition = LeadSheetChordInkBoundaryHypothesis(route: .editContinuity,
+                recognitionStrokeCount: recognitionStrokeCount,
+                targetRecognitionStrokeIndices: batchTargets.map(\.recognitionStrokeIndices)) {
+                boundaryHypothesisSet = LeadSheetChordInkBoundaryHypothesisSet(
+                    recognitionStrokeCount: recognitionStrokeCount,
+                    candidates: [partition] + (boundaryHypothesisSet?.hypotheses ?? []))
+            }
+        }
         let boundedBatchTargets = ChordInkDraftPreviewRecognitionLoadPolicy.boundedBatchTargets(
             batchTargets,
             flow: request.flow
@@ -306,11 +406,11 @@ enum ChordInkRecognitionPreparation {
             barlineCount: barlineRecognition.barlines.count,
             rawBatchTargets: batchTargets,
             boundedBatchTargets: boundedBatchTargets,
-            targetingDiagnostics: batchTargetingResult.diagnostics,
+            targetingDiagnostics: targetingDiagnostics,
             layoutStyle: request.layoutStyle
         )
 
-        if batchTargets.count > 1 {
+        if usesBatchTargeting {
             guard !boundedBatchTargets.isEmpty else {
                 ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
                     flow: request.flow,
@@ -332,7 +432,8 @@ enum ChordInkRecognitionPreparation {
                     rawBatchTargetCount: batchTargets.count,
                     boundedBatchTargetCount: boundedBatchTargets.count,
                     ownershipSnapshot: targetlessOwnershipSnapshot,
-                    boundaryHypothesisSet: boundaryHypothesisSet
+                    boundaryHypothesisSet: boundaryHypothesisSet,
+                    nextEditOwnership: edited?.nextOwnership
                 )
             }
 
@@ -347,7 +448,8 @@ enum ChordInkRecognitionPreparation {
                     visualOrder: batchTarget.visualOrder,
                     laneLocation: batchTarget.laneLocation,
                     layoutPageSize: request.pageLayout?.pageBounds.size,
-                    options: request.options
+                    options: request.options,
+                    requiresEditReview: batchTarget.requiresEditReview
                 )
             }
             return result(
@@ -370,7 +472,8 @@ enum ChordInkRecognitionPreparation {
                         \.recognitionStrokeIndices
                     )
                 ),
-                boundaryHypothesisSet: boundaryHypothesisSet
+                boundaryHypothesisSet: boundaryHypothesisSet,
+                nextEditOwnership: edited?.nextOwnership
             )
         }
 
@@ -431,7 +534,7 @@ enum ChordInkRecognitionPreparation {
             )
         }
 
-        let sessionRequest = ChordInkRecognitionSessionRequest(
+        var sessionRequest = ChordInkRecognitionSessionRequest(
             requestID: request.requestID,
             scheduledAt: request.scheduledAt,
             requestedDelay: request.requestedDelay,
@@ -451,6 +554,7 @@ enum ChordInkRecognitionPreparation {
             layoutPageSize: request.pageLayout?.pageBounds.size,
             options: request.options
         )
+        sessionRequest.requiresEditReview = edited?.targets.first?.requiresEditReview ?? false
         ChordDraftPreviewDeviceDiagnostics.recordSingleTarget(
             flow: request.flow,
             request: sessionRequest,
@@ -474,8 +578,23 @@ enum ChordInkRecognitionPreparation {
                 recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
                 targetRecognitionStrokeIndices: [Array(recognitionStrokes.indices)]
             ),
-            boundaryHypothesisSet: boundaryHypothesisSet
+            boundaryHypothesisSet: boundaryHypothesisSet,
+            nextEditOwnership: edited?.nextOwnership
         )
+    }
+
+    private static func evaluationSourceOutcome(
+        for outcome: ChordInkRecognitionPreparationOutcome
+    ) -> String? {
+        switch outcome {
+        case .ready: return "ready"
+        case .noVisibleStrokes: return "noVisibleStrokes"
+        case .noRecognitionData: return "noRecognitionData"
+        case .skippedWeakBatchTargets: return "skippedWeakBatchTargets"
+        case .skippedSingleTarget: return "skippedSingleTarget"
+        case .noTarget: return "noTarget"
+        case .cancelled, .invalidDrawingData: return nil
+        }
     }
 
     private static func ownershipSnapshot(
@@ -518,7 +637,8 @@ enum ChordInkRecognitionPreparation {
         rawBatchTargetCount: Int = 0,
         boundedBatchTargetCount: Int = 0,
         ownershipSnapshot: ChordInkTargetOwnershipSnapshot? = nil,
-        boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil
+        boundaryHypothesisSet: LeadSheetChordInkBoundaryHypothesisSet? = nil,
+        nextEditOwnership: ChordInkEditedTargetOwnership? = nil
     ) -> ChordInkRecognitionPreparationResult {
         ChordInkRecognitionPreparationResult(
             requestID: requestID,
@@ -532,7 +652,8 @@ enum ChordInkRecognitionPreparation {
             boundedBatchTargetCount: boundedBatchTargetCount,
             durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
             ownershipSnapshot: ownershipSnapshot,
-            boundaryHypothesisSet: boundaryHypothesisSet
+            boundaryHypothesisSet: boundaryHypothesisSet,
+            nextEditOwnership: nextEditOwnership
         )
     }
 }
@@ -612,17 +733,21 @@ final class ChordInkRecognitionSession {
 
     private let queue: DispatchQueue
     private let recognizer: ChordInkRecognizing
+    private let personalProfile: PersonalInkProfileStore?
     private let operationLock = NSLock()
     private var activeOperationID: UUID?
     private var cachedResults: [CacheKey: ChordInkRecognitionResult] = [:]
+    private var personalResults: [CacheKey: ChordInkRecognitionResult] = [:]
     private var cacheInsertionOrder: [CacheKey] = []
 
     init(
         queue: DispatchQueue,
-        recognizer: ChordInkRecognizing
+        recognizer: ChordInkRecognizing,
+        personalProfile: PersonalInkProfileStore? = nil
     ) {
         self.queue = queue
         self.recognizer = recognizer
+        self.personalProfile = personalProfile
     }
 
     func start(
@@ -656,7 +781,8 @@ final class ChordInkRecognitionSession {
                     recognitionFinishedAt: recognitionFinishedAt,
                     strokeCount: request.strokes.count,
                     cacheHit: cachedRecognition.cacheHit
-                )
+                ),
+                evaluationPrediction: cachedRecognition.evaluation
             )
 
             guard self.isActive(operationID) else {
@@ -715,7 +841,8 @@ final class ChordInkRecognitionSession {
                         recognitionFinishedAt: recognitionFinishedAt,
                         strokeCount: request.strokes.count,
                         cacheHit: cachedRecognition.cacheHit
-                    )
+                    ),
+                    evaluationPrediction: cachedRecognition.evaluation
                 ))
             }
 
@@ -764,7 +891,7 @@ final class ChordInkRecognitionSession {
     private func recognitionResult(
         for request: ChordInkRecognitionSessionRequest,
         recognizer: ChordInkRecognizing
-    ) -> (result: ChordInkRecognitionResult, cacheHit: Bool) {
+    ) -> (result: ChordInkRecognitionResult, cacheHit: Bool, evaluation: PersonalInkEvaluationPrediction?) {
         // Recognition consumes only the prepared strokes and options. PencilKit
         // may reserialize an unchanged drawing with different archive metadata,
         // so raw drawing bytes make a valid cache miss every time an earlier
@@ -772,8 +899,10 @@ final class ChordInkRecognitionSession {
         // recognition input instead; request.drawingData still flows through
         // the payload for persistence and correction evidence.
         let key = CacheKey(strokes: request.strokes, options: request.options)
+        let profile = request.evaluationContext?.profile ?? personalProfile?.snapshot()
         if let result = cachedResults[key] {
-            return (result, true)
+            let adapted = scoped(personalized(result, key: key, profile: profile), to: request)
+            return (adapted, true, evaluationPrediction(base: scoped(result, to: request), adapted: adapted, request: request))
         }
 
         let result = recognizer.recognize(
@@ -785,8 +914,44 @@ final class ChordInkRecognitionSession {
         if cacheInsertionOrder.count > Self.maximumCachedResultCount {
             let expiredKey = cacheInsertionOrder.removeFirst()
             cachedResults[expiredKey] = nil
+            personalResults[expiredKey] = nil
         }
-        return (result, false)
+        let adapted = scoped(personalized(result, key: key, profile: profile), to: request)
+        return (adapted, false, evaluationPrediction(base: scoped(result, to: request), adapted: adapted, request: request))
+    }
+
+    private func scoped(_ result: ChordInkRecognitionResult,
+                        to request: ChordInkRecognitionSessionRequest) -> ChordInkRecognitionResult {
+        var result = result
+        result.requiresEditReview = request.requiresEditReview
+        return result
+    }
+
+    private func evaluationPrediction(base: ChordInkRecognitionResult, adapted: ChordInkRecognitionResult,
+                                      request: ChordInkRecognitionSessionRequest) -> PersonalInkEvaluationPrediction? {
+        guard let context = request.evaluationContext else { return nil }
+        let baseDecision = ChordInkRecognitionPolicy.decision(for: base)
+        let selection = ChordInkRenderResolutionPolicy.personalSelection(for: adapted)
+        return .init(runID: context.runID,
+                     baseline: base.match?.displayText ?? ChordInkRenderResolutionPolicy.candidateTexts(for: base).first,
+                     personalized: selection.text,
+                     baselineAction: baseDecision.action.rawValue,
+                     personalizedAction: selection.prefersPersonal ? "confirm" : baseDecision.action.rawValue,
+                     knownInk: context.profile.wasAlreadyLearned(strokes: request.strokes),
+                     personalSuggestion: adapted.personalSuggestion,
+                     personalArbitration: selection.disposition.rawValue,
+                     baselineRecognitionAction: ChordInkRecognitionPolicy.recognitionEvidenceDecision(for: base).action.rawValue)
+    }
+
+    private func personalized(_ result: ChordInkRecognitionResult, key: CacheKey,
+                              profile: PersonalInkSnapshot?) -> ChordInkRecognitionResult {
+        guard let profile else { return result }
+        if let cached = personalResults[key], cached.personalizationRevision == profile.profile.revision {
+            return cached
+        }
+        let personalized = profile.applying(to: result, strokes: key.strokes)
+        personalResults[key] = personalized
+        return personalized
     }
 }
 #endif

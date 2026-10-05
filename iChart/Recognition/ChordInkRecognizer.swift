@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v19-2026-09-12"
+    static let version = "maximum-trust-v34-chord-only-scored-candidates-2026-10-03"
 }
 
 protocol ChordInkRecognizing {
@@ -130,6 +130,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         var matchCache: [String: ChordRecognitionMatch] = [:]
         var unmatchedCandidateTexts = Set<String>()
         func cachedMatch(_ text: String) -> ChordRecognitionMatch? {
+            guard ChordRecognitionDomain.containsOnlyChordInputCharacters(text) else { return nil }
             if let match = matchCache[text] {
                 return match
             }
@@ -154,11 +155,12 @@ struct ChordInkRecognizer: ChordInkRecognizing {
 
             return (match, candidate.confidence, candidate.glyphCandidates)
         }.first
-        let candidateScores = Self.candidateScores(
+        let scoredEvidence = Self.scoredCandidateEvidence(
             from: chordCandidates,
             minimumConfidence: minimumScoredCandidateConfidence,
             match: cachedMatch
         )
+        let candidateScores = scoredEvidence.scores
         let reviewCandidateScores = acceptedCandidate == nil
             ? Self.reviewCandidateScores(
                 from: chordCandidates,
@@ -181,6 +183,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             confidence: acceptedConfidence,
             acceptedGlyphCandidates: acceptedCandidate?.2 ?? [],
             candidateScores: candidateScores,
+            rejectedCandidateConfidence: scoredEvidence.rejectedCandidateConfidence,
             reviewCandidateScores: reviewCandidateScores,
             symbolLedger: symbolLedgerSnapshot,
             symbolLedgerAssessment: symbolLedgerAssessment,
@@ -211,9 +214,23 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         minimumConfidence: Double,
         match: (String) -> ChordRecognitionMatch?
     ) -> [ChordInkCandidateScore] {
+        scoredCandidateEvidence(from: chordCandidates, minimumConfidence: minimumConfidence,
+                                match: match).scores
+    }
+
+    /// Rejected hypotheses are not chord candidates. Preserve only the strongest
+    /// rejection score from the original top-eight window so dropping invalid
+    /// text cannot make a lower supported read newly trusted. No renormalization
+    /// or new candidate promotion is performed here.
+    static func scoredCandidateEvidence(
+        from chordCandidates: [ChordInkCandidate],
+        minimumConfidence: Double,
+        match: (String) -> ChordRecognitionMatch?
+    ) -> (scores: [ChordInkCandidateScore], rejectedCandidateConfidence: Double?) {
         let rawScorePrefixCount = 8
         let supportedScoreTargetCount = 12
         var scores: [ChordInkCandidateScore] = []
+        var rejectedCandidateConfidence: Double?
         var scoredCandidateTexts = Set<String>()
         var supportedDisplayTexts = Set<String>()
 
@@ -227,7 +244,12 @@ struct ChordInkRecognizer: ChordInkRecognizing {
                 return
             }
 
-            let displayText = match?.displayText
+            scoredCandidateTexts.insert(candidate.text)
+            guard let displayText = match?.displayText else {
+                rejectedCandidateConfidence = max(rejectedCandidateConfidence ?? candidate.confidence,
+                                                  candidate.confidence)
+                return
+            }
             scores.append(
                 ChordInkCandidateScore(
                     text: candidate.text,
@@ -235,23 +257,21 @@ struct ChordInkRecognizer: ChordInkRecognizing {
                     confidence: candidate.confidence
                 )
             )
-            scoredCandidateTexts.insert(candidate.text)
-
-            if let displayText {
-                supportedDisplayTexts.insert(displayText)
-            }
+            supportedDisplayTexts.insert(displayText)
         }
 
         for candidate in chordCandidates.prefix(rawScorePrefixCount) {
             appendScore(
                 for: candidate,
-                match: match(candidate.text),
+                match: ChordRecognitionDomain.containsOnlyChordInputCharacters(candidate.text)
+                    ? match(candidate.text) : nil,
                 requiredConfidence: minimumConfidence
             )
         }
 
         for candidate in chordCandidates.dropFirst(rawScorePrefixCount) {
             guard candidate.confidence >= minimumConfidence,
+                  ChordRecognitionDomain.containsOnlyChordInputCharacters(candidate.text),
                   let supportedMatch = match(candidate.text),
                   !supportedDisplayTexts.contains(supportedMatch.displayText) else {
                 continue
@@ -267,7 +287,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             }
         }
 
-        return scores
+        return (scores, rejectedCandidateConfidence)
     }
 
     /// A below-threshold candidate is never recognition evidence, but a small
@@ -287,6 +307,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
 
         for candidate in chordCandidates {
             guard candidate.confidence >= minimumConfidence,
+                  ChordRecognitionDomain.containsOnlyChordInputCharacters(candidate.text),
                   scoredCandidateTexts.insert(candidate.text).inserted,
                   let supportedMatch = match(candidate.text),
                   excludedDisplayTexts.insert(supportedMatch.displayText).inserted else {

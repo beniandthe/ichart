@@ -76,7 +76,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
         XCTAssertTrue(confirmationSheetText.contains("TextField(\"Type chord\""))
-        XCTAssertTrue(confirmationSheetText.contains("ChordInkPencilOnlyButton("))
+        XCTAssertTrue(confirmationSheetText.contains("ChordInkReviewButton("))
         XCTAssertTrue(confirmationSheetText.contains("title: \"Confirm\""))
         XCTAssertTrue(confirmationSheetText.contains(".presentationDetents([.medium])"))
         XCTAssertFalse(confirmationSheetText.contains("ScrollView"))
@@ -89,13 +89,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(batchSheetText.contains("UIScribbleInteractionDelegate"))
         XCTAssertTrue(batchSheetText.contains("shouldBeginAt location"))
         XCTAssertTrue(batchSheetText.contains("bounds.contains(location)"))
+        XCTAssertTrue(batchSheetText.contains("title: \"Edit\""))
+        XCTAssertTrue(batchSheetText.contains("systemImageName: \"keyboard\""))
+        XCTAssertTrue(batchSheetText.contains("allowsScribble: keyboardConfirmationID != confirmation.id"))
+        XCTAssertTrue(batchSheetText.contains("else if focusedConfirmationID == confirmation.id"))
         XCTAssertFalse(batchSheetText.contains("TextField(\n                \"Chord\""))
         XCTAssertTrue(correctionSheetText.contains("Text(\"Enter Chord\")"))
         XCTAssertTrue(correctionSheetText.contains("TextField(\"Type chord\""))
         XCTAssertTrue(correctionSheetText.contains("correction.quickChoiceTexts"))
         XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
         XCTAssertTrue(correctionSheetText.contains("title: \"Confirm\""))
-        XCTAssertTrue(correctionSheetText.contains("ChordInkPencilOnlyButton(title: \"Cancel\")"))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\")"))
         XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
@@ -108,7 +112,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sheetText.contains("var allowsScribble = true"))
         XCTAssertTrue(sheetText.contains("textField.allowsScribble = allowsScribble"))
         XCTAssertTrue(sheetText.contains("allowsScribble && bounds.contains(location)"))
-        XCTAssertTrue(sheetText.contains("private typealias ChordInkPencilOnlyButton = PencilOnlyActionButton"))
+        XCTAssertTrue(sheetText.contains("private struct ChordInkReviewButton: View"))
+        XCTAssertTrue(sheetText.contains("acceptsDirectTouches: true"))
+        XCTAssertTrue(sheetText.contains(".frame(height: buttonHeight)"))
+        XCTAssertTrue(actionButtonText.contains("var acceptsDirectTouches = false"))
         XCTAssertTrue(actionButtonText.contains("final class PencilOnlyUIButton"))
         XCTAssertTrue(actionButtonText.contains("override func beginTracking(_ touch: UITouch"))
         XCTAssertTrue(actionButtonText.contains("event?.allTouches"))
@@ -146,13 +153,27 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("iChart/Features/Editor/Components/ChordInkTapConfirmGesturePolicy.swift")
         )
+        let coordinatorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkDraftRenderCoordinator.swift")
+        )
+        let draftText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkDraftPreview.swift")
+        )
         let automaticPolicyURL = projectRoot
             .appendingPathComponent("iChart/Features/Editor/Components/ChordInkAutomaticRecognitionPolicy.swift")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
         XCTAssertTrue(hostText.contains("startDraftChordInkPreviewIfStable"))
-        XCTAssertTrue(editorText.contains("commitChordInkDraftBatch"))
-        XCTAssertTrue(editorText.contains("barlineSpacingMode: .drawn"))
+        // The editor delegates the synchronous live-drawing transaction to
+        // the canvas, rather than authorizing erasure from cached chart ink.
+        XCTAssertTrue(editorText.contains("chordDraftRenderCoordinator.render(chart: chart, state: committedState)"))
+        XCTAssertTrue(hostText.contains("currentDrawing: pageInkCanvasView.drawing"))
+        XCTAssertTrue(hostText.contains("guard outcome.canConsumeSource else { return outcome }"))
+        XCTAssertTrue(coordinatorText.contains("preparedChart.commitChordInkDraftBatch(state)"))
+        XCTAssertTrue(draftText.contains("barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn"))
+        XCTAssertTrue(draftText.contains("ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state)"))
         XCTAssertTrue(hostText.contains("clearsDirtyAuthoringRole: flow != .draftPreview"))
         XCTAssertTrue(hostText.contains("clearChordDraftInkCanvas()"))
         XCTAssertTrue(editorText.contains("chordDraftRenderInvalidationRequestID = UUID()"))

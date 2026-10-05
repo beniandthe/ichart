@@ -5,6 +5,62 @@ final class ChordInkCandidateComposerTests: XCTestCase {
     private let composer = ChordInkCandidateComposer()
     private let recognitionComposer = ChordInkRecognitionCandidateComposer()
 
+    func testRejectedRawTopCannotPromoteALegalRunnerUpOrShortenTheChord() {
+        for invalid in ["ñ", "J", "", "7?"] {
+            let result = composer.composeDetailed(glyphCandidates: [
+                [glyph("C", confidence: 0.95)],
+                [glyph(invalid, confidence: 0.99), glyph("7", confidence: 0.80)]
+            ])
+            XCTAssertTrue(result.candidates.isEmpty, invalid)
+            XCTAssertEqual(result.metrics.generatedSequenceCount, 0, invalid)
+        }
+    }
+
+    func testMissingColumnCannotBeDroppedBeforePrefixRecovery() {
+        let root = [glyph("C", confidence: 0.95)]
+        let seventh = [glyph("7", confidence: 0.90)]
+        for columns in [[[], root, seventh], [root, [], seventh], [root, seventh, []]] {
+            let result = composer.composeDetailed(glyphCandidates: columns)
+            XCTAssertTrue(result.candidates.isEmpty)
+            XCTAssertEqual(result.metrics.generatedSequenceCount, 0)
+        }
+    }
+
+    func testSemanticComposerCannotBypassRejectedOrMissingFullInputColumn() {
+        let root = [glyph("C", confidence: 0.95)]
+        let seventh = [glyph("7", confidence: 0.90)]
+        for blocked in [[], [glyph("ñ", confidence: 0.99), glyph("#", confidence: 0.80)]] {
+            let result = recognitionComposer.composeRecognitionCandidates(
+                from: [root, seventh, blocked],
+                clusters: [
+                    cluster(minX: 0, minY: 0, maxX: 20, maxY: 30),
+                    cluster(minX: 24, minY: 0, maxX: 34, maxY: 20),
+                    cluster(minX: 38, minY: 0, maxX: 48, maxY: 20)
+                ]
+            )
+            XCTAssertTrue(result.candidates.isEmpty)
+            XCTAssertEqual(result.semanticCandidateCount, 0)
+            XCTAssertEqual(result.compositionMetrics.generatedSequenceCount, 0)
+        }
+    }
+
+    func testDomainProjectionPreservesLegalRanksAndOneInElevenAndThirteen() {
+        let root = [glyph("C", confidence: 0.95)]
+        let seventh = [glyph("7", confidence: 0.90)]
+        let baseline = composer.compose(glyphCandidates: [root, seventh])
+        let projected = composer.compose(glyphCandidates: [
+            root, seventh + [glyph("ñ", confidence: 0.80), glyph("J", confidence: 0.70)]
+        ])
+        XCTAssertEqual(projected, baseline)
+
+        for ending in ["1", "3"] {
+            let candidates = composer.compose(glyphCandidates: [
+                root, [glyph("1", confidence: 0.95)], [glyph(ending, confidence: 0.95)]
+            ])
+            XCTAssertTrue(candidates.contains { $0.text == "C1\(ending)" })
+        }
+    }
+
     func testRootSelectionMovesStrongCBeforeFlatLookalikeInFirstColumn() {
         let policy = ChordInkCandidateSelectionPolicy(maxAlternativesPerCluster: 3)
 
@@ -255,7 +311,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             .contains { $0.text == "b" })
     }
 
-    func testComposesBbAheadOfInvalidEightFlatLookalike() {
+    func testForbiddenEightLeaderRemainsUnreadInsteadOfPromotingBRunnerUp() {
         let candidates = composer.compose(glyphCandidates: [
             [
                 glyph("8", confidence: 0.92),
@@ -266,8 +322,24 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             ]
         ])
 
+        XCTAssertTrue(candidates.isEmpty)
+        XCTAssertNil(ChordRecognitionCompendium.match(candidates: candidates.map(\.text)))
+    }
+
+    func testLegalBLeaderStillComposesBbWithoutImpossibleEightLowerRank() {
+        let candidates = composer.compose(glyphCandidates: [
+            [
+                glyph("B", confidence: 0.92),
+                glyph("8", confidence: 0.86)
+            ],
+            [glyph("b", confidence: 0.84)]
+        ])
+
         XCTAssertEqual(candidates.first?.text, "Bb")
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: candidates.map(\.text))?.displayText, "Bb")
+        XCTAssertTrue(candidates.allSatisfy { candidate in
+            !candidate.glyphCandidates.contains { $0.text == "8" }
+        })
     }
 
     func testComposesSharpAccidentalWithRootWhenNearbyClusterIsPresent() {

@@ -99,6 +99,16 @@ final class RecognitionStudyCapturePresentationTests: XCTestCase {
             outcomes.map(\.promptOutcome.intendedChord.rawValue),
             prompts.map(\.chordText)
         )
+        XCTAssertTrue(
+            outcomes.allSatisfy { outcome in
+                guard let latency = outcome.baseRecognizerOutcome
+                    .latencyMicroseconds else {
+                    return false
+                }
+                return latency <= RecognitionStudyBaseRecognizerOutcome
+                    .maximumLatencyMicroseconds
+            }
+        )
         XCTAssertEqual(
             model.completedSummary,
             RecognitionStudyPassSummary(
@@ -403,7 +413,7 @@ final class RecognitionStudyCapturePresentationTests: XCTestCase {
         XCTAssertNotNil(resumed.result)
         let callsAfterResume = await resultCallCounter.currentValue()
         XCTAssertEqual(callsAfterResume, 1)
-        XCTAssertTrue(resumed.requiresInterruptedCaptureExclusion)
+        XCTAssertTrue(resumed.requiresTechnicalFailureExclusion)
         XCTAssertEqual(resumed.reviewPreview?.strokes.count, 1)
         XCTAssertEqual(
             resumed.reviewPreview?.sourceCanvasSize,
@@ -433,9 +443,67 @@ final class RecognitionStudyCapturePresentationTests: XCTestCase {
             .technicalFailure
         )
         XCTAssertEqual(outcomes[0].baseRecognizerOutcome.disposition, .notRun)
+        XCTAssertNil(outcomes[0].baseRecognizerOutcome.latencyMicroseconds)
         XCTAssertEqual(resumed.completedSummary?.eligibleComparisonCount, 0)
         XCTAssertEqual(resumed.completedSummary?.technicalFailureCount, 1)
         XCTAssertEqual(resumed.completedSummary?.noCandidateCount, 0)
+    }
+
+    @MainActor
+    func testProviderFailureCannotBeRecordedAsARecognitionNoRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "RecognitionStudyProviderFailureTests-\(UUID())",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suiteName = "RecognitionStudyProviderFailureTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let reference = RecognitionStudySessionReferenceStore(
+            defaults: defaults,
+            key: "provider-failure-test"
+        )
+        let model = RecognitionStudyCaptureViewModel(
+            prompts: [RecognitionStudyCapturePrompt.engineeringDryRun[0]],
+            resultProvider: RecognitionStudyUnavailableResultProvider(),
+            sessionReferenceStore: reference,
+            rootDirectoryProvider: { root }
+        )
+        await model.start()
+        let didSubmit = await model.submit(
+            drawing: Self.onePointDrawing(),
+            canvasSize: CGSize(width: 400, height: 200),
+            clientObservedOrientation: .portrait
+        )
+        XCTAssertTrue(didSubmit)
+        XCTAssertEqual(model.phase, .reviewing)
+        XCTAssertTrue(model.requiresTechnicalFailureExclusion)
+        XCTAssertEqual(model.result?.title, "Recognition unavailable")
+        for state in [
+            RecognitionStudyWriterConfirmationState.asPrompted,
+            .executionError,
+            .humanAmbiguous
+        ] {
+            let incorrectlyRecorded = await model.recordOutcomeAndAdvance(state)
+            XCTAssertFalse(incorrectlyRecorded)
+        }
+        let didExclude = await model.recordOutcomeAndAdvance(.technicalFailure)
+        XCTAssertTrue(didExclude)
+        XCTAssertEqual(model.phase, .completed)
+        let outcomeStore = try await RecognitionStudyLocalOutcomeStore.open(
+            rootDirectory: root
+        )
+        let outcomes = try await outcomeStore.outcomes(
+            localSessionID: XCTUnwrap(reference.load())
+        )
+        XCTAssertEqual(outcomes.count, 1)
+        XCTAssertEqual(outcomes[0].baseRecognizerOutcome.disposition, .notRun)
+        XCTAssertNil(outcomes[0].baseRecognizerOutcome.candidate)
+        XCTAssertNil(outcomes[0].baseRecognizerOutcome.latencyMicroseconds)
+        XCTAssertEqual(outcomes[0].promptOutcome.writerConfirmationState, .technicalFailure)
+        XCTAssertEqual(model.completedSummary?.technicalFailureCount, 1)
+        XCTAssertEqual(model.completedSummary?.eligibleComparisonCount, 0)
+        XCTAssertEqual(model.completedSummary?.noCandidateCount, 0)
     }
 
     private static func onePointDrawing() -> PKDrawing {

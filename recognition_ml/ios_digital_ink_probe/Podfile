@@ -1,0 +1,10 @@
+platform :ios, '17.0'
+project 'DigitalInkProbe.xcodeproj'
+use_frameworks! :linkage => :static
+
+target 'DigitalInkProbe' do
+  pod 'GoogleMLKit/DigitalInkRecognition', '8.0.0'
+  target 'DigitalInkProbeTests' do
+    inherit! :search_paths
+  end
+end

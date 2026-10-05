@@ -19,6 +19,8 @@ struct PencilOnlyActionButton: UIViewRepresentable {
     var role: Role = .standard
     var isEnabled = true
     var accessibilityLabel: String?
+    // Modal controls opt in; canvas/toolbar controls retain Pencil-only input.
+    var acceptsDirectTouches = false
     let action: () -> Void
 
     func makeUIView(context: Context) -> PencilOnlyUIButton {
@@ -39,6 +41,7 @@ struct PencilOnlyActionButton: UIViewRepresentable {
         button.configuration = configuration
         button.isEnabled = isEnabled
         button.accessibilityLabel = accessibilityLabel ?? title
+        button.acceptsDirectTouches = acceptsDirectTouches
     }
 
     func makeCoordinator() -> Coordinator {
@@ -85,8 +88,12 @@ struct PencilOnlyActionButton: UIViewRepresentable {
 }
 
 final class PencilOnlyUIButton: UIButton {
+    var acceptsDirectTouches = false
+
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        guard PencilOnlyActionButtonInputPolicy.allowsButtonTouch(touchType: touch.type) else {
+        guard PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+            touchType: touch.type, acceptsDirectTouches: acceptsDirectTouches
+        ) else {
             return false
         }
 
@@ -103,7 +110,9 @@ final class PencilOnlyUIButton: UIButton {
         }
 
         return touches.contains { touch in
-            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(touchType: touch.type)
+            PencilOnlyActionButtonInputPolicy.allowsButtonTouch(
+                touchType: touch.type, acceptsDirectTouches: acceptsDirectTouches
+            )
         }
     }
 }
@@ -111,11 +120,13 @@ final class PencilOnlyUIButton: UIButton {
 enum PencilOnlyActionButtonInputPolicy {
     static func allowsButtonTouch(
         touchType: UITouch.TouchType,
+        acceptsDirectTouches: Bool = false,
         environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
     ) -> Bool {
         switch environment {
         case .device:
             return touchType == .pencil
+                || (acceptsDirectTouches && (touchType == .direct || touchType == .indirectPointer))
         case .simulator:
             return true
         }

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import PencilKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -325,7 +326,12 @@ struct EditorView: View {
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
     @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
+    @State private var showingPersonalHandwriting = false
+    @State private var personalHandwritingStartsWithEvaluation = false
+    @State private var personalLearningSessionID = UUID()
+    @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
     @State private var chordPreviewState = ChordPreviewState()
+    @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
     @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
@@ -466,6 +472,11 @@ struct EditorView: View {
         .sheet(isPresented: $showingTypographySheet) {
             ChartTypographySheetView(chart: $chart)
         }
+        .sheet(isPresented: $showingPersonalHandwriting) {
+            PersonalHandwritingView(chartID: chart.id, layoutStyle: chart.layoutStyle,
+                                    hasChordInk: hasUnrenderedChordInkForEvaluation,
+                                    startsWithEvaluation: personalHandwritingStartsWithEvaluation)
+        }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
                 highlightsAddAction: editorGuidedTourStep == .shapeForm,
@@ -513,8 +524,10 @@ struct EditorView: View {
         .sheet(item: $pendingChordCorrection) { correction in
             ChordCorrectionSheetView(
                 correction: correction,
-                onAcceptCandidate: { candidateText in
-                    handleChordCorrectionAccepted(candidateText, correction: correction)
+                canTeachHandwriting: PersonalInkProfileStore.shared.snapshot().profile.isEnabled
+                    && chart.chordEvent(id: correction.chordEventID)?.sourceInkData != nil,
+                onAcceptCandidate: { candidateText, teachesHandwriting in
+                    handleChordCorrectionAccepted(candidateText, correction: correction, teachesHandwriting: teachesHandwriting)
                 },
                 onCancel: {
                     pendingChordCorrection = nil
@@ -792,8 +805,10 @@ struct EditorView: View {
                 .frame(width: columnWidth, alignment: .leading)
 
                 Menu {
+                    personalHandwritingMenuButton
+                    Divider()
                     if canvasMode.locksDocumentActions {
-                        Text("Choose Done before changing document settings.")
+                        Text("Choose Done before changing other document settings.")
                     }
 
                     Group {
@@ -961,6 +976,19 @@ struct EditorView: View {
     private var isDedicatedRhythmToolAvailable: Bool {
         RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool
             && chart.layoutStyle.profile.allowsRhythmicNotationInk
+    }
+
+    private var personalHandwritingMenuButton: some View {
+        let captureActive = PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil
+        return Button {
+            personalHandwritingStartsWithEvaluation = captureActive
+            showingPersonalHandwriting = true
+            offeredPersonalHandwriting = true
+        } label: {
+            Label(captureActive ? "Saved Chart Test" : "My Handwriting", systemImage: "hand.draw")
+        }
+        .disabled(canvasMode.locksDocumentActions && !captureActive)
+        .accessibilityIdentifier("personal.open")
     }
 
     @ViewBuilder
@@ -2140,6 +2168,7 @@ struct EditorView: View {
             onEndingSpanSelectedFromCanvas: handleEndingSpanSelectedFromCanvas,
             onTimeSignatureSelectedFromCanvas: handleTimeSignatureSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
+            chordDraftRenderCoordinator: chordDraftRenderCoordinator,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
@@ -4027,6 +4056,11 @@ struct EditorView: View {
         } else {
             inkToolMode = .write
             canvasMode = .chordEntry
+            if !offeredPersonalHandwriting {
+                personalHandwritingStartsWithEvaluation = false
+                offeredPersonalHandwriting = true
+                showingPersonalHandwriting = true
+            }
         }
     }
 
@@ -4115,6 +4149,13 @@ struct EditorView: View {
         canvasMode = .browse
     }
 
+    private var hasUnrenderedChordInkForEvaluation: Bool {
+        guard let data = chart.pageHandwrittenChordData else { return false }
+        // Invalid existing ink is not a safe blank evaluation chart either.
+        guard let drawing = try? PKDrawing(data: data) else { return true }
+        return !drawing.strokes.isEmpty
+    }
+
     private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
         let replacementStartedAt = ProcessInfo.processInfo.systemUptime
         guard canvasMode == .chordEntry,
@@ -4143,7 +4184,8 @@ struct EditorView: View {
                 visualOrder: payload.visualOrder,
                 fraction: payload.target.fraction
             )
-            if let reusedInput = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
+            if previousDraftByAnchor[incomingAnchor]?.recognitionResult?.personalizationRevision == payload.result.personalizationRevision,
+               let reusedInput = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
                 previousDraft: previousDraftByAnchor[incomingAnchor],
                 measureID: payload.target.measureID,
                 measureIndex: measure.index,
@@ -4288,11 +4330,21 @@ struct EditorView: View {
 
         var committedState = state
         committedState.markRenderableDraftsCommitted()
-        var updatedChart = chart
-        let renderResult = updatedChart.commitChordInkDraftBatch(
-            committedState,
-            barlineSpacingMode: .drawn
-        )
+        // The live canvas owns the destructive transaction. It validates the
+        // actual PKDrawing and consumes it synchronously on the main actor;
+        // a delayed SwiftUI update must never clear ink added after review.
+        guard let outcome = chordDraftRenderCoordinator.render(chart: chart, state: committedState) else {
+            chordInkErrorMessage = "The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased."
+            showingChordInkError = true
+            return false
+        }
+        let renderResult = outcome.result
+        let updatedChart = outcome.chart
+        guard !renderResult.didRejectIncompleteSourceCoverage else {
+            chordInkErrorMessage = "Some current ink is missing from chord review or the preview is out of date. Nothing was rendered or erased. Review or rewrite that ink, then try again."
+            showingChordInkError = true
+            return false
+        }
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
             chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
             showingChordInkError = true
@@ -4310,7 +4362,6 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
-        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         chordInkAutomaticRewriteFailures.reset()
         completeEditorGuidedTourStep(.writeChords)
@@ -4558,6 +4609,8 @@ struct EditorView: View {
                 continue
             }
 
+            learnReviewedPersonalHandwriting(acceptedText, confirmation: confirmation)
+
             if confirmation.visibleCandidateTexts.contains(acceptedText) {
                 didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
                     acceptedText: acceptedText,
@@ -4673,6 +4726,8 @@ struct EditorView: View {
         guard didCommit else {
             return
         }
+
+        learnReviewedPersonalHandwriting(trimmedCandidateText, confirmation: confirmation)
 
         switch resolution {
         case .confirmedSuggestion:
@@ -4927,7 +4982,8 @@ struct EditorView: View {
 
     private func handleChordCorrectionAccepted(
         _ candidateText: String,
-        correction: PendingChordCorrection
+        correction: PendingChordCorrection,
+        teachesHandwriting: Bool = false
     ) {
         let shouldReturnToBrowse = canvasMode == .browse
         let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4955,6 +5011,10 @@ struct EditorView: View {
         }
 
         chart = updatedChart
+
+        if teachesHandwriting, let drawingData = originalChordEvent.sourceInkData {
+            learnPersonalHandwriting(trimmedCandidateText, drawingData: drawingData, source: .explicitCorrection)
+        }
 
         let previousRecognitionText = originalChordEvent.rawInput ?? originalChordEvent.symbol.displayText
         let didUpdateCorrectionMemory = originalChordEvent.sourceInkData.map { sourceInkData in
@@ -5192,6 +5252,33 @@ struct EditorView: View {
     }
 
     #endif
+
+    private func learnPersonalHandwriting(_ text: String, drawingData: Data, source: PersonalInkExampleSource) {
+        PersonalInkLearning.record(text: text, drawingData: drawingData, source: source,
+                                   captureContext: personalReviewIntakeContext,
+                                   completion: handlePersonalLearningError)
+    }
+
+    private func learnReviewedPersonalHandwriting(_ text: String, confirmation: PendingChordInkConfirmation) {
+        PersonalInkLearning.recordReview(text: text, presentedText: confirmation.bestCandidateText,
+                                         drawingData: confirmation.drawingData,
+                                         captureContext: personalReviewIntakeContext,
+                                         completion: handlePersonalLearningError)
+    }
+
+    private var personalReviewIntakeContext: PersonalInkCaptureContext {
+        // Review can reuse stored chart ink; this is the review intake session,
+        // not a claim that the strokes were first acquired at this moment.
+        .init(sessionID: personalLearningSessionID, origin: .chartReview,
+              chartStyle: PersonalInkCaptureContext.chartStyleToken(for: chart.layoutStyle.rawValue))
+    }
+
+    private func handlePersonalLearningError(_ error: String?) {
+        if let error {
+            chordInkErrorMessage = "The chord was saved, but its handwriting example was not: \(error)"
+            showingChordInkError = true
+        }
+    }
 
     private func scheduleChordEntryDiagnosticReconciliation(for chartSnapshot: Chart) {
         #if DEBUG && targetEnvironment(simulator)

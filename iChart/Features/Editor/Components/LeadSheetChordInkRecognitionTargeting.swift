@@ -12,6 +12,7 @@ struct LeadSheetChordInkRecognitionBatchTarget {
     var strokes: [InkStroke]
     var drawingData: Data
     var drawing: PKDrawing
+    var requiresEditReview: Bool = false
 }
 
 struct LeadSheetChordInkRecognitionBatchTargetingResult {
@@ -24,6 +25,7 @@ struct LeadSheetChordInkRecognitionBatchTargetingResult {
 }
 
 enum LeadSheetChordInkBoundaryHypothesisRoute: String, Hashable {
+    case editContinuity = "edit_continuity"
     case draftBarlineLane = "draft_barline_lane"
     case laneRootSequence = "lane_root_sequence"
     case measureLaneRootSequence = "measure_lane_root_sequence"
@@ -1054,8 +1056,12 @@ enum LeadSheetChordInkRecognitionTargeting {
                 .map { target in
                     (index: target.originalIndex, stroke: target.stroke)
                 }
-            let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes)
-            guard sequentialClusters.count > 1 else {
+            // A row with one complete root is still a valid row partition.
+            // Requiring two groups in EVERY row discarded all row ownership
+            // when writing the first chord on the next system, sending the
+            // entire page through gap clustering again.
+            let sequentialClusters = rootLedSequentialClusters(for: orderedStrokes, allowsSingleRoot: true)
+            guard !sequentialClusters.isEmpty else {
                 return []
             }
 
@@ -1085,10 +1091,11 @@ enum LeadSheetChordInkRecognitionTargeting {
     }
 
     private static func rootLedSequentialClusters(
-        for orderedStrokes: [(index: Int, stroke: InkStroke)]
+        for orderedStrokes: [(index: Int, stroke: InkStroke)],
+        allowsSingleRoot: Bool = false
     ) -> [ChordInkBatchCluster] {
         let groups = ChordInkSequentialGrouper().groups(for: orderedStrokes)
-        guard groups.count > 1,
+        guard !groups.isEmpty, (allowsSingleRoot || groups.count > 1),
               groups.first?.rootConfidence != nil else {
             return []
         }

@@ -10,19 +10,44 @@ from typing import Dict, Optional, Sequence
 
 from .checkpoint import (
     load_training_checkpoint,
+    require_bound_development_selection,
     require_negative_no_read_supervision,
     save_training_checkpoint,
     validate_checkpoint_corpus_binding,
 )
 from .calibrate import fit_writer_disjoint_model_temperature
-from .contracts import load_records_jsonl, validate_dataset, validate_feature_artifacts
+from .contracts import (
+    canonical_json_bytes,
+    load_records_jsonl,
+    validate_dataset,
+    validate_feature_artifacts,
+)
 from .errors import ContractError, OperationRefusedError
+from .development_selection import (
+    DevelopmentComparisonConfig,
+    build_development_model_comparison,
+    load_bound_development_model_selection,
+)
 from .evaluate import run_sealed_model_assessment
-from .export_coreml import export_uncalibrated_coreml
+from .export_coreml import CoreMLTrainingProvenance, export_uncalibrated_coreml
+from .leakage_adjudication import (
+    build_leakage_cluster_receipt,
+    load_canonical_json,
+)
+from .leakage_scan import build_leakage_scan_report
 from .manifest import build_manifest, load_manifest, validate_manifest, write_manifest
-from .models.dual_view import DualViewModelConfig
+from .models.factory import (
+    DUAL_VIEW_MODEL_ARCHITECTURE_ID,
+    MODEL_ARCHITECTURE_IDS,
+)
 from .study_session import import_study_session
-from .train_pipeline import TrainingConfig, train_development_model
+from .train_pipeline import (
+    CATEGORICAL_CLASS_REWEIGHTING_MODES,
+    CATEGORICAL_CLASS_REWEIGHTING_NONE,
+    TrainingConfig,
+    train_development_model,
+)
+from .selection_contract import UNBOUND_DEVELOPMENT_SELECTION_AUTHORITY
 
 
 def _add_corpus_arguments(parser: argparse.ArgumentParser) -> None:
@@ -43,6 +68,28 @@ def parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-records")
     _add_corpus_arguments(validate)
 
+    scan = commands.add_parser(
+        "scan-leakage",
+        help=(
+            "Exhaustively generate label-blind near-neighbor candidates for "
+            "protected adjudication without qualifying the corpus."
+        ),
+    )
+    _add_corpus_arguments(scan)
+    scan.add_argument("--output-dir", required=True, type=Path)
+
+    adjudicate = commands.add_parser(
+        "finalize-leakage-adjudication",
+        help=(
+            "Recompute an exact scan and resolve every candidate from a "
+            "dual-independent-review file into unsigned registry preparation."
+        ),
+    )
+    _add_corpus_arguments(adjudicate)
+    adjudicate.add_argument("--scan-report", required=True, type=Path)
+    adjudicate.add_argument("--adjudication", required=True, type=Path)
+    adjudicate.add_argument("--output-dir", required=True, type=Path)
+
     build = commands.add_parser("build-manifest")
     _add_corpus_arguments(build)
     build.add_argument("--dataset-version", required=True)
@@ -57,21 +104,73 @@ def parser() -> argparse.ArgumentParser:
     train.add_argument("--manifest", required=True, type=Path)
     train.add_argument("--output-dir", required=True, type=Path)
     train.add_argument("--model-identifier", required=True)
-    train.add_argument("--seed", type=int, default=17)
-    train.add_argument("--epochs", type=int, default=40)
-    train.add_argument("--batch-size", type=int, default=64)
-    train.add_argument("--learning-rate", type=float, default=1e-3)
-    train.add_argument("--weight-decay", type=float, default=1e-4)
-    train.add_argument("--device", choices=("cpu", "cuda", "mps"), default="cpu")
+    train.add_argument(
+        "--model-architecture",
+        choices=MODEL_ARCHITECTURE_IDS,
+        default=None,
+        help="Use the architecture selected by development-writer comparison.",
+    )
+    train.add_argument(
+        "--development-selection-report",
+        type=Path,
+        help=(
+            "Canonical development_model_comparison.json to validate and "
+            "bind; when supplied, its winner selects architecture and loss."
+        ),
+    )
+    train.add_argument("--seed", type=int, default=None)
+    train.add_argument("--epochs", type=int, default=None)
+    train.add_argument("--batch-size", type=int, default=None)
+    train.add_argument("--learning-rate", type=float, default=None)
+    train.add_argument("--weight-decay", type=float, default=None)
+    train.add_argument("--device", choices=("cpu", "cuda", "mps"), default=None)
+    train.add_argument(
+        "--categorical-class-reweighting",
+        choices=CATEGORICAL_CLASS_REWEIGHTING_MODES,
+        default=None,
+        help=(
+            "Use the loss treatment selected by development-writer "
+            "comparison; never choose it from calibration or sealed data."
+        ),
+    )
+
+    compare = commands.add_parser(
+        "compare-development-models",
+        help=(
+            "Compare frozen model families by grouped development writer "
+            "without loading calibration or sealed feature bytes."
+        ),
+    )
+    _add_corpus_arguments(compare)
+    compare.add_argument("--manifest", required=True, type=Path)
+    compare.add_argument("--output-dir", required=True, type=Path)
+    compare.add_argument("--fold-count", type=int, default=5)
+    compare.add_argument("--seed", type=int, action="append")
+    compare.add_argument("--epochs", type=int, default=40)
+    compare.add_argument("--batch-size", type=int, default=64)
+    compare.add_argument("--learning-rate", type=float, default=1e-3)
+    compare.add_argument("--weight-decay", type=float, default=1e-4)
+    compare.add_argument("--device", choices=("cpu", "cuda", "mps"), default="cpu")
 
     evaluate = commands.add_parser("evaluate")
     _add_checkpoint_operation_arguments(evaluate)
     evaluate.add_argument("--output-dir", required=True, type=Path)
     evaluate.add_argument("--batch-size", type=int, default=128)
     evaluate.add_argument(
+        "--development-selection-report",
+        type=Path,
+        help=(
+            "Canonical grouped development-writer comparison report. It is "
+            "required and exactly rebound when --require-promotion-gate is set."
+        ),
+    )
+    evaluate.add_argument(
         "--require-promotion-gate",
         action="store_true",
-        help="Refuse unless true negative/no-read supervision is checkpoint-bound.",
+        help=(
+            "Refuse unless true negative/no-read supervision and the frozen "
+            "development-writer model selection are checkpoint-bound."
+        ),
     )
 
     calibrate = commands.add_parser("calibrate")
@@ -101,9 +200,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _validated_records(arguments: argparse.Namespace):
+    # Operations share the complete metadata boundary, not feature access.
+    # Training/calibration/evaluation loaders validate only their own role;
+    # export needs the checkpoint and corpus commitments, not raw handwriting.
     records = load_records_jsonl(arguments.records)
     validate_dataset(records, require_all_splits=True)
-    validate_feature_artifacts(records, arguments.data_root)
     return records
 
 
@@ -147,20 +248,125 @@ def _publish_output_directory(path: Path, files: Dict[str, object]) -> None:
 
 def _train(arguments: argparse.Namespace, records, manifest) -> Dict[str, object]:
     _require_new_output_directory(arguments.output_dir)
+    selection = None
+    if arguments.development_selection_report is not None:
+        selection = load_bound_development_model_selection(
+            arguments.development_selection_report,
+            records,
+        )
+        if (
+            arguments.model_architecture is not None
+            and arguments.model_architecture
+            != selection.selected_architecture_id
+        ):
+            raise OperationRefusedError(
+                "development_selection_architecture_mismatch",
+                "train.model_architecture",
+                f"report selected {selection.selected_architecture_id}",
+            )
+        if (
+            arguments.categorical_class_reweighting is not None
+            and arguments.categorical_class_reweighting
+            != selection.selected_categorical_class_reweighting
+        ):
+            raise OperationRefusedError(
+                "development_selection_loss_mismatch",
+                "train.categorical_class_reweighting",
+                "report selected "
+                + selection.selected_categorical_class_reweighting,
+            )
+        model_architecture = selection.selected_architecture_id
+        categorical_class_reweighting = (
+            selection.selected_categorical_class_reweighting
+        )
+        selection_authority = selection.authority
+        selection_report_sha256 = selection.report_sha256
+        comparison_config = selection.comparison_config
+        frozen_final_training_seed = comparison_config.seeds[0]
+        if (
+            arguments.seed is not None
+            and arguments.seed != frozen_final_training_seed
+        ):
+            raise OperationRefusedError(
+                "development_selection_seed_mismatch",
+                "train.seed",
+                "seed must equal the comparison report's frozen first seed "
+                f"({frozen_final_training_seed})",
+            )
+        resolved_seed = frozen_final_training_seed
+        for argument_name in (
+            "epochs",
+            "batch_size",
+            "learning_rate",
+            "weight_decay",
+            "device",
+        ):
+            supplied = getattr(arguments, argument_name)
+            selected_value = getattr(comparison_config, argument_name)
+            if supplied is not None and supplied != selected_value:
+                raise OperationRefusedError(
+                    "development_selection_training_config_mismatch",
+                    f"train.{argument_name}",
+                    f"report selected {selected_value}",
+                )
+        resolved_epochs = comparison_config.epochs
+        resolved_batch_size = comparison_config.batch_size
+        resolved_learning_rate = comparison_config.learning_rate
+        resolved_weight_decay = comparison_config.weight_decay
+        resolved_device = comparison_config.device
+    else:
+        model_architecture = (
+            arguments.model_architecture
+            or DUAL_VIEW_MODEL_ARCHITECTURE_ID
+        )
+        categorical_class_reweighting = (
+            arguments.categorical_class_reweighting
+            or CATEGORICAL_CLASS_REWEIGHTING_NONE
+        )
+        selection_authority = UNBOUND_DEVELOPMENT_SELECTION_AUTHORITY
+        selection_report_sha256 = None
+        defaults = TrainingConfig()
+        resolved_seed = arguments.seed if arguments.seed is not None else defaults.seed
+        resolved_epochs = (
+            arguments.epochs if arguments.epochs is not None else defaults.epochs
+        )
+        resolved_batch_size = (
+            arguments.batch_size
+            if arguments.batch_size is not None
+            else defaults.batch_size
+        )
+        resolved_learning_rate = (
+            arguments.learning_rate
+            if arguments.learning_rate is not None
+            else defaults.learning_rate
+        )
+        resolved_weight_decay = (
+            arguments.weight_decay
+            if arguments.weight_decay is not None
+            else defaults.weight_decay
+        )
+        resolved_device = (
+            arguments.device if arguments.device is not None else defaults.device
+        )
     training_config = TrainingConfig(
-        seed=arguments.seed,
-        epochs=arguments.epochs,
-        batch_size=arguments.batch_size,
-        learning_rate=arguments.learning_rate,
-        weight_decay=arguments.weight_decay,
-        device=arguments.device,
+        seed=resolved_seed,
+        epochs=resolved_epochs,
+        batch_size=resolved_batch_size,
+        learning_rate=resolved_learning_rate,
+        weight_decay=resolved_weight_decay,
+        device=resolved_device,
         deterministic=True,
+        categorical_class_reweighting=(
+            categorical_class_reweighting
+        ),
     )
     result = train_development_model(
         records,
         arguments.data_root,
         config=training_config,
-        model_config=DualViewModelConfig(),
+        model_architecture_id=model_architecture,
+        development_selection_authority=selection_authority,
+        development_selection_report_sha256=selection_report_sha256,
     )
 
     arguments.output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +382,13 @@ def _train(arguments: argparse.Namespace, records, manifest) -> Dict[str, object
             "records_sha256": manifest["records_sha256"],
             "checkpoint": "checkpoint.pt",
             "checkpoint_metadata": metadata.as_dict(),
+            "model_architecture_id": result.model_architecture_id,
+            "development_selection_authority": (
+                result.development_selection_authority
+            ),
+            "development_selection_report_sha256": (
+                result.development_selection_report_sha256
+            ),
             "final_epoch_loss": result.epoch_losses[-1],
             "negative_no_read_supervision": result.has_negative_no_read_supervision,
             "promotion_eligible": False,
@@ -190,10 +403,51 @@ def _train(arguments: argparse.Namespace, records, manifest) -> Dict[str, object
         raise
     return {
         "checkpoint": str(arguments.output_dir / "checkpoint.pt"),
+        "model_architecture_id": result.model_architecture_id,
+        "development_selection_authority": (
+            result.development_selection_authority
+        ),
+        "development_selection_report_sha256": (
+            result.development_selection_report_sha256
+        ),
         "negative_no_read_supervision": result.has_negative_no_read_supervision,
         "ok": True,
         "promotion_eligible": False,
         "status": "development-training-complete",
+    }
+
+
+def _compare_development_models(
+    arguments: argparse.Namespace,
+    records,
+) -> Dict[str, object]:
+    seeds = tuple(arguments.seed) if arguments.seed else (17, 29, 43)
+    report = build_development_model_comparison(
+        records,
+        arguments.data_root,
+        DevelopmentComparisonConfig(
+            fold_count=arguments.fold_count,
+            seeds=seeds,
+            epochs=arguments.epochs,
+            batch_size=arguments.batch_size,
+            learning_rate=arguments.learning_rate,
+            weight_decay=arguments.weight_decay,
+            device=arguments.device,
+        ),
+    )
+    _publish_output_directory(
+        arguments.output_dir,
+        {"development_model_comparison.json": report},
+    )
+    return {
+        "authority": report["authority"],
+        "ok": True,
+        "promotion_eligible": False,
+        "report": str(
+            arguments.output_dir / "development_model_comparison.json"
+        ),
+        "selected_candidate_id": report["selected_candidate_id"],
+        "status": report["status"],
     }
 
 
@@ -203,9 +457,65 @@ def _load_bound_checkpoint(arguments: argparse.Namespace, records):
     return checkpoint
 
 
+def _require_checkpoint_selection_report(checkpoint, records, report_path: Optional[Path]):
+    require_bound_development_selection(
+        checkpoint.metadata,
+        "evaluate.promotion_gate",
+    )
+    if report_path is None:
+        raise OperationRefusedError(
+            "development_selection_report_required",
+            "evaluate.development_selection_report",
+            "promotion evaluation must revalidate the exact report bound to the checkpoint",
+        )
+    selection = load_bound_development_model_selection(report_path, records)
+    metadata = checkpoint.metadata
+    config = metadata.training_config
+    comparison = selection.comparison_config
+    mismatches = []
+    if metadata.development_selection_report_sha256 != selection.report_sha256:
+        mismatches.append("report_sha256")
+    if metadata.model_architecture_id != selection.selected_architecture_id:
+        mismatches.append("model_architecture_id")
+    if (
+        config.categorical_class_reweighting
+        != selection.selected_categorical_class_reweighting
+    ):
+        mismatches.append("categorical_class_reweighting")
+    if config.seed != comparison.seeds[0]:
+        mismatches.append("seed")
+    for field in (
+        "epochs",
+        "batch_size",
+        "learning_rate",
+        "weight_decay",
+        "device",
+    ):
+        if getattr(config, field) != getattr(comparison, field):
+            mismatches.append(field)
+    if mismatches:
+        raise OperationRefusedError(
+            "checkpoint_development_selection_mismatch",
+            "evaluate.development_selection_report",
+            "checkpoint differs from its bound comparison report: "
+            + ", ".join(mismatches),
+        )
+
+
 def _evaluate(arguments: argparse.Namespace, records) -> Dict[str, object]:
     _require_new_output_directory(arguments.output_dir)
     checkpoint = _load_bound_checkpoint(arguments, records)
+    development_selection_revalidated = False
+    if (
+        arguments.require_promotion_gate
+        or arguments.development_selection_report is not None
+    ):
+        _require_checkpoint_selection_report(
+            checkpoint,
+            records,
+            arguments.development_selection_report,
+        )
+        development_selection_revalidated = True
     if arguments.require_promotion_gate:
         require_negative_no_read_supervision(checkpoint.metadata, "evaluate.promotion_gate")
     assessment = run_sealed_model_assessment(
@@ -230,6 +540,15 @@ def _evaluate(arguments: argparse.Namespace, records) -> Dict[str, object]:
     )
     payload = {
         "checkpoint_sha256": checkpoint.artifact_sha256,
+        "development_selection_authority": (
+            checkpoint.metadata.development_selection_authority
+        ),
+        "development_selection_report_sha256": (
+            checkpoint.metadata.development_selection_report_sha256
+        ),
+        "development_selection_revalidated": (
+            development_selection_revalidated
+        ),
         "descriptive_factor_report": asdict(assessment.factor_report),
         "descriptive_decoded_report": decoded_report,
         "negative_no_read_supervision": checkpoint.metadata.has_negative_no_read_supervision,
@@ -284,6 +603,29 @@ def _export(arguments: argparse.Namespace, records) -> Dict[str, object]:
         arguments.manifest_output,
         arguments.model_identifier,
         arguments.detached_manifest_sha256,
+        CoreMLTrainingProvenance(
+            checkpoint_contract_version=(
+                checkpoint.metadata.checkpoint_contract_version
+            ),
+            checkpoint_artifact_sha256=checkpoint.artifact_sha256,
+            checkpoint_artifact_byte_count=checkpoint.artifact_byte_count,
+            model_architecture_id=checkpoint.metadata.model_architecture_id,
+            development_records_sha256=(
+                checkpoint.metadata.development_records_sha256
+            ),
+            development_sample_count=(
+                checkpoint.metadata.development_sample_count
+            ),
+            development_writer_count=(
+                checkpoint.metadata.development_writer_count
+            ),
+            development_selection_authority=(
+                checkpoint.metadata.development_selection_authority
+            ),
+            development_selection_report_sha256=(
+                checkpoint.metadata.development_selection_report_sha256
+            ),
+        ),
     )
     return {
         "authority": "learned-shadow-only",
@@ -291,6 +633,21 @@ def _export(arguments: argparse.Namespace, records) -> Dict[str, object]:
         "model": str(receipt.model_path),
         "model_byte_count": receipt.model_byte_count,
         "model_sha256": receipt.model_sha256,
+        "training_checkpoint_sha256": checkpoint.artifact_sha256,
+        "development_records_sha256": (
+            checkpoint.metadata.development_records_sha256
+        ),
+        "model_architecture": checkpoint.metadata.model_architecture_id,
+        "development_selection_authority": (
+            checkpoint.metadata.development_selection_authority
+        ),
+        "development_selection_report_sha256": (
+            checkpoint.metadata.development_selection_report_sha256
+        ),
+        "coreml_parity_maximum_absolute_error": (
+            receipt.parity_evidence.maximum_absolute_error
+        ),
+        "inference_compute_units": receipt.parity_evidence.inference_compute_units,
         "no_read_trust_established": False,
         "ok": True,
         "status": "uncalibrated-shadow-model-exported",
@@ -314,7 +671,53 @@ def run(arguments: argparse.Namespace) -> Dict[str, object]:
             "status": "validated-local-engineering-session",
         }
 
+    if arguments.command == "scan-leakage":
+        records = load_records_jsonl(arguments.records)
+        report = build_leakage_scan_report(records, arguments.data_root)
+        _publish_output_directory(
+            arguments.output_dir,
+            {"leakage_scan.json": report},
+        )
+        return {
+            "authority": report["authority"],
+            "candidate_pair_count": report["candidate_pair_count"],
+            "corpus_qualified": False,
+            "ok": True,
+            "report": str(arguments.output_dir / "leakage_scan.json"),
+            "status": report["status"],
+        }
+
+    if arguments.command == "finalize-leakage-adjudication":
+        records = load_records_jsonl(arguments.records)
+        recomputed_report = build_leakage_scan_report(records, arguments.data_root)
+        supplied_report = load_canonical_json(arguments.scan_report)
+        if canonical_json_bytes(supplied_report) != canonical_json_bytes(recomputed_report):
+            raise ContractError(
+                "scan_report_mismatch",
+                str(arguments.scan_report),
+                "the supplied report does not match a fresh scan of the exact records and artifacts",
+            )
+        adjudication = load_canonical_json(arguments.adjudication)
+        receipt = build_leakage_cluster_receipt(recomputed_report, adjudication)
+        _publish_output_directory(
+            arguments.output_dir,
+            {"leakage_cluster_receipt.json": receipt},
+        )
+        return {
+            "authority": receipt["authority"],
+            "cluster_count": receipt["cluster_count"],
+            "corpus_qualified": False,
+            "ok": True,
+            "receipt": str(arguments.output_dir / "leakage_cluster_receipt.json"),
+            "registry_signed": False,
+            "status": receipt["status"],
+        }
+
     records = _validated_records(arguments)
+    if arguments.command in (
+        "validate-records", "build-manifest", "validate-manifest"
+    ):
+        validate_feature_artifacts(records, arguments.data_root)
     if arguments.command == "validate-records":
         return {"ok": True, "record_count": len(records), "status": "records-valid"}
     if arguments.command == "build-manifest":
@@ -334,6 +737,8 @@ def run(arguments: argparse.Namespace) -> Dict[str, object]:
             "ok": True,
             "status": "manifest-valid",
         }
+    if arguments.command == "compare-development-models":
+        return _compare_development_models(arguments, records)
     if arguments.command == "train":
         return _train(arguments, records, manifest)
     if arguments.command == "evaluate":

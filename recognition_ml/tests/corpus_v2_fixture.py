@@ -1,5 +1,7 @@
 import uuid
 
+from ichart_recognition_ml.features import InkPoint, InkStroke, encode_feature_artifacts
+
 
 def identifier(index: int) -> str:
     return str(uuid.UUID(int=index))
@@ -9,6 +11,20 @@ def _label_evidence(label):
     if label is None:
         return {"outcome": "no-read", "canonical_label": None}
     return {"outcome": "canonical-notation", "canonical_label": label}
+
+
+def valid_feature_payloads(index: int):
+    trajectory, raster = encode_feature_artifacts(
+        (
+            InkStroke(
+                (
+                    InkPoint(0.0, 0.0, 0.0),
+                    InkPoint(8.0 + float(index), 3.0 + float(index), 0.1),
+                )
+            ),
+        )
+    )
+    return trajectory.to_bytes(), raster.to_bytes()
 
 
 def record_mapping(

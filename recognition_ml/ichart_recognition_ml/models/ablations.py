@@ -14,10 +14,15 @@ from typing import Dict
 from ..dataset import require_optional_dependency
 from ..errors import ContractError
 from ..schema import FEATURE_SCHEMA
+from .dual_view import (
+    RASTER_POOL_HEIGHT_BINS,
+    RASTER_POOL_WIDTH_BINS,
+    TRAJECTORY_POOL_BINS,
+)
 from .output_contract import HEAD_NAMES, OUTPUT_CONTRACT_VERSION, OUTPUT_HEADS
 
 
-ABLATION_CONTRACT_VERSION = "chord-ink-single-view-ablation-v1"
+ABLATION_CONTRACT_VERSION = "chord-ink-single-view-ablation-v2-layout-preserving"
 
 
 def _require_positive_integer(name: str, value: object) -> int:
@@ -130,6 +135,7 @@ if _nn is not None:
 
         output_contract_version = OUTPUT_CONTRACT_VERSION
         output_head_names = HEAD_NAMES
+        model_architecture_id = "trajectory-only-v2-layout-preserving"
         ablation_contract_version = ABLATION_CONTRACT_VERSION
         input_view = "trajectory-only"
 
@@ -163,10 +169,13 @@ if _nn is not None:
                         padding=1,
                     ),
                     _nn.GELU(),
-                    _nn.AdaptiveAvgPool1d(1),
+                    _nn.AdaptiveAvgPool1d(TRAJECTORY_POOL_BINS),
                 )
                 self.projection = _nn.Sequential(
-                    _nn.Linear(channels * 2, config.hidden_width),
+                    _nn.Linear(
+                        channels * 2 * TRAJECTORY_POOL_BINS,
+                        config.hidden_width,
+                    ),
                     _nn.LayerNorm(config.hidden_width),
                     _nn.GELU(),
                 )
@@ -183,6 +192,7 @@ if _nn is not None:
 
         output_contract_version = OUTPUT_CONTRACT_VERSION
         output_head_names = HEAD_NAMES
+        model_architecture_id = "raster-only-v2-layout-preserving"
         ablation_contract_version = ABLATION_CONTRACT_VERSION
         input_view = "raster-only"
 
@@ -206,10 +216,18 @@ if _nn is not None:
                         padding=1,
                     ),
                     _nn.GELU(),
-                    _nn.AdaptiveAvgPool2d((1, 1)),
+                    _nn.AdaptiveAvgPool2d(
+                        (RASTER_POOL_HEIGHT_BINS, RASTER_POOL_WIDTH_BINS)
+                    ),
                 )
                 self.projection = _nn.Sequential(
-                    _nn.Linear(channels * 2, config.hidden_width),
+                    _nn.Linear(
+                        channels
+                        * 2
+                        * RASTER_POOL_HEIGHT_BINS
+                        * RASTER_POOL_WIDTH_BINS,
+                        config.hidden_width,
+                    ),
                     _nn.LayerNorm(config.hidden_width),
                     _nn.GELU(),
                 )
@@ -226,6 +244,7 @@ else:
     class TrajectoryOnlyChordModel:  # type: ignore[no-redef]
         output_contract_version = OUTPUT_CONTRACT_VERSION
         output_head_names = HEAD_NAMES
+        model_architecture_id = "trajectory-only-v2-layout-preserving"
         ablation_contract_version = ABLATION_CONTRACT_VERSION
         input_view = "trajectory-only"
 
@@ -240,6 +259,7 @@ else:
     class RasterOnlyChordModel:  # type: ignore[no-redef]
         output_contract_version = OUTPUT_CONTRACT_VERSION
         output_head_names = HEAD_NAMES
+        model_architecture_id = "raster-only-v2-layout-preserving"
         ablation_contract_version = ABLATION_CONTRACT_VERSION
         input_view = "raster-only"
 

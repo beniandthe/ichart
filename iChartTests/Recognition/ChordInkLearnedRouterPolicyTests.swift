@@ -37,7 +37,7 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
     func testCandidateWithoutCalibrationFallsBackToObservation() {
         let decision = policy.decision(
             requestedMode: .learnedCandidate,
-            manifest: ChordInkLearnedTestFactory.manifest(),
+            manifest: ChordInkLearnedTestFactory.developmentSelectedManifest(),
             calibrationArtifact: nil,
             sealedGateReceipt: ChordInkLearnedTestFactory.receipt()
         )
@@ -53,7 +53,7 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
     func testCandidateWithoutSealedGateReceiptFallsBackToObservation() {
         let decision = policy.decision(
             requestedMode: .learnedCandidate,
-            manifest: ChordInkLearnedTestFactory.manifest(),
+            manifest: ChordInkLearnedTestFactory.developmentSelectedManifest(),
             calibrationArtifact: ChordInkLearnedTestFactory.calibration(),
             sealedGateReceipt: nil
         )
@@ -68,7 +68,7 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
     func testCandidateWithFailedGateReceiptFallsBackToObservation() {
         let decision = policy.decision(
             requestedMode: .learnedCandidate,
-            manifest: ChordInkLearnedTestFactory.manifest(),
+            manifest: ChordInkLearnedTestFactory.developmentSelectedManifest(),
             calibrationArtifact: ChordInkLearnedTestFactory.calibration(),
             sealedGateReceipt: ChordInkLearnedTestFactory.receipt(passed: false)
         )
@@ -83,7 +83,7 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
     func testOnlyBoundPassingSealedReceiptAuthorizesLearnedUIAndPersistence() {
         let decision = policy.decision(
             requestedMode: .learnedCandidate,
-            manifest: ChordInkLearnedTestFactory.manifest(),
+            manifest: ChordInkLearnedTestFactory.developmentSelectedManifest(),
             calibrationArtifact: ChordInkLearnedTestFactory.calibration(),
             sealedGateReceipt: ChordInkLearnedTestFactory.receipt()
         )
@@ -103,7 +103,7 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
         let differentDigest = String(repeating: "f", count: 64)
         let decision = policy.decision(
             requestedMode: .learnedCandidate,
-            manifest: ChordInkLearnedTestFactory.manifest(),
+            manifest: ChordInkLearnedTestFactory.developmentSelectedManifest(),
             calibrationArtifact: ChordInkLearnedTestFactory.calibration(),
             sealedGateReceipt: ChordInkLearnedTestFactory.receipt(modelDigest: differentDigest)
         )
@@ -111,6 +111,22 @@ final class ChordInkLearnedRouterPolicyTests: XCTestCase {
         XCTAssertFalse(decision.learnedMayAffectUI)
         XCTAssertFalse(decision.learnedMayAffectPersistence)
         XCTAssertEqual(decision.denialReason, .invalidSealedGateReceipt)
+        XCTAssertEqual(decision.authority, .legacy)
+    }
+
+    func testUnselectedDevelopmentTrainingCanRunOnlyAsShadow() {
+        let decision = policy.decision(
+            requestedMode: .learnedCandidate,
+            manifest: ChordInkLearnedTestFactory.manifest(),
+            calibrationArtifact: ChordInkLearnedTestFactory.calibration(),
+            sealedGateReceipt: ChordInkLearnedTestFactory.receipt()
+        )
+
+        XCTAssertEqual(decision.effectiveMode, .learnedShadow)
+        XCTAssertTrue(decision.shouldExecuteLearnedRuntime)
+        XCTAssertFalse(decision.learnedMayAffectUI)
+        XCTAssertFalse(decision.learnedMayAffectPersistence)
+        XCTAssertEqual(decision.denialReason, .developmentSelectionNotBound)
         XCTAssertEqual(decision.authority, .legacy)
     }
 }

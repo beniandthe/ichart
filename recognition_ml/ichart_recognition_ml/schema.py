@@ -1,5 +1,6 @@
+import math
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 TOOL_VERSION = "ichart-recognition-ml-v2"
@@ -41,6 +42,41 @@ class FeatureSchema:
 
 
 FEATURE_SCHEMA = FeatureSchema()
+
+
+@dataclass(frozen=True)
+class TrajectoryChannelContract:
+    index: int
+    name: str
+    minimum_inclusive: float
+    maximum_inclusive: float
+    allowed_discrete_values: Optional[Tuple[float, ...]] = None
+
+
+# Byte-level semantic contract emitted by the frozen Swift and Python feature
+# encoders. Corpus validation, model export, and the on-device runtime must all
+# reject values outside these same bounds.
+TRAJECTORY_CHANNEL_CONTRACTS = (
+    TrajectoryChannelContract(0, "x", -0.5, 0.5),
+    TrajectoryChannelContract(1, "y", -0.5, 0.5),
+    TrajectoryChannelContract(2, "delta_x", -1.0, 1.0),
+    TrajectoryChannelContract(3, "delta_y", -1.0, 1.0),
+    TrajectoryChannelContract(4, "arc_step", 0.0, math.sqrt(2.0)),
+    TrajectoryChannelContract(5, "normalized_delta_time", 0.0, 1.0),
+    TrajectoryChannelContract(6, "timing_available", 0.0, 1.0, (0.0, 1.0)),
+    TrajectoryChannelContract(7, "stroke_start", 0.0, 1.0, (0.0, 1.0)),
+    TrajectoryChannelContract(8, "stroke_end", 0.0, 1.0, (0.0, 1.0)),
+    TrajectoryChannelContract(9, "valid", 0.0, 1.0, (0.0, 1.0)),
+)
+RASTER_ALLOWED_VALUES = (0, 255)
+
+if len(TRAJECTORY_CHANNEL_CONTRACTS) != FEATURE_SCHEMA.trajectory_shape[2]:
+    raise RuntimeError("trajectory channel contract does not match the frozen feature shape")
+if tuple(item.index for item in TRAJECTORY_CHANNEL_CONTRACTS) != tuple(
+    range(FEATURE_SCHEMA.trajectory_shape[2])
+):
+    raise RuntimeError("trajectory channel contract indices must be contiguous")
+
 SPLITS = ("development", "calibration", "sealed-evaluation")
 UNASSIGNED_SPLIT = "unassigned"
 RECORD_SPLITS = SPLITS + (UNASSIGNED_SPLIT,)

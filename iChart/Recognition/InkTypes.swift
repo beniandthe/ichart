@@ -200,15 +200,24 @@ struct ChordInkRecognitionResult: Hashable {
     var confidence: Double
     var acceptedGlyphCandidates: [GlyphCandidate] = []
     var candidateScores: [ChordInkCandidateScore] = []
+    /// Rejection-only evidence, not a candidate or alternative chord. Preserves
+    /// caution when invalid complete strings are removed from scored candidates.
+    var rejectedCandidateConfidence: Double? = nil
     /// Grammar-supported alternatives offered only in the explicit review UI.
     /// Automatic recognition policy deliberately ignores these scores.
     var reviewCandidateScores: [ChordInkCandidateScore] = []
     /// Explicit root-conflict recoveries that need a visible review slot.
     /// Like reviewCandidateScores, these never enter the automatic decision.
     var reviewRootAlternatives: [String] = []
+    /// Personal evidence is review-only and must never enter base trust scoring.
+    var personalSuggestion: ChordInkPersonalSuggestion? = nil
+    var personalizationRevision: UUID? = nil
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
     var trustEvidence: ChordInkTrustEvidence? = nil
+    /// Request-local ownership context, never part of the recognizer cache.
+    /// A partial erase cannot establish that the remaining root is complete.
+    var requiresEditReview: Bool = false
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 }
 
@@ -323,7 +332,26 @@ enum ChordInkRecognitionPolicy {
     private static let ambiguousAcceptedRootGlyphRaceGap = 0.08
     private static let unsupportedCandidatePressureGap = 0.02
 
+    /// Compare native evidence with a personal suggestion independently of the
+    /// request's edit-review requirement. This is not permission to render:
+    /// callers must still use decision(for:) for the actual user-facing action.
+    static func recognitionEvidenceDecision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        var evidence = result
+        evidence.requiresEditReview = false
+        return decision(for: evidence)
+    }
+
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        if result.requiresEditReview {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: result.match?.displayText,
+                reason: "This chord was edited. Check the complete chord before rendering.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
         guard let match = result.match else {
             return ChordInkRecognitionDecision(
                 action: .confirm,
@@ -587,15 +615,17 @@ enum ChordInkRecognitionPolicy {
         result: ChordInkRecognitionResult,
         bestConfidence: Double
     ) -> Bool {
-        guard let strongestUnsupported = result.candidateScores
+        // Defensive compatibility for manually constructed/older result sources;
+        // the native reader now emits only supported candidateScores.
+        let legacyRejectedConfidence = result.candidateScores
             .filter({ $0.displayText == nil })
-            .max(by: { lhs, rhs in
-                lhs.confidence < rhs.confidence
-            }) else {
+            .map(\.confidence).max()
+        guard let strongestRejected = [result.rejectedCandidateConfidence, legacyRejectedConfidence]
+            .compactMap({ $0 }).max() else {
             return false
         }
 
-        return strongestUnsupported.confidence + unsupportedCandidatePressureGap >= bestConfidence
+        return strongestRejected + unsupportedCandidatePressureGap >= bestConfidence
     }
 
     private static func shouldConfirmMissingRootEvidence(

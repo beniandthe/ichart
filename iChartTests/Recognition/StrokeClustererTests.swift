@@ -3,6 +3,83 @@ import XCTest
 
 final class StrokeClustererTests: XCTestCase {
     private let clusterer = StrokeClusterer()
+    private let originalInkClusterer = StrokeClusterer(wrapperPolicy: .preserveOriginalInk)
+
+    func testPreservingOriginalInkPartitionsEveryRetainedFixtureWithoutChangingSourceStrokes() throws {
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
+        XCTAssertFalse(fixtures.isEmpty)
+        for fixture in fixtures {
+            for reversesOrder in [false, true] {
+                let strokes = reversesOrder ? Array(fixture.strokes.reversed()) : fixture.strokes
+                assertOriginalInkPartition(strokes, context: "\(fixture.name) reversed=\(reversesOrder)")
+            }
+        }
+    }
+
+    func testPreservingOriginalInkRetainsRepeatedGeometryAndDrawingMetadata() {
+        let repeatedStroke = InkStroke(
+            points: [
+                InkPoint(x: 10, y: 10, timeOffset: 0),
+                InkPoint(x: 10, y: 30, timeOffset: 0.1)
+            ],
+            bounds: InkBounds(minX: 9, minY: 9, maxX: 11, maxY: 31),
+            creationTimeOffset: 5
+        )
+        var laterStroke = repeatedStroke
+        laterStroke.creationTimeOffset = 6
+        let strokes = [repeatedStroke, laterStroke, repeatedStroke, repeatedStroke]
+        assertOriginalInkPartition(strokes, context: "repeated geometry")
+        assertOriginalInkPartition(Array(strokes.reversed()), context: "repeated geometry reversed")
+    }
+
+    func testPreservingOriginalInkRetainsDominantAndBareParenthesisWrappers() throws {
+        let dominantStrokes = try InkFixtureLoader.load("C7Sharp9", file: #filePath).strokes
+        let dominantClusters = clusterer.indexedClusters(dominantStrokes)
+        let sevenIndexes = Set(try XCTUnwrap(dominantClusters.dropFirst().first).originalIndexes)
+        let bareStrokes = dominantStrokes.enumerated().compactMap { index, stroke in
+            sevenIndexes.contains(index) ? nil : stroke
+        }
+
+        for strokes in [dominantStrokes, bareStrokes] {
+            let semanticClusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(
+                semanticClusters,
+                StrokeClusterer(wrapperPolicy: .semanticNormalization).indexedClusters(strokes)
+            )
+            let discardedIndexes = Set(strokes.indices)
+                .subtracting(semanticClusters.flatMap(\.originalIndexes))
+            XCTAssertEqual(discardedIndexes.count, 2)
+            XCTAssertTrue(semanticClusters.contains {
+                $0.cluster.hasRecognitionHint(.parenthesizedAlteration)
+            })
+
+            let originalClusters = originalInkClusterer.indexedClusters(strokes)
+            assertOriginalInkPartition(strokes, context: "literal wrappers")
+            XCTAssertTrue(discardedIndexes.isSubset(of: Set(originalClusters.flatMap(\.originalIndexes))))
+            XCTAssertEqual(originalInkClusterer.cluster(strokes), originalClusters.map(\.cluster))
+        }
+    }
+
+    private func assertOriginalInkPartition(
+        _ strokes: [InkStroke],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let clusters = originalInkClusterer.indexedClusters(strokes)
+        XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices), context, file: file, line: line)
+        XCTAssertTrue(clusters.map(\.cluster).areSortedLeftToRight, context, file: file, line: line)
+        for indexed in clusters {
+            XCTAssertFalse(indexed.originalIndexes.isEmpty, context, file: file, line: line)
+            XCTAssertEqual(indexed.originalIndexes.count, indexed.cluster.strokes.count, context, file: file, line: line)
+            XCTAssertNil(indexed.cluster.recognitionHints, context, file: file, line: line)
+            for (index, stroke) in zip(indexed.originalIndexes, indexed.cluster.strokes) {
+                XCTAssertTrue(strokes.indices.contains(index), context, file: file, line: line)
+                guard strokes.indices.contains(index) else { continue }
+                XCTAssertEqual(stroke, strokes[index], context, file: file, line: line)
+            }
+        }
+    }
 
     func testDetachedMinorSuffixDoesNotBecomeSharpConstructionWhenOwnedStrokeOrderChanges() throws {
         for name in ["CSharpMinorCaptured03", "CSharpmCaptured03", "ESharpmCaptured03", "FSharpMinorCaptured02"] {

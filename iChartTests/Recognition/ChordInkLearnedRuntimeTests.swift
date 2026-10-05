@@ -49,7 +49,8 @@ final class ChordInkLearnedRuntimeTests: XCTestCase {
             modelIdentifier: "test-model-v1",
             manifestArtifactSHA256: "not-a-digest",
             modelArtifactSHA256: ChordInkLearnedTestFactory.modelDigest,
-            modelArtifactByteCount: 42
+            modelArtifactByteCount: 42,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance()
         )
         let runtime = FakeRuntime(
             manifest: invalidManifest,

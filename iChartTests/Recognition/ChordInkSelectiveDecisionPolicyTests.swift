@@ -56,7 +56,7 @@ final class ChordInkSelectiveDecisionPolicyTests: XCTestCase {
     }
 
     func testAutoAcceptIsImpossibleWithoutSealedGateAuthority() throws {
-        let manifest = ChordInkLearnedTestFactory.manifest()
+        let manifest = ChordInkLearnedTestFactory.developmentSelectedManifest()
         let calibration = calibration()
         let route = ChordInkLearnedRouterPolicy().decision(
             requestedMode: .learnedCandidate,
@@ -88,7 +88,7 @@ final class ChordInkSelectiveDecisionPolicyTests: XCTestCase {
     }
 
     func testAutoAcceptIsImpossibleWithoutValidatedCalibration() throws {
-        let manifest = ChordInkLearnedTestFactory.manifest()
+        let manifest = ChordInkLearnedTestFactory.developmentSelectedManifest()
         let route = ChordInkLearnedRouterPolicy().decision(
             requestedMode: .learnedCandidate,
             manifest: manifest,
@@ -262,7 +262,7 @@ final class ChordInkSelectiveDecisionPolicyTests: XCTestCase {
     }
 
     func testTruncatedCandidateListIsNeverRenormalized() throws {
-        let manifest = ChordInkLearnedTestFactory.manifest()
+        let manifest = ChordInkLearnedTestFactory.developmentSelectedManifest()
         let calibration = calibration(temperature: 1)
         let receipt = ChordInkLearnedTestFactory.receipt()
         let route = ChordInkLearnedRouterPolicy().decision(
@@ -379,7 +379,7 @@ final class ChordInkSelectiveDecisionPolicyTests: XCTestCase {
         selective: ChordInkSelectiveDecisionArtifact,
         route: ChordInkLearnedRouteDecision
     ) {
-        let manifest = ChordInkLearnedTestFactory.manifest()
+        let manifest = ChordInkLearnedTestFactory.developmentSelectedManifest()
         let calibration = calibration()
         let receipt = ChordInkLearnedTestFactory.receipt()
         return (

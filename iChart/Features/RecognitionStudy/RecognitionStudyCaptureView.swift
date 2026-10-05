@@ -159,6 +159,12 @@ enum RecognitionStudyLocalResult: Equatable, Sendable {
     case accepted(displayText: String, detail: String)
     case review(candidate: String?, detail: String)
     case noRead(detail: String)
+    case technicalFailure(detail: String)
+
+    var requiresTechnicalFailureExclusion: Bool {
+        if case .technicalFailure = self { return true }
+        return false
+    }
 
     var title: String {
         switch self {
@@ -168,6 +174,8 @@ enum RecognitionStudyLocalResult: Equatable, Sendable {
             return "Needs review"
         case .noRead:
             return "No read"
+        case .technicalFailure:
+            return "Recognition unavailable"
         }
     }
 
@@ -177,7 +185,7 @@ enum RecognitionStudyLocalResult: Equatable, Sendable {
             return displayText
         case let .review(candidate, _):
             return candidate
-        case .noRead:
+        case .noRead, .technicalFailure:
             return nil
         }
     }
@@ -186,7 +194,8 @@ enum RecognitionStudyLocalResult: Equatable, Sendable {
         switch self {
         case let .accepted(_, detail),
              let .review(_, detail),
-             let .noRead(detail):
+             let .noRead(detail),
+             let .technicalFailure(detail):
             return detail
         }
     }
@@ -335,7 +344,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
     @Published private(set) var result: RecognitionStudyLocalResult?
     @Published private(set) var completedSummary: RecognitionStudyPassSummary?
     @Published private(set) var reviewPreview: RecognitionStudyReviewPreview?
-    @Published private(set) var requiresInterruptedCaptureExclusion = false
+    @Published private(set) var requiresTechnicalFailureExclusion = false
 
     let prompts: [RecognitionStudyCapturePrompt]
 
@@ -490,9 +499,8 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
                                 .canvasHeight.value
                         )
                     )
-                    requiresInterruptedCaptureExclusion = true
-                    result = .review(
-                        candidate: nil,
+                    requiresTechnicalFailureExclusion = true
+                    result = .technicalFailure(
                         detail: "This capture was interrupted before its exact recognizer result was stored. The saved ink is restored below, but the sample must be excluded and rewritten in a new pass."
                     )
                     phase = .reviewing
@@ -550,7 +558,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
         phase = .submitting
         result = nil
         reviewPreview = nil
-        requiresInterruptedCaptureExclusion = false
+        requiresTechnicalFailureExclusion = false
         do {
             let packet = try ChordInkCanonicalTrajectoryPacket(
                 strokes: preparedStrokes
@@ -573,12 +581,27 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
                 presentedSurface: surface,
                 packet: packet
             )
+            let clock = ContinuousClock()
+            let recognitionStarted = clock.now
             let localResult = await resultProvider.result(
                 for: packet
             )
+            let recognitionLatencyMicroseconds: UInt64?
+            if localResult.requiresTechnicalFailureExclusion {
+                recognitionLatencyMicroseconds = nil
+            } else {
+                recognitionLatencyMicroseconds = try Self.microseconds(
+                    in: recognitionStarted.duration(to: clock.now)
+                )
+            }
             pendingCapture = storedCapture
-            pendingBaseRecognizerOutcome = try baseOutcome(for: localResult)
+            pendingBaseRecognizerOutcome = try baseOutcome(
+                for: localResult,
+                latencyMicroseconds: recognitionLatencyMicroseconds
+            )
             result = localResult
+            requiresTechnicalFailureExclusion = localResult
+                .requiresTechnicalFailureExclusion
 
             phase = .reviewing
             return true
@@ -601,7 +624,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
         result = nil
         completedSummary = nil
         reviewPreview = nil
-        requiresInterruptedCaptureExclusion = false
+        requiresTechnicalFailureExclusion = false
         await start()
     }
 
@@ -616,7 +639,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
               let outcomeStore else {
             return false
         }
-        guard requiresInterruptedCaptureExclusion
+        guard requiresTechnicalFailureExclusion
                 ? writerConfirmationState == .technicalFailure
                 : writerConfirmationState != .technicalFailure else {
             return false
@@ -637,7 +660,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
             self.pendingBaseRecognizerOutcome = nil
             result = nil
             reviewPreview = nil
-            requiresInterruptedCaptureExclusion = false
+            requiresTechnicalFailureExclusion = false
             promptIndex += 1
             if promptIndex == prompts.count, let localSessionID {
                 completedSummary = RecognitionStudyPassSummary(
@@ -668,7 +691,7 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
         pendingBaseRecognizerOutcome = nil
         completedSummary = nil
         reviewPreview = nil
-        requiresInterruptedCaptureExclusion = false
+        requiresTechnicalFailureExclusion = false
         do {
             let sessionID = UUID()
             let manifest = try RecognitionStudySessionManifest(
@@ -722,7 +745,8 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
     }
 
     private func baseOutcome(
-        for result: RecognitionStudyLocalResult
+        for result: RecognitionStudyLocalResult,
+        latencyMicroseconds: UInt64?
     ) throws -> RecognitionStudyBaseRecognizerOutcome {
         let disposition: RecognitionStudyBaseDisposition
         let candidate: String?
@@ -736,13 +760,41 @@ final class RecognitionStudyCaptureViewModel: ObservableObject {
         case .noRead:
             disposition = .noRead
             candidate = nil
+        case .technicalFailure:
+            disposition = .notRun
+            candidate = nil
         }
         return try RecognitionStudyBaseRecognizerOutcome(
             recognizerID: resultProvider.recognizerID,
             recognizerVersion: resultProvider.recognizerVersion,
             disposition: disposition,
-            candidate: candidate
+            candidate: candidate,
+            latencyMicroseconds: latencyMicroseconds
         )
+    }
+
+    private static func microseconds(
+        in duration: ContinuousClock.Duration
+    ) throws -> UInt64 {
+        let components = duration.components
+        guard components.seconds >= 0, components.attoseconds >= 0 else {
+            throw RecognitionStudyOutcomeContractError
+                .invalidRecognitionLatencyMicroseconds(nil)
+        }
+        let seconds = UInt64(components.seconds)
+        let fractional = UInt64(components.attoseconds) / 1_000_000_000_000
+        let (whole, wholeOverflow) = seconds.multipliedReportingOverflow(
+            by: 1_000_000
+        )
+        let (total, totalOverflow) = whole.addingReportingOverflow(fractional)
+        guard !wholeOverflow,
+              !totalOverflow,
+              total <= RecognitionStudyBaseRecognizerOutcome
+                .maximumLatencyMicroseconds else {
+            throw RecognitionStudyOutcomeContractError
+                .invalidRecognitionLatencyMicroseconds(nil)
+        }
+        return total
     }
 
     static func observedOrientation(
@@ -1119,6 +1171,14 @@ struct RecognitionStudyCaptureView: View {
                         color: .secondary,
                         symbol: "minus.circle.fill"
                     )
+                case let .technicalFailure(detail):
+                    resultCard(
+                        title: result.title,
+                        candidate: nil,
+                        detail: detail,
+                        color: .red,
+                        symbol: "exclamationmark.triangle.fill"
+                    )
                 }
                 if model.phase == .reviewing {
                     writerConfirmationControls
@@ -1133,8 +1193,8 @@ struct RecognitionStudyCaptureView: View {
 
     private var writerConfirmationControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if model.requiresInterruptedCaptureExclusion {
-                Text("This interrupted capture cannot be compared safely.")
+            if model.requiresTechnicalFailureExclusion {
+                Text("No completed recognition result is available for this capture.")
                     .font(.callout.weight(.semibold))
                 confirmationButton(
                     "Exclude & Continue",

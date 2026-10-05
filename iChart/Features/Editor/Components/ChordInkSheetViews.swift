@@ -5,7 +5,32 @@ private enum ChordInkManualEntryShortcut {
     static let chordRepeatText = ChordSymbol.chordRepeatDisplayText
 }
 
-private typealias ChordInkPencilOnlyButton = PencilOnlyActionButton
+/// Review is outside the ink canvas: finger, Pencil and pointer must all work.
+/// A bounded height also keeps UIKit buttons from taking the ScrollView's space.
+private struct ChordInkReviewButton: View {
+    let title: String
+    var systemImageName: String?
+    var style: PencilOnlyActionButton.Style = .bordered
+    var role: PencilOnlyActionButton.Role = .standard
+    var isEnabled = true
+    var accessibilityLabel: String?
+    let action: () -> Void
+    @ScaledMetric(relativeTo: .body) private var buttonHeight: CGFloat = 44
+
+    var body: some View {
+        PencilOnlyActionButton(
+            title: title,
+            systemImageName: systemImageName,
+            style: style,
+            role: role,
+            isEnabled: isEnabled,
+            accessibilityLabel: accessibilityLabel,
+            acceptsDirectTouches: true,
+            action: action
+        )
+        .frame(height: buttonHeight)
+    }
+}
 
 struct PendingChordInkConfirmation: Identifiable {
     let id: UUID
@@ -51,7 +76,7 @@ struct PendingChordInkConfirmation: Identifiable {
 
         let userFacingCandidateTexts = candidateTexts ?? Self.candidateTexts(for: result)
         self.candidateTexts = userFacingCandidateTexts
-        self.bestCandidateText = result.match?.displayText ?? userFacingCandidateTexts.first
+        self.bestCandidateText = decision.acceptedText ?? result.match?.displayText ?? userFacingCandidateTexts.first
     }
 
     var displayMeasureNumber: Int {
@@ -219,7 +244,10 @@ struct PendingChordCorrection: Identifiable {
             return nil
         }
 
-        return ChordRecognitionCompendium.match(trimmedText)?.displayText ?? trimmedText
+        // A persisted source signature can predate the current chord-domain
+        // boundary or come from imported chart data. Keep that evidence intact,
+        // but never turn an unsupported string into a one-tap suggestion.
+        return ChordRecognitionCompendium.match(trimmedText)?.displayText
     }
 }
 
@@ -229,7 +257,9 @@ struct ChordInkBatchConfirmationSheetView: View {
     let onAcceptAll: ([UUID: String]) -> Void
     let onClearAndRewrite: () -> Void
     @State private var candidateTextByID: [UUID: String]
-    @FocusState private var focusedConfirmationID: UUID?
+    // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
+    @State private var focusedConfirmationID: UUID?
+    @State private var keyboardConfirmationID: UUID?
 
     init(
         batch: PendingChordInkBatchConfirmation,
@@ -263,22 +293,30 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
                 .multilineTextAlignment(.center)
 
-                ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(batch.confirmations) { confirmation in
-                            chordRow(for: confirmation)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(batch.confirmations) { confirmation in
+                                chordRow(for: confirmation)
+                                    .id(confirmation.id)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .onChange(of: focusedConfirmationID) { _, id in
+                        if let id {
+                            withAnimation { proxy.scrollTo(id, anchor: .center) }
                         }
                     }
-                    .padding(.vertical, 2)
                 }
 
                 HStack(spacing: 10) {
-                    ChordInkPencilOnlyButton(title: "Rewrite Ink") {
+                    ChordInkReviewButton(title: "Rewrite Ink") {
                         onClearAndRewrite()
                     }
                     .frame(maxWidth: .infinity)
 
-                    ChordInkPencilOnlyButton(
+                    ChordInkReviewButton(
                         title: batch.actionTitle,
                         style: .borderedProminent,
                         isEnabled: canRenderAll
@@ -330,6 +368,17 @@ struct ChordInkBatchConfirmationSheetView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.orange)
                 }
+
+                ChordInkReviewButton(
+                    title: "Edit",
+                    systemImageName: "keyboard",
+                    style: .plain,
+                    accessibilityLabel: "Type chord for measure \(confirmation.displayMeasureNumber)"
+                ) {
+                    keyboardConfirmationID = confirmation.id
+                    focusedConfirmationID = confirmation.id
+                }
+                .frame(width: 92)
             }
 
             ChordInkScopedScribbleTextField(
@@ -338,12 +387,19 @@ struct ChordInkBatchConfirmationSheetView: View {
                     get: { candidateTextByID[confirmation.id] ?? "" },
                     set: { candidateTextByID[confirmation.id] = $0 }
                 ),
-                isFocused: focusedConfirmationID == confirmation.id,
-                onFocusChanged: { isFocused in
-                    focusedConfirmationID = isFocused ? confirmation.id : nil
-                }
+                isFocused: Binding(
+                    get: { focusedConfirmationID == confirmation.id },
+                    set: { isFocused in
+                        if isFocused {
+                            focusedConfirmationID = confirmation.id
+                        } else if focusedConfirmationID == confirmation.id {
+                            focusedConfirmationID = nil
+                        }
+                    }
+                ),
+                allowsScribble: keyboardConfirmationID != confirmation.id
             )
-            .frame(minHeight: 46)
+            .frame(height: 52)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
 
             if let reviewMessage = confirmation.reviewMessage {
@@ -356,7 +412,7 @@ struct ChordInkBatchConfirmationSheetView: View {
             if !confirmation.visibleCandidateTexts.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(confirmation.visibleCandidateTexts, id: \.self) { candidate in
-                        ChordInkPencilOnlyButton(title: candidate) {
+                        ChordInkReviewButton(title: candidate) {
                             candidateTextByID[confirmation.id] = candidate
                         }
                         .frame(maxWidth: .infinity)
@@ -368,7 +424,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
             }
 
-            ChordInkPencilOnlyButton(
+            ChordInkReviewButton(
                 title: "Chord Repeat \(ChordInkManualEntryShortcut.chordRepeatText)",
                 systemImageName: "repeat",
                 accessibilityLabel: "Use chord repeat symbol"
@@ -386,9 +442,8 @@ struct ChordInkBatchConfirmationSheetView: View {
 private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
     let placeholder: String
     @Binding var text: String
-    var isFocused: Bool
+    @Binding var isFocused: Bool
     var allowsScribble = true
-    var onFocusChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> ChordInkScopedScribbleUITextField {
         let textField = ChordInkScopedScribbleUITextField()
@@ -415,6 +470,7 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
 
     func updateUIView(_ textField: ChordInkScopedScribbleUITextField, context: Context) {
         context.coordinator.parent = self
+        let inputModeChanged = textField.allowsScribble != allowsScribble
         textField.allowsScribble = allowsScribble
 
         if textField.text != text {
@@ -423,8 +479,13 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
 
         if isFocused, !textField.isFirstResponder {
             textField.becomeFirstResponder()
-        } else if !isFocused, textField.isFirstResponder {
-            textField.resignFirstResponder()
+        }
+        // UIKit transfers first responder to the requested row. Do not resign
+        // another row during SwiftUI's update: that can race the transfer and
+        // dismiss the keyboard. Return/dismissal still clears the live binding.
+
+        if inputModeChanged, textField.isFirstResponder {
+            textField.reloadInputViews()
         }
     }
 
@@ -444,11 +505,11 @@ private struct ChordInkScopedScribbleTextField: UIViewRepresentable {
         }
 
         func textFieldDidBeginEditing(_ textField: UITextField) {
-            parent.onFocusChanged(true)
+            parent.isFocused = true
         }
 
         func textFieldDidEndEditing(_ textField: UITextField) {
-            parent.onFocusChanged(false)
+            parent.isFocused = false
         }
 
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -662,7 +723,7 @@ struct ChordInkConfirmationSheetView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 10) {
-            ChordInkPencilOnlyButton(
+            ChordInkReviewButton(
                 title: "Confirm",
                 style: .borderedProminent,
                 isEnabled: !trimmedCandidateText.isEmpty
@@ -675,7 +736,7 @@ struct ChordInkConfirmationSheetView: View {
                 cornerRadius: 10
             )
 
-            ChordInkPencilOnlyButton(
+            ChordInkReviewButton(
                 title: "Rewrite Ink",
                 role: .destructive
             ) {
@@ -686,7 +747,7 @@ struct ChordInkConfirmationSheetView: View {
     }
 
     private func compactButton(title: String, action: @escaping () -> Void) -> some View {
-        ChordInkPencilOnlyButton(title: title, action: action)
+        ChordInkReviewButton(title: title, action: action)
             .frame(maxWidth: .infinity, minHeight: 42)
     }
 
@@ -735,17 +796,21 @@ struct ChordInkConfirmationSheetView: View {
 
 struct ChordCorrectionSheetView: View {
     let correction: PendingChordCorrection
-    let onAcceptCandidate: (String) -> Void
+    let canTeachHandwriting: Bool
+    let onAcceptCandidate: (String, Bool) -> Void
     let onCancel: () -> Void
     @State private var candidateText: String
+    @State private var teachesHandwriting = false
     @FocusState private var isManualEntryFocused: Bool
 
     init(
         correction: PendingChordCorrection,
-        onAcceptCandidate: @escaping (String) -> Void,
+        canTeachHandwriting: Bool = false,
+        onAcceptCandidate: @escaping (String, Bool) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.correction = correction
+        self.canTeachHandwriting = canTeachHandwriting
         self.onAcceptCandidate = onAcceptCandidate
         self.onCancel = onCancel
         _candidateText = State(initialValue: correction.currentDisplayText)
@@ -782,6 +847,12 @@ struct ChordCorrectionSheetView: View {
                     .accessibilityLabel("Manual chord entry")
 
                 shortcutButtons
+                if canTeachHandwriting {
+                    Toggle("Teach this handwriting correction", isOn: $teachesHandwriting)
+                        .font(.callout)
+                    Text("Only enable this for a misread—not when changing the music or transposing a chord.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 actionButtons
             }
             .frame(maxWidth: 520)
@@ -828,7 +899,7 @@ struct ChordCorrectionSheetView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 10) {
-            ChordInkPencilOnlyButton(
+            ChordInkReviewButton(
                 title: "Confirm",
                 style: .borderedProminent,
                 isEnabled: !trimmedCandidateText.isEmpty
@@ -837,7 +908,7 @@ struct ChordCorrectionSheetView: View {
             }
             .frame(maxWidth: .infinity)
 
-            ChordInkPencilOnlyButton(title: "Cancel") {
+            ChordInkReviewButton(title: "Cancel") {
                 onCancel()
             }
             .frame(maxWidth: .infinity)
@@ -845,7 +916,7 @@ struct ChordCorrectionSheetView: View {
     }
 
     private func compactButton(title: String, action: @escaping () -> Void) -> some View {
-        ChordInkPencilOnlyButton(title: title, action: action)
+        ChordInkReviewButton(title: title, action: action)
             .frame(maxWidth: .infinity, minHeight: 42)
     }
 
@@ -866,6 +937,6 @@ struct ChordCorrectionSheetView: View {
             return
         }
 
-        onAcceptCandidate(trimmedCandidateText)
+        onAcceptCandidate(trimmedCandidateText, canTeachHandwriting && teachesHandwriting)
     }
 }

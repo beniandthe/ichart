@@ -46,13 +46,18 @@ AUTHORIZATION_KIND = "local-engineering-dry-run-v1"
 PRESENTED_SURFACE_VERSION = "recognition-study-presented-surface-v1"
 TRAJECTORY_DESCRIPTOR_SCHEMA_VERSION = "recognition-study-trajectory-descriptor-v1"
 
-OUTCOME_SCHEMA_VERSION = "recognition-study-semantic-outcome-v1"
+LEGACY_OUTCOME_SCHEMA_VERSION = "recognition-study-semantic-outcome-v1"
+OUTCOME_SCHEMA_VERSION = "recognition-study-semantic-outcome-v2"
+OUTCOME_SCHEMA_VERSIONS = (
+    LEGACY_OUTCOME_SCHEMA_VERSION,
+    OUTCOME_SCHEMA_VERSION,
+)
 OUTCOME_ARTIFACT_KIND = "local-engineering-semantic-outcome-v1"
 OUTCOME_DATA_USE = "local-engineering-only-not-corpus-eligible-v1"
 OUTCOME_EVIDENCE_STATUS = "not-established"
 OUTCOME_COMMIT_SCHEMA_VERSION = "recognition-study-outcome-commit-v1"
 
-IMPORT_RECEIPT_SCHEMA_VERSION = "recognition-study-session-import-receipt-v1"
+IMPORT_RECEIPT_SCHEMA_VERSION = "recognition-study-session-import-receipt-v2"
 IMPORT_STATUS = "validated-local-engineering-session"
 IMPORT_AUTHORITY = "mechanical-validation-only"
 
@@ -69,6 +74,7 @@ _PROMPT_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _UINT16_MAXIMUM = (1 << 16) - 1
 _UINT32_MAXIMUM = (1 << 32) - 1
 _UINT64_MAXIMUM = (1 << 64) - 1
+_MAXIMUM_RECOGNITION_LATENCY_MICROSECONDS = 10 * 60 * 1_000_000
 _INT64_MINIMUM = -(1 << 63)
 _INT64_MAXIMUM = (1 << 63) - 1
 
@@ -259,7 +265,11 @@ _BASE_REQUIRED_FIELDS = {
     "recognizerID",
     "recognizerVersion",
 }
-_BASE_OPTIONAL_FIELDS = {"candidate", "canonicalCandidate"}
+_BASE_OPTIONAL_FIELDS = {
+    "candidate",
+    "canonicalCandidate",
+    "latencyMicroseconds",
+}
 _ADAPTED_REQUIRED_FIELDS = {
     "adaptationState",
     "correctionMemoryState",
@@ -1066,8 +1076,12 @@ def _validate_outcome(
     envelope_digest: str,
 ) -> Mapping[str, object]:
     _require_exact_fields(outcome, _OUTCOME_FIELDS, "outcome.json")
+    schema_version = _require_choice(
+        outcome["schemaVersion"],
+        OUTCOME_SCHEMA_VERSIONS,
+        "outcome.json.schemaVersion",
+    )
     for field, expected in (
-        ("schemaVersion", OUTCOME_SCHEMA_VERSION),
         ("artifactKind", OUTCOME_ARTIFACT_KIND),
         ("dataUse", OUTCOME_DATA_USE),
         ("consentProvenanceStatus", OUTCOME_EVIDENCE_STATUS),
@@ -1157,6 +1171,33 @@ def _validate_outcome(
         ("accepted", "review", "no-read", "not-run"),
         "outcome.json.baseRecognizerOutcome.disposition",
     )
+    latency_microseconds = None
+    if "latencyMicroseconds" in base:
+        latency_microseconds = _require_uint(
+            base["latencyMicroseconds"],
+            "outcome.json.baseRecognizerOutcome.latencyMicroseconds",
+            _MAXIMUM_RECOGNITION_LATENCY_MICROSECONDS,
+        )
+    if schema_version == LEGACY_OUTCOME_SCHEMA_VERSION:
+        if latency_microseconds is not None:
+            _refuse(
+                "invalid_base_outcome",
+                "outcome.json.baseRecognizerOutcome.latencyMicroseconds",
+                "legacy v1 outcomes must not carry recognition latency",
+            )
+    elif disposition == "not-run":
+        if latency_microseconds is not None:
+            _refuse(
+                "invalid_base_outcome",
+                "outcome.json.baseRecognizerOutcome.latencyMicroseconds",
+                "not-run must not carry recognition latency",
+            )
+    elif latency_microseconds is None:
+        _refuse(
+            "invalid_base_outcome",
+            "outcome.json.baseRecognizerOutcome.latencyMicroseconds",
+            "v2 recognizer observations require structured latency",
+        )
     candidate = None
     if "candidate" in base:
         candidate = _require_string(
@@ -1196,6 +1237,12 @@ def _validate_outcome(
             "outcome.json.baseRecognizerOutcome.disposition",
             disposition,
         )
+    if writer_state != "technical-failure" and disposition == "not-run":
+        _refuse(
+            "technical_failure_state_required",
+            "outcome.json.promptOutcome.writerConfirmationState",
+            writer_state,
+        )
 
     adapted = _require_object(
         outcome["adaptedRecognizerOutcome"],
@@ -1226,6 +1273,7 @@ def _validate_outcome(
         "candidate": candidate,
         "canonical_candidate": canonical_candidate,
         "disposition": disposition,
+        "latency_microseconds": latency_microseconds,
         "recognizer_id": recognizer_id,
         "recognizer_version": recognizer_version,
     }

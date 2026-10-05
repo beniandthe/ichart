@@ -6,7 +6,24 @@ final class ChordInkModelArtifactContractTests: XCTestCase {
         let manifest = ChordInkLearnedTestFactory.manifest()
 
         XCTAssertNoThrow(try manifest.validate())
-        XCTAssertEqual(manifest.manifestContractVersion, "chord-ink-model-manifest-v2")
+        XCTAssertEqual(manifest.manifestContractVersion, "chord-ink-model-manifest-v4")
+        XCTAssertEqual(manifest.inferenceComputeUnits, .cpuOnly)
+        XCTAssertTrue(manifest.exportParity.isValid)
+        XCTAssertEqual(
+            manifest.trainingProvenance.checkpointContractVersion,
+            "chord-ink-training-checkpoint-v6"
+        )
+        XCTAssertEqual(
+            manifest.trainingProvenance.modelArchitectureID,
+            .dualViewV2LayoutPreserving
+        )
+        XCTAssertEqual(
+            manifest.trainingProvenance.developmentSelectionAuthority,
+            .unselectedDevelopmentTraining
+        )
+        XCTAssertNil(
+            manifest.trainingProvenance.developmentSelectionReportSHA256
+        )
         let data = try JSONEncoder().encode(manifest)
         XCTAssertEqual(try JSONDecoder().decode(ChordInkModelArtifactManifest.self, from: data), manifest)
 
@@ -73,6 +90,26 @@ final class ChordInkModelArtifactContractTests: XCTestCase {
         }
     }
 
+    func testBoundDevelopmentSelectionDigestValidatesAndRoundTrips() throws {
+        let manifest = ChordInkLearnedTestFactory.manifest(
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance(
+                developmentSelectionAuthority: .boundDevelopmentWriterComparisonV4,
+                developmentSelectionReportSHA256: String(repeating: "2", count: 64)
+            )
+        )
+
+        XCTAssertNoThrow(try manifest.validate())
+        let encoded = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(
+            ChordInkModelArtifactManifest.self,
+            from: encoded
+        )
+        XCTAssertEqual(
+            decoded.trainingProvenance.developmentSelectionReportSHA256,
+            String(repeating: "2", count: 64)
+        )
+    }
+
     func testManifestRejectsInputNumericTypeLayoutOrScalingDrift() {
         let expected = ChordInkModelArtifactManifest.expectedTrajectoryInput
         let drifted = ChordInkTensorContract(
@@ -90,6 +127,7 @@ final class ChordInkModelArtifactContractTests: XCTestCase {
             manifestArtifactSHA256: ChordInkLearnedTestFactory.manifestDigest,
             modelArtifactSHA256: ChordInkLearnedTestFactory.modelDigest,
             modelArtifactByteCount: 42,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance(),
             trajectoryInput: drifted
         )
 
@@ -134,13 +172,102 @@ final class ChordInkModelArtifactContractTests: XCTestCase {
             modelIdentifier: "test-model-v1",
             manifestArtifactSHA256: unicodeDigits,
             modelArtifactSHA256: ChordInkLearnedTestFactory.modelDigest,
-            modelArtifactByteCount: 1
+            modelArtifactByteCount: 1,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance()
         )
 
         XCTAssertThrowsError(try manifest.validate()) { error in
             XCTAssertEqual(
                 error as? ChordInkModelManifestValidationError,
                 .invalidManifestDigest
+            )
+        }
+    }
+
+    func testManifestRejectsUnverifiedCoreMLParityEvidence() {
+        let manifest = ChordInkModelArtifactManifest(
+            modelIdentifier: "test-model-v1",
+            manifestArtifactSHA256: ChordInkLearnedTestFactory.manifestDigest,
+            modelArtifactSHA256: ChordInkLearnedTestFactory.modelDigest,
+            modelArtifactByteCount: 1,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance(),
+            exportParity: ChordInkCoreMLExportParityEvidence(
+                maximumAbsoluteError: 0.000_100_1
+            )
+        )
+
+        XCTAssertThrowsError(try manifest.validate()) { error in
+            XCTAssertEqual(
+                error as? ChordInkModelManifestValidationError,
+                .invalidExportParityEvidence
+            )
+        }
+    }
+
+    func testManifestRejectsInvalidTrainingProvenance() {
+        let invalidCheckpointDigest = ChordInkTrainingProvenance(
+            checkpointContractVersion: ChordInkTrainingProvenance.checkpointContractVersion,
+            checkpointArtifactSHA256: "not-a-digest",
+            checkpointArtifactByteCount: 1,
+            modelArchitectureID: .dualViewV2LayoutPreserving,
+            developmentRecordsSHA256: ChordInkLearnedTestFactory.developmentRecordsDigest,
+            developmentSampleCount: 2,
+            developmentWriterCount: 1,
+            developmentSelectionAuthority: .unselectedDevelopmentTraining,
+            developmentSelectionReportSHA256: nil
+        )
+        XCTAssertThrowsError(
+            try ChordInkLearnedTestFactory.manifest(
+                trainingProvenance: invalidCheckpointDigest
+            ).validate()
+        ) { error in
+            XCTAssertEqual(
+                error as? ChordInkModelManifestValidationError,
+                .invalidCheckpointDigest
+            )
+        }
+
+        let impossibleWriterCount = ChordInkTrainingProvenance(
+            checkpointContractVersion: ChordInkTrainingProvenance.checkpointContractVersion,
+            checkpointArtifactSHA256: ChordInkLearnedTestFactory.checkpointDigest,
+            checkpointArtifactByteCount: 1,
+            modelArchitectureID: .dualViewV2LayoutPreserving,
+            developmentRecordsSHA256: ChordInkLearnedTestFactory.developmentRecordsDigest,
+            developmentSampleCount: 1,
+            developmentWriterCount: 2,
+            developmentSelectionAuthority: .unselectedDevelopmentTraining,
+            developmentSelectionReportSHA256: nil
+        )
+        XCTAssertThrowsError(
+            try ChordInkLearnedTestFactory.manifest(
+                trainingProvenance: impossibleWriterCount
+            ).validate()
+        ) { error in
+            XCTAssertEqual(
+                error as? ChordInkModelManifestValidationError,
+                .invalidDevelopmentWriterCount
+            )
+        }
+
+        let missingBoundSelectionDigest = ChordInkTrainingProvenance(
+            checkpointContractVersion: ChordInkTrainingProvenance.checkpointContractVersion,
+            checkpointArtifactSHA256: ChordInkLearnedTestFactory.checkpointDigest,
+            checkpointArtifactByteCount: 1,
+            modelArchitectureID: .dualViewV2LayoutPreserving,
+            developmentRecordsSHA256: ChordInkLearnedTestFactory.developmentRecordsDigest,
+            developmentSampleCount: 2,
+            developmentWriterCount: 1,
+            developmentSelectionAuthority: .boundDevelopmentWriterComparisonV4,
+            developmentSelectionReportSHA256: nil
+        )
+        XCTAssertThrowsError(
+            try ChordInkLearnedTestFactory.manifest(
+                trainingProvenance: missingBoundSelectionDigest
+            ).validate()
+        ) { error in
+            XCTAssertEqual(
+                error as? ChordInkModelManifestValidationError,
+                .invalidDevelopmentSelectionDigest
             )
         }
     }

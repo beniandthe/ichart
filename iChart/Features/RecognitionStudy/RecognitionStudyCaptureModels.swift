@@ -22,8 +22,9 @@ enum RecognitionStudyAuthorizationKind: String, Encodable, Hashable, Sendable {
     case externalOneUseV1 = "external-one-use-v1"
 }
 
-/// The external case is schema-reserved only. It can be parsed and validated,
-/// but capture envelopes reject it until an authority and transport exist.
+/// This legacy generic envelope remains local-engineering-only. Externally
+/// authorized collection uses `RecognitionStudyAuthorizedCaptureEnvelope`,
+/// whose dedicated contract binds the signed grant to the captured artifact.
 struct RecognitionStudyAuthorizationBinding:
     RecognitionStudyCanonicalJSONDocument,
     Hashable,

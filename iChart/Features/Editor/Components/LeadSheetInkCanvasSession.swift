@@ -189,6 +189,7 @@ struct LeadSheetInkSerializationRequest {
     var normalizesPersistentInk: Bool
     var capturesSnapshot: Bool
     var knownStrokeCount: Int? = nil
+    var capturesEmptyDrawingForEvaluation: Bool = false
 }
 
 struct LeadSheetInkSerializationResult {
@@ -196,6 +197,7 @@ struct LeadSheetInkSerializationResult {
     var inkSnapshot: LeadSheetInkDrawingSnapshot?
     var strokeCount: Int
     var durationMilliseconds: Double
+    var emptyDrawingDataForEvaluation: Data? = nil
 }
 
 struct LeadSheetInkSerializationCache {
@@ -258,7 +260,9 @@ enum LeadSheetInkSerialization {
                 ? LeadSheetInkDrawingSnapshot(drawing: request.drawing)
                 : nil,
             strokeCount: strokeCount,
-            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
+            emptyDrawingDataForEvaluation: request.capturesEmptyDrawingForEvaluation
+                && serialization.drawingData == nil ? request.drawing.dataRepresentation() : nil
         )
     }
 }

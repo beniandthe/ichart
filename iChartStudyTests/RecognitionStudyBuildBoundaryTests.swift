@@ -96,9 +96,26 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "iChart/Recognition/InkTrajectoryTypes.swift",
                 "iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift",
                 "iChart/Recognition/PencilKitInkAdapter.swift",
+                "iChart/Recognition/Learned/ChordInkFeatureSchema.swift",
+                "iChart/Recognition/Learned/ChordInkTrajectoryFeatureEncoder.swift",
+                "iChart/Recognition/Learned/ChordInkRasterizer.swift",
+                "iChart/Recognition/Learned/ChordInkLearnedFactorOutput.swift",
+                "iChart/Recognition/Learned/ChordInkModelArtifactManifest.swift",
+                "iChart/Recognition/Learned/ChordInkCompositionalDecoder.swift",
+                "iChart/Recognition/Learned/ChordInkLearnedRuntime.swift",
+                "iChart/Recognition/Learned/ChordInkCoreMLAdapter.swift",
                 "iChart/Shared/ChordNotation/ChordNotation.swift",
                 "iChart/Shared/ChordNotation/ChordNotationGrammar.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureGrant.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyAuthorizedCaptureModels.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureTransportModels.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureHTTPClient.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyPendingCaptureUploadStore.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyCaptureUploadCoordinator.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyConsentModels.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyConsentHTTPClient.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyConsentWithdrawalCoordinator.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyOutcomeModels.swift",
@@ -106,7 +123,8 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
                 "iChart/Features/RecognitionStudy/RecognitionStudyCanvasView.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyCaptureView.swift",
                 "iChart/Features/RecognitionStudy/RecognitionStudyVisionChordRecognizer.swift",
-                "iChart/Features/RecognitionStudy/RecognitionStudyVisionResultProvider.swift"
+                "iChart/Features/RecognitionStudy/RecognitionStudyVisionResultProvider.swift",
+                "iChart/Features/RecognitionStudy/RecognitionStudyLearnedResultProvider.swift"
             ]
         )
         for forbiddenPath in [
@@ -179,7 +197,7 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
             studyEntry.contains("RecognitionStudyCaptureView(")
         )
         XCTAssertTrue(
-            studyEntry.contains("RecognitionStudyVisionResultProvider()")
+            studyEntry.contains("RecognitionStudyResultProviderFactory.make()")
         )
         XCTAssertFalse(productionEntry.contains("RECOGNITION_STUDY"))
 
@@ -241,7 +259,20 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         let captureModels = try sourceText(
             at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
         )
-        let combined = canonicalValues + "\n" + captureModels
+        let captureGrant = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureGrant.swift"
+        )
+        let authorizedCaptureModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyAuthorizedCaptureModels.swift"
+        )
+        let captureTransportModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureTransportModels.swift"
+        )
+        let combined = canonicalValues
+            + "\n" + captureGrant
+            + "\n" + authorizedCaptureModels
+            + "\n" + captureTransportModels
+            + "\n" + captureModels
 
         XCTAssertEqual(
             canonicalValues
@@ -252,6 +283,27 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         )
         XCTAssertEqual(
             captureModels
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import Foundation"]
+        )
+        XCTAssertEqual(
+            captureGrant
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import CryptoKit", "import Foundation"]
+        )
+        XCTAssertEqual(
+            authorizedCaptureModels
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import Foundation"]
+        )
+        XCTAssertEqual(
+            captureTransportModels
                 .split(separator: "\n")
                 .map(String.init)
                 .filter { $0.hasPrefix("import ") },
@@ -283,6 +335,144 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         XCTAssertFalse(studyEntry.contains("RecognitionStudyPresentedSurface"))
         XCTAssertFalse(studyEntry.contains("RecognitionStudyLocalCaptureStore"))
         XCTAssertFalse(studyEntry.contains("PencilKitInkAdapter"))
+    }
+
+    func testAuthorizedHTTPClientIsInjectedAndRemainsUnwiredFromUI() throws {
+        let client = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureHTTPClient.swift"
+        )
+        let consentClient = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyConsentHTTPClient.swift"
+        )
+        let studyEntry = try sourceText(at: "iChart/App/RecognitionStudyApp.swift")
+        let captureView = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureView.swift"
+        )
+        let uploadCoordinator = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureUploadCoordinator.swift"
+        )
+        let withdrawalCoordinator = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyConsentWithdrawalCoordinator.swift"
+        )
+
+        XCTAssertTrue(client.contains("RecognitionStudyCaptureHTTPTransport"))
+        XCTAssertTrue(client.contains("RecognitionStudyNoRedirectDelegate"))
+        XCTAssertTrue(client.contains("maximumResponseByteCount"))
+        XCTAssertTrue(client.contains("trustedPublicKeysByID"))
+        XCTAssertTrue(client.contains("URLSessionConfiguration = .ephemeral"))
+        XCTAssertFalse(client.contains("UserDefaults"))
+        XCTAssertFalse(client.contains("FileManager"))
+        XCTAssertFalse(client.contains("Supabase"))
+        XCTAssertFalse(client.contains("Telemetry"))
+        XCTAssertFalse(client.contains("print("))
+        XCTAssertTrue(
+            consentClient.contains("RecognitionStudyConsentHTTPClient")
+        )
+        XCTAssertTrue(consentClient.contains("validateAcceptance(of: policy)"))
+        XCTAssertFalse(consentClient.contains("UserDefaults"))
+        XCTAssertFalse(consentClient.contains("FileManager"))
+        XCTAssertFalse(consentClient.contains("print("))
+        XCTAssertTrue(
+            uploadCoordinator.contains(
+                "actor RecognitionStudyCaptureUploadCoordinator"
+            )
+        )
+        XCTAssertTrue(uploadCoordinator.contains("AccessTokenProvider"))
+        XCTAssertTrue(uploadCoordinator.contains("store.enqueue("))
+        XCTAssertTrue(uploadCoordinator.contains("removeAcknowledged(by:"))
+        XCTAssertFalse(uploadCoordinator.contains("UserDefaults"))
+        XCTAssertFalse(uploadCoordinator.contains("Supabase"))
+        XCTAssertFalse(uploadCoordinator.contains("Telemetry"))
+        XCTAssertFalse(uploadCoordinator.contains("print("))
+        XCTAssertTrue(
+            withdrawalCoordinator.contains(
+                "actor RecognitionStudyConsentWithdrawalCoordinator"
+            )
+        )
+        XCTAssertTrue(
+            withdrawalCoordinator.contains(
+                "registerWithdrawalBarrierAndPurge("
+            )
+        )
+        XCTAssertTrue(
+            withdrawalCoordinator.contains("purgeAllPendingAndQuarantinedData")
+        )
+        XCTAssertTrue(withdrawalCoordinator.contains("AccessTokenProvider"))
+        XCTAssertFalse(withdrawalCoordinator.contains("UserDefaults"))
+        XCTAssertFalse(withdrawalCoordinator.contains("Supabase"))
+        XCTAssertFalse(withdrawalCoordinator.contains("Telemetry"))
+        XCTAssertFalse(withdrawalCoordinator.contains("print("))
+
+        for unwiredSource in [studyEntry, captureView] {
+            XCTAssertFalse(
+                unwiredSource.contains("RecognitionStudyCaptureHTTPClient")
+            )
+            XCTAssertFalse(
+                unwiredSource.contains("RecognitionStudyBoundedURLSessionTransport")
+            )
+            XCTAssertFalse(
+                unwiredSource.contains("RecognitionStudyConsentHTTPClient")
+            )
+            XCTAssertFalse(
+                unwiredSource.contains(
+                    "RecognitionStudyPendingCaptureUploadStore"
+                )
+            )
+            XCTAssertFalse(
+                unwiredSource.contains(
+                    "RecognitionStudyCaptureUploadCoordinator"
+                )
+            )
+            XCTAssertFalse(
+                unwiredSource.contains(
+                    "RecognitionStudyConsentWithdrawalCoordinator"
+                )
+            )
+        }
+    }
+
+    func testPendingUploadStoreIsCredentialFreeAndUnwired() throws {
+        let store = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyPendingCaptureUploadStore.swift"
+        )
+        XCTAssertEqual(
+            store
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix("import ") },
+            ["import Foundation"]
+        )
+        XCTAssertTrue(
+            store.contains("actor RecognitionStudyPendingCaptureUploadStore")
+        )
+        XCTAssertTrue(store.contains("RecognitionStudyPreparedCaptureUpload"))
+        XCTAssertTrue(store.contains("removeAcknowledged("))
+        XCTAssertTrue(store.contains("purgeAllPendingAndQuarantinedData"))
+        XCTAssertTrue(store.contains("registerWithdrawalBarrierAndPurge("))
+        XCTAssertTrue(store.contains("requireUploadsPermitted"))
+        XCTAssertTrue(store.contains("FileProtectionType.complete"))
+        XCTAssertTrue(store.contains("isExcludedFromBackup = true"))
+
+        for forbiddenReference in [
+            "URLSession",
+            "Bearer ",
+            "forHTTPHeaderField",
+            "accessToken",
+            "Supabase",
+            "Telemetry",
+            "PKCanvasView",
+            "PKDrawing",
+            "ChordInkRecognizer",
+            "WriterIndependentEvaluation",
+            "intendedChord",
+            "groundTruth",
+            "writerID"
+        ] {
+            XCTAssertFalse(
+                store.contains(forbiddenReference),
+                "Pending upload storage must not reference \(forbiddenReference)."
+            )
+        }
     }
 
     func testLocalStoreIsOfflineStudyOnlyAndHasNoGenericEnvelopeSaveAPI() throws {
@@ -353,6 +543,15 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
         )
         let captureModels = try sourceText(
             at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift"
+        )
+        let captureGrant = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureGrant.swift"
+        )
+        let authorizedCaptureModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyAuthorizedCaptureModels.swift"
+        )
+        let captureTransportModels = try sourceText(
+            at: "iChart/Features/RecognitionStudy/RecognitionStudyCaptureTransportModels.swift"
         )
 
         XCTAssertTrue(
@@ -544,6 +743,110 @@ final class RecognitionStudyBuildBoundaryTests: XCTestCase {
             captureModels.components(separatedBy: "Decodable").count - 1,
             6,
             "Only the six implementation-owned wire structs may be Decodable."
+        )
+
+        for documentName in [
+            "RecognitionStudyCaptureGrantPayload",
+            "RecognitionStudySignedCaptureGrant"
+        ] {
+            let header = try declarationHeader(
+                in: captureGrant,
+                kind: "struct",
+                named: documentName
+            )
+            XCTAssertTrue(
+                header.contains("RecognitionStudyCanonicalJSONDocument")
+            )
+            XCTAssertFalse(
+                header.contains("Decodable") || header.contains("Codable"),
+                "\(documentName) must not bypass canonical decoding."
+            )
+        }
+        XCTAssertFalse(captureGrant.contains("Codable"))
+        XCTAssertFalse(captureGrant.contains("init(from"))
+        XCTAssertFalse(captureGrant.contains("JSONDecoder"))
+        XCTAssertEqual(
+            captureGrant.components(separatedBy: "Decodable").count - 1,
+            5,
+            "Only the five implementation-owned grant wire structs may decode."
+        )
+        XCTAssertEqual(
+            captureGrant.components(
+                separatedBy: "static func decodeCanonicalData(_ data: Data) throws -> Self"
+            ).count - 1,
+            2,
+            "Both grant documents must expose only canonical decode entry points."
+        )
+
+        let authorizedEnvelopeHeader = try declarationHeader(
+            in: authorizedCaptureModels,
+            kind: "struct",
+            named: "RecognitionStudyAuthorizedCaptureEnvelope"
+        )
+        XCTAssertTrue(
+            authorizedEnvelopeHeader.contains(
+                "RecognitionStudyCanonicalJSONDocument"
+            )
+        )
+        XCTAssertFalse(
+            authorizedEnvelopeHeader.contains("Decodable")
+                || authorizedEnvelopeHeader.contains("Codable"),
+            "The authorized envelope must not bypass canonical decoding."
+        )
+        XCTAssertFalse(authorizedCaptureModels.contains("init(from"))
+        XCTAssertFalse(authorizedCaptureModels.contains("JSONDecoder"))
+        XCTAssertEqual(
+            authorizedCaptureModels.components(
+                separatedBy: "static func decodeCanonicalData(_ data: Data) throws -> Self"
+            ).count - 1,
+            1,
+            "The authorized envelope must expose one canonical decode entry."
+        )
+        XCTAssertTrue(
+            authorizedCaptureModels.contains(
+                "fileprivate enum RecognitionStudyAuthorizedCaptureWire"
+            )
+        )
+        XCTAssertEqual(
+            authorizedCaptureModels.components(
+                separatedBy: "struct Envelope: Decodable"
+            ).count - 1,
+            1,
+            "Only the implementation-owned envelope wire may decode the root."
+        )
+
+        let receiptHeader = try declarationHeader(
+            in: captureTransportModels,
+            kind: "struct",
+            named: "RecognitionStudyCaptureReceipt"
+        )
+        XCTAssertTrue(
+            receiptHeader.contains("RecognitionStudyCanonicalJSONDocument")
+        )
+        XCTAssertFalse(
+            receiptHeader.contains("Decodable") || receiptHeader.contains("Codable"),
+            "The receipt must not bypass canonical decoding."
+        )
+        XCTAssertFalse(captureTransportModels.contains("init(from"))
+        XCTAssertFalse(captureTransportModels.contains("JSONDecoder"))
+        XCTAssertEqual(
+            captureTransportModels.components(
+                separatedBy: "static func decodeCanonicalData(_ data: Data) throws -> Self"
+            ).count - 1,
+            1,
+            "The transport layer must expose one canonical receipt decode entry."
+        )
+        XCTAssertTrue(
+            captureTransportModels.contains(
+                "fileprivate enum RecognitionStudyCaptureTransportWire"
+            )
+        )
+        XCTAssertEqual(
+            captureTransportModels.components(
+                separatedBy: "struct Receipt: Decodable"
+            ).count - 1,
+            1,
+            "Only the implementation-owned receipt wire may decode transport responses."
         )
     }
 

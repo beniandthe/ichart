@@ -750,6 +750,246 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         XCTAssertNil(evidence)
     }
 
+    func testTemporalSymbolicContinuationPolicyAcrossRootsPausesGeometryScaleAndConfidence() {
+        let roots = ["A", "B", "C", "D", "E", "F", "G"]
+        let symbolicSuffixes = ["△", "°", "ø", "•", "+"]
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+        let confidenceLadders = [
+            (symbolic: 0.999, root: 0.970),
+            (symbolic: 0.985, root: 0.960),
+            (symbolic: 0.960, root: 0.940),
+            (symbolic: 0.970, root: 0.970)
+        ]
+
+        for scale in [0.75, 1.40] {
+            let currentRootBounds = InkBounds(
+                minX: 0,
+                minY: 10 * scale,
+                maxX: 34 * scale,
+                maxY: 60 * scale
+            )
+            let currentContentBounds = InkBounds(
+                minX: 0,
+                minY: 8 * scale,
+                maxX: currentRootBounds.maxX + 6 * scale,
+                maxY: 62 * scale
+            )
+            // This has enough size for root consideration, but ordinary strict
+            // and close spacing reject it. Timing is its only boundary evidence.
+            let closeSuffixBounds = InkBounds(
+                minX: currentRootBounds.maxX + 8 * scale,
+                minY: 14 * scale,
+                maxX: currentRootBounds.maxX + 32 * scale,
+                maxY: 42 * scale
+            )
+            let detachedRootBounds = InkBounds(
+                minX: currentRootBounds.maxX + 40 * scale,
+                minY: 10 * scale,
+                maxX: currentRootBounds.maxX + 74 * scale,
+                maxY: 60 * scale
+            )
+
+            for rootText in roots {
+                for symbolicText in symbolicSuffixes {
+                    for ladder in confidenceLadders {
+                        let rootCandidate = glyph(
+                            rootText,
+                            confidence: ladder.root,
+                            source: .heuristic
+                        )
+                        let candidates = [
+                            glyph(symbolicText, confidence: ladder.symbolic, source: .heuristic),
+                            rootCandidate
+                        ]
+
+                        for pause in pauses {
+                            let label = "root=\(rootText) symbolic=\(symbolicText)"
+                                + " pause=\(String(describing: pause)) scale=\(scale)"
+                                + " confidence=\(ladder)"
+                            let closeEvidence = ChordInkSequentialRootStartDetector.evidence(
+                                in: candidates,
+                                cluster: cluster(closeSuffixBounds),
+                                currentGroupBounds: currentRootBounds,
+                                previousGlyphWasSlashSeparator: false,
+                                currentGroupContentBounds: currentContentBounds,
+                                timeGapFromCurrentGroup: pause
+                            )
+                            XCTAssertNil(closeEvidence, label)
+
+                            let detachedEvidence = ChordInkSequentialRootStartDetector.evidence(
+                                in: candidates,
+                                cluster: cluster(detachedRootBounds),
+                                currentGroupBounds: currentRootBounds,
+                                previousGlyphWasSlashSeparator: false,
+                                currentGroupContentBounds: currentContentBounds,
+                                timeGapFromCurrentGroup: pause
+                            )
+                            // The existing `+` lookalike override is deliberately
+                            // strict: the leading plus must outrank the root, so
+                            // equal confidence still obeys tight continuation.
+                            let hasStrictPlusLookalikeOverride = symbolicText == "+"
+                                && ladder.symbolic > ladder.root
+                            let tightSymbolicContinuation = pause == 0.90
+                                && !hasStrictPlusLookalikeOverride
+                            if tightSymbolicContinuation {
+                                XCTAssertNil(detachedEvidence, label)
+                            } else {
+                                XCTAssertEqual(detachedEvidence?.text, rootText, label)
+                                XCTAssertEqual(detachedEvidence?.wasModifierLed, true, label)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testRootLeadingTemporalCandidatesKeepExistingBoundaryBehavior() {
+        let roots = ["A", "B", "C", "D", "E", "F", "G"]
+        let symbolicSuffixes = ["△", "°", "ø", "•", "+"]
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+
+        for scale in [0.75, 1.40] {
+            let currentRootBounds = InkBounds(
+                minX: 0,
+                minY: 10 * scale,
+                maxX: 34 * scale,
+                maxY: 60 * scale
+            )
+            let currentContentBounds = InkBounds(
+                minX: 0,
+                minY: 8 * scale,
+                maxX: currentRootBounds.maxX + 6 * scale,
+                maxY: 62 * scale
+            )
+            let closeBounds = InkBounds(
+                minX: currentRootBounds.maxX + 8 * scale,
+                minY: 14 * scale,
+                maxX: currentRootBounds.maxX + 32 * scale,
+                maxY: 42 * scale
+            )
+            let detachedBounds = InkBounds(
+                minX: currentRootBounds.maxX + 40 * scale,
+                minY: 10 * scale,
+                maxX: currentRootBounds.maxX + 74 * scale,
+                maxY: 60 * scale
+            )
+
+            for rootText in roots {
+                for symbolicText in symbolicSuffixes {
+                    let candidates = [
+                        glyph(rootText, confidence: 0.999, source: .heuristic),
+                        glyph(symbolicText, confidence: 0.970, source: .heuristic)
+                    ]
+                    for pause in pauses {
+                        let label = "root-leading root=\(rootText) symbolic=\(symbolicText)"
+                            + " pause=\(String(describing: pause)) scale=\(scale)"
+                        let closeEvidence = ChordInkSequentialRootStartDetector.evidence(
+                            in: candidates,
+                            cluster: cluster(closeBounds),
+                            currentGroupBounds: currentRootBounds,
+                            previousGlyphWasSlashSeparator: false,
+                            currentGroupContentBounds: currentContentBounds,
+                            timeGapFromCurrentGroup: pause
+                        )
+                        if pause.map({ $0 >= 1.25 }) == true {
+                            XCTAssertEqual(closeEvidence?.text, rootText, label)
+                            XCTAssertEqual(closeEvidence?.wasModifierLed, false, label)
+                        } else {
+                            XCTAssertNil(closeEvidence, label)
+                        }
+
+                        let detachedEvidence = ChordInkSequentialRootStartDetector.evidence(
+                            in: candidates,
+                            cluster: cluster(detachedBounds),
+                            currentGroupBounds: currentRootBounds,
+                            previousGlyphWasSlashSeparator: false,
+                            currentGroupContentBounds: currentContentBounds,
+                            timeGapFromCurrentGroup: pause
+                        )
+                        XCTAssertEqual(detachedEvidence?.text, rootText, label)
+                        XCTAssertEqual(detachedEvidence?.wasModifierLed, false, label)
+                    }
+                }
+            }
+        }
+    }
+
+    func testPreviousSlashStillSuppressesTemporalRootEvidence() {
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+
+        for rootText in ["A", "B", "C", "D", "E", "F", "G"] {
+            for symbolicText in ["△", "°", "ø", "•", "+"] {
+                for pause in pauses {
+                    let evidence = ChordInkSequentialRootStartDetector.evidence(
+                        in: [
+                            glyph(rootText, confidence: 0.999, source: .heuristic),
+                            glyph(symbolicText, confidence: 0.970, source: .heuristic)
+                        ],
+                        cluster: cluster(rootBounds(at: 100)),
+                        currentGroupBounds: rootBounds(at: 0),
+                        previousGlyphWasSlashSeparator: true,
+                        currentGroupContentBounds: rootBounds(at: 0),
+                        timeGapFromCurrentGroup: pause
+                    )
+                    XCTAssertNil(
+                        evidence,
+                        "slash root=\(rootText) symbolic=\(symbolicText) pause=\(String(describing: pause))"
+                    )
+                }
+            }
+        }
+    }
+
+    func testTemporalNonSymbolicLookalikeKeepsExistingRootEvidence() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("m", confidence: 0.990, source: .heuristic),
+                glyph("G", confidence: 0.970, source: .heuristic)
+            ],
+            cluster: cluster(InkBounds(minX: 42, minY: 14, maxX: 66, maxY: 42)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: InkBounds(minX: 0, minY: 8, maxX: 40, maxY: 62),
+            timeGapFromCurrentGroup: 1.50
+        )
+
+        XCTAssertEqual(evidence?.text, "G")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testTemporalSymbolicPolicyPreservesExplicitRootSizedLookalikeOverride() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("+", confidence: 0.999, source: .heuristic),
+                glyph("A", confidence: 0.998, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 115)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: InkBounds(minX: 0, minY: 8, maxX: 110, maxY: 62),
+            timeGapFromCurrentGroup: 1.50
+        )
+
+        XCTAssertEqual(evidence?.text, "A")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testHardPauseBeforeCloseMajorTrianglePreservesEverySourceStroke() throws {
+        let root = try scaledTimedTemplateStrokes("C", scale: 1, offsetX: 0, start: 0)
+        let suffix = try scaledTimedTemplateStrokes("△", scale: 1, offsetX: 40, start: 2.50)
+        let strokes = root + suffix
+
+        let groups = grouper.groups(for: indexed(strokes))
+        let summary = groups.map { group in
+            "root=\(group.rootText ?? "nil") bounds=\(group.bounds) strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+
+        XCTAssertEqual(groups.count, 1, summary)
+        XCTAssertEqual(groups.first?.rootText, "C", summary)
+        XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(strokes.indices), summary)
+    }
+
     func testLongPauseInsideChordDoesNotSplitSuffixOnlyTemporalRun() throws {
         let root = try XCTUnwrap(templateStrokes("C", offsetX: 0).first)
         let suffix = try XCTUnwrap(templateStrokes("7", offsetX: 0).first)

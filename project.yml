@@ -88,6 +88,11 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+    postBuildScripts:
+      - path: scripts/embed_personal_comparison.sh
+        name: Embed opted-in Debug personal ML comparison
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
   iChartTests:
     type: bundle.unit-test
     platform: iOS
@@ -134,9 +139,26 @@ targets:
       - path: iChart/Recognition/InkTrajectoryTypes.swift
       - path: iChart/Recognition/ChordInkCanonicalTrajectoryPacket.swift
       - path: iChart/Recognition/PencilKitInkAdapter.swift
+      - path: iChart/Recognition/Learned/ChordInkFeatureSchema.swift
+      - path: iChart/Recognition/Learned/ChordInkTrajectoryFeatureEncoder.swift
+      - path: iChart/Recognition/Learned/ChordInkRasterizer.swift
+      - path: iChart/Recognition/Learned/ChordInkLearnedFactorOutput.swift
+      - path: iChart/Recognition/Learned/ChordInkModelArtifactManifest.swift
+      - path: iChart/Recognition/Learned/ChordInkCompositionalDecoder.swift
+      - path: iChart/Recognition/Learned/ChordInkLearnedRuntime.swift
+      - path: iChart/Recognition/Learned/ChordInkCoreMLAdapter.swift
       - path: iChart/Shared/ChordNotation/ChordNotation.swift
       - path: iChart/Shared/ChordNotation/ChordNotationGrammar.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCanonicalValues.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureGrant.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyAuthorizedCaptureModels.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureTransportModels.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureHTTPClient.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyPendingCaptureUploadStore.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureUploadCoordinator.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyConsentModels.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyConsentHTTPClient.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyConsentWithdrawalCoordinator.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureModels.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyLocalCaptureStore.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyOutcomeModels.swift
@@ -145,6 +167,7 @@ targets:
       - path: iChart/Features/RecognitionStudy/RecognitionStudyCaptureView.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyVisionChordRecognizer.swift
       - path: iChart/Features/RecognitionStudy/RecognitionStudyVisionResultProvider.swift
+      - path: iChart/Features/RecognitionStudy/RecognitionStudyLearnedResultProvider.swift
   RecognitionStudyTests:
     type: bundle.unit-test
     platform: iOS

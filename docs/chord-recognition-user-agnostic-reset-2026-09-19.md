@@ -242,10 +242,19 @@ after a revocation or registry update instead of remaining replayable forever.
 
 The validator does not itself discover visual near-neighbors or query a consent
 backend. Those are explicit upstream evaluator requirements, represented by the
-versioned leakage registry and protected consent-ledger snapshot. Until the
-collection service, registry builder, near-neighbor scanner, and production key
-custody exist, the schema is a fail-closed contract—not evidence that the checks
-have been run on real study data.
+versioned leakage registry and protected consent-ledger snapshot. This branch
+now includes a bounded exhaustive `near-neighbor-v1` candidate scanner over
+human lineage roots. It validates and binds every artifact, is label-blind, and
+emits exact, high-similarity, and manual-review pairs, but it deliberately does
+not itself assign clusters or declare a corpus clean. A second command now
+recomputes the scan, requires complete dual-independent review, rejects
+digest-identical splits and transitive contradictions, and deterministically
+prepares cluster assignments. That receipt is deliberately unsigned and has no
+corpus authority. Until the collection service authenticates reviewer
+commitments, builds and signs the protected all-cohort registry, and operates
+on real production data with production key custody, these tools remain
+fail-closed infrastructure—not evidence that leakage checks have been resolved
+on real study data.
 
 ## Capture and ground truth
 
@@ -441,9 +450,15 @@ Ordinary telemetry must remain separate.
    eligible-membership reconciliation, service-stable cross-dataset person
    linkage, global role/session leakage checks, full-registry geometry leakage
    checks, consent-to-writer/person/scope/dataset binding, explicit v2 capture
-   metadata, and registry-to-sample binding; the real near-neighbor scanner,
-   protected cohort registry, consent service, and production key custody remain
-   to be built.**
+   metadata, and registry-to-sample binding. A fail-closed authenticated consent
+   ledger and raw-capture authorization service now exist in the local Supabase
+   stack. A bounded exhaustive, label-blind near-neighbor candidate scanner now
+   binds the full record/artifact set and emits immutable review pairs without
+   qualifying the corpus. A strict resolver requires complete dual-independent
+   pair decisions and prepares deterministic cluster assignments, but the
+   receipt is unsigned and non-authoritative. No reviewed consent-policy row,
+   deployed collection environment, authenticated reviewer workflow, protected
+   signed cohort registry, real study scan, or production key custody exists.**
 3. Define a signed aggregate evaluation receipt and isolated evaluator
    interface. **The aggregate schema, cryptographic verification, artifact/split
    binding, signed/current ground-truth registry contract, dataset-component and
@@ -481,14 +496,37 @@ Ordinary telemetry must remain separate.
    **An isolated, local-only Recognition Study engineering app is implemented
    with prompted capture, lossless trajectory storage, base-result review,
    explicit execution-error/ambiguity/technical-failure outcomes, crash-safe
-   recovery, and correction/adaptation fixed off. A strict whole-session intake
-   command now verifies the frozen ten-prompt plan, every local commit/digest
-   binding, source strata, semantic outcome, and deterministic feature artifact.
+   recovery, correction/adaptation fixed off, and bounded structured
+   end-to-end provider-call latency for every completed recognizer observation.
+   The current outcome v2 contract requires that latency for non-technical
+   observations and forbids it for interrupted `not-run` captures, while the
+   importer preserves canonical latency-free v1 compatibility. A strict
+   technical-failure result now separates configuration/inference errors from
+   genuine no-read predictions: failed runs must be excluded, retain their
+   saved ink, and cannot enter the comparable recognition count. The
+   whole-session intake command now verifies the frozen ten-prompt plan, every
+   local commit/digest binding, source strata, semantic outcome, and
+   deterministic feature artifact.
    Its receipt is mechanically validated but explicitly ineligible for corpus,
-   training, calibration, and evaluation use. It intentionally cannot claim
-   consent, provenance, ground truth, corpus eligibility, or writer independence.
-   The consented collection service and independently adjudicated corpus remain
-   external work.**
+   training, calibration, and evaluation use. The local Supabase stack now has
+   an authenticated, version-bound consent ledger, server-authored signed
+   one-use capture grants, strict raw-capture ingest, private-storage metadata,
+   retention/deletion controls, and replay-safe receipts. The isolated Swift
+   target now has strict signed-grant, authorized-envelope, upload, and receipt
+   contracts plus a bounded, no-redirect, injected HTTP client. Exact prepared
+   upload bytes now have a protected, backup-excluded, quota-bound, crash-safe
+   retry queue with receipt-bound removal. Those parts are joined by an isolated
+   coordinator that durably queues before any network attempt, requests a fresh
+   injected token per attempt, stops in stable order on failure, and removes
+   bytes only after a bound receipt. Withdrawal now installs a protected,
+   credential-free durable barrier before purging all queued raw ink, retries
+   the same server idempotency identity with a fresh token, and keeps uploads
+   blocked after a bound acknowledgement. Those
+   components remain intentionally unwired from the Study UI: there is no
+   reviewed consent/privacy policy text, active policy row, auth/consent
+   surface, deployment, or independently adjudicated corpus. The existing local
+   engineering captures still cannot claim consent, provenance, ground truth,
+   corpus eligibility, or writer independence.**
 7. Split trust into structured dispositions and fix all-draft review batching.
    **The learned-route contracts now represent calibrated auto-accept,
    confirmation, candidate review, and no-read separately and fail closed when
@@ -505,16 +543,63 @@ Ordinary telemetry must remain separate.
    sole production authority.**
 9. Establish classical, raster, trajectory, and dual-view shadow baselines.
    **Implemented as deterministic Python comparison baselines and ablations,
-   including a development-writer-only DTW baseline and an external legacy
-   result adapter. They have not been evaluated on a real writer-disjoint
-   corpus, so this is executable infrastructure rather than a quality result.**
+   including a development-writer-only DTW baseline, an external legacy result
+   adapter, and grouped development-writer cross-validation across the frozen
+   raster-only, trajectory-only, and dual-view candidates. Each architecture
+   now competes under both writer-only loss and a versioned categorical
+   inverse-frequency treatment, so factor imbalance is selected by held-out
+   development writers instead of assumed. Model comparison uses writer-macro
+   top-path accuracy across fixed seeds and cannot load calibration or sealed
+   feature bytes. It has not been run on a real writer-disjoint corpus, so this
+   is executable infrastructure rather than a quality result. Every selectable
+   architecture can now be trained, checkpointed, reloaded, and exported
+   through the shared two-input interface, eliminating the prior dead end where
+   an ablation could win but only the dual-view family could be frozen. The
+   canonical comparison report is now strictly revalidated at training time;
+   its corpus/fold commitments, run coverage, writer-weighted aggregates,
+   winner, tie-break order, and optimization contracts must reconstruct. The
+   selected architecture/loss/config are derived instead of copied, the first
+   report-declared comparison seed is frozen as the final-training seed, and
+   the exact report-byte digest is checkpoint-bound. Post-comparison seed
+   substitution is refused. Exploratory training without a report is
+   explicitly marked unselected, and promotion-gate evaluation now refuses
+   that unselected path even if it has negative examples. Evaluation also
+   revalidates the actual canonical selection report, its exact byte digest,
+   winner, optimization settings, and frozen seed before any predictions;
+   copied checkpoint claims or a different valid report cannot substitute for
+   that evidence. Supplying a report to descriptive evaluation applies the
+   same binding check.**
 10. Train and convert the leading model to Core ML with fixed, versioned input
    encoding and an explicit unknown class. **The strict corpus-v2 loader,
-   deterministic dual-view training/checkpoint pipeline, no-read supervision,
+   deterministic selectable-model training/checkpoint pipeline, no-read supervision,
    versioned Swift feature/runtime contracts, calibration command, and Core ML
-   export/compile smoke path are implemented. No eligible independent-writer
-   corpus, trained weights, calibrated artifact, or promoted production model
-   exists yet.**
+   export are implemented. The v2 model now preserves coarse temporal and
+   spatial layout instead of globally averaging away root/suffix/slash-bass
+   position, binds that architecture in every checkpoint, and balances each
+   active factor-head loss by development writer so prolific writers cannot
+   dominate the objective. A versioned global mini-batch normalization keeps
+   those weights intact instead of renormalizing them inside each shuffled
+   batch. The checkpoint also binds whether the development-
+   selected categorical inverse-frequency treatment is enabled; this is an
+   explicit comparison candidate rather than an accuracy claim. Development
+   training now also includes versioned, deterministic same-writer derivatives
+   for whole-stroke construction order and stroke direction; their invalidated
+   timing is cleared, every original capture has one fixed share of its
+   writer's loss budget, and derivatives divide that source share, so extra
+   variants cannot inflate a capture or masquerade as independent evidence. The
+   export gate compiles the exact model, declares
+   and validates the frozen Core ML interface, runs deterministic CPU-only
+   PyTorch-to-Core-ML parity probes, and executes the artifact through the
+   production Swift adapter. Manifest v4 also binds the compiled artifact to
+   the exact training-checkpoint digest/size, checkpoint contract, selected
+   architecture, and development-record digest/sample/writer counts; Python
+   export and Swift runtime both fail closed on missing or malformed
+   provenance. This is traceability, not a quality result. No eligible independent-writer corpus, trained
+   production weights, calibrated artifact, or promoted production model
+   exists yet. Model commands now open only their role's feature files after
+   validating the full metadata/manifest boundary; export needs no raw corpus
+   features. The CLI no longer opens held-out handwriting as part of training
+   preflight.**
 11. Calibrate on unseen writers, then run the sealed holdout once per frozen
    candidate. **Calibration, writer-micro/writer-macro reporting, selective-risk
    metrics, signed receipt validation, and one-use holdout authorization
@@ -523,14 +608,24 @@ Ordinary telemetry must remain separate.
    holdout has been collected or run.**
 12. Run multi-writer physical-iPad acceptance in both chart styles, followed by
     persistence, erasure, responsiveness, and release regression gates.
-    **Not started: the isolated Study target builds for arm64, but it has not
-    been signed and run on the physical iPad, and no multi-writer acceptance
-    evidence exists.**
+    **Not complete: the current isolated Study target was built for arm64,
+    signature-verified, installed, and launched on Ben's iPad on 2026-09-26.
+    That proves startup of the engineering Study app with its Vision baseline,
+    not handwriting acceptance or a trained learned-model run. No multi-writer
+    acceptance evidence exists. See the dated build-pass record for the exact
+    gates and remaining data requirements.**
 
-The software-side foundation through model export is therefore implemented and
-testable. Recognition-quality promotion remains deliberately blocked on new
-people, independently adjudicated data, a frozen trained artifact, calibration,
-one sealed evaluation, and physical-device acceptance. Passing repository tests
+The software-side foundation through model export, bounded near-neighbor
+candidate generation, deterministic dual-review cluster preparation, and the
+isolated authorized transport boundary is therefore implemented and testable.
+End-to-end collection is not complete merely because the server and client
+halves exist: reviewed consent policy, authentication/consent UI, production
+lifecycle wiring (including background scheduling), authenticated leakage
+adjudication and signed registry operations, deployment, and
+collection-operations evidence remain missing.
+Recognition-quality promotion remains deliberately blocked on new people,
+independently adjudicated data, a frozen trained artifact, calibration, one
+sealed evaluation, and physical-device acceptance. Passing repository tests
 must not be reported as completion of those external evidence gates.
 
 ## Primary references

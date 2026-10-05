@@ -9,6 +9,7 @@ enum RecognitionStudyOutcomeContractError: Error, Equatable {
     case invalidAdaptedOutcome(String)
     case invalidCaptureBinding(String)
     case invalidTimestamp(Int64)
+    case invalidRecognitionLatencyMicroseconds(UInt64?)
 }
 
 enum RecognitionStudyOutcomeArtifactKind: String, Encodable, Sendable {
@@ -36,7 +37,8 @@ enum RecognitionStudyWriterConfirmationState: String, Encodable, Sendable {
     case humanAmbiguous = "human-ambiguous"
     /// The capture cannot support a recognition comparison because the study
     /// flow was interrupted before its exact recognizer observation was
-    /// durably committed. The trajectory remains available for local
+    /// durably committed, or the recognizer could not complete execution.
+    /// The trajectory remains available for local
     /// diagnostics, but this state is never model supervision or accuracy
     /// evidence.
     case technicalFailure = "technical-failure"
@@ -185,6 +187,8 @@ struct RecognitionStudyBaseRecognizerOutcome:
     Equatable,
     Sendable
 {
+    static let maximumLatencyMicroseconds: UInt64 = 10 * 60 * 1_000_000
+
     let recognizerID: RecognitionStudyPrintableASCII
     let recognizerVersion: RecognitionStudyPrintableASCII
     let disposition: RecognitionStudyBaseDisposition
@@ -193,12 +197,16 @@ struct RecognitionStudyBaseRecognizerOutcome:
     /// grammar. No alias repair, fuzzy normalization, or prompt-assisted parse
     /// is permitted here.
     let canonicalCandidate: RecognitionStudyCanonicalChord?
+    /// End-to-end elapsed time for the study provider call, including feature
+    /// preparation, inference, and decoding. Legacy v1 outcomes omit it.
+    let latencyMicroseconds: UInt64?
 
     init(
         recognizerID: String,
         recognizerVersion: String,
         disposition: RecognitionStudyBaseDisposition,
-        candidate: String?
+        candidate: String?,
+        latencyMicroseconds: UInt64? = nil
     ) throws {
         self.recognizerID = try RecognitionStudyPrintableASCII(
             recognizerID,
@@ -216,6 +224,7 @@ struct RecognitionStudyBaseRecognizerOutcome:
             }
             return try RecognitionStudyCanonicalChord(value)
         }
+        self.latencyMicroseconds = latencyMicroseconds
         try validateContract()
     }
 
@@ -231,12 +240,18 @@ struct RecognitionStudyBaseRecognizerOutcome:
         )
         candidate = wire.candidate
         canonicalCandidate = wire.canonicalCandidate
+        latencyMicroseconds = wire.latencyMicroseconds
         try validateContract()
     }
 
     func validateContract() throws {
         try recognizerID.require(maximumUTF8ByteCount: 64)
         try recognizerVersion.require(maximumUTF8ByteCount: 64)
+        if let latencyMicroseconds,
+           latencyMicroseconds > Self.maximumLatencyMicroseconds {
+            throw RecognitionStudyOutcomeContractError
+                .invalidRecognitionLatencyMicroseconds(latencyMicroseconds)
+        }
         if let canonicalCandidate {
             guard candidate?.rawValue == canonicalCandidate.rawValue else {
                 throw RecognitionStudyOutcomeContractError.invalidBaseOutcome(
@@ -259,6 +274,11 @@ struct RecognitionStudyBaseRecognizerOutcome:
                     "no-read and not-run must not carry a candidate"
                 )
             }
+        }
+        if disposition == .notRun, latencyMicroseconds != nil {
+            throw RecognitionStudyOutcomeContractError.invalidBaseOutcome(
+                "not-run must not carry recognition latency"
+            )
         }
     }
 }
@@ -333,8 +353,10 @@ struct RecognitionStudySemanticOutcomeArtifact:
     Equatable,
     Sendable
 {
-    static let currentSchemaVersion =
+    static let legacySchemaVersion =
         "recognition-study-semantic-outcome-v1"
+    static let currentSchemaVersion =
+        "recognition-study-semantic-outcome-v2"
     static let maximumCanonicalJSONByteCount = 64 * 1024
 
     let schemaVersion: RecognitionStudyPrintableASCII
@@ -453,11 +475,14 @@ struct RecognitionStudySemanticOutcomeArtifact:
     }
 
     func validateContract() throws {
-        try requireFixed(
-            schemaVersion.rawValue,
-            expected: Self.currentSchemaVersion,
-            field: "schemaVersion"
-        )
+        guard schemaVersion.rawValue == Self.legacySchemaVersion
+                || schemaVersion.rawValue == Self.currentSchemaVersion else {
+            throw RecognitionStudyOutcomeContractError.fixedValueMismatch(
+                field: "schemaVersion",
+                expected: "\(Self.legacySchemaVersion) or \(Self.currentSchemaVersion)",
+                actual: schemaVersion.rawValue
+            )
+        }
         try requireFixed(
             artifactKind.rawValue,
             expected: RecognitionStudyOutcomeArtifactKind
@@ -488,6 +513,32 @@ struct RecognitionStudySemanticOutcomeArtifact:
         }
         try baseRecognizerOutcome.validateContract()
         try adaptedRecognizerOutcome.validateContract()
+        switch schemaVersion.rawValue {
+        case Self.legacySchemaVersion:
+            guard baseRecognizerOutcome.latencyMicroseconds == nil else {
+                throw RecognitionStudyOutcomeContractError.invalidBaseOutcome(
+                    "legacy v1 outcomes must not carry recognition latency"
+                )
+            }
+        case Self.currentSchemaVersion:
+            if promptOutcome.writerConfirmationState == .technicalFailure {
+                guard baseRecognizerOutcome.disposition == .notRun,
+                      baseRecognizerOutcome.latencyMicroseconds == nil else {
+                    throw RecognitionStudyOutcomeContractError.invalidBaseOutcome(
+                        "technical failure requires not-run with no latency"
+                    )
+                }
+            } else {
+                guard baseRecognizerOutcome.disposition != .notRun,
+                      baseRecognizerOutcome.latencyMicroseconds != nil else {
+                    throw RecognitionStudyOutcomeContractError.invalidBaseOutcome(
+                        "v2 recognizer observations require structured latency"
+                    )
+                }
+            }
+        default:
+            preconditionFailure("schema version was checked above")
+        }
     }
 
     func validateBindings(
@@ -542,6 +593,7 @@ fileprivate enum RecognitionStudyOutcomeWire {
         let disposition: String
         let candidate: RecognitionStudyCandidateText?
         let canonicalCandidate: RecognitionStudyCanonicalChord?
+        let latencyMicroseconds: UInt64?
     }
 
     struct AdaptedRecognizerOutcome: Decodable {

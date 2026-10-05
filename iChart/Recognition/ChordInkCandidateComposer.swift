@@ -37,7 +37,14 @@ struct ChordInkCandidateComposer {
     }
 
     func composeDetailed(glyphCandidates columns: [[GlyphCandidate]]) -> ChordInkCandidateCompositionResult {
-        let sortedColumns = columns.map(\.sortedByConfidence)
+        let sortedColumns = columns.map { column in
+            ChordRecognitionDomain.projectTopRanked(column.sortedByConfidence, label: { $0.text })
+        }
+        // A rejected or missing symbol still owns its place in the complete
+        // written chord. Do not drop it and manufacture a shorter read.
+        guard !sortedColumns.isEmpty, sortedColumns.allSatisfy({ !$0.isEmpty }) else {
+            return emptyCompositionResult()
+        }
         let selectionPolicy = ChordInkCandidateSelectionPolicy(
             maxAlternativesPerCluster: configuration.maxAlternativesPerCluster
         )
@@ -45,19 +52,9 @@ struct ChordInkCandidateComposer {
             .map { index in
                 selectionPolicy.selectedGlyphCandidates(forColumnAt: index, in: sortedColumns)
             }
-            .filter { !$0.isEmpty }
 
-        guard !candidateColumns.isEmpty else {
-            return ChordInkCandidateCompositionResult(
-                candidates: [],
-                metrics: ChordInkCandidateCompositionMetrics(
-                    selectedColumnCount: 0,
-                    generatedSequenceCount: 0,
-                    returnedCandidateCount: 0,
-                    maxGeneratedSequences: configuration.maxGeneratedSequences,
-                    hitGeneratedSequenceLimit: false
-                )
-            )
+        guard candidateColumns.allSatisfy({ !$0.isEmpty }) else {
+            return emptyCompositionResult()
         }
 
         var bestCandidatesByText: [String: ChordInkCandidate] = [:]
@@ -128,6 +125,19 @@ struct ChordInkCandidateComposer {
                 returnedCandidateCount: candidates.count,
                 maxGeneratedSequences: configuration.maxGeneratedSequences,
                 hitGeneratedSequenceLimit: hitGeneratedSequenceLimit
+            )
+        )
+    }
+
+    private func emptyCompositionResult() -> ChordInkCandidateCompositionResult {
+        ChordInkCandidateCompositionResult(
+            candidates: [],
+            metrics: ChordInkCandidateCompositionMetrics(
+                selectedColumnCount: 0,
+                generatedSequenceCount: 0,
+                returnedCandidateCount: 0,
+                maxGeneratedSequences: configuration.maxGeneratedSequences,
+                hitGeneratedSequenceLimit: false
             )
         )
     }

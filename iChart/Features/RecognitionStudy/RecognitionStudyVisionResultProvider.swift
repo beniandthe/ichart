@@ -7,7 +7,7 @@ struct RecognitionStudyVisionResultProvider:
     RecognitionStudyLocalResultProviding
 {
     let recognizerID = "apple-vision-text-baseline"
-    let recognizerVersion = "apple-vision-text-baseline-v1"
+    let recognizerVersion = "apple-vision-text-baseline-v2-strict-display-domain"
 
     private let recognizer: RecognitionStudyVisionChordRecognizer
 
@@ -36,7 +36,7 @@ struct RecognitionStudyVisionResultProvider:
                 elapsedMilliseconds: elapsedMilliseconds
             )
         } catch {
-            return .noRead(
+            return .technicalFailure(
                 detail: "The local Vision baseline could not process this ink. Nothing was accepted."
             )
         }
@@ -50,8 +50,13 @@ struct RecognitionStudyVisionResultProvider:
 
         switch output.decision {
         case let .accepted(chord, confidenceFloor):
+            guard let candidate = RecognitionStudyCanonicalChordNormalizer().normalizedChord(from: chord) else {
+                return .noRead(
+                    detail: "Vision returned no complete candidate in the strict chord grammar (\(elapsedText)). Nothing was accepted."
+                )
+            }
             return .review(
-                candidate: chord,
+                candidate: candidate,
                 detail: "Uncalibrated baseline candidate (raw Vision floor \(Self.percent(confidenceFloor)), \(elapsedText)). Review only; this build never auto-accepts it."
             )
 
@@ -62,13 +67,12 @@ struct RecognitionStudyVisionResultProvider:
             )
 
         case .noRead(.noGrammarCandidate):
-            return .review(
-                candidate: output.candidates.first?.rawText,
-                detail: "Vision returned text outside the strict chord grammar (\(elapsedText)). It was not accepted."
+            return .noRead(
+                detail: "Vision returned text outside the strict chord grammar (\(elapsedText)). Nothing was accepted."
             )
 
         case .noRead(.noInk):
-            return .noRead(detail: "No ink reached the baseline.")
+            return .technicalFailure(detail: "No ink reached the baseline.")
 
         case .noRead(.noVisionText):
             return .noRead(
@@ -80,8 +84,15 @@ struct RecognitionStudyVisionResultProvider:
     private static func bestDisplayCandidate(
         in candidates: [RecognitionStudyVisionChordRecognizer.Candidate]
     ) -> String? {
-        guard let first = candidates.first else { return nil }
-        return first.normalizedChord ?? first.rawText
+        guard let first = candidates.first,
+              let normalized = first.normalizedChord,
+              let rawCanonical = RecognitionStudyCanonicalChordNormalizer().normalizedChord(from: first.rawText),
+              RecognitionStudyCanonicalChordNormalizer().normalizedChord(from: normalized) == rawCanonical else {
+            return nil
+        }
+        // Never display arbitrary OCR, or promote a valid runner-up past an
+        // invalid leader. Raw candidates remain in the recognizer diagnostics.
+        return rawCanonical
     }
 
     private static func percent(_ confidence: Float) -> String {

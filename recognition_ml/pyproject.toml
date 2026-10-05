@@ -6,18 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "ichart-recognition-ml"
 version = "0.1.0"
 description = "Fail-closed contracts for writer-independent iChart chord-recognition research"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 training = [
-    "numpy>=1.24",
-    "torch>=2.2",
+    "numpy==2.0.2",
+    "torch==2.7.0",
+    "Pillow==11.3.0",
 ]
 export = [
-    "numpy>=1.24",
-    "torch>=2.2",
-    "coremltools>=8.0",
+    "numpy==2.0.2",
+    "torch==2.7.0",
+    "coremltools==9.0",
+    "Pillow==11.3.0",
 ]
 
 [project.scripts]

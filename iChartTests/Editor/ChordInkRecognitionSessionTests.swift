@@ -5,6 +5,139 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRecognitionSessionTests: XCTestCase {
+    func testEditReviewIsRequestLocalEvenOnCacheHitsAndPairedEvaluation() {
+        for flags in [[false, true, false], [true, false]] {
+            let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
+            let session = ChordInkRecognitionSession(queue: .init(label: "edit-review-cache"), recognizer: recognizer)
+            var request = Self.request(strokeCount: 1)
+            request.evaluationContext = .init(runID: UUID(), profile: PersonalInkSnapshot(profile: .init()))
+            for (index, requiresReview) in flags.enumerated() {
+                request.requiresEditReview = requiresReview
+                let done = expectation(description: "review flag \(requiresReview)")
+                session.start(request: request) { payload in
+                    XCTAssertEqual(payload.result.match?.displayText, "C")
+                    XCTAssertEqual(payload.result.requiresEditReview, requiresReview)
+                    XCTAssertEqual(payload.timing.cacheHit, index > 0)
+                    let action = requiresReview ? "confirm" : "trusted"
+                    XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: payload.result).action.rawValue, action)
+                    XCTAssertEqual(payload.evaluationPrediction?.baselineAction, action)
+                    XCTAssertEqual(payload.evaluationPrediction?.personalizedAction, action)
+                    XCTAssertEqual(payload.evaluationPrediction?.baselineRecognitionAction, "trusted")
+                    done.fulfill()
+                }
+                wait(for: [done], timeout: 3)
+            }
+            XCTAssertEqual(recognizer.receivedStrokeCounts, [1])
+        }
+    }
+
+    func testEditReviewOnCacheHitCannotEnableAConflictingPersonalOverride() throws {
+        var request = Self.request(strokeCount: 1)
+        var profile = PersonalInkProfile()
+        profile.isEnabled = true
+        try profile.learn(strokes: request.strokes, label: "G", kind: .chord, source: .explicitCorrection)
+        request.evaluationContext = .init(runID: UUID(), profile: PersonalInkSnapshot(profile: profile))
+        let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
+        let session = ChordInkRecognitionSession(queue: .init(label: "edit-personal-cache"), recognizer: recognizer)
+        for (index, edited) in [false, true, false].enumerated() {
+            request.requiresEditReview = edited
+            let done = expectation(description: "edit and personal arbitration")
+            session.start(request: request) { payload in
+                XCTAssertEqual(payload.timing.cacheHit, index > 0)
+                XCTAssertEqual(payload.result.personalSuggestion?.text, "G")
+                XCTAssertEqual(payload.result.requiresEditReview, edited)
+                XCTAssertEqual(payload.evaluationPrediction?.baseline, "C")
+                XCTAssertEqual(payload.evaluationPrediction?.personalized, "C")
+                XCTAssertEqual(payload.evaluationPrediction?.baselineRecognitionAction, "trusted")
+                XCTAssertEqual(payload.evaluationPrediction?.personalArbitration, "protectedBaseline")
+                XCTAssertEqual(payload.evaluationPrediction?.personalizedAction, edited ? "confirm" : "trusted")
+                done.fulfill()
+            }
+            wait(for: [done], timeout: 3)
+        }
+        XCTAssertEqual(recognizer.receivedStrokeCounts, [1])
+    }
+
+    func testEvaluationUsesFrozenProfileAndRecordsBothPredictionsWithoutChangingNativeTrust() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = PersonalInkProfileStore(url: folder.appendingPathComponent("profile.json"))
+        var request = Self.request(strokeCount: 1)
+        var frozenProfile = PersonalInkProfile(); frozenProfile.isEnabled = true
+        try frozenProfile.learn(strokes: request.strokes, label: "G", kind: .chord, source: .setup)
+        let runID = UUID()
+        request.evaluationContext = .init(runID: runID, profile: PersonalInkSnapshot(profile: frozenProfile))
+        try store.update {
+            $0.isEnabled = true
+            try $0.learn(strokes: request.strokes, label: "A", kind: .chord, source: .setup)
+        }
+        let session = ChordInkRecognitionSession(queue: .init(label: "evaluation-frozen"),
+            recognizer: StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)]), personalProfile: store)
+        let done = expectation(description: "paired evidence")
+        session.start(request: request) { payload in
+            XCTAssertEqual(payload.result.match?.displayText, "C")
+            XCTAssertEqual(payload.result.personalSuggestion?.text, "G", "Must use frozen G, not newly learned A")
+            XCTAssertEqual(payload.evaluationPrediction?.baseline, "C")
+            XCTAssertEqual(payload.evaluationPrediction?.personalized, "C")
+            XCTAssertEqual(payload.evaluationPrediction?.personalizedAction, "trusted")
+            XCTAssertEqual(payload.evaluationPrediction?.personalSuggestion?.text, "G")
+            XCTAssertEqual(payload.evaluationPrediction?.personalArbitration, "protectedBaseline")
+            XCTAssertEqual(payload.evaluationPrediction?.runID, runID)
+            XCTAssertEqual(payload.evaluationPrediction?.knownInk, true)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 3)
+        request.evaluationContext = nil
+        let normal = expectation(description: "normal profile restored")
+        session.start(request: request) { payload in
+            XCTAssertEqual(payload.result.personalSuggestion?.text, "A")
+            XCTAssertNil(payload.evaluationPrediction)
+            normal.fulfill()
+        }
+        wait(for: [normal], timeout: 3)
+    }
+
+    func testProfileChangesInvalidatePersonalChoicesWithoutRepeatingBaseRecognition() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = PersonalInkProfileStore(url: folder.appendingPathComponent("profile.json"))
+        let request = Self.request(strokeCount: 1)
+        let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
+        let session = ChordInkRecognitionSession(queue: DispatchQueue(label: "personal-cache-test"), recognizer: recognizer, personalProfile: store)
+        let first = expectation(description: "base")
+        session.start(request: request) { payload in
+            XCTAssertNil(payload.result.personalSuggestion)
+            first.fulfill()
+        }
+        wait(for: [first], timeout: 2)
+        try store.update {
+            $0.isEnabled = true
+            try $0.learn(strokes: request.strokes, label: "G", kind: .chord, source: .setup)
+        }
+        let second = expectation(description: "personalized")
+        session.start(request: request) { payload in
+            XCTAssertTrue(payload.timing.cacheHit)
+            XCTAssertEqual(payload.result.match?.displayText, "C")
+            XCTAssertEqual(payload.result.personalSuggestion?.text, "G")
+            let pending = PendingChordInkConfirmation(measureID: request.target.measureID, measureIndex: 0,
+                result: payload.result, drawingData: request.drawingData, targetFraction: 0,
+                primaryDecision: ChordInkRecognitionPolicy.decision(for: payload.result),
+                decision: ChordInkRenderResolutionPolicy.resolution(for: payload.result, drawingData: request.drawingData, correctionMemory: .init()).decision)
+            XCTAssertEqual(pending.bestCandidateText, "C")
+            second.fulfill()
+        }
+        wait(for: [second], timeout: 2)
+        try store.reset()
+        let third = expectation(description: "reset")
+        session.start(request: request) { payload in
+            XCTAssertNil(payload.result.personalSuggestion)
+            XCTAssertTrue(payload.timing.cacheHit)
+            third.fulfill()
+        }
+        wait(for: [third], timeout: 2)
+        XCTAssertEqual(recognizer.receivedStrokeCounts, [1])
+    }
+
     func testSessionDeliversRecognitionPayloadOnMainThread() {
         let requestID = UUID()
         let target = (measureID: UUID(), fraction: 0.5)

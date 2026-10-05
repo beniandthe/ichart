@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import List, Optional, Sequence, Tuple
 
 from .chord_notation import (
@@ -89,6 +90,15 @@ class _Suffix:
     alterations: Tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _SuffixTopologyEntry:
+    quality_index: int
+    extension_index: int
+    alteration_mask: int
+    suffix: _Suffix
+    tie_key: str
+
+
 def _retain(candidate: _Ranked, ranked: List[_Ranked], limit: int) -> None:
     ranked.append(candidate)
     ranked.sort(key=lambda item: (-item.score, item.tie_key))
@@ -166,19 +176,25 @@ def _alteration_subsets(
     return tuple(result)
 
 
-def _top_suffix_choices(
-    scores: dict[str, Tuple[float, ...]],
-    alteration_logits: Sequence[float],
-) -> Tuple[_Ranked, ...]:
-    quality_head = HEAD_BY_NAME["quality"]
-    extension_head = HEAD_BY_NAME["extension"]
-    result: List[_Ranked] = []
-    subsets = _alteration_subsets(alteration_logits)
-    for quality_index, quality_label in enumerate(quality_head.labels):
+@lru_cache(maxsize=8)
+def _suffix_topology(
+    quality_labels: Tuple[str, ...],
+    extension_labels: Tuple[str, ...],
+    alteration_labels: Tuple[str, ...],
+) -> Tuple[_SuffixTopologyEntry, ...]:
+    """Return immutable valid suffix paths for one exact contract topology."""
+
+    result = []
+    for quality_index, quality_label in enumerate(quality_labels):
         form = _FORM_BY_FACTOR_LABEL[quality_label]
-        for extension_index, extension_label in enumerate(extension_head.labels):
+        for extension_index, extension_label in enumerate(extension_labels):
             extension = None if extension_label == "none" else extension_label
-            for alterations, alteration_score in subsets:
+            for mask in range(1 << len(alteration_labels)):
+                alterations = tuple(
+                    label
+                    for index, label in enumerate(alteration_labels)
+                    if mask & (1 << index)
+                )
                 probe = CanonicalChordLabel(
                     is_repeat=False,
                     root=Pitch("C"),
@@ -191,17 +207,44 @@ def _top_suffix_choices(
                     parse_canonical_chord_label(canonical)
                 except CanonicalChordLabelError:
                     continue
-                _retain(
-                    _Ranked(
-                        _Suffix(form, extension, alterations),
-                        scores["quality"][quality_index]
-                        + scores["extension"][extension_index]
-                        + alteration_score,
-                        canonical,
-                    ),
-                    result,
-                    3,
+                result.append(
+                    _SuffixTopologyEntry(
+                        quality_index=quality_index,
+                        extension_index=extension_index,
+                        alteration_mask=mask,
+                        suffix=_Suffix(form, extension, alterations),
+                        tie_key=canonical,
+                    )
                 )
+    return tuple(result)
+
+
+def _top_suffix_choices(
+    scores: dict[str, Tuple[float, ...]],
+    alteration_logits: Sequence[float],
+) -> Tuple[_Ranked, ...]:
+    quality_head = HEAD_BY_NAME["quality"]
+    extension_head = HEAD_BY_NAME["extension"]
+    alteration_head = HEAD_BY_NAME["alteration_logits"]
+    result: List[_Ranked] = []
+    subsets = _alteration_subsets(alteration_logits)
+    topology = _suffix_topology(
+        tuple(quality_head.labels),
+        tuple(extension_head.labels),
+        tuple(alteration_head.labels),
+    )
+    for entry in topology:
+        _retain(
+            _Ranked(
+                entry.suffix,
+                scores["quality"][entry.quality_index]
+                + scores["extension"][entry.extension_index]
+                + subsets[entry.alteration_mask][1],
+                entry.tie_key,
+            ),
+            result,
+            3,
+        )
     return tuple(result)
 
 

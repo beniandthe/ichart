@@ -17,7 +17,7 @@ from ichart_recognition_ml.contracts import (
 from ichart_recognition_ml.errors import ContractError
 from ichart_recognition_ml.manifest import build_manifest, validate_manifest
 from ichart_recognition_ml.schema import FEATURE_SCHEMA, SPLITS
-from corpus_v2_fixture import record_mapping
+from corpus_v2_fixture import record_mapping, valid_feature_payloads
 
 
 def identifier(index: int) -> str:
@@ -38,11 +38,7 @@ class CorpusFixture:
         self.raster = bytes(FEATURE_SCHEMA.raster_byte_count)
 
     def record(self, index: int, split: str, writer_hash: str = None):
-        trajectory = struct.pack(
-            f"<{FEATURE_SCHEMA.trajectory_value_count}f",
-            *([float(index)] * FEATURE_SCHEMA.trajectory_value_count),
-        )
-        raster = bytes([index % 256]) * FEATURE_SCHEMA.raster_byte_count
+        trajectory, raster = valid_feature_payloads(index)
         trajectory_path = f"trajectory/{index}.f32le"
         raster_path = f"raster/{index}.u8"
         self._write(trajectory_path, trajectory)
@@ -181,6 +177,42 @@ class CorpusContractTests(unittest.TestCase):
         value["trajectory"]["sha256"] = digest(payload)
         record = CorpusRecord.from_mapping(value)
         with self.assertRaisesRegex(ContractError, "nonfinite_trajectory"):
+            validate_feature_artifacts([record], self.root)
+
+    def test_out_of_range_trajectory_is_rejected_even_with_matching_hash(self):
+        value = self.fixture.record(1, "development")
+        path = self.root / value["trajectory"]["relative_path"]
+        payload = bytearray(path.read_bytes())
+        payload[:4] = struct.pack("<f", 0.75)
+        path.write_bytes(payload)
+        value["trajectory"]["sha256"] = digest(payload)
+        record = CorpusRecord.from_mapping(value)
+        with self.assertRaisesRegex(ContractError, "trajectory_value_out_of_contract"):
+            validate_feature_artifacts([record], self.root)
+
+    def test_nonbinary_trajectory_flag_is_rejected_even_with_matching_hash(self):
+        value = self.fixture.record(1, "development")
+        path = self.root / value["trajectory"]["relative_path"]
+        payload = bytearray(path.read_bytes())
+        timing_available_offset = 6 * 4
+        payload[timing_available_offset : timing_available_offset + 4] = struct.pack(
+            "<f", 0.5
+        )
+        path.write_bytes(payload)
+        value["trajectory"]["sha256"] = digest(payload)
+        record = CorpusRecord.from_mapping(value)
+        with self.assertRaisesRegex(ContractError, "trajectory_value_out_of_contract"):
+            validate_feature_artifacts([record], self.root)
+
+    def test_nonbinary_raster_is_rejected_even_with_matching_hash(self):
+        value = self.fixture.record(1, "development")
+        path = self.root / value["raster"]["relative_path"]
+        payload = bytearray(path.read_bytes())
+        payload[0] = 128
+        path.write_bytes(payload)
+        value["raster"]["sha256"] = digest(payload)
+        record = CorpusRecord.from_mapping(value)
+        with self.assertRaisesRegex(ContractError, "raster_value_out_of_contract"):
             validate_feature_artifacts([record], self.root)
 
     def test_artifact_hash_tamper_is_rejected(self):

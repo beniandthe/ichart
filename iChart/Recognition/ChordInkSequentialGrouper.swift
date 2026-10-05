@@ -1740,6 +1740,32 @@ struct ChordInkSequentialRootStartEvidence: Hashable {
     var wasModifierLed: Bool
 }
 
+enum ChordInkSymbolicSuffixContinuationPolicy {
+    private static let symbolicSuffixTexts: Set<String> = ["△", "°", "ø", "•", "+"]
+
+    static func requiresContinuation(
+        candidates: [GlyphCandidate],
+        rootCandidate: GlyphCandidate,
+        hasIndependentSpatialRootEvidence: Bool,
+        hasRootSizedModifierLookalikeOverride: Bool
+    ) -> Bool {
+        guard let leadingCandidate = candidates.first,
+              symbolicSuffixTexts.contains(leadingCandidate.text),
+              leadingCandidate.text != rootCandidate.text,
+              leadingCandidate.confidence >= rootCandidate.confidence else {
+            return false
+        }
+
+        // Timing can support a spatially independent root, but it cannot turn a
+        // leading quality/repeat symbol into a root by itself. Keep ambiguous close ink
+        // with the active chord; the complete recognizer still has to validate
+        // the resulting quality/extension/alteration grammar. Existing explicit
+        // root-lookalike evidence and detached root geometry remain authoritative.
+        return !hasRootSizedModifierLookalikeOverride
+            && !hasIndependentSpatialRootEvidence
+    }
+}
+
 enum ChordInkSequentialRootStartDetector {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let initialRootStartMinimumConfidence = 0.70
@@ -1816,7 +1842,23 @@ enum ChordInkSequentialRootStartDetector {
                         accumulatedBounds: $0
                     )
                 } == true
+            let accumulatedChordBounds = currentGroupContentBounds ?? currentGroupBounds
+            let hasIndependentSpatialRootEvidence = (usesStrictBoundary || usesCloseBoundary)
+                && isDetachedFromAccumulatedChord(
+                    cluster.bounds,
+                    accumulatedBounds: accumulatedChordBounds
+                )
             guard usesStrictBoundary || usesCloseBoundary || usesTemporalBoundary else {
+                return nil
+            }
+
+            if usesTemporalBoundary,
+               ChordInkSymbolicSuffixContinuationPolicy.requiresContinuation(
+                candidates: candidates,
+                rootCandidate: rootCandidate,
+                hasIndependentSpatialRootEvidence: hasIndependentSpatialRootEvidence,
+                hasRootSizedModifierLookalikeOverride: hasRootSizedModifierLookalikeOverride
+               ) {
                 return nil
             }
 

@@ -4,6 +4,10 @@ import XCTest
 @testable import iChart
 
 final class ChordInkCoreMLAdapterTests: XCTestCase {
+    func testRuntimeUsesTheSameCPUOnlyPathAsExportParityAndCalibration() {
+        XCTAssertEqual(ChordInkCoreMLModelRuntime.requiredComputeUnits, .cpuOnly)
+    }
+
     func testExactModelDescriptionContractPassesPreflight() throws {
         let manifest = ChordInkLearnedTestFactory.manifest()
 
@@ -98,6 +102,37 @@ final class ChordInkCoreMLAdapterTests: XCTestCase {
                     name: head.name,
                     expected: .float32,
                     actual: .float16
+                )
+            )
+        }
+    }
+
+    func testDescriptionRejectsUndeclaredOutputShape() throws {
+        let manifest = ChordInkLearnedTestFactory.manifest()
+        let exact = exactDescription(for: manifest)
+        let head = try XCTUnwrap(manifest.outputHeads.first)
+        var outputs = exact.outputs
+        outputs[head.name] = .multiArray(
+            shape: [],
+            dataType: .float32,
+            isOptional: false
+        )
+
+        XCTAssertThrowsError(
+            try ChordInkCoreMLModelRuntime.validateModelDescription(
+                ChordInkCoreMLModelDescriptionSnapshot(
+                    inputs: exact.inputs,
+                    outputs: outputs
+                ),
+                against: manifest
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ChordInkCoreMLAdapterError,
+                .featureShapeMismatch(
+                    name: head.name,
+                    expected: head.shape,
+                    actual: []
                 )
             )
         }
@@ -374,7 +409,8 @@ final class ChordInkCoreMLAdapterTests: XCTestCase {
             modelIdentifier: "test-coreml-model",
             manifestArtifactSHA256: ChordInkLearnedTestFactory.manifestDigest,
             modelArtifactSHA256: fingerprint.sha256,
-            modelArtifactByteCount: fingerprint.byteCount
+            modelArtifactByteCount: fingerprint.byteCount,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance()
         )
 
         XCTAssertThrowsError(
@@ -417,7 +453,8 @@ final class ChordInkCoreMLAdapterTests: XCTestCase {
             modelIdentifier: "test-coreml-model",
             manifestArtifactSHA256: ChordInkLearnedTestFactory.manifestDigest,
             modelArtifactSHA256: fingerprint.sha256,
-            modelArtifactByteCount: fingerprint.byteCount + 1
+            modelArtifactByteCount: fingerprint.byteCount + 1,
+            trainingProvenance: ChordInkLearnedTestFactory.trainingProvenance()
         )
 
         XCTAssertThrowsError(

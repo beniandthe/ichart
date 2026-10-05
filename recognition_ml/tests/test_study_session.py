@@ -212,6 +212,7 @@ class SyntheticStudy:
                 "candidate": prompt.canonical_chord,
                 "canonicalCandidate": prompt.canonical_chord,
                 "disposition": "review",
+                "latencyMicroseconds": 12_345 + index,
                 "recognizerID": "apple-vision-text-baseline",
                 "recognizerVersion": "apple-vision-text-baseline-v1",
             },
@@ -227,7 +228,7 @@ class SyntheticStudy:
                 "promptID": prompt.prompt_id,
                 "writerConfirmationState": "as-prompted",
             },
-            "schemaVersion": "recognition-study-semantic-outcome-v1",
+            "schemaVersion": "recognition-study-semantic-outcome-v2",
             "trajectoryPacketSHA256": trajectory_digest,
         }
         outcome_data = canonical_json_bytes(outcome)
@@ -301,6 +302,10 @@ class RecognitionStudySessionImportTests(unittest.TestCase):
         receipt = json.loads(first.receipt_path.read_bytes())
         self.assertEqual(receipt["authority"], "mechanical-validation-only")
         self.assertEqual(receipt["status"], "validated-local-engineering-session")
+        self.assertEqual(
+            receipt["schema_version"],
+            "recognition-study-session-import-receipt-v2",
+        )
         self.assertFalse(receipt["corpus_eligible"])
         self.assertFalse(receipt["evaluation_eligible"])
         self.assertFalse(receipt["model_supervision_eligible"])
@@ -310,6 +315,13 @@ class RecognitionStudySessionImportTests(unittest.TestCase):
         self.assertEqual(
             [capture["prompt_intent"]["prompt_id"] for capture in receipt["captures"]],
             [prompt.prompt_id for prompt in ENGINEERING_DRY_RUN_PROMPTS],
+        )
+        self.assertEqual(
+            [
+                capture["baseline_observation"]["latency_microseconds"]
+                for capture in receipt["captures"]
+            ],
+            [12_345 + index for index in range(len(ENGINEERING_DRY_RUN_PROMPTS))],
         )
         feature_files = sorted((first_output / "features").iterdir())
         self.assertEqual(len(feature_files), 2 * len(ENGINEERING_DRY_RUN_PROMPTS))
@@ -415,6 +427,41 @@ class RecognitionStudySessionImportTests(unittest.TestCase):
         ):
             import_study_session(self.study.root, output)
         self.assertFalse(output.exists())
+
+    def test_v2_requires_latency_and_legacy_v1_without_latency_remains_readable(self):
+        self.study.rewrite_outcome(
+            0,
+            lambda outcome: outcome["baseRecognizerOutcome"].pop(
+                "latencyMicroseconds"
+            ),
+        )
+        output = self.root / "v2-missing-latency"
+        with self.assertRaisesRegex(ContractError, "structured latency"):
+            import_study_session(self.study.root, output)
+        self.assertFalse(output.exists())
+
+        self.study = SyntheticStudy(self.root / "legacy-v1-study")
+        for index in range(len(ENGINEERING_DRY_RUN_PROMPTS)):
+            def downgrade(outcome):
+                outcome["schemaVersion"] = (
+                    "recognition-study-semantic-outcome-v1"
+                )
+                outcome["baseRecognizerOutcome"].pop(
+                    "latencyMicroseconds"
+                )
+
+            self.study.rewrite_outcome(index, downgrade)
+        receipt = import_study_session(
+            self.study.root,
+            self.root / "legacy-v1-output",
+        ).value
+        self.assertTrue(
+            all(
+                capture["baseline_observation"]["latency_microseconds"]
+                is None
+                for capture in receipt["captures"]
+            )
+        )
 
     def test_commit_and_descriptor_tampering_are_detected_after_rebinding(self):
         trajectory_path = self.study.capture_directories[0] / "trajectory.json"

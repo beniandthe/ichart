@@ -24,6 +24,25 @@ struct ChordInkRecognitionCandidateComposer {
         from glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster]
     ) -> ChordInkRecognitionCandidateResult {
+        let glyphCandidateGroups = glyphCandidateGroups.map { column in
+            let rankedColumn = column.sorted { lhs, rhs in
+                if lhs.confidence != rhs.confidence {
+                    return lhs.confidence > rhs.confidence
+                }
+                return lhs.text < rhs.text
+            }
+            return ChordRecognitionDomain.projectTopRanked(rankedColumn, label: { $0.text })
+        }
+        guard !glyphCandidateGroups.isEmpty,
+              glyphCandidateGroups.allSatisfy({ !$0.isEmpty }) else {
+            return ChordInkRecognitionCandidateResult(
+                candidates: [],
+                compositionMetrics: baseComposer.composeDetailed(glyphCandidates: []).metrics,
+                composeMilliseconds: 0,
+                semanticMilliseconds: 0,
+                semanticCandidateCount: 0
+            )
+        }
         let composeStart = Date()
         let compositionResult = baseComposer.composeDetailed(glyphCandidates: glyphCandidateGroups)
         let composeMilliseconds = Self.elapsedMilliseconds(since: composeStart)

@@ -124,6 +124,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onEndingSpanSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onTimeSignatureSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onHeaderAuthoringRequested: (() -> Void)? = nil
+    var chordDraftRenderCoordinator: ChordInkDraftRenderCoordinator? = nil
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
@@ -163,7 +164,13 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     }
 
     private func configure(_ view: LeadSheetCanvasUIKitView, context: Context) {
+        chordDraftRenderCoordinator?.renderer = { [weak view] chart, state in
+            view?.renderChordDraftAtomically(chart: chart, state: state)
+        }
         view.interactionMode = interactionMode
+        // Explicit Discard must supersede a queued old ink writeback before
+        // model synchronization. Rendering uses the synchronous bridge above.
+        view.handleChordDraftRenderInvalidationRequest(chordDraftRenderInvalidationRequestID)
         view.chart = view.chartByApplyingPendingPersistedInk(to: chart)
         view.applyParentSelectionState(
             selectedMeasureID: selectedMeasureID,
@@ -214,7 +221,6 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onEndingSpanSelectedFromCanvas = onEndingSpanSelectedFromCanvas
         view.onTimeSignatureSelectedFromCanvas = onTimeSignatureSelectedFromCanvas
         view.onHeaderAuthoringRequested = onHeaderAuthoringRequested
-        view.handleChordDraftRenderInvalidationRequest(chordDraftRenderInvalidationRequestID)
         view.onRhythmicNotationPreviewChanged = onRhythmicNotationPreviewChanged
         view.onRhythmicNotationDiagnostic = onRhythmicNotationDiagnostic
         view.handleRhythmicNotationPreviewConfirmationRequest(rhythmicNotationPreviewConfirmationRequestID)
@@ -1275,6 +1281,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != chart else {
                 return
             }
+            if oldValue.id != chart.id {
+                chordInkEditedTargetState.reset()
+            }
 
             ChordLaneLocalBreadcrumbs.record(
                 "chart_changed",
@@ -1528,6 +1537,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
 
     private var pageLayout: LeadSheetPageLayout?
+    // Opt-in evaluation follows the ink revision from the drawing-change
+    // callback, before debounce. A delayed result cannot attach to a later run.
+    private var chordInkEvaluationSourceContext: (requestID: UUID, context: PersonalInkEvaluationContext)?
     // Saved page/header ink stays in noninteractive PencilKit surfaces while
     // another tool owns the authoring canvas. This keeps vector ink resident
     // across Browse/Chord/Edit transitions instead of synchronously flattening
@@ -1535,6 +1547,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let savedHeaderInkCanvasView = PKCanvasView()
     private let savedPageInkCanvasView = PKCanvasView()
     private let pageInkCanvasView = LeadSheetScopedInkCanvasView()
+    private var isUsingInkTool = false
     private let chordInkConfirmOverlayView = LeadSheetChordInkConfirmOverlayView()
     private let renderedEditHitOverlayView = RenderedEditHitOverlayView()
     private let parentScrollGestureGate = LeadSheetParentScrollGestureGate()
@@ -1577,7 +1590,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     )
     private lazy var chordInkRecognitionSession = ChordInkRecognitionSession(
         queue: chordInkRecognitionQueue,
-        recognizer: chordInkRecognizer
+        recognizer: chordInkRecognizer,
+        personalProfile: .shared
     )
     private lazy var inkSerializationSession = LeadSheetInkSerializationSession(
         queue: inkSerializationQueue
@@ -1594,6 +1608,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private lazy var chordInkPreparationSession = ChordInkRecognitionPreparationSession(
         queue: chordInkPreparationQueue
     )
+    private var chordInkEditedTargetState = ChordInkEditedTargetSessionState()
     private lazy var selectionTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(handleTap(_:))
@@ -1867,6 +1882,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.delegate = self
         pageInkCanvasView.liveInkInputBeganHandler = { [weak self] in
             self?.cancelPendingInkSessionScheduledWork()
+            self?.beginChordInkEvaluationInputIfNeeded()
         }
         pageInkCanvasView.manualEraseHandler = { [weak self] startPoint, endPoint in
             self?.eraseActiveInk(from: startPoint, to: endPoint)
@@ -2074,6 +2090,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func invalidateLayout() {
+        chordInkEditedTargetState.reset()
         editorPerformanceMetrics.recordLayoutInvalidation()
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
@@ -3732,6 +3749,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
+    func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        guard canvasView === pageInkCanvasView else { return }
+        isUsingInkTool = true
+        beginChordInkEvaluationInputIfNeeded()
+    }
+
+    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        guard canvasView === pageInkCanvasView else { return }
+        isUsingInkTool = false
+        if activeInkAuthoringSessionRole() == .chord,
+           PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
+            // PencilKit may deliver a final pressure update after tool end, or
+            // none for a cancelled interaction. Recheck the current source;
+            // a later drawing callback cancels and replaces this request.
+            scheduleInkSessionWorkAfterDrawingChange(strokeCount: activeCanvasStrokeCount, activeRole: .chord)
+        }
+    }
+
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         let callbackStartedAt = ProcessInfo.processInfo.systemUptime
         guard !isSyncingInkCanvasFromModel else {
@@ -3847,6 +3882,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         ) else {
             return false
         }
+        chordInkEditedTargetState.reset()
 
         ChordLaneLocalBreadcrumbs.record(
             "clear_chord_draft_preview_empty_ink",
@@ -3868,6 +3904,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         persistActiveInkIfNeeded(knownInkSnapshot: currentCanvasInkSnapshot())
+        if PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
+            // Empty/fully erased ink must replace older source evidence too.
+            // The ordinary empty-preview flow remains unchanged outside tests.
+            scheduleInkSessionWorkAfterDrawingChange(strokeCount: rawStrokeCount, activeRole: activeRole)
+        }
         return true
     }
 
@@ -4456,6 +4497,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let requestID = UUID()
         let scheduledAt = Date()
+        beginChordInkEvaluationSource(requestID: requestID, inkRevision: inkDrawingRevision)
         chordInkRecognitionRequestState.beginRequest(requestID)
         recognizeChordInkIfNeeded(
             requestID: requestID,
@@ -5788,7 +5830,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func schedulePersistActiveInk() {
+    private func beginChordInkEvaluationSource(requestID: UUID, inkRevision: UInt64) {
+        guard let context = PersonalInkEvaluationStore.shared.context(chartID: chart.id) else {
+            chordInkEvaluationSourceContext = nil
+            return
+        }
+        chordInkEvaluationSourceContext = (requestID, context)
+        PersonalInkEvaluationStore.shared.beginSourceCapture(runID: context.runID,
+            requestID: requestID, inkRevision: inkRevision)
+    }
+
+    private func beginChordInkEvaluationInputIfNeeded() {
+        guard !isSyncingInkCanvasFromModel,
+              activeInkAuthoringSessionRole() == .chord,
+              PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil else { return }
+        beginChordInkEvaluationSource(requestID: UUID(), inkRevision: inkDrawingRevision)
+    }
+
+    private func schedulePersistActiveInk(evaluationRequestID: UUID? = nil) {
         switch activeInkAuthoringSessionRole() {
         case .chord:
             inkSchedulingCoordinator.cancelPersistence()
@@ -5806,7 +5865,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             let workItem = DispatchWorkItem { [weak self] in
                 self?.startDraftChordInkPreviewIfStable(
                     scheduledInkRevision: scheduledInkRevision,
-                    scheduledAt: scheduledAt
+                    scheduledAt: scheduledAt,
+                    evaluationRequestID: evaluationRequestID
                 )
             }
             inkSchedulingCoordinator.schedulePersistence(
@@ -5863,6 +5923,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeRole: LeadSheetInkAuthoringSessionRole?
     ) {
         cancelPendingInkSessionScheduledWork()
+        let evaluationRequestID: UUID?
+        if activeRole == .chord {
+            let requestID = UUID()
+            beginChordInkEvaluationSource(requestID: requestID, inkRevision: inkDrawingRevision)
+            evaluationRequestID = requestID
+        } else {
+            evaluationRequestID = nil
+        }
         inkPersistenceCoordinator.recordScheduledWork(strokeCount: strokeCount)
         ChordLaneLocalBreadcrumbs.record(
             "schedule_ink_session_after_drawing",
@@ -5875,7 +5943,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
         let workItem = DispatchWorkItem { [weak self] in
             self?.inkSchedulingCoordinator.clearInputCoalescing()
-            self?.schedulePersistActiveInk()
+            self?.schedulePersistActiveInk(evaluationRequestID: evaluationRequestID)
         }
         inkSchedulingCoordinator.scheduleInputCoalescing(
             workItem,
@@ -5962,8 +6030,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func startDraftChordInkPreviewIfStable(
         scheduledInkRevision: UInt64,
-        scheduledAt: Date
+        scheduledAt: Date,
+        evaluationRequestID: UUID? = nil
     ) {
+        guard scheduledInkRevision == inkDrawingRevision,
+              interactionMode.allowsChordInkEditing,
+              recognizesChordInk,
+              case .chords = activeInkScope() else { return }
         inkSchedulingCoordinator.cancelPersistence()
 
         ChordLaneLocalBreadcrumbs.record(
@@ -5975,7 +6048,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 "currentRevision": inkDrawingRevision
             ]
         )
-        let requestID = UUID()
+        let requestID = evaluationRequestID ?? UUID()
+        if evaluationRequestID == nil {
+            beginChordInkEvaluationSource(requestID: requestID, inkRevision: scheduledInkRevision)
+        }
         chordInkRecognitionRequestState.beginRequest(requestID)
         recognizeChordInkIfNeeded(
             requestID: requestID,
@@ -6023,6 +6099,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let requestID = UUID()
         let scheduledAt = Date()
         let scheduledInkRevision = inkDrawingRevision
+        beginChordInkEvaluationSource(requestID: requestID, inkRevision: scheduledInkRevision)
         chordInkRecognitionRequestState.beginRequest(requestID)
         inkSchedulingCoordinator.cancelPersistence()
         let workItem = DispatchWorkItem { [weak self] in
@@ -6283,7 +6360,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 drawing: drawing,
                 normalizesPersistentInk: true,
                 capturesSnapshot: false,
-                knownStrokeCount: activeCanvasStrokeCount
+                knownStrokeCount: activeCanvasStrokeCount,
+                capturesEmptyDrawingForEvaluation: chordInkEvaluationSourceContext?.requestID == requestID
             )
         ) { [weak self] result in
             self?.finishChordInkSerialization(
@@ -6332,7 +6410,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard let drawingData = result.serialization.drawingData else {
+        guard let drawingData = result.serialization.drawingData ?? result.emptyDrawingDataForEvaluation else {
             chordInkRecognitionRequestState.clearActiveRequest()
             if flow == .draftPreview {
                 publishEmptyChordDraftPreview(clearsBarlines: true)
@@ -6340,6 +6418,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let editScope = ChordInkEditedTargetSessionState.Scope(
+            chartID: chart.id, chordFrame: chordFrame, pageLayout: pageLayout,
+            layoutStyle: chart.layoutStyle)
         let preparationRequest = ChordInkRecognitionPreparationRequest(
             requestID: requestID,
             scheduledAt: scheduledAt,
@@ -6349,13 +6430,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageLayout: pageLayout,
             flow: flow,
             options: chordInkRecognitionOptions,
-            layoutStyle: chart.layoutStyle
+            layoutStyle: chart.layoutStyle,
+            editOwnership: chordInkEditedTargetState.snapshot(in: editScope),
+            capturesEvaluationSource: chordInkEvaluationSourceContext?.requestID == requestID
         )
         chordInkPreparationSession.start(request: preparationRequest) { [weak self] result in
             self?.finishChordInkPreparation(
                 result,
                 flow: flow,
-                scheduledInkRevision: scheduledInkRevision
+                scheduledInkRevision: scheduledInkRevision,
+                editScope: editScope
             )
         }
     }
@@ -6363,11 +6447,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func finishChordInkPreparation(
         _ result: ChordInkRecognitionPreparationResult,
         flow: ChordInkRecognitionFlow,
-        scheduledInkRevision: UInt64
+        scheduledInkRevision: UInt64,
+        editScope: ChordInkEditedTargetSessionState.Scope
     ) {
         guard chordInkRecognitionRequestState.isActive(result.requestID),
               scheduledInkRevision == inkDrawingRevision else {
             return
+        }
+        guard editScope.chartID == chart.id,
+              editScope.pageLayout == pageLayout,
+              editScope.layoutStyle == chart.layoutStyle,
+              let currentScope = activeInkScope(),
+              case .chords(let currentFrame, _) = currentScope,
+              editScope.chordFrame == currentFrame else {
+            chordInkRecognitionRequestState.clearActiveRequest()
+            return
+        }
+        if let nextOwnership = result.nextEditOwnership {
+            chordInkEditedTargetState.accept(nextOwnership, in: editScope)
+        }
+
+        if flow == .draftPreview,
+           let capture = chordInkEvaluationSourceContext,
+           capture.requestID == result.requestID,
+           let source = result.evaluationSource {
+            PersonalInkEvaluationCapture.recordSource(source, requestID: result.requestID,
+                inkRevision: scheduledInkRevision, runID: capture.context.runID)
         }
 
         if flow == .draftPreview {
@@ -6399,6 +6504,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
 
         case .ready(let requests, let usesBatch):
+            let evaluation = chordInkEvaluationSourceContext.flatMap {
+                $0.requestID == result.requestID ? $0.context : nil
+            }
+            let requests = requests.map { request in
+                var request = request
+                request.evaluationContext = evaluation
+                return request
+            }
             ChordLaneLocalBreadcrumbs.record(
                 usesBatch
                     ? "recognize_chord_ink_start_batch"
@@ -6451,6 +6564,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func publishEmptyChordDraftPreview(clearsBarlines: Bool) {
+        if clearsBarlines { chordInkEditedTargetState.reset() }
         if !chordPreviewState.draftChords.isEmpty {
             onChordInkDraftPreviewChanged?([])
         }
@@ -6546,6 +6660,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
+            PersonalInkEvaluationCapture.record([payload], chart: chart, bindsSource: true)
             // A stable no-read still carries authoritative target ownership.
             // Publish it so the per-target reducer can preserve an unchanged
             // frozen target or reopen only the target whose ink changed.
@@ -6610,6 +6725,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
+            PersonalInkEvaluationCapture.record(payloads, chart: chart, bindsSource: true)
             // Do not erase no-read targets from the batch. Their lifecycle and
             // exact prepared-stroke identity are needed to keep unrelated ink
             // from retroactively replacing an earlier frozen target.
@@ -7015,6 +7131,39 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         confirmRhythmicNotationFeedback(rhythmicNotationPreviewState)
     }
 
+    func renderChordDraftAtomically(
+        chart incomingChart: Chart,
+        state: ChordPreviewState
+    ) -> ChordInkDraftRenderCoordinator.Outcome? {
+        guard incomingChart.id == chart.id,
+              !isUsingInkTool,
+              let scope = activeInkScope(),
+              case .chords = scope,
+              activeCanvasScope?.identity == scope.identity else { return nil }
+
+        // Do not use the serialization cache or sampled drawing snapshot as
+        // clearing authority: a PencilKit delegate/revision can lag the ink.
+        let outcome = ChordInkDraftRenderCoordinator.prepare(
+            chart: incomingChart,
+            state: state,
+            currentDrawing: pageInkCanvasView.drawing,
+            coordinateSpace: persistedCoordinateSpace(for: scope)
+        )
+        guard outcome.canConsumeSource else { return outcome }
+
+        // Validation, commit preparation and live consumption occur in one
+        // main-actor call with no binding callback or deferred invalidation.
+        cancelPendingInkSessionScheduledWork()
+        inkPersistenceCoordinator.recordPendingPersistedInk(
+            activeInkScope: scope,
+            drawingData: nil,
+            coordinateSpace: nil
+        )
+        updateActiveCanvasStrokeCount(pageInkCanvasView.drawing.strokes.count)
+        clearChordDraftInkCanvas()
+        return outcome
+    }
+
     func handleChordDraftRenderInvalidationRequest(_ requestID: UUID?) {
         guard let requestID,
               lastHandledChordDraftRenderInvalidationRequestID != requestID else {
@@ -7032,10 +7181,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ]
         )
         cancelPendingInkSessionScheduledWork()
+        // This deferred request now belongs only to explicit Discard. Prevent
+        // an older pending writeback from restoring intentionally removed ink.
+        if let scope = activeInkScope(), case .chords = scope {
+            inkPersistenceCoordinator.recordPendingPersistedInk(
+                activeInkScope: scope,
+                drawingData: nil,
+                coordinateSpace: nil
+            )
+        }
+        updateActiveCanvasStrokeCount(pageInkCanvasView.drawing.strokes.count)
         clearChordDraftInkCanvas()
     }
 
     private func clearChordDraftInkCanvas() {
+        chordInkEditedTargetState.reset()
         ChordLaneLocalBreadcrumbs.record(
             "clear_chord_draft_ink_canvas",
             fields: [

@@ -37,6 +37,20 @@ enum ChordInkRenderResolutionPolicy {
             decision.confidenceGap = nil
         }
 
+        let personalSelection = personalSelection(for: result)
+        if personalSelection.prefersPersonal, let text = personalSelection.text {
+            decision = ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: text,
+                reason: personalSelection.disposition == .correctedReview
+                    ? "Your corrected examples suggest \(text). Check it before rendering."
+                    : "Your handwriting profile suggests \(text). Check it before rendering.",
+                isCloseRace: false,
+                competingCandidateText: primaryDecision.acceptedText == text ? nil : primaryDecision.acceptedText,
+                confidenceGap: nil
+            )
+        }
+
         return ChordInkRenderResolution(
             primaryDecision: primaryDecision,
             decision: decision,
@@ -44,7 +58,30 @@ enum ChordInkRenderResolutionPolicy {
         )
     }
 
+    static func personalSelection(for result: ChordInkRecognitionResult) -> PersonalInkArbitrationPolicy.Selection {
+        var baseline = result
+        baseline.personalSuggestion = nil
+        return PersonalInkArbitrationPolicy.select(
+            baselineText: baseline.match?.displayText ?? candidateTexts(for: baseline).first,
+            // Requiring a review after erasure does not weaken native evidence
+            // or authorize a personal override. resolution(for:) still applies
+            // the original request-local edit gate to the returned action.
+            baselineTrusted: ChordInkRecognitionPolicy.recognitionEvidenceDecision(for: baseline).action == .trusted,
+            suggestion: result.personalSuggestion)
+    }
+
     static func candidateTexts(for result: ChordInkRecognitionResult) -> [String] {
+        if let personal = result.personalSuggestion {
+            var baseline = result
+            baseline.personalSuggestion = nil
+            let baselineChoices = candidateTexts(for: baseline)
+            let selection = personalSelection(for: result)
+            guard selection.disposition != .baselineOnly else { return baselineChoices }
+            // Reserve an alternative slot without erasing the native default.
+            let ordered = [selection.text, baseline.match?.displayText, personal.text].compactMap { $0 } + baselineChoices
+            var seen = Set<String>()
+            return ordered.filter { seen.insert($0).inserted }
+        }
         let primaryScores = ChordInkRecognitionPolicy.rankedSupportedScores(for: result)
         let primaryDisplayText = result.match?.displayText ?? primaryScores.first?.displayText
         let primaryChoices = primaryScores.enumerated().compactMap { index, score -> ReviewChoice? in

@@ -49,6 +49,7 @@ from .schema import (
     PACES,
     PENCIL_EXPERIENCE_BUCKETS,
     READER_EVIDENCE_OUTCOMES,
+    RASTER_ALLOWED_VALUES,
     RECORD_SCHEMA_VERSION,
     RECORD_SPLITS,
     SIZE_BUCKETS,
@@ -56,6 +57,7 @@ from .schema import (
     SOURCE_HUMAN,
     SOURCE_KINDS,
     SPLITS,
+    TRAJECTORY_CHANNEL_CONTRACTS,
     UNASSIGNED_SPLIT,
 )
 
@@ -1393,7 +1395,7 @@ def _validate_artifact_bytes(
     reference: ArtifactReference,
     path: str,
     require_finite_float32: bool,
-) -> None:
+) -> bytes:
     artifact = _resolve_artifact(data_root, reference, path)
     try:
         payload = artifact.read_bytes()
@@ -1412,22 +1414,78 @@ def _validate_artifact_bytes(
                 raise ContractError(
                     "nonfinite_trajectory", path, f"Float32 value {index} is not finite"
                 )
+    return payload
+
+
+def _validate_trajectory_contract(payload: bytes, path: str) -> None:
+    channel_count = FEATURE_SCHEMA.trajectory_shape[2]
+    for flat_index, (value,) in enumerate(struct.iter_unpack("<f", payload)):
+        channel = TRAJECTORY_CHANNEL_CONTRACTS[flat_index % channel_count]
+        if value < channel.minimum_inclusive or value > channel.maximum_inclusive:
+            raise ContractError(
+                "trajectory_value_out_of_contract",
+                path,
+                f"Float32 value {flat_index} for {channel.name} is {value}",
+            )
+        if (
+            channel.allowed_discrete_values is not None
+            and value not in channel.allowed_discrete_values
+        ):
+            raise ContractError(
+                "trajectory_value_out_of_contract",
+                path,
+                f"Float32 value {flat_index} for {channel.name} is not discrete",
+            )
+
+
+def _validate_raster_contract(payload: bytes, path: str) -> None:
+    allowed = set(RASTER_ALLOWED_VALUES)
+    for index, value in enumerate(payload):
+        if value not in allowed:
+            raise ContractError(
+                "raster_value_out_of_contract",
+                path,
+                f"UInt8 value {index} is {value}; expected 0 or 255",
+            )
+
+
+def load_validated_feature_artifacts(
+    record: CorpusRecord, data_root: Path
+) -> Tuple[bytes, bytes]:
+    """Read and validate one record's exact trajectory and raster artifacts.
+
+    Callers that need the payload bytes must use this single-pass helper rather
+    than validate and then reopen the files.  That keeps the bytes used by an
+    operation bound to the digest and semantic checks performed for that same
+    read.
+    """
+
+    trajectory_payload = _validate_artifact_bytes(
+        data_root,
+        record.trajectory,
+        f"{record.sample_id}.trajectory",
+        require_finite_float32=True,
+    )
+    raster_payload = _validate_artifact_bytes(
+        data_root,
+        record.raster,
+        f"{record.sample_id}.raster",
+        require_finite_float32=False,
+    )
+    _validate_trajectory_contract(
+        trajectory_payload,
+        f"{record.sample_id}.trajectory",
+    )
+    _validate_raster_contract(
+        raster_payload,
+        f"{record.sample_id}.raster",
+    )
+    return trajectory_payload, raster_payload
 
 
 def validate_feature_artifacts(records: Sequence[CorpusRecord], data_root: Path) -> None:
     for record in records:
-        _validate_artifact_bytes(
-            data_root,
-            record.trajectory,
-            f"{record.sample_id}.trajectory",
-            require_finite_float32=True,
-        )
-        _validate_artifact_bytes(
-            data_root,
-            record.raster,
-            f"{record.sample_id}.raster",
-            require_finite_float32=False,
-        )
+        load_validated_feature_artifacts(record, data_root)
 
 
 def records_digest(records: Iterable[CorpusRecord]) -> str:

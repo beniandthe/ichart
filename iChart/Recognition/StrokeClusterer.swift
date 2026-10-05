@@ -14,10 +14,20 @@ struct StrokeClustererConfiguration: Hashable {
     )
 }
 struct StrokeClusterer {
-    var configuration: StrokeClustererConfiguration
+    enum WrapperPolicy {
+        case semanticNormalization
+        case preserveOriginalInk
+    }
 
-    init(configuration: StrokeClustererConfiguration = .chordSymbols) {
+    var configuration: StrokeClustererConfiguration
+    var wrapperPolicy: WrapperPolicy
+
+    init(
+        configuration: StrokeClustererConfiguration = .chordSymbols,
+        wrapperPolicy: WrapperPolicy = .semanticNormalization
+    ) {
         self.configuration = configuration
+        self.wrapperPolicy = wrapperPolicy
     }
 
     func cluster(_ strokes: [InkStroke]) -> [InkCluster] {
@@ -81,12 +91,21 @@ struct StrokeClusterer {
                 splitMinorSeventhSuffix(in: cluster) ?? [cluster]
             }
         let suffixNormalizedClusters = mergeDominantFlatNineSuffixFragments(in: normalizedClusters)
-        let bareAlterationNormalizedClusters = normalizeExplicitBareParenthesizedAlterations(
-            in: suffixNormalizedClusters
-        )
-        let wrapperNormalizedClusters = removeDominantAlterationParenthesisWrappers(
-            in: bareAlterationNormalizedClusters
-        )
+        let wrapperNormalizedClusters: [MutableInkCluster]
+        switch wrapperPolicy {
+        case .semanticNormalization:
+            let bareAlterationNormalizedClusters = normalizeExplicitBareParenthesizedAlterations(
+                in: suffixNormalizedClusters
+            )
+            wrapperNormalizedClusters = removeDominantAlterationParenthesisWrappers(
+                in: bareAlterationNormalizedClusters
+            )
+        case .preserveOriginalInk:
+            // Learned comparisons must read literal wrappers from their source
+            // ink. Both legacy normalization stages can discard those strokes
+            // and tag the remaining content with semantic recognition hints.
+            wrapperNormalizedClusters = suffixNormalizedClusters
+        }
         let alteredFlatNormalizedClusters = mergeDominantAlterationFlatFragments(in: wrapperNormalizedClusters)
         let semanticClusters = mergeDominantAlteredFiveSuffixFragments(in: alteredFlatNormalizedClusters)
         let finalClusters = semanticClusters.flatMap { cluster in

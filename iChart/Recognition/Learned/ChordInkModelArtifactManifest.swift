@@ -35,6 +35,63 @@ enum ChordInkValueSemantics: String, Codable, Equatable, Sendable {
     case rawLogit
 }
 
+enum ChordInkInferenceComputeUnits: String, Codable, Equatable, Sendable {
+    case cpuOnly
+}
+
+enum ChordInkModelArchitectureID: String, Codable, Equatable, Sendable {
+    case dualViewV2LayoutPreserving = "dual-view-v2-layout-preserving"
+    case trajectoryOnlyV2LayoutPreserving = "trajectory-only-v2-layout-preserving"
+    case rasterOnlyV2LayoutPreserving = "raster-only-v2-layout-preserving"
+}
+
+enum ChordInkDevelopmentSelectionAuthority: String, Codable, Equatable, Sendable {
+    case boundDevelopmentWriterComparisonV4 = "bound-development-writer-comparison-v4"
+    case unselectedDevelopmentTraining = "unselected-development-training"
+}
+
+struct ChordInkTrainingProvenance: Codable, Equatable, Sendable {
+    static let checkpointContractVersion = "chord-ink-training-checkpoint-v6"
+
+    let checkpointContractVersion: String
+    let checkpointArtifactSHA256: String
+    let checkpointArtifactByteCount: Int64
+    let modelArchitectureID: ChordInkModelArchitectureID
+    let developmentRecordsSHA256: String
+    let developmentSampleCount: Int
+    let developmentWriterCount: Int
+    let developmentSelectionAuthority: ChordInkDevelopmentSelectionAuthority
+    let developmentSelectionReportSHA256: String?
+}
+
+struct ChordInkCoreMLExportParityEvidence: Codable, Equatable, Sendable {
+    static let contractVersion = "chord-ink-coreml-export-parity-v1"
+    static let requiredProbeCount = 2
+    static let maximumAllowedAbsoluteError = 1e-4
+
+    let contractVersion: String
+    let probeCount: Int
+    let maximumAbsoluteError: Double
+
+    init(
+        contractVersion: String = Self.contractVersion,
+        probeCount: Int = Self.requiredProbeCount,
+        maximumAbsoluteError: Double = 0
+    ) {
+        self.contractVersion = contractVersion
+        self.probeCount = probeCount
+        self.maximumAbsoluteError = maximumAbsoluteError
+    }
+
+    var isValid: Bool {
+        contractVersion == Self.contractVersion
+            && probeCount == Self.requiredProbeCount
+            && maximumAbsoluteError.isFinite
+            && maximumAbsoluteError >= 0
+            && maximumAbsoluteError <= Self.maximumAllowedAbsoluteError
+    }
+}
+
 struct ChordInkValueRangeContract: Codable, Equatable, Sendable {
     let minimumInclusive: Double?
     let maximumInclusive: Double?
@@ -77,6 +134,16 @@ enum ChordInkModelManifestValidationError: Error, Equatable, Sendable {
     case invalidManifestDigest
     case invalidModelDigest
     case invalidModelByteCount
+    case checkpointContractVersionMismatch(expected: String, actual: String)
+    case invalidCheckpointDigest
+    case invalidCheckpointByteCount
+    case invalidDevelopmentRecordsDigest
+    case invalidDevelopmentSampleCount
+    case invalidDevelopmentWriterCount
+    case invalidDevelopmentSelectionDigest
+    case unexpectedDevelopmentSelectionDigest
+    case inferenceComputeUnitsMismatch
+    case invalidExportParityEvidence
     case featureSchemaVersionMismatch(expected: String, actual: String)
     case trajectoryContractMismatch(expected: ChordInkTensorContract, actual: ChordInkTensorContract)
     case rasterContractMismatch(expected: ChordInkTensorContract, actual: ChordInkTensorContract)
@@ -86,7 +153,7 @@ enum ChordInkModelManifestValidationError: Error, Equatable, Sendable {
 /// Serializable sidecar contract for a learned model artifact. A model whose
 /// names, shapes, labels, or digests differ from this manifest must not run.
 struct ChordInkModelArtifactManifest: Codable, Equatable, Sendable {
-    static let contractVersion = "chord-ink-model-manifest-v2"
+    static let contractVersion = "chord-ink-model-manifest-v4"
     static let trajectoryInputName = "trajectory"
     static let rasterInputName = "raster"
 
@@ -98,7 +165,10 @@ struct ChordInkModelArtifactManifest: Codable, Equatable, Sendable {
     let manifestArtifactSHA256: String
     let modelArtifactSHA256: String
     let modelArtifactByteCount: Int64
+    let trainingProvenance: ChordInkTrainingProvenance
     let featureSchemaVersion: String
+    let inferenceComputeUnits: ChordInkInferenceComputeUnits
+    let exportParity: ChordInkCoreMLExportParityEvidence
     let trajectoryInput: ChordInkTensorContract
     let rasterInput: ChordInkTensorContract
     let outputHeads: [ChordInkOutputHeadContract]
@@ -110,7 +180,10 @@ struct ChordInkModelArtifactManifest: Codable, Equatable, Sendable {
         manifestArtifactSHA256: String,
         modelArtifactSHA256: String,
         modelArtifactByteCount: Int64,
+        trainingProvenance: ChordInkTrainingProvenance,
         featureSchemaVersion: String = ChordInkFeatureSchema.version,
+        inferenceComputeUnits: ChordInkInferenceComputeUnits = .cpuOnly,
+        exportParity: ChordInkCoreMLExportParityEvidence = ChordInkCoreMLExportParityEvidence(),
         trajectoryInput: ChordInkTensorContract = Self.expectedTrajectoryInput,
         rasterInput: ChordInkTensorContract = Self.expectedRasterInput,
         outputHeads: [ChordInkOutputHeadContract] = Self.expectedOutputHeads
@@ -121,7 +194,10 @@ struct ChordInkModelArtifactManifest: Codable, Equatable, Sendable {
         self.manifestArtifactSHA256 = manifestArtifactSHA256
         self.modelArtifactSHA256 = modelArtifactSHA256
         self.modelArtifactByteCount = modelArtifactByteCount
+        self.trainingProvenance = trainingProvenance
         self.featureSchemaVersion = featureSchemaVersion
+        self.inferenceComputeUnits = inferenceComputeUnits
+        self.exportParity = exportParity
         self.trajectoryInput = trajectoryInput
         self.rasterInput = rasterInput
         self.outputHeads = outputHeads
@@ -152,11 +228,56 @@ struct ChordInkModelArtifactManifest: Codable, Equatable, Sendable {
         guard modelArtifactByteCount > 0 else {
             throw ChordInkModelManifestValidationError.invalidModelByteCount
         }
+        guard trainingProvenance.checkpointContractVersion
+                == ChordInkTrainingProvenance.checkpointContractVersion else {
+            throw ChordInkModelManifestValidationError.checkpointContractVersionMismatch(
+                expected: ChordInkTrainingProvenance.checkpointContractVersion,
+                actual: trainingProvenance.checkpointContractVersion
+            )
+        }
+        guard ChordInkArtifactDigest.isCanonicalSHA256(
+            trainingProvenance.checkpointArtifactSHA256
+        ) else {
+            throw ChordInkModelManifestValidationError.invalidCheckpointDigest
+        }
+        guard trainingProvenance.checkpointArtifactByteCount > 0 else {
+            throw ChordInkModelManifestValidationError.invalidCheckpointByteCount
+        }
+        guard ChordInkArtifactDigest.isCanonicalSHA256(
+            trainingProvenance.developmentRecordsSHA256
+        ) else {
+            throw ChordInkModelManifestValidationError.invalidDevelopmentRecordsDigest
+        }
+        guard trainingProvenance.developmentSampleCount > 0 else {
+            throw ChordInkModelManifestValidationError.invalidDevelopmentSampleCount
+        }
+        guard trainingProvenance.developmentWriterCount > 0,
+              trainingProvenance.developmentWriterCount
+                <= trainingProvenance.developmentSampleCount else {
+            throw ChordInkModelManifestValidationError.invalidDevelopmentWriterCount
+        }
+        switch trainingProvenance.developmentSelectionAuthority {
+        case .boundDevelopmentWriterComparisonV4:
+            guard let digest = trainingProvenance.developmentSelectionReportSHA256,
+                  ChordInkArtifactDigest.isCanonicalSHA256(digest) else {
+                throw ChordInkModelManifestValidationError.invalidDevelopmentSelectionDigest
+            }
+        case .unselectedDevelopmentTraining:
+            guard trainingProvenance.developmentSelectionReportSHA256 == nil else {
+                throw ChordInkModelManifestValidationError.unexpectedDevelopmentSelectionDigest
+            }
+        }
         guard featureSchemaVersion == ChordInkFeatureSchema.version else {
             throw ChordInkModelManifestValidationError.featureSchemaVersionMismatch(
                 expected: ChordInkFeatureSchema.version,
                 actual: featureSchemaVersion
             )
+        }
+        guard inferenceComputeUnits == .cpuOnly else {
+            throw ChordInkModelManifestValidationError.inferenceComputeUnitsMismatch
+        }
+        guard exportParity.isValid else {
+            throw ChordInkModelManifestValidationError.invalidExportParityEvidence
         }
         guard trajectoryInput == Self.expectedTrajectoryInput else {
             throw ChordInkModelManifestValidationError.trajectoryContractMismatch(

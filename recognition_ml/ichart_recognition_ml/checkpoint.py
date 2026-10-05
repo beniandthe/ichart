@@ -11,28 +11,38 @@ from typing import Dict, Mapping, Sequence, Tuple
 from .contracts import CorpusRecord, CorpusSupervisionKind, records_digest
 from .dataset import PipelineRole, require_optional_dependency, select_role_records
 from .errors import ContractError, OperationRefusedError
-from .models.dual_view import DualViewChordModel, DualViewModelConfig
+from .models.factory import (
+    make_chord_model,
+    model_config_from_mapping,
+    require_model_architecture_id,
+)
 from .models.output_contract import OUTPUT_CONTRACT_VERSION
 from .schema import FEATURE_SCHEMA
+from .selection_contract import (
+    BOUND_DEVELOPMENT_SELECTION_AUTHORITY,
+    validate_development_selection_binding,
+)
 from .train_pipeline import TrainingConfig, TrainingResult
 
 
-CHECKPOINT_CONTRACT_VERSION = "chord-ink-training-checkpoint-v1"
+CHECKPOINT_CONTRACT_VERSION = "chord-ink-training-checkpoint-v6"
 _CHECKPOINT_FIELDS = {"metadata", "state_dict"}
 _METADATA_FIELDS = {
     "checkpoint_contract_version",
     "feature_schema_version",
     "output_contract_version",
     "model_identifier",
+    "model_architecture_id",
     "model_config",
     "training_config",
     "development_records_sha256",
     "development_sample_count",
     "development_writer_count",
+    "development_selection_authority",
+    "development_selection_report_sha256",
     "epoch_losses",
     "has_negative_no_read_supervision",
 }
-_MODEL_CONFIG_FIELDS = {"trajectory_channels", "raster_channels", "fused_width", "dropout"}
 _TRAINING_CONFIG_FIELDS = {
     "seed",
     "epochs",
@@ -41,6 +51,10 @@ _TRAINING_CONFIG_FIELDS = {
     "weight_decay",
     "device",
     "deterministic",
+    "writer_balanced_loss",
+    "categorical_class_reweighting",
+    "loss_normalization_contract_version",
+    "trajectory_augmentation_contract_version",
 }
 
 
@@ -50,11 +64,14 @@ class CheckpointMetadata:
     feature_schema_version: str
     output_contract_version: str
     model_identifier: str
-    model_config: DualViewModelConfig
+    model_architecture_id: str
+    model_config: object
     training_config: TrainingConfig
     development_records_sha256: str
     development_sample_count: int
     development_writer_count: int
+    development_selection_authority: str
+    development_selection_report_sha256: str | None
     epoch_losses: Tuple[float, ...]
     has_negative_no_read_supervision: bool
 
@@ -91,18 +108,20 @@ class CheckpointMetadata:
             raise ContractError(
                 "invalid_model_identifier", "metadata.model_identifier", "must not be empty"
             )
-        model_config_value = _exact_dict(
-            value["model_config"], _MODEL_CONFIG_FIELDS, "metadata.model_config"
+        model_architecture_id = require_model_architecture_id(
+            value["model_architecture_id"]
+        )
+        model_config = model_config_from_mapping(
+            model_architecture_id,
+            value["model_config"],
         )
         training_config_value = _exact_dict(
             value["training_config"], _TRAINING_CONFIG_FIELDS, "metadata.training_config"
         )
         try:
-            model_config = DualViewModelConfig(**model_config_value)
             training_config = TrainingConfig(**training_config_value)
         except TypeError as error:
             raise ContractError("invalid_checkpoint_config", "metadata", str(error))
-        model_config.validate()
         training_config.validate()
 
         digest = value["development_records_sha256"]
@@ -115,6 +134,19 @@ class CheckpointMetadata:
         )
         writer_count = _positive_integer(
             value["development_writer_count"], "metadata.development_writer_count"
+        )
+        if writer_count > sample_count:
+            raise ContractError(
+                "invalid_integer",
+                "metadata.development_writer_count",
+                "must not exceed development_sample_count",
+            )
+        (
+            development_selection_authority,
+            development_selection_report_sha256,
+        ) = validate_development_selection_binding(
+            value["development_selection_authority"],
+            value["development_selection_report_sha256"],
         )
         epoch_losses_value = value["epoch_losses"]
         if not isinstance(epoch_losses_value, (tuple, list)) or not epoch_losses_value:
@@ -147,11 +179,16 @@ class CheckpointMetadata:
             feature_schema_version=FEATURE_SCHEMA.version,
             output_contract_version=OUTPUT_CONTRACT_VERSION,
             model_identifier=model_identifier,
+            model_architecture_id=model_architecture_id,
             model_config=model_config,
             training_config=training_config,
             development_records_sha256=digest,
             development_sample_count=sample_count,
             development_writer_count=writer_count,
+            development_selection_authority=development_selection_authority,
+            development_selection_report_sha256=(
+                development_selection_report_sha256
+            ),
             epoch_losses=epoch_losses,
             has_negative_no_read_supervision=negative_supervision,
         )
@@ -162,11 +199,16 @@ class CheckpointMetadata:
             "feature_schema_version": self.feature_schema_version,
             "output_contract_version": self.output_contract_version,
             "model_identifier": self.model_identifier,
+            "model_architecture_id": self.model_architecture_id,
             "model_config": asdict(self.model_config),
             "training_config": asdict(self.training_config),
             "development_records_sha256": self.development_records_sha256,
             "development_sample_count": self.development_sample_count,
             "development_writer_count": self.development_writer_count,
+            "development_selection_authority": self.development_selection_authority,
+            "development_selection_report_sha256": (
+                self.development_selection_report_sha256
+            ),
             "epoch_losses": list(self.epoch_losses),
             "has_negative_no_read_supervision": self.has_negative_no_read_supervision,
         }
@@ -190,11 +232,18 @@ def metadata_for_training_result(
             "feature_schema_version": FEATURE_SCHEMA.version,
             "output_contract_version": OUTPUT_CONTRACT_VERSION,
             "model_identifier": model_identifier,
+            "model_architecture_id": result.model_architecture_id,
             "model_config": asdict(result.model_config),
             "training_config": asdict(result.training_config),
             "development_records_sha256": result.development_records_sha256,
             "development_sample_count": len(result.development_sample_ids),
             "development_writer_count": len(result.development_writer_hashes),
+            "development_selection_authority": (
+                result.development_selection_authority
+            ),
+            "development_selection_report_sha256": (
+                result.development_selection_report_sha256
+            ),
             "epoch_losses": list(result.epoch_losses),
             "has_negative_no_read_supervision": result.has_negative_no_read_supervision,
         }
@@ -253,7 +302,10 @@ def load_training_checkpoint(path: Path) -> LoadedCheckpoint:
     state_dict = payload["state_dict"]
     if not isinstance(state_dict, Mapping) or not state_dict:
         raise ContractError("invalid_state_dict", str(path), "must be a non-empty mapping")
-    model = DualViewChordModel(metadata.model_config)
+    model = make_chord_model(
+        metadata.model_architecture_id,
+        metadata.model_config,
+    )
     try:
         model.load_state_dict(state_dict, strict=True)
     except Exception as error:
@@ -309,6 +361,23 @@ def require_negative_no_read_supervision(metadata: CheckpointMetadata, operation
             operation,
             "the bound development corpus lacks both notation and adjudicated no-read examples; "
             "no-read calibration, trust thresholds, and promotion gates are forbidden",
+        )
+
+
+def require_bound_development_selection(
+    metadata: CheckpointMetadata,
+    operation: str,
+) -> None:
+    if (
+        metadata.development_selection_authority
+        != BOUND_DEVELOPMENT_SELECTION_AUTHORITY
+        or metadata.development_selection_report_sha256 is None
+    ):
+        raise OperationRefusedError(
+            "bound_development_selection_required",
+            operation,
+            "promotion evaluation requires the exact grouped development-writer "
+            "comparison report to be checkpoint-bound",
         )
 
 

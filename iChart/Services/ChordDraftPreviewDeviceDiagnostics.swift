@@ -79,6 +79,7 @@ struct ChordDraftPreviewDeviceDiagnosticPayload: Codable, Equatable {
     var reviewScores: [ChordInkCandidateScore]? = nil
     var glyphCandidateColumns: [[ChordDraftPreviewDeviceDiagnosticGlyphCandidate]]?
     var inkStrokes: [InkStroke]? = nil
+    var requiresEditReview: Bool? = nil
 }
 
 struct ChordDraftPreviewDeviceDiagnosticReplacement: Codable, Equatable {
@@ -571,7 +572,8 @@ private extension ChordDraftPreviewDeviceDiagnostics {
                     )
                 }
             },
-            inkStrokes: payload.strokes
+            inkStrokes: payload.strokes,
+            requiresEditReview: payload.result.requiresEditReview
         )
     }
 

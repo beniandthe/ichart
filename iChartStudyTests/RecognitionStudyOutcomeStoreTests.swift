@@ -14,7 +14,8 @@ final class RecognitionStudyOutcomeStoreTests: XCTestCase {
             recognizerID: "vision-baseline",
             recognizerVersion: "vision-baseline-v1",
             disposition: .review,
-            candidate: "C△7"
+            candidate: "C△7",
+            latencyMicroseconds: 12_345
         )
         let outcome = try RecognitionStudySemanticOutcomeArtifact(
             packet: capture.packet,
@@ -50,6 +51,10 @@ final class RecognitionStudyOutcomeStoreTests: XCTestCase {
         XCTAssertEqual(
             outcome.baseRecognizerOutcome.canonicalCandidate?.rawValue,
             "C△7"
+        )
+        XCTAssertEqual(
+            outcome.baseRecognizerOutcome.latencyMicroseconds,
+            12_345
         )
         XCTAssertEqual(
             outcome.adaptedRecognizerOutcome,
@@ -112,6 +117,24 @@ final class RecognitionStudyOutcomeStoreTests: XCTestCase {
                 candidate: "C"
             )
         )
+        XCTAssertThrowsError(
+            try RecognitionStudyBaseRecognizerOutcome(
+                recognizerID: "vision-baseline",
+                recognizerVersion: "v1",
+                disposition: .review,
+                candidate: "C",
+                latencyMicroseconds: RecognitionStudyBaseRecognizerOutcome
+                    .maximumLatencyMicroseconds + 1
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? RecognitionStudyOutcomeContractError,
+                .invalidRecognitionLatencyMicroseconds(
+                    RecognitionStudyBaseRecognizerOutcome
+                        .maximumLatencyMicroseconds + 1
+                )
+            )
+        }
 
         let review = try RecognitionStudyBaseRecognizerOutcome(
             recognizerID: "vision-baseline",
@@ -165,6 +188,40 @@ final class RecognitionStudyOutcomeStoreTests: XCTestCase {
                     ).utf8
                 )
             )
+        )
+    }
+
+    func testLegacyV1OutcomeWithoutLatencyStillDecodesButV2RequiresIt() throws {
+        let capture = try sampleCapture(
+            sessionID: uuid("10000000-0000-0000-0000-000000000012"),
+            authorizationID: uuid("20000000-0000-0000-0000-000000000012"),
+            captureID: uuid("30000000-0000-0000-0000-000000000012"),
+            x: 12
+        )
+        let current = String(
+            decoding: try sampleOutcome(capture: capture).canonicalData(),
+            as: UTF8.self
+        )
+        let withoutLatency = current.replacingOccurrences(
+            of: ",\"latencyMicroseconds\":12345",
+            with: ""
+        )
+        XCTAssertThrowsError(
+            try RecognitionStudySemanticOutcomeArtifact.decodeCanonicalData(
+                Data(withoutLatency.utf8)
+            )
+        )
+
+        let legacy = withoutLatency.replacingOccurrences(
+            of: RecognitionStudySemanticOutcomeArtifact.currentSchemaVersion,
+            with: RecognitionStudySemanticOutcomeArtifact.legacySchemaVersion
+        )
+        let decoded = try RecognitionStudySemanticOutcomeArtifact
+            .decodeCanonicalData(Data(legacy.utf8))
+        XCTAssertNil(decoded.baseRecognizerOutcome.latencyMicroseconds)
+        XCTAssertEqual(
+            decoded.schemaVersion.rawValue,
+            RecognitionStudySemanticOutcomeArtifact.legacySchemaVersion
         )
     }
 
@@ -452,7 +509,8 @@ final class RecognitionStudyOutcomeStoreTests: XCTestCase {
             recognizerID: "vision-baseline",
             recognizerVersion: "vision-baseline-v1",
             disposition: .review,
-            candidate: "C△7"
+            candidate: "C△7",
+            latencyMicroseconds: 12_345
         )
     }
 

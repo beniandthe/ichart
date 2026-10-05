@@ -129,6 +129,7 @@ enum ChordInkRecognitionAuthority: Equatable, Sendable {
 
 enum ChordInkLearnedCandidateDenialReason: Equatable, Sendable {
     case invalidManifest
+    case developmentSelectionNotBound
     case missingCalibration
     case invalidCalibration
     case missingSealedGateReceipt
@@ -182,6 +183,14 @@ struct ChordInkLearnedRouterPolicy {
 
         if requestedMode == .learnedShadow {
             return observationalDecision(requestedMode: requestedMode, denialReason: nil)
+        }
+
+        guard manifest.trainingProvenance.developmentSelectionAuthority
+                == .boundDevelopmentWriterComparisonV4 else {
+            return observationalDecision(
+                requestedMode: requestedMode,
+                denialReason: .developmentSelectionNotBound
+            )
         }
 
         let calibrationResolution = ChordInkCalibrationResolution.resolve(
