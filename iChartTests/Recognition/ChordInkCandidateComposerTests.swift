@@ -5,6 +5,72 @@ final class ChordInkCandidateComposerTests: XCTestCase {
     private let composer = ChordInkCandidateComposer()
     private let recognitionComposer = ChordInkRecognitionCandidateComposer()
 
+    func testSmallSequenceBudgetDoesNotExpandUnvisitedLargePrefixes() {
+        let roots = [
+            glyph("C", confidence: 0.99),
+            glyph("D", confidence: 0.98),
+            glyph("E", confidence: 0.97)
+        ]
+        let suffixes = [
+            glyph("7", confidence: 0.95),
+            glyph("9", confidence: 0.90),
+            glyph("5", confidence: 0.85)
+        ]
+        let columns = [roots] + Array(repeating: suffixes, count: 31)
+        var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+        configuration.maxGeneratedSequences = 4
+
+        let result = ChordInkCandidateComposer(configuration: configuration)
+            .composeDetailed(glyphCandidates: columns)
+
+        XCTAssertEqual(result.metrics.selectedColumnCount, 32)
+        XCTAssertEqual(result.metrics.generatedSequenceCount, 4)
+        XCTAssertTrue(result.metrics.hitGeneratedSequenceLimit)
+        XCTAssertTrue(result.candidates.contains { $0.glyphCandidates.count == columns.count })
+        XCTAssertEqual(result.metrics.returnedCandidateCount, result.candidates.count)
+    }
+
+    func testSequenceBudgetPreservesCompleteChordPriorityAndLimitBoundary() {
+        let roots = [glyph("C", confidence: 0.99), glyph("G", confidence: 0.95)]
+        let extensions = [glyph("7", confidence: 0.94), glyph("9", confidence: 0.92)]
+        let modifiers = [glyph("#", confidence: 0.91), glyph("+", confidence: 0.90)]
+        let columns = [roots, extensions, modifiers]
+
+        for budget in [0, 1, 2, 3, 5, 6, 7, 13, 14, 15, 130, 4096] {
+            var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+            configuration.maxGeneratedSequences = budget
+            let result = ChordInkCandidateComposer(configuration: configuration)
+                .composeDetailed(glyphCandidates: columns)
+
+            XCTAssertLessThanOrEqual(result.metrics.generatedSequenceCount, budget)
+            if budget == 0 {
+                XCTAssertTrue(result.candidates.isEmpty)
+                XCTAssertTrue(result.metrics.hitGeneratedSequenceLimit)
+            } else {
+                // Budget limits may defer alternatives, but must not use every
+                // sequence on roots before considering the complete chord.
+                XCTAssertTrue(result.candidates.contains { $0.glyphCandidates.count == 3 })
+            }
+            if budget >= 130 {
+                XCTAssertEqual(result.metrics.generatedSequenceCount, 14)
+                XCTAssertFalse(result.metrics.hitGeneratedSequenceLimit)
+            }
+        }
+    }
+
+    func testEmptyColumnsDoNotHitZeroSequenceBudget() {
+        var configuration = ChordInkCandidateComposerConfiguration.chordSymbols
+        configuration.maxGeneratedSequences = 0
+
+        let result = ChordInkCandidateComposer(configuration: configuration)
+            .composeDetailed(glyphCandidates: [[], []])
+
+        XCTAssertTrue(result.candidates.isEmpty)
+        XCTAssertEqual(result.metrics.generatedSequenceCount, 0)
+        XCTAssertEqual(result.metrics.selectedColumnCount, 0)
+        XCTAssertFalse(result.metrics.hitGeneratedSequenceLimit)
+    }
+
     func testRejectedRawTopCannotPromoteALegalRunnerUpOrShortenTheChord() {
         for invalid in ["ñ", "J", "", "7?"] {
             let result = composer.composeDetailed(glyphCandidates: [

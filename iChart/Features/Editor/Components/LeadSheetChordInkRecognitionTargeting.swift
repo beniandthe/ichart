@@ -583,7 +583,7 @@ enum LeadSheetChordInkRecognitionTargeting {
 
         let indexedStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
             .sorted { lhs, rhs in
                 if lhs.element.bounds.minX == rhs.element.bounds.minX {
@@ -895,7 +895,7 @@ enum LeadSheetChordInkRecognitionTargeting {
     ) -> MeasureLaneClusterResult {
         let usableStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
         let strokeTargets = usableStrokes
             .compactMap { index, stroke -> MeasureLaneStrokeTarget? in
@@ -1017,7 +1017,7 @@ enum LeadSheetChordInkRecognitionTargeting {
     ) -> [ChordInkBatchCluster] {
         let usableStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
         let laneStrokeTargets = usableStrokes.compactMap { index, stroke -> SystemLaneStrokeTarget? in
             let strokeBoundsInView = stroke.bounds.cgRect.offsetBy(
@@ -1264,7 +1264,7 @@ private enum ChordLaneDraftSegmentClusterer {
     static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
         let indexedStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
             .sorted { lhs, rhs in
                 if lhs.element.bounds.minX == rhs.element.bounds.minX {

@@ -12,6 +12,7 @@ struct ChordInkSequentialGroup: Hashable {
 
 enum ChordInkSequentialGroupAnchorReason: Hashable {
     case rootStart
+    case chordRepeat
     case fallbackGap
 }
 
@@ -153,6 +154,22 @@ struct ChordInkSequentialGrouper {
 
         var glyphIndex = glyphs.startIndex
         while glyphIndex < glyphs.endIndex {
+            if let repeatStart = chordRepeatStart(at: glyphIndex, in: glyphs) {
+                if let currentGroup {
+                    groups.append(currentGroup)
+                }
+                currentGroup = WorkingGroup(
+                    glyph: repeatStart.glyph,
+                    anchorReason: .chordRepeat,
+                    rootText: nil,
+                    rootConfidence: nil,
+                    rootWasModifierLed: false
+                )
+                previousGlyphWasSlashSeparator = false
+                glyphIndex = repeatStart.nextIndex
+                continue
+            }
+
             let glyph = glyphs[glyphIndex]
             let rootStartEvidence = glyph.isSlashSeparator
                 ? nil
@@ -310,7 +327,8 @@ struct ChordInkSequentialGrouper {
         hasHardTemporalOwnership: Bool
     ) -> [ChordInkSequentialGroup] {
         guard groups.count > 1,
-              indexedStrokes.count <= 24 else {
+              indexedStrokes.count <= 24,
+              !groups.contains(where: { $0.anchorReason == .chordRepeat }) else {
             return groups
         }
 
@@ -1010,6 +1028,13 @@ struct ChordInkSequentialGrouper {
             let currentGroup = refinedGroups[groupIndex]
             let previousGroupIndex = refinedGroups.index(before: groupIndex)
             let previousGroup = refinedGroups[previousGroupIndex]
+            // A complete repeat is an independent chord token, even when its
+            // marks were written at the cadence and size of a quality suffix.
+            if currentGroup.anchorReason == .chordRepeat
+                || previousGroup.anchorReason == .chordRepeat {
+                groupIndex = refinedGroups.index(after: groupIndex)
+                continue
+            }
             let detachedFallbackGap = previousGroup.bounds.horizontalGap(to: currentGroup.bounds)
             if currentGroup.anchorReason == .fallbackGap,
                currentGroup.bounds.minX > previousGroup.bounds.maxX,
@@ -1417,7 +1442,7 @@ struct ChordInkSequentialGrouper {
     ) -> [(index: Int, stroke: InkStroke)] {
         indexedStrokes
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
             .sorted { lhs, rhs in
                 // A closing alteration parenthesis can overhang the next root
@@ -1710,6 +1735,53 @@ struct ChordInkSequentialGrouper {
         return startTimeOffset - endTimeOffset
     }
 
+    private func chordRepeatStart(
+        at index: Int,
+        in glyphs: [SequentialGlyph]
+    ) -> (glyph: SequentialGlyph, nextIndex: Int)? {
+        let upperBound = min(glyphs.endIndex, index + 3)
+        var repeatGlyphs = [SequentialGlyph]()
+        var strokeCount = 0
+
+        for scanIndex in index..<upperBound {
+            let glyph = glyphs[scanIndex]
+            repeatGlyphs.append(glyph)
+            strokeCount += glyph.indexedStrokes.count
+            guard strokeCount <= 3 else {
+                return nil
+            }
+            guard strokeCount == 3 else {
+                continue
+            }
+
+            let strokes = repeatGlyphs.flatMap(\.indexedStrokes)
+                .sorted { lhs, rhs in lhs.index < rhs.index }
+                .map(\.stroke)
+            // Compact root letters can fit the detector's dot geometry. Preserve
+            // independent root evidence before assigning these strokes to a repeat.
+            guard !repeatGlyphs.contains(where: { glyph in
+                ChordInkSequentialRootStartDetector.evidence(
+                    in: glyph.candidates,
+                    cluster: glyph.cluster,
+                    currentGroupBounds: nil,
+                    previousGlyphWasSlashSeparator: false
+                ) != nil
+            }) else {
+                return nil
+            }
+            guard ChordRepeatInkDetector.candidate(from: strokes) != nil else {
+                return nil
+            }
+
+            return (
+                glyph: combinedGlyph(from: repeatGlyphs),
+                nextIndex: glyphs.index(after: scanIndex)
+            )
+        }
+
+        return nil
+    }
+
     private func combinedGlyph(from glyphs: [SequentialGlyph]) -> SequentialGlyph {
         let indexedStrokes = glyphs
             .flatMap(\.indexedStrokes)
@@ -1789,6 +1861,7 @@ enum ChordInkSequentialRootStartDetector {
         cluster: InkCluster,
         currentGroupBounds: InkBounds?,
         previousGlyphWasSlashSeparator: Bool,
+        currentRootBounds: InkBounds? = nil,
         currentGroupContentBounds: InkBounds? = nil,
         timeGapFromCurrentGroup: TimeInterval? = nil
     ) -> ChordInkSequentialRootStartEvidence? {
@@ -1816,7 +1889,8 @@ enum ChordInkSequentialRootStartDetector {
             rootCandidate: rootCandidate,
             bestCandidate: bestCandidate,
             cluster: cluster,
-            currentGroupBounds: currentGroupBounds
+            currentGroupBounds: currentGroupBounds,
+            currentRootBounds: currentRootBounds
         )
 
         if let currentGroupBounds {
@@ -1827,13 +1901,18 @@ enum ChordInkSequentialRootStartDetector {
                 && ChordInkSequentialTimingPolicy.supportsModifierContinuation(
                     timeGapFromCurrentGroup
                 )
-            let usesStrictBoundary = isDetachedRootSizedGlyph(cluster.bounds, from: currentGroupBounds)
+            let usesStrictBoundary = isDetachedRootSizedGlyph(
+                cluster.bounds, from: currentGroupBounds, rootBounds: currentRootBounds
+            )
             let usesCloseBoundary = !usesStrictBoundary
-                && isRootSequenceBoundarySizedGlyph(cluster.bounds, from: currentGroupBounds)
+                && isRootSequenceBoundarySizedGlyph(
+                    cluster.bounds, from: currentGroupBounds, rootBounds: currentRootBounds
+                )
             let usesTemporalBoundary = hasTemporalBoundary
                 && isTemporalRootSequenceBoundarySizedGlyph(
                     cluster.bounds,
-                    from: currentGroupBounds
+                    from: currentGroupBounds,
+                    rootBounds: currentRootBounds
                 )
             let hasDetachedAccumulatedChordOverride = hasRootSizedModifierLookalikeOverride
                 && currentGroupContentBounds.map {
@@ -1968,11 +2047,13 @@ enum ChordInkSequentialRootStartDetector {
 
     static func isDetachedRootSizedGlyph(
         _ bounds: InkBounds,
-        from currentGroupBounds: InkBounds
+        from currentGroupBounds: InkBounds,
+        rootBounds: InkBounds? = nil
     ) -> Bool {
         isRootSequenceBoundarySizedGlyph(
             bounds,
             from: currentGroupBounds,
+            rootBounds: rootBounds,
             minimumHorizontalGap: 16,
             minimumCenterAdvance: 18,
             heightRatioFloor: 0.55,
@@ -1984,11 +2065,13 @@ enum ChordInkSequentialRootStartDetector {
 
     static func isRootSequenceBoundarySizedGlyph(
         _ bounds: InkBounds,
-        from currentGroupBounds: InkBounds
+        from currentGroupBounds: InkBounds,
+        rootBounds: InkBounds? = nil
     ) -> Bool {
         isRootSequenceBoundarySizedGlyph(
             bounds,
             from: currentGroupBounds,
+            rootBounds: rootBounds,
             minimumHorizontalGap: 10,
             minimumCenterAdvance: 14,
             heightRatioFloor: 0.55,
@@ -2000,11 +2083,13 @@ enum ChordInkSequentialRootStartDetector {
 
     private static func isTemporalRootSequenceBoundarySizedGlyph(
         _ bounds: InkBounds,
-        from currentGroupBounds: InkBounds
+        from currentGroupBounds: InkBounds,
+        rootBounds: InkBounds? = nil
     ) -> Bool {
         isRootSequenceBoundarySizedGlyph(
             bounds,
             from: currentGroupBounds,
+            rootBounds: rootBounds,
             minimumHorizontalGap: 4,
             minimumCenterAdvance: 9,
             heightRatioFloor: 0.48,
@@ -2017,6 +2102,7 @@ enum ChordInkSequentialRootStartDetector {
     private static func isRootSequenceBoundarySizedGlyph(
         _ bounds: InkBounds,
         from currentGroupBounds: InkBounds,
+        rootBounds: InkBounds?,
         minimumHorizontalGap: Double,
         minimumCenterAdvance: Double,
         heightRatioFloor: Double,
@@ -2026,7 +2112,9 @@ enum ChordInkSequentialRootStartDetector {
     ) -> Bool {
         let horizontalGap = currentGroupBounds.horizontalGap(to: bounds)
         let referenceHeight = max(currentGroupBounds.height, bounds.height, 1)
-        let referenceWidth = max(currentGroupBounds.width, bounds.width, 1)
+        // Suffix width must not shrink a following root's letter-size evidence.
+        // Keep the complete chord edge for spacing, and its root for width.
+        let referenceWidth = max(rootBounds?.width ?? currentGroupBounds.width, bounds.width, 1)
         let centerAdvance = bounds.recognitionMidX - currentGroupBounds.recognitionMidX
         let heightRatio = bounds.height / referenceHeight
         let widthRatio = bounds.width / referenceWidth
@@ -2064,7 +2152,8 @@ enum ChordInkSequentialRootStartDetector {
         rootCandidate: GlyphCandidate,
         bestCandidate: GlyphCandidate?,
         cluster: InkCluster,
-        currentGroupBounds: InkBounds?
+        currentGroupBounds: InkBounds?,
+        currentRootBounds: InkBounds?
     ) -> Bool {
         guard let bestCandidate,
               bestCandidate.text != rootCandidate.text,
@@ -2079,7 +2168,9 @@ enum ChordInkSequentialRootStartDetector {
         }
 
         if let currentGroupBounds {
-            return isRootSequenceBoundarySizedGlyph(cluster.bounds, from: currentGroupBounds)
+            return isRootSequenceBoundarySizedGlyph(
+                cluster.bounds, from: currentGroupBounds, rootBounds: currentRootBounds
+            )
         }
 
         return isInitialRootSizedModifierLookalike(cluster.bounds)

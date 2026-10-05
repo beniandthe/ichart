@@ -1341,7 +1341,7 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
     }
 }
 
-private enum ChordRepeatInkDetector {
+enum ChordRepeatInkDetector {
     static func candidate(from strokes: [InkStroke]) -> ChordInkCandidate? {
         let indexedStrokes = strokes.enumerated().filter { !$0.element.points.isEmpty }
         guard indexedStrokes.count == 3 else {

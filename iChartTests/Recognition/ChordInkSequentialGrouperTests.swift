@@ -1746,6 +1746,291 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         return (rowStrokes, expectedStrokeRanges)
     }
 
+    func testRootStartEvidenceDoesNotShrinkAsPreviousChordGetsWider() {
+        for previousChordWidth in [120.0, 190.0, 260.0] {
+            let previousChordBounds = InkBounds(
+                minX: 0, minY: 10, maxX: previousChordWidth, maxY: 60
+            )
+            let nextRootBounds = InkBounds(
+                minX: previousChordWidth + 24,
+                minY: 12,
+                maxX: previousChordWidth + 56,
+                maxY: 60
+            )
+            let evidence = ChordInkSequentialRootStartDetector.evidence(
+                in: [glyph("D", confidence: 0.99, source: .heuristic)],
+                cluster: cluster(nextRootBounds),
+                currentGroupBounds: previousChordBounds,
+                previousGlyphWasSlashSeparator: false,
+                currentRootBounds: rootBounds(at: 0)
+            )
+
+            XCTAssertEqual(
+                evidence?.text,
+                "D",
+                "A normal-sized detached root should keep its boundary when the preceding chord has a wide suffix (width \(previousChordWidth))."
+            )
+        }
+    }
+
+    func testWideSuspendedFourthChordDoesNotSwallowEveryLaterRoot() throws {
+        // Template strokes preserve the recognizer's normal glyph evidence. The
+        // C7sus4 suffix is wide, while all following roots keep their size.
+        let fourthTemplate = GestureTemplate(text: "4", strokes: [
+            latestDeviceStroke([(279, 16), (266, 44), (294, 44)]),
+            latestDeviceStroke([(289, 12), (289, 60)])
+        ])
+        let wideGrouper = ChordInkSequentialGrouper(
+            templates: ChordGlyphTemplateLibrary.initialTemplates + [fourthTemplate]
+        )
+        let firstChord = try glyphStrokes([
+            ("C", 0), ("7", 0), ("s", 118), ("u", 170), ("s", 222)
+        ]) + fourthTemplate.strokes
+        let firstRoot = try templateStrokes("D", offsetX: 328)
+        let secondRoot = try templateStrokes("E", offsetX: 396)
+        let thirdRoot = try templateStrokes("F", offsetX: 464)
+
+        let initialGroups = wideGrouper.groups(for: indexed(firstChord + firstRoot))
+        let extendedGroups = wideGrouper.groups(
+            for: indexed(firstChord + firstRoot + secondRoot + thirdRoot)
+        )
+
+        XCTAssertEqual(initialGroups.count, 2)
+        XCTAssertEqual(extendedGroups.count, 4)
+        XCTAssertEqual(extendedGroups.map(\.rootText), ["C", "D", "E", "F"])
+        guard initialGroups.count == 2, extendedGroups.count == 4 else {
+            return
+        }
+        XCTAssertEqual(
+            Array(extendedGroups.prefix(2)).map(\.strokeIndices),
+            initialGroups.map(\.strokeIndices)
+        )
+        XCTAssertEqual(extendedGroups[0].strokeIndices, Array(firstChord.indices))
+    }
+
+    func testWidePreviousChordKeepsCompactSuffixAndSlashBassSafeguards() {
+        let wideChordBounds = InkBounds(minX: 0, minY: 10, maxX: 220, maxY: 60)
+        let compactHighSuffix = InkBounds(minX: 244, minY: 14, maxX: 258, maxY: 34)
+        let suffixEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(compactHighSuffix),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+        let slashBassEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [glyph("B", confidence: 0.99, source: .heuristic)],
+            cluster: cluster(rootBounds(at: 244)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: true,
+            currentRootBounds: rootBounds(at: 0)
+        )
+
+        XCTAssertNil(suffixEvidence)
+        XCTAssertNil(slashBassEvidence)
+    }
+
+    func testWidePreviousChordKeepsCloseSymbolicSuffixAndNineLookalikeSafeguards() {
+        let wideChordBounds = InkBounds(minX: 0, minY: 10, maxX: 220, maxY: 60)
+        let closeSymbolicSuffixEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("C", confidence: 0.99, source: .heuristic),
+                glyph("△", confidence: 0.80)
+            ],
+            cluster: cluster(rootBounds(at: 232)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+        let detachedNineEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("9", confidence: 1.0),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 250)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+
+        XCTAssertNil(closeSymbolicSuffixEvidence)
+        XCTAssertNil(detachedNineEvidence)
+    }
+
+    func testStandaloneRepeatRetainsPointAndSubpixelDots() {
+        for dotSpan in [0.0, 0.4] {
+            let strokes = repeatStrokes(upperDotSpan: dotSpan)
+            let groups = grouper.groups(for: indexed(strokes))
+
+            XCTAssertEqual(groups.count, 1)
+            guard let group = groups.first else {
+                continue
+            }
+            XCTAssertEqual(group.anchorReason, .chordRepeat)
+            XCTAssertNil(group.rootText)
+            XCTAssertEqual(group.strokeIndices, [0, 1, 2])
+            XCTAssertEqual(
+                ChordInkRecognizer().recognize(strokes: group.strokeIndices.map { strokes[$0] }).match?.displayText,
+                "•/•"
+            )
+        }
+    }
+
+    func testRepeatAfterRootKeepsTheSameThreeStrokesAsSoloRecognition() throws {
+        let rootStrokes = try templateStrokes("C", offsetX: 0)
+        for dotSpan in [0.0, 0.4] {
+            let repeatInk = repeatStrokes(upperDotSpan: dotSpan)
+            let strokes = rootStrokes + repeatInk
+            let groups = grouper.groups(for: indexed(strokes))
+            let soloRead = ChordInkRecognizer().recognize(strokes: repeatInk).match?.displayText
+
+            XCTAssertEqual(soloRead, "•/•")
+            XCTAssertEqual(groups.count, 2)
+            guard groups.count == 2 else {
+                continue
+            }
+            XCTAssertEqual(groups[0].rootText, "C")
+            XCTAssertEqual(groups[0].strokeIndices, [0])
+            XCTAssertEqual(groups[1].anchorReason, .chordRepeat)
+            XCTAssertEqual(groups[1].strokeIndices, [1, 2, 3])
+            XCTAssertEqual(
+                ChordInkRecognizer().recognize(strokes: groups[1].strokeIndices.map { strokes[$0] }).match?.displayText,
+                soloRead
+            )
+        }
+    }
+
+    func testShortRepeatAfterBFlatDoesNotNeedRootSizedInk() throws {
+        let rootStrokes = try glyphStrokes([("B", 0), ("b", -12)])
+        let strokes = rootStrokes + repeatStrokes(slashHeight: 16)
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 2)
+        guard groups.count == 2 else {
+            return
+        }
+        XCTAssertEqual(groups[0].strokeIndices, [0, 1, 2])
+        XCTAssertEqual(groups[1].anchorReason, .chordRepeat)
+        XCTAssertEqual(groups[1].strokeIndices, [3, 4, 5])
+        XCTAssertEqual(
+            ChordInkRecognizer().recognize(strokes: groups[0].strokeIndices.map { strokes[$0] }).match?.displayText,
+            "Bb"
+        )
+        XCTAssertEqual(
+            ChordInkRecognizer().recognize(strokes: groups[1].strokeIndices.map { strokes[$0] }).match?.displayText,
+            "•/•"
+        )
+    }
+
+    func testRepeatBetweenRootsDoesNotSuppressTheFollowingRoot() throws {
+        let leftRoot = try templateStrokes("C", offsetX: 0)
+        let repeatInk = repeatStrokes(slashHeight: 16)
+        let rightRoot = try templateStrokes("D", offsetX: 280)
+        let strokes = leftRoot + repeatInk + rightRoot
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.map(\.anchorReason), [.rootStart, .chordRepeat, .rootStart])
+        XCTAssertEqual(groups.map(\.rootText), ["C", nil, "D"])
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    func testFastRepeatKeepsIndependentOwnershipThroughTemporalReconciliation() throws {
+        let root = try templateStrokes("C", offsetX: 0)
+        let repeatInk = repeatStrokes(slashHeight: 16)
+        let rightRoot = try templateStrokes("D", offsetX: 280)
+        let strokes = (root + repeatInk + rightRoot).enumerated().map { index, stroke in
+            InkStroke(
+                points: stroke.points.enumerated().map { pointIndex, point in
+                    InkPoint(x: point.x, y: point.y, timeOffset: Double(pointIndex) * 0.001)
+                },
+                creationTimeOffset: Double(index) * 0.20
+            )
+        }
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.map(\.anchorReason), [.rootStart, .chordRepeat, .rootStart])
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+        guard groups.count == 3 else { return }
+        XCTAssertEqual(groups[1].strokeIndices, Array(root.count..<(root.count + repeatInk.count)))
+    }
+
+    func testQualityAndSlashBassInkDoesNotCreateRepeatGroup() throws {
+        let strokes = try glyphStrokes([
+            ("C", 0), ("°", 0), ("/", 0), ("B", 78)
+        ])
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.anchorReason, .rootStart)
+        XCTAssertEqual(groups.first?.strokeIndices, Array(strokes.indices))
+    }
+
+    func testCompactSlashBassRootEvidenceTakesPriorityOverRepeatGeometry() throws {
+        let compactRoot = try templateStrokes("C", offsetX: 0).map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(x: point.x * 0.4, y: point.y * 0.4, timeOffset: point.timeOffset)
+            })
+        }
+        let bassRoot = compactRoot.map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(x: point.x + 140, y: point.y, timeOffset: point.timeOffset)
+            })
+        }
+        let slash = latestDeviceStroke([(70, 58), (86, 12)])
+        let strokes = compactRoot + [slash] + bassRoot
+
+        // These compact letters also fit the detector's existing dot geometry,
+        // so root evidence must prevent assigning the window to a repeat.
+        XCTAssertNotNil(ChordRepeatInkDetector.candidate(from: strokes))
+        for rootInk in [compactRoot, bassRoot] {
+            let rootCluster = InkCluster(strokes: rootInk)
+            let candidates = GestureTemplateRecognizer().rankedCandidates(
+                for: rootCluster,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            let evidence = ChordInkSequentialRootStartDetector.evidence(
+                in: candidates,
+                cluster: rootCluster,
+                currentGroupBounds: nil,
+                previousGlyphWasSlashSeparator: false
+            )
+            XCTAssertEqual(evidence?.text, "C")
+            XCTAssertGreaterThan(evidence?.confidence ?? 0, 0.95)
+        }
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.anchorReason, .rootStart)
+        XCTAssertEqual(groups.first?.rootText, "C")
+        XCTAssertFalse(groups.contains { $0.anchorReason == .chordRepeat })
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    func testIncompleteRepeatInkDoesNotCreateRepeatGroup() throws {
+        let repeatInk = repeatStrokes()
+        let strokes = try templateStrokes("C", offsetX: 0) + Array(repeatInk.dropFirst())
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertFalse(groups.contains { $0.anchorReason == .chordRepeat })
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    private func repeatStrokes(upperDotSpan: Double = 0, slashHeight: Double = 50) -> [InkStroke] {
+        [
+            latestDeviceStroke([(180, 12), (180 + upperDotSpan, 12 + upperDotSpan)]),
+            latestDeviceStroke([(198, 10 + slashHeight), (210, 10)]),
+            latestDeviceStroke([(220, 8 + slashHeight), (222, 9 + slashHeight), (220, 10 + slashHeight)])
+        ]
+    }
+
     private func glyphStrokes(_ glyphs: [(String, Double)]) throws -> [InkStroke] {
         try glyphs.flatMap { text, offsetX in
             try templateStrokes(text, offsetX: offsetX)
