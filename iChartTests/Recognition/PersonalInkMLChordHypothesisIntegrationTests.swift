@@ -4,7 +4,10 @@ import XCTest
 final class PersonalInkMLChordHypothesisIntegrationTests: XCTestCase {
     private final class Encoder: PersonalInkVisualEncoding {
         let identity = "synthetic-complete-token-integration"
-        let vocabulary = ["C", ">", "7"]
+        let vocabulary: [String]
+        init(forbiddenWinner: Bool = false) {
+            vocabulary = ["C", forbiddenWinner ? ">" : "/", "7"]
+        }
         var calls = 0
         func encode(_ strokes: [InkStroke]) throws -> PersonalInkVisualFeatures {
             calls += 1
@@ -57,6 +60,23 @@ final class PersonalInkMLChordHypothesisIntegrationTests: XCTestCase {
         XCTAssertEqual(after.rows[0].completeTokenHypotheses, before.rows[0].completeTokenHypotheses)
         XCTAssertNotEqual(after.rows[0].intended, before.rows[0].intended)
         XCTAssertTrue(run.profile.examples.isEmpty)
+    }
+
+    func testForbiddenRawWinnerCannotBecomeACompleteChordThroughLowerRankPromotion() throws {
+        let run = makeRun()
+        let ordinary = try PersonalInkLearnedRunReport.compare(run,
+            encoder: Encoder(forbiddenWinner: true), grouping: .losslessSourceV2)
+        let alternatives = try PersonalInkLearnedRunReport.compare(run,
+            encoder: Encoder(forbiddenWinner: true), grouping: .losslessSourceV2,
+            includesCompleteTokenHypotheses: true)
+        XCTAssertEqual(alternatives.rows[0].prediction, ordinary.rows[0].prediction)
+        XCTAssertEqual(alternatives.scorecard, ordinary.scorecard)
+        let hypotheses = try XCTUnwrap(alternatives.rows[0].completeTokenHypotheses)
+        XCTAssertTrue(hypotheses.generic.candidates.isEmpty,
+            "A forbidden raw winner cannot be replaced by a lower legal chord")
+        XCTAssertTrue(hypotheses.generic.searchComplete)
+        XCTAssertEqual(hypotheses.generic.rejectedCompleteSequenceCount, 9)
+        XCTAssertEqual(hypotheses.generic.totalSequenceCount, 9)
     }
 
     func testUnsupportedGroupingCannotEncodeOrBypassSelectiveOwnership() throws {

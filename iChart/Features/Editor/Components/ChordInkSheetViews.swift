@@ -61,7 +61,9 @@ struct PendingChordInkConfirmation: Identifiable {
         proposalDecisionMilliseconds: Double? = nil,
         primaryDecision: ChordInkRecognitionDecision,
         decision: ChordInkRecognitionDecision,
-        candidateTexts: [String]? = nil
+        candidateTexts: [String]? = nil,
+        initialEntryText: String? = nil,
+        startsWithEmptyEntry: Bool = false
     ) {
         self.id = id
         self.measureID = measureID
@@ -76,7 +78,8 @@ struct PendingChordInkConfirmation: Identifiable {
 
         let userFacingCandidateTexts = candidateTexts ?? Self.candidateTexts(for: result)
         self.candidateTexts = userFacingCandidateTexts
-        self.bestCandidateText = decision.acceptedText ?? result.match?.displayText ?? userFacingCandidateTexts.first
+        self.bestCandidateText = startsWithEmptyEntry ? nil
+            : initialEntryText ?? decision.acceptedText ?? result.match?.displayText ?? userFacingCandidateTexts.first
     }
 
     var displayMeasureNumber: Int {
@@ -105,6 +108,9 @@ struct PendingChordInkBatchConfirmation: Identifiable {
     let id = UUID()
     let confirmations: [PendingChordInkConfirmation]
     var source: Source = .recognitionProposal
+    /// Draft/source ownership frozen when review opens. An edited canvas or
+    /// regrouped target must reopen review rather than reuse these labels.
+    var reviewedDraftState: ChordPreviewState? = nil
 
     var displayTitle: String {
         confirmations.count == 1 ? "1 Chord" : "\(confirmations.count) Chords"
@@ -115,7 +121,7 @@ struct PendingChordInkBatchConfirmation: Identifiable {
         case .recognitionProposal:
             return "Review each chord, then render them together."
         case .draftPreview:
-            return "Check the uncertain reads, then render the draft."
+            return "Check the reads and enter any missing chords, then render the draft."
         }
     }
 
@@ -126,18 +132,25 @@ struct PendingChordInkBatchConfirmation: Identifiable {
 
 enum ChordInkDraftReviewPolicy {
     static func batch(for state: ChordPreviewState) -> PendingChordInkBatchConfirmation? {
-        let drafts = state.renderableDraftChords
+        let drafts = state.draftChords
         let confirmations = drafts.compactMap { draft -> PendingChordInkConfirmation? in
-            guard let result = draft.recognitionResult else {
-                return nil
-            }
+            let result = draft.recognitionResult ?? ChordInkRecognitionResult(
+                rawCandidates: [], glyphCandidates: [], match: nil, confidence: 0
+            )
 
             let primaryDecision = draft.primaryDecision
                 ?? ChordInkRecognitionPolicy.decision(for: result)
-            let decision = draft.recognitionDecision ?? ChordInkRecognitionDecision(
+            let decision = draft.isRenderable ? (draft.recognitionDecision ?? ChordInkRecognitionDecision(
                 action: .confirm,
                 acceptedText: primaryDecision.acceptedText,
                 reason: "I couldn't verify every part of this chord. Choose a suggestion or type it in.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )) : ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: nil,
+                reason: "No supported read. Type the chord or rewrite just this ink.",
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
@@ -151,7 +164,9 @@ enum ChordInkDraftReviewPolicy {
                 targetFraction: draft.targetFraction,
                 primaryDecision: primaryDecision,
                 decision: decision,
-                candidateTexts: draft.candidateTexts
+                candidateTexts: draft.candidateTexts,
+                initialEntryText: draft.previewText,
+                startsWithEmptyEntry: !draft.isRenderable
             )
         }
 
@@ -162,19 +177,37 @@ enum ChordInkDraftReviewPolicy {
 
         return PendingChordInkBatchConfirmation(
             confirmations: confirmations,
-            source: .draftPreview
+            source: .draftPreview,
+            reviewedDraftState: state
         )
+    }
+
+    static func reviewedState(
+        from state: ChordPreviewState,
+        batch: PendingChordInkBatchConfirmation,
+        candidateTextByDraftID: [UUID: String]
+    ) -> ChordPreviewState? {
+        guard batch.source == .draftPreview,
+              let expected = batch.reviewedDraftState,
+              state.draftChords == expected.draftChords,
+              state.draftBarlines == expected.draftBarlines,
+              state.layoutPageSize == expected.layoutPageSize,
+              batch.confirmations.map(\.id) == expected.draftChords.map(\.id) else {
+            return nil
+        }
+        return reviewedState(from: state, candidateTextByDraftID: candidateTextByDraftID)
     }
 
     static func reviewedState(
         from state: ChordPreviewState,
         candidateTextByDraftID: [UUID: String]
     ) -> ChordPreviewState? {
-        let renderableDrafts = state.renderableDraftChords
-        guard !renderableDrafts.isEmpty,
-              renderableDrafts.allSatisfy({ draft in
+        let drafts = state.draftChords
+        guard !drafts.isEmpty,
+              Set(candidateTextByDraftID.keys) == Set(drafts.map(\.id)),
+              drafts.allSatisfy({ draft in
                   guard let candidateText = candidateTextByDraftID[draft.id],
-                        !candidateText.isEmpty else {
+                        !candidateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                       return false
                   }
                   return ChordRecognitionCompendium.match(candidateText) != nil
@@ -186,7 +219,7 @@ enum ChordInkDraftReviewPolicy {
         for index in reviewedState.draftChords.indices {
             let draftID = reviewedState.draftChords[index].id
             if let candidateText = candidateTextByDraftID[draftID] {
-                reviewedState.draftChords[index].selectedText = candidateText
+                reviewedState.draftChords[index].selectedText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
         return reviewedState
@@ -256,25 +289,36 @@ struct ChordInkBatchConfirmationSheetView: View {
     let highlightsForwardActions: Bool
     let onAcceptAll: ([UUID: String]) -> Void
     let onClearAndRewrite: () -> Void
+    let onBackToInk: (() -> Void)?
+    let onRewriteChord: ((PendingChordInkConfirmation) -> Void)?
+    let onEntryTextsChanged: (([UUID: String]) -> Void)?
     @State private var candidateTextByID: [UUID: String]
     // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
     @State private var focusedConfirmationID: UUID?
     @State private var keyboardConfirmationID: UUID?
+    @State private var confirmsRewriteAll = false
 
     init(
         batch: PendingChordInkBatchConfirmation,
         highlightsForwardActions: Bool = false,
         onAcceptAll: @escaping ([UUID: String]) -> Void,
-        onClearAndRewrite: @escaping () -> Void
+        onClearAndRewrite: @escaping () -> Void,
+        onBackToInk: (() -> Void)? = nil,
+        onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil,
+        initialEntryTextsByID: [UUID: String] = [:],
+        onEntryTextsChanged: (([UUID: String]) -> Void)? = nil
     ) {
         self.batch = batch
         self.highlightsForwardActions = highlightsForwardActions
         self.onAcceptAll = onAcceptAll
         self.onClearAndRewrite = onClearAndRewrite
+        self.onBackToInk = onBackToInk
+        self.onRewriteChord = onRewriteChord
+        self.onEntryTextsChanged = onEntryTextsChanged
         _candidateTextByID = State(
             initialValue: Dictionary(
                 uniqueKeysWithValues: batch.confirmations.map { confirmation in
-                    (confirmation.id, confirmation.bestCandidateText ?? "")
+                    (confirmation.id, initialEntryTextsByID[confirmation.id] ?? confirmation.bestCandidateText ?? "")
                 }
             )
         )
@@ -311,10 +355,12 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
 
                 HStack(spacing: 10) {
-                    ChordInkReviewButton(title: "Rewrite Ink") {
-                        onClearAndRewrite()
+                    if let onBackToInk {
+                        ChordInkReviewButton(title: "Back to Ink") {
+                            onBackToInk()
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
 
                     ChordInkReviewButton(
                         title: batch.actionTitle,
@@ -329,6 +375,9 @@ struct ChordInkBatchConfirmationSheetView: View {
                         cornerRadius: 10
                     )
                 }
+                ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                    confirmsRewriteAll = true
+                }
             }
             .frame(maxWidth: 520)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -340,6 +389,16 @@ struct ChordInkBatchConfirmationSheetView: View {
         }
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(true)
+        .onAppear { onEntryTextsChanged?(candidateTextByID) }
+        .onChange(of: candidateTextByID) { _, entries in
+            onEntryTextsChanged?(entries)
+        }
+        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears all pending chord ink. Use Rewrite This Chord to keep the rest of your writing.")
+        }
     }
 
     private var trimmedCandidateTextByID: [UUID: String] {
@@ -350,7 +409,8 @@ struct ChordInkBatchConfirmationSheetView: View {
 
     private var canRenderAll: Bool {
         batch.confirmations.allSatisfy { confirmation in
-            !(trimmedCandidateTextByID[confirmation.id] ?? "").isEmpty
+            guard let text = trimmedCandidateTextByID[confirmation.id] else { return false }
+            return ChordRecognitionCompendium.match(text) != nil
         }
     }
 
@@ -407,6 +467,14 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let onRewriteChord {
+                ChordInkReviewButton(title: "Rewrite This Chord", style: .plain,
+                    accessibilityLabel: "Rewrite this chord in measure \(confirmation.displayMeasureNumber)") {
+                    onRewriteChord(confirmation)
+                }
+                .frame(maxWidth: .infinity)
             }
 
             if !confirmation.visibleCandidateTexts.isEmpty {
@@ -591,8 +659,11 @@ struct ChordInkConfirmationSheetView: View {
     let onAcceptCandidate: (String) -> Void
     let onCopyFixtureJSON: (String) -> ChordInkFixtureCopyResult
     let onClearAndRewrite: () -> Void
+    let onBackToInk: (() -> Void)?
+    let onRewriteChord: ((PendingChordInkConfirmation) -> Void)?
     @State private var manualCandidateText: String
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
+    @State private var confirmsRewriteAll = false
     @FocusState private var isManualEntryFocused: Bool
 
     init(
@@ -601,7 +672,9 @@ struct ChordInkConfirmationSheetView: View {
         highlightsForwardActions: Bool = false,
         onAcceptCandidate: @escaping (String) -> Void,
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
-        onClearAndRewrite: @escaping () -> Void
+        onClearAndRewrite: @escaping () -> Void,
+        onBackToInk: (() -> Void)? = nil,
+        onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil
     ) {
         self.confirmation = confirmation
         self.showsFixtureCaptureTools = showsFixtureCaptureTools
@@ -609,6 +682,8 @@ struct ChordInkConfirmationSheetView: View {
         self.onAcceptCandidate = onAcceptCandidate
         self.onCopyFixtureJSON = onCopyFixtureJSON
         self.onClearAndRewrite = onClearAndRewrite
+        self.onBackToInk = onBackToInk
+        self.onRewriteChord = onRewriteChord
         _manualCandidateText = State(initialValue: confirmation.bestCandidateText ?? "")
     }
 
@@ -659,6 +734,14 @@ struct ChordInkConfirmationSheetView: View {
 
                 shortcutButtons
                 actionButtons
+                if let onRewriteChord {
+                    ChordInkReviewButton(title: "Rewrite This Chord", style: .plain) {
+                        onRewriteChord(confirmation)
+                    }
+                }
+                ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                    confirmsRewriteAll = true
+                }
 
                 #if DEBUG && targetEnvironment(simulator)
                 if showsFixtureCaptureTools {
@@ -676,6 +759,12 @@ struct ChordInkConfirmationSheetView: View {
         }
         .presentationDetents([.medium])
         .interactiveDismissDisabled(true)
+        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears all pending chord ink.")
+        }
         .task(id: confirmation.id) {
             guard shouldFocusManualEntry else {
                 return
@@ -726,7 +815,7 @@ struct ChordInkConfirmationSheetView: View {
             ChordInkReviewButton(
                 title: "Confirm",
                 style: .borderedProminent,
-                isEnabled: !trimmedCandidateText.isEmpty
+                isEnabled: ChordRecognitionCompendium.match(trimmedCandidateText) != nil
             ) {
                 acceptTrimmedCandidate()
             }
@@ -736,13 +825,12 @@ struct ChordInkConfirmationSheetView: View {
                 cornerRadius: 10
             )
 
-            ChordInkReviewButton(
-                title: "Rewrite Ink",
-                role: .destructive
-            ) {
-                onClearAndRewrite()
+            if let onBackToInk {
+                ChordInkReviewButton(title: "Back to Ink") {
+                    onBackToInk()
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
     }
 

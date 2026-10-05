@@ -5,6 +5,46 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRecognitionSessionTests: XCTestCase {
+    func testReviewOnlyRequestBypassesRecognitionPersonalizationAndExistingCacheWithoutPoisoningIt() throws {
+        let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
+        let session = ChordInkRecognitionSession(queue: .init(label: "review-only-cache"), recognizer: recognizer)
+        var request = Self.request(strokeCount: 1)
+        var profile = PersonalInkProfile()
+        profile.isEnabled = true
+        try profile.learn(strokes: request.strokes, label: "G", kind: .chord, source: .explicitCorrection)
+        request.evaluationContext = .init(runID: UUID(), profile: PersonalInkSnapshot(profile: profile))
+        for (index, reviewOnly) in [false, true, false].enumerated() {
+            request.requiresManualReviewOnly = reviewOnly
+            let done = expectation(description: "review-only \(reviewOnly)")
+            let expectedRequest = request
+            session.start(request: request) { payload in
+                XCTAssertEqual(payload.strokes, expectedRequest.strokes)
+                XCTAssertEqual(payload.drawingData, expectedRequest.drawingData)
+                XCTAssertEqual(payload.target.measureID, expectedRequest.target.measureID)
+                XCTAssertEqual(payload.target.fraction, expectedRequest.target.fraction)
+                XCTAssertEqual(payload.requiresManualReviewOnly, reviewOnly)
+                if reviewOnly {
+                    XCTAssertNil(payload.result.match)
+                    XCTAssertEqual(payload.result.confidence, 0)
+                    XCTAssertTrue(payload.result.rawCandidates.isEmpty)
+                    XCTAssertTrue(payload.result.candidateScores.isEmpty)
+                    XCTAssertNil(payload.result.personalSuggestion)
+                    XCTAssertNil(payload.evaluationPrediction)
+                    XCTAssertTrue(payload.result.requiresEditReview)
+                    XCTAssertFalse(payload.timing.cacheHit)
+                    XCTAssertEqual(payload.result.metrics.strokeCount, 1)
+                } else {
+                    XCTAssertEqual(payload.result.match?.displayText, "C")
+                    XCTAssertNotNil(payload.evaluationPrediction)
+                    XCTAssertEqual(payload.timing.cacheHit, index == 2)
+                }
+                done.fulfill()
+            }
+            wait(for: [done], timeout: 3)
+        }
+        XCTAssertEqual(recognizer.receivedStrokeCounts, [1])
+    }
+
     func testEditReviewIsRequestLocalEvenOnCacheHitsAndPairedEvaluation() {
         for flags in [[false, true, false], [true, false]] {
             let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])

@@ -1,5 +1,16 @@
 # iChart recognition ML workspace
 
+**Parked as of 2026-10-05.** This retained research workspace is not the active
+app release backlog. Start at [Project state](../docs/project-state.md) for app
+work and [Parked recognition research](../docs/parked-recognition/README.md) for
+snapshot branches, evidence, and reopening conditions. The commands below are
+reproducibility references, not instructions to resume experiments automatically.
+
+Normal app CI does not install this workspace or run model experiments. Its
+contracts and the separate RecognitionStudy app remain available through the
+CI workflow's explicit `run_recognition_research` dispatch input. Swift app
+recognition safety and parser tests remain in normal app validation.
+
 This directory is the reproducible, writer-independent data-contract boundary for
 future chord-recognition training and evaluation. It intentionally contains no
 handwriting, labels, model weights, checkpoints, or generated manifests.

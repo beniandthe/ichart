@@ -66,7 +66,7 @@ final class ChordInkEvaluationSourcePreparationTests: XCTestCase {
         }
     }
 
-    func testOmittedOversizedTargetRemainsUnassignedSourceInBothStyles() throws {
+    func testOversizedLocatedTargetRetainsReviewOnlySourceInBothStyles() throws {
         for style in styles {
             let fixture = try layoutFixture(style)
             let first = localCenter(fixture.lanes[0], frame: fixture.frame)
@@ -80,17 +80,19 @@ final class ChordInkEvaluationSourcePreparationTests: XCTestCase {
             }
             XCTAssertTrue(usesBatch)
             XCTAssertEqual(result.rawBatchTargetCount, 2)
-            XCTAssertEqual(requests.count, 1)
+            XCTAssertEqual(result.boundedBatchTargetCount, 1)
+            XCTAssertEqual(requests.count, 2)
+            XCTAssertEqual(requests.map(\.requiresManualReviewOnly), [false, true])
             let source = try XCTUnwrap(result.evaluationSource)
             XCTAssertEqual(source.visibleStrokes.count, 18)
             XCTAssertEqual(source.recognitionVisibleFragmentIndices, Array(0..<18))
-            XCTAssertEqual(source.ownership.targetGroups.map(\.visibleFragmentIndices), [[0]])
-            XCTAssertEqual(source.ownership.unassignedVisibleFragmentIndices, Array(1..<18))
+            XCTAssertEqual(source.ownership.targetGroups.map(\.visibleFragmentIndices), [[0], Array(1..<18)])
+            XCTAssertTrue(source.ownership.unassignedVisibleFragmentIndices.isEmpty)
             try assertExhaustiveSource(result, request: request)
         }
     }
 
-    func testAllOversizedTargetsRetainTargetlessSourceInBothStyles() throws {
+    func testAllOversizedLocatedTargetsRemainReviewOnlyWithoutRecognitionAdmissionInBothStyles() throws {
         for style in styles {
             let fixture = try layoutFixture(style)
             let drawing = PKDrawing(strokes: fixture.lanes.prefix(2).enumerated().flatMap { laneIndex, lane in
@@ -99,15 +101,20 @@ final class ChordInkEvaluationSourcePreparationTests: XCTestCase {
             })
             let request = makeRequest(drawing, fixture: fixture, style: style)
             let result = ChordInkRecognitionPreparation.prepare(request)
-            guard case .skippedWeakBatchTargets = result.outcome else {
-                XCTFail("Expected both oversized targets to be omitted in \(style.rawValue)"); continue
+            guard case .ready(let requests, let usesBatch) = result.outcome else {
+                XCTFail("Expected both oversized targets to remain reviewable in \(style.rawValue)"); continue
             }
+            XCTAssertTrue(usesBatch)
+            XCTAssertEqual(requests.count, 2)
+            XCTAssertTrue(requests.allSatisfy(\.requiresManualReviewOnly))
+            XCTAssertEqual(result.rawBatchTargetCount, 2)
+            XCTAssertEqual(result.boundedBatchTargetCount, 0)
             let source = try XCTUnwrap(result.evaluationSource)
-            XCTAssertEqual(source.outcome, "skippedWeakBatchTargets")
+            XCTAssertEqual(source.outcome, "ready")
             XCTAssertEqual(source.visibleStrokes.count, 34)
             XCTAssertEqual(source.recognitionVisibleFragmentIndices, Array(0..<34))
-            XCTAssertTrue(source.ownership.targetGroups.isEmpty)
-            XCTAssertEqual(source.ownership.unassignedVisibleFragmentIndices, Array(0..<34))
+            XCTAssertEqual(source.ownership.targetGroups.map(\.visibleFragmentIndices), [Array(0..<17), Array(17..<34)])
+            XCTAssertTrue(source.ownership.unassignedVisibleFragmentIndices.isEmpty)
             try assertExhaustiveSource(result, request: request)
         }
     }
@@ -160,7 +167,7 @@ final class ChordInkEvaluationSourcePreparationTests: XCTestCase {
         }
     }
 
-    func testSkippedSingleAndMissingLayoutPreserveTargetlessOwnership() throws {
+    func testWeakLocatedSingleTargetIsReviewOnlyButMissingLayoutKeepsTargetlessOwnership() throws {
         let fixture = try layoutFixture(.simpleChordSheet)
         let center = localCenter(fixture.lanes[0], frame: fixture.frame)
         let weak = PKDrawing(strokes: [stroke(points: [
@@ -168,10 +175,16 @@ final class ChordInkEvaluationSourcePreparationTests: XCTestCase {
         ])])
         let weakRequest = makeRequest(weak, fixture: fixture, style: .simpleChordSheet)
         let skipped = ChordInkRecognitionPreparation.prepare(weakRequest)
-        guard case .skippedSingleTarget = skipped.outcome else { XCTFail("Expected weak single target"); return }
+        guard case .ready(let requests, let usesBatch) = skipped.outcome else {
+            XCTFail("Expected weak single target to remain reviewable"); return
+        }
+        XCTAssertFalse(usesBatch)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertTrue(requests[0].requiresManualReviewOnly)
         let skippedSource = try XCTUnwrap(skipped.evaluationSource)
-        XCTAssertEqual(skippedSource.outcome, "skippedSingleTarget")
-        XCTAssertEqual(skippedSource.ownership.unassignedVisibleFragmentIndices, [0])
+        XCTAssertEqual(skippedSource.outcome, "ready")
+        XCTAssertEqual(skippedSource.ownership.targetGroups.map(\.visibleFragmentIndices), [[0]])
+        XCTAssertTrue(skippedSource.ownership.unassignedVisibleFragmentIndices.isEmpty)
         try assertExhaustiveSource(skipped, request: weakRequest)
 
         var missingLayout = makeRequest(PKDrawing(strokes: [diagonal(at: center)]),

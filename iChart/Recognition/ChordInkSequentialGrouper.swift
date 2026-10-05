@@ -1769,7 +1769,9 @@ struct ChordInkSequentialGrouper {
             }) else {
                 return nil
             }
-            guard ChordRepeatInkDetector.candidate(from: strokes) != nil else {
+            guard ChordRepeatInkDetector.candidate(
+                from: strokes, requiresCompactDots: true
+            ) != nil else {
                 return nil
             }
 

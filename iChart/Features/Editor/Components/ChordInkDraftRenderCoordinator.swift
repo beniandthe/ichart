@@ -17,11 +17,39 @@ final class ChordInkDraftRenderCoordinator {
     }
 
     var renderer: ((Chart, ChordPreviewState) -> Outcome?)?
+    struct RewriteOutcome {
+        let chart: Chart
+        let drawing: PKDrawing
+    }
+
+    var rewriter: ((Chart, ChordPreviewState, ChordInkDraft) -> RewriteOutcome?)?
+    // Actual PencilKit input callbacks, not summed recognizer compute time.
+    var lastInputAt: Date?
 
     init() {}
 
     func render(chart: Chart, state: ChordPreviewState) -> Outcome? {
         renderer?(chart, state)
+    }
+
+    func rewrite(chart: Chart, state: ChordPreviewState, draft: ChordInkDraft) -> RewriteOutcome? {
+        rewriter?(chart, state, draft)
+    }
+
+    static func prepareRewrite(
+        chart: Chart, state: ChordPreviewState, draft: ChordInkDraft, currentDrawing: PKDrawing,
+        coordinateSpace: PersistentInkCoordinateSpace?
+    ) -> RewriteOutcome? {
+        guard let plan = ChordInkDraftLocalRewritePolicy.plan(for: draft, in: state, source: currentDrawing),
+              let remaining = plan.rewrittenDrawing(ifCurrentSource: currentDrawing) else { return nil }
+        let serialization = LeadSheetPersistentInkColorPolicy.serialization(for: remaining)
+        var updatedChart = chart
+        _ = updatedChart.setPageHandwrittenChordDrawing(
+            remaining.strokes.isEmpty ? nil : serialization.drawingData,
+            coordinateSpace: remaining.strokes.isEmpty ? nil : coordinateSpace,
+            assumesNormalizedPersistentInk: true
+        )
+        return RewriteOutcome(chart: updatedChart, drawing: remaining)
     }
 
     /// Prepare exclusively from current live ink, never a cached chart ink

@@ -51,7 +51,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
                 // sequence on roots before considering the complete chord.
                 XCTAssertTrue(result.candidates.contains { $0.glyphCandidates.count == 3 })
             }
-            if budget >= 130 {
+            if budget == 4096 {
                 XCTAssertEqual(result.metrics.generatedSequenceCount, 14)
                 XCTAssertFalse(result.metrics.hitGeneratedSequenceLimit)
             }

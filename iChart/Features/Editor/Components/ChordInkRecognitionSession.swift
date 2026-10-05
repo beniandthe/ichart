@@ -57,6 +57,10 @@ struct ChordInkRecognitionSessionRequest {
     var options: ChordInkRecognitionOptions
     var evaluationContext: PersonalInkEvaluationContext? = nil
     var requiresEditReview: Bool = false
+    /// A located target excluded by recognition's load/evidence limits still
+    /// owns visible ink and can be corrected manually. Never run the reader,
+    /// personal matcher, cache, or learned comparison for this request.
+    var requiresManualReviewOnly: Bool = false
 
     var collectingTargetLifecycle: ChordInkRecognitionTargetLifecycle {
         ChordInkRecognitionTargetLifecycle(
@@ -85,6 +89,7 @@ struct ChordInkRecognitionProposalPayload {
     var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
     var timing: ChordInkRecognitionTiming
     var evaluationPrediction: PersonalInkEvaluationPrediction? = nil
+    var requiresManualReviewOnly: Bool = false
 }
 
 enum ChordInkRecognitionPreparationOutcome {
@@ -411,33 +416,19 @@ enum ChordInkRecognitionPreparation {
         )
 
         if usesBatchTargeting {
-            guard !boundedBatchTargets.isEmpty else {
+            if boundedBatchTargets.isEmpty {
                 ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
                     flow: request.flow,
-                    stage: "skip_weak_batch_targets",
+                    stage: "review_only_batch_targets",
                     recognitionStrokeCount: recognitionStrokeCount,
                     rawBatchTargetCount: batchTargets.count,
                     boundedBatchTargetCount: boundedBatchTargets.count,
                     layoutStyle: request.layoutStyle
                 )
-                return result(
-                    requestID: request.requestID,
-                    outcome: .skippedWeakBatchTargets,
-                    startedAt: startedAt,
-                    barlines: barlineRecognition.barlines,
-                    sourceStrokeCount: sourceStrokeCount,
-                    recognitionStrokeCount: recognitionStrokeCount,
-                    visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
-                    ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
-                    rawBatchTargetCount: batchTargets.count,
-                    boundedBatchTargetCount: boundedBatchTargets.count,
-                    ownershipSnapshot: targetlessOwnershipSnapshot,
-                    boundaryHypothesisSet: boundaryHypothesisSet,
-                    nextEditOwnership: edited?.nextOwnership
-                )
             }
 
-            let sessionRequests = boundedBatchTargets.map { batchTarget in
+            let admittedStrokeGroups = Set(boundedBatchTargets.map(\.recognitionStrokeIndices))
+            let sessionRequests = batchTargets.map { batchTarget in
                 ChordInkRecognitionSessionRequest(
                     requestID: request.requestID,
                     scheduledAt: request.scheduledAt,
@@ -449,7 +440,8 @@ enum ChordInkRecognitionPreparation {
                     laneLocation: batchTarget.laneLocation,
                     layoutPageSize: request.pageLayout?.pageBounds.size,
                     options: request.options,
-                    requiresEditReview: batchTarget.requiresEditReview
+                    requiresEditReview: batchTarget.requiresEditReview,
+                    requiresManualReviewOnly: !admittedStrokeGroups.contains(batchTarget.recognitionStrokeIndices)
                 )
             }
             return result(
@@ -468,7 +460,7 @@ enum ChordInkRecognitionPreparation {
                     visibleFragmentSourceStrokeIndices: visibleSourceContext.originalStrokeIndices,
                     barlineVisibleFragmentIndices: visibleBarlineRecognition.strokeIndices,
                     recognitionVisibleFragmentIndices: recognitionVisibleFragmentIndices,
-                    targetRecognitionStrokeIndices: boundedBatchTargets.map(
+                    targetRecognitionStrokeIndices: batchTargets.map(
                         \.recognitionStrokeIndices
                     )
                 ),
@@ -477,31 +469,18 @@ enum ChordInkRecognitionPreparation {
             )
         }
 
-        guard ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
+        let shouldRecognizeSingleTarget = ChordInkDraftPreviewRecognitionLoadPolicy.shouldRecognizeSingleTarget(
             strokes: recognitionStrokes,
             flow: request.flow
-        ) else {
+        )
+        if !shouldRecognizeSingleTarget {
             ChordDraftPreviewDeviceDiagnostics.recordNoTarget(
                 flow: request.flow,
-                stage: "skip_single_target",
+                stage: "review_only_single_target",
                 recognitionStrokeCount: recognitionStrokes.count,
                 rawBatchTargetCount: batchTargets.count,
                 boundedBatchTargetCount: boundedBatchTargets.count,
                 layoutStyle: request.layoutStyle
-            )
-            return result(
-                requestID: request.requestID,
-                outcome: .skippedSingleTarget,
-                startedAt: startedAt,
-                barlines: barlineRecognition.barlines,
-                sourceStrokeCount: sourceStrokeCount,
-                recognitionStrokeCount: recognitionStrokeCount,
-                visibleStrokeCount: visibleSourceContext.visibleStrokeCount,
-                ignoredInvisibleStrokeCount: visibleSourceContext.invisibleStrokeIndices.count,
-                rawBatchTargetCount: batchTargets.count,
-                boundedBatchTargetCount: boundedBatchTargets.count,
-                ownershipSnapshot: targetlessOwnershipSnapshot,
-                boundaryHypothesisSet: boundaryHypothesisSet
             )
         }
 
@@ -555,6 +534,7 @@ enum ChordInkRecognitionPreparation {
             options: request.options
         )
         sessionRequest.requiresEditReview = edited?.targets.first?.requiresEditReview ?? false
+        sessionRequest.requiresManualReviewOnly = !shouldRecognizeSingleTarget
         ChordDraftPreviewDeviceDiagnostics.recordSingleTarget(
             flow: request.flow,
             request: sessionRequest,
@@ -782,7 +762,8 @@ final class ChordInkRecognitionSession {
                     strokeCount: request.strokes.count,
                     cacheHit: cachedRecognition.cacheHit
                 ),
-                evaluationPrediction: cachedRecognition.evaluation
+                evaluationPrediction: cachedRecognition.evaluation,
+                requiresManualReviewOnly: request.requiresManualReviewOnly
             )
 
             guard self.isActive(operationID) else {
@@ -842,7 +823,8 @@ final class ChordInkRecognitionSession {
                         strokeCount: request.strokes.count,
                         cacheHit: cachedRecognition.cacheHit
                     ),
-                    evaluationPrediction: cachedRecognition.evaluation
+                    evaluationPrediction: cachedRecognition.evaluation,
+                    requiresManualReviewOnly: request.requiresManualReviewOnly
                 ))
             }
 
@@ -892,6 +874,14 @@ final class ChordInkRecognitionSession {
         for request: ChordInkRecognitionSessionRequest,
         recognizer: ChordInkRecognizing
     ) -> (result: ChordInkRecognitionResult, cacheHit: Bool, evaluation: PersonalInkEvaluationPrediction?) {
+        if request.requiresManualReviewOnly {
+            let unread = ChordInkRecognitionResult(
+                rawCandidates: [], glyphCandidates: [], match: nil, confidence: 0,
+                requiresEditReview: true,
+                metrics: ChordInkRecognitionMetrics(strokeCount: request.strokes.count)
+            )
+            return (unread, false, nil)
+        }
         // Recognition consumes only the prepared strokes and options. PencilKit
         // may reserialize an unchanged drawing with different archive metadata,
         // so raw drawing bytes make a valid cache miss every time an earlier

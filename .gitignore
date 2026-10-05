@@ -27,6 +27,16 @@ xcuserdata/
 Packages/
 dist/
 
+# Local Python tooling and research caches (research source remains tracked)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
 # CocoaPods
 Pods/
 

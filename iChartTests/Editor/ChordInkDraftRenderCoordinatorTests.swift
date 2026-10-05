@@ -73,8 +73,8 @@ final class ChordInkDraftRenderCoordinatorTests: XCTestCase {
 
             XCTAssertFalse(outcome.result.didRejectIncompleteSourceCoverage,
                 "Recognition labels cannot change source coverage")
-            XCTAssertEqual(outcome.result.renderedChordCount, 1,
-                "The prepared value attempted a partial commit before the coordinator discarded it")
+            XCTAssertEqual(outcome.result.renderedChordCount, 0,
+                "The atomic batch must not report a rendered neighbor when one target remains unresolved")
             XCTAssertEqual(outcome.result.unresolvedDraftIDs, [state.draftChords[1].id])
             XCTAssertFalse(outcome.canConsumeSource)
             XCTAssertEqual(outcome.chart, originalChart, style.rawValue)
@@ -128,6 +128,44 @@ final class ChordInkDraftRenderCoordinatorTests: XCTestCase {
         chart.completeInitialSetup(title: "Atomic render", key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
         return chart
+    }
+
+    func testLocalRewritePreparesOnlyRemainingInkWithoutChangingMusicalContentInBothStyles() async throws {
+        for style in styles {
+            let chart = makeChart(style)
+            let live = PKDrawing(strokes: [stroke(10), stroke(90)])
+            let originalBytes = live.dataRepresentation()
+            let state = makeState(chart, drawing: live)
+            let outcome = try XCTUnwrap(ChordInkDraftRenderCoordinator.prepareRewrite(
+                chart: chart, state: state, draft: state.draftChords[0], currentDrawing: live,
+                coordinateSpace: PersistentInkCoordinateSpace(size: pageSize)))
+            XCTAssertEqual(outcome.chart.measures, chart.measures)
+            XCTAssertEqual(outcome.chart.layoutStyle, chart.layoutStyle)
+            XCTAssertEqual(outcome.chart.documentKey, chart.documentKey)
+            XCTAssertEqual(outcome.chart.title, chart.title)
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: [live.strokes[1]]), current: outcome.drawing))
+            let persisted = try PKDrawing(data: XCTUnwrap(outcome.chart.pageHandwrittenChordData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: outcome.drawing, current: persisted))
+            XCTAssertEqual(live.dataRepresentation(), originalBytes)
+            XCTAssertNil(chart.pageHandwrittenChordData)
+        }
+    }
+
+    func testLocalRewriteRejectsChangedTargetAndDuplicateNeighborWithoutMutation() async throws {
+        let chart = makeChart(.simpleChordSheet)
+        let live = PKDrawing(strokes: [stroke(10), stroke(90)])
+        var state = makeState(chart, drawing: live)
+        let target = state.draftChords[0]
+        let modified = PKDrawing(strokes: [stroke(11), live.strokes[1]])
+        XCTAssertNil(ChordInkDraftRenderCoordinator.prepareRewrite(chart: chart, state: state,
+            draft: target, currentDrawing: modified, coordinateSpace: nil))
+        state.draftChords[1].drawingData = target.drawingData
+        XCTAssertNil(ChordInkDraftRenderCoordinator.prepareRewrite(chart: chart, state: state,
+            draft: target, currentDrawing: live, coordinateSpace: nil))
+        XCTAssertTrue(chart.measures.allSatisfy(\.chordEvents.isEmpty))
+        XCTAssertNil(chart.pageHandwrittenChordData)
     }
 
     private func makeState(_ chart: Chart, drawing: PKDrawing) -> ChordPreviewState {

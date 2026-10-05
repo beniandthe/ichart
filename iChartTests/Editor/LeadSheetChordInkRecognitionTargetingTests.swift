@@ -47,7 +47,11 @@ final class LeadSheetChordInkRecognitionTargetingTests: XCTestCase {
                     pageLayout: context.layout, draftBarlines: barlines
                 )
                 let target = try XCTUnwrap(
-                    result.targets.first { $0.strokes == expectedInk }, diagnostics(result)
+                    result.targets.first {
+                        ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                            expected: PKDrawing(strokes: repeatStrokes), current: $0.drawing
+                        )
+                    }, diagnostics(result)
                 )
                 XCTAssertEqual(target.strokes.count, 3)
                 XCTAssertEqual(recognizer.recognize(strokes: target.strokes).match?.displayText, "•/•")

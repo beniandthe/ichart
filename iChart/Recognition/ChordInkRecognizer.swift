@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v34-chord-only-scored-candidates-2026-10-03"
+    static let version = "maximum-trust-v35-chord-only-scored-candidates-2026-10-05"
 }
 
 protocol ChordInkRecognizing {
@@ -1342,7 +1342,10 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
 }
 
 enum ChordRepeatInkDetector {
-    static func candidate(from strokes: [InkStroke]) -> ChordInkCandidate? {
+    static func candidate(
+        from strokes: [InkStroke],
+        requiresCompactDots: Bool = false
+    ) -> ChordInkCandidate? {
         let indexedStrokes = strokes.enumerated().filter { !$0.element.points.isEmpty }
         guard indexedStrokes.count == 3 else {
             return nil
@@ -1353,6 +1356,13 @@ enum ChordRepeatInkDetector {
             let dotStrokes = indexedStrokes.filter { $0.offset != slashStroke.offset }
             guard dotStrokes.count == 2,
                   dotStrokes.allSatisfy({ isDotLike($0.element, symbolBounds: bounds) }),
+                  !requiresCompactDots || dotStrokes.allSatisfy({
+                    // A grouping window can be only part of a rooted chord.
+                    // Require actual compact dots relative to the slash before
+                    // granting that window independent token ownership.
+                    max($0.element.bounds.width, $0.element.bounds.height)
+                        <= max(4, slashStroke.element.bounds.height * 0.25)
+                  }),
                   hasChordRepeatLayout(
                     slashStroke: slashStroke.element,
                     dotStrokes: dotStrokes.map(\.element),

@@ -1587,7 +1587,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.1\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"51\""))
+        // A release build number advances; pinning an old literal blocks
+        // ordinary releases without protecting the bundle-version contract.
+        XCTAssertNotNil(projectText.range(
+            of: #"CURRENT_PROJECT_VERSION: "[1-9][0-9]*""#,
+            options: .regularExpression
+        ))
         XCTAssertTrue(projectText.contains("PRODUCT_BUNDLE_IDENTIFIER: com.ichart.tests"))
         XCTAssertTrue(projectText.contains("GENERATE_INFOPLIST_FILE: YES"))
         XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))

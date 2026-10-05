@@ -54,6 +54,7 @@ const allowedEventNames = new Set([
   "chord.preview_updated",
   "chord.preview_rendered",
   "chord.preview_discarded",
+  "chord.preview_rewritten",
   "chord.draft_barline_added",
   "rhythm.preview_changed",
   "rhythm.confirmed",
@@ -109,6 +110,7 @@ const allowedPropertyKeys = new Set([
   "chart_count",
   "chart_count_after",
   "chart_count_before",
+  "changed_chord_count",
   "close_race_count",
   "cloud_backed_up_count",
   "cluster_count",
@@ -128,6 +130,7 @@ const allowedPropertyKeys = new Set([
   "ink_tool_mode",
   "issue_count",
   "layout_style",
+  "last_stroke_to_preview_ms",
   "light_stroke_count",
   "local_chart_limit",
   "live_canvas_light_trait_guard_enabled",
@@ -160,7 +163,11 @@ const allowedPropertyKeys = new Set([
   "rendered_ink_light_pixel_ratio",
   "rendered_ink_median_luminance",
   "rendered_ink_sample_count",
+  "repaired_no_read_count",
   "result",
+  "review_duration_ms",
+  "reviewed_count",
+  "rewrite_outcome",
   "scope",
   "source",
   "source_coordinate_height",
@@ -193,6 +200,7 @@ const allowedPropertyKeys = new Set([
   "unknown_issue_count",
   "unresolved_count",
   "user_signed_in",
+  "writing_batch_id",
 ]);
 
 export function createTelemetryIngestDependencies(env = globalThis.Deno?.env, options = {}) {
@@ -351,13 +359,38 @@ export function sanitizedProperties(value) {
   const sanitized = {};
 
   for (const [key, rawValue] of entries) {
-    const normalizedValue = sanitizedPropertyValue(rawValue);
+    const normalizedValue = sanitizedWorkflowPropertyValue(key, rawValue);
     if (normalizedValue !== undefined) {
       sanitized[key] = normalizedValue;
     }
   }
 
   return sanitized;
+}
+
+function sanitizedWorkflowPropertyValue(key, value) {
+  switch (key) {
+    case "writing_batch_id":
+      return typeof value === "string" && uuidPattern.test(value)
+        ? value.toLowerCase()
+        : undefined;
+    case "rewrite_outcome":
+      return ["local", "page", "discard"].includes(value) ? value : undefined;
+    case "changed_chord_count":
+    case "repaired_no_read_count":
+    case "reviewed_count":
+      return Number.isInteger(value) && value >= 0 && value <= 10_000
+        ? value
+        : undefined;
+    case "last_stroke_to_preview_ms":
+    case "review_duration_ms":
+      return typeof value === "number" && Number.isFinite(value)
+        && value >= 0 && value <= 86_400_000
+        ? roundedNumber(value)
+        : undefined;
+    default:
+      return sanitizedPropertyValue(value);
+  }
 }
 
 function sanitizedPropertyValue(value) {

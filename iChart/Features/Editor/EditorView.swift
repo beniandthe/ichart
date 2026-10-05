@@ -332,6 +332,11 @@ struct EditorView: View {
     @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
     @State private var chordPreviewState = ChordPreviewState()
     @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
+    @State private var chordWritingBatchID = UUID()
+    @State private var chordReviewStartedAt: Date?
+    // Temporary review input only. It is never training, telemetry or a
+    // committed chord until the user explicitly renders the reviewed batch.
+    @State private var chordReviewEntriesByInk: [Data: String] = [:]
     @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
@@ -506,7 +511,9 @@ struct EditorView: View {
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
-                }
+                },
+                onBackToInk: handleBackToChordInk,
+                onRewriteChord: nil
             )
         }
         .sheet(item: $pendingChordInkBatchConfirmation) { batch in
@@ -518,6 +525,18 @@ struct EditorView: View {
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
+                },
+                onBackToInk: handleBackToChordInk,
+                onRewriteChord: batch.source == .draftPreview ? handleChordDraftRewriteRequested : nil,
+                initialEntryTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
+                    chordReviewEntriesByInk[confirmation.drawingData].map { (confirmation.id, $0) }
+                }),
+                onEntryTextsChanged: { entries in
+                    for confirmation in batch.confirmations {
+                        if let text = entries[confirmation.id] {
+                            chordReviewEntriesByInk[confirmation.drawingData] = text
+                        }
+                    }
                 }
             )
         }
@@ -2010,7 +2029,7 @@ struct EditorView: View {
     }
 
     private var canRenderChordDrafts: Bool {
-        chordPreviewState.canRenderAny && chordPreviewState.unresolvedChordCount == 0
+        chordPreviewState.canReviewChordDrafts || chordPreviewState.canRenderAny
     }
 
     private func handleActiveToolDoneTapped() {
@@ -4056,11 +4075,6 @@ struct EditorView: View {
         } else {
             inkToolMode = .write
             canvasMode = .chordEntry
-            if !offeredPersonalHandwriting {
-                personalHandwritingStartsWithEvaluation = false
-                offeredPersonalHandwriting = true
-                showingPersonalHandwriting = true
-            }
         }
     }
 
@@ -4222,7 +4236,8 @@ struct EditorView: View {
                 recognitionResult: payload.result,
                 primaryDecision: resolution.primaryDecision,
                 recognitionDecision: resolution.decision,
-                targetLifecycle: payload.targetLifecycle
+                targetLifecycle: payload.targetLifecycle,
+                requiresManualReviewOnly: payload.requiresManualReviewOnly
             )
         }
 
@@ -4250,6 +4265,12 @@ struct EditorView: View {
         )
 
         let layoutStyle = chart.layoutStyle.rawValue
+        let workflowProperties = ChordWritingWorkflowTelemetry.previewTimingProperties(
+            batchID: chordWritingBatchID,
+            lastStrokeToPreviewMilliseconds: payloads.contains(where: { !$0.timing.cacheHit })
+                ? ChordWritingWorkflowTelemetry.elapsedMilliseconds(
+                    from: chordDraftRenderCoordinator.lastInputAt, to: Date()) : nil
+        )
         Self.chordPreviewTelemetryQueue.async {
             IChartTelemetry.record(
                 "chord.preview_updated",
@@ -4258,7 +4279,7 @@ struct EditorView: View {
                     inputs: inputs,
                     updatedState: updatedPreviewState,
                     layoutStyle: layoutStyle
-                )
+                ).merging(workflowProperties) { _, value in value }
             )
         }
     }
@@ -4304,6 +4325,7 @@ struct EditorView: View {
             }
 
             pendingChordInkBatchConfirmation = batch
+            chordReviewStartedAt = Date()
             IChartTelemetry.record(
                 "chord.confirmation_presented",
                 properties: [
@@ -4314,7 +4336,7 @@ struct EditorView: View {
                     "result": .string("draft_review"),
                     "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                     "layout_style": .string(chart.layoutStyle.rawValue)
-                ]
+                ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
             )
             return
         }
@@ -4325,7 +4347,8 @@ struct EditorView: View {
     @discardableResult
     private func renderChordPreviewState(
         _ state: ChordPreviewState,
-        reviewResult: String
+        reviewResult: String,
+        workflowProperties: IChartTelemetryProperties = [:]
     ) -> Bool {
 
         var committedState = state
@@ -4377,8 +4400,13 @@ struct EditorView: View {
                 "unresolved_count": .int(renderResult.unresolvedDraftIDs.count),
                 "decision": .string(reviewResult),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ]
+            ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
+                .merging(workflowProperties) { _, value in value }
         )
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
         return true
     }
 
@@ -4405,8 +4433,12 @@ struct EditorView: View {
                 "draft_count": .int(discardedDraftCount),
                 "barline_count": .int(discardedBarlineCount),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ]
+            ].merging(ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .discard)) { _, value in value }
         )
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
     }
 
     private func handleChordInkRecognitionProposal(
@@ -4637,17 +4669,30 @@ struct EditorView: View {
         batch: PendingChordInkBatchConfirmation
     ) -> Bool {
         guard batch.source == .draftPreview,
-              batch.confirmations.count == chordPreviewState.renderableDraftChords.count,
+              batch.confirmations.count == chordPreviewState.draftChords.count,
               let reviewedState = ChordInkDraftReviewPolicy.reviewedState(
                   from: chordPreviewState,
+                  batch: batch,
                   candidateTextByDraftID: candidateTextByID
               ) else {
-            chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
+            chordInkErrorMessage = "This review no longer matches the ink, or a chord is unsupported. Go back to ink and review again. Nothing was rendered or erased."
             showingChordInkError = true
             return false
         }
 
-        return renderChordPreviewState(reviewedState, reviewResult: "confirmed")
+        let observations = chordPreviewState.draftChords.map { draft in
+            let previous = draft.previewText.flatMap { ChordRecognitionCompendium.match($0)?.displayText }
+            let accepted = candidateTextByID[draft.id].flatMap { ChordRecognitionCompendium.match($0)?.displayText }
+            return ChordWritingWorkflowTelemetry.ReviewObservation(
+                hadSupportedRead: previous != nil, didChangeRead: previous != accepted
+            )
+        }
+        return renderChordPreviewState(reviewedState, reviewResult: "confirmed",
+            workflowProperties: ChordWritingWorkflowTelemetry.reviewProperties(
+                batchID: chordWritingBatchID, observations: observations,
+                durationMilliseconds: ChordWritingWorkflowTelemetry.elapsedMilliseconds(
+                    from: chordReviewStartedAt, to: Date())
+            ))
     }
 
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
@@ -5337,8 +5382,33 @@ struct EditorView: View {
     #endif
 
     private func handleChordInkRewriteRequested() {
+        IChartTelemetry.record("chord.preview_rewritten", properties:
+            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .page))
         chordInkAutomaticRewriteFailures.reset()
         clearChordInkForRewrite()
+    }
+
+    private func handleBackToChordInk() {
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        chordReviewStartedAt = nil
+        canvasMode = .chordEntry
+    }
+
+    private func handleChordDraftRewriteRequested(_ confirmation: PendingChordInkConfirmation) {
+        guard let draft = chordPreviewState.draftChords.first(where: { $0.id == confirmation.id }),
+              draft.drawingData == confirmation.drawingData,
+              let outcome = chordDraftRenderCoordinator.rewrite(chart: chart, state: chordPreviewState, draft: draft) else {
+            chordInkErrorMessage = "This chord's ink changed or shares a stroke with other ink. Nothing was erased. Return to ink and use the eraser on that chord."
+            showingChordInkError = true
+            return
+        }
+        chart = outcome.chart
+        handleBackToChordInk()
+        chordReviewEntriesByInk.removeValue(forKey: draft.drawingData)
+        chordPreviewState.discard()
+        IChartTelemetry.record("chord.preview_rewritten", properties:
+            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .local))
     }
 
     private func clearChordInkForRewrite() {
@@ -5347,8 +5417,13 @@ struct EditorView: View {
         chart = updatedChart
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
+        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         canvasMode = .chordEntry
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
     }
 
     private func persistChordInkUserCorrectionMemory() {

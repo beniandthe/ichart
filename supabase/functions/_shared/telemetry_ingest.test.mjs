@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   createTelemetryIngestDependencies,
@@ -162,6 +163,92 @@ test("sanitized properties drops arrays and objects", () => {
       user_signed_in: true,
     }
   );
+});
+
+test("writing workflow telemetry retains only bounded content-free fields", () => {
+  const writingBatchID = "D005CE18-075F-4B94-8175-835D20A1B5B9";
+  const row = telemetryRowFromEvent(validEvent({
+    event_name: "chord.preview_rendered",
+    properties: {
+      writing_batch_id: writingBatchID,
+      reviewed_count: 6,
+      changed_chord_count: 2,
+      repaired_no_read_count: 1,
+      rendered_count: 6,
+      last_stroke_to_preview_ms: 321.98765,
+      review_duration_ms: 3_200,
+      accepted_chord_text: "D/F#",
+      drawing_data: "private",
+      chart_id: validContext.installation_id,
+    },
+  }), validContext);
+  assert.ok(row);
+  assert.deepEqual(row.properties, {
+    writing_batch_id: writingBatchID.toLowerCase(),
+    reviewed_count: 6,
+    changed_chord_count: 2,
+    repaired_no_read_count: 1,
+    rendered_count: 6,
+    last_stroke_to_preview_ms: 321.988,
+    review_duration_ms: 3_200,
+  });
+});
+
+test("writing workflow fields cannot carry text or malformed scalar values", () => {
+  assert.deepEqual(sanitizedProperties({
+    writing_batch_id: "private chart title",
+    reviewed_count: "C7",
+    changed_chord_count: true,
+    repaired_no_read_count: -1,
+    last_stroke_to_preview_ms: "private handwriting",
+    review_duration_ms: Infinity,
+    rewrite_outcome: "D/F#",
+  }), {});
+
+  for (const key of ["reviewed_count", "changed_chord_count", "repaired_no_read_count"]) {
+    for (const invalid of [10_001, 1.5, "2", null, false]) {
+      assert.deepEqual(sanitizedProperties({ [key]: invalid }), {});
+    }
+  }
+  for (const key of ["last_stroke_to_preview_ms", "review_duration_ms"]) {
+    for (const invalid of [-1, NaN, Infinity, 86_400_001, null, true]) {
+      assert.deepEqual(sanitizedProperties({ [key]: invalid }), {});
+    }
+  }
+  for (const invalid of [
+    "D005CE18-075F-4B94-8175-835D20A1B5B9\n",
+    "00000000-0000-0000-0000-000000000000",
+  ]) {
+    assert.deepEqual(sanitizedProperties({ writing_batch_id: invalid }), {});
+  }
+});
+
+test("explicit local rewrite, page rewrite and discard remain distinct", () => {
+  for (const outcome of ["local", "page", "discard"]) {
+    const row = telemetryRowFromEvent(validEvent({
+      event_name: outcome === "discard" ? "chord.preview_discarded" : "chord.preview_rewritten",
+      properties: {
+        writing_batch_id: validContext.session_id,
+        rewrite_outcome: outcome,
+      },
+    }), validContext);
+    assert.ok(row);
+    assert.equal(row.properties.rewrite_outcome, outcome);
+    assert.equal(row.properties.writing_batch_id, validContext.session_id);
+  }
+});
+
+test("Swift client and ingest event/property allowlists agree", () => {
+  const client = readFileSync(new URL("../../../iChart/App/Telemetry/IChartTelemetry.swift", import.meta.url), "utf8");
+  const server = readFileSync(new URL("./telemetry_ingest.mjs", import.meta.url), "utf8");
+  for (const name of ["allowedEventNames", "allowedPropertyKeys"]) {
+    const clientBlock = client.match(new RegExp(`${name}: Set<String> = \\[([\\s\\S]*?)\\n    \\]`));
+    const serverBlock = server.match(new RegExp(`${name} = new Set\\(\\[([\\s\\S]*?)\\n\\]\\)`));
+    assert.ok(clientBlock, `missing Swift ${name}`);
+    assert.ok(serverBlock, `missing ingest ${name}`);
+    const strings = (block) => [...block.matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]).sort();
+    assert.deepEqual(strings(clientBlock[1]), strings(serverBlock[1]), `${name} drift`);
+  }
 });
 
 test("telemetry row allows aggregate chord preview handwriting quality without content", () => {

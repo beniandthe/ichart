@@ -167,6 +167,10 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         chordDraftRenderCoordinator?.renderer = { [weak view] chart, state in
             view?.renderChordDraftAtomically(chart: chart, state: state)
         }
+        chordDraftRenderCoordinator?.rewriter = { [weak view] chart, state, draft in
+            view?.rewriteChordDraftAtomically(chart: chart, state: state, draft: draft)
+        }
+        view.chordDraftRenderCoordinator = chordDraftRenderCoordinator
         view.interactionMode = interactionMode
         // Explicit Discard must supersede a queued old ink writeback before
         // model synchronization. Rendering uses the synchronous bridge above.
@@ -1517,6 +1521,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)?
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)?
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)?
+    weak var chordDraftRenderCoordinator: ChordInkDraftRenderCoordinator?
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)?
     var onChordCorrectionRequested: ((UUID) -> Void)?
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)?
@@ -3758,6 +3763,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         guard canvasView === pageInkCanvasView else { return }
         isUsingInkTool = false
+        if activeInkAuthoringSessionRole() == .chord {
+            chordDraftRenderCoordinator?.lastInputAt = Date()
+        }
         if activeInkAuthoringSessionRole() == .chord,
            PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
             // PencilKit may deliver a final pressure update after tool end, or
@@ -3781,6 +3789,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let drawing = canvasView.drawing
+        if canvasView === pageInkCanvasView, activeInkAuthoringSessionRole() == .chord {
+            chordDraftRenderCoordinator?.lastInputAt = Date()
+        }
         let strokes = drawing.strokes
         let strokeCount = strokes.count
         updateActiveCanvasStrokeCount(strokeCount)
@@ -7161,6 +7172,34 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
         updateActiveCanvasStrokeCount(pageInkCanvasView.drawing.strokes.count)
         clearChordDraftInkCanvas()
+        return outcome
+    }
+
+    func rewriteChordDraftAtomically(
+        chart incomingChart: Chart, state: ChordPreviewState, draft: ChordInkDraft
+    ) -> ChordInkDraftRenderCoordinator.RewriteOutcome? {
+        guard incomingChart.id == chart.id, !isUsingInkTool,
+              let scope = activeInkScope(), case .chords = scope,
+              activeCanvasScope?.identity == scope.identity,
+              let outcome = ChordInkDraftRenderCoordinator.prepareRewrite(
+                chart: incomingChart, state: state, draft: draft, currentDrawing: pageInkCanvasView.drawing,
+                coordinateSpace: persistedCoordinateSpace(for: scope)
+              ) else { return nil }
+
+        cancelPendingInkSessionScheduledWork()
+        inkPersistenceCoordinator.recordPendingPersistedInk(
+            activeInkScope: scope, drawingData: outcome.chart.pageHandwrittenChordData,
+            coordinateSpace: outcome.chart.pageHandwrittenChordCoordinateSpace
+        )
+        chart = outcome.chart
+        isSyncingInkCanvasFromModel = true
+        pageInkCanvasView.drawing = outcome.drawing
+        updateActiveCanvasStrokeCount(outcome.drawing.strokes.count)
+        isSyncingInkCanvasFromModel = false
+        advanceInkDrawingRevision()
+        chordDraftRenderCoordinator?.lastInputAt = nil
+        inkAuthoringSessionState.markDirty(.chord)
+        scheduleInkSessionWorkAfterDrawingChange(strokeCount: activeCanvasStrokeCount, activeRole: .chord)
         return outcome
     }
 

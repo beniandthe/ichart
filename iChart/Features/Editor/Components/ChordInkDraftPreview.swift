@@ -279,6 +279,7 @@ struct ChordInkDraftInput: Hashable {
     var primaryDecision: ChordInkRecognitionDecision? = nil
     var recognitionDecision: ChordInkRecognitionDecision? = nil
     var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
+    var requiresManualReviewOnly: Bool = false
 
     var anchor: ChordInkDraftAnchor {
         ChordInkDraftAnchor(
@@ -334,7 +335,8 @@ enum ChordInkDraftPreviewResolutionReusePolicy {
             recognitionResult: previousDraft.recognitionResult,
             primaryDecision: previousDraft.primaryDecision,
             recognitionDecision: previousDraft.recognitionDecision,
-            targetLifecycle: targetLifecycle
+            targetLifecycle: targetLifecycle,
+            requiresManualReviewOnly: previousDraft.requiresManualReviewOnly
         )
     }
 }
@@ -537,6 +539,7 @@ struct ChordInkDraft: Identifiable, Hashable {
     var primaryDecision: ChordInkRecognitionDecision?
     var recognitionDecision: ChordInkRecognitionDecision?
     var targetLifecycle: ChordInkRecognitionTargetLifecycle?
+    var requiresManualReviewOnly: Bool
 
     init(id: UUID = UUID(), input: ChordInkDraftInput, selectedText: String? = nil, isStale: Bool = false) {
         self.id = id
@@ -558,6 +561,7 @@ struct ChordInkDraft: Identifiable, Hashable {
         self.primaryDecision = input.primaryDecision
         self.recognitionDecision = input.recognitionDecision
         self.targetLifecycle = input.targetLifecycle
+        self.requiresManualReviewOnly = input.requiresManualReviewOnly
     }
 
     var previewText: String? {
@@ -777,7 +781,7 @@ struct ChordPreviewState: Equatable {
     }
 
     var draftsRequiringConfirmation: [ChordInkDraft] {
-        renderableDraftChords.filter(\.requiresConfirmation)
+        draftChords.filter { !$0.isRenderable || $0.requiresConfirmation }
     }
 
     var requiresChordConfirmation: Bool {
@@ -804,6 +808,13 @@ struct ChordPreviewState: Equatable {
         canRenderAllDraftChords || !renderableBarlines.isEmpty
     }
 
+    /// Review can recover a represented unread chord without granting it a
+    /// recognition match or automatic trust. Source coverage is checked again
+    /// by the atomic commit before any ink can be consumed.
+    var canReviewChordDrafts: Bool {
+        !draftChords.isEmpty
+    }
+
     mutating func replaceDraftChords(with inputs: [ChordInkDraftInput], updatedAt: Date = .now) {
         let deduplicatedInputs = ChordInkDraftPreviewDeduplicationPolicy.deduplicated(inputs)
         let previousRenderableDrafts = draftChords.filter(\.isRenderable)
@@ -825,6 +836,20 @@ struct ChordPreviewState: Equatable {
         var resolvedDrafts = [ChordInkDraft]()
 
         for input in deduplicatedInputs {
+            if input.requiresManualReviewOnly {
+                // This is a settled manual-recovery target, not a transient
+                // reader result. Retaining the former preview as another draft
+                // would claim the same source twice and block safe recovery.
+                let previous = previousDraftByAnchor[input.anchor]
+                let selectedText = previous?.drawingData == input.drawingData ? previous?.selectedText : nil
+                var manualDraft = ChordInkDraft(id: previous?.id ?? UUID(), input: input,
+                    selectedText: selectedText, isStale: false)
+                if let lifecycle = manualDraft.targetLifecycle, lifecycle.stage == .stable {
+                    manualDraft.targetLifecycle = lifecycle.advanced(to: .frozen)
+                }
+                resolvedDrafts.append(manualDraft)
+                continue
+            }
             if let incomingLifecycle = input.targetLifecycle,
                let frozenDraft = previousFrozenDraftByIdentity[incomingLifecycle.frozenTargetIdentity] {
                 // A later page-wide pass may assign the same target a slightly
@@ -1580,6 +1605,30 @@ extension Chart {
     mutating func commitChordInkDraftBatch(
         _ state: ChordPreviewState,
         barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn
+    ) -> ChordInkDraftBatchRenderResult {
+        // Stage every measure/barline/chord mutation together. A changed source
+        // or one invalid target cannot leave a partially rendered chart behind.
+        var staged = self
+        let result = staged.applyChordInkDraftBatch(state, barlineSpacingMode: barlineSpacingMode)
+        guard !result.didRejectIncompleteSourceCoverage,
+              result.unresolvedDraftIDs.isEmpty,
+              state.unresolvedChordCount == 0,
+              state.unresolvedBarlineCount == 0 else {
+            let unresolved = Set(result.unresolvedDraftIDs)
+                .union(state.draftChords.filter { !$0.isRenderable }.map(\.id))
+            return ChordInkDraftBatchRenderResult(
+                renderedChordIDs: [], renderedBarlineIDs: [],
+                unresolvedDraftIDs: state.draftChords.filter { unresolved.contains($0.id) }.map(\.id),
+                didRejectIncompleteSourceCoverage: result.didRejectIncompleteSourceCoverage
+            )
+        }
+        self = staged
+        return result
+    }
+
+    private mutating func applyChordInkDraftBatch(
+        _ state: ChordPreviewState,
+        barlineSpacingMode: ChordDraftBarlineSpacingMode
     ) -> ChordInkDraftBatchRenderResult {
         // A skipped/oversized target is not an empty patch of canvas. Nothing
         // may be materialized or globally cleared until every current visible

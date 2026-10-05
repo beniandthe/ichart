@@ -6,6 +6,51 @@ import XCTest
 
 @MainActor
 final class ChordInkReviewInputTests: XCTestCase {
+    func testRestoredManualEntryAndRecoveryActionsPreserveEditingWithoutRendering() async throws {
+        let result = ChordInkRecognitionResult(rawCandidates: [], glyphCandidates: [], match: nil, confidence: 0)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let confirmation = PendingChordInkConfirmation(measureID: UUID(), measureIndex: 0,
+            result: result, drawingData: Data(), targetFraction: 0,
+            primaryDecision: decision, decision: decision)
+        var lastEntries: [UUID: String] = [:]
+        var accepted = false
+        var backCount = 0
+        var localRewriteCount = 0
+        var wholeRewriteCount = 0
+        let root = ChordInkBatchConfirmationSheetView(batch: .init(confirmations: [confirmation]),
+            onAcceptAll: { _ in accepted = true }, onClearAndRewrite: { wholeRewriteCount += 1 },
+            onBackToInk: { backCount += 1 }, onRewriteChord: { selected in
+                XCTAssertEqual(selected.id, confirmation.id)
+                localRewriteCount += 1
+            }, initialEntryTextsByID: [confirmation.id: "D7", UUID(): "C"],
+            onEntryTextsChanged: { lastEntries = $0 })
+        let host = UIHostingController(rootView: root)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UITextField }
+            .first { $0.placeholder == "Chord" })
+        XCTAssertEqual(field.text, "D7")
+        XCTAssertEqual(lastEntries, [confirmation.id: "D7"], "Unknown restored IDs cannot become review rows")
+        field.text = "G7"
+        field.sendActions(for: .editingChanged)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(lastEntries, [confirmation.id: "G7"])
+        let buttons = descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
+        let back = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Back to Ink" })
+        back.sendActions(for: .touchUpInside)
+        let local = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Rewrite this chord in measure 1" })
+        local.sendActions(for: .touchUpInside)
+        XCTAssertEqual(backCount, 1)
+        XCTAssertEqual(localRewriteCount, 1)
+        XCTAssertEqual(wholeRewriteCount, 0)
+        XCTAssertFalse(accepted)
+        XCTAssertEqual(lastEntries[confirmation.id], "G7", "Recovery must retain edited neighbor text for its owner")
+    }
+
     func testBatchFieldsKeepFocusAndEditedValuesWhenChangingRows() async throws {
         let confirmations = ["C", "A6(b5)", "D-7", "F", "G7"].enumerated().map { index, text in
             let result = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
@@ -26,7 +71,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         host.view.layoutIfNeeded()
         try await Task.sleep(nanoseconds: 100_000_000)
         let buttons = descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
-        let footerButtons = buttons.filter { ["Render All", "Rewrite Ink"].contains($0.accessibilityLabel ?? "") }
+        let footerButtons = buttons.filter { ["Render All", "Rewrite All Ink"].contains($0.accessibilityLabel ?? "") }
         XCTAssertEqual(footerButtons.count, 2)
         for button in footerButtons {
             XCTAssertGreaterThanOrEqual(button.bounds.height, 44)

@@ -563,6 +563,7 @@ enum IChartTelemetryPrivacy {
         "chord.preview_updated",
         "chord.preview_rendered",
         "chord.preview_discarded",
+        "chord.preview_rewritten",
         "chord.draft_barline_added",
         "rhythm.preview_changed",
         "rhythm.confirmed",
@@ -618,6 +619,7 @@ enum IChartTelemetryPrivacy {
         "chart_count",
         "chart_count_after",
         "chart_count_before",
+        "changed_chord_count",
         "close_race_count",
         "cloud_backed_up_count",
         "cluster_count",
@@ -637,6 +639,7 @@ enum IChartTelemetryPrivacy {
         "ink_tool_mode",
         "issue_count",
         "layout_style",
+        "last_stroke_to_preview_ms",
         "light_stroke_count",
         "local_chart_limit",
         "live_canvas_light_trait_guard_enabled",
@@ -669,7 +672,11 @@ enum IChartTelemetryPrivacy {
         "rendered_ink_light_pixel_ratio",
         "rendered_ink_median_luminance",
         "rendered_ink_sample_count",
+        "repaired_no_read_count",
         "result",
+        "review_duration_ms",
+        "reviewed_count",
+        "rewrite_outcome",
         "scope",
         "source",
         "source_coordinate_height",
@@ -702,6 +709,7 @@ enum IChartTelemetryPrivacy {
         "unknown_issue_count",
         "unresolved_count",
         "user_signed_in",
+        "writing_batch_id",
     ]
 
     static func sanitizedProperties(_ properties: IChartTelemetryProperties) -> IChartTelemetryProperties {
@@ -710,10 +718,56 @@ enum IChartTelemetryPrivacy {
                 .filter { allowedPropertyKeys.contains($0.key) }
                 .sorted { $0.key < $1.key }
                 .prefix(maximumPropertyCount)
-                .map { key, value in
-                    (String(key.prefix(64)), sanitizedValue(value))
+                .compactMap { key, value -> (String, IChartTelemetryValue)? in
+                    guard let sanitized = sanitizedWorkflowValue(value, forKey: key) else {
+                        return nil
+                    }
+                    return (String(key.prefix(64)), sanitized)
                 }
         )
+    }
+
+    // These new workflow fields have narrow scalar types, so arbitrary chord
+    // text cannot be smuggled through a count, duration or correlation field.
+    private static func sanitizedWorkflowValue(
+        _ value: IChartTelemetryValue,
+        forKey key: String
+    ) -> IChartTelemetryValue? {
+        switch key {
+        case "writing_batch_id":
+            guard case .string(let string) = value,
+                  string.range(
+                    of: #"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\z"#,
+                    options: .regularExpression
+                  ) != nil else {
+                return nil
+            }
+            return .string(string.lowercased())
+        case "rewrite_outcome":
+            guard case .string(let string) = value,
+                  ["local", "page", "discard"].contains(string) else {
+                return nil
+            }
+            return .string(string)
+        case "changed_chord_count", "repaired_no_read_count", "reviewed_count":
+            guard case .int(let count) = value, (0...10_000).contains(count) else {
+                return nil
+            }
+            return .int(count)
+        case "last_stroke_to_preview_ms", "review_duration_ms":
+            let milliseconds: Double
+            switch value {
+            case .double(let number): milliseconds = number
+            case .int(let number): milliseconds = Double(number)
+            default: return nil
+            }
+            guard milliseconds.isFinite, (0...86_400_000).contains(milliseconds) else {
+                return nil
+            }
+            return sanitizedValue(value)
+        default:
+            return sanitizedValue(value)
+        }
     }
 
     private static func sanitizedValue(_ value: IChartTelemetryValue) -> IChartTelemetryValue {
