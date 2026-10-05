@@ -1199,6 +1199,21 @@ struct EditorView: View {
             Label("Engraving", systemImage: "slider.horizontal.3")
         }
 
+        Menu {
+            ForEach(StaffSystemDensity.allCases, id: \.self) { density in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating system spacing...") {
+                        chart.setStaffSystemDensity(density)
+                    }
+                } label: {
+                    notationMenuLabel(density.displayText, isSelected: chart.staffSystemDensity == density)
+                }
+            }
+        } label: {
+            Label("System Spacing", systemImage: "arrow.up.and.down")
+        }
+
     }
 
     @ViewBuilder
@@ -2169,6 +2184,7 @@ struct EditorView: View {
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
+            isInteractionSuspended: isPresentingEditorPanel,
             recognizesChordInk: true,
             chordPreviewState: chordPreviewState,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
@@ -2207,6 +2223,17 @@ struct EditorView: View {
                 metadata: editorPerformanceTraceMetadata
             )
         }
+    }
+
+    // A review or typed editor owns input until it is dismissed. Keep the
+    // drawing resident without letting PencilKit reclaim keyboard focus or
+    // accept a stray stroke behind that panel.
+    private var isPresentingEditorPanel: Bool {
+        activeSheet != nil || showingSetupSheet || showingHeaderSheet
+            || showingTypographySheet || showingPersonalHandwriting
+            || showingCueTextEntry || pendingMeasureStackInsertion != nil
+            || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
+            || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
     }
 
     private var editorPerformanceTraceMetadata: [String: String] {
@@ -6440,18 +6467,19 @@ private struct CueTextEntryPanelView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                // Keep outside taps routed back to the editor without visually
-                // turning the entire iPad canvas into a modal text surface.
+                // An outside tap dismisses typing rather than reopening the
+                // keyboard while the user navigates the chart.
                 Color.clear
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        requestTextFocus()
+                        endTyping()
                     }
 
                 VStack(alignment: .leading, spacing: CueTextEntryPanelGeometry.verticalSpacing) {
                     HStack {
                         PencilOnlyActionButton(title: "Cancel", style: .plain) {
+                            endTyping()
                             onCancel()
                         }
 
@@ -6467,6 +6495,7 @@ private struct CueTextEntryPanelView: View {
                             style: .plain,
                             isEnabled: canAdd
                         ) {
+                            endTyping()
                             onAdd()
                         }
                         .tourActionHighlight(
@@ -6494,7 +6523,7 @@ private struct CueTextEntryPanelView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        CueTextInputView(
+                        IChartTypedTextView(
                             text: $text,
                             keyboardFocusRequestID: keyboardFocusRequestID
                         )
@@ -6528,68 +6557,11 @@ private struct CueTextEntryPanelView: View {
     private func requestTextFocus() {
         keyboardFocusRequestID += 1
     }
-}
 
-#if canImport(UIKit)
-private struct CueTextInputView: UIViewRepresentable {
-    @Binding var text: String
-    let keyboardFocusRequestID: Int
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
-        textView.delegate = context.coordinator
-        textView.backgroundColor = .clear
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
-        textView.textContainer.lineFragmentPadding = 0
-        textView.autocapitalizationType = .sentences
-        textView.autocorrectionType = .yes
-        textView.isScrollEnabled = true
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.keyboardDismissMode = .interactive
-        return textView
-    }
-
-    func updateUIView(_ textView: UITextView, context: Context) {
-        context.coordinator.text = $text
-
-        if textView.text != text {
-            textView.text = text
-        }
-
-        guard keyboardFocusRequestID > 0,
-              context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
-        else {
-            return
-        }
-
-        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
-        DispatchQueue.main.async {
-            textView.resignFirstResponder()
-            textView.becomeFirstResponder()
-        }
-    }
-
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var text: Binding<String>
-        var lastKeyboardFocusRequestID = 0
-
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func textViewDidChange(_ textView: UITextView) {
-            text.wrappedValue = textView.text
-        }
+    private func endTyping() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
-#endif
 
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss

@@ -24,7 +24,7 @@ struct ChartHeaderSheetView: View {
     @State private var draftTitle: String
     @State private var draftComposerCredit: String
     @State private var draftStyleNote: String
-    @FocusState private var focusedField: ChartHeaderTextInputField?
+    @State private var focusedField: ChartHeaderTextInputField?
 
     init(chart: Binding<Chart>) {
         self._chart = chart
@@ -60,13 +60,16 @@ struct ChartHeaderSheetView: View {
                             field: .styleNote
                         )
                     }
+                    .background(IChartTypedSheetScrollSupport())
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Header")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        focusedField = nil
                         dismiss()
                     }
                 }
@@ -86,19 +89,28 @@ struct ChartHeaderSheetView: View {
         text: Binding<String>,
         field: ChartHeaderTextInputField
     ) -> some View {
-        TextField(title, text: text)
-            .focused($focusedField, equals: field)
-            .textInputAutocapitalization(.words)
-            .submitLabel(field.next == nil ? .done : .next)
-            .onSubmit {
-                focusedField = field.next
-            }
+        IChartTypedTextField(
+            placeholder: title,
+            text: text,
+            isFocused: Binding(
+                get: { focusedField == field },
+                set: { isFocused in
+                    if isFocused { focusedField = field }
+                    else if focusedField == field { focusedField = nil }
+                }
+            ),
+            autocapitalizationType: .words,
+            autocorrectionType: .yes,
+            borderStyle: .none,
+            onNext: field.next.map { next in { focusedField = next } }
+        )
             .frame(minHeight: 52)
             .accessibilityLabel(title)
             .accessibilityHint("Tap to edit with the Apple keyboard and Dictation")
     }
 
     private func applyChanges() {
+        focusedField = nil
         chart.title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Untitled Chart"
             : draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,7 +131,7 @@ private struct ChartHeaderSheetPresentationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .presentationDetents([.height(compactHeight)])
+            .presentationDetents([.height(compactHeight), .large])
             .presentationDragIndicator(.visible)
     }
 }

@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import Foundation
 import PDFKit
+import UIKit
 import XCTest
 @testable import iChart
 
@@ -208,6 +209,106 @@ final class PDFChartExporterTests: XCTestCase {
         }
         XCTAssertTrue(document.page(at: 0)?.string?.contains("THIRTY TWO MEASURE RHYTHM EXPORT") == true)
         XCTAssertFalse(document.page(at: 1)?.string?.contains("THIRTY TWO MEASURE RHYTHM EXPORT") == true)
+    }
+
+    func testDenseSystemSpacingPDFUsesSamePaginationAndRowsAsEditorLayout() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Dense Spacing Export", measureCount: 12, layoutStyle: layoutStyle)
+            chart.engravingPreset = .compact
+            chart.systems = chart.measures.enumerated().map { index, measure in
+                ChartSystem(id: UUID(), index: index, spacingMode: .automatic, lineBreakRule: .forced, measures: [measure])
+            }
+            for (index, measure) in chart.measures.enumerated() {
+                _ = try XCTUnwrap(chart.addCueText("spacing row \(index + 1)", anchorMeasureID: measure.id, position: .above))
+            }
+            let standardPDF = try await exporter.exportPDF(for: chart)
+            XCTAssertEqual(standardPDF.pageCount, 3)
+
+            chart.setStaffSystemDensity(.dense)
+            let editorLayout = LeadSheetPageLayoutEngine.pageLayout(
+                for: chart,
+                pageSize: CGSize(width: 932, height: 1_100)
+            )
+            let densePDF = try await exporter.exportPDF(for: chart)
+            let document = try XCTUnwrap(PDFDocument(url: densePDF.url))
+            XCTAssertEqual(densePDF.pageCount, 2)
+            XCTAssertEqual(document.pageCount, editorLayout.pages.count)
+            XCTAssertEqual(editorLayout.pages.first?.systemIDs.count, 7)
+            for (index, page) in editorLayout.pages.enumerated() {
+                let exportedPage = try XCTUnwrap(document.page(at: index))
+                XCTAssertEqual(exportedPage.bounds(for: .mediaBox).size, page.frame.size)
+                let text = exportedPage.string ?? ""
+                let expectedMeasures = editorLayout.systems
+                    .filter { page.systemIDs.contains($0.id) }
+                    .flatMap(\.measures)
+                    .compactMap(\.sourceMeasureID)
+                for measureID in expectedMeasures {
+                    let cue = try XCTUnwrap(chart.cueTexts.first { $0.anchorMeasureID == measureID })
+                    XCTAssertTrue(text.contains(cue.text), "Expected \(cue.text) on PDF page \(index + 1)")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testDenseChartPreviewWithChordsCueAndRepeat() async throws {
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exporter = PDFChartExporter(exportDirectory: exportDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: exportDirectory)
+        }
+
+        for layoutStyle in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Closer to the Music", measureCount: 6, layoutStyle: layoutStyle)
+            chart.composerCredit = "Density preview"
+            chart.styleNote = "Medium swing"
+            chart.engravingPreset = .compact
+            chart.setStaffSystemDensity(.dense)
+            chart.systems = chart.measures.enumerated().map { index, measure in
+                ChartSystem(id: UUID(), index: index, spacingMode: .automatic, lineBreakRule: .forced, measures: [measure])
+            }
+            let chords = ["C", "F7", "C7", "G7", "Am7", "D7"]
+            for (index, measure) in chart.measures.enumerated() {
+                if layoutStyle == .rhythmSectionSheet {
+                    XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: measure.id))
+                }
+                XCTAssertTrue(chart.appendRecognizedChord(
+                    try ChordSymbolParser.parse(chords[index]), rawInput: chords[index], to: measure.id, atFraction: 0.05
+                ))
+            }
+            _ = try XCTUnwrap(chart.addCueText("Play lightly", anchorMeasureID: chart.measures[2].id, position: .below))
+            _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: chart.measures[3].id, endMeasureID: chart.measures[5].id))
+            let exportedPDF = try await exporter.exportPDF(for: chart)
+            let document = try XCTUnwrap(PDFDocument(url: exportedPDF.url))
+            XCTAssertEqual(document.pageCount, 1)
+            XCTAssertTrue(document.string?.contains("Play lightly") == true)
+
+            if let directory = ProcessInfo.processInfo.environment["ICHART_HEADER_QA_OUTPUT"], !directory.isEmpty {
+                let output = URL(fileURLWithPath: directory, isDirectory: true)
+                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                let page = try XCTUnwrap(document.page(at: 0))
+                let bounds = page.bounds(for: .mediaBox)
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                format.opaque = true
+                let preview = UIGraphicsImageRenderer(size: bounds.size, format: format).image { context in
+                    UIColor.white.setFill()
+                    context.fill(CGRect(origin: .zero, size: bounds.size))
+                    context.cgContext.translateBy(x: 0, y: bounds.height)
+                    context.cgContext.scaleBy(x: 1, y: -1)
+                    page.draw(with: .mediaBox, to: context.cgContext)
+                }
+                try XCTUnwrap(preview.pngData()).write(to: output.appendingPathComponent("density-\(layoutStyle.rawValue)-compact-dense.png"))
+            }
+        }
     }
 
     func testRhythmSectionExportProofRendersStructuredObjects() async throws {

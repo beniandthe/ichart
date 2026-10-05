@@ -106,6 +106,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var selectedRoadmapMarkerID: UUID?
     let interactionMode: EditorCanvasMode
     let inkToolMode: EditorInkToolMode
+    var isInteractionSuspended = false
     var recognizesChordInk: Bool = true
     var chordPreviewState: ChordPreviewState = ChordPreviewState()
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
@@ -171,6 +172,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
             view?.rewriteChordDraftAtomically(chart: chart, state: state, draft: draft)
         }
         view.chordDraftRenderCoordinator = chordDraftRenderCoordinator
+        view.isInteractionSuspended = isInteractionSuspended
         view.interactionMode = interactionMode
         // Explicit Discard must supersede a queued old ink writeback before
         // model synchronization. Rendering uses the synchronous bridge above.
@@ -1454,6 +1456,25 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
         }
     }
+    var isInteractionSuspended = false {
+        didSet {
+            guard oldValue != isInteractionSuspended else { return }
+            isUserInteractionEnabled = !isInteractionSuspended
+            if isInteractionSuspended {
+                pageInkCanvasView.resignFirstResponder()
+                unlockParentScrollForChordMove()
+            } else {
+                requestActiveInkFocusIfNeeded()
+            }
+        }
+    }
+
+    private func requestActiveInkFocusIfNeeded() {
+        guard !isInteractionSuspended, !pageInkCanvasView.isHidden,
+              interactionMode.allowsAnyInkEditing else { return }
+        pageInkCanvasView.becomeFirstResponder()
+    }
+
     var interactionMode: EditorCanvasMode = .browse {
         didSet {
             guard oldValue != interactionMode else {
@@ -5216,7 +5237,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
-            pageInkCanvasView.becomeFirstResponder()
+            requestActiveInkFocusIfNeeded()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "preserved_dirty_active_canvas")
             return
@@ -5283,7 +5304,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
-            pageInkCanvasView.becomeFirstResponder()
+            requestActiveInkFocusIfNeeded()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "preserved_active_canvas")
             return
@@ -5301,7 +5322,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            pageInkCanvasView.becomeFirstResponder()
+            requestActiveInkFocusIfNeeded()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "already_current")
             return
@@ -5322,7 +5343,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            pageInkCanvasView.becomeFirstResponder()
+            requestActiveInkFocusIfNeeded()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "treated_as_synced")
             return
@@ -5380,7 +5401,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeCanvasScope = activeInkScope
         activeCanvasCoordinateSpace = targetCoordinateSpace
         updateChordInkConfirmOverlayVisibility()
-        pageInkCanvasView.becomeFirstResponder()
+        requestActiveInkFocusIfNeeded()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
         bootstrapRestoredChordDraftPreviewIfNeeded(reason: "loaded_model_drawing")
     }
@@ -5447,7 +5468,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeCanvasScope = activeInkScope
         activeCanvasCoordinateSpace = targetCoordinateSpace
         updateChordInkConfirmOverlayVisibility()
-        pageInkCanvasView.becomeFirstResponder()
+        requestActiveInkFocusIfNeeded()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
         bootstrapRestoredChordDraftPreviewIfNeeded(reason: "resident_saved_ink_transfer")
         IChartPerformanceTrace.record(

@@ -86,6 +86,18 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertEqual(fields.count, 5)
         let first = try XCTUnwrap(fields.first)
         let second = try XCTUnwrap(fields.dropFirst().first)
+        XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Opening review must not open text entry")
+        for field in fields {
+            let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
+                           "Scrolling must never enter Scribble, including rows whose Edit button has not been tapped")
+        }
+        let reviewScroll = try XCTUnwrap(ancestorScrollView(of: first))
+        XCTAssertTrue(reviewScroll.panGestureRecognizer.allowedTouchTypes.contains(
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)), "Review scrolling must accept Pencil as well as finger")
+        reviewScroll.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Moving the review viewport must not start typing")
         firstEdit.sendActions(for: .touchUpInside)
         try await waitForFocus(first)
         XCTAssertTrue(first.isFirstResponder, "Edit must focus its field and survive the SwiftUI state update")
@@ -97,9 +109,10 @@ final class ChordInkReviewInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(first.isFirstResponder, "Editing must not dismiss the keyboard")
         XCTAssertEqual(first.text, "Ebmaj7")
-        secondEdit.sendActions(for: .touchUpInside)
+        XCTAssertEqual(first.returnKeyType, .next)
+        XCTAssertEqual(first.delegate?.textFieldShouldReturn?(first), false)
         try await waitForFocus(second)
-        XCTAssertTrue(second.isFirstResponder, "The previous row's end-edit callback must not steal focus")
+        XCTAssertTrue(second.isFirstResponder, "Next must transfer focus without the previous row stealing it")
         XCTAssertEqual(first.text, "Ebmaj7")
         second.text = "D7"
         second.sendActions(for: .editingChanged)
@@ -110,6 +123,12 @@ final class ChordInkReviewInputTests: XCTestCase {
         try await waitForFocus(first)
         XCTAssertTrue(first.isFirstResponder, "Switching backwards must also preserve focus")
         XCTAssertEqual(first.text, "Ebmaj7")
+        XCTAssertEqual(second.text, "D7")
+        try endTyping(first)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Done must end typing and retain every value")
+        secondEdit.sendActions(for: .touchUpInside)
+        try await waitForFocus(second)
         XCTAssertEqual(second.text, "D7")
         XCTAssertNil(acceptedTexts, "Editing must not implicitly render or train")
         XCTAssertEqual(rewriteCount, 0)
@@ -126,6 +145,68 @@ final class ChordInkReviewInputTests: XCTestCase {
         attachment.name = "Compact five-chord review with corrected values"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testSingleReviewAndCorrectionRequireExplicitTypingAndDoneNeverAccepts() async throws {
+        let result = ChordInkRecognitionResult(rawCandidates: [], glyphCandidates: [], match: nil, confidence: 0)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let confirmation = PendingChordInkConfirmation(measureID: UUID(), measureIndex: 0,
+            result: result, drawingData: Data(), targetFraction: 0, primaryDecision: decision, decision: decision)
+        var accepted = false
+        let single = ChordInkConfirmationSheetView(confirmation: confirmation,
+            onAcceptCandidate: { _ in accepted = true }, onCopyFixtureJSON: { _ in .unavailable }, onClearAndRewrite: {})
+        try await assertExplicitTyping(single, initialText: "", editedText: "D7")
+        XCTAssertFalse(accepted)
+
+        let correction = PendingChordCorrection(chordEventID: UUID(), measureID: UUID(), measureIndex: 0,
+            currentText: "C", rawInput: nil, candidateTexts: [], enharmonicChoiceTexts: [])
+        let correctionView = ChordCorrectionSheetView(correction: correction,
+            onAcceptCandidate: { _, _ in accepted = true }, onCancel: {})
+        try await assertExplicitTyping(correctionView, initialText: "C", editedText: "G7")
+        XCTAssertFalse(accepted)
+    }
+
+    private func assertExplicitTyping<Content: View>(_ root: Content, initialText: String, editedText: String) async throws {
+        let host = UIHostingController(rootView: root)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? IChartTypedUITextField }.first)
+        XCTAssertFalse(field.isFirstResponder, "An unread preview must not focus itself")
+        XCTAssertEqual(field.text, initialText)
+        let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), false)
+        let edit = try XCTUnwrap(descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
+            .first { $0.accessibilityLabel == "Type chord for measure 1" })
+        edit.sendActions(for: .touchUpInside)
+        try await waitForFocus(field)
+        XCTAssertTrue(field.isFirstResponder)
+        field.text = editedText
+        field.sendActions(for: .editingChanged)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(field.isFirstResponder, "Done must dismiss typing without rendering")
+        XCTAssertEqual(field.text, editedText)
+    }
+
+    private func endTyping(_ field: UITextField) throws {
+        let toolbar = try XCTUnwrap(field.inputAccessoryView as? UIToolbar)
+        let done = try XCTUnwrap(toolbar.items?.first { $0.accessibilityLabel == "Done typing" })
+        let action = try XCTUnwrap(done.action)
+        XCTAssertTrue(UIApplication.shared.sendAction(action, to: done.target, from: done, for: nil))
+    }
+
+    private func ancestorScrollView(of view: UIView) -> UIScrollView? {
+        var ancestor = view.superview
+        while let parent = ancestor {
+            if let scrollView = parent as? UIScrollView { return scrollView }
+            ancestor = parent.superview
+        }
+        return nil
     }
 
     private func waitForFocus(_ field: UITextField) async throws {

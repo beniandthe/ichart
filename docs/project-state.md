@@ -22,6 +22,10 @@ not approval to publish. A build or test count is not evidence of improved fresh
 handwriting recognition. Signing, installation, Pencil interaction, upload, and
 publication must each be recorded separately.
 
+Build 61's later review-input, spacing and typed-header reports reopened the
+bounded UI work below. Its prior acceptance receipts are not acceptance of
+the new build 62 candidate.
+
 ## Preserved work and current evidence
 
 | Item | Recorded status | Meaning for this release |
@@ -60,6 +64,67 @@ New recognizer changes enter this backlog only for a specific reproduced defect.
 Keep the standard-reader comparison fixed, check new wrong reads as well as
 recoveries, and preserve exact ink. Do not add broad model training, public-corpus
 intake, additional writers, or repeated favorable-prompt testing to this pass.
+
+## Bounded UI refinement before the remaining release gates
+
+Candidate: **1.2.1 (62)**. These are reproduced workflow/layout changes, not a
+recognition or learning iteration. Keep the standard-reader identity, profile,
+saved source ink, and content-free telemetry behavior unchanged.
+
+| Report | Change | Required acceptance |
+| --- | --- | --- |
+| Review scrolling activates handwriting; typing requires several controls | Typed-only shared fields in batch/single review, correction, header and cue text; large scrollable review; Pencil-enabled sheet scrolling; Next/Done; chart canvas input/focus suspended while a panel owns input | Runtime focus, review-draft and exact-ink preservation; physical Pencil scroll and actual keyboard dismissal/re-entry in both styles |
+| Compact engraving fits only five systems | Separate Standard / Closer / Dense system spacing in Page settings. Standard is the legacy decoding/default; tighter choices keep staff/font/writing-lane sizes and reserve actual notation/cue clearance | More ordinary rows in shared editor/PDF layout; compatibility and source-byte preservation; visual check on the iPad |
+| Typed header cuts off text accepted by the entry field | Complete-text fitting/wrapping in the shared header renderer, without changing handwritten-header storage | Actual preview/PDF output retains full title, credit and style-note endings; existing short text keeps its preferred size |
+
+Private UI verification and before-install data backup:
+`/private/tmp/iChartUIRefinement-20261005.75A99M/`.
+The first runtime gate exposed remaining font-specific header clipping and an
+invalid note-fixture assumption. Both were repaired before the final gate;
+the failed receipts remain separate and are not counted as passing evidence.
+
+- Full native Simulator gate: `AppFinal.xcresult`, **2,093 passed, 0 failed,
+  103 skipped** (2,196 total). Nonzero execution and the results tree verified
+  with `xcresulttool`; `app-summary.json` and `app-test-tree.json` are alongside
+  the bundle. All 24 tests in the named typing/review/input-isolation/header/
+  spacing classes passed, including their repeated style/font cases.
+- Full SwiftPM gate: `swiftpm-final.log`, **1,542 passed, 0 failed, 89 skipped**
+  (1,631 total), command exit 0. The separate Swift Testing footer has zero
+  tests; the nonzero XCTest count above is the actual gate.
+- Skips remain the explicit opt-in/private-input/research and live-service
+  checks. These tests do not establish a recognition-accuracy gain.
+- Actual full title/credit/style endings verified in renderer and exported PDF
+  text. Inspected both styles' dense-page PDF raster images with chords, repeats
+  and a below-row cue; also rendered the long Rhythm header PDF independently
+  with Poppler and inspected its complete ending. Rendering checks cannot
+  replace the physical keyboard/Pencil/palm acceptance below.
+- Expected ordinary Compact first-page capacity at the tested width is Standard
+  5, Closer 6, Dense 7. Extra notation/cue clearance can legitimately reduce
+  capacity. Existing charts decode Standard; tighter spacing is opt-in through
+  **chart title menu → System Spacing** and does not rewrite saved source ink
+  or identities.
+- Debug device build: `DeviceBuild.xcresult` / `device-build.log`, **passed**
+  with ordinary Apple Development signing; strict deep signature verification
+  passed. Bundle and installed-app query report **1.2.1 (62)**. Resource scan
+  found no experimental comparison/Study/model packages. No signing prompt,
+  credential-document access, provisioning update or keychain change was needed.
+- Candidate 62 installed over the existing app and launched successfully on
+  Ben's paired iPad. `install.json`, `installed-version.json`, and `launch.json`
+  retain the receipts. Before-install and immediate after-install copies of all
+  **22 Application Support files were byte-identical**, including 30 charts and
+  the 70-example handwriting profile. Documents were also backed up.
+- After first launch: all 30 charts remain; the profile is semantically
+  unchanged with all 70 examples. One selected chart's existing page ink was
+  reserialized (16 strokes, different encoded bytes). A local PencilKit decode
+  comparison verified exact exposed point geometry/timing/size/opacity/force/
+  angles, stroke transforms/masks, ink types/colors and creation times unchanged
+  (`check-ink-preservation.swift` / `ink-preservation.log`). No profile was taught
+  or reset, and there was no implicit switch to tighter system spacing.
+- **Physical UI acceptance remains pending.** Check Pencil scrolling in review,
+  direct typed focus/Next/Done and return to handwriting, full typed headers,
+  and explicit Dense spacing on existing charts in both styles. Native focus
+  tests cannot certify the iPad's visible software keyboard or palm experience.
+  This is not a Release archive, TestFlight upload, GitHub push or publication.
 
 ## Measurement for the trial
 

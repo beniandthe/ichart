@@ -3,6 +3,87 @@ import CoreText
 import Foundation
 import UIKit
 
+enum LeadSheetHeaderTextFittingPolicy {
+    static func paragraphStyle(alignment: NSTextAlignment) -> NSParagraphStyle {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        return paragraphStyle
+    }
+
+    static func textFrame(
+        for text: String,
+        in size: CGSize,
+        font: UIFont,
+        color: UIColor = .black,
+        alignment: NSTextAlignment = .left
+    ) -> CTFrame {
+        let attributedText = NSAttributedString(string: text, attributes: [
+            .font: font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cgColor,
+            .paragraphStyle: paragraphStyle(alignment: alignment)
+        ])
+        return CTFramesetterCreateFrame(
+            CTFramesetterCreateWithAttributedString(attributedText),
+            CFRange(location: 0, length: attributedText.length),
+            CGPath(rect: CGRect(origin: .zero, size: size), transform: nil),
+            nil
+        )
+    }
+
+    static func fittedFont(
+        for text: String,
+        in size: CGSize,
+        font: UIFont,
+        alignment: NSTextAlignment = .left
+    ) -> UIFont {
+        guard !text.isEmpty,
+              size.width >= 1,
+              size.height >= 1,
+              size.width.isFinite,
+              size.height.isFinite else {
+            return font
+        }
+
+        func fits(_ candidate: UIFont) -> Bool {
+            let frame = textFrame(
+                for: text,
+                in: size,
+                font: candidate,
+                alignment: alignment
+            )
+            let visibleRange = CTFrameGetVisibleStringRange(frame)
+            return visibleRange.location == 0 && visibleRange.length == (text as NSString).length
+        }
+
+        guard !fits(font) else {
+            return font
+        }
+
+        // Ask the same CoreText frame used for drawing which characters fit.
+        // A bounding-size estimate can report a fitting box while the last
+        // word is still outside its visible range.
+        var lowerPointSize = font.pointSize
+        for _ in 0..<16 {
+            lowerPointSize /= 2
+            if fits(font.withSize(lowerPointSize)) {
+                break
+            }
+        }
+        var upperPointSize = font.pointSize
+
+        for _ in 0..<18 {
+            let pointSize = (lowerPointSize + upperPointSize) / 2
+            if fits(font.withSize(pointSize)) {
+                lowerPointSize = pointSize
+            } else {
+                upperPointSize = pointSize
+            }
+        }
+        return font.withSize(lowerPointSize)
+    }
+}
+
 enum NotationGlyphPathCache {
     private struct CacheKey: Hashable {
         var fontName: String
@@ -422,21 +503,6 @@ enum LeadSheetRoadmapMarkerTypography {
     }
 }
 
-enum LeadSheetRoadmapMarkerLabelGeometry {
-    static func labelFrame(for markerLayout: LeadSheetRoadmapMarkerLayout) -> CGRect {
-        if markerLayout.type.containsNotationMarkerGlyph {
-            var frame = markerLayout.frame.insetBy(
-                dx: markerLayout.type.isStandaloneNotationMarker ? 0 : 2,
-                dy: 0
-            )
-            frame.size.height += max(4, markerLayout.frame.height * 0.18)
-            return frame
-        }
-
-        return markerLayout.frame.insetBy(dx: 2, dy: 1)
-    }
-}
-
 enum LeadSheetStaffLineGeometry {
     static func horizontalSpan(
         for system: LeadSheetSystemLayout,
@@ -589,7 +655,7 @@ struct LeadSheetNotationRenderer {
         }
 
         let title = chart.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        drawText(
+        drawHeaderText(
             style.headerTitleText(title),
             in: header.titleFrame,
             font: style.titleFont(size: style.titleFontSize),
@@ -599,7 +665,7 @@ struct LeadSheetNotationRenderer {
 
         if let composerFrame = header.composerFrame,
            let composerCredit = normalizedText(chart.composerCredit) {
-            drawText(
+            drawHeaderText(
                 composerCredit,
                 in: composerFrame,
                 font: style.metadataFont(size: style.headerMetadataFontSize),
@@ -610,7 +676,7 @@ struct LeadSheetNotationRenderer {
 
         if let styleNoteFrame = header.styleNoteFrame,
            let styleNote = LeadSheetPageLayoutEngine.resolvedStyleNote(for: chart) {
-            drawText(
+            drawHeaderText(
                 styleNote,
                 in: styleNoteFrame,
                 font: style.metadataFont(size: style.headerMetadataFontSize),
@@ -619,7 +685,7 @@ struct LeadSheetNotationRenderer {
         }
 
         if let keyFrame = header.keyFrame {
-            drawText(
+            drawHeaderText(
                 chart.displayedDocumentKey.titleDisplayText,
                 in: keyFrame,
                 font: style.metadataFont(size: style.headerMetadataFontSize),
@@ -629,7 +695,7 @@ struct LeadSheetNotationRenderer {
         }
 
         if let meterFrame = header.meterFrame {
-            drawText(
+            drawHeaderText(
                 chart.defaultMeter.displayText,
                 in: meterFrame,
                 font: style.metadataFont(size: style.headerMetadataFontSize),
@@ -1374,6 +1440,41 @@ struct LeadSheetNotationRenderer {
             attributes: attributes,
             context: nil
         )
+    }
+
+    private func drawHeaderText(
+        _ text: String,
+        in rect: CGRect,
+        font: UIFont,
+        color: UIColor,
+        alignment: NSTextAlignment = .left
+    ) {
+        guard let context = UIGraphicsGetCurrentContext(),
+              rect.width >= 1,
+              rect.height >= 1,
+              rect.width.isFinite,
+              rect.height.isFinite else {
+            return
+        }
+        let fittedFont = LeadSheetHeaderTextFittingPolicy.fittedFont(
+            for: text,
+            in: rect.size,
+            font: font,
+            alignment: alignment
+        )
+        let frame = LeadSheetHeaderTextFittingPolicy.textFrame(
+            for: text,
+            in: rect.size,
+            font: fittedFont,
+            color: color,
+            alignment: alignment
+        )
+        context.saveGState()
+        context.textMatrix = .identity
+        context.translateBy(x: rect.minX, y: rect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        CTFrameDraw(frame, context)
+        context.restoreGState()
     }
 
     private func drawRoadmapLabel(

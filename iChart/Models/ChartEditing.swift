@@ -96,6 +96,15 @@ extension Chart {
         updatedAt = .now
     }
 
+    mutating func setStaffSystemDensity(_ density: StaffSystemDensity) {
+        guard staffSystemDensity != density else {
+            return
+        }
+
+        staffSystemDensity = density
+        updatedAt = .now
+    }
+
     mutating func setHeaderInputMode(_ mode: ChartHeaderInputMode) {
         guard headerInputMode != mode else {
             return
