@@ -181,6 +181,86 @@ final class ChordInkPreviewIssueBucketPolicyTests: XCTestCase {
         XCTAssertEqual(counts.alterationIssueCount, 1)
     }
 
+    func testAlteredQualityConfirmEmitsAlterationBucketWithoutExplicitAlterations() throws {
+        for text in ["C7alt", "C7altered"] {
+            let symbol = try ChordSymbolParser.parse(text)
+            XCTAssertEqual(symbol.quality, "alt", text)
+            XCTAssertTrue(symbol.alterations.isEmpty, text)
+            let result = recognitionResult(
+                rawCandidates: [],
+                match: try XCTUnwrap(ChordRecognitionCompendium.match(text), text),
+                confidence: 3.0,
+                glyphCandidates: []
+            )
+
+            let counts = ChordInkPreviewIssueBucketPolicy.counts(
+                results: [result],
+                decisions: [decision(.confirm, acceptedText: nil)],
+                barlineCount: 0
+            )
+
+            XCTAssertEqual(counts.issueCount, 1, text)
+            XCTAssertEqual(counts.qualityIssueCount, 1, text)
+            XCTAssertEqual(counts.extensionIssueCount, 1, text)
+            XCTAssertEqual(counts.alterationIssueCount, 1, text)
+            XCTAssertEqual(counts.unknownIssueCount, 0, text)
+
+            let trustedCounts = ChordInkPreviewIssueBucketPolicy.counts(
+                results: [result],
+                decisions: [decision(.trusted, acceptedText: text)],
+                barlineCount: 0
+            )
+            XCTAssertEqual(trustedCounts.issueCount, 0, text)
+            XCTAssertEqual(trustedCounts.alterationIssueCount, 0, text)
+        }
+    }
+
+    func testNoReadParseableAlteredQualityRawCandidatesEmitAlterationBucket() throws {
+        for text in ["Calt", "Caltered", "C7alt", "C7altered", " C7 AlTeReD "] {
+            let symbol = try ChordSymbolParser.parse(text)
+            XCTAssertEqual(symbol.quality, "alt", text)
+            XCTAssertTrue(symbol.alterations.isEmpty, text)
+            let result = recognitionResult(
+                rawCandidates: [text],
+                match: nil,
+                confidence: 0,
+                glyphCandidates: []
+            )
+
+            let counts = ChordInkPreviewIssueBucketPolicy.counts(
+                results: [result],
+                decisions: [decision(.confirm, acceptedText: nil)],
+                barlineCount: 0
+            )
+
+            XCTAssertEqual(counts.issueCount, 1, text)
+            XCTAssertEqual(counts.qualityIssueCount, 1, text)
+            XCTAssertEqual(counts.extensionIssueCount, 1, text)
+            XCTAssertEqual(counts.alterationIssueCount, 1, text)
+            XCTAssertEqual(counts.unknownIssueCount, 0, text)
+        }
+    }
+
+    func testNonAlteredAndInvalidRawCandidatesDoNotEmitAlterationBucket() {
+        for text in ["C", "C7", "Cadd9", "alt", "altered", "Salt", "C7alt?"] {
+            let result = recognitionResult(
+                rawCandidates: [text],
+                match: nil,
+                confidence: 0,
+                glyphCandidates: []
+            )
+
+            let counts = ChordInkPreviewIssueBucketPolicy.counts(
+                results: [result],
+                decisions: [decision(.confirm, acceptedText: nil)],
+                barlineCount: 0
+            )
+
+            XCTAssertEqual(counts.issueCount, 1, text)
+            XCTAssertEqual(counts.alterationIssueCount, 0, text)
+        }
+    }
+
     func testGeneratedSequenceLimitAndBarlinesEmitSeparateIssueBuckets() {
         var metrics = ChordInkRecognitionMetrics()
         metrics.compositionMetrics.hitGeneratedSequenceLimit = true

@@ -161,7 +161,7 @@ enum ChordInkPreviewIssueBucketPolicy {
             families.insert(.extension)
         }
 
-        if symbols.contains(where: { !$0.alterations.isEmpty })
+        if symbols.contains(where: { !$0.alterations.isEmpty || $0.quality == "alt" })
             || rawCandidateTextLooksAltered(result) {
             families.insert(.alteration)
         }

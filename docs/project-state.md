@@ -1,11 +1,36 @@
 # Project state and release backlog
 
-Updated: 2026-10-09. This is the start-here document for the active app project.
+Updated: 2026-10-10. This is the start-here document for the active app project.
 Older sprint plans and recognition reports remain evidence, not an automatically
 expanding work queue. Update this file when an item is implemented, verified, or
 blocked; record the actual evidence before changing its status.
 
-## Current closeout sequence — October 9
+## Current GitHub repair checkpoint — October 10
+
+The user authorized repairing PR #78's two remaining code/test issues. This
+supersedes the historical October 9 push-authorization status below, not the
+separate Apple, privacy-publication or distribution gates.
+
+- PR #77's reviewed CodeQL action update is merged on main at `28a6c296`.
+- PR #78 was refreshed at `d45b126`. Its actual PR native run failed one
+  replacement-sheet field-readiness assertion (2,382 passed / 1 failed / 103
+  skipped). Its SwiftPM, backend, Dependency Review and processed CodeQL results
+  passed; those old results do not validate a new repair commit.
+- The focused repair counts canonical `alt` / `altered` chords in the existing
+  alteration telemetry bucket. It does not change recognition, rendering or
+  diagnostic payload fields. The mounted-sheet regression now waits for the
+  correct editable fields and proves two real corrections reach current IDs;
+  it no longer accepts default seeds as evidence of editing.
+- Local gates pass: **2,386 native passed / 0 failed / 103 skipped**, **1,683
+  SwiftPM passed / 0 failed / 89 skipped**. The 15-test input selection also
+  passes all 75 repeated runs, with zero failures/skips.
+  See [the scoped repair receipt](pr78-scoped-repair-2026-10-10.md).
+- Push the verified scoped repair to the existing PR, then inspect fresh actual
+  PR CI, Dependency Review and processed CodeQL at its exact head. Merge still
+  requires a legitimate independent approval and resolved real findings; no
+  self-approval, protection changes or admin bypass. Preserve the release branch.
+
+## Retained closeout sequence — October 9
 
 The user approved proceeding down this finite list. Do not restart recognition
 research or expand it into a new app backlog.
