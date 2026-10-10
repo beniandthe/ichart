@@ -26,6 +26,9 @@ final class ChordEntryDiagnosticsTests: XCTestCase {
                 ChordInkCandidateScore(text: "Bbsus", displayText: "Bbsus", confidence: 4.31),
                 ChordInkCandidateScore(text: "Bb13", displayText: "Bb13", confidence: 4.25)
             ],
+            reviewCandidateScores: [
+                ChordInkCandidateScore(text: "Bb7", displayText: "Bb7", confidence: 3.42)
+            ],
             confidence: 4.25,
             recognitionReason: "Close race. Choose the chord you meant, or type it in.",
             wasCloseRace: true,

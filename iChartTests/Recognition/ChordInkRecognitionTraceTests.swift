@@ -19,6 +19,22 @@ final class ChordInkRecognitionTraceTests: XCTestCase {
         XCTAssertEqual(trace.stabilityIssues, [])
     }
 
+    func testProvidedDeviceTraceLatestNonemptySessionHasNoStabilityIssues() throws {
+        guard let tracePath = ProcessInfo.processInfo.environment["ICHART_CHORD_DRAFT_TRACE_FILE"],
+              !tracePath.isEmpty else {
+            throw XCTSkip("Set ICHART_CHORD_DRAFT_TRACE_FILE to run a pulled iPad draft-recognition trace.")
+        }
+
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(
+            url: URL(fileURLWithPath: tracePath)
+        )
+        let trace = ChordInkRecognitionTrace(events: try recorder.loadEvents())
+        let session = try XCTUnwrap(trace.latestNonemptySession)
+
+        XCTAssertFalse(session.passes.isEmpty)
+        XCTAssertEqual(session.stabilityIssues, [])
+    }
+
     func testProvidedDeviceTraceSurfacesExpectedCloseRaceObservations() throws {
         guard ProcessInfo.processInfo.environment["ICHART_CHORD_DRAFT_TRACE_EXPECT_CLOSE_RACE_OBSERVATION"] == "1" else {
             throw XCTSkip("Set ICHART_CHORD_DRAFT_TRACE_EXPECT_CLOSE_RACE_OBSERVATION=1 for a trace with known close-race volatility.")
@@ -117,6 +133,31 @@ final class ChordInkRecognitionTraceTests: XCTestCase {
         XCTAssertEqual(passes[1].targets.map(\.targetIndex), [0, 1])
         XCTAssertEqual(passes[1].payloads.map(\.matchText), ["D", "D-7"])
         XCTAssertEqual(passes[1].replacements.map(\.newPreviewText), ["D", "D-7"])
+    }
+
+    func testSplitsTraceIntoResetBoundedSessionsAndFindsLatestWithRecognition() {
+        let target = target(index: 0, fraction: 0.08, strokeBounds: dStrokeBounds)
+        let trace = ChordInkRecognitionTrace(events: [
+            event(stage: "reset", timestampOffset: 1),
+            event(stage: "single_target", targets: [target], timestampOffset: 2),
+            event(stage: "finish_single", payloads: [
+                payload(index: 0, raw: ["D"], supported: ["D"], match: "D", accepted: "D")
+            ], timestampOffset: 3),
+            event(stage: "reset", timestampOffset: 4),
+            event(stage: "single_target", targets: [target], timestampOffset: 5),
+            event(stage: "finish_single", payloads: [
+                payload(index: 0, raw: ["D"], supported: ["D"], match: "D", accepted: "D")
+            ], timestampOffset: 6),
+            event(stage: "reset", timestampOffset: 7)
+        ])
+
+        XCTAssertEqual(trace.sessions.map(\.index), [0, 1, 2])
+        XCTAssertEqual(trace.sessions.map { $0.passes.count }, [1, 1, 0])
+        XCTAssertEqual(trace.latestNonemptySession?.index, 1)
+        XCTAssertEqual(
+            trace.latestNonemptySession?.resetTimestamp,
+            Date(timeIntervalSinceReferenceDate: 4)
+        )
     }
 
     func testDetectsBatchReplayDroppingPreviouslyReadableTarget() {

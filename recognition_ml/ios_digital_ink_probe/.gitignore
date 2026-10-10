@@ -1,0 +1,10 @@
+Pods/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.xcresult/
+probe-input.json
+probe-report.json
+probe-labels.json
+probe-scored.json
+__pycache__/

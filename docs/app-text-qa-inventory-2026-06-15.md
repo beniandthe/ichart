@@ -235,7 +235,7 @@ Source: `iChart/Features/Editor/Components/ChartSetupSheetView.swift`, `iChart/M
 Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/EditorCanvasMode.swift`, `iChart/Features/Editor/EditorInkToolMode.swift`, `iChart/Models/ChartAnnotations.swift`
 
 - [ ] Exit accessibility: "Exit Chart"
-- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Pen Responsiveness", "Engraving"
+- [ ] Page menu: "Setup", "Export", "Typed", "Handwritten", "Clear Handwritten Header", "Header ({mode})", "Instrument ({instrument})", "Transpose", "Up Half Step", "Down Half Step", "Reset to Written", "Style", "Fonts", "Engraving"
 - [ ] Main tool tabs: "Page", "Select", "Measures", "Repeats", "Coda", "Text", "Time", "Chord", "Free-Write"
 - [ ] Ink tool labels: "Write", "Erase"
 - [ ] Chord row explainer: "Read and render chords. Want handwritten notation? Use Free-Write."
@@ -264,7 +264,6 @@ Source: `iChart/Features/Editor/EditorView.swift`, `iChart/Features/Editor/Compo
 - [ ] Appearance sections/actions: "Style", "Notation Font", "Preset", "Done"
 - [ ] Typography sections: "Matched Set", "Chord Font", "Header Font", "Text / Cue Font", "Notation Symbols", "Use Matched Set", "Selected", "Fonts", "Done"
 - [ ] Typography previews: "Almost Like Being In Love", "(Medium Swing)  To Coda", "Bb△7  C°7  Fø7"
-- [ ] Pen sheet: "Pen Responsiveness", "Direct", "Smooth", "Balanced", "Pen", "Decrease pen responsiveness", "Increase pen responsiveness", "Done"
 - [ ] Text sheet: "Text", "Open keyboard for text entry", "Cancel", "Add"
 - [ ] Measure stack sheet: "Measures", "Measure Count", "Measure Stack", "Cancel", "Add"
 - [ ] Apply meter sheet: "Add measures in this time signature?", "The new {meter} starts on the next measure.", "Additional measures", "Apply Measure Count", "Or choose a span", "To next time signature", "To end of piece", "Apply {meter}", "Cancel"

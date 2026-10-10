@@ -10,10 +10,16 @@ struct GestureTemplate: Hashable {
     }
 }
 
+enum GestureTemplateNormalizationMode: Hashable {
+    case legacyJoinedPath
+    case preserveStrokeBoundaries
+}
+
 struct GestureTemplateRecognizerConfiguration: Hashable {
     var samplePointCount: Int
     var aspectRatioWeight: Double
     var strokeCountWeight: Double
+    var normalizationMode: GestureTemplateNormalizationMode = .legacyJoinedPath
 
     static let chordGlyphs = GestureTemplateRecognizerConfiguration(
         samplePointCount: 48,
@@ -24,9 +30,11 @@ struct GestureTemplateRecognizerConfiguration: Hashable {
 
 struct GestureTemplateRecognizer {
     var configuration: GestureTemplateRecognizerConfiguration
+    private let templateCache: GestureTemplateNormalizationCache
 
     init(configuration: GestureTemplateRecognizerConfiguration = .chordGlyphs) {
         self.configuration = configuration
+        templateCache = GestureTemplateNormalizationCache()
     }
 
     func rankedCandidates(
@@ -36,13 +44,19 @@ struct GestureTemplateRecognizer {
     ) -> [GlyphCandidate] {
         guard let normalizedInput = NormalizedGesture(
             strokes: cluster.strokes,
-            samplePointCount: configuration.samplePointCount
+            samplePointCount: configuration.samplePointCount,
+            mode: configuration.normalizationMode
         ) else {
             return []
         }
         let inputFeatures = RootGlyphFeatures(cluster: cluster)
 
-        var candidatesByText = templates.reduce(into: [String: GlyphCandidate]()) { bestCandidates, template in
+        let preparedTemplates = templateCache.preparedTemplates(
+            from: templates.filter { ChordRecognitionDomain.isAllowedGlyphToken($0.text) },
+            samplePointCount: configuration.samplePointCount,
+            mode: configuration.normalizationMode
+        )
+        var candidatesByText = preparedTemplates.reduce(into: [String: GlyphCandidate]()) { bestCandidates, template in
             if template.text == "(",
                !isParenthesisLike(inputFeatures, direction: .left) {
                 return
@@ -70,6 +84,11 @@ struct GestureTemplateRecognizer {
                 return
             }
 
+            if template.text == "d",
+               !isLowercaseDLike(inputFeatures) {
+                return
+            }
+
             if template.text == "l",
                !isAlteredLLike(inputFeatures) {
                 return
@@ -80,14 +99,12 @@ struct GestureTemplateRecognizer {
                 return
             }
 
-            guard let normalizedTemplate = NormalizedGesture(
-                strokes: template.strokes,
-                samplePointCount: configuration.samplePointCount
-            ) else {
+            if template.text == "2",
+               !isDigitTwoLike(inputFeatures) {
                 return
             }
 
-            let distance = distance(from: normalizedInput, to: normalizedTemplate)
+            let distance = distance(from: normalizedInput, to: template.normalizedGesture)
             let confidence = 1 / (1 + distance * 2.4)
             let candidate = GlyphCandidate(
                 text: template.text,
@@ -104,6 +121,7 @@ struct GestureTemplateRecognizer {
         }
 
         for candidate in heuristicCandidates(for: cluster) {
+            guard ChordRecognitionDomain.isAllowedGlyphToken(candidate.text) else { continue }
             if let currentBestCandidate = candidatesByText[candidate.text],
                currentBestCandidate.confidence >= candidate.confidence {
                 continue
@@ -125,6 +143,20 @@ struct GestureTemplateRecognizer {
         }
 
         return candidates
+    }
+
+    /// Raw sampling only, so invariant tests can distinguish ink from pen-up geometry.
+    static func normalizationSamplesForTesting(
+        strokes: [InkStroke],
+        samplePointCount: Int,
+        mode: GestureTemplateNormalizationMode
+    ) -> [InkPoint]? {
+        NormalizedGesture.sampledPoints(
+            strokes: strokes,
+            rawPoints: strokes.flatMap(\.points),
+            count: max(2, samplePointCount),
+            mode: mode
+        )
     }
 
     private enum ParenthesisDirection {
@@ -238,6 +270,117 @@ struct GestureTemplateRecognizer {
             && stroke.aspectRatio >= 0.45
             && stroke.aspectRatio <= 1.60
             && stroke.straightness <= 0.78
+    }
+
+    private func isLowercaseDLike(_ features: RootGlyphFeatures) -> Bool {
+        guard features.bounds.width >= 7,
+              features.bounds.height >= 16,
+              features.aspectRatio >= 0.18,
+              features.aspectRatio <= 1.10 else {
+            return false
+        }
+
+        if features.strokeCount == 1,
+           let stroke = features.strokes.first {
+            let upperPoints = stroke.points.filter {
+                stroke.normalizedYRatio(of: $0) <= 0.35
+            }
+            let lowerBodyPoints = stroke.points.filter {
+                stroke.normalizedYRatio(of: $0) >= 0.32
+            }
+            let rightSidePoints = stroke.points.filter {
+                stroke.normalizedXRatio(of: $0) >= 0.68
+            }
+            let upperStaysRight = upperPoints
+                .map { stroke.normalizedXRatio(of: $0) }
+                .min() ?? 0
+            let lowerReachesLeft = lowerBodyPoints.contains {
+                stroke.normalizedXRatio(of: $0) <= 0.20
+            }
+            let lowerReturnsRight = lowerBodyPoints.contains {
+                stroke.normalizedXRatio(of: $0) >= 0.75
+            }
+            let rightSideSpan = InkBounds.enclosing(rightSidePoints.map { point in
+                InkPoint(x: point.x, y: point.y, timeOffset: nil)
+            }).height
+
+            return stroke.pointCount >= 8
+                && stroke.straightness <= 0.62
+                && stroke.horizontalDirectionChangeCount >= 1
+                && upperStaysRight >= 0.52
+                && lowerReachesLeft
+                && lowerReturnsRight
+                && rightSideSpan >= stroke.bounds.height * 0.70
+        }
+
+        guard features.strokeCount == 2,
+              let stem = features.strokes
+                .filter({ $0.isLooseVertical })
+                .max(by: { $0.bounds.height < $1.bounds.height }),
+              let body = features.strokes
+                .filter({ $0 != stem })
+                .max(by: { $0.pathLength < $1.pathLength }) else {
+            return false
+        }
+
+        let width = max(features.bounds.width, 1)
+        let height = max(features.bounds.height, 1)
+        let stemCenterX = (stem.bounds.recognitionMidX - features.bounds.minX) / width
+        let bodyStartsBelowAscender = body.bounds.minY >= features.bounds.minY + height * 0.22
+        let bodyReachesLeft = body.bounds.minX <= features.bounds.minX + width * 0.25
+        let bodyReturnsToStem = body.bounds.maxX >= stem.bounds.recognitionMidX - width * 0.20
+
+        return stemCenterX >= 0.62
+            && stem.bounds.height >= height * 0.78
+            && body.pointCount >= 6
+            && body.straightness <= 0.74
+            && bodyStartsBelowAscender
+            && bodyReachesLeft
+            && bodyReturnsToStem
+    }
+
+    private func isDigitTwoLike(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 1,
+              let stroke = features.strokes.first,
+              stroke.pointCount >= 7,
+              stroke.bounds.width >= 8,
+              stroke.bounds.height >= 12,
+              stroke.aspectRatio >= 0.35,
+              stroke.aspectRatio <= 1.55,
+              stroke.straightness >= 0.24,
+              stroke.straightness <= 0.86 else {
+            return false
+        }
+
+        let startX = stroke.normalizedXRatio(of: stroke.startPoint)
+        let startY = stroke.normalizedYRatio(of: stroke.startPoint)
+        let endX = stroke.normalizedXRatio(of: stroke.endPoint)
+        let endY = stroke.normalizedYRatio(of: stroke.endPoint)
+        let upperRightIndex = stroke.points.firstIndex { point in
+            stroke.normalizedXRatio(of: point) >= 0.70
+                && stroke.normalizedYRatio(of: point) <= 0.42
+        }
+        let lowerLeftIndex = upperRightIndex.flatMap { upperIndex in
+            stroke.points.indices.dropFirst(upperIndex + 1).first { index in
+                stroke.normalizedXRatio(of: stroke.points[index]) <= 0.35
+                    && stroke.normalizedYRatio(of: stroke.points[index]) >= 0.62
+            }
+        }
+        let finishesBaseline = lowerLeftIndex.map { lowerIndex in
+            stroke.points.indices.dropFirst(lowerIndex + 1).contains { index in
+                stroke.normalizedXRatio(of: stroke.points[index]) >= 0.70
+                    && stroke.normalizedYRatio(of: stroke.points[index]) >= 0.76
+            }
+        } ?? false
+
+        return startX <= 0.58
+            && startY <= 0.35
+            && endX >= 0.62
+            && endY >= 0.72
+            && upperRightIndex != nil
+            && lowerLeftIndex != nil
+            && finishesBaseline
+            && !stroke.hasVerticalTailAndLoopReturn
     }
 
     private func isAlteredLLike(_ features: RootGlyphFeatures) -> Bool {
@@ -427,8 +570,13 @@ struct GestureTemplateRecognizer {
             return false
         }
 
+        if hasBroadTriangularOutline(stroke) {
+            return true
+        }
+
         let compactClosedTriangle = stroke.pointCount >= 4
             && stroke.endpointClosureRatio <= 0.18
+            && hasClosedTriangleBase(stroke)
         let handwrittenTriangle = stroke.pointCount >= 14
             && stroke.straightness <= 0.32
             && stroke.angleDegrees >= 60
@@ -474,6 +622,90 @@ struct GestureTemplateRecognizer {
 
         return isTriangleMajorLeftLeg(leftStroke, in: bounds)
             && isTriangleMajorRightLegWithBase(rightStroke, in: bounds)
+    }
+
+    /// Closure alone cannot separate a major triangle from a diminished
+    /// circle. A triangle also has a broad, approximately straight lower base
+    /// and an upper apex. Check that structure at the actual written scale.
+    private func hasClosedTriangleBase(_ stroke: RootStrokeFeatures) -> Bool {
+        let lowerPoints = stroke.points.filter { stroke.normalizedYRatio(of: $0) >= 0.70 }
+        guard let left = lowerPoints.min(by: { $0.x < $1.x }),
+              let right = lowerPoints.max(by: { $0.x < $1.x }),
+              right.x - left.x >= stroke.bounds.width * 0.65,
+              abs(right.y - left.y) <= stroke.bounds.height * 0.30 else {
+            return false
+        }
+        let slope = (right.y - left.y) / (right.x - left.x)
+        let hasStraightBase = lowerPoints.allSatisfy { point in
+            abs(point.y - (left.y + (point.x - left.x) * slope)) <= stroke.bounds.height * 0.10
+        }
+        let upperPoints = stroke.points.filter { stroke.normalizedYRatio(of: $0) <= 0.10 }
+        guard !upperPoints.isEmpty else { return false }
+        let apexX = upperPoints.map { stroke.normalizedXRatio(of: $0) }.reduce(0, +)
+            / Double(upperPoints.count)
+        return hasStraightBase && apexX >= 0.18 && apexX <= 0.82
+    }
+
+    /// A retraced, wide triangle may start partway down its left edge and
+    /// finish near that edge instead of closing at its first point. Require
+    /// all three drawn sides, not an endpoint/direction convention or a
+    /// widened aspect-ratio shortcut that also admits small round dots.
+    private func hasBroadTriangularOutline(_ stroke: RootStrokeFeatures) -> Bool {
+        guard stroke.pointCount >= 8,
+              stroke.bounds.width >= 7,
+              stroke.bounds.height >= 8,
+              stroke.bounds.height <= 30,
+              stroke.aspectRatio >= 0.55,
+              stroke.aspectRatio <= 1.80 else {
+            return false
+        }
+        let lowerPoints = stroke.points.filter { stroke.normalizedYRatio(of: $0) >= 0.60 }
+        guard let left = lowerPoints.min(by: { $0.x < $1.x }),
+              let right = lowerPoints.max(by: { $0.x < $1.x }),
+              let apex = stroke.points.min(by: { $0.y < $1.y }),
+              right.x - left.x >= stroke.bounds.width * 0.80,
+              abs(left.y - right.y) <= stroke.bounds.height * 0.30,
+              stroke.normalizedXRatio(of: apex) >= 0.20,
+              stroke.normalizedXRatio(of: apex) <= 0.80,
+              normalizedClosedLoopArea(stroke) >= 0.22 else {
+            return false
+        }
+        let edges = [(left, apex), (apex, right), (right, left)]
+        let tolerance = max(stroke.bounds.width, stroke.bounds.height) * 0.12
+        var hasInteriorPoint = [Bool](repeating: false, count: edges.count)
+        for point in stroke.points {
+            var nearestDistance = Double.infinity
+            for (index, edge) in edges.enumerated() {
+                let dx = edge.1.x - edge.0.x
+                let dy = edge.1.y - edge.0.y
+                let lengthSquared = dx * dx + dy * dy
+                guard lengthSquared > 0 else { return false }
+                let projection = ((point.x - edge.0.x) * dx + (point.y - edge.0.y) * dy) / lengthSquared
+                let boundedProjection = min(1, max(0, projection))
+                let distance = hypot(
+                    point.x - edge.0.x - boundedProjection * dx,
+                    point.y - edge.0.y - boundedProjection * dy
+                )
+                nearestDistance = min(nearestDistance, distance)
+                if projection >= 0.25, projection <= 0.75, distance <= tolerance {
+                    hasInteriorPoint[index] = true
+                }
+            }
+            guard nearestDistance <= tolerance else { return false }
+        }
+        return hasInteriorPoint.allSatisfy { $0 }
+    }
+
+    private func normalizedClosedLoopArea(_ stroke: RootStrokeFeatures) -> Double {
+        guard let first = stroke.points.first else { return 0 }
+        var previous = first
+        var doubledArea = 0.0
+        for next in stroke.points.dropFirst() + [first] {
+            doubledArea += stroke.normalizedXRatio(of: previous) * stroke.normalizedYRatio(of: next)
+                - stroke.normalizedXRatio(of: next) * stroke.normalizedYRatio(of: previous)
+            previous = next
+        }
+        return abs(doubledArea) / 2
     }
 
     private func isTriangleMajorLeftLeg(_ stroke: RootStrokeFeatures, in bounds: InkBounds) -> Bool {
@@ -558,6 +790,7 @@ struct GestureTemplateRecognizer {
             && stroke.aspectRatio <= 1.85
             && stroke.endpointClosureRatio <= 0.90
             && !stroke.hasEarlyTopHorizontalRun
+            && !hasBroadTriangularOutline(stroke)
     }
 
     private func isHalfDiminishedLike(_ features: RootGlyphFeatures) -> Bool {
@@ -609,6 +842,18 @@ struct GestureTemplateRecognizer {
             && stroke.bounds.width <= 17
             && stroke.bounds.height >= 4
             && stroke.bounds.height <= 20
+        // The retained circle becomes 21 x 24 points in a sequential row,
+        // exceeding the old compact-only limits. A larger loop needs explicit
+        // bounded closure and round enclosed area, and cannot have a triangle's
+        // straight base. This is not a general relaxation of degree evidence.
+        let largerRoundLoop = stroke.pointCount >= 12
+            && stroke.bounds.width >= 4
+            && stroke.bounds.width <= 32
+            && stroke.bounds.height >= 4
+            && stroke.bounds.height <= 36
+            && stroke.endpointClosureRatio <= 0.35
+            && normalizedClosedLoopArea(stroke) >= 0.60
+            && !hasClosedTriangleBase(stroke)
         let roundEnough = stroke.aspectRatio >= 0.42
             && stroke.aspectRatio <= 1.55
         let loopedPath = stroke.pointCount >= 8
@@ -626,12 +871,16 @@ struct GestureTemplateRecognizer {
             && stroke.normalizedXRatio(of: stroke.endPoint) <= 0.62
             && stroke.normalizedYRatio(of: stroke.endPoint) >= 0.55
 
-        return compactLoop
+        return (compactLoop || largerRoundLoop)
             && roundEnough
             && loopedPath
             && startsLikeWrittenCircle
             && !looksLikeTriangleReturn
-            && !stroke.hasEarlyTopHorizontalRun
+            && !hasBroadTriangularOutline(stroke)
+            // A closed round loop can start along its upper arc. That arc is
+            // not a digit's open top shelf; the bounded area/closure check is
+            // independent of pen start and direction.
+            && (!stroke.hasEarlyTopHorizontalRun || largerRoundLoop)
     }
 
     private func isHalfDiminishedSlashStroke(_ stroke: RootStrokeFeatures) -> Bool {
@@ -727,9 +976,11 @@ struct GestureTemplateRecognizer {
         let compactTopCurl = stroke.aspectRatio <= 0.38
             && upperLoopBounds.height >= max(5, stroke.bounds.height * 0.25)
             && stroke.leftCurlDepthFromStart >= max(1.5, upperLoopBounds.width * 0.25)
+        let closesUpperLoopBeforeTail = stroke.hasClosedUpperLoopBeforeDescendingTail
         let hasNineTurn = !stroke.hasEarlyTopHorizontalRun
             || stroke.hasLowerThenUpperReturn
             || compactTopCurl
+            || closesUpperLoopBeforeTail
 
         return stroke.pointCount >= 10
             && stroke.bounds.height >= 12
@@ -740,8 +991,13 @@ struct GestureTemplateRecognizer {
             && startsNearTop
             && descendsIntoTail
             && hasUpperLoopBody
-            && stroke.hasUpperReturnAfterMidpoint
-            && stroke.aspectRatio <= 0.60
+            && (stroke.hasUpperReturnAfterMidpoint || closesUpperLoopBeforeTail)
+            // The narrow fallback is useful for a loose curl, but a completed
+            // upper loop with a separate right-side tail supplies stronger
+            // evidence. Do not reject that construction at the arbitrary
+            // 0.60 edge (the current device 9 is 0.600725). The loop detector
+            // still has its own bounded aspect and return/tail geometry.
+            && (stroke.aspectRatio <= 0.60 || closesUpperLoopBeforeTail)
             && hasNineTurn
     }
 
@@ -943,8 +1199,13 @@ struct GestureTemplateRecognizer {
 
     private func fiveLikeConfidence(_ features: RootGlyphFeatures) -> Double? {
         if features.strokeCount >= 2 && features.strokeCount <= 4 {
+            // A compact handwritten 5 is often made as a tiny top shelf plus a
+            // separate curved body. Keep the broader threshold everywhere else,
+            // but accept the shorter shelf when the clusterer has already proven
+            // that the glyph belongs to an explicit parenthesized alteration.
+            let minimumTopShelfWidth = features.hasParenthesizedAlterationEvidence ? 4.0 : 5.0
             let hasTopShelf = features.strokes.contains { stroke in
-                stroke.bounds.width >= 5
+                stroke.bounds.width >= minimumTopShelfWidth
                     && stroke.bounds.height <= max(6, stroke.bounds.width * 0.75)
                     && abs(stroke.angleDegrees) <= 45
             }
@@ -1478,6 +1739,17 @@ struct GestureTemplateRecognizer {
     }
 
     private func isDLikeBody(_ bodyStroke: RootStrokeFeatures, in features: RootGlyphFeatures) -> Bool {
+        if isSingleBowlDWithLeftStem(bodyStroke, in: features) {
+            return true
+        }
+
+        // The older sparse-curve shortcuts also accepted a flat's small
+        // lower bowl beside its tall ascender. A capital D body must cover
+        // most of the glyph height, regardless of its sampling density.
+        guard bodyStroke.bounds.height >= features.bounds.height * 0.70 else {
+            return false
+        }
+
         if bodyStroke.pointCount <= 17,
            features.aspectRatio >= 0.50,
            features.aspectRatio <= 0.95,
@@ -1514,6 +1786,100 @@ struct GestureTemplateRecognizer {
         return false
     }
 
+    /// A detached upper cap is a normal two-stroke D construction. The live
+    /// device samples had 29/33 body points, exceeding the older point-count
+    /// shortcuts, and their outward arc was mistaken for a B's inward waist.
+    /// Recognize the actual contour instead: one right-side bowl joining the
+    /// upper/lower left, a nearby left stem, and no intervening inward turn.
+    /// This remains invariant to additional samples and either pen direction.
+    private func isSingleBowlDWithLeftStem(
+        _ body: RootStrokeFeatures,
+        in features: RootGlyphFeatures
+    ) -> Bool {
+        let width = max(features.bounds.width, 1)
+        guard let stem = features.strokes.first(where: {
+            $0.isVerticalStem
+                && ($0.bounds.maxX - features.bounds.minX) / width <= 0.35
+        }),
+        // A handwritten stem may sit inside the bowl rather than span its
+        // detached upper cap. The complete single-bowl contour below is the
+        // decisive D evidence. The fresh short-stem device sample covers
+        // 44.9% of that height; allow an inset stem covering at least 42%
+        // only alongside the full contour and substantial overlap below.
+        // A small left tick or a B's inward waist remains insufficient.
+        stem.bounds.height >= features.bounds.height * 0.42,
+        stem.bounds.verticalOverlap(with: body.bounds) >= stem.bounds.height * 0.85,
+        body.pointCount >= 8,
+        body.bounds.width >= 12,
+        body.bounds.height >= 16,
+        features.aspectRatio >= 0.42,
+        features.aspectRatio <= 1.15,
+        body.bounds.height >= features.bounds.height * 0.85,
+        // A narrow outward bowl has a larger endpoint/path-length ratio.
+        // Only that narrow contour can exceed the ordinary curve bound;
+        // reject even a shallow inward B waist in the exception.
+        (body.straightness < 0.60
+            || (features.aspectRatio <= 0.75
+                && body.straightness < 0.74
+                && !hasMiddleInwardBowlTurn(body, minimumDepth: 0.04))),
+        body.normalizedMaxX(betweenLowerYRatio: 0.18, upperYRatio: 0.78) >= 0.82,
+        body.normalizedMinX(betweenLowerYRatio: 0.34, upperYRatio: 0.66) > 0.74 else {
+            return false
+        }
+
+        let endpoints = [body.startPoint, body.endPoint]
+        let hasUpperLeftEndpoint = endpoints.contains {
+            body.normalizedXRatio(of: $0) <= 0.25
+                && body.normalizedYRatio(of: $0) <= 0.28
+        }
+        let lowerStemEndpoint = stem.startPoint.y >= stem.endPoint.y
+            ? stem.startPoint : stem.endPoint
+        let joinScale = max(max(body.bounds.width, body.bounds.height), 1)
+        let hasLowerLeftEndpoint = endpoints.contains { endpoint in
+            guard body.normalizedYRatio(of: endpoint) >= 0.72 else { return false }
+            if body.normalizedXRatio(of: endpoint) <= 0.30 { return true }
+            // A slightly rightward return is supported only by a real inset
+            // stem below the upper cap and a nearby lower-endpoint join.
+            // A flat's ascender, or the bowl itself, cannot supply that stem.
+            return body.normalizedXRatio(of: endpoint) <= 0.45
+                && stem.bounds.minY >= body.bounds.minY + body.bounds.height * 0.12
+                && body.normalizedYRatio(of: lowerStemEndpoint) >= 0.70
+                && endpoint.distance(to: lowerStemEndpoint) / joinScale <= 0.18
+        }
+        return hasUpperLeftEndpoint
+            && hasLowerLeftEndpoint
+            && !hasMiddleInwardBowlTurn(body)
+    }
+
+    /// A B has rightward reaches on both sides of its inward waist. An
+    /// ordinary D's outward arc has no such valley, even if its upper-left
+    /// shoulder falls within the broad middle-height feature band. Prefix and
+    /// suffix maxima keep this shape check linear rather than quadratic.
+    private func hasMiddleInwardBowlTurn(
+        _ body: RootStrokeFeatures,
+        minimumDepth: Double = 0.08
+    ) -> Bool {
+        let xRatios = body.points.map { body.normalizedXRatio(of: $0) }
+        var laterMaxima = [Double](repeating: -.infinity, count: xRatios.count)
+        var laterMaximum = -Double.infinity
+        for index in xRatios.indices.reversed() {
+            laterMaxima[index] = laterMaximum
+            laterMaximum = max(laterMaximum, xRatios[index])
+        }
+
+        var earlierMaximum = -Double.infinity
+        for index in body.points.indices {
+            let yRatio = body.normalizedYRatio(of: body.points[index])
+            if yRatio >= 0.26,
+               yRatio <= 0.66,
+               min(earlierMaximum, laterMaxima[index]) - xRatios[index] >= minimumDepth {
+                return true
+            }
+            earlierMaximum = max(earlierMaximum, xRatios[index])
+        }
+        return false
+    }
+
     private func isNoisySingleBowlDLikeBody(_ bodyStroke: RootStrokeFeatures, in features: RootGlyphFeatures) -> Bool {
         let startsOrEndsOnLeft = min(
             bodyStroke.normalizedXRatio(of: bodyStroke.startPoint),
@@ -1542,6 +1908,7 @@ struct GestureTemplateRecognizer {
             && middleStaysOnRightSide
             && spansMostOfRootHeight
             && !hasTwoLobeBBodyEvidence(bodyStroke)
+            && !hasMiddleInwardBowlTurn(bodyStroke)
     }
 
     private func isLooseSingleBowlDLikeBody(_ bodyStroke: RootStrokeFeatures, in features: RootGlyphFeatures) -> Bool {
@@ -1572,13 +1939,18 @@ struct GestureTemplateRecognizer {
             && middleStaysOnRightSide
             && spansMostOfRootHeight
             && !hasTwoLobeBBodyEvidence(bodyStroke)
+            && !hasMiddleInwardBowlTurn(bodyStroke)
     }
 
     private func hasTwoLobeBBodyEvidence(_ bodyStroke: RootStrokeFeatures) -> Bool {
         let upperRightReach = bodyStroke.normalizedMaxX(aboveYRatio: 0.42) >= 0.58
         let lowerRightReach = bodyStroke.normalizedMaxX(belowYRatio: 0.58) >= 0.70
-        let middleMinX = bodyStroke.normalizedMinX(betweenLowerYRatio: 0.34, upperYRatio: 0.66)
-        let middleMaxX = bodyStroke.normalizedMaxX(betweenLowerYRatio: 0.34, upperYRatio: 0.66)
+        // A handwritten B can have a shallow upper lobe and a much larger
+        // lower lobe, putting its inward waist just above the geometric third
+        // of the body. Include that turn without relaxing the separate
+        // multi-direction-change requirement used by the B heuristics.
+        let middleMinX = bodyStroke.normalizedMinX(betweenLowerYRatio: 0.26, upperYRatio: 0.66)
+        let middleMaxX = bodyStroke.normalizedMaxX(betweenLowerYRatio: 0.26, upperYRatio: 0.66)
         let hasMiddleWaist = middleMinX <= 0.78
             && middleMaxX - middleMinX >= 0.22
 
@@ -1701,10 +2073,12 @@ struct GestureTemplateRecognizer {
 private struct RootGlyphFeatures: Hashable {
     var strokes: [RootStrokeFeatures]
     var bounds: InkBounds
+    var recognitionHints: Set<InkClusterRecognitionHint>
 
     init(cluster: InkCluster) {
         strokes = cluster.strokes.map(RootStrokeFeatures.init(stroke:))
         bounds = cluster.bounds
+        recognitionHints = cluster.recognitionHints ?? []
     }
 
     var strokeCount: Int {
@@ -1737,6 +2111,10 @@ private struct RootGlyphFeatures: Hashable {
 
     var hasVerticalStem: Bool {
         strokes.contains(where: \.isVerticalStem)
+    }
+
+    var hasParenthesizedAlterationEvidence: Bool {
+        recognitionHints.contains(.parenthesizedAlteration)
     }
 
     func normalizedYCenter(of stroke: RootStrokeFeatures) -> Double {
@@ -1897,6 +2275,54 @@ private struct RootStrokeFeatures: Hashable {
         return points[midpoint...].contains { point in
             point.y <= upperReturnLimit
         }
+    }
+
+    /// Detects the common one-stroke 9 construction where the writer closes a
+    /// compact loop at the upper right and then descends a narrow tail. The
+    /// upper loop legitimately looks like an early horizontal shelf, so this
+    /// evidence must outrank the broad shelf heuristic shared by 7 and 3.
+    var hasClosedUpperLoopBeforeDescendingTail: Bool {
+        guard pointCount >= 12,
+              aspectRatio >= 0.18,
+              aspectRatio <= 0.80 else {
+            return false
+        }
+
+        let startX = normalizedXRatio(of: startPoint)
+        let startY = normalizedYRatio(of: startPoint)
+        let endY = normalizedYRatio(of: endPoint)
+        guard startX >= 0.58,
+              startY <= 0.28,
+              endY >= 0.72 else {
+            return false
+        }
+
+        let latestReturnIndex = min(
+            points.count - 4,
+            Int((Double(points.count) * 0.72).rounded(.down))
+        )
+        guard latestReturnIndex >= 4,
+              let leftTurnIndex = points[1..<latestReturnIndex].firstIndex(where: { point in
+                  normalizedXRatio(of: point) <= 0.34
+                      && normalizedYRatio(of: point) <= 0.52
+              }),
+              let loopReturnIndex = points[(leftTurnIndex + 1)...latestReturnIndex]
+                  .firstIndex(where: { point in
+                      normalizedXRatio(of: point) >= 0.70
+                          && normalizedYRatio(of: point) <= 0.32
+                  }) else {
+            return false
+        }
+
+        let loopBounds = InkBounds.enclosing(Array(points[...loopReturnIndex]))
+        let tailPoints = Array(points[(loopReturnIndex + 1)...])
+        let tailBounds = InkBounds.enclosing(tailPoints)
+        return loopBounds.width >= bounds.width * 0.72
+            && loopBounds.height >= bounds.height * 0.16
+            && tailPoints.count >= 4
+            && tailBounds.width <= max(4.5, bounds.width * 0.42)
+            && tailBounds.minX >= bounds.minX + bounds.width * 0.40
+            && tailBounds.maxY >= bounds.minY + bounds.height * 0.82
     }
 
     var hasLowerThenUpperReturn: Bool {
@@ -2098,14 +2524,18 @@ private struct NormalizedGesture: Hashable {
     var aspectRatio: Double
     var strokeCount: Int
 
-    init?(strokes: [InkStroke], samplePointCount: Int) {
+    init?(strokes: [InkStroke], samplePointCount: Int, mode: GestureTemplateNormalizationMode) {
         let rawPoints = strokes.flatMap(\.points)
-        guard !rawPoints.isEmpty else {
+        guard let sampledPoints = Self.sampledPoints(
+            strokes: strokes,
+            rawPoints: rawPoints,
+            count: max(2, samplePointCount),
+            mode: mode
+        ) else {
             return nil
         }
 
         let bounds = InkBounds.enclosing(rawPoints)
-        let sampledPoints = Self.resampled(rawPoints, count: max(2, samplePointCount))
         let scale = max(bounds.width, bounds.height, 1)
         let scaledPoints = sampledPoints.map { point in
             NormalizedPoint(
@@ -2123,6 +2553,62 @@ private struct NormalizedGesture: Hashable {
         }
         aspectRatio = max(bounds.width, 1) / max(bounds.height, 1)
         strokeCount = strokes.count
+    }
+
+    fileprivate static func sampledPoints(
+        strokes: [InkStroke],
+        rawPoints: [InkPoint],
+        count: Int,
+        mode: GestureTemplateNormalizationMode
+    ) -> [InkPoint]? {
+        guard !rawPoints.isEmpty else { return nil }
+        if mode == .legacyJoinedPath {
+            return resampled(rawPoints, count: count)
+        }
+
+        guard rawPoints.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        let bounds = InkBounds.enclosing(rawPoints)
+        guard bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        let paths = strokes.map(\.points).filter { !$0.isEmpty }
+        guard paths.count <= count else { return nil }
+        let lengths = paths.map { points in
+            zip(points, points.dropFirst()).reduce(0.0) { $0 + $1.0.distance(to: $1.1) }
+        }
+        let totalLength = lengths.reduce(0, +)
+        guard totalLength.isFinite else { return nil }
+        // Preserve the exact old arithmetic for every single finite nonempty stroke.
+        if paths.count == 1 {
+            return resampled(paths[0], count: count)
+        }
+
+        let minimums = lengths.map { $0 > 0 ? 2 : 1 }
+        let minimumCount = minimums.reduce(0, +)
+        guard minimumCount <= count else { return nil }
+        let remaining = count - minimumCount
+        let shares = lengths.map { length in
+            Double(remaining) * (totalLength > 0 ? length / totalLength : 1 / Double(paths.count))
+        }
+        let extras = shares.map { Int(floor($0)) }
+        let residual = remaining - extras.reduce(0, +)
+        guard residual >= 0, residual <= paths.count else { return nil }
+        var counts = paths.indices.map { minimums[$0] + extras[$0] }
+        let residualOrder = paths.indices.sorted { lhs, rhs in
+            let leftRemainder = shares[lhs] - Double(extras[lhs])
+            let rightRemainder = shares[rhs] - Double(extras[rhs])
+            return leftRemainder == rightRemainder ? lhs < rhs : leftRemainder > rightRemainder
+        }
+        for index in residualOrder.prefix(residual) {
+            counts[index] += 1
+        }
+        return paths.indices.flatMap { index in
+            guard counts[index] > 1 else { return [paths[index][0]] }
+            var samples = resampled(paths[index], count: counts[index])
+            if lengths[index] > 0 {
+                samples[0] = paths[index][0]
+                samples[samples.count - 1] = paths[index][paths[index].count - 1]
+            }
+            return samples
+        }
     }
 
     private static func resampled(_ points: [InkPoint], count: Int) -> [InkPoint] {
@@ -2183,6 +2669,54 @@ private struct NormalizedGesture: Hashable {
         }
 
         return Array(sampledPoints.prefix(count))
+    }
+}
+
+private struct PreparedGestureTemplate {
+    var text: String
+    var normalizedGesture: NormalizedGesture
+}
+
+private final class GestureTemplateNormalizationCache {
+    private let lock = NSLock()
+    private var cachedTemplates: [GestureTemplate] = []
+    private var cachedSamplePointCount = 0
+    private var cachedMode: GestureTemplateNormalizationMode = .legacyJoinedPath
+    private var cachedPreparedTemplates: [PreparedGestureTemplate] = []
+
+    func preparedTemplates(
+        from templates: [GestureTemplate],
+        samplePointCount: Int,
+        mode: GestureTemplateNormalizationMode
+    ) -> [PreparedGestureTemplate] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if cachedSamplePointCount == samplePointCount,
+           cachedMode == mode,
+           cachedTemplates == templates {
+            return cachedPreparedTemplates
+        }
+
+        let preparedTemplates = templates.compactMap { template -> PreparedGestureTemplate? in
+            guard let normalizedGesture = NormalizedGesture(
+                strokes: template.strokes,
+                samplePointCount: samplePointCount,
+                mode: mode
+            ) else {
+                return nil
+            }
+
+            return PreparedGestureTemplate(
+                text: template.text,
+                normalizedGesture: normalizedGesture
+            )
+        }
+        cachedTemplates = templates
+        cachedSamplePointCount = samplePointCount
+        cachedMode = mode
+        cachedPreparedTemplates = preparedTemplates
+        return preparedTemplates
     }
 }
 

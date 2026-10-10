@@ -19,7 +19,9 @@ let package = Package(
             exclude: [
                 "App",
                 "Features/Editor",
+                "Features/RecognitionStudy",
                 "Features/Library/LibraryView.swift",
+                "Features/Library/SetlistsView.swift",
                 "Resources",
                 "Shared/ChartFontPreset+SwiftUI.swift"
             ]

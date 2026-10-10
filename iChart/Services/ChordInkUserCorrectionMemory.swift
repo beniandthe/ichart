@@ -7,10 +7,69 @@ enum ChordInkUserCorrectionMemoryPolicy {
     static let extremelyCloseRaceGap = ChordInkRecognitionPolicy.closeRaceConfidenceGap / 2
 
     static func inkDigest(for drawingData: Data) -> String {
-        SHA256.hash(data: drawingData)
+        #if canImport(PencilKit)
+        if let strokes = try? PencilKitInkAdapter.inkStrokes(from: drawingData),
+           !strokes.isEmpty,
+           let canonicalData = canonicalRecognitionData(for: strokes) {
+            return "semantic-v1:\(sha256Hex(of: canonicalData))"
+        }
+        #endif
+
+        return "archive-v1:\(sha256Hex(of: drawingData))"
+    }
+
+    /// Existing installs stored an unversioned SHA-256 of PencilKit's archive.
+    /// Keep accepting that digest when the bytes are still identical, while new
+    /// rules use recognition-semantic geometry that survives harmless PencilKit
+    /// metadata reserialization.
+    static func matchingInkDigests(for drawingData: Data) -> Set<String> {
+        [inkDigest(for: drawingData), sha256Hex(of: drawingData)]
+    }
+
+    private static func sha256Hex(of data: Data) -> String {
+        SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }
             .joined()
     }
+
+    #if canImport(PencilKit)
+    private static func canonicalRecognitionData(for strokes: [InkStroke]) -> Data? {
+        var fields = ["chord-ink-semantic-v1", "strokes", String(strokes.count)]
+        fields.reserveCapacity(
+            3 + strokes.reduce(0) { $0 + 3 + ($1.points.count * 4) }
+        )
+
+        for stroke in strokes {
+            fields.append("stroke")
+            fields.append(String(stroke.points.count))
+            fields.append(quantizedString(stroke.creationTimeOffset) ?? "nil")
+
+            for point in stroke.points {
+                guard let x = quantizedString(point.x),
+                      let y = quantizedString(point.y) else {
+                    return nil
+                }
+
+                fields.append(x)
+                fields.append(y)
+                fields.append(quantizedString(point.timeOffset) ?? "nil")
+                fields.append("point")
+            }
+        }
+
+        return Data(fields.joined(separator: "|").utf8)
+    }
+
+    private static func quantizedString(_ value: Double?) -> String? {
+        guard let value,
+              value.isFinite,
+              abs(value) <= Double(Int64.max) / 1_000_000 else {
+            return nil
+        }
+
+        return String(Int64((value * 1_000_000).rounded()))
+    }
+    #endif
 
     static func candidateSignature(from candidateTexts: [String]) -> [String] {
         candidateTexts.reduce(into: [String]()) { signature, candidateText in
@@ -92,7 +151,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case correctionRules
         case suggestionExclusions
-        case rejectedTrustedCandidateRules = "rejectedAutoRenderRules"
+        case explicitRejectedTrustedCandidateRules
     }
 
     init(
@@ -117,7 +176,7 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         ) ?? []
         rejectedTrustedCandidateRules = try container.decodeIfPresent(
             [ChordInkRejectedTrustedCandidateRule].self,
-            forKey: .rejectedTrustedCandidateRules
+            forKey: .explicitRejectedTrustedCandidateRules
         ) ?? []
     }
 
@@ -125,11 +184,15 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(correctionRules, forKey: .correctionRules)
         try container.encode(suggestionExclusions, forKey: .suggestionExclusions)
-        try container.encode(rejectedTrustedCandidateRules, forKey: .rejectedTrustedCandidateRules)
+        try container.encode(
+            rejectedTrustedCandidateRules,
+            forKey: .explicitRejectedTrustedCandidateRules
+        )
     }
 
     func preferredCandidate(
         for candidateTexts: [String],
+        drawingData: Data,
         decision: ChordInkRecognitionDecision
     ) -> String? {
         guard decision.action == .confirm,
@@ -144,8 +207,20 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             return nil
         }
 
-        return correctionRules
-            .filter { $0.candidateSignature == signature && signature.contains($0.acceptedText) }
+        let applicableRules = correctionRules.filter {
+            $0.candidateSignature == signature && signature.contains($0.acceptedText)
+        }
+        guard !applicableRules.isEmpty else {
+            return nil
+        }
+
+        let matchingDigests = ChordInkUserCorrectionMemoryPolicy.matchingInkDigests(
+            for: drawingData
+        )
+        return applicableRules
+            .filter { rule in
+                rule.inkDigests.contains(where: matchingDigests.contains)
+            }
             .sorted { lhs, rhs in
                 if lhs.useCount != rhs.useCount {
                     return lhs.useCount > rhs.useCount
@@ -166,14 +241,19 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
             return false
         }
 
-        let digest = ChordInkUserCorrectionMemoryPolicy.inkDigest(for: drawingData)
         let candidateSignature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
-        return rejectedTrustedCandidateRules.contains { rule in
-            guard rule.acceptedText == match.displayText else {
-                return false
-            }
+        let applicableRules = rejectedTrustedCandidateRules.filter {
+            $0.acceptedText == match.displayText
+        }
+        guard !applicableRules.isEmpty else {
+            return false
+        }
 
-            if rule.inkDigests.contains(digest) {
+        let matchingDigests = ChordInkUserCorrectionMemoryPolicy.matchingInkDigests(
+            for: drawingData
+        )
+        return applicableRules.contains { rule in
+            if rule.inkDigests.contains(where: matchingDigests.contains) {
                 return true
             }
 
@@ -277,6 +357,52 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
         return true
     }
 
+    /// Records a correction made to a chord that was already rendered from ink.
+    /// Unlike deletion, this supplies an explicit wrong-read/right-read pair.
+    @discardableResult
+    mutating func recordRenderedChordCorrection(
+        previousText: String,
+        displayedPreviousText: String,
+        acceptedText: String,
+        drawingData: Data,
+        candidateTexts: [String],
+        now: Date = .now
+    ) -> Bool {
+        guard let previousMatch = ChordRecognitionCompendium.match(previousText),
+              let displayedPreviousMatch = ChordRecognitionCompendium.match(displayedPreviousText),
+              let acceptedMatch = ChordRecognitionCompendium.match(acceptedText),
+              previousMatch.displayText == displayedPreviousMatch.displayText,
+              previousMatch.displayText != acceptedMatch.displayText else {
+            return false
+        }
+
+        let signature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
+        var didUpdate = recordRejectedTrustedCandidate(
+            acceptedText: previousMatch.displayText,
+            drawingData: drawingData,
+            candidateSignature: signature,
+            now: now
+        )
+
+        if signature.contains(acceptedMatch.displayText) {
+            didUpdate = recordExplicitCandidateCorrection(
+                acceptedText: acceptedMatch.displayText,
+                drawingData: drawingData,
+                candidateSignature: signature,
+                now: now
+            ) || didUpdate
+        } else {
+            didUpdate = recordManualCorrection(
+                acceptedText: acceptedMatch.displayText,
+                drawingData: drawingData,
+                candidateTexts: signature,
+                now: now
+            ) || didUpdate
+        }
+
+        return didUpdate
+    }
+
     @discardableResult
     mutating func recordRejectedTrustedCandidate(
         acceptedText: String,
@@ -332,6 +458,48 @@ struct ChordInkUserCorrectionMemory: Codable, Equatable {
 
         correctionRules[index].useCount += 1
         correctionRules[index].updatedAt = now
+    }
+
+    @discardableResult
+    private mutating func recordExplicitCandidateCorrection(
+        acceptedText: String,
+        drawingData: Data,
+        candidateSignature: [String],
+        now: Date
+    ) -> Bool {
+        guard candidateSignature.count > 1,
+              candidateSignature.contains(acceptedText),
+              !hasSuggestionExclusion(for: candidateSignature) else {
+            return false
+        }
+
+        let digest = ChordInkUserCorrectionMemoryPolicy.inkDigest(for: drawingData)
+        let competingTexts = candidateSignature.filter { $0 != acceptedText }
+
+        if let index = correctionRules.firstIndex(where: { $0.candidateSignature == candidateSignature }) {
+            correctionRules[index].acceptedText = acceptedText
+            correctionRules[index].competingCandidateTexts = competingTexts
+            correctionRules[index].sourceConfidenceGap = nil
+            correctionRules[index].updatedAt = now
+            correctionRules[index].useCount += 1
+            appendDigest(digest, toRuleAt: index)
+        } else {
+            correctionRules.append(
+                ChordInkUserCorrectionRule(
+                    id: UUID(),
+                    candidateSignature: candidateSignature,
+                    acceptedText: acceptedText,
+                    competingCandidateTexts: competingTexts,
+                    inkDigests: [digest],
+                    sourceConfidenceGap: nil,
+                    createdAt: now,
+                    updatedAt: now,
+                    useCount: 1
+                )
+            )
+        }
+
+        return true
     }
 
     private func hasSuggestionExclusion(for signature: [String]) -> Bool {

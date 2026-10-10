@@ -14,6 +14,14 @@ func normalizedPersistentInkDrawingData(_ drawingData: Data?) -> Data? {
     #endif
 }
 
+func normalizedNonemptyPersistentInkData(_ drawingData: Data?) -> Data? {
+    guard let drawingData,
+          !drawingData.isEmpty else {
+        return nil
+    }
+    return drawingData
+}
+
 struct PersistentInkCoordinateSpace: Codable, Hashable {
     var width: Double
     var height: Double
@@ -234,6 +242,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var freehandSymbols: [FreehandSymbol]
     var stylePreset: StylePreset
     var engravingPreset: EngravingPreset
+    var staffSystemDensity: StaffSystemDensity
     var pageHandwrittenNotationData: Data?
     var pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenHeaderData: Data?
@@ -285,6 +294,7 @@ struct Chart: Identifiable, Codable, Hashable {
         freehandSymbols: [FreehandSymbol] = [],
         stylePreset: StylePreset,
         engravingPreset: EngravingPreset = .balanced,
+        staffSystemDensity: StaffSystemDensity = .standard,
         pageHandwrittenNotationData: Data? = nil,
         pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenHeaderData: Data? = nil,
@@ -326,6 +336,7 @@ struct Chart: Identifiable, Codable, Hashable {
         self.freehandSymbols = []
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
+        self.staffSystemDensity = staffSystemDensity
         self.pageHandwrittenNotationData = normalizedPersistentInkDrawingData(pageHandwrittenNotationData)
         self.pageHandwrittenNotationCoordinateSpace = Self.coordinateSpace(
             pageHandwrittenNotationCoordinateSpace,
@@ -375,6 +386,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case freehandSymbols
         case stylePreset
         case engravingPreset
+        case staffSystemDensity
         case pageHandwrittenNotationData
         case pageHandwrittenNotationCoordinateSpace
         case pageHandwrittenHeaderData
@@ -430,6 +442,9 @@ struct Chart: Identifiable, Codable, Hashable {
         freehandSymbols = []
         stylePreset = try container.decode(StylePreset.self, forKey: .stylePreset)
         engravingPreset = try container.decodeIfPresent(EngravingPreset.self, forKey: .engravingPreset) ?? .balanced
+        // Keep saved page ink aligned with the original layout until the user
+        // deliberately chooses a different system density.
+        staffSystemDensity = try container.decodeIfPresent(StaffSystemDensity.self, forKey: .staffSystemDensity) ?? .standard
         pageHandwrittenNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
         )

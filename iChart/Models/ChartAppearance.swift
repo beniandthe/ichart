@@ -449,6 +449,30 @@ struct ChartTypographySettings: Codable, Hashable {
     }
 }
 
+enum StaffSystemDensity: String, Codable, CaseIterable, Hashable, Identifiable {
+    case standard
+    case close
+    case dense
+
+    var id: String { rawValue }
+
+    var displayText: String {
+        switch self {
+        case .standard: return "Standard"
+        case .close: return "Closer"
+        case .dense: return "Dense"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .standard: return "Original system spacing for this engraving preset."
+        case .close: return "Less space between systems, with the same staff and text size."
+        case .dense: return "Fit more systems while keeping room for notation and cues."
+        }
+    }
+}
+
 enum EngravingPreset: String, Codable, CaseIterable, Hashable, Identifiable {
     case compact
     case balanced

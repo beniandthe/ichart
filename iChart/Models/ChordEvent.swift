@@ -12,6 +12,10 @@ enum ChordSpellingOverrideSource: String, Codable, Hashable {
 struct ChordEvent: Identifiable, Codable, Hashable {
     static let minimumManualDisplayWidth: Double = 18
     static let maximumManualDisplayWidth: Double = 360
+    static let minimumManualDisplayScale: Double = 0.1
+    static let maximumManualDisplayScale: Double = 32
+    static let minimumManualHorizontalScale: Double = 0.35
+    static let maximumManualHorizontalScale: Double = 1
     static let minimumManualLaneFraction: Double = 0
     static let maximumManualLaneFraction: Double = 0.9999
 
@@ -28,8 +32,15 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var rawInput: String?
     var sourceInkData: Data? = nil
     var sourceCandidateSignature: [String] = []
+    var sourceRecognitionPipelineVersion: String? = nil
     var manualDisplayWidth: Double? = nil
+    // Parked legacy proportional size; interpreted horizontally without rewriting it.
+    var manualDisplayScale: Double? = nil
+    // A user-authored width-only compression at the configured chord height.
+    var manualHorizontalScale: Double? = nil
     var manualLaneFraction: Double? = nil
+    // Visual left edge within the chord band; never changes musical timing.
+    var manualVisualLaneFraction: Double? = nil
 
     init(
         id: UUID,
@@ -45,8 +56,12 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         rawInput: String?,
         sourceInkData: Data? = nil,
         sourceCandidateSignature: [String] = [],
+        sourceRecognitionPipelineVersion: String? = nil,
         manualDisplayWidth: Double? = nil,
-        manualLaneFraction: Double? = nil
+        manualDisplayScale: Double? = nil,
+        manualHorizontalScale: Double? = nil,
+        manualLaneFraction: Double? = nil,
+        manualVisualLaneFraction: Double? = nil
     ) {
         self.id = id
         self.symbol = symbol
@@ -63,8 +78,12 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.rawInput = rawInput
         self.sourceInkData = normalizedPersistentInkDrawingData(sourceInkData)
         self.sourceCandidateSignature = sourceCandidateSignature
+        self.sourceRecognitionPipelineVersion = sourceRecognitionPipelineVersion
         self.manualDisplayWidth = manualDisplayWidth.map(Self.clampedManualDisplayWidth)
+        self.manualDisplayScale = manualDisplayScale.map(Self.clampedManualDisplayScale)
+        self.manualHorizontalScale = manualHorizontalScale.map(Self.clampedManualHorizontalScale)
         self.manualLaneFraction = manualLaneFraction.map(Self.clampedManualLaneFraction)
+        self.manualVisualLaneFraction = manualVisualLaneFraction.map(Self.clampedManualLaneFraction)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -81,8 +100,12 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case rawInput
         case sourceInkData
         case sourceCandidateSignature
+        case sourceRecognitionPipelineVersion
         case manualDisplayWidth
+        case manualDisplayScale
+        case manualHorizontalScale
         case manualLaneFraction
+        case manualVisualLaneFraction
     }
 
     init(from decoder: Decoder) throws {
@@ -113,9 +136,19 @@ struct ChordEvent: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(Data.self, forKey: .sourceInkData)
         )
         sourceCandidateSignature = try container.decodeIfPresent([String].self, forKey: .sourceCandidateSignature) ?? []
+        sourceRecognitionPipelineVersion = try container.decodeIfPresent(
+            String.self,
+            forKey: .sourceRecognitionPipelineVersion
+        )
         manualDisplayWidth = try container.decodeIfPresent(Double.self, forKey: .manualDisplayWidth)
             .map(Self.clampedManualDisplayWidth)
+        manualDisplayScale = try container.decodeIfPresent(Double.self, forKey: .manualDisplayScale)
+            .map(Self.clampedManualDisplayScale)
+        manualHorizontalScale = try container.decodeIfPresent(Double.self, forKey: .manualHorizontalScale)
+            .map(Self.clampedManualHorizontalScale)
         manualLaneFraction = try container.decodeIfPresent(Double.self, forKey: .manualLaneFraction)
+            .map(Self.clampedManualLaneFraction)
+        manualVisualLaneFraction = try container.decodeIfPresent(Double.self, forKey: .manualVisualLaneFraction)
             .map(Self.clampedManualLaneFraction)
     }
 
@@ -138,8 +171,15 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         if !sourceCandidateSignature.isEmpty {
             try container.encode(sourceCandidateSignature, forKey: .sourceCandidateSignature)
         }
+        try container.encodeIfPresent(
+            sourceRecognitionPipelineVersion,
+            forKey: .sourceRecognitionPipelineVersion
+        )
         try container.encodeIfPresent(manualDisplayWidth, forKey: .manualDisplayWidth)
+        try container.encodeIfPresent(manualDisplayScale, forKey: .manualDisplayScale)
+        try container.encodeIfPresent(manualHorizontalScale, forKey: .manualHorizontalScale)
         try container.encodeIfPresent(manualLaneFraction, forKey: .manualLaneFraction)
+        try container.encodeIfPresent(manualVisualLaneFraction, forKey: .manualVisualLaneFraction)
     }
 
     var displaySummary: String {
@@ -179,6 +219,22 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         }
 
         return min(max(width, minimumManualDisplayWidth), maximumManualDisplayWidth)
+    }
+
+    static func clampedManualDisplayScale(_ scale: Double) -> Double {
+        guard scale.isFinite else {
+            return 1
+        }
+
+        return min(max(scale, minimumManualDisplayScale), maximumManualDisplayScale)
+    }
+
+    static func clampedManualHorizontalScale(_ scale: Double) -> Double {
+        guard scale.isFinite else {
+            return maximumManualHorizontalScale
+        }
+
+        return min(max(scale, minimumManualHorizontalScale), maximumManualHorizontalScale)
     }
 
     static func clampedManualLaneFraction(_ fraction: Double) -> Double {

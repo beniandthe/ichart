@@ -42,7 +42,7 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
 
         let groups = grouper.groups(for: indexed(strokes))
 
-        XCTAssertTrue(groups.isEmpty)
+        XCTAssertTrue(groups.isEmpty, "Suffix-only strokes became chord groups: \(groups)")
     }
 
     func testSoloVerticalBarlineLikeStrokeDoesNotCreateChordGroup() {
@@ -182,6 +182,830 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         )
 
         XCTAssertEqual(evidence?.text, "C")
+    }
+
+    func testTightlyWrittenFlatLookalikeContinuesCurrentChord() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98),
+                glyph("C", confidence: 0.965, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 100)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            timeGapFromCurrentGroup: 0.90
+        )
+
+        XCTAssertNil(evidence)
+    }
+
+    func testPauseSupportsCloseRootBoundaryWithoutReplacingRootEvidence() {
+        let closeRootBounds = rootBounds(at: 40)
+        XCTAssertFalse(
+            ChordInkSequentialRootStartDetector.isRootSequenceBoundarySizedGlyph(
+                closeRootBounds,
+                from: rootBounds(at: 0)
+            )
+        )
+
+        let withoutPause = ChordInkSequentialRootStartDetector.evidence(
+            in: [glyph("D", confidence: 0.91, source: .heuristic)],
+            cluster: cluster(closeRootBounds),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            timeGapFromCurrentGroup: 0.90
+        )
+        let afterPause = ChordInkSequentialRootStartDetector.evidence(
+            in: [glyph("D", confidence: 0.91, source: .heuristic)],
+            cluster: cluster(closeRootBounds),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            timeGapFromCurrentGroup: 1.50
+        )
+
+        XCTAssertNil(withoutPause)
+        XCTAssertEqual(afterPause?.text, "D")
+    }
+
+    func testTrustedFlatLookalikeReattachesWhenTimingCompletesPreviousChord() throws {
+        let fixture = try InkFixtureLoader.load("BFlat", file: #filePath)
+        let row = Self.makeSequentialRow(
+            [fixture],
+            horizontalGaps: [20],
+            verticalOffsets: [0]
+        )
+
+        let groups = grouper.groups(for: indexed(row.strokes))
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.rootText, "B")
+        XCTAssertEqual(Set(groups.first?.strokeIndices ?? []), Set(row.strokes.indices))
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: row.strokes)
+        XCTAssertEqual(result.match?.displayText, "Bb")
+    }
+
+    func testChordPausePreventsFlatLookalikeFromReattachingToPreviousChord() throws {
+        let fixtures = try ["B", "BFlat"].map {
+            try InkFixtureLoader.load($0, file: #filePath)
+        }
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: [18],
+            verticalOffsets: [0]
+        )
+
+        let groups = grouper.groups(for: indexed(row.strokes))
+
+        XCTAssertEqual(groups.count, 2)
+        guard groups.count == 2 else {
+            return
+        }
+        XCTAssertEqual(Set(groups[0].strokeIndices), Set(row.expectedStrokeRanges[0]))
+        XCTAssertEqual(Set(groups[1].strokeIndices), Set(row.expectedStrokeRanges[1]))
+    }
+
+    func testTightTimedRootLikeSuffixFragmentsReattachToTheirChord() throws {
+        for fixtureName in [
+            "BFlat6Captured01", "BFlat6Captured02", "BFlat6Captured03",
+            "C7Flat9Captured01", "C7Flat9Captured02", "C7Flat9Captured03"
+        ] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let row = Self.makeSequentialRow(
+                [fixture],
+                horizontalGaps: [20],
+                verticalOffsets: [0]
+            )
+
+            let groups = grouper.groups(for: indexed(row.strokes))
+            let groupReads = groups.map { group in
+                ChordInkRecognizer()
+                    .recognize(strokes: group.strokeIndices.map { row.strokes[$0] })
+                    .match?.displayText ?? "nil"
+            }
+            let mergedRead = ChordInkRecognizer()
+                .recognize(strokes: row.strokes)
+                .match?.displayText ?? "nil"
+
+            XCTAssertEqual(
+                groups.count,
+                1,
+                "\(fixtureName): groups=\(groups) reads=\(groupReads) merged=\(mergedRead)"
+            )
+            XCTAssertEqual(
+                Set(groups.flatMap(\.strokeIndices)),
+                Set(row.strokes.indices),
+                fixtureName
+            )
+        }
+    }
+
+    func testRepeatedDetachedCompletedRootsKeepSeparateOwnershipAtFastCadence() throws {
+        let fixtures = try ["A", "ACaptured01"].map {
+            try InkFixtureLoader.load($0, file: #filePath)
+        }
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: [18],
+            verticalOffsets: [0, 5],
+            chordGap: 0.80
+        )
+
+        let groups = grouper.groups(for: indexed(row.strokes))
+
+        XCTAssertEqual(groups.count, 2, "Repeated roots were collapsed: \(groups)")
+        for range in row.expectedStrokeRanges {
+            let owningGroup = groups.first { $0.strokeIndices.contains(range.lowerBound) }
+            XCTAssertEqual(Set(owningGroup?.strokeIndices ?? []), Set(range))
+        }
+    }
+
+    func testDetachedUnfinishedRepeatedRootCannotConsumeCompletedPreviousChord() throws {
+        let fixtures = try ["A", "ACaptured01"].map {
+            try InkFixtureLoader.load($0, file: #filePath)
+        }
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: [18],
+            verticalOffsets: [0, 5],
+            chordGap: 0.80
+        )
+        let completedRange = row.expectedStrokeRanges[0]
+        let prefix = Array(row.strokes.prefix(completedRange.upperBound + 1))
+
+        let groups = grouper.groups(for: indexed(prefix))
+        let completedGroup = groups.first { $0.strokeIndices.contains(completedRange.lowerBound) }
+
+        XCTAssertEqual(
+            Set(completedGroup?.strokeIndices ?? []),
+            Set(completedRange),
+            "An unfinished detached root took ownership of a completed chord: \(groups)"
+        )
+        XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(prefix.indices))
+    }
+
+    func testDeliberateModifierPausesDoNotSplitCapturedSingleChords() throws {
+        for fixtureName in [
+            "BFlat6Captured01", "C7Flat9Captured01", "C7Sharp9Captured02",
+            "BFlat13Captured01", "CMinor7Captured01", "GSharp7Flat13Captured01",
+            "FSharp7susCaptured03", "DSlashFSharpLooseDevice01"
+        ] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let row = Self.makeSequentialRow(
+                [fixture],
+                horizontalGaps: [20],
+                verticalOffsets: [0],
+                withinChordGap: 0.80
+            )
+            let groups = grouper.groups(for: indexed(row.strokes))
+            if groups.count != 1 {
+                let result = ChordInkRecognizer(normalizesOversizedInput: false).recognize(strokes: row.strokes)
+                let fragments = groups.map { group in
+                    let fragmentStrokes = group.strokeIndices.map { row.strokes[$0] }
+                    let clusters = StrokeClusterer().indexedClusters(fragmentStrokes)
+                    return clusters.map { cluster in
+                        let mutable = MutableInkCluster(
+                            strokes: cluster.cluster.strokes,
+                            originalIndexes: cluster.originalIndexes
+                        )
+                        return "indexes=\(cluster.originalIndexes) sharp=\(mutable.isSharpGlyphCandidate)"
+                            + " bounds=\(cluster.cluster.bounds)"
+                    }.joined(separator: " | ")
+                }
+                print("paused_modifier_failure \(fixtureName) primary=\(result.match?.displayText ?? "nil")"
+                    + " confidence=\(result.confidence) accepted=\(result.acceptedGlyphCandidates) clusters=\(fragments)")
+            }
+
+            XCTAssertEqual(
+                groups.count,
+                1,
+                "A modifier pause split \(fixtureName): \(groups)"
+            )
+            XCTAssertEqual(Set(groups.first?.strokeIndices ?? []), Set(row.strokes.indices), fixtureName)
+        }
+    }
+
+    func testPauseBeforeDetachedSlashBassStillBelongsToItsChord() throws {
+        let untimedStrokes = try glyphStrokes([("G", 0), ("/", 0), ("B", 78)])
+        var creationOffset = 0.0
+        let strokes = untimedStrokes.map { stroke in
+            let pointStart = stroke.points.compactMap(\.timeOffset).min() ?? 0
+            let pointEnd = stroke.points.compactMap(\.timeOffset).max() ?? pointStart
+            let timedStroke = InkStroke(
+                points: stroke.points,
+                creationTimeOffset: creationOffset - pointStart
+            )
+            creationOffset += max(pointEnd - pointStart, 0) + 0.80
+            return timedStroke
+        }
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 1, "A pause detached the written slash bass: \(groups)")
+        XCTAssertEqual(Set(groups.first?.strokeIndices ?? []), Set(strokes.indices))
+        XCTAssertEqual(
+            ChordInkRecognizer().recognize(strokes: strokes).match?.displayText,
+            "G/B"
+        )
+    }
+
+    func testSmallerDetachedRootEndingAbovePreviousBaselineKeepsPriorChordIntact() throws {
+        let d = try scaledTimedTemplateStrokes("D", scale: 1, offsetX: 0, start: 0)
+        let smallerC = try scaledTimedTemplateStrokes("C", scale: 0.65, offsetX: 54, start: 0.98)
+            .map { stroke in
+                InkStroke(
+                    points: stroke.points.map {
+                        InkPoint(x: $0.x, y: $0.y + 14, timeOffset: $0.timeOffset)
+                    },
+                    creationTimeOffset: stroke.creationTimeOffset
+                )
+            }
+        let groups = grouper.groups(for: indexed(d + smallerC))
+
+        XCTAssertEqual(groups.first?.strokeIndices, Array(d.indices), "\(groups)")
+        XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set((d + smallerC).indices))
+    }
+
+    func testRepeatedDFlatAlterationsDoNotSplitSameRootSuffixConstructions() throws {
+        let fixtures = try [
+            "DFlat7Flat5Captured01", "DFlat7Flat9Captured01", "DFlat7Flat9Captured02",
+            "DFlat7Flat9Captured03", "DFlat7Flat13", "DFlat7Flat13Captured01"
+        ].map { try InkFixtureLoader.load($0, file: #filePath) }
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: [18, 26, 20, 34, 22],
+            verticalOffsets: [0, 5, -4, 3, -2, 4]
+        )
+        let groups = grouper.groups(for: indexed(row.strokes))
+
+        XCTAssertEqual(groups.count, fixtures.count, "Same-root alterations became extra chords: \(groups)")
+        for range in row.expectedStrokeRanges {
+            let owningGroup = groups.first { $0.strokeIndices.contains(range.lowerBound) }
+            XCTAssertEqual(Set(owningGroup?.strokeIndices ?? []), Set(range))
+        }
+    }
+
+    func testDetachedInitialStemsPreserveCompletedCapturedRootsAtFastCadence() throws {
+        let rootedFixtures = try InkFixtureLoader.loadAll(file: #filePath).filter {
+            ChordRecognitionCompendium.match($0.expectedDisplayText)?.symbol.kind == .rooted
+        }
+        // Keep the earlier smoke windows and the additional contexts exposed
+        // when the four current physical fixtures expanded the archive.
+        for rowIndex in [7, 8, 9, 10, 14, 16, 17, 20, 21, 32, 40, 42, 45, 50, 52, 69, 70, 71, 72, 73, 74, 75, 76, 78, 82, 93] {
+            let fixtures = Array(rootedFixtures[(rowIndex * 6)..<(rowIndex * 6 + 6)])
+            let row = Self.makeSequentialRow(
+                fixtures,
+                horizontalGaps: [18, 26, 20, 34, 22],
+                verticalOffsets: [0, 5, -4, 3, -2, 4],
+                chordGap: 0.80
+            )
+            for completedIndex in fixtures.indices.dropLast() {
+                let completedRange = row.expectedStrokeRanges[completedIndex]
+                let completedStrokes = Array(row.strokes.prefix(completedRange.upperBound))
+                let priorGroups = grouper.groups(for: indexed(completedStrokes))
+                let prefixStrokes = Array(row.strokes.prefix(completedRange.upperBound + 1))
+                let groups = grouper.groups(for: indexed(prefixStrokes))
+                let owningGroup = groups.first { $0.strokeIndices.contains(completedRange.lowerBound) }
+                let fragment = prefixStrokes[completedRange.upperBound]
+                let candidates = GestureTemplateRecognizer().rankedCandidates(
+                    for: InkCluster(strokes: [fragment], bounds: fragment.bounds),
+                    templates: ChordGlyphTemplateLibrary.initialTemplates,
+                    limit: 3
+                )
+                let priorLastStroke = try XCTUnwrap(completedStrokes.last)
+                let priorLastCandidates = GestureTemplateRecognizer().rankedCandidates(
+                    for: InkCluster(strokes: [priorLastStroke], bounds: priorLastStroke.bounds),
+                    templates: ChordGlyphTemplateLibrary.initialTemplates,
+                    limit: 3
+                )
+                let summary = "row=\(rowIndex) completed=\(fixtures[completedIndex].name)"
+                    + " prior=\(priorGroups.last.map(String.init(describing:)) ?? "nil") fragment=\(fragment.bounds)"
+                    + " angle=\(fragment.angleDegrees) straightness=\(fragment.straightness)"
+                    + " priorLooseSlash=\(priorLastStroke.isLooseSlashBassSeparatorCandidate)"
+                    + " priorLastCandidates=\(priorLastCandidates)"
+                    + " candidates=\(candidates) groups=\(groups)"
+
+                XCTAssertEqual(owningGroup?.strokeIndices, Array(completedRange), summary)
+                XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(prefixStrokes.indices), summary)
+            }
+        }
+    }
+
+    func testCapturedDetachedRootConstructionKeepsCompletedOwnershipAtEveryPrefix() throws {
+        let fixturePairs = [
+            ["BFlatMinorMajor7", "BFlatSlashD"],
+            ["BFlatsus4", "BFlatsus4Captured02"],
+            ["CDiminished", "CDiminished7"],
+            ["CFlatmCaptured01", "CFlatmCaptured02"],
+            ["CSharpMinorCaptured03", "CSlashE"],
+            ["CSlashE", "CSlashECaptured01"],
+            ["ECaptured04", "EFlat"],
+            ["EFlatm7Captured02", "EFlatm7Captured03"],
+            ["GFlatmCaptured01", "GFlatmCaptured02"]
+        ]
+        for names in fixturePairs {
+            let fixtures = try names.map { try InkFixtureLoader.load($0, file: #filePath) }
+            let row = Self.makeSequentialRow(
+                fixtures,
+                horizontalGaps: [26],
+                verticalOffsets: [5, -4],
+                chordGap: 0.80
+            )
+            let completedRange = row.expectedStrokeRanges[0]
+            for prefixCount in completedRange.upperBound...row.strokes.count {
+                let prefixStrokes = Array(row.strokes.prefix(prefixCount))
+                let groups = grouper.groups(for: indexed(prefixStrokes))
+                let owningGroup = groups.first { $0.strokeIndices.contains(completedRange.lowerBound) }
+                let summary = "\(names) prefix=\(prefixCount) groups=\(groups)"
+                XCTAssertEqual(owningGroup?.strokeIndices, Array(completedRange), summary)
+                XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(prefixStrokes.indices), summary)
+            }
+            let finalGroups = grouper.groups(for: indexed(row.strokes))
+            XCTAssertEqual(finalGroups.count, 2, "\(names): \(finalGroups)")
+            for fixtureIndex in fixtures.indices {
+                let range = row.expectedStrokeRanges[fixtureIndex]
+                let owningGroup = try XCTUnwrap(finalGroups.first { $0.strokeIndices.contains(range.lowerBound) })
+                let result = ChordInkMaximumTrustRecognizer().recognize(
+                    strokes: owningGroup.strokeIndices.map { row.strokes[$0] }
+                )
+                XCTAssertEqual(result.match?.displayText, fixtures[fixtureIndex].expectedDisplayText)
+                XCTAssertEqual(owningGroup.strokeIndices, Array(range))
+            }
+        }
+    }
+
+    func testCompletedSlashBassOwnershipSurvivesFollowingFSharpSusOpening() throws {
+        let names = [
+            "FSharpSlashASharp", "FSharpSlashASharpCaptured01", "FSharpSlashASharpCaptured02",
+            "FSharpsus", "FSharpsus4", "FSharpsus4Captured03"
+        ]
+        let fixtures = try names.map { try InkFixtureLoader.load($0, file: #filePath) }
+        for chordGap in [0.80, 2.75] {
+            let row = Self.makeSequentialRow(
+                fixtures,
+                horizontalGaps: [18, 26, 20, 34, 22],
+                verticalOffsets: [0, 5, -4, 3, -2, 4],
+                chordGap: chordGap
+            )
+            let priorRange = row.expectedStrokeRanges[2]
+            for prefixCount in priorRange.upperBound...row.strokes.count {
+                let prefix = Array(row.strokes.prefix(prefixCount))
+                let groups = grouper.groups(for: indexed(prefix))
+                for fixtureIndex in fixtures.indices where row.expectedStrokeRanges[fixtureIndex].upperBound <= prefixCount {
+                    let range = row.expectedStrokeRanges[fixtureIndex]
+                    let owningGroup = groups.first { $0.strokeIndices.contains(range.lowerBound) }
+                    XCTAssertEqual(
+                        owningGroup?.strokeIndices,
+                        Array(range),
+                        "gap=\(chordGap) \(names[fixtureIndex]) prefix=\(prefixCount) groups=\(groups)"
+                    )
+                }
+                XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(prefix.indices))
+            }
+            let finalGroups = grouper.groups(for: indexed(row.strokes))
+            XCTAssertEqual(finalGroups.count, fixtures.count)
+            for fixtureIndex in fixtures.indices {
+                let range = row.expectedStrokeRanges[fixtureIndex]
+                let owningGroup = try XCTUnwrap(finalGroups.first { $0.strokeIndices.contains(range.lowerBound) })
+                let result = ChordInkMaximumTrustRecognizer().recognize(
+                    strokes: owningGroup.strokeIndices.map { row.strokes[$0] }
+                )
+                XCTAssertEqual(result.match?.displayText, fixtures[fixtureIndex].expectedDisplayText)
+            }
+        }
+    }
+
+    func testIncompleteSharpOfDetachedFollowingRootCannotBorrowItsRootBars() throws {
+        let fixtures = try [
+            "FSharp11Captured03", "FSharp13Captured01", "FSharp13Captured02",
+            "FSharp13Captured03", "FSharpAugmentedCaptured01", "FSharpAugmentedCaptured02"
+        ].map { try InkFixtureLoader.load($0, file: #filePath) }
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: [18, 26, 20, 34, 22],
+            verticalOffsets: [0, 5, -4, 3, -2, 4],
+            chordGap: 0.80
+        )
+        for prefixCount in 1...row.strokes.count {
+            let prefix = Array(row.strokes.prefix(prefixCount))
+            let groups = grouper.groups(for: indexed(prefix))
+            for fixtureIndex in fixtures.indices where row.expectedStrokeRanges[fixtureIndex].upperBound <= prefixCount {
+                let range = row.expectedStrokeRanges[fixtureIndex]
+                let owningGroup = groups.first { $0.strokeIndices.contains(range.lowerBound) }
+                XCTAssertEqual(
+                    owningGroup?.strokeIndices,
+                    Array(range),
+                    "\(fixtures[fixtureIndex].name) prefix=\(prefixCount) groups=\(groups)"
+                )
+            }
+            if prefixCount >= row.expectedStrokeRanges[0].upperBound {
+                XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(prefix.indices))
+            }
+        }
+    }
+
+    func testTightTimingDoesNotMergeFullSizedAdjacentRoots() throws {
+        let firstRoot = try templateStrokes("C", offsetX: 0).map {
+            InkStroke(points: $0.points, creationTimeOffset: 0)
+        }
+        let secondRoot = try templateStrokes("D", offsetX: 55).enumerated().map { index, stroke in
+            InkStroke(points: stroke.points, creationTimeOffset: 0.50 + Double(index) * 0.18)
+        }
+
+        let groups = grouper.groups(for: indexed(firstRoot + secondRoot))
+        let mergedResult = ChordInkRecognizer().recognize(strokes: firstRoot + secondRoot)
+        let summary = "groups=\(groups) merged=\(mergedResult.match?.displayText ?? "nil")"
+            + " confidence=\(mergedResult.confidence) raw=\(Array(mergedResult.rawCandidates.prefix(8)))"
+
+        XCTAssertEqual(groups.count, 2, summary)
+        XCTAssertEqual(groups.map(\.rootText), ["C", "D"], summary)
+    }
+
+    func testScaledCompletedRootedFixturesRemainTargetedBelowInitialRootGlyphThreshold() throws {
+        for name in ["BSharpMajor13Captured02", "FSharpMinor7Captured03"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            let row = Self.makeSequentialRow(
+                [fixture],
+                horizontalGaps: [18],
+                verticalOffsets: [0],
+                chordGap: 0.80
+            )
+            let groups = grouper.groups(for: indexed(row.strokes))
+            let result = ChordInkRecognizer(normalizesOversizedInput: false).recognize(strokes: row.strokes)
+            let summary = "\(name) groups=\(groups) primary=\(result.match?.displayText ?? "nil")"
+                + " accepted=\(result.acceptedGlyphCandidates) glyphs=\(result.glyphCandidates)"
+                + " review=\(result.reviewCandidateScores)"
+
+            XCTAssertEqual(groups.count, 1, summary)
+            XCTAssertEqual(groups.first?.strokeIndices, Array(row.strokes.indices), summary)
+        }
+    }
+
+    func testFastSmallerTwoStrokeRootAfterTallBStaysSeparateWhenLaterInkArrives() throws {
+        let b = try scaledTimedTemplateStrokes("B", scale: 1.4, offsetX: 0, start: 0)
+        let d = try scaledTimedTemplateStrokes("D", scale: 1, offsetX: 140, start: 0.40)
+        let g = try scaledTimedTemplateStrokes("G", scale: 1, offsetX: 240, start: 0.72)
+        let prefixStrokes = b + d
+        let completedStrokes = prefixStrokes + g
+
+        let prefixGroups = grouper.groups(for: indexed(prefixStrokes))
+        let completedGroups = grouper.groups(for: indexed(completedStrokes))
+        let summary = "prefix=\(prefixGroups.map(\.rootText)) completed=\(completedGroups.map(\.rootText))"
+
+        XCTAssertEqual(prefixGroups.map(\.rootText), ["B", "D"], summary)
+        XCTAssertEqual(completedGroups.map(\.rootText), ["B", "D", "G"], summary)
+        XCTAssertEqual(
+            Array(completedGroups.prefix(prefixGroups.count)).map(\.strokeIndices),
+            prefixGroups.map(\.strokeIndices),
+            "Adding a later root must not retroactively merge already separated chords. \(summary)"
+        )
+    }
+
+    func testFastSingleStrokeRootBehindModifierLookalikeStaysSeparateImmediately() throws {
+        let b = try scaledTimedTemplateStrokes("B", scale: 1.4, offsetX: 0, start: 0)
+        let c = try scaledTimedTemplateStrokes("C", scale: 1, offsetX: 120, start: 1.10)
+
+        let groups = grouper.groups(for: indexed(b + c))
+        let summary = groups.map { group in
+            "root=\(group.rootText ?? "nil") strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+
+        XCTAssertEqual(groups.map(\.rootText), ["B", "C"], summary)
+        XCTAssertEqual(groups.first?.strokeIndices, Array(b.indices), summary)
+        XCTAssertEqual(groups.last?.strokeIndices, Array(b.count..<(b.count + c.count)), summary)
+    }
+
+    func testDetachedRootConstructionBarDuringTightTimingDoesNotBecomePreviousChordSuffix() throws {
+        let g = try scaledTimedTemplateStrokes("G", scale: 1, offsetX: 0, start: 0)
+        let detachedBar = InkStroke(
+            points: [
+                InkPoint(x: 94, y: 12, timeOffset: nil),
+                InkPoint(x: 114, y: 11, timeOffset: nil)
+            ],
+            creationTimeOffset: 1.05
+        )
+
+        let groups = grouper.groups(for: indexed(g + [detachedBar]))
+        let summary = groups.map { group in
+            "root=\(group.rootText ?? "nil") strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+
+        XCTAssertEqual(groups.count, 2, summary)
+        XCTAssertEqual(groups.first?.rootText, "G", summary)
+        XCTAssertEqual(groups.first?.strokeIndices, Array(g.indices), summary)
+        XCTAssertEqual(groups.last?.strokeIndices, [g.count], summary)
+    }
+
+    func testTightTimingDoesNotSuppressDetachedRootSizedCBehindMinorLookalike() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("m", confidence: 0.99, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic),
+                glyph("G", confidence: 0.72, source: .template)
+            ],
+            cluster: cluster(rootBounds(at: 90)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: rootBounds(at: 0),
+            timeGapFromCurrentGroup: 1.03
+        )
+
+        XCTAssertEqual(evidence?.text, "C")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testTightTimingDoesNotSuppressDetachedRootSizedABehindPlusLookalike() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("+", confidence: 0.999, source: .heuristic),
+                glyph("A", confidence: 0.998, source: .heuristic),
+                glyph("5", confidence: 0.82, source: .template)
+            ],
+            cluster: cluster(rootBounds(at: 115)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: InkBounds(
+                minX: 0,
+                minY: 8,
+                maxX: 78,
+                maxY: 62
+            ),
+            timeGapFromCurrentGroup: 0.91
+        )
+
+        XCTAssertEqual(evidence?.text, "A")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testPlusLookalikeCannotBootstrapAPhantomInitialRoot() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("+", confidence: 0.999, source: .heuristic),
+                glyph("A", confidence: 0.998, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 0)),
+            currentGroupBounds: nil,
+            previousGlyphWasSlashSeparator: false
+        )
+
+        XCTAssertNil(evidence)
+    }
+
+    func testTemporalSymbolicContinuationPolicyAcrossRootsPausesGeometryScaleAndConfidence() {
+        let roots = ["A", "B", "C", "D", "E", "F", "G"]
+        let symbolicSuffixes = ["△", "°", "ø", "•", "+"]
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+        let confidenceLadders = [
+            (symbolic: 0.999, root: 0.970),
+            (symbolic: 0.985, root: 0.960),
+            (symbolic: 0.960, root: 0.940),
+            (symbolic: 0.970, root: 0.970)
+        ]
+
+        for scale in [0.75, 1.40] {
+            let currentRootBounds = InkBounds(
+                minX: 0,
+                minY: 10 * scale,
+                maxX: 34 * scale,
+                maxY: 60 * scale
+            )
+            let currentContentBounds = InkBounds(
+                minX: 0,
+                minY: 8 * scale,
+                maxX: currentRootBounds.maxX + 6 * scale,
+                maxY: 62 * scale
+            )
+            // This has enough size for root consideration, but ordinary strict
+            // and close spacing reject it. Timing is its only boundary evidence.
+            let closeSuffixBounds = InkBounds(
+                minX: currentRootBounds.maxX + 8 * scale,
+                minY: 14 * scale,
+                maxX: currentRootBounds.maxX + 32 * scale,
+                maxY: 42 * scale
+            )
+            let detachedRootBounds = InkBounds(
+                minX: currentRootBounds.maxX + 40 * scale,
+                minY: 10 * scale,
+                maxX: currentRootBounds.maxX + 74 * scale,
+                maxY: 60 * scale
+            )
+
+            for rootText in roots {
+                for symbolicText in symbolicSuffixes {
+                    for ladder in confidenceLadders {
+                        let rootCandidate = glyph(
+                            rootText,
+                            confidence: ladder.root,
+                            source: .heuristic
+                        )
+                        let candidates = [
+                            glyph(symbolicText, confidence: ladder.symbolic, source: .heuristic),
+                            rootCandidate
+                        ]
+
+                        for pause in pauses {
+                            let label = "root=\(rootText) symbolic=\(symbolicText)"
+                                + " pause=\(String(describing: pause)) scale=\(scale)"
+                                + " confidence=\(ladder)"
+                            let closeEvidence = ChordInkSequentialRootStartDetector.evidence(
+                                in: candidates,
+                                cluster: cluster(closeSuffixBounds),
+                                currentGroupBounds: currentRootBounds,
+                                previousGlyphWasSlashSeparator: false,
+                                currentGroupContentBounds: currentContentBounds,
+                                timeGapFromCurrentGroup: pause
+                            )
+                            XCTAssertNil(closeEvidence, label)
+
+                            let detachedEvidence = ChordInkSequentialRootStartDetector.evidence(
+                                in: candidates,
+                                cluster: cluster(detachedRootBounds),
+                                currentGroupBounds: currentRootBounds,
+                                previousGlyphWasSlashSeparator: false,
+                                currentGroupContentBounds: currentContentBounds,
+                                timeGapFromCurrentGroup: pause
+                            )
+                            // The existing `+` lookalike override is deliberately
+                            // strict: the leading plus must outrank the root, so
+                            // equal confidence still obeys tight continuation.
+                            let hasStrictPlusLookalikeOverride = symbolicText == "+"
+                                && ladder.symbolic > ladder.root
+                            let tightSymbolicContinuation = pause == 0.90
+                                && !hasStrictPlusLookalikeOverride
+                            if tightSymbolicContinuation {
+                                XCTAssertNil(detachedEvidence, label)
+                            } else {
+                                XCTAssertEqual(detachedEvidence?.text, rootText, label)
+                                XCTAssertEqual(detachedEvidence?.wasModifierLed, true, label)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testRootLeadingTemporalCandidatesKeepExistingBoundaryBehavior() {
+        let roots = ["A", "B", "C", "D", "E", "F", "G"]
+        let symbolicSuffixes = ["△", "°", "ø", "•", "+"]
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+
+        for scale in [0.75, 1.40] {
+            let currentRootBounds = InkBounds(
+                minX: 0,
+                minY: 10 * scale,
+                maxX: 34 * scale,
+                maxY: 60 * scale
+            )
+            let currentContentBounds = InkBounds(
+                minX: 0,
+                minY: 8 * scale,
+                maxX: currentRootBounds.maxX + 6 * scale,
+                maxY: 62 * scale
+            )
+            let closeBounds = InkBounds(
+                minX: currentRootBounds.maxX + 8 * scale,
+                minY: 14 * scale,
+                maxX: currentRootBounds.maxX + 32 * scale,
+                maxY: 42 * scale
+            )
+            let detachedBounds = InkBounds(
+                minX: currentRootBounds.maxX + 40 * scale,
+                minY: 10 * scale,
+                maxX: currentRootBounds.maxX + 74 * scale,
+                maxY: 60 * scale
+            )
+
+            for rootText in roots {
+                for symbolicText in symbolicSuffixes {
+                    let candidates = [
+                        glyph(rootText, confidence: 0.999, source: .heuristic),
+                        glyph(symbolicText, confidence: 0.970, source: .heuristic)
+                    ]
+                    for pause in pauses {
+                        let label = "root-leading root=\(rootText) symbolic=\(symbolicText)"
+                            + " pause=\(String(describing: pause)) scale=\(scale)"
+                        let closeEvidence = ChordInkSequentialRootStartDetector.evidence(
+                            in: candidates,
+                            cluster: cluster(closeBounds),
+                            currentGroupBounds: currentRootBounds,
+                            previousGlyphWasSlashSeparator: false,
+                            currentGroupContentBounds: currentContentBounds,
+                            timeGapFromCurrentGroup: pause
+                        )
+                        if pause.map({ $0 >= 1.25 }) == true {
+                            XCTAssertEqual(closeEvidence?.text, rootText, label)
+                            XCTAssertEqual(closeEvidence?.wasModifierLed, false, label)
+                        } else {
+                            XCTAssertNil(closeEvidence, label)
+                        }
+
+                        let detachedEvidence = ChordInkSequentialRootStartDetector.evidence(
+                            in: candidates,
+                            cluster: cluster(detachedBounds),
+                            currentGroupBounds: currentRootBounds,
+                            previousGlyphWasSlashSeparator: false,
+                            currentGroupContentBounds: currentContentBounds,
+                            timeGapFromCurrentGroup: pause
+                        )
+                        XCTAssertEqual(detachedEvidence?.text, rootText, label)
+                        XCTAssertEqual(detachedEvidence?.wasModifierLed, false, label)
+                    }
+                }
+            }
+        }
+    }
+
+    func testPreviousSlashStillSuppressesTemporalRootEvidence() {
+        let pauses: [TimeInterval?] = [nil, 0.90, 1.30, 1.80, 2.50]
+
+        for rootText in ["A", "B", "C", "D", "E", "F", "G"] {
+            for symbolicText in ["△", "°", "ø", "•", "+"] {
+                for pause in pauses {
+                    let evidence = ChordInkSequentialRootStartDetector.evidence(
+                        in: [
+                            glyph(rootText, confidence: 0.999, source: .heuristic),
+                            glyph(symbolicText, confidence: 0.970, source: .heuristic)
+                        ],
+                        cluster: cluster(rootBounds(at: 100)),
+                        currentGroupBounds: rootBounds(at: 0),
+                        previousGlyphWasSlashSeparator: true,
+                        currentGroupContentBounds: rootBounds(at: 0),
+                        timeGapFromCurrentGroup: pause
+                    )
+                    XCTAssertNil(
+                        evidence,
+                        "slash root=\(rootText) symbolic=\(symbolicText) pause=\(String(describing: pause))"
+                    )
+                }
+            }
+        }
+    }
+
+    func testTemporalNonSymbolicLookalikeKeepsExistingRootEvidence() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("m", confidence: 0.990, source: .heuristic),
+                glyph("G", confidence: 0.970, source: .heuristic)
+            ],
+            cluster: cluster(InkBounds(minX: 42, minY: 14, maxX: 66, maxY: 42)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: InkBounds(minX: 0, minY: 8, maxX: 40, maxY: 62),
+            timeGapFromCurrentGroup: 1.50
+        )
+
+        XCTAssertEqual(evidence?.text, "G")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testTemporalSymbolicPolicyPreservesExplicitRootSizedLookalikeOverride() {
+        let evidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("+", confidence: 0.999, source: .heuristic),
+                glyph("A", confidence: 0.998, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 115)),
+            currentGroupBounds: rootBounds(at: 0),
+            previousGlyphWasSlashSeparator: false,
+            currentGroupContentBounds: InkBounds(minX: 0, minY: 8, maxX: 110, maxY: 62),
+            timeGapFromCurrentGroup: 1.50
+        )
+
+        XCTAssertEqual(evidence?.text, "A")
+        XCTAssertEqual(evidence?.wasModifierLed, true)
+    }
+
+    func testHardPauseBeforeCloseMajorTrianglePreservesEverySourceStroke() throws {
+        let root = try scaledTimedTemplateStrokes("C", scale: 1, offsetX: 0, start: 0)
+        let suffix = try scaledTimedTemplateStrokes("△", scale: 1, offsetX: 40, start: 2.50)
+        let strokes = root + suffix
+
+        let groups = grouper.groups(for: indexed(strokes))
+        let summary = groups.map { group in
+            "root=\(group.rootText ?? "nil") bounds=\(group.bounds) strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+
+        XCTAssertEqual(groups.count, 1, summary)
+        XCTAssertEqual(groups.first?.rootText, "C", summary)
+        XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(strokes.indices), summary)
+    }
+
+    func testLongPauseInsideChordDoesNotSplitSuffixOnlyTemporalRun() throws {
+        let root = try XCTUnwrap(templateStrokes("C", offsetX: 0).first)
+        let suffix = try XCTUnwrap(templateStrokes("7", offsetX: 0).first)
+        let strokes = [
+            InkStroke(points: root.points, creationTimeOffset: 0),
+            InkStroke(points: suffix.points, creationTimeOffset: 2.50)
+        ]
+
+        let groups = grouper.groups(for: indexed(strokes))
+        let summary = groups.map { group in
+            "root=\(group.rootText ?? "nil") rootBounds=\(group.rootBounds) bounds=\(group.bounds) strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+
+        XCTAssertEqual(groups.count, 1, summary)
+        XCTAssertEqual(groups.first?.rootText, "C")
+        XCTAssertEqual(Set(groups.first?.strokeIndices ?? []), Set(strokes.indices), summary)
     }
 
     func testDetachedRootSizedFlatLookalikeStartsNextGroupWhenRootTrailsByLiveTraceMargin() {
@@ -328,6 +1152,885 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
         XCTAssertEqual(Array(secondGroups.prefix(2)).map(\.rootText), firstGroups.map(\.rootText))
     }
 
+    func testWideSuffixCannotSuppressAValidLaterRootBoundary() throws {
+        let firstRoot = try templateStrokes("A", offsetX: 0)
+        let wideSuffix = InkStroke(points: [
+            InkPoint(x: 48, y: 28, timeOffset: nil),
+            InkPoint(x: 128, y: 27, timeOffset: nil),
+            InkPoint(x: 208, y: 28, timeOffset: nil),
+            InkPoint(x: 278, y: 27, timeOffset: nil)
+        ])
+        let laterRoot = try templateStrokes("G", offsetX: 320)
+
+        let groups = grouper.groups(for: indexed(firstRoot + [wideSuffix] + laterRoot))
+
+        XCTAssertEqual(groups.map(\.rootText), ["A", "G"])
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertTrue(groups[0].strokeIndices.contains(firstRoot.count))
+        XCTAssertEqual(groups[1].strokeIndices, Array((firstRoot.count + 1)..<(firstRoot.count + 1 + laterRoot.count)))
+    }
+
+    func testOverhangingClosingAlterationWrapperKeepsWritingOrderAheadOfFollowingRoot() throws {
+        let closingWrapper = try XCTUnwrap(templateStrokes(")", offsetX: 18).first)
+        let followingRoot = try XCTUnwrap(templateStrokes("G", offsetX: 99).first)
+
+        XCTAssertLessThan(followingRoot.bounds.minX, closingWrapper.bounds.minX)
+        XCTAssertGreaterThan(closingWrapper.bounds.horizontalOverlap(with: followingRoot.bounds), 0)
+
+        let ordered = ChordInkSequentialGrouper.orderedStrokesForRecognition([
+            (index: 0, stroke: closingWrapper),
+            (index: 1, stroke: followingRoot)
+        ])
+
+        XCTAssertEqual(ordered.map(\.index), [0, 1])
+    }
+
+    func testParenthesizedSuffixStrokesRemainCoveredWhenRowSplitsByRootStarts() throws {
+        let firstChord = try glyphStrokes([
+            ("A", 0), ("(", 0), ("#", 0), ("5", 0), (")", 0)
+        ])
+        let followingRoot = try templateStrokes("G", offsetX: 140)
+        let strokes = firstChord + followingRoot
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.last?.rootText, "G")
+        XCTAssertEqual(Set(groups.flatMap(\.strokeIndices)), Set(strokes.indices))
+        XCTAssertTrue(groups[0].strokeIndices.contains(firstChord.count - 1))
+    }
+
+    func testRepresentativeCapturedChordsSurviveSequentialRows() throws {
+        let fixtureRows = [
+            [
+                "ACaptured01", "BCaptured01", "CCaptured01", "DCaptured01",
+                "ECaptured01", "FCaptured01", "GCaptured01"
+            ],
+            [
+                "BFlatCaptured01", "FSharpCaptured01", "DSlashFSharpLooseDevice01",
+                "GSlashBCaptured01", "BFlatSlashDCaptured01"
+            ],
+            [
+                "C7Captured01", "BFlat9Captured01", "C11Captured01",
+                "BFlat13Captured01", "CMajor7Captured01"
+            ],
+            [
+                "C7Flat5Captured01", "GSharp7Sharp5", "DFlat7Flat9Captured01",
+                "C7Sharp9Captured02", "BFlat7Sharp11Captured01",
+                "GSharp7Flat13Captured01"
+            ],
+            [
+                "CMinor7Captured01", "CDiminishedCaptured01",
+                "BFlatHalfDiminished7Captured01", "FSharp7susCaptured03",
+                "C7altCaptured03"
+            ]
+        ]
+
+        for (rowIndex, fixtureNames) in fixtureRows.enumerated() {
+            let fixtures = try fixtureNames.map { try InkFixtureLoader.load($0, file: #filePath) }
+            try assertSequentialRow(
+                fixtures,
+                horizontalGaps: rowIndex.isMultiple(of: 2)
+                    ? [20, 30, 18, 36]
+                    : [18, 24, 20, 32],
+                verticalOffsets: [0, 5, -4, 3, -2],
+                label: "representative-row-\(rowIndex)"
+            )
+        }
+    }
+
+    func testCapturedFSharpFlatFiveSurvivesItsArchiveRow() throws {
+        let rootedFixtures = try InkFixtureLoader.loadAll(file: #filePath).filter { fixture in
+            ChordRecognitionCompendium.match(fixture.expectedDisplayText)?.symbol.kind == .rooted
+        }
+        let fixtureIndex = try XCTUnwrap(
+            rootedFixtures.firstIndex { $0.name == "FSharp7Flat5Captured01" }
+        )
+        let rowStart = fixtureIndex - (fixtureIndex % 6)
+        let rowEnd = min(rowStart + 6, rootedFixtures.count)
+        let rowFixtures = Array(rootedFixtures[rowStart..<rowEnd])
+
+        try assertSequentialRow(
+            rowFixtures,
+            horizontalGaps: [18, 26, 20, 34, 22],
+            verticalOffsets: [0, 5, -4, 3, -2, 4],
+            label: "captured-f-sharp-flat-five-row"
+        )
+    }
+
+    func testFullFixtureArchiveSurvivesSequentialRowsWhenEnabled() throws {
+        try XCTSkipUnless(
+            InkFixtureLoader.shouldRunFullInkFixtureArchiveTests,
+            "Set \(InkFixtureLoader.fullInkFixtureArchiveEnvironmentVariable)=1 to audit sequential rows from the full fixture archive."
+        )
+
+        let rootedFixtures = try InkFixtureLoader.loadAll(file: #filePath).filter { fixture in
+            ChordRecognitionCompendium.match(fixture.expectedDisplayText)?.symbol.kind == .rooted
+        }
+        XCTAssertGreaterThan(rootedFixtures.count, 600)
+
+        for (rowIndex, rowStart) in stride(from: 0, to: rootedFixtures.count, by: 6).enumerated() {
+            let rowEnd = min(rowStart + 6, rootedFixtures.count)
+            let row = Array(rootedFixtures[rowStart..<rowEnd])
+            try assertSequentialRow(
+                row,
+                horizontalGaps: [18, 26, 20, 34, 22],
+                verticalOffsets: [0, 5, -4, 3, -2, 4],
+                label: "archive-row-\(rowIndex)"
+            )
+        }
+    }
+
+    func testFullFixtureArchivePreservesSequentialRowBoundariesWhenEnabled() throws {
+        try XCTSkipUnless(
+            InkFixtureLoader.shouldRunFullInkFixtureArchiveTests,
+            "Set \(InkFixtureLoader.fullInkFixtureArchiveEnvironmentVariable)=1 to audit sequential row boundaries."
+        )
+
+        let rootedFixtures = try InkFixtureLoader.loadAll(file: #filePath).filter { fixture in
+            ChordRecognitionCompendium.match(fixture.expectedDisplayText)?.symbol.kind == .rooted
+        }
+        XCTAssertGreaterThan(rootedFixtures.count, 600)
+
+        for (rowIndex, rowStart) in stride(from: 0, to: rootedFixtures.count, by: 6).enumerated() {
+            let rowEnd = min(rowStart + 6, rootedFixtures.count)
+            let fixtures = Array(rootedFixtures[rowStart..<rowEnd])
+            let row = Self.makeSequentialRow(
+                fixtures,
+                horizontalGaps: [18, 26, 20, 34, 22],
+                verticalOffsets: [0, 5, -4, 3, -2, 4]
+            )
+            let groups = grouper.groups(for: indexed(row.strokes))
+            let label = "archive-boundary-row-\(rowIndex)"
+            let summary = groups.enumerated().map { index, group in
+                let timing = group.strokeIndices.compactMap { strokeIndex -> String? in
+                    guard row.strokes.indices.contains(strokeIndex),
+                          let start = row.strokes[strokeIndex].timelineStartTimeOffset,
+                          let end = row.strokes[strokeIndex].timelineEndTimeOffset else {
+                        return nil
+                    }
+                    return "\(String(format: "%.2f", start))-\(String(format: "%.2f", end))"
+                }
+                return "\(index):root=\(group.rootText ?? "nil")"
+                    + " confidence=\(group.rootConfidence.map { String(format: "%.3f", $0) } ?? "nil")"
+                    + " modifierLed=\(group.rootWasModifierLed)"
+                    + " rootHeight=\(String(format: "%.1f", group.rootBounds.height))"
+                    + " rootBounds=(\(String(format: "%.1f", group.rootBounds.minX)),"
+                    + "\(String(format: "%.1f", group.rootBounds.maxX)))"
+                    + " bounds=(\(String(format: "%.1f", group.bounds.minX)),"
+                    + "\(String(format: "%.1f", group.bounds.maxX)))"
+                    + " strokes=\(group.strokeIndices) timing=[\(timing.joined(separator: ","))]"
+            }.joined(separator: " | ")
+            let expectedOwnership = zip(fixtures, row.expectedStrokeRanges).map { fixture, range in
+                "\(fixture.expectedDisplayText)=\(Array(range))"
+            }.joined(separator: " | ")
+            let expectedReads = zip(fixtures, row.expectedStrokeRanges).map { fixture, range in
+                let result = ChordInkRecognizer().recognize(
+                    strokes: range.map { row.strokes[$0] }
+                )
+                return "\(fixture.name):match=\(result.match?.displayText ?? "nil")"
+                    + ":confidence=\(String(format: "%.3f", result.confidence))"
+                    + ":raw=\(Array(result.rawCandidates.prefix(4)))"
+            }.joined(separator: " | ")
+
+            XCTAssertEqual(
+                groups.count,
+                fixtures.count,
+                "\(label) expected \(fixtures.map(\.expectedDisplayText)) ownership \(expectedOwnership)"
+                    + " reads \(expectedReads) but grouped as \(summary)"
+            )
+            guard groups.count == fixtures.count else {
+                continue
+            }
+
+            let ownedStrokeIndices = groups.flatMap(\.strokeIndices)
+            XCTAssertEqual(Set(ownedStrokeIndices), Set(row.strokes.indices), "\(label): \(summary)")
+            XCTAssertEqual(ownedStrokeIndices.count, Set(ownedStrokeIndices).count, "\(label): \(summary)")
+            for fixtureIndex in fixtures.indices {
+                XCTAssertEqual(
+                    Set(groups[fixtureIndex].strokeIndices),
+                    Set(row.expectedStrokeRanges[fixtureIndex]),
+                    "\(label) moved strokes across \(fixtures[fixtureIndex].expectedDisplayText): \(summary)"
+                )
+            }
+        }
+    }
+
+    func testRaisedFSharpAndSlashBassNeighborsKeepCompletedOwnershipAtEveryPrefix() throws {
+        try assertCompletedPrefixOwnership([
+            "FSharpMinorMajor7", "FSharpRaisedBarsSimpleDeviceCaptured01", "FSharpSlashASharp",
+            "FSharpSlashASharpCaptured01", "FSharpSlashASharpCaptured02", "FSharpsus"
+        ])
+    }
+
+    func testGFlatMinorNeighborsKeepCompletedOwnershipAtEveryPrefix() throws {
+        try assertCompletedPrefixOwnership([
+            "GFlatmCaptured01", "GFlatmCaptured02", "GFlatmCaptured03",
+            "GFlatMinor7Captured01", "GFlatMinor7Captured02", "GFlatMinor7Captured03"
+        ])
+    }
+
+    func testGSharpAlteredNeighborsKeepCompletedOwnershipAtEveryPrefix() throws {
+        try assertCompletedPrefixOwnership([
+            "GSharp7Flat5", "GSharp7Flat5Captured01", "GSharp7Flat5Captured02",
+            "GSharp7Flat9Captured01", "GSharp7Flat9Captured02", "GSharp7Flat9Captured03"
+        ])
+    }
+
+    private func assertCompletedPrefixOwnership(
+        _ names: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let fixtures = try names.map { try InkFixtureLoader.load($0, file: #filePath) }
+        for chordGap in [0.80, 2.75] {
+            let row = Self.makeSequentialRow(
+                fixtures, horizontalGaps: [18, 26, 20, 34, 22],
+                verticalOffsets: [0, 5, -4, 3, -2, 4], chordGap: chordGap
+            )
+            var changes = [String]()
+            for prefixCount in 1...row.strokes.count {
+                let groups = grouper.groups(for: indexed(Array(row.strokes.prefix(prefixCount))))
+                for fixtureIndex in fixtures.indices where row.expectedStrokeRanges[fixtureIndex].upperBound <= prefixCount {
+                    let expected = Array(row.expectedStrokeRanges[fixtureIndex])
+                    let actual = groups.first { $0.strokeIndices.contains(expected[0]) }?.strokeIndices
+                    if actual != expected && changes.count < 6 {
+                        if changes.isEmpty {
+                            let details = groups.map { group in
+                                "\(group.rootText ?? "nil"):root=\(group.rootBounds):content=\(group.bounds):indices=\(group.strokeIndices)"
+                            }.joined(separator: " | ")
+                            print("neighbor_prefix_first_change names=\(names) gap=\(chordGap) prefix=\(prefixCount) groups=\(details) incoming=\(row.strokes[prefixCount - 1].bounds)")
+                        }
+                        changes.append("gap=\(chordGap) prefix=\(prefixCount) fixture=\(names[fixtureIndex]) expected=\(expected) actual=\(String(describing: actual))")
+                    }
+                }
+            }
+            XCTAssertTrue(changes.isEmpty, changes.joined(separator: "\n"), file: file, line: line)
+        }
+        try assertSequentialRow(
+            fixtures, horizontalGaps: [18, 26, 20, 34, 22],
+            verticalOffsets: [0, 5, -4, 3, -2, 4], label: names.joined(separator: ","), file: file, line: line
+        )
+    }
+
+    func testFullFixtureArchivePreservesCompletedChordOwnershipAtEveryStrokePrefixWhenEnabled() throws {
+        try XCTSkipUnless(
+            InkFixtureLoader.shouldRunFullInkFixtureArchiveTests,
+            "Set \(InkFixtureLoader.fullInkFixtureArchiveEnvironmentVariable)=1 to audit completed-chord ownership at every stroke prefix."
+        )
+
+        let rootedFixtures = try InkFixtureLoader.loadAll(file: #filePath).filter { fixture in
+            ChordRecognitionCompendium.match(fixture.expectedDisplayText)?.symbol.kind == .rooted
+        }
+        XCTAssertGreaterThan(rootedFixtures.count, 600)
+
+        let rowCount = (rootedFixtures.count + 5) / 6
+        let environment = ProcessInfo.processInfo.environment
+        let startRow = environment["ICHART_PREFIX_ARCHIVE_START_ROW"].flatMap(Int.init) ?? 0
+        let endRow = environment["ICHART_PREFIX_ARCHIVE_END_ROW"].flatMap(Int.init) ?? rowCount
+        XCTAssertTrue((0..<rowCount).contains(startRow))
+        XCTAssertTrue((1...rowCount).contains(endRow))
+        XCTAssertLessThan(startRow, endRow)
+        guard startRow >= 0, endRow <= rowCount, startRow < endRow else {
+            return
+        }
+
+        let completed = expectation(description: "Completed chord ownership archive audit")
+        let store = CompletedPrefixOwnershipAuditStore()
+        // The slower cadence matches the existing final-row archive gate; the
+        // shorter cadence is within the new-chord pauses in the latest physical
+        // rows. Neither cadence changes glyph geometry or within-chord timing.
+        // Use a dedicated worker, as production does. Candidate-parser errors
+        // are intentionally caught by recognition, but XCTest retains their
+        // diagnostic backtraces when this entire audit runs in its synchronous
+        // invocation context.
+        DispatchQueue(label: "com.ichart.tests.completed-prefix-archive", qos: .userInitiated).async {
+            let workerGrouper = ChordInkSequentialGrouper()
+            var audit = CompletedPrefixOwnershipAudit()
+            for chordGap in [0.80, 2.75] {
+                for rowIndex in startRow..<endRow {
+                    let changesBeforeRow = audit.changedOwnershipCount
+                    var recordedRowExample = false
+                    let rowStart = rowIndex * 6
+                    let rowEnd = min(rowStart + 6, rootedFixtures.count)
+                    let fixtures = Array(rootedFixtures[rowStart..<rowEnd])
+                    let row = Self.makeSequentialRow(
+                        fixtures,
+                        horizontalGaps: [18, 26, 20, 34, 22],
+                        verticalOffsets: [0, 5, -4, 3, -2, 4],
+                        chordGap: chordGap
+                    )
+
+                    for prefixCount in 1...row.strokes.count {
+                        let completedFixtureIndexes = fixtures.indices.filter {
+                            row.expectedStrokeRanges[$0].upperBound <= prefixCount
+                        }
+                        guard !completedFixtureIndexes.isEmpty else {
+                            continue
+                        }
+
+                        audit.auditedPrefixCount += 1
+                        let prefixStrokes = Array(row.strokes.prefix(prefixCount))
+                        let groups = workerGrouper.groups(for: prefixStrokes.enumerated().map {
+                            (index: $0.offset, stroke: $0.element)
+                        })
+                        for fixtureIndex in completedFixtureIndexes {
+                            audit.completedOwnershipCheckCount += 1
+                            let expectedIndexes = Array(row.expectedStrokeRanges[fixtureIndex])
+                            let owningGroup = groups.first {
+                                $0.strokeIndices.contains(row.expectedStrokeRanges[fixtureIndex].lowerBound)
+                            }
+                            guard owningGroup?.strokeIndices == expectedIndexes else {
+                                audit.changedOwnershipCount += 1
+                                if !recordedRowExample && audit.examples.count < 160 {
+                                    let groupSummary = groups.map {
+                                        "\($0.rootText ?? "nil")=\($0.strokeIndices)"
+                                    }.joined(separator: " | ")
+                                    audit.examples.append(
+                                        "gap=\(chordGap) row=\(rowIndex) prefix=\(prefixCount)"
+                                            + " completed=\(fixtures[fixtureIndex].name)"
+                                            + " expected=\(Array(row.expectedStrokeRanges[fixtureIndex]))"
+                                            + " groups=[\(groupSummary)]"
+                                    )
+                                    print("completed_chord_prefix_archive_example \(audit.examples.last ?? "")")
+                                    recordedRowExample = true
+                                }
+                                continue
+                            }
+                        }
+                    }
+                    let rowChanges = audit.changedOwnershipCount - changesBeforeRow
+                    if rowChanges > 0 || (rowIndex - startRow).isMultiple(of: 20) || rowIndex == endRow - 1 {
+                        print(
+                            "completed_chord_prefix_archive_progress gap=\(chordGap)"
+                                + " row=\(rowIndex)/\(rowCount)"
+                                + " changed_ownership=\(rowChanges)"
+                        )
+                    }
+                }
+            }
+            store.set(audit)
+            completed.fulfill()
+        }
+
+        wait(for: [completed], timeout: 1_800)
+        let audit = try XCTUnwrap(store.get())
+        print(
+            "completed_chord_prefix_archive_audit"
+                + " rows=\(startRow)..<\(endRow)/\(rowCount)"
+                + " prefixes=\(audit.auditedPrefixCount)"
+                + " completed_checks=\(audit.completedOwnershipCheckCount)"
+                + " changed_ownership=\(audit.changedOwnershipCount)"
+        )
+        XCTAssertGreaterThan(audit.auditedPrefixCount, 0)
+        XCTAssertGreaterThan(audit.completedOwnershipCheckCount, 0)
+        XCTAssertEqual(
+            audit.changedOwnershipCount,
+            0,
+            "Completed chord ownership changed while later ink arrived:\n\(audit.examples.joined(separator: "\n"))"
+        )
+    }
+
+    private func assertSequentialRow(
+        _ fixtures: [InkFixture],
+        horizontalGaps: [Double],
+        verticalOffsets: [Double],
+        label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let row = Self.makeSequentialRow(
+            fixtures,
+            horizontalGaps: horizontalGaps,
+            verticalOffsets: verticalOffsets
+        )
+        let groups = grouper.groups(for: indexed(row.strokes))
+        let groupSummary = groups.enumerated().map { index, group in
+            "\(index):root=\(group.rootText ?? "nil") modifierLed=\(group.rootWasModifierLed) strokes=\(group.strokeIndices)"
+        }.joined(separator: " | ")
+        guard groups.count == fixtures.count else {
+            let groupedRecognitionSummary = groups.enumerated().map { index, group in
+                let result = ChordInkMaximumTrustRecognizer().recognize(
+                    strokes: group.strokeIndices.map { row.strokes[$0] },
+                    options: .includingSymbolLedgerDiagnostics
+                )
+                let decision = ChordInkRecognitionPolicy.decision(for: result)
+                let suggestions = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+                return "\(index):accepted=\(decision.acceptedText ?? "nil") action=\(decision.action.rawValue) suggestions=\(suggestions)"
+            }.joined(separator: " | ")
+            let adjacentMergeSummary = groups.indices.dropFirst().compactMap { index -> String? in
+                guard groups[index].rootWasModifierLed else {
+                    return nil
+                }
+                let strokeIndices = Array(
+                    Set(groups[groups.index(before: index)].strokeIndices + groups[index].strokeIndices)
+                ).sorted()
+                guard strokeIndices.count <= 16 else {
+                    return "\(index - 1)+\(index):skipped-\(strokeIndices.count)-strokes"
+                }
+                let result = ChordInkRecognizer().recognize(
+                    strokes: strokeIndices.map { row.strokes[$0] }
+                )
+                let decision = ChordInkRecognitionPolicy.decision(for: result)
+                let suggestions = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+                return "\(index - 1)+\(index):accepted=\(decision.acceptedText ?? "nil") action=\(decision.action.rawValue) suggestions=\(suggestions)"
+            }.joined(separator: " | ")
+            let expectedSummary = fixtures.map(\.expectedDisplayText).joined(separator: ", ")
+            let expectedOwnershipSummary = zip(fixtures, row.expectedStrokeRanges).map { fixture, range in
+                "\(fixture.expectedDisplayText)=\(Array(range))"
+            }.joined(separator: " | ")
+            let clusterSummary = StrokeClusterer().indexedClusters(row.strokes).enumerated().map { index, cluster in
+                let candidates = GestureTemplateRecognizer().rankedCandidates(
+                    for: cluster.cluster,
+                    templates: ChordGlyphTemplateLibrary.initialTemplates,
+                    limit: 5
+                ).map { candidate in
+                    "\(candidate.text):\(String(format: "%.3f", candidate.confidence))"
+                }.joined(separator: ",")
+                return "\(index):strokes=\(cluster.originalIndexes.sorted()) candidates=[\(candidates)]"
+            }.joined(separator: " | ")
+            XCTFail(
+                "\(label) expected [\(expectedSummary)] ownership [\(expectedOwnershipSummary)] but grouped as \(groupSummary); group reads: \(groupedRecognitionSummary); adjacent merges: \(adjacentMergeSummary); raw clusters: \(clusterSummary)",
+                file: file,
+                line: line
+            )
+            return
+        }
+
+        let allOwnedStrokeIndices = groups.flatMap(\.strokeIndices)
+        XCTAssertEqual(
+            Set(allOwnedStrokeIndices),
+            Set(row.strokes.indices),
+            "\(label) dropped a stroke: \(groupSummary)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            allOwnedStrokeIndices.count,
+            Set(allOwnedStrokeIndices).count,
+            "\(label) assigned a stroke to more than one chord: \(groupSummary)",
+            file: file,
+            line: line
+        )
+
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        for (fixtureIndex, fixture) in fixtures.enumerated() {
+            let group = groups[fixtureIndex]
+            XCTAssertEqual(
+                Set(group.strokeIndices),
+                Set(row.expectedStrokeRanges[fixtureIndex]),
+                "\(label) moved strokes across the \(fixture.expectedDisplayText) boundary: \(groupSummary)",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                group.strokeIndices,
+                Array(row.expectedStrokeRanges[fixtureIndex]),
+                "\(label) changed the Pencil creation order inside \(fixture.expectedDisplayText): \(groupSummary)",
+                file: file,
+                line: line
+            )
+
+            let result = recognizer.recognize(
+                strokes: group.strokeIndices.map { row.strokes[$0] },
+                options: .includingSymbolLedgerDiagnostics
+            )
+            let decision = ChordInkRecognitionPolicy.decision(for: result)
+            let suggestions = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+            let glyphSummary = result.glyphCandidates.enumerated().map { index, candidates in
+                let values = candidates.prefix(6).map { candidate in
+                    "\(candidate.text):\(String(format: "%.3f", candidate.confidence)):"
+                        + "\(candidate.source.rawValue)"
+                }.joined(separator: ",")
+                return "\(index)=[\(values)]"
+            }.joined(separator: " ")
+            let acceptedGlyphSummary = result.acceptedGlyphCandidates.map { candidate in
+                "\(candidate.text):\(String(format: "%.3f", candidate.confidence)):"
+                    + "\(candidate.source.rawValue)"
+            }.joined(separator: ",")
+            let trustSummary = result.trustEvidence.map { evidence in
+                "\(evidence.outcome.rawValue):support=\(evidence.symbolSupportCount):"
+                    + "probes=\(evidence.completedProbeCount)/\(evidence.requiredProbeCount)"
+            } ?? "none"
+            XCTAssertFalse(
+                decision.action == .trusted && decision.acceptedText != fixture.expectedDisplayText,
+                "\(label) trusted the wrong read for \(fixture.name). accepted=\(decision.acceptedText ?? "nil") trust=\(trustSummary) acceptedGlyphs=[\(acceptedGlyphSummary)] glyphs=\(glyphSummary) raw=\(Array(result.rawCandidates.prefix(12))) scores=\(Array(result.candidateScores.prefix(8))) ledger=\(String(describing: result.symbolLedgerAssessment))",
+                file: file,
+                line: line
+            )
+            let isRecoverable = decision.acceptedText == fixture.expectedDisplayText
+                || suggestions.contains(fixture.expectedDisplayText)
+            if !isRecoverable {
+                XCTFail(
+                    "\(label) made \(fixture.name) unrecoverable after grouping. accepted=\(decision.acceptedText ?? "nil") suggestions=\(suggestions) raw=\(Array(result.rawCandidates.prefix(12))) scores=\(Array(result.candidateScores.prefix(8)))",
+                    file: file,
+                    line: line
+                )
+            }
+        }
+    }
+
+    private struct CompletedPrefixOwnershipAudit {
+        var auditedPrefixCount = 0
+        var completedOwnershipCheckCount = 0
+        var changedOwnershipCount = 0
+        var examples = [String]()
+    }
+
+    private final class CompletedPrefixOwnershipAuditStore: @unchecked Sendable {
+        private let lock = NSLock()
+        private var audit: CompletedPrefixOwnershipAudit?
+
+        func set(_ value: CompletedPrefixOwnershipAudit) {
+            lock.lock()
+            defer { lock.unlock() }
+            audit = value
+        }
+
+        func get() -> CompletedPrefixOwnershipAudit? {
+            lock.lock()
+            defer { lock.unlock() }
+            return audit
+        }
+    }
+
+    private static func makeSequentialRow(
+        _ fixtures: [InkFixture],
+        horizontalGaps: [Double],
+        verticalOffsets: [Double],
+        chordGap: TimeInterval = 2.75,
+        withinChordGap: TimeInterval = 0.18
+    ) -> (strokes: [InkStroke], expectedStrokeRanges: [Range<Int>]) {
+        precondition(!horizontalGaps.isEmpty)
+        precondition(!verticalOffsets.isEmpty)
+
+        var rowStrokes = [InkStroke]()
+        var expectedStrokeRanges = [Range<Int>]()
+        var cursorX = 0.0
+        let targetHeights = [52.0, 56.0, 50.0, 58.0, 54.0, 55.0]
+
+        for (fixtureIndex, fixture) in fixtures.enumerated() {
+            let bounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
+            let scale = targetHeights[fixtureIndex % targetHeights.count] / max(bounds.height, 1)
+            let offsetY = verticalOffsets[fixtureIndex % verticalOffsets.count]
+            let rangeStart = rowStrokes.count
+            // Match the cadence measured in a physical-device row: ordinary
+            // strokes may be almost a second apart, while new chords have a
+            // materially longer pause.
+            var strokeCreationOffset = rowStrokes.last?.timelineEndTimeOffset.map { $0 + chordGap } ?? 0
+
+            rowStrokes.append(contentsOf: fixture.strokes.map { stroke in
+                // Legacy fixtures sometimes store chord-wide point offsets,
+                // while PencilKit restarts point time at zero for every path.
+                // Normalize each path before adding the captured cross-stroke
+                // creation timeline so the row replay does not count time twice.
+                let pointStart = stroke.points.compactMap(\.timeOffset).min() ?? 0
+                let pointEnd = stroke.points.compactMap(\.timeOffset).max() ?? pointStart
+                let transformedStroke = InkStroke(points: stroke.points.map { point in
+                    InkPoint(
+                        x: cursorX + (point.x - bounds.minX) * scale,
+                        y: offsetY + (point.y - bounds.minY) * scale,
+                        timeOffset: point.timeOffset.map { max(0, $0 - pointStart) }
+                    )
+                }, creationTimeOffset: strokeCreationOffset)
+                let pathDuration = max(pointEnd - pointStart, 0.08)
+                strokeCreationOffset += max(pathDuration, 0.04) + withinChordGap
+                return transformedStroke
+            })
+
+            expectedStrokeRanges.append(rangeStart..<rowStrokes.count)
+            let gap = horizontalGaps[fixtureIndex % horizontalGaps.count]
+            cursorX += bounds.width * scale + gap
+        }
+
+        return (rowStrokes, expectedStrokeRanges)
+    }
+
+    func testRootStartEvidenceDoesNotShrinkAsPreviousChordGetsWider() {
+        for previousChordWidth in [120.0, 190.0, 260.0] {
+            let previousChordBounds = InkBounds(
+                minX: 0, minY: 10, maxX: previousChordWidth, maxY: 60
+            )
+            let nextRootBounds = InkBounds(
+                minX: previousChordWidth + 24,
+                minY: 12,
+                maxX: previousChordWidth + 56,
+                maxY: 60
+            )
+            let evidence = ChordInkSequentialRootStartDetector.evidence(
+                in: [glyph("D", confidence: 0.99, source: .heuristic)],
+                cluster: cluster(nextRootBounds),
+                currentGroupBounds: previousChordBounds,
+                previousGlyphWasSlashSeparator: false,
+                currentRootBounds: rootBounds(at: 0)
+            )
+
+            XCTAssertEqual(
+                evidence?.text,
+                "D",
+                "A normal-sized detached root should keep its boundary when the preceding chord has a wide suffix (width \(previousChordWidth))."
+            )
+        }
+    }
+
+    func testWideSuspendedFourthChordDoesNotSwallowEveryLaterRoot() throws {
+        // Template strokes preserve the recognizer's normal glyph evidence. The
+        // C7sus4 suffix is wide, while all following roots keep their size.
+        let fourthTemplate = GestureTemplate(text: "4", strokes: [
+            latestDeviceStroke([(279, 16), (266, 44), (294, 44)]),
+            latestDeviceStroke([(289, 12), (289, 60)])
+        ])
+        let wideGrouper = ChordInkSequentialGrouper(
+            templates: ChordGlyphTemplateLibrary.initialTemplates + [fourthTemplate]
+        )
+        let firstChord = try glyphStrokes([
+            ("C", 0), ("7", 0), ("s", 118), ("u", 170), ("s", 222)
+        ]) + fourthTemplate.strokes
+        let firstRoot = try templateStrokes("D", offsetX: 328)
+        let secondRoot = try templateStrokes("E", offsetX: 396)
+        let thirdRoot = try templateStrokes("F", offsetX: 464)
+
+        let initialGroups = wideGrouper.groups(for: indexed(firstChord + firstRoot))
+        let extendedGroups = wideGrouper.groups(
+            for: indexed(firstChord + firstRoot + secondRoot + thirdRoot)
+        )
+
+        XCTAssertEqual(initialGroups.count, 2)
+        XCTAssertEqual(extendedGroups.count, 4)
+        XCTAssertEqual(extendedGroups.map(\.rootText), ["C", "D", "E", "F"])
+        guard initialGroups.count == 2, extendedGroups.count == 4 else {
+            return
+        }
+        XCTAssertEqual(
+            Array(extendedGroups.prefix(2)).map(\.strokeIndices),
+            initialGroups.map(\.strokeIndices)
+        )
+        XCTAssertEqual(extendedGroups[0].strokeIndices, Array(firstChord.indices))
+    }
+
+    func testWidePreviousChordKeepsCompactSuffixAndSlashBassSafeguards() {
+        let wideChordBounds = InkBounds(minX: 0, minY: 10, maxX: 220, maxY: 60)
+        let compactHighSuffix = InkBounds(minX: 244, minY: 14, maxX: 258, maxY: 34)
+        let suffixEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("b", confidence: 0.98, source: .heuristic),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(compactHighSuffix),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+        let slashBassEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [glyph("B", confidence: 0.99, source: .heuristic)],
+            cluster: cluster(rootBounds(at: 244)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: true,
+            currentRootBounds: rootBounds(at: 0)
+        )
+
+        XCTAssertNil(suffixEvidence)
+        XCTAssertNil(slashBassEvidence)
+    }
+
+    func testWidePreviousChordKeepsCloseSymbolicSuffixAndNineLookalikeSafeguards() {
+        let wideChordBounds = InkBounds(minX: 0, minY: 10, maxX: 220, maxY: 60)
+        let closeSymbolicSuffixEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("C", confidence: 0.99, source: .heuristic),
+                glyph("△", confidence: 0.80)
+            ],
+            cluster: cluster(rootBounds(at: 232)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+        let detachedNineEvidence = ChordInkSequentialRootStartDetector.evidence(
+            in: [
+                glyph("9", confidence: 1.0),
+                glyph("C", confidence: 0.95, source: .heuristic)
+            ],
+            cluster: cluster(rootBounds(at: 250)),
+            currentGroupBounds: wideChordBounds,
+            previousGlyphWasSlashSeparator: false,
+            currentRootBounds: rootBounds(at: 0)
+        )
+
+        XCTAssertNil(closeSymbolicSuffixEvidence)
+        XCTAssertNil(detachedNineEvidence)
+    }
+
+    func testStandaloneRepeatRetainsPointAndSubpixelDots() {
+        for dotSpan in [0.0, 0.4] {
+            let strokes = repeatStrokes(upperDotSpan: dotSpan)
+            let groups = grouper.groups(for: indexed(strokes))
+
+            XCTAssertEqual(groups.count, 1)
+            guard let group = groups.first else {
+                continue
+            }
+            XCTAssertEqual(group.anchorReason, .chordRepeat)
+            XCTAssertNil(group.rootText)
+            XCTAssertEqual(group.strokeIndices, [0, 1, 2])
+            XCTAssertEqual(
+                ChordInkRecognizer().recognize(strokes: group.strokeIndices.map { strokes[$0] }).match?.displayText,
+                "•/•"
+            )
+        }
+    }
+
+    func testRepeatAfterRootKeepsTheSameThreeStrokesAsSoloRecognition() throws {
+        let rootStrokes = try templateStrokes("C", offsetX: 0)
+        for dotSpan in [0.0, 0.4] {
+            let repeatInk = repeatStrokes(upperDotSpan: dotSpan)
+            let strokes = rootStrokes + repeatInk
+            let groups = grouper.groups(for: indexed(strokes))
+            let soloRead = ChordInkRecognizer().recognize(strokes: repeatInk).match?.displayText
+
+            XCTAssertEqual(soloRead, "•/•")
+            XCTAssertEqual(groups.count, 2)
+            guard groups.count == 2 else {
+                continue
+            }
+            XCTAssertEqual(groups[0].rootText, "C")
+            XCTAssertEqual(groups[0].strokeIndices, [0])
+            XCTAssertEqual(groups[1].anchorReason, .chordRepeat)
+            XCTAssertEqual(groups[1].strokeIndices, [1, 2, 3])
+            XCTAssertEqual(
+                ChordInkRecognizer().recognize(strokes: groups[1].strokeIndices.map { strokes[$0] }).match?.displayText,
+                soloRead
+            )
+        }
+    }
+
+    func testShortRepeatAfterBFlatDoesNotNeedRootSizedInk() throws {
+        let rootStrokes = try glyphStrokes([("B", 0), ("b", -12)])
+        let strokes = rootStrokes + repeatStrokes(slashHeight: 16)
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 2)
+        guard groups.count == 2 else {
+            return
+        }
+        XCTAssertEqual(groups[0].strokeIndices, [0, 1, 2])
+        XCTAssertEqual(groups[1].anchorReason, .chordRepeat)
+        XCTAssertEqual(groups[1].strokeIndices, [3, 4, 5])
+        XCTAssertEqual(
+            ChordInkRecognizer().recognize(strokes: groups[0].strokeIndices.map { strokes[$0] }).match?.displayText,
+            "Bb"
+        )
+        XCTAssertEqual(
+            ChordInkRecognizer().recognize(strokes: groups[1].strokeIndices.map { strokes[$0] }).match?.displayText,
+            "•/•"
+        )
+    }
+
+    func testRepeatBetweenRootsDoesNotSuppressTheFollowingRoot() throws {
+        let leftRoot = try templateStrokes("C", offsetX: 0)
+        let repeatInk = repeatStrokes(slashHeight: 16)
+        let rightRoot = try templateStrokes("D", offsetX: 280)
+        let strokes = leftRoot + repeatInk + rightRoot
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.map(\.anchorReason), [.rootStart, .chordRepeat, .rootStart])
+        XCTAssertEqual(groups.map(\.rootText), ["C", nil, "D"])
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    func testFastRepeatKeepsIndependentOwnershipThroughTemporalReconciliation() throws {
+        let root = try templateStrokes("C", offsetX: 0)
+        let repeatInk = repeatStrokes(slashHeight: 16)
+        let rightRoot = try templateStrokes("D", offsetX: 280)
+        let strokes = (root + repeatInk + rightRoot).enumerated().map { index, stroke in
+            InkStroke(
+                points: stroke.points.enumerated().map { pointIndex, point in
+                    InkPoint(x: point.x, y: point.y, timeOffset: Double(pointIndex) * 0.001)
+                },
+                creationTimeOffset: Double(index) * 0.20
+            )
+        }
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.map(\.anchorReason), [.rootStart, .chordRepeat, .rootStart])
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+        guard groups.count == 3 else { return }
+        XCTAssertEqual(groups[1].strokeIndices, Array(root.count..<(root.count + repeatInk.count)))
+    }
+
+    func testQualityAndSlashBassInkDoesNotCreateRepeatGroup() throws {
+        let strokes = try glyphStrokes([
+            ("C", 0), ("°", 0), ("/", 0), ("B", 78)
+        ])
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.anchorReason, .rootStart)
+        XCTAssertEqual(groups.first?.strokeIndices, Array(strokes.indices))
+    }
+
+    func testCompactSlashBassRootEvidenceTakesPriorityOverRepeatGeometry() throws {
+        let compactRoot = try templateStrokes("C", offsetX: 0).map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(x: point.x * 0.4, y: point.y * 0.4, timeOffset: point.timeOffset)
+            })
+        }
+        let bassRoot = compactRoot.map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(x: point.x + 140, y: point.y, timeOffset: point.timeOffset)
+            })
+        }
+        let slash = latestDeviceStroke([(70, 58), (86, 12)])
+        let strokes = compactRoot + [slash] + bassRoot
+
+        // These compact letters also fit the detector's existing dot geometry,
+        // so root evidence must prevent assigning the window to a repeat.
+        XCTAssertNotNil(ChordRepeatInkDetector.candidate(from: strokes))
+        for rootInk in [compactRoot, bassRoot] {
+            let rootCluster = InkCluster(strokes: rootInk)
+            let candidates = GestureTemplateRecognizer().rankedCandidates(
+                for: rootCluster,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            let evidence = ChordInkSequentialRootStartDetector.evidence(
+                in: candidates,
+                cluster: rootCluster,
+                currentGroupBounds: nil,
+                previousGlyphWasSlashSeparator: false
+            )
+            XCTAssertEqual(evidence?.text, "C")
+            XCTAssertGreaterThan(evidence?.confidence ?? 0, 0.95)
+        }
+
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.anchorReason, .rootStart)
+        XCTAssertEqual(groups.first?.rootText, "C")
+        XCTAssertFalse(groups.contains { $0.anchorReason == .chordRepeat })
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    func testIncompleteRepeatInkDoesNotCreateRepeatGroup() throws {
+        let repeatInk = repeatStrokes()
+        let strokes = try templateStrokes("C", offsetX: 0) + Array(repeatInk.dropFirst())
+        let groups = grouper.groups(for: indexed(strokes))
+
+        XCTAssertFalse(groups.contains { $0.anchorReason == .chordRepeat })
+        XCTAssertEqual(groups.flatMap(\.strokeIndices).sorted(), Array(strokes.indices))
+    }
+
+    private func repeatStrokes(upperDotSpan: Double = 0, slashHeight: Double = 50) -> [InkStroke] {
+        [
+            latestDeviceStroke([(180, 12), (180 + upperDotSpan, 12 + upperDotSpan)]),
+            latestDeviceStroke([(198, 10 + slashHeight), (210, 10)]),
+            latestDeviceStroke([(220, 8 + slashHeight), (222, 9 + slashHeight), (220, 10 + slashHeight)])
+        ]
+    }
+
     private func glyphStrokes(_ glyphs: [(String, Double)]) throws -> [InkStroke] {
         try glyphs.flatMap { text, offsetX in
             try templateStrokes(text, offsetX: offsetX)
@@ -349,6 +2052,32 @@ final class ChordInkSequentialGrouperTests: XCTestCase {
                         timeOffset: point.timeOffset
                     )
                 }
+            )
+        }
+    }
+
+    private func scaledTimedTemplateStrokes(
+        _ text: String,
+        scale: Double,
+        offsetX: Double,
+        start: TimeInterval
+    ) throws -> [InkStroke] {
+        let template = try XCTUnwrap(
+            ChordGlyphTemplateLibrary.initialTemplates.first { $0.text == text },
+            "Missing template \(text)"
+        )
+        let bounds = InkBounds.enclosing(template.strokes.map(\.bounds))
+
+        return template.strokes.enumerated().map { index, stroke in
+            InkStroke(
+                points: stroke.points.map { point in
+                    InkPoint(
+                        x: offsetX + (point.x - bounds.minX) * scale,
+                        y: (point.y - bounds.minY) * scale,
+                        timeOffset: nil
+                    )
+                },
+                creationTimeOffset: start + Double(index) * 0.08
             )
         }
     }

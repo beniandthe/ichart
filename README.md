@@ -1,3 +1,69 @@
+# iChart — active app development
+
+**Start with [Project state and release backlog](docs/project-state.md).** It is
+the current development handoff and records the active tree, remaining release
+work, and the evidence needed before deployment. Older sprint documents below
+remain historical records; they do not define the current backlog.
+
+iChart is an iPad chart editor for working musicians. The active release focuses
+on Simple Chord Sheet and Rhythm Section Sheet: write chords, repair uncertain or
+missed reads, render editable chart objects, save, and export. Recognition is
+assisted entry with explicit correction; near-perfect automatic recognition is
+not a release requirement or a demonstrated capability.
+
+The active branch is `codex/app-release-normalization`. Recognition research is
+retained in place and on named parking branches. See
+[Parked recognition research](docs/parked-recognition/README.md) for the inventory
+and recovery instructions. Parking does not delete experiments, charts, profiles,
+or existing evidence.
+
+## Build and verify
+
+`project.yml` is the editable project definition. Generate the Xcode project;
+do not hand-edit generated project files.
+
+```sh
+swift test
+xcodegen generate
+xcodebuild test -project iChart.xcodeproj -scheme iChart -onlyUsePackageVersionsFromResolvedFile -destination 'platform=iOS Simulator,name=<available iPad>' -resultBundlePath /private/tmp/iChart-<unique-run>.xcresult CODE_SIGNING_ALLOWED=NO
+xcrun xcresulttool get test-results summary --path /private/tmp/iChart-<unique-run>.xcresult
+```
+
+Replace the destination and unique result path with real values. A successful
+test command requires a nonzero executed test count. App tests, physical iPad
+installation, Pencil behavior, release signing, upload, and publication are
+separate gates in the [release backlog](docs/project-state.md#release-gates).
+
+The native dependency lock at
+`iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
+is tracked; the rest of the generated project stays ignored. Normal native CI
+and CodeQL builds require that graph. Update the lock deliberately and verify
+the changed dependencies rather than resolving a new graph implicitly.
+
+Normal CI runs SwiftPM and the iChart Simulator suite. The retained
+RecognitionStudy and Python/Core ML contracts run only when the CI workflow is
+manually dispatched with `run_recognition_research` enabled. Ordinary app
+changes do not require Python model training or a research artifact package.
+The ordinary app job also runs the seven dependency-free packaging guard tests
+that keep experimental comparison resources out of normal builds.
+
+## Development policy
+
+- Preserve chart ink, saved profiles, and frozen evaluation evidence.
+- Keep existing recognition/parser/trust regressions in app validation.
+- Use the standard reader for the release path. Handwriting setup, teaching,
+  evaluation and runtime personalization are parked and unavailable in the
+  current app; their code and saved examples remain preserved.
+- Do not embed experimental comparison artifacts in an ordinary app build.
+- Fix a reproduced recognition defect with a bounded comparison; reopen broad
+  research only under a new written experiment and a fixed acceptance rule.
+
+<details>
+<summary>Historical product outline and May 2026 sprint index (retained)</summary>
+
+The material below is preserved for context. Current implementation status and
+release authority are in [Project state](docs/project-state.md).
+
 # iChart
 
 [![CI](https://github.com/beniandthe/ichart/actions/workflows/ci.yml/badge.svg)](https://github.com/beniandthe/ichart/actions/workflows/ci.yml)
@@ -178,3 +244,5 @@ The first meaningful prototype succeeds if a musician can:
 ## Status
 
 Post-merge recovery/audit stage: the recognition recovery branch is merged into `main`; Sprints 12-62 restored the streamlined writer-agnostic recognition/editor pipeline, validated the writing-to-render loop with real app passes, added local chord-correction UX, shortened routine sprint validation, closed the first chord field-validation loop, and completed the chord-first release-candidate pass. Sprint 63 defined the three new-chart layout styles: Simple Chord Sheet, Rhythm Section Sheet, and Lead Sheet. Sprint 64 implemented the first `ChartLayoutStyle` New Chart chooser slice. Sprint 65 defined the layout-profile contracts for toolbar emphasis, measure defaults, notation-lane intent, and future renderer routing. Sprint 68 focuses V1 chart-structure systems on Simple Chord Sheet and Rhythm Section Sheet; Lead Sheet implementation notes are archived under `docs/post-v1/lead-sheet/` until after V1. Current sprint status lives in the source-of-truth doc.
+
+</details>

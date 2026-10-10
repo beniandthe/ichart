@@ -1,8 +1,8 @@
 struct ChordInkCandidateGrammarPolicy {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let suffixAndModifierTexts: Set<String> = [
-        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "l", "t",
-        "-", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5"
+        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "d", "l", "t",
+        "-", "s", "u", "2", "6", "7", "9", "(", ")", "1", "3", "5", "/"
     ]
     private static let detachedRootPressureVetoTexts: Set<String> = ["m", "-", "6"]
     private static let detachedRootPressureMinimumConfidence = 0.90
@@ -92,11 +92,21 @@ struct ChordInkCandidateGrammarPolicy {
         }
 
         if glyphCandidates[index].text == "6",
-           hasQualityBefore(index, in: glyphCandidates) {
+           hasQualityBefore(index, in: glyphCandidates)
+            || isSixNineDescriptorStart(at: index, in: glyphCandidates) {
             return true
         }
 
         return false
+    }
+
+    private func isSixNineDescriptorStart(
+        at index: Int,
+        in glyphCandidates: [GlyphCandidate]
+    ) -> Bool {
+        glyphCandidates.indices.contains(index + 2)
+            && glyphCandidates[index + 1].text == "/"
+            && glyphCandidates[index + 2].text == "9"
     }
 
     private func hasRootAccidentalBefore(

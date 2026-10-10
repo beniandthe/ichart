@@ -5,6 +5,7 @@ import {
 
 const maxBodyBytes = 128_000;
 const maxEventsPerBatch = 50;
+const maxPropertiesPerEvent = 64;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedEventNames = new Set([
@@ -48,10 +49,12 @@ const allowedEventNames = new Set([
   "chord.recognition_failed",
   "chord.confirmation_presented",
   "chord.correction_applied",
+  "chord.rendered_correction_applied",
   "chord.batch_committed",
   "chord.preview_updated",
   "chord.preview_rendered",
   "chord.preview_discarded",
+  "chord.preview_rewritten",
   "chord.draft_barline_added",
   "rhythm.preview_changed",
   "rhythm.confirmed",
@@ -83,6 +86,7 @@ const allowedEventNames = new Set([
 const allowedPropertyKeys = new Set([
   "app_phase",
   "auth_state",
+  "alteration_issue_count",
   "batch_size",
   "build_seen",
   "canvas_alpha",
@@ -100,26 +104,33 @@ const allowedPropertyKeys = new Set([
   "canvas_user_interface_style",
   "canvas_window_user_interface_style",
   "candidate_count",
+  "candidate_limit_issue_count",
   "barline_count",
+  "barline_sequence_issue_count",
   "chart_count",
   "chart_count_after",
   "chart_count_before",
+  "changed_chord_count",
   "close_race_count",
   "cloud_backed_up_count",
   "cluster_count",
   "confidence_bucket",
   "confirm_count",
   "decision",
+  "dim_quality_issue_count",
   "duration_ms",
   "draft_count",
   "error_code",
+  "extension_issue_count",
   "feature_area",
   "flow",
   "from_mode",
   "generated_sequence_limit_count",
   "has_mask",
   "ink_tool_mode",
+  "issue_count",
   "layout_style",
+  "last_stroke_to_preview_ms",
   "light_stroke_count",
   "local_chart_limit",
   "live_canvas_light_trait_guard_enabled",
@@ -140,20 +151,30 @@ const allowedPropertyKeys = new Set([
   "plan",
   "point_count",
   "project_count",
+  "quality_issue_count",
   "reason",
   "recognition_ms",
+  "recognition_pipeline_version",
   "recognition_target_count",
+  "review_candidate_count",
   "raw_candidate_count",
   "render_action",
   "rendered_count",
   "rendered_ink_light_pixel_ratio",
   "rendered_ink_median_luminance",
   "rendered_ink_sample_count",
+  "repaired_no_read_count",
   "result",
+  "review_duration_ms",
+  "reviewed_count",
+  "rewrite_outcome",
   "scope",
   "source",
   "source_coordinate_height",
   "source_coordinate_width",
+  "root_accidental_issue_count",
+  "root_issue_count",
+  "slash_bass_issue_count",
   "stroke_color_max_luminance",
   "stroke_color_median_luminance",
   "stroke_color_min_luminance",
@@ -168,9 +189,18 @@ const allowedPropertyKeys = new Set([
   "target_coordinate_height",
   "target_coordinate_width",
   "to_mode",
+  "triangle_quality_issue_count",
+  "trust_corroborated_count",
+  "trust_outcome",
+  "trust_probe_count",
+  "trust_rejected_count",
+  "trust_symbol_support_count",
+  "trust_validation_ms",
   "trusted_count",
+  "unknown_issue_count",
   "unresolved_count",
   "user_signed_in",
+  "writing_batch_id",
 ]);
 
 export function createTelemetryIngestDependencies(env = globalThis.Deno?.env, options = {}) {
@@ -325,17 +355,42 @@ export function sanitizedProperties(value) {
   const entries = Object.entries(value)
     .filter(([key]) => allowedPropertyKeys.has(key))
     .sort(([left], [right]) => left.localeCompare(right))
-    .slice(0, 40);
+    .slice(0, maxPropertiesPerEvent);
   const sanitized = {};
 
   for (const [key, rawValue] of entries) {
-    const normalizedValue = sanitizedPropertyValue(rawValue);
+    const normalizedValue = sanitizedWorkflowPropertyValue(key, rawValue);
     if (normalizedValue !== undefined) {
       sanitized[key] = normalizedValue;
     }
   }
 
   return sanitized;
+}
+
+function sanitizedWorkflowPropertyValue(key, value) {
+  switch (key) {
+    case "writing_batch_id":
+      return typeof value === "string" && uuidPattern.test(value)
+        ? value.toLowerCase()
+        : undefined;
+    case "rewrite_outcome":
+      return ["local", "page", "discard"].includes(value) ? value : undefined;
+    case "changed_chord_count":
+    case "repaired_no_read_count":
+    case "reviewed_count":
+      return Number.isInteger(value) && value >= 0 && value <= 10_000
+        ? value
+        : undefined;
+    case "last_stroke_to_preview_ms":
+    case "review_duration_ms":
+      return typeof value === "number" && Number.isFinite(value)
+        && value >= 0 && value <= 86_400_000
+        ? roundedNumber(value)
+        : undefined;
+    default:
+      return sanitizedPropertyValue(value);
+  }
 }
 
 function sanitizedPropertyValue(value) {

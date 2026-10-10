@@ -27,7 +27,12 @@ enum InkFixtureLoader {
         "CMinorMajor7"
     ]
 
-    static let trustAcceptanceFixtureNames = uniqueFixtureNames(defaultRegressionFixtureNames + [
+    /// Curated cases that protect known safety and compatibility behavior.
+    ///
+    /// These fixtures are visible development inputs with unknown writer
+    /// provenance. They are never evidence of writer-independent accuracy,
+    /// confidence calibration, or product acceptance.
+    static let legacySafetyRegressionFixtureNames = uniqueFixtureNames(defaultRegressionFixtureNames + [
         "A",
         "B",
         "D",
@@ -109,6 +114,16 @@ enum InkFixtureLoader {
         try fixtureCorpus(relativeTo: file).fixtures
     }
 
+    /// Intentionally ambiguous captures have a recovery contract, not the
+    /// primary-correct contract of the accepted recognition archive.
+    static func loadReviewFixture(_ name: String, file: StaticString = #filePath) throws -> InkFixture {
+        let fixtureURL = fixturesDirectoryURL(relativeTo: file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("InkReview")
+            .appendingPathComponent("\(name).json")
+        return try JSONDecoder().decode(InkFixture.self, from: Data(contentsOf: fixtureURL))
+    }
+
     static func loadDefaultRegressionFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
         let corpus = try fixtureCorpus(relativeTo: file)
         return try defaultRegressionFixtureNames.map { fixtureName in
@@ -125,9 +140,9 @@ enum InkFixtureLoader {
         }
     }
 
-    static func loadTrustAcceptanceFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
+    static func loadLegacySafetyRegressionFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
         let corpus = try fixtureCorpus(relativeTo: file)
-        return try trustAcceptanceFixtureNames.map { fixtureName in
+        return try legacySafetyRegressionFixtureNames.map { fixtureName in
             guard let fixture = corpus.fixturesByFilename[fixtureName] else {
                 let fixtureURL = fixturesDirectoryURL(relativeTo: file)
                     .appendingPathComponent("\(fixtureName).json")

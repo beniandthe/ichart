@@ -73,9 +73,13 @@ struct ChordDraftPreviewDeviceDiagnosticPayload: Codable, Equatable {
     var idleMilliseconds: Double?
     var recognitionMilliseconds: Double?
     var recognitionTotalMilliseconds: Double?
+    var recognitionCacheHit: Bool? = nil
+    var trustEvidence: ChordInkTrustEvidence? = nil
     var topScores: [ChordInkCandidateScore]
+    var reviewScores: [ChordInkCandidateScore]? = nil
     var glyphCandidateColumns: [[ChordDraftPreviewDeviceDiagnosticGlyphCandidate]]?
     var inkStrokes: [InkStroke]? = nil
+    var requiresEditReview: Bool? = nil
 }
 
 struct ChordDraftPreviewDeviceDiagnosticReplacement: Codable, Equatable {
@@ -112,6 +116,7 @@ struct LeadSheetChordInkRecognitionBatchTargetingDiagnostics: Codable, Equatable
 struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     var timestamp: Date
     var stage: String
+    var recognitionPipelineVersion: String?
     var flow: String?
     var layoutStyle: String?
     var requestID: UUID?
@@ -141,6 +146,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     init(
         timestamp: Date = .now,
         stage: String,
+        recognitionPipelineVersion: String? = ChordInkRecognitionPipelineIdentity.version,
         flow: String? = nil,
         layoutStyle: String? = nil,
         requestID: UUID? = nil,
@@ -163,6 +169,7 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
     ) {
         self.timestamp = timestamp
         self.stage = stage
+        self.recognitionPipelineVersion = recognitionPipelineVersion
         self.flow = flow
         self.layoutStyle = layoutStyle
         self.requestID = requestID
@@ -192,6 +199,8 @@ struct ChordDraftPreviewDeviceDiagnosticEvent: Codable, Equatable {
 }
 
 struct ChordDraftPreviewDeviceDiagnosticRecorder {
+    static let defaultMaximumRetainedBytes = 8_000_000
+
     let url: URL
     private let fileManager: FileManager
 
@@ -221,6 +230,23 @@ struct ChordDraftPreviewDeviceDiagnosticRecorder {
         }
 
         try fileManager.removeItem(at: url)
+    }
+
+    @discardableResult
+    func resetIfLargerThan(_ maximumBytes: Int = Self.defaultMaximumRetainedBytes) throws -> Bool {
+        guard maximumBytes >= 0,
+              fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return false
+        }
+
+        let attributes = try fileManager.attributesOfItem(atPath: url.path(percentEncoded: false))
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard byteCount > maximumBytes else {
+            return false
+        }
+
+        try fileManager.removeItem(at: url)
+        return true
     }
 
     func loadEvents() throws -> [ChordDraftPreviewDeviceDiagnosticEvent] {
@@ -278,14 +304,18 @@ private extension ChordDraftPreviewDeviceDiagnosticRecorder {
 
 #if canImport(UIKit)
 enum ChordDraftPreviewDeviceDiagnostics {
-    static func reset() {
+    static func beginSession() {
         #if DEBUG
-        do {
-            let recorder = ChordDraftPreviewDeviceDiagnosticRecorder.live()
-            try recorder.reset()
-            try recorder.append(ChordDraftPreviewDeviceDiagnosticEvent(stage: "reset"))
-        } catch {
-            print("iChart chord draft preview diagnostic error: \(error)")
+        let event = ChordDraftPreviewDeviceDiagnosticEvent(stage: "reset")
+        writeQueue.async {
+            do {
+                let recorder = ChordDraftPreviewDeviceDiagnosticRecorder.live()
+                _ = try recorder.resetIfLargerThan()
+                try recorder.append(event)
+                print(compactSummary(for: event))
+            } catch {
+                print("iChart chord draft preview diagnostic error: \(error)")
+            }
         }
         #endif
     }
@@ -303,7 +333,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
         layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
-        append(
+        enqueue {
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "targeting",
                 flow: flow.telemetryValue,
@@ -321,7 +351,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
                     diagnosticTarget(index: index, target: target)
                 }
             )
-        )
+        }
         #endif
     }
 
@@ -331,7 +361,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
         layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
-        append(
+        enqueue {
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "single_target",
                 flow: flow.telemetryValue,
@@ -348,12 +378,11 @@ enum ChordDraftPreviewDeviceDiagnostics {
                         laneFraction: request.laneLocation?.fraction,
                         strokeCount: request.strokes.count,
                         bounds: bounds(for: request.strokes),
-                        strokeBounds: strokeBounds(for: request.strokes),
-                        inkStrokes: request.strokes
+                        strokeBounds: strokeBounds(for: request.strokes)
                     )
                 ]
             )
-        )
+        }
         #endif
     }
 
@@ -366,7 +395,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
         layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
-        append(
+        enqueue {
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: stage,
                 flow: flow.telemetryValue,
@@ -375,7 +404,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
                 rawBatchTargetCount: rawBatchTargetCount,
                 boundedBatchTargetCount: boundedBatchTargetCount
             )
-        )
+        }
         #endif
     }
 
@@ -386,7 +415,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
         layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
-        append(
+        enqueue {
             ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: stage,
                 flow: flow.telemetryValue,
@@ -398,7 +427,7 @@ enum ChordDraftPreviewDeviceDiagnostics {
                     diagnosticPayload(index: index, payload: payload)
                 }
             )
-        )
+        }
         #endif
     }
 
@@ -409,34 +438,34 @@ enum ChordDraftPreviewDeviceDiagnostics {
         layoutStyle: ChartLayoutStyle? = nil
     ) {
         #if DEBUG
-        let previousDraftsByAnchor = Dictionary(
-            previousState.draftChords.map { ($0.anchor, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let replacements = updatedState.draftChords.enumerated().map { index, draft in
-            let previousDraft = previousDraftsByAnchor[draft.anchor]
-            return ChordDraftPreviewDeviceDiagnosticReplacement(
-                draftIndex: index,
-                anchorMeasureID: draft.anchor.measureID,
-                anchorFractionBucket: draft.anchor.fractionBucket,
-                previousDraftID: previousDraft?.id,
-                newDraftID: draft.id,
-                targetFraction: draft.targetFraction,
-                laneSystemIndex: draft.laneLocation?.systemIndex,
-                laneFraction: draft.laneLocation?.fraction,
-                previousPreviewText: previousDraft?.previewText,
-                newPreviewText: draft.previewText,
-                previousRenderable: previousDraft?.isRenderable,
-                newRenderable: draft.isRenderable,
-                bestCandidateText: draft.bestCandidateText,
-                candidateTexts: draft.candidateTexts,
-                strokeCount: draft.strokeCount,
-                confidence: draft.confidence
+        enqueue {
+            let previousDraftsByAnchor = Dictionary(
+                previousState.draftChords.map { ($0.anchor, $0) },
+                uniquingKeysWith: { first, _ in first }
             )
-        }
+            let replacements = updatedState.draftChords.enumerated().map { index, draft in
+                let previousDraft = previousDraftsByAnchor[draft.anchor]
+                return ChordDraftPreviewDeviceDiagnosticReplacement(
+                    draftIndex: index,
+                    anchorMeasureID: draft.anchor.measureID,
+                    anchorFractionBucket: draft.anchor.fractionBucket,
+                    previousDraftID: previousDraft?.id,
+                    newDraftID: draft.id,
+                    targetFraction: draft.targetFraction,
+                    laneSystemIndex: draft.laneLocation?.systemIndex,
+                    laneFraction: draft.laneLocation?.fraction,
+                    previousPreviewText: previousDraft?.previewText,
+                    newPreviewText: draft.previewText,
+                    previousRenderable: previousDraft?.isRenderable,
+                    newRenderable: draft.isRenderable,
+                    bestCandidateText: draft.bestCandidateText,
+                    candidateTexts: draft.candidateTexts,
+                    strokeCount: draft.strokeCount,
+                    confidence: draft.confidence
+                )
+            }
 
-        append(
-            ChordDraftPreviewDeviceDiagnosticEvent(
+            return ChordDraftPreviewDeviceDiagnosticEvent(
                 stage: "preview_replace",
                 layoutStyle: layoutStyle?.rawValue,
                 payloadCount: inputs.count,
@@ -444,20 +473,47 @@ enum ChordDraftPreviewDeviceDiagnostics {
                 unresolvedDraftCount: updatedState.unresolvedChordCount,
                 replacements: replacements
             )
-        )
+        }
         #endif
     }
 }
 
 private extension ChordDraftPreviewDeviceDiagnostics {
     #if DEBUG
+    static let writeQueue = DispatchQueue(
+        label: "com.ichart.chord-draft-preview-diagnostics",
+        qos: .utility
+    )
+
     static func append(_ event: ChordDraftPreviewDeviceDiagnosticEvent) {
+        writeQueue.async {
+            write(event)
+        }
+    }
+
+    static func enqueue(_ makeEvent: @escaping () -> ChordDraftPreviewDeviceDiagnosticEvent) {
+        writeQueue.async {
+            write(makeEvent())
+        }
+    }
+
+    static func write(_ event: ChordDraftPreviewDeviceDiagnosticEvent) {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
             try ChordDraftPreviewDeviceDiagnosticRecorder.live().append(event)
             print(compactSummary(for: event))
         } catch {
             print("iChart chord draft preview diagnostic error: \(error)")
         }
+        IChartPerformanceTrace.record(
+            "chord.draft_diagnostics.append",
+            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
+            metadata: [
+                "stage": event.stage,
+                "targets": "\(event.targets.count)",
+                "payloads": "\(event.payloads.count)"
+            ]
+        )
     }
 
     static func diagnosticTarget(
@@ -473,8 +529,7 @@ private extension ChordDraftPreviewDeviceDiagnostics {
             laneFraction: target.laneLocation?.fraction,
             strokeCount: target.strokes.count,
             bounds: bounds(for: target.strokes),
-            strokeBounds: strokeBounds(for: target.strokes),
-            inkStrokes: target.strokes
+            strokeBounds: strokeBounds(for: target.strokes)
         )
     }
 
@@ -504,7 +559,10 @@ private extension ChordDraftPreviewDeviceDiagnostics {
             idleMilliseconds: payload.timing.idleMilliseconds,
             recognitionMilliseconds: payload.timing.recognitionMilliseconds,
             recognitionTotalMilliseconds: payload.timing.recognitionTotalMilliseconds,
+            recognitionCacheHit: payload.timing.cacheHit,
+            trustEvidence: payload.result.trustEvidence,
             topScores: Array(payload.result.candidateScores.prefix(8)),
+            reviewScores: Array(payload.result.reviewCandidateScores.prefix(4)),
             glyphCandidateColumns: payload.result.glyphCandidates.map { candidates in
                 candidates.prefix(8).map { candidate in
                     ChordDraftPreviewDeviceDiagnosticGlyphCandidate(
@@ -514,7 +572,8 @@ private extension ChordDraftPreviewDeviceDiagnostics {
                     )
                 }
             },
-            inkStrokes: payload.strokes
+            inkStrokes: payload.strokes,
+            requiresEditReview: payload.result.requiresEditReview
         )
     }
 
@@ -535,26 +594,27 @@ private extension ChordDraftPreviewDeviceDiagnostics {
     }
 
     static func compactSummary(for event: ChordDraftPreviewDeviceDiagnosticEvent) -> String {
+        let pipeline = event.recognitionPipelineVersion ?? "legacy"
         switch event.stage {
         case "targeting":
-            return "iChart chord draft debug: targeting flow=\(event.flow ?? "none") layout=\(event.layoutStyle ?? "unknown") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
+            return "iChart chord draft debug: targeting pipeline=\(pipeline) flow=\(event.flow ?? "none") layout=\(event.layoutStyle ?? "unknown") source=\(event.sourceStrokeCount ?? -1) recognition=\(event.recognitionStrokeCount ?? -1) barlines=\(event.barlineCount ?? -1) targets=\(event.boundedBatchTargetCount ?? -1)\n"
         case "single_target":
             let target = event.targets.first
-            return "iChart chord draft debug: single_target layout=\(event.layoutStyle ?? "unknown") strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
+            return "iChart chord draft debug: single_target pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") strokes=\(target?.strokeCount ?? -1) fraction=\(target?.fraction ?? -1)\n"
         case "finish_single", "finish_batch":
             let best = event.payloads.map { payload in
                 payload.acceptedText ?? payload.matchText ?? payload.supportedCandidates.first ?? "?"
             }.joined(separator: "|")
             let slowestTotal = event.payloads.compactMap(\.recognitionTotalMilliseconds).max()
             let timing = slowestTotal.map { String(format: " total=%.0fms", $0) } ?? ""
-            return "iChart chord draft debug: \(event.stage) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1)\(timing) best=\(best)\n"
+            return "iChart chord draft debug: \(event.stage) pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") payloads=\(event.payloadCount ?? -1)\(timing) best=\(best)\n"
         case "preview_replace":
             let texts = event.replacements.map { replacement in
                 "\(replacement.previousPreviewText ?? "?")->\(replacement.newPreviewText ?? "?")"
             }.joined(separator: "|")
-            return "iChart chord draft debug: preview_replace layout=\(event.layoutStyle ?? "unknown") drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
+            return "iChart chord draft debug: preview_replace pipeline=\(pipeline) layout=\(event.layoutStyle ?? "unknown") drafts=\(event.draftCount ?? -1) unresolved=\(event.unresolvedDraftCount ?? -1) \(texts)\n"
         default:
-            return "iChart chord draft debug: \(event.stage)\n"
+            return "iChart chord draft debug: \(event.stage) pipeline=\(pipeline)\n"
         }
     }
     #endif

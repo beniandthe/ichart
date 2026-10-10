@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import PencilKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -24,7 +25,7 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
         configuration.label
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 10)
-            .frame(height: 38)
+            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
             .foregroundStyle(configuration.isPressed ? Color.white : EditorToolAccent.semanticRead)
             .background(
                 configuration.isPressed
@@ -43,484 +44,95 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
     }
 }
 
-private enum IChartEditorGuidedTourStep: String, Identifiable {
+enum IChartEditorGuidedTourStep: String, Identifiable {
     case setup
-    case chordTool
-    case chordModes
-    case chordWrite
-    case chordConfirm
-    case chordRender
-    case chordCorrection
-    case chordUnreadable
-    case chordMove
-    case chordDone
-    case measureTool
-    case measureAdd
-    case measureStack
-    case measureFirst
-    case measureDouble
-    case measureNewRow
-    case measureDelete
-    case measureRange
-    case measureDone
-    case repeatsTool
-    case repeatsOneBar
-    case repeatsStart
-    case repeatsEnd
-    case repeatsFirstEnding
-    case repeatsSecondEnding
-    case repeatsDeleteRepeat
-    case repeatsDeleteEnding
-    case repeatsDone
-    case codaTool
-    case codaMarker
-    case codaMoveDelete
-    case codaDone
-    case textTool
-    case textAddPosition
-    case textAddConfirm
-    case textMoveResizeDelete
-    case textDone
-    case timeTool
-    case timeSelectMeasure
-    case timeChooseMeter
-    case timeApplyScope
-    case timeDone
-    case freeWriteTool
-    case freeWriteMode
-    case freeWriteDone
-    case page
-    case pageExport
-    case pageHeader
-    case pageKey
-    case pageInstrument
-    case pageTranspose
-    case pageStyle
-    case pageFonts
-    case pagePen
-    case pageEngraving
+    case writeChords
+    case renderChords
+    case shapeForm
+    case addCue
+    case review
+    case export
     case finish
 
     var id: String { rawValue }
 
-    private static let simpleSheetWalkthroughSteps: [IChartEditorGuidedTourStep] = [
+    static let quickStartSteps: [IChartEditorGuidedTourStep] = [
         .setup,
-        .chordTool,
-        .chordModes,
-        .chordWrite,
-        .chordConfirm,
-        .chordRender,
-        .chordDone,
-        .measureTool,
-        .measureStack,
-        .measureNewRow,
-        .measureDone,
-        .textTool,
-        .textAddPosition,
-        .textAddConfirm,
-        .textDone,
-        .page,
-        .pageExport,
+        .writeChords,
+        .renderChords,
+        .shapeForm,
+        .addCue,
+        .review,
+        .export,
         .finish
     ]
 
     var progressText: String? {
-        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+        guard let index = Self.quickStartSteps.firstIndex(of: self) else {
             return nil
         }
 
-        return "Step \(index + 1) of \(Self.simpleSheetWalkthroughSteps.count)"
+        return "\(index + 1) of \(Self.quickStartSteps.count)"
     }
 
     var title: String {
         switch self {
         case .setup:
-            "Create The Page"
-        case .chordTool:
-            "Enter Chord"
-        case .chordModes:
-            "Use Write Mode"
-        case .chordWrite:
-            "Write The Example"
-        case .chordConfirm:
-            "Resolve Choices"
-        case .chordRender:
-            "Render Chords"
-        case .chordCorrection:
-            "Edit A Rendered Chord"
-        case .chordUnreadable:
-            "If iChart Misses"
-        case .chordMove:
-            "Move Chords"
-        case .chordDone:
-            "Leave Chord Mode"
-        case .measureTool:
+            "Create A Page"
+        case .writeChords:
+            "Write Four Chords"
+        case .renderChords:
+            "Check And Render"
+        case .shapeForm:
             "Shape The Form"
-        case .measureAdd:
-            "Add"
-        case .measureStack:
-            "Add Measures"
-        case .measureFirst:
-            "First"
-        case .measureDouble:
-            "Double"
-        case .measureNewRow:
-            "Clean Rows"
-        case .measureDelete:
-            "Delete"
-        case .measureRange:
-            "Range Delete"
-        case .measureDone:
-            "Finish Measures"
-        case .repeatsTool:
-            "Repeats Tool"
-        case .repeatsOneBar:
-            "One Bar"
-        case .repeatsStart:
-            "Start Repeat"
-        case .repeatsEnd:
-            "End Repeat"
-        case .repeatsFirstEnding:
-            "First Ending"
-        case .repeatsSecondEnding:
-            "Second Ending"
-        case .repeatsDeleteRepeat:
-            "Delete Repeat"
-        case .repeatsDeleteEnding:
-            "Delete Ending"
-        case .repeatsDone:
-            "Finish Repeats"
-        case .codaTool:
-            "Coda Tool"
-        case .codaMarker:
-            "Place A Marker"
-        case .codaMoveDelete:
-            "Move Or Delete"
-        case .codaDone:
-            "Finish Coda"
-        case .textTool:
+        case .addCue:
             "Add A Cue"
-        case .textAddPosition:
-            "Place Text"
-        case .textAddConfirm:
-            "Type The Cue"
-        case .textMoveResizeDelete:
-            "Move, Size, Delete"
-        case .textDone:
-            "Finish Text"
-        case .timeTool:
-            "Time Tool"
-        case .timeSelectMeasure:
-            "Select A Measure"
-        case .timeChooseMeter:
-            "Choose A Time"
-        case .timeApplyScope:
-            "Apply The Change"
-        case .timeDone:
-            "Finish Time"
-        case .freeWriteTool:
-            "Free-Write"
-        case .freeWriteMode:
-            "Persistent Ink"
-        case .freeWriteDone:
-            "Finish Free-Write"
-        case .page:
-            "Final Check"
-        case .pageExport:
-            "Export PDF"
-        case .pageHeader:
-            "Header"
-        case .pageKey:
-            "Key Signature"
-        case .pageInstrument:
-            "Instrument View"
-        case .pageTranspose:
-            "Transpose"
-        case .pageStyle:
-            "Style"
-        case .pageFonts:
-            "Fonts"
-        case .pagePen:
-            "Pen Responsiveness"
-        case .pageEngraving:
-            "Engraving"
+        case .review:
+            "Review The Page"
+        case .export:
+            "Export When Ready"
         case .finish:
-            "Walkthrough Complete"
+            "Quick Start Complete"
         }
     }
 
     var message: String {
         switch self {
         case .setup:
-            "Use a normal example setup: C, 4/4, eight starting measures, and the selected Simple Chord Sheet style. Create Blank Page opens the editor."
-        case .chordTool:
-            "Tap Chord to write symbols iChart should read. The example starts with a simple four-chord progression."
-        case .chordModes:
-            "Keep Write selected. Erase removes chord writing before you render."
-        case .chordWrite:
-            "Write C, F, G, and C across the first four highlighted measures. Wait for preview text under your writing. If you draw a barline in the lane, it previews there too."
-        case .chordConfirm:
-            "If iChart opens a choice sheet, choose the intended chord or type it. If no sheet appears, continue."
-        case .chordRender:
-            "Tap Render Chords when the previews are right. This puts the chords and any lane barlines onto the chart."
-        case .chordCorrection:
-            "If it is not your chord, delete it or double tap the chord to type the one you want."
-        case .chordUnreadable:
-            "If iChart cannot read the chord, erase and rewrite the ink, or type the chord and confirm it."
-        case .chordMove:
-            "Chords on the chart can be dragged and placed around a measure."
-        case .chordDone:
-            "Tap Done after the example chords are rendered so the editor returns to Select."
-        case .measureTool:
-            "Tap Measures to adjust the Simple sheet form after the chords are in place."
-        case .measureAdd:
-            "Add inserts one measure after the selected measure."
-        case .measureStack:
-            "Use Stack only if the example needs more measures. Otherwise use Next to keep the eight-measure setup."
-        case .measureFirst:
-            "First inserts a new first measure at the beginning of the chart."
-        case .measureDouble:
-            "Double creates a double barline on the selected measure."
-        case .measureNewRow:
-            "Select the measure that should start a new row, then tap New Row. Even Row can clean up widths after that."
-        case .measureDelete:
-            "Delete removes the highlighted selected measure."
-        case .measureRange:
-            "Range starts at the selected measure; select another measure to delete the full span."
-        case .measureDone:
-            "Tap Done once the example has a readable row layout."
-        case .repeatsTool:
-            "Repeats adds repeat symbols and endings to highlighted measures."
-        case .repeatsOneBar:
-            "One Bar marks the selected measure as a one-bar repeat."
-        case .repeatsStart:
-            "Start begins a repeat at the currently highlighted measure."
-        case .repeatsEnd:
-            "Select another measure, then tap End Rep to close the repeat loop."
-        case .repeatsFirstEnding:
-            "1st starts a first ending. Select the end measure if needed, then tap End 1st to confirm the span."
-        case .repeatsSecondEnding:
-            "2nd starts a second ending. Select the end measure if needed, then tap End 2nd to confirm."
-        case .repeatsDeleteRepeat:
-            "Remove Repeat deletes repeat markings attached to the selected measure."
-        case .repeatsDeleteEnding:
-            "Remove Ending deletes an ending attached to the selected measure."
-        case .repeatsDone:
-            "Tap Done when you are done with repeat structure."
-        case .codaTool:
-            "Coda places roadmap markers on the selected measure."
-        case .codaMarker:
-            "Choose a marker to place on the current selected measure."
-        case .codaMoveDelete:
-            "After placing a marker, drag it around that measure or tap its x to delete it."
-        case .codaDone:
-            "Move on when you are done placing roadmap markers."
-        case .textTool:
-            "Tap Text to add one short cue to the example chart."
-        case .textAddPosition:
-            "Choose Add Text Above Selected Measure for a simple section label or cue."
-        case .textAddConfirm:
-            "Type a short cue like Intro, Verse, or Solo, then tap Add."
-        case .textMoveResizeDelete:
-            "Select placed text to move it, make it smaller or larger, or delete it."
-        case .textDone:
-            "Tap Done after the cue appears on the chart."
-        case .timeTool:
-            "Time changes meter at a selected measure."
-        case .timeSelectMeasure:
-            "Select the measure where the new time signature should start."
-        case .timeChooseMeter:
-            "Choose the new time signature."
-        case .timeApplyScope:
-            "Apply it with new measures, to the end of the piece, or until the next time change."
-        case .timeDone:
-            "Tap Done when you are done changing time."
-        case .freeWriteTool:
-            "Free-Write is persistent ink mode."
-        case .freeWriteMode:
-            "Nothing in Free-Write is read by iChart. It stays as raw ink and can be erased any time."
-        case .freeWriteDone:
-            "Tap Done when you are done free-writing."
-        case .page:
-            "Review the chart in Select before export: title, chords, rows, text, and empty measures."
-        case .pageExport:
-            "Tap Settings, then Export to create the finished PDF. The editable chart stays in Charts."
-        case .pageHeader:
-            "Header lets you type or handwrite the chart header."
-        case .pageKey:
-            "Key changes the chart key signature or adds a key change at the selected measure."
-        case .pageInstrument:
-            "Instrument Transposition changes the reading view for transposing instruments."
-        case .pageTranspose:
-            "Transpose moves the written chords up or down."
-        case .pageStyle:
-            "Style changes the chart look."
-        case .pageFonts:
-            "Fonts controls the chart fonts."
-        case .pagePen:
-            "Pen Responsiveness adjusts ink feel."
-        case .pageEngraving:
-            "Engraving controls page layout."
+            "Four measures are ready. Change the setup if you want, then create the page."
+        case .writeChords:
+            "Tap Write & Render and write C, F, G, C in the first four measures. The small labels are previews."
+        case .renderChords:
+            "Check the previews, then tap Render Chords or Review & Render. If Confirm Chords opens, correct the text or choose a suggestion, then tap Render All."
+        case .shapeForm:
+            "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
+        case .addCue:
+            "Open Tools > Text, choose a measure, then Above or Below. Add a short cue like Intro or Verse."
+        case .review:
+            "Tap Done. In Select, tap anything you want to move, edit, resize, or delete."
+        case .export:
+            "Tap Export PDF when the chart is ready. Your editable chart stays in Charts."
         case .finish:
-            "The Simple Chord Sheet example is complete. You can restart this walkthrough from Help."
-        }
-    }
-
-    var guardrailText: String? {
-        switch self {
-        case .setup:
-            "Create Blank Page is required. The tour cannot progress into the editor until setup is complete."
-        case .chordTool:
-            "Use Chord for readable chord symbols only; use Free-Write later for raw handwritten marks."
-        case .chordModes:
-            "If Write is not selected, switch to Write before adding example chords."
-        case .chordWrite:
-            "The preview is only a preview. It is not on the chart until you tap Render Chords or choose from a popup."
-        case .chordConfirm:
-            "Resolve any sheet that appears. If nothing appears, use Next."
-        case .chordRender:
-            "If Render Chords is disabled, fix the chord iChart could not read. If a popup already added the chord, use Next."
-        case .chordDone:
-            "Done is the safe exit from Chord mode before layout or text edits."
-        case .measureTool:
-            "Every measure action uses the selected measure as its target."
-        case .measureStack:
-            "Stack is optional in this example. Do not add measures if the page already has enough."
-        case .measureNewRow:
-            "If New Row is disabled, select a measure that can legally start a new row."
-        case .measureDone:
-            "Select mode is the checkpoint before adding text."
-        case .textTool:
-            "Text requires a selected measure. Select the target measure first if needed."
-        case .textAddPosition:
-            "If the menu action does nothing, return to Select and tap the measure that should own the text."
-        case .textAddConfirm:
-            "Add stays blocked until the text field is not blank."
-        case .textDone:
-            "Leave Text mode before export."
-        case .page:
-            "Do not export from a writing mode. Tap Done first."
-        case .pageExport:
-            "If Export is disabled, complete setup and leave the active tool."
-        case .finish:
-            "The walkthrough only covered the Simple Chord Sheet example."
-        default:
-            nil
+            "You know the core loop. Free Ink and every advanced structure tool remain available in Help > How To."
         }
     }
 
     var targetText: String? {
         switch self {
         case .setup:
-            "Tap Create Blank Page"
-        case .chordTool:
-            "Tap Chord"
-        case .chordModes:
-            "Keep Write selected"
-        case .chordWrite:
-            "Write C, F, G, C"
-        case .chordConfirm:
-            "Resolve sheet, or Next"
-        case .chordRender:
-            "Tap Render Chords"
-        case .chordCorrection:
-            "Double tap a rendered chord to edit"
-        case .chordUnreadable:
-            "Rewrite ink or type and Confirm"
-        case .chordMove:
-            "Drag a rendered chord"
-        case .chordDone:
-            "Tap Done"
-        case .measureTool:
-            "Tap Measures"
-        case .measureAdd:
-            "Tap Add"
-        case .measureStack:
-            "Stack only if needed"
-        case .measureFirst:
-            "Tap First"
-        case .measureDouble:
-            "Tap Double"
-        case .measureNewRow:
-            "Select measure, then New Row"
-        case .measureDelete:
-            "Tap Delete"
-        case .measureRange:
-            "Tap Range"
-        case .measureDone:
-            "Tap Done"
-        case .repeatsTool:
-            "Tap Repeats"
-        case .repeatsOneBar:
-            "Tap One Bar"
-        case .repeatsStart:
-            "Tap Start"
-        case .repeatsEnd:
-            "Select another measure, then tap End Rep"
-        case .repeatsFirstEnding:
-            "Tap 1st, then End 1st"
-        case .repeatsSecondEnding:
-            "Tap 2nd, then End 2nd"
-        case .repeatsDeleteRepeat:
-            "Tap Remove Repeat"
-        case .repeatsDeleteEnding:
-            "Tap Remove Ending"
-        case .repeatsDone:
-            "Tap Done"
-        case .codaTool:
-            "Tap Coda"
-        case .codaMarker:
-            "Tap a marker"
-        case .codaMoveDelete:
-            "Drag marker or tap x"
-        case .codaDone:
-            nil
-        case .textTool:
-            "Tap Text"
-        case .textAddPosition:
-            "Choose Add Text Above"
-        case .textAddConfirm:
-            "Type cue, then Add"
-        case .textMoveResizeDelete:
-            "Select text"
-        case .textDone:
-            "Tap Done"
-        case .timeTool:
-            "Tap Time"
-        case .timeSelectMeasure:
-            "Select a measure"
-        case .timeChooseMeter:
-            "Choose a time"
-        case .timeApplyScope:
-            "Choose the scope"
-        case .timeDone:
-            "Tap Done"
-        case .freeWriteTool:
-            "Tap Free-Write"
-        case .freeWriteMode:
-            "Write or erase persistent ink"
-        case .freeWriteDone:
-            "Tap Done"
-        case .page:
-            "Review in Select"
-        case .pageExport:
-            "Settings > Export"
-        case .pageHeader:
-            "Header"
-        case .pageKey:
-            "Key"
-        case .pageInstrument:
-            "Instrument"
-        case .pageTranspose:
-            "Transpose"
-        case .pageStyle:
-            "Style"
-        case .pageFonts:
-            "Fonts"
-        case .pagePen:
-            "Pen Responsiveness"
-        case .pageEngraving:
-            "Engraving"
+            "Create Blank Page"
+        case .writeChords:
+            "Write & Render • write C, F, G, C"
+        case .renderChords:
+            "Render Chords / Review & Render"
+        case .shapeForm:
+            "Measures • Add / Layout / Delete"
+        case .addCue:
+            "Tools > Text"
+        case .review:
+            "Done • then Select"
+        case .export:
+            "Export PDF"
         case .finish:
             nil
         }
@@ -530,34 +142,27 @@ private enum IChartEditorGuidedTourStep: String, Identifiable {
         switch self {
         case .setup:
             nil
-        case .chordConfirm:
-            "No Sheet? Next"
-        case .chordRender:
-            "Render Or Continue"
-        case .measureStack:
-            "Skip If Enough"
-        case .pageExport:
-            "Done Exporting"
+        case .export:
+            "Skip Export"
         case .finish:
-            "Finish Tour"
+            "Done"
         default:
-            "Next"
+            "Continue"
         }
     }
 
     var nextStep: IChartEditorGuidedTourStep? {
-        guard let index = Self.simpleSheetWalkthroughSteps.firstIndex(of: self) else {
+        guard let index = Self.quickStartSteps.firstIndex(of: self) else {
             return nil
         }
 
         let nextIndex = index + 1
-        guard Self.simpleSheetWalkthroughSteps.indices.contains(nextIndex) else {
+        guard Self.quickStartSteps.indices.contains(nextIndex) else {
             return nil
         }
 
-        return Self.simpleSheetWalkthroughSteps[nextIndex]
+        return Self.quickStartSteps[nextIndex]
     }
-
 }
 
 private struct IChartEditorGuidedTourRail: View {
@@ -571,27 +176,27 @@ private struct IChartEditorGuidedTourRail: View {
     private let ink = IChartTourStyle.ink
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles")
-                    .font(.title3.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(actionAccent)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
+                        Text("Quick Start")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(actionAccent)
+
                         if let progressText = step.progressText {
                             Text(progressText)
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(actionAccent)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(IChartTourStyle.orangeSoft)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(accent.opacity(0.74))
                         }
 
                         Text(step.title)
-                            .font(.headline.weight(.bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(accent)
                     }
 
@@ -599,34 +204,33 @@ private struct IChartEditorGuidedTourRail: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    if let guardrailText = step.guardrailText {
-                        Label(guardrailText, systemImage: "checkmark.shield")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(accent)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 2)
-                    }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let targetText = step.targetText {
-                Label(targetText, systemImage: "hand.tap")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(accent)
-                    .frame(width: 250, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(IChartTourStyle.orangeSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(actionAccent.opacity(0.72), lineWidth: 1.4)
-                    }
+                Button(action: onFinish) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(accent.opacity(0.72))
+                .accessibilityLabel("End Quick Start")
             }
 
             HStack(spacing: 10) {
+                if let targetText = step.targetText {
+                    Label(targetText, systemImage: "hand.tap")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(IChartTourStyle.orangeSoft)
+                        .clipShape(Capsule())
+                }
+
+                Spacer(minLength: 0)
+
                 if let forwardActionTitle = step.forwardActionTitle {
                     Button(forwardActionTitle) {
                         if step == .finish {
@@ -637,21 +241,11 @@ private struct IChartEditorGuidedTourRail: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(actionAccent)
-                    .tourActionHighlight(
-                        isActive: true,
-                        cornerRadius: 9,
-                        tint: actionAccent
-                    )
                 }
-
-                Button("Skip Tour", action: onFinish)
-                    .buttonStyle(.bordered)
-                    .tint(accent)
             }
-            .fixedSize()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(paper.opacity(0.96))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -659,22 +253,8 @@ private struct IChartEditorGuidedTourRail: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(accent.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
         }
-        .shadow(color: accent.opacity(0.18), radius: 18, y: 9)
+        .shadow(color: accent.opacity(0.12), radius: 10, y: 5)
         .accessibilityElement(children: .contain)
-    }
-}
-
-private struct IChartEditorGuidedTourPrompt: View {
-    let step: IChartEditorGuidedTourStep
-    let onNext: () -> Void
-    let onFinish: () -> Void
-
-    var body: some View {
-        IChartEditorGuidedTourRail(
-            step: step,
-            onNext: onNext,
-            onFinish: onFinish
-        )
     }
 }
 
@@ -714,6 +294,10 @@ struct EditorView: View {
         Meter(numerator: 12, denominator: 8)
     ]
     private static let showsChordFixtureCaptureTools = false
+    private static let chordPreviewTelemetryQueue = DispatchQueue(
+        label: "com.ichart.chord-preview-telemetry",
+        qos: .utility
+    )
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ChartLibraryStore
@@ -725,7 +309,6 @@ struct EditorView: View {
     @State private var showingSetupSheet = false
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
-    @State private var showingInkResponsivenessSheet = false
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
@@ -743,13 +326,25 @@ struct EditorView: View {
     @State private var pendingChordInkConfirmation: PendingChordInkConfirmation?
     @State private var pendingChordInkBatchConfirmation: PendingChordInkBatchConfirmation?
     @State private var pendingChordCorrection: PendingChordCorrection?
+    @State private var showingPersonalHandwriting = false
+    @State private var personalHandwritingStartsWithEvaluation = false
+    @State private var personalLearningSessionID = UUID()
+    @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
+    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     @State private var chordPreviewState = ChordPreviewState()
+    @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
+    @State private var chordWritingBatchID = UUID()
+    @State private var chordReviewStartedAt: Date?
+    // Temporary review input only. It is never training, telemetry or a
+    // committed chord until the user explicitly renders the reviewed batch.
+    @State private var chordReviewEntriesByInk: [Data: String] = [:]
     @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
     @State private var chordInkErrorMessage = ""
     @State private var showingChordInkError = false
+    @State private var pendingChordDraftClearChartID: UUID?
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
@@ -770,8 +365,6 @@ struct EditorView: View {
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(LeadSheetInkResponsivenessPolicy.storageKey)
-    private var inkResponsivenessValue = LeadSheetInkResponsivenessPolicy.defaultValue
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
     private let onExit: (() -> Void)?
@@ -797,12 +390,36 @@ struct EditorView: View {
         self.chordInkUserCorrectionMemoryStore = chordInkUserCorrectionMemoryStore
         self.onExit = onExit
         _canvasMode = State(initialValue: Self.releaseSafeInitialCanvasMode(initialCanvasMode))
-        _chordInkUserCorrectionMemory = State(
-            initialValue: (try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory()
+        _chordInkUserCorrectionMemory = State(initialValue:
+            HandwritingPersonalizationProductPolicy.isAvailable
+                ? ((try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory())
+                : ChordInkUserCorrectionMemory()
         )
     }
 
     var body: some View {
+        editorContent
+            .confirmationDialog(
+                "Clear draft ink?",
+                isPresented: isChordDraftClearPresented,
+                titleVisibility: .visible,
+                presenting: pendingChordDraftClearChartID
+            ) { requestedChartID in
+                Button("Clear Draft Ink", role: .destructive) {
+                    pendingChordDraftClearChartID = nil
+                    guard requestedChartID == chart.id else { return }
+                    handleDiscardChordDrafts()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This removes all unrendered chord and barline writing. Rendered notation and Free Ink stay unchanged.")
+            }
+            .onChange(of: chart.id) { _, _ in
+                pendingChordDraftClearChartID = nil
+            }
+    }
+
+    private var editorContent: some View {
         VStack(spacing: 0) {
             editorNavigationChrome
 
@@ -830,8 +447,8 @@ struct EditorView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color(red: 0.95, green: 0.94, blue: 0.91),
-                    Color(red: 0.90, green: 0.93, blue: 0.96)
+                    appAppearance.isDark ? Color(red: 0.06, green: 0.08, blue: 0.11) : Color(red: 0.95, green: 0.94, blue: 0.91),
+                    appAppearance.isDark ? Color(red: 0.09, green: 0.12, blue: 0.15) : Color(red: 0.90, green: 0.93, blue: 0.96)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -848,7 +465,7 @@ struct EditorView: View {
                 CueTextEntryPanelView(
                     text: $cueTextDraft,
                     actionTitle: editingCueTextID == nil ? "Add" : "Apply",
-                    highlightsAction: editorGuidedTourStep == .textAddConfirm,
+                    highlightsAction: editorGuidedTourStep == .addCue,
                     onAdd: handleCueTextEntryAccepted,
                     onCancel: clearPendingCueTextEntry
                 )
@@ -861,6 +478,8 @@ struct EditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .preferredColorScheme(appAppearance.colorScheme)
+        .environment(\.colorScheme, appAppearance.colorScheme)
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .upgrade(let feature):
@@ -886,12 +505,16 @@ struct EditorView: View {
         .sheet(isPresented: $showingTypographySheet) {
             ChartTypographySheetView(chart: $chart)
         }
-        .sheet(isPresented: $showingInkResponsivenessSheet) {
-            InkResponsivenessSheetView(value: $inkResponsivenessValue)
+        .sheet(isPresented: $showingPersonalHandwriting) {
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                PersonalHandwritingView(chartID: chart.id, layoutStyle: chart.layoutStyle,
+                                        hasChordInk: hasUnrenderedChordInkForEvaluation,
+                                        startsWithEvaluation: personalHandwritingStartsWithEvaluation)
+            }
         }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
-                highlightsAddAction: editorGuidedTourStep == .measureStack,
+                highlightsAddAction: editorGuidedTourStep == .shapeForm,
                 onAdd: { measureCount in
                     handleMeasureStackInsertionAccepted(measureCount, insertion: insertion)
                 },
@@ -904,7 +527,7 @@ struct EditorView: View {
             ChordInkConfirmationSheetView(
                 confirmation: confirmation,
                 showsFixtureCaptureTools: Self.showsChordFixtureCaptureTools,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
+                highlightsForwardActions: editorGuidedTourStep == .renderChords,
                 onAcceptCandidate: { candidateText in
                     handleChordInkCandidateAccepted(candidateText, confirmation: confirmation)
                 },
@@ -918,26 +541,44 @@ struct EditorView: View {
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
-                }
+                },
+                onBackToInk: handleBackToChordInk,
+                onRewriteChord: nil
             )
         }
         .sheet(item: $pendingChordInkBatchConfirmation) { batch in
             ChordInkBatchConfirmationSheetView(
                 batch: batch,
-                highlightsForwardActions: editorGuidedTourStep == .chordConfirm || editorGuidedTourStep == .chordRender,
+                highlightsForwardActions: editorGuidedTourStep == .renderChords,
                 onAcceptAll: { candidateTextByID in
                     handleChordInkBatchAccepted(candidateTextByID, batch: batch)
                 },
                 onClearAndRewrite: {
                     handleChordInkRewriteRequested()
+                },
+                onBackToInk: handleBackToChordInk,
+                onRewriteChord: batch.source == .draftPreview ? handleChordDraftRewriteRequested : nil,
+                initialEntryTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
+                    chordReviewEntriesByInk[confirmation.drawingData].map { (confirmation.id, $0) }
+                }),
+                onEntryTextsChanged: { entries in
+                    for confirmation in batch.confirmations {
+                        if let text = entries[confirmation.id] {
+                            chordReviewEntriesByInk[confirmation.drawingData] = text
+                        }
+                    }
                 }
             )
+            .id(batch.id)
         }
         .sheet(item: $pendingChordCorrection) { correction in
             ChordCorrectionSheetView(
                 correction: correction,
-                onAcceptCandidate: { candidateText in
-                    handleChordCorrectionAccepted(candidateText, correction: correction)
+                canTeachHandwriting: HandwritingPersonalizationProductPolicy.isAvailable
+                    && PersonalInkProfileStore.shared.snapshot().profile.isEnabled
+                    && chart.chordEvent(id: correction.chordEventID)?.sourceInkData != nil,
+                onAcceptCandidate: { candidateText, teachesHandwriting in
+                    handleChordCorrectionAccepted(candidateText, correction: correction, teachesHandwriting: teachesHandwriting)
                 },
                 onCancel: {
                     pendingChordCorrection = nil
@@ -963,7 +604,6 @@ struct EditorView: View {
                             sourceMeasureID: sourceMeasureID,
                             meter: meter
                         )
-                        completeEditorGuidedTourStep(.timeChooseMeter)
                     }
                 }
             }
@@ -978,7 +618,7 @@ struct EditorView: View {
         .sheet(item: $pendingTimeSignaturePlacement) { placement in
             TimeSignatureScopeSheetView(
                 meter: placement.meter,
-                highlightsApplyActions: editorGuidedTourStep == .timeApplyScope,
+                highlightsApplyActions: false,
                 onApplyCount: { additionalMeasureCount in
                     handleTimeSignatureSelection(
                         placement.meter,
@@ -1056,7 +696,6 @@ struct EditorView: View {
             if mode.allowsAnyInkEditing {
                 inkToolMode = .write
             }
-            advanceEditorGuidedTourIfNeeded(for: mode)
         }
         .onChange(of: chart) { previousChart, updatedChart in
             if !previousChart.hasCompletedInitialSetup,
@@ -1117,47 +756,10 @@ struct EditorView: View {
         pendingSimpleChartTour = false
         if chart.hasCompletedInitialSetup {
             canvasMode = .browse
-            editorGuidedTourStep = .chordTool
+            editorGuidedTourStep = .writeChords
         } else {
             editorGuidedTourStep = .setup
         }
-    }
-
-    private func advanceEditorGuidedTourIfNeeded(for mode: EditorCanvasMode) {
-        switch (editorGuidedTourStep, mode) {
-        case (.chordTool, .chordEntry):
-            completeEditorGuidedTourStep(.chordTool)
-        case (.chordDone, .browse):
-            completeEditorGuidedTourStep(.chordDone)
-        case (.measureTool, .measureEdit):
-            completeEditorGuidedTourStep(.measureTool)
-        case (.measureDone, .browse):
-            completeEditorGuidedTourStep(.measureDone)
-        case (.repeatsTool, .repeatEdit):
-            completeEditorGuidedTourStep(.repeatsTool)
-        case (.repeatsDone, .browse):
-            completeEditorGuidedTourStep(.repeatsDone)
-        case (.textDone, .browse):
-            completeEditorGuidedTourStep(.textDone)
-        case (.timeTool, .timeSignatureEdit):
-            completeEditorGuidedTourStep(.timeTool)
-        case (.timeDone, .browse):
-            completeEditorGuidedTourStep(.timeDone)
-        case (.freeWriteTool, .freeHand):
-            completeEditorGuidedTourStep(.freeWriteTool)
-        case (.freeWriteDone, .browse):
-            completeEditorGuidedTourStep(.freeWriteDone)
-        default:
-            break
-        }
-    }
-
-    private func advanceEditorGuidedTourAfterPageToolTapIfNeeded() {
-        completeEditorGuidedTourStep(.page)
-    }
-
-    private func advanceEditorGuidedTourAfterCodaToolTapIfNeeded() {
-        completeEditorGuidedTourStep(.codaTool)
     }
 
     private func advanceEditorGuidedTourAfterSetupIfNeeded(_ updatedChart: Chart) {
@@ -1178,41 +780,12 @@ struct EditorView: View {
         switch currentStep {
         case .finish:
             finishEditorGuidedTour()
-        case .chordTool:
-            if canvasMode != .chordEntry {
-                handleChordTabTapped()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        case .chordRender:
-            if canRenderChordDrafts || chordPreviewState.unresolvedChordCount > 0 {
-                handleRenderChordDrafts()
-            } else {
-                completeEditorGuidedTourStep(currentStep)
-            }
-        case .chordDone, .measureDone, .repeatsDone, .timeDone, .freeWriteDone:
+        case .review:
             activateSelectTool()
             completeEditorGuidedTourStep(currentStep)
-        case .measureTool:
-            _ = enterMeasureEditMode()
-            completeEditorGuidedTourStep(currentStep)
-        case .repeatsTool:
-            _ = enterRepeatEditMode()
-            completeEditorGuidedTourStep(currentStep)
-        case .codaTool:
-            completeEditorGuidedTourStep(currentStep)
-        case .textTool:
-            completeEditorGuidedTourStep(currentStep)
-        case .timeTool:
-            if canvasMode != .timeSignatureEdit {
-                handleTimeSignatureTabTapped()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        case .freeWriteTool:
-            if canvasMode != .freeHand {
-                toggleFreeHandMode()
-            }
-            completeEditorGuidedTourStep(currentStep)
-        default:
+        case .setup:
+            break
+        case .writeChords, .renderChords, .shapeForm, .addCue, .export:
             completeEditorGuidedTourStep(currentStep)
         }
     }
@@ -1264,36 +837,90 @@ struct EditorView: View {
     }
 
     private var editorNavigationChrome: some View {
-        HStack(spacing: 12) {
-            Button {
-                exitEditor()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.headline)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .accessibilityLabel("Exit Chart")
+        GeometryReader { geometry in
+            let columnWidth = EditorCommandLayoutPolicy.navigationColumnWidth(
+                for: geometry.size.width
+            )
 
-            Text(chart.title)
-                .font(.headline.weight(.semibold))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-
-            Button {
-                activateSelectTool(clearsMeasureSelection: true)
-                handleExportTapped()
-            } label: {
-                if isExporting {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                } else {
-                    Label(exportButtonTitle, systemImage: "square.and.arrow.up")
+            HStack(spacing: 0) {
+                Button {
+                    exitEditor()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                        .frame(width: 44, height: 44)
                 }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Exit Chart")
+                .frame(width: columnWidth, alignment: .leading)
+
+                Menu {
+                    if HandwritingPersonalizationProductPolicy.isAvailable {
+                        personalHandwritingMenuButton
+                        Divider()
+                    }
+                    if canvasMode.locksDocumentActions {
+                        Text("Choose Done before changing other document settings.")
+                    }
+
+                    Group {
+                        pageToolMenuContent
+                    }
+                    .disabled(
+                        !EditorCommandLayoutPolicy.canActivate(
+                            .documentSettings,
+                            chartIsReady: chart.hasCompletedInitialSetup,
+                            from: canvasMode
+                        )
+                    )
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(chart.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.headline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Document settings for \(chart.title)")
+                .frame(width: columnWidth, alignment: .center)
+
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    handleExportTapped()
+                } label: {
+                    Group {
+                        if isExporting {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        } else {
+                            Label(exportButtonTitle, systemImage: "square.and.arrow.up")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
+                .accessibilityLabel(isExporting ? "Exporting PDF" : exportButtonTitle)
+                .tourActionHighlight(
+                    isActive: editorGuidedTourStep == .export,
+                    cornerRadius: 10,
+                    tint: IChartTourStyle.orange
+                )
+                .frame(width: columnWidth, alignment: .trailing)
             }
-            .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
         }
+        .frame(height: EditorCommandLayoutPolicy.minimumTapTarget)
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .background(.regularMaterial)
@@ -1341,21 +968,6 @@ struct EditorView: View {
 
             Group {
                 if showsActiveToolControls {
-                    if let activeToolExplainer {
-                        Text(activeToolExplainer.text)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(activeToolExplainer.color)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.86)
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: minWidth, alignment: .center)
-                            .accessibilityLabel(activeToolExplainer.text)
-                    }
-
-                    if canvasMode == .chordEntry {
-                        chordToolWorkflowGuide(maxWidth: minWidth)
-                    }
-
                     activeToolControls(minWidth: minWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -1394,17 +1006,12 @@ struct EditorView: View {
     }
 
     private var isEditorGuidedTourDoneActionHighlighted: Bool {
-        switch editorGuidedTourStep {
-        case .chordDone, .measureDone, .repeatsDone, .textDone, .timeDone, .freeWriteDone:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .review
     }
 
     private var isChordTourSectionActive: Bool {
         switch editorGuidedTourStep {
-        case .chordTool, .chordModes, .chordWrite, .chordConfirm, .chordRender, .chordCorrection, .chordUnreadable, .chordMove, .chordDone:
+        case .writeChords, .renderChords:
             true
         default:
             false
@@ -1412,66 +1019,11 @@ struct EditorView: View {
     }
 
     private var isMeasureTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .measureTool, .measureAdd, .measureStack, .measureFirst, .measureDouble, .measureNewRow, .measureDelete, .measureRange, .measureDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isRepeatsTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .repeatsTool, .repeatsOneBar, .repeatsStart, .repeatsEnd, .repeatsFirstEnding, .repeatsSecondEnding, .repeatsDeleteRepeat, .repeatsDeleteEnding, .repeatsDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isCodaTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .codaTool, .codaMarker, .codaMoveDelete, .codaDone:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .shapeForm
     }
 
     private var isTextTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .textTool, .textAddPosition, .textAddConfirm, .textMoveResizeDelete, .textDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isTimeTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .timeTool, .timeSelectMeasure, .timeChooseMeter, .timeApplyScope, .timeDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isFreeWriteTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .freeWriteTool, .freeWriteMode, .freeWriteDone:
-            true
-        default:
-            false
-        }
-    }
-
-    private var isPageTourSectionActive: Bool {
-        switch editorGuidedTourStep {
-        case .page, .pageExport, .pageHeader, .pageKey, .pageInstrument, .pageTranspose, .pageStyle, .pageFonts, .pagePen, .pageEngraving:
-            true
-        default:
-            false
-        }
+        editorGuidedTourStep == .addCue
     }
 
     private var isDedicatedRhythmToolAvailable: Bool {
@@ -1479,39 +1031,20 @@ struct EditorView: View {
             && chart.layoutStyle.profile.allowsRhythmicNotationInk
     }
 
-    private var activeToolExplainer: (text: String, color: Color)? {
-        switch canvasMode {
-        case .freeHand:
-            return (
-                "Persistent-ink mode. This ink is never read or interpreted by iChart.",
-                EditorToolAccent.persistentInk
-            )
-        default:
-            return nil
-        }
-    }
-
-    @ViewBuilder
-    private var pageToolControl: some View {
-        Menu {
-            pageToolMenuContent
+    private var personalHandwritingMenuButton: some View {
+        let captureActive = HandwritingPersonalizationProductPolicy.isAvailable
+            && PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil
+        return Button {
+            guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
+            personalHandwritingStartsWithEvaluation = captureActive
+            showingPersonalHandwriting = true
+            offeredPersonalHandwriting = true
         } label: {
-            pageToolLabel
+            Label(captureActive ? "Saved Chart Test" : "My Handwriting", systemImage: "hand.draw")
         }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                advanceEditorGuidedTourAfterPageToolTapIfNeeded()
-            }
-        )
-    }
-
-    private var pageToolLabel: some View {
-        EditorMenuTabLabel(
-            title: "Settings",
-            systemImage: "doc.text",
-            isSelected: canvasMode == .headerEntry,
-            isTourHighlighted: isPageTourSectionActive
-        )
+        .disabled(!HandwritingPersonalizationProductPolicy.isAvailable
+            || (canvasMode.locksDocumentActions && !captureActive))
+        .accessibilityIdentifier("personal.open")
     }
 
     @ViewBuilder
@@ -1526,14 +1059,6 @@ struct EditorView: View {
 
             Divider()
         }
-
-        Button {
-            activateSelectTool(clearsMeasureSelection: true)
-            handleExportTapped()
-        } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
 
         Button {
             handleAddPageTapped()
@@ -1696,13 +1221,6 @@ struct EditorView: View {
             Label("Fonts", systemImage: "textformat")
         }
 
-        Button {
-            activateSelectTool(clearsMeasureSelection: true)
-            showingInkResponsivenessSheet = true
-        } label: {
-            Label("Pen Responsiveness", systemImage: "pencil.tip")
-        }
-
         Menu {
             ForEach(EngravingPreset.allCases, id: \.self) { preset in
                 Button {
@@ -1716,6 +1234,21 @@ struct EditorView: View {
             }
         } label: {
             Label("Engraving", systemImage: "slider.horizontal.3")
+        }
+
+        Menu {
+            ForEach(StaffSystemDensity.allCases, id: \.self) { density in
+                Button {
+                    activateSelectTool(clearsMeasureSelection: true)
+                    runEditorOperation("Updating system spacing...") {
+                        chart.setStaffSystemDensity(density)
+                    }
+                } label: {
+                    notationMenuLabel(density.displayText, isSelected: chart.staffSystemDensity == density)
+                }
+            }
+        } label: {
+            Label("System Spacing", systemImage: "arrow.up.and.down")
         }
 
     }
@@ -1759,27 +1292,6 @@ struct EditorView: View {
     }
 
     @ViewBuilder
-    private var codaToolControl: some View {
-        Menu {
-            codaToolMenuContent
-        } label: {
-            codaToolLabel
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                advanceEditorGuidedTourAfterCodaToolTapIfNeeded()
-            }
-        )
-    }
-
-    private var codaToolLabel: some View {
-        EditorCodaTabLabel(
-            isSelected: selectedRoadmapMarkerID != nil,
-            isTourHighlighted: isCodaTourSectionActive
-        )
-    }
-
-    @ViewBuilder
     private var codaToolMenuContent: some View {
         if selectedRoadmapMarker != nil {
             Button {
@@ -1814,207 +1326,176 @@ struct EditorView: View {
         }
     }
 
-    @ViewBuilder
-    private var textToolControl: some View {
-        Menu {
-            textToolMenuContent
-        } label: {
-            textToolLabel
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                completeEditorGuidedTourStep(.textTool)
-            }
-        )
-    }
-
-    private var textToolLabel: some View {
-        EditorMenuTabLabel(
-            title: "Text",
-            systemImage: "text.bubble",
-            isSelected: canvasMode == .textEdit || showingCueTextEntry || selectedCueTextID != nil,
-            isTourHighlighted: isTextTourSectionActive
-        )
-    }
-
-    @ViewBuilder
-    private var textToolMenuContent: some View {
-        if selectedCueText != nil {
-            Button {
-                handleEditSelectedCueText()
-            } label: {
-                Label("Edit Selected Text", systemImage: "pencil")
-            }
-
-            Button {
-                resizeSelectedCueText(by: CueText.scaleStep)
-            } label: {
-                Label("Make Text Larger", systemImage: "plus.magnifyingglass")
-            }
-            .disabled(!canGrowSelectedCueText)
-
-            Button {
-                resizeSelectedCueText(by: -CueText.scaleStep)
-            } label: {
-                Label("Make Text Smaller", systemImage: "minus.magnifyingglass")
-            }
-            .disabled(!canShrinkSelectedCueText)
-
-            Button(role: .destructive) {
-                deleteSelectedCueText()
-            } label: {
-                Label("Delete Selected Text", systemImage: "trash")
-            }
-
-            Divider()
-        }
-
-        Button {
-            handleAddCueText(position: .below)
-        } label: {
-            Label("Add Text Below Selected Measure", systemImage: "text.bubble")
-        }
-
-        Button {
-            handleAddCueText(position: .above)
-        } label: {
-            Label("Add Text Above Selected Measure", systemImage: "text.bubble")
-        }
-
-        Button(role: .destructive) {
-            handleRemoveCueTextsAtSelectedMeasure()
-        } label: {
-            Label("Remove Text at Selected Measure", systemImage: "trash")
-        }
-        .disabled(!canRemoveCueTextAtSelectedMeasure)
-    }
-
     private func toolStrip(minWidth: CGFloat) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                pageToolControl
-                    .disabled(canvasMode.locksDocumentActions)
-                    .buttonStyle(.plain)
+        HStack(spacing: 4) {
+            ForEach(EditorCommandLayoutPolicy.primaryDestinations) { destination in
+                primaryToolControl(for: destination)
+                    .frame(maxWidth: .infinity)
+            }
 
-                Button {
-                    handleActiveToolDoneTapped()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Edit",
-                        systemImage: "cursorarrow",
-                        isSelected: canvasMode == .browse
-                            && selectedCueTextID == nil
-                            && selectedRoadmapMarkerID == nil
-                    )
-                }
-                .buttonStyle(.plain)
+            toolsMenuControl
+                .frame(maxWidth: .infinity)
+        }
+        .padding(4)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .frame(width: minWidth, alignment: .center)
+    }
 
-                Button {
-                    handleMeasureEditRequested()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Measures",
-                        systemImage: "rectangle.split.3x1",
-                        isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive,
-                        isTourHighlighted: isMeasureTourSectionActive
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions || canvasMode == .textEdit)
-                .buttonStyle(.plain)
+    @ViewBuilder
+    private func primaryToolControl(
+        for destination: EditorCommandDestination
+    ) -> some View {
+        switch destination {
+        case .select:
+            Button {
+                handleActiveToolDoneTapped()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Select",
+                    systemImage: "cursorarrow",
+                    isSelected: canvasMode == .browse
+                )
+            }
+            .buttonStyle(.plain)
 
+        case .chords:
+            Button {
+                handleChordTabTapped()
+            } label: {
+                EditorMenuTabLabel(
+                    title: EditorCanvasMode.chordEntry.activeToolTitle,
+                    systemImage: "pencil",
+                    isSelected: canvasMode == .chordEntry,
+                    selectedColor: EditorToolAccent.semanticRead,
+                    isTourHighlighted: isChordTourSectionActive
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .chords,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+            .accessibilityHint("Write chords and barlines, then review and render them onto the chart")
+
+        case .ink:
+            Button {
+                selectedMeasureID = nil
+                selectedNoteSelection = nil
+                pendingTimeSignatureSourceMeasureID = nil
+                pendingTimeSignaturePlacement = nil
+                toggleFreeHandMode()
+            } label: {
+                EditorMenuTabLabel(
+                    title: EditorCanvasMode.freeHand.activeToolTitle,
+                    systemImage: canvasMode.freeHandTabSymbol,
+                    isSelected: canvasMode == .freeHand,
+                    selectedColor: EditorToolAccent.persistentInk,
+                    isTourHighlighted: false
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .ink,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+            .accessibilityLabel(EditorCanvasMode.freeHand.activeToolTitle)
+            .accessibilityHint("Freehand notes and marks that stay as handwriting and are not converted to notation")
+
+        case .measures:
+            Button {
+                handleMeasureEditRequested()
+            } label: {
+                EditorMenuTabLabel(
+                    title: "Measures",
+                    systemImage: "rectangle.split.3x1",
+                    isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive,
+                    isTourHighlighted: isMeasureTourSectionActive
+                )
+            }
+            .disabled(
+                !EditorCommandLayoutPolicy.canActivate(
+                    .measures,
+                    chartIsReady: chart.hasCompletedInitialSetup,
+                    from: canvasMode
+                )
+            )
+            .buttonStyle(.plain)
+
+        case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
+            EmptyView()
+        }
+    }
+
+    private var toolsMenuControl: some View {
+        Menu {
+            Section("Structure") {
                 Button {
                     handleRepeatToolTapped()
                 } label: {
-                    EditorMenuTabLabel(
-                        title: "Repeats",
-                        systemImage: "repeat",
-                        isSelected: canvasMode == .repeatEdit || isRepeatContinuationActive,
-                        isTourHighlighted: isRepeatsTourSectionActive
-                    )
+                    Label("Repeats", systemImage: "repeat")
                 }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
-
-                codaToolControl
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
-
-                textToolControl
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
 
                 Button {
                     handleTimeSignatureTabTapped()
                 } label: {
-                    EditorMenuTabLabel(
-                        title: "Time",
-                        systemImage: "metronome",
-                        isSelected: canvasMode == .timeSignatureEdit,
-                        isTourHighlighted: isTimeTourSectionActive
-                    )
+                    Label("Time Signature", systemImage: "metronome")
                 }
-                .disabled(canvasMode.locksDocumentActions)
-                .buttonStyle(.plain)
 
                 if isDedicatedRhythmToolAvailable {
                     Button {
                         handleRhythmicNotationTabTapped()
                     } label: {
-                        EditorMenuTabLabel(
-                            title: "Rhythm",
-                            systemImage: "music.note",
-                            isSelected: canvasMode == .rhythmicNotationEdit
-                        )
+                        Label("Rhythm", systemImage: "music.note")
                     }
-                    .disabled(canvasMode.locksDocumentActions)
-                    .buttonStyle(.plain)
                 }
-
-                Button {
-                    handleChordTabTapped()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: "Chord",
-                        systemImage: "pencil",
-                        isSelected: canvasMode == .chordEntry,
-                        selectedColor: EditorToolAccent.semanticRead,
-                        isTourHighlighted: isChordTourSectionActive
-                    )
-                }
-                .disabled(canvasMode.locksDocumentActions && canvasMode != .chordEntry)
-                .buttonStyle(.plain)
-
-                Button {
-                    selectedMeasureID = nil
-                    selectedNoteSelection = nil
-                    pendingTimeSignatureSourceMeasureID = nil
-                    pendingTimeSignaturePlacement = nil
-                    toggleFreeHandMode()
-                } label: {
-                    EditorMenuTabLabel(
-                        title: canvasMode.freeHandTabTitle,
-                        systemImage: canvasMode.freeHandTabSymbol,
-                        isSelected: canvasMode == .freeHand,
-                        selectedColor: EditorToolAccent.persistentInk,
-                        isTourHighlighted: isFreeWriteTourSectionActive
-                    )
-                }
-                .disabled(
-                    (canvasMode.locksDocumentActions && canvasMode != .freeHand)
-                        || (!chart.hasCompletedInitialSetup && canvasMode != .freeHand)
-                )
-                .buttonStyle(.plain)
             }
-            .padding(7)
-            .background(Color.white.opacity(0.68))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+
+            Section("Annotate") {
+                Button {
+                    handleTextToolTapped()
+                } label: {
+                    Label("Text", systemImage: "text.bubble")
+                }
+
+                Menu {
+                    codaToolMenuContent
+                } label: {
+                    Label("Form Markers", systemImage: "signpost.right")
+                }
+            }
+        } label: {
+            EditorMenuTabLabel(
+                title: "Tools",
+                systemImage: "ellipsis.circle",
+                isSelected: EditorCommandLayoutPolicy.isToolsMenuActive(for: canvasMode),
+                isTourHighlighted: isToolsMenuTourHighlighted
             )
-            .frame(minWidth: minWidth, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .disabled(
+            !EditorCommandLayoutPolicy.canActivate(
+                .repeats,
+                chartIsReady: chart.hasCompletedInitialSetup,
+                from: canvasMode
+            )
+        )
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tools")
+        .accessibilityHint("Repeats, time signatures, text, and form markers")
+    }
+
+    private var isToolsMenuTourHighlighted: Bool {
+        isTextTourSectionActive
     }
 
     private func activeToolControls(minWidth: CGFloat) -> some View {
@@ -2047,21 +1528,10 @@ struct EditorView: View {
 
     @ViewBuilder
     private var activeToolControlItems: some View {
-        Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.primary)
-            .lineLimit(1)
+        activeToolContextLabel
 
         if canvasMode.allowsAnyInkEditing {
-            InkToolModeTab(mode: $inkToolMode) { _ in
-                completeEditorGuidedTourStep(.chordModes)
-                completeEditorGuidedTourStep(.freeWriteMode)
-            }
-                .tourActionHighlight(
-                    isActive: editorGuidedTourStep == .chordModes || editorGuidedTourStep == .freeWriteMode,
-                    cornerRadius: 10,
-                    tint: canvasMode == .freeHand ? EditorToolAccent.persistentInk : EditorToolAccent.semanticRead
-                )
+            InkToolModeTab(mode: $inkToolMode)
         }
 
         if canvasMode == .measureEdit {
@@ -2079,19 +1549,60 @@ struct EditorView: View {
         if canvasMode == .rhythmicNotationEdit,
            isDedicatedRhythmToolAvailable {
             rhythmActiveToolActions
-            rhythmDiagnosticStatusChip
+            if latestRhythmPreview != nil {
+                rhythmDiagnosticStatusChip
+            }
         }
 
         if canvasMode == .chordEntry {
-            chordDraftActiveToolActions
-            chordDiagnosticStatusChip
+            if hasPendingChordDraftInk {
+                chordDraftActiveToolActions
+            }
+            if !chordPreviewState.isEmpty {
+                chordDiagnosticStatusChip
+            }
+        }
+
+        if canvasMode == .textEdit {
+            textActiveToolActions
         }
     }
 
+    private var activeToolContextLabel: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.primary)
+
+            if let instruction = activeToolInstructionText {
+                Text(instruction)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var activeToolInstructionText: String? {
+        if canvasMode == .repeatEdit {
+            if pendingRepeatStartMeasureID != nil {
+                return "Tap the last measure, then end the repeat."
+            }
+            if let pendingEndingType {
+                return "Tap the last measure, then end \(endingToolTitle(for: pendingEndingType))."
+            }
+        }
+        if canvasMode == .measureEdit,
+           pendingDeleteStartMeasureID != nil {
+            return "Tap the last measure, then finish the range delete."
+        }
+        return canvasMode.activeToolInstruction
+    }
+
     private var activeToolDoneButton: some View {
-        Button {
-            activateSelectTool()
-        } label: {
+        Button(action: handleActiveToolDoneTapped) {
             Label("Done", systemImage: "checkmark")
         }
         .buttonStyle(ActiveToolDoneButtonStyle())
@@ -2102,42 +1613,6 @@ struct EditorView: View {
             cornerRadius: 10,
             tint: EditorToolAccent.semanticRead
         )
-    }
-
-    private func chordToolWorkflowGuide(maxWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Chord Workflow", systemImage: "checklist")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(EditorToolAccent.semanticRead)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(chordToolWorkflowBullets, id: \.self) { bullet in
-                    Label(bullet, systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.primary.opacity(0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: maxWidth, alignment: .leading)
-        .background(EditorToolAccent.semanticRead.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(EditorToolAccent.semanticRead.opacity(0.22), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-    }
-
-    private var chordToolWorkflowBullets: [String] {
-        [
-            "Write inside the blue lanes.",
-            "V1.2 supports chords and barlines.",
-            "Check the preview, then tap Render Chords.",
-            "If a chord is wrong or missing, erase it or tap Discard."
-        ]
     }
 
     private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
@@ -2151,6 +1626,15 @@ struct EditorView: View {
                         systemImage: "text.badge.checkmark",
                         action: handleCorrectSelectedChord
                     )
+
+                    if canResetSelectedChordWidth {
+                        activeToolButton(
+                            title: "Reset Width",
+                            systemImage: "arrow.uturn.backward",
+                            action: resetSelectedChordWidth
+                        )
+                        .accessibilityHint("Restore the chord's natural width without moving it")
+                    }
 
                     activeToolButton(
                         title: "Delete",
@@ -2219,6 +1703,14 @@ struct EditorView: View {
                         action: deleteSelectedRoadmapMarker
                     )
                 } else if selectedMeasureID != nil {
+                    if canRemoveSystemBreakBeforeSelectedMeasure {
+                        activeToolButton(
+                            title: "Join Row",
+                            systemImage: "arrow.up.to.line",
+                            action: handleJoinSelectedMeasureRow
+                        )
+                    }
+
                     activeToolButton(
                         title: "Even Row",
                         systemImage: "rectangle.split.3x1",
@@ -2249,8 +1741,16 @@ struct EditorView: View {
     @ViewBuilder
     private var selectedRenderedEditLabel: some View {
         if selectedChord != nil {
-            Label("Chord", systemImage: "textformat")
-                .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Chord", systemImage: "textformat")
+                    .font(.subheadline.weight(.semibold))
+                Text(EditorChordWidthAdjustmentPolicy.selectionInstruction)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityElement(children: .combine)
         } else if selectedCommittedBarlineMeasureID != nil {
             Label("Barline", systemImage: "pause")
                 .font(.subheadline.weight(.semibold))
@@ -2268,154 +1768,218 @@ struct EditorView: View {
 
     private var measureActiveToolActions: some View {
         HStack(spacing: 5) {
-            activeToolButton(
-                title: "Add",
-                systemImage: "plus.square",
-                isTourHighlighted: editorGuidedTourStep == .measureAdd,
-                action: handleAddMeasureAfterSelected
-            )
-
-            activeToolButton(
-                title: "Stack",
-                systemImage: "square.stack.3d.up",
-                isTourHighlighted: editorGuidedTourStep == .measureStack,
-                action: handleAddMeasureStackAfterSelectedRequested
-            )
-
-            activeToolButton(
-                title: "First",
-                systemImage: "backward.end",
-                isTourHighlighted: editorGuidedTourStep == .measureFirst,
-                action: handleAddMeasureAtBeginning
-            )
-
-            activeToolButton(
-                title: "Double",
-                systemImage: "pause",
-                isTourHighlighted: editorGuidedTourStep == .measureDouble,
-                action: handleAddDoubleBarlineMeasure
-            )
-
-            activeToolButton(
-                title: canRemoveSystemBreakBeforeSelectedMeasure ? "Join" : "New Row",
-                systemImage: canRemoveSystemBreakBeforeSelectedMeasure ? "arrow.up.to.line" : "arrow.down.to.line",
-                isTourHighlighted: editorGuidedTourStep == .measureNewRow,
-                isDisabled: !canInsertSystemBreakBeforeSelectedMeasure && !canRemoveSystemBreakBeforeSelectedMeasure
-            ) {
-                if canRemoveSystemBreakBeforeSelectedMeasure {
-                    handleRemoveSystemBreakBeforeSelectedMeasure()
-                } else {
-                    handleNewSystemBeforeSelectedMeasure()
-                }
-            }
-
-            activeToolButton(
-                title: "Even Row",
-                systemImage: "rectangle.split.3x1",
-                isDisabled: !canEvenSelectedMeasureRow,
-                action: handleEvenSelectedMeasureRow
-            )
-
-            activeToolButton(
-                title: "Delete",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .measureDelete,
-                isDisabled: !canDeleteSelectedMeasure,
-                action: handleDeleteSelectedMeasure
-            )
-
-            activeToolButton(
-                title: pendingDeleteStartMeasureID == nil ? "Range" : "Delete To",
-                systemImage: pendingDeleteStartMeasureID == nil ? "trash.circle" : "checkmark.circle",
-                isSelected: pendingDeleteStartMeasureID != nil,
-                isDestructive: pendingDeleteStartMeasureID != nil,
-                isTourHighlighted: editorGuidedTourStep == .measureRange,
-                isDisabled: pendingDeleteStartMeasureID == nil
-                    ? !canDeleteSelectedMeasure
-                    : !canDeleteThroughSelectedMeasure,
-                action: handleMeasureRangeDeleteTapped
-            )
-
             if pendingDeleteStartMeasureID != nil {
                 activeToolButton(
-                    title: "Clear",
+                    title: "Delete To",
+                    systemImage: "checkmark.circle",
+                    isSelected: true,
+                    isDestructive: true,
+                    isTourHighlighted: editorGuidedTourStep == .shapeForm,
+                    isDisabled: !canDeleteThroughSelectedMeasure,
+                    action: handleMeasureRangeDeleteTapped
+                )
+
+                activeToolButton(
+                    title: "Cancel",
                     systemImage: "xmark.circle",
                     action: clearPendingMeasureDeleteState
                 )
+            } else {
+                Menu {
+                    Button {
+                        handleAddMeasureAfterSelected()
+                    } label: {
+                        Label("Add One After", systemImage: "plus.square")
+                    }
+
+                    Button {
+                        handleAddMeasureStackAfterSelectedRequested()
+                    } label: {
+                        Label("Add Multiple After…", systemImage: "square.stack.3d.up")
+                    }
+
+                    Button {
+                        handleAddMeasureAtBeginning()
+                    } label: {
+                        Label("Add at Beginning", systemImage: "backward.end")
+                    }
+
+                    Button {
+                        handleAddDoubleBarlineMeasure()
+                    } label: {
+                        Label("Add Double Barline", systemImage: "pause")
+                    }
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Add",
+                        systemImage: "plus.square",
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button {
+                        if canRemoveSystemBreakBeforeSelectedMeasure {
+                            handleJoinSelectedMeasureRow()
+                        } else {
+                            handleNewSystemBeforeSelectedMeasure()
+                        }
+                    } label: {
+                        Label(
+                            selectedMeasureStartsJoinableRow ? "Join Row Above" : "Start New Row",
+                            systemImage: selectedMeasureStartsJoinableRow
+                                ? "arrow.up.to.line"
+                                : "arrow.down.to.line"
+                        )
+                    }
+                    .disabled(
+                        selectedMeasureStartsJoinableRow
+                            ? !canRemoveSystemBreakBeforeSelectedMeasure
+                            : !canInsertSystemBreakBeforeSelectedMeasure
+                    )
+
+                    Button {
+                        handleMoveSelectedMeasureToRowBelow()
+                    } label: {
+                        Label("Move to Row Below", systemImage: "arrow.down.to.line")
+                    }
+                    .disabled(!canMoveSelectedMeasureToRowBelow)
+
+                    Button {
+                        handleEvenSelectedMeasureRow()
+                    } label: {
+                        Label("Even Row Widths", systemImage: "rectangle.split.3x1")
+                    }
+                    .disabled(!canEvenSelectedMeasureRow)
+
+                    Button {
+                        handleJoinSelectedMeasure()
+                    } label: {
+                        Label("Merge with Next Measure", systemImage: "rectangle.compress.vertical")
+                    }
+                    .disabled(!canJoinSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Layout",
+                        systemImage: "rectangle.3.group",
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button(role: .destructive) {
+                        handleDeleteSelectedMeasure()
+                    } label: {
+                        Label("Delete Measure", systemImage: "trash")
+                    }
+                    .disabled(!canDeleteSelectedMeasure)
+
+                    Button(role: .destructive) {
+                        handleMeasureRangeDeleteTapped()
+                    } label: {
+                        Label("Delete Range…", systemImage: "trash.circle")
+                    }
+                    .disabled(!canDeleteSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        isTourHighlighted: editorGuidedTourStep == .shapeForm
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
     private var repeatActiveToolActions: some View {
         HStack(spacing: 5) {
-            activeToolButton(
-                title: "One Bar",
-                systemImage: "repeat",
-                isTourHighlighted: editorGuidedTourStep == .repeatsOneBar,
-                action: handleRepeatSelectedMeasure
-            )
-
-            activeToolButton(
-                title: "Start",
-                systemImage: "repeat.circle",
-                isSelected: pendingRepeatStartMeasureID != nil,
-                isTourHighlighted: editorGuidedTourStep == .repeatsStart,
-                action: handleStartRepeatHere
-            )
-
-            activeToolButton(
-                title: "End Rep",
-                systemImage: "checkmark.circle",
-                isTourHighlighted: editorGuidedTourStep == .repeatsEnd,
-                isDisabled: pendingRepeatStartMeasureID == nil,
-                action: handleEndRepeatHere
-            )
-
-            activeToolButton(
-                title: pendingEndingButtonTitle(for: .ending1),
-                systemImage: "1.circle",
-                isSelected: pendingEndingType == .ending1,
-                isTourHighlighted: editorGuidedTourStep == .repeatsFirstEnding,
-                isDisabled: isEndingButtonDisabled(for: .ending1)
-            ) {
-                handleRepeatActiveEndingTapped(.ending1)
-            }
-
-            activeToolButton(
-                title: pendingEndingButtonTitle(for: .ending2),
-                systemImage: "2.circle",
-                isSelected: pendingEndingType == .ending2,
-                isTourHighlighted: editorGuidedTourStep == .repeatsSecondEnding,
-                isDisabled: isEndingButtonDisabled(for: .ending2)
-            ) {
-                handleRepeatActiveEndingTapped(.ending2)
-            }
-
-            activeToolButton(
-                title: "Remove Repeat",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .repeatsDeleteRepeat,
-                isDisabled: !canRemoveRepeatAtSelectedMeasure,
-                action: handleRemoveRepeatAtSelectedMeasure
-            )
-
-            activeToolButton(
-                title: "Remove Ending",
-                systemImage: "trash",
-                isDestructive: true,
-                isTourHighlighted: editorGuidedTourStep == .repeatsDeleteEnding,
-                isDisabled: !canRemoveEndingAtSelectedMeasure,
-                action: handleRemoveEndingAtSelectedMeasure
-            )
-
-            if isRepeatContinuationActive {
+            if pendingRepeatStartMeasureID != nil {
                 activeToolButton(
-                    title: "Clear",
+                    title: "End Repeat",
+                    systemImage: "checkmark.circle",
+                    isSelected: true,
+                    isTourHighlighted: false,
+                    action: handleEndRepeatHere
+                )
+
+                activeToolButton(
+                    title: "Cancel",
                     systemImage: "xmark.circle",
                     action: clearPendingRepeatState
                 )
+            } else if let pendingEndingType {
+                activeToolButton(
+                    title: "End \(endingToolTitle(for: pendingEndingType))",
+                    systemImage: pendingEndingType == .ending1 ? "1.circle" : "2.circle",
+                    isSelected: true,
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(pendingEndingType)
+                }
+
+                activeToolButton(
+                    title: "Cancel",
+                    systemImage: "xmark.circle",
+                    action: clearPendingRepeatState
+                )
+            } else {
+                activeToolButton(
+                    title: "One Bar",
+                    systemImage: "repeat",
+                    isTourHighlighted: false,
+                    action: handleRepeatSelectedMeasure
+                )
+
+                activeToolButton(
+                    title: "Start Repeat",
+                    systemImage: "repeat.circle",
+                    isTourHighlighted: false,
+                    action: handleStartRepeatHere
+                )
+
+                activeToolButton(
+                    title: "1st",
+                    systemImage: "1.circle",
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(.ending1)
+                }
+
+                activeToolButton(
+                    title: "2nd",
+                    systemImage: "2.circle",
+                    isTourHighlighted: false
+                ) {
+                    handleRepeatActiveEndingTapped(.ending2)
+                }
+
+                Menu {
+                    Button(role: .destructive) {
+                        handleRemoveRepeatAtSelectedMeasure()
+                    } label: {
+                        Label("Remove Repeat", systemImage: "trash")
+                    }
+                    .disabled(!canRemoveRepeatAtSelectedMeasure)
+
+                    Button(role: .destructive) {
+                        handleRemoveEndingAtSelectedMeasure()
+                    } label: {
+                        Label("Remove Ending", systemImage: "trash")
+                    }
+                    .disabled(!canRemoveEndingAtSelectedMeasure)
+                } label: {
+                    activeToolMenuLabel(
+                        title: "Remove",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        isTourHighlighted: false
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -2456,25 +2020,88 @@ struct EditorView: View {
     private var chordDraftActiveToolActions: some View {
         HStack(spacing: 5) {
             activeToolButton(
-                title: "Render Chords",
-                systemImage: "checkmark.circle",
-                isTourHighlighted: editorGuidedTourStep == .chordRender,
+                title: chordPreviewState.requiresChordConfirmation ? "Review & Render" : "Render Chords",
+                systemImage: chordPreviewState.requiresChordConfirmation ? "checkmark.message" : "checkmark.circle",
+                isTourHighlighted: editorGuidedTourStep == .renderChords,
                 isDisabled: !canRenderChordDrafts,
                 action: handleRenderChordDrafts
             )
 
             activeToolButton(
-                title: "Discard",
+                title: "Clear Draft Ink",
                 systemImage: "xmark.circle",
                 isDestructive: true,
-                isDisabled: chordPreviewState.isEmpty,
-                action: handleDiscardChordDrafts
+                isDisabled: !hasPendingChordDraftInk,
+                action: requestClearChordDraftInk
             )
         }
     }
 
+    @ViewBuilder
+    private var textActiveToolActions: some View {
+        if selectedCueText != nil {
+            HStack(spacing: 5) {
+                activeToolButton(
+                    title: "Edit",
+                    systemImage: "pencil",
+                    action: handleEditSelectedCueText
+                )
+
+                activeToolButton(
+                    title: "Larger",
+                    systemImage: "plus.magnifyingglass",
+                    isDisabled: !canGrowSelectedCueText
+                ) {
+                    resizeSelectedCueText(by: CueText.scaleStep)
+                }
+
+                activeToolButton(
+                    title: "Smaller",
+                    systemImage: "minus.magnifyingglass",
+                    isDisabled: !canShrinkSelectedCueText
+                ) {
+                    resizeSelectedCueText(by: -CueText.scaleStep)
+                }
+
+                activeToolButton(
+                    title: "Delete",
+                    systemImage: "trash",
+                    isDestructive: true,
+                    action: deleteSelectedCueText
+                )
+            }
+        } else {
+            HStack(spacing: 5) {
+                activeToolButton(
+                    title: "Above",
+                    systemImage: "text.line.first.and.arrowtriangle.forward",
+                    isTourHighlighted: editorGuidedTourStep == .addCue,
+                    isDisabled: resolvedMeasureActionTargetID() == nil
+                ) {
+                    handleAddCueText(position: .above)
+                }
+
+                activeToolButton(
+                    title: "Below",
+                    systemImage: "text.line.last.and.arrowtriangle.forward",
+                    isDisabled: resolvedMeasureActionTargetID() == nil
+                ) {
+                    handleAddCueText(position: .below)
+                }
+
+                activeToolButton(
+                    title: "Remove",
+                    systemImage: "trash",
+                    isDestructive: true,
+                    isDisabled: !canRemoveCueTextAtSelectedMeasure,
+                    action: handleRemoveCueTextsAtSelectedMeasure
+                )
+            }
+        }
+    }
+
     private var canRenderChordDrafts: Bool {
-        chordPreviewState.canRenderAny && chordPreviewState.unresolvedChordCount == 0
+        chordPreviewState.canReviewChordDrafts || chordPreviewState.canRenderAny
     }
 
     private func handleActiveToolDoneTapped() {
@@ -2486,7 +2113,7 @@ struct EditorView: View {
         }
 
         switch completedStep {
-        case .chordDone, .measureDone, .repeatsDone, .textDone, .timeDone, .freeWriteDone:
+        case .review:
             completeEditorGuidedTourStep(completedStep)
         default:
             break
@@ -2512,7 +2139,7 @@ struct EditorView: View {
                 .labelStyle(.titleAndIcon)
                 .lineLimit(1)
                 .padding(.horizontal, 8)
-                .frame(height: 34)
+                .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
                 .foregroundStyle(
                     isSelected
                     ? Color.white
@@ -2534,6 +2161,41 @@ struct EditorView: View {
             cornerRadius: 9,
             tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
         )
+    }
+
+    private func activeToolMenuLabel(
+        title: String,
+        systemImage: String,
+        isSelected: Bool = false,
+        isDestructive: Bool = false,
+        isTourHighlighted: Bool = false
+    ) -> some View {
+        let selectedBackgroundColor = isDestructive
+            ? Color.red
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+            .foregroundStyle(
+                isSelected
+                    ? Color.white
+                    : (isDestructive ? Color.red : Color.primary)
+            )
+            .background(
+                isSelected
+                    ? selectedBackgroundColor
+                    : Color(uiColor: .tertiarySystemBackground)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .tourActionHighlight(
+                isActive: isTourHighlighted,
+                cornerRadius: 9,
+                tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
+            )
     }
 
     private var isMeasureDeleteContinuationActive: Bool {
@@ -2579,16 +2241,15 @@ struct EditorView: View {
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
+            isInteractionSuspended: isPresentingEditorPanel,
             recognizesChordInk: true,
             chordPreviewState: chordPreviewState,
-            inkResponsivenessValue: inkResponsivenessValue,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
             onChordInkDraftPreviewChanged: handleChordInkDraftPreviewChanged,
             onChordInkDraftBarlinesChanged: handleChordInkDraftBarlinesChanged,
             onChordCorrectionRequested: handleChordCorrectionRequested,
-            onChordDeleted: handleChordDeleted,
             onNoteSelectionChanged: handleNoteSelectionChanged,
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
             onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
@@ -2599,6 +2260,7 @@ struct EditorView: View {
             onEndingSpanSelectedFromCanvas: handleEndingSpanSelectedFromCanvas,
             onTimeSignatureSelectedFromCanvas: handleTimeSignatureSelectedFromCanvas,
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
+            chordDraftRenderCoordinator: chordDraftRenderCoordinator,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
@@ -2607,6 +2269,7 @@ struct EditorView: View {
                 ? handleRhythmicNotationPreviewChanged
                 : nil
         )
+        .ichartDocumentDisplayAppearance()
         .onAppear {
             guard !didRecordFirstCanvasAppear else {
                 return
@@ -2618,6 +2281,21 @@ struct EditorView: View {
                 metadata: editorPerformanceTraceMetadata
             )
         }
+    }
+
+    // A review or typed editor owns input until it is dismissed. Keep the
+    // drawing resident without letting PencilKit reclaim keyboard focus or
+    // accept a stray stroke behind that panel.
+    private var isPresentingEditorPanel: Bool {
+        activeSheet != nil || showingSetupSheet || showingHeaderSheet
+            || showingTypographySheet || showingPersonalHandwriting
+            || showingCueTextEntry || pendingMeasureStackInsertion != nil
+            || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
+            || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
+    }
+
+    private var appAppearance: IChartAppAppearance {
+        IChartAppAppearance(persistedValue: appAppearanceValue)
     }
 
     private var editorPerformanceTraceMetadata: [String: String] {
@@ -2714,12 +2392,17 @@ struct EditorView: View {
     private var chordDiagnosticStatusChip: some View {
         let isReady = canRenderChordDrafts
         let hasDrafts = !chordPreviewState.isEmpty
-        let tint = hasDrafts && !isReady
+        let needsReview = chordPreviewState.requiresChordConfirmation
+        let tint = hasDrafts && (!isReady || needsReview)
             ? Color.orange
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
         return HStack(spacing: 8) {
-            Image(systemName: isReady ? "checkmark.circle.fill" : "waveform.path.ecg")
+            Image(
+                systemName: needsReview
+                    ? "exclamationmark.bubble.fill"
+                    : isReady ? "checkmark.circle.fill" : "waveform.path.ecg"
+            )
                 .font(.caption.weight(.bold))
                 .frame(width: 15)
 
@@ -2747,7 +2430,7 @@ struct EditorView: View {
             ChordDiagnosticPreviewItem(
                 id: "chord-\(draft.id.uuidString)",
                 visualOrder: draft.visualOrder ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0),
-                kind: .chord(draft.previewText ?? "?")
+                kind: .chord(draft.previewDisplayText)
             )
         }
         let barlineItems = chordPreviewState.draftBarlines.map { barline in
@@ -2782,7 +2465,9 @@ struct EditorView: View {
         }
 
         if canRenderChordDrafts {
-            return "Ready to render"
+            return chordPreviewState.requiresChordConfirmation
+                ? "Review before render"
+                : "Ready to render"
         }
 
         return "Previewing"
@@ -2794,7 +2479,7 @@ struct EditorView: View {
         }
 
         let chordText = chordPreviewState.draftChords
-            .map { $0.previewText ?? "unresolved" }
+            .map(\.previewDisplayText)
             .joined(separator: ", ")
         let barlineText = chordPreviewState.draftBarlines.isEmpty
             ? "no draft barlines"
@@ -2845,7 +2530,7 @@ struct EditorView: View {
                     let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
                     activeSheet = .export(libraryPDF)
                     isExporting = false
-                    completeEditorGuidedTourStep(.pageExport)
+                    completeEditorGuidedTourStep(.export)
                     IChartTelemetry.record(
                         "pdf.export_succeeded",
                         properties: [
@@ -2942,6 +2627,8 @@ struct EditorView: View {
             "confidence_bucket": .string(confidenceBucket(result.confidence)),
             "decision": .string(decision.action.rawValue),
             "flow": .string(flow.telemetryValue),
+            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+            "review_candidate_count": .int(result.reviewCandidateScores.count),
             "render_action": .string(decision.action.rawValue),
             "result": .string(result.match == nil ? "unmatched" : "matched"),
             "stroke_count": .int(result.metrics.strokeCount)
@@ -2949,6 +2636,13 @@ struct EditorView: View {
 
         if let timing {
             properties["recognition_ms"] = .double(timing.recognitionMilliseconds)
+        }
+
+        if let evidence = result.trustEvidence {
+            properties["trust_outcome"] = .string(evidence.outcome.rawValue)
+            properties["trust_probe_count"] = .int(evidence.completedProbeCount)
+            properties["trust_symbol_support_count"] = .int(evidence.symbolSupportCount)
+            properties["trust_validation_ms"] = .double(evidence.validationMilliseconds)
         }
 
         return properties
@@ -2969,16 +2663,27 @@ struct EditorView: View {
         let generatedSequenceLimitCount = payloads.filter {
             $0.result.metrics.compositionMetrics.hitGeneratedSequenceLimit
         }.count
+        let issueBuckets = ChordInkPreviewIssueBucketPolicy.counts(
+            results: payloads.map(\.result),
+            decisions: decisions,
+            barlineCount: updatedState.draftBarlines.count
+        )
         let matchedConfidences = payloads.compactMap { payload -> Double? in
             payload.result.match == nil ? nil : payload.result.confidence
         }
         let recognitionMilliseconds = payloads.reduce(0) { partialResult, payload in
             partialResult + payload.timing.recognitionMilliseconds
         }
+        let trustEvidence = payloads.compactMap(\.result.trustEvidence)
+        let trustCorroboratedCount = trustEvidence.filter(\.isCorroborated).count
+        let trustRejectedCount = trustEvidence.count - trustCorroboratedCount
 
         var properties: IChartTelemetryProperties = [
             "batch_size": .int(payloads.count),
+            "barline_count": .int(updatedState.draftBarlines.count),
+            "barline_sequence_issue_count": .int(issueBuckets.barlineSequenceIssueCount),
             "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
+            "candidate_limit_issue_count": .int(issueBuckets.candidateLimitIssueCount),
             "close_race_count": .int(closeRaceCount),
             "cluster_count": .int(payloads.reduce(0) { $0 + $1.result.metrics.clusterCount }),
             "confirm_count": .int(confirmCount),
@@ -2991,18 +2696,36 @@ struct EditorView: View {
             "draft_count": .int(updatedState.draftChords.count),
             "flow": .string(ChordInkRecognitionFlow.draftPreview.telemetryValue),
             "generated_sequence_limit_count": .int(generatedSequenceLimitCount),
+            "alteration_issue_count": .int(issueBuckets.alterationIssueCount),
+            "dim_quality_issue_count": .int(issueBuckets.dimQualityIssueCount),
+            "extension_issue_count": .int(issueBuckets.extensionIssueCount),
+            "issue_count": .int(issueBuckets.issueCount),
             "layout_style": .string(layoutStyle),
             "matched_count": .int(matchedCount),
             "no_read_count": .int(noReadCount),
+            "quality_issue_count": .int(issueBuckets.qualityIssueCount),
             "raw_candidate_count": .int(payloads.reduce(0) { $0 + $1.result.rawCandidates.count }),
+            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
             "recognition_target_count": .int(payloads.count),
+            "review_candidate_count": .int(payloads.reduce(0) {
+                $0 + $1.result.reviewCandidateScores.count
+            }),
             "result": .string(previewResultSummary(
                 totalCount: payloads.count,
                 matchedCount: matchedCount,
                 noReadCount: noReadCount
             )),
+            "root_accidental_issue_count": .int(issueBuckets.rootAccidentalIssueCount),
+            "root_issue_count": .int(issueBuckets.rootIssueCount),
+            "slash_bass_issue_count": .int(issueBuckets.slashBassIssueCount),
             "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
+            "triangle_quality_issue_count": .int(issueBuckets.triangleQualityIssueCount),
+            "trust_corroborated_count": .int(trustCorroboratedCount),
+            "trust_probe_count": .int(trustEvidence.reduce(0) { $0 + $1.completedProbeCount }),
+            "trust_rejected_count": .int(trustRejectedCount),
+            "trust_validation_ms": .double(trustEvidence.reduce(0) { $0 + $1.validationMilliseconds }),
             "trusted_count": .int(trustedCount),
+            "unknown_issue_count": .int(issueBuckets.unknownIssueCount),
             "unresolved_count": .int(updatedState.unresolvedChordCount)
         ]
 
@@ -3106,7 +2829,24 @@ struct EditorView: View {
             return false
         }
 
-        return chart.canRemoveSystemBreak(before: targetMeasureID)
+        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
+            && !joinRowEqualizedManualWidths(startingAt: targetMeasureID).isEmpty
+    }
+
+    private var selectedMeasureStartsJoinableRow: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
+    }
+
+    private var canMoveSelectedMeasureToRowBelow: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+            return false
+        }
+
+        return moveMeasureToRowBelowPlan(for: targetMeasureID) != nil
     }
 
     private var canRemoveCueTextAtSelectedMeasure: Bool {
@@ -3127,6 +2867,10 @@ struct EditorView: View {
 
     private var selectedChord: ChordEvent? {
         selectedChordID.flatMap { chart.chordEvent(id: $0) }
+    }
+
+    private var canResetSelectedChordWidth: Bool {
+        selectedChord.map { EditorChordWidthAdjustmentPolicy.canResetWidth(of: $0) } ?? false
     }
 
     private var canDeleteSelectedCommittedChordBarline: Bool {
@@ -3187,12 +2931,32 @@ struct EditorView: View {
     }
 
     private var canEvenSelectedMeasureRow: Bool {
-        guard chart.layoutStyle == .simpleChordSheet,
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
               let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
         }
 
-        return simpleChordRowMeasureIDs(containing: targetMeasureID).count > 1
+        return renderedMeasureRowIDs(containing: targetMeasureID).count > 1
+    }
+
+    private var canJoinSelectedMeasure: Bool {
+        guard let targetMeasureID = resolvedMeasureActionTargetID(),
+              chart.canJoinMeasure(after: targetMeasureID) else {
+            return false
+        }
+
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return pageLayout.systems.contains { system in
+            let measureIDs = system.measures.compactMap(\.sourceMeasureID)
+            guard let selectedIndex = measureIDs.firstIndex(of: targetMeasureID) else {
+                return false
+            }
+
+            return measureIDs.indices.contains(selectedIndex + 1)
+        }
     }
 
     @discardableResult
@@ -3233,12 +2997,12 @@ struct EditorView: View {
     private func handleEvenSelectedMeasureRow() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
-              chart.layoutStyle == .simpleChordSheet,
+              chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
               let targetMeasureID else {
             return
         }
 
-        let equalizedWidths = simpleChordRowEqualizedManualWidths(containing: targetMeasureID)
+        let equalizedWidths = measureRowEqualizedManualWidths(containing: targetMeasureID)
         guard equalizedWidths.count > 1 else {
             return
         }
@@ -3253,33 +3017,39 @@ struct EditorView: View {
         }
     }
 
-    private func simpleChordRowMeasureIDs(containing measureID: UUID) -> [UUID] {
-        guard chart.layoutStyle == .simpleChordSheet else {
+    private func handleJoinSelectedMeasure() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              canJoinSelectedMeasure,
+              chart.joinMeasure(after: targetMeasureID) else {
+            return
+        }
+
+        clearPendingMeasureStackState()
+        selectedMeasureID = targetMeasureID
+    }
+
+    private func renderedMeasureRowIDs(containing measureID: UUID) -> [UUID] {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
             return []
         }
 
-        for system in chart.systems {
-            let measureIDs = system.measures.map(\.id)
-            guard let selectedIndex = measureIDs.firstIndex(of: measureID) else {
-                continue
-            }
-
-            guard let maximumMeasuresPerSystem = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
-                  maximumMeasuresPerSystem > 0,
-                  maximumMeasuresPerSystem < measureIDs.count else {
-                return measureIDs
-            }
-
-            let chunkStart = (selectedIndex / maximumMeasuresPerSystem) * maximumMeasuresPerSystem
-            let chunkEnd = min(chunkStart + maximumMeasuresPerSystem, measureIDs.count)
-            return Array(measureIDs[chunkStart..<chunkEnd])
-        }
-
-        return []
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return pageLayout.systems
+            .first { system in
+                system.measures.contains { $0.sourceMeasureID == measureID }
+            }?
+            .measures
+            .compactMap(\.sourceMeasureID)
+            ?? []
     }
 
-    private func simpleChordRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
-        guard chart.layoutStyle == .simpleChordSheet else {
+    private func measureRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
             return [:]
         }
 
@@ -3293,8 +3063,45 @@ struct EditorView: View {
             return [:]
         }
 
-        return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
-            for: system,
+        switch chart.layoutStyle {
+        case .simpleChordSheet:
+            return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+                for: system,
+                in: pageLayout,
+                chart: chart
+            )
+        case .rhythmSectionSheet:
+            return LeadSheetRhythmSectionRowEqualizationPolicy.manualLayoutWidths(
+                for: system,
+                in: pageLayout,
+                chart: chart
+            )
+        case .leadSheet:
+            return [:]
+        }
+    }
+
+    private func joinRowEqualizedManualWidths(startingAt measureID: UUID) -> [UUID: CGFloat] {
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return LeadSheetJoinRowEqualizationPolicy.manualLayoutWidths(
+            startingAt: measureID,
+            in: pageLayout,
+            chart: chart
+        )
+    }
+
+    private func moveMeasureToRowBelowPlan(
+        for measureID: UUID
+    ) -> LeadSheetMoveMeasureToRowBelowPlan? {
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: latestEditorContentSize
+        )
+        return LeadSheetMoveMeasureToRowBelowPolicy.plan(
+            for: measureID,
             in: pageLayout,
             chart: chart
         )
@@ -3338,7 +3145,7 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = chart.insertMeasureAtBeginning()
-        completeEditorGuidedTourStep(.measureFirst)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleAddMeasureAfterSelected() {
@@ -3388,7 +3195,7 @@ struct EditorView: View {
 
         pendingMeasureStackInsertion = nil
         selectedMeasureID = insertedMeasureIDs.last ?? insertion.anchorMeasureID
-        completeEditorGuidedTourStep(.measureStack)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleAddDoubleBarlineMeasure() {
@@ -3418,9 +3225,9 @@ struct EditorView: View {
 
         switch barlineAfter {
         case .single:
-            completeEditorGuidedTourStep(.measureAdd)
+            completeEditorGuidedTourStep(.shapeForm)
         case .double:
-            completeEditorGuidedTourStep(.measureDouble)
+            completeEditorGuidedTourStep(.shapeForm)
         case .final:
             break
         }
@@ -3438,7 +3245,7 @@ struct EditorView: View {
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
             ?? chart.resolvedAuthoringMeasureID()
-        completeEditorGuidedTourStep(.measureDelete)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleStartDeleteRangeHere() {
@@ -3472,7 +3279,7 @@ struct EditorView: View {
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
             ?? chart.resolvedAuthoringMeasureID()
-        completeEditorGuidedTourStep(.measureRange)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleNewSystemBeforeSelectedMeasure() {
@@ -3488,14 +3295,17 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.measureNewRow)
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
-    private func handleRemoveSystemBreakBeforeSelectedMeasure() {
+    private func handleJoinSelectedMeasureRow() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              chart.removeSystemBreak(before: targetMeasureID) else {
+              chart.joinRow(
+                startingAt: targetMeasureID,
+                equalizedManualWidths: joinRowEqualizedManualWidths(startingAt: targetMeasureID)
+              ) else {
             return
         }
 
@@ -3504,7 +3314,28 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.measureNewRow)
+        completeEditorGuidedTourStep(.shapeForm)
+    }
+
+    private func handleMoveSelectedMeasureToRowBelow() {
+        let targetMeasureID = resolvedMeasureActionTargetID()
+        guard enterMeasureEditMode(),
+              let targetMeasureID,
+              let plan = moveMeasureToRowBelowPlan(for: targetMeasureID),
+              chart.moveMeasureToRowBelow(
+                targetMeasureID,
+                nextRowStartingAt: plan.nextRowFirstMeasureID,
+                equalizedManualWidths: plan.equalizedManualWidths
+              ) else {
+            return
+        }
+
+        pendingRepeatStartMeasureID = nil
+        pendingDeleteStartMeasureID = nil
+        pendingEndingStartMeasureID = nil
+        pendingEndingType = nil
+        selectedMeasureID = targetMeasureID
+        completeEditorGuidedTourStep(.shapeForm)
     }
 
     private func handleMeasureRangeDeleteTapped() {
@@ -3532,7 +3363,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsOneBar)
     }
 
     private func handleStartRepeatHere() {
@@ -3547,7 +3377,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsStart)
     }
 
     private func handleEndRepeatHere() {
@@ -3571,7 +3400,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsEnd)
     }
 
     private func handleRemoveRepeatAtSelectedMeasure() {
@@ -3587,7 +3415,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsDeleteRepeat)
     }
 
     private func handleRepeatActiveEndingTapped(_ type: RoadmapType) {
@@ -3659,14 +3486,6 @@ struct EditorView: View {
         self.pendingEndingType = nil
         selectedMeasureID = targetMeasureID
 
-        switch pendingEndingType {
-        case .ending1:
-            completeEditorGuidedTourStep(.repeatsFirstEnding)
-        case .ending2:
-            completeEditorGuidedTourStep(.repeatsSecondEnding)
-        default:
-            break
-        }
     }
 
     private func handleRemoveEndingAtSelectedMeasure() {
@@ -3681,7 +3500,6 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.repeatsDeleteEnding)
     }
 
     private func handleAddPointRoadmapMarker(_ type: RoadmapType) {
@@ -3704,7 +3522,6 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
         selectedRoadmapMarkerID = markerID
         canvasMode = .browse
-        completeEditorGuidedTourStep(.codaMarker)
     }
 
     private func handleAddCueText(position: CuePosition) {
@@ -3728,7 +3545,6 @@ struct EditorView: View {
         cueTextDraft = ""
         canvasMode = .textEdit
         showingCueTextEntry = true
-        completeEditorGuidedTourStep(.textAddPosition)
     }
 
     private func handleCueTextEntryAccepted() {
@@ -3763,19 +3579,22 @@ struct EditorView: View {
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
         canvasMode = .textEdit
-        completeEditorGuidedTourStep(.textAddConfirm)
+        completeEditorGuidedTourStep(.addCue)
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
+        let shouldStayInTextMode = canvasMode == .textEdit
+        guard chart.hasCompletedInitialSetup,
               let targetMeasureID,
               chart.deleteCueTexts(attachedTo: targetMeasureID) > 0 else {
             return
         }
 
         pendingDeleteStartMeasureID = nil
+        selectedCueTextID = nil
         selectedMeasureID = targetMeasureID
+        canvasMode = shouldStayInTextMode ? .textEdit : .browse
     }
 
     private func handleCueTextEditRequestedFromCanvas(_ cueTextID: UUID) {
@@ -3872,9 +3691,15 @@ struct EditorView: View {
         handleChordCorrectionRequested(selectedChordID)
     }
 
+    private func resetSelectedChordWidth() {
+        guard let selectedChordID else { return }
+        _ = EditorChordWidthAdjustmentPolicy.resetWidth(
+            for: selectedChordID, in: &chart, pageSize: latestEditorContentSize
+        )
+    }
+
     private func deleteSelectedChord() {
-        guard let selectedChordID,
-              let chordEvent = chart.chordEvent(id: selectedChordID) else {
+        guard let selectedChordID else {
             return
         }
 
@@ -3886,7 +3711,6 @@ struct EditorView: View {
         self.selectedChordID = nil
         selectedCommittedBarlineMeasureID = nil
         selectedMeasureID = sourceMeasureID ?? selectedMeasureID
-        handleChordDeleted(chordEvent)
         canvasMode = .browse
     }
 
@@ -3934,6 +3758,29 @@ struct EditorView: View {
         selectedCommittedBarlineMeasureID = nil
         selectedCueTextID = nil
         selectedRoadmapMarkerID = nil
+    }
+
+    private func handleTextToolTapped() {
+        guard chart.hasCompletedInitialSetup else {
+            showingSetupSheet = true
+            return
+        }
+
+        if canvasMode == .textEdit {
+            activateSelectTool()
+            return
+        }
+
+        pendingTimeSignatureSourceMeasureID = nil
+        pendingTimeSignaturePlacement = nil
+        pendingDeleteStartMeasureID = nil
+        pendingMeasureStackInsertion = nil
+        clearPendingRepeatState()
+        selectedNoteSelection = nil
+        if selectedMeasureID == nil {
+            selectedMeasureID = chart.resolvedAuthoringMeasureID()
+        }
+        canvasMode = .textEdit
     }
 
     private func handleTimeSignatureTabTapped() {
@@ -4002,7 +3849,7 @@ struct EditorView: View {
     @discardableResult
     private func clearRenderedRhythm(in measureID: UUID) -> Bool {
         guard isDedicatedRhythmToolAvailable else {
-            noteEditErrorMessage = "Use Free-Write for page-level handwritten rhythm notes in this version."
+            noteEditErrorMessage = "Use Free Ink for page-level handwritten rhythm notes in this version."
             showingNoteEditError = true
             return false
         }
@@ -4369,7 +4216,6 @@ struct EditorView: View {
         selectedMeasureID = measureID
         pendingTimeSignaturePlacement = nil
         pendingTimeSignatureSourceMeasureID = measureID
-        completeEditorGuidedTourStep(.timeSelectMeasure)
     }
 
     private func handleTimeSignatureSelection(
@@ -4386,7 +4232,6 @@ struct EditorView: View {
         if appliedMeasureID == nil {
             canvasMode = .browse
         }
-        completeEditorGuidedTourStep(.timeApplyScope)
     }
 
     private func handleKeyChangeSelection(_ key: DocumentKey) {
@@ -4418,20 +4263,59 @@ struct EditorView: View {
         canvasMode = .browse
     }
 
+    private var hasUnrenderedChordInkForEvaluation: Bool {
+        guard let data = chart.pageHandwrittenChordData else { return false }
+        // Invalid existing ink is not a safe blank evaluation chart either.
+        guard let drawing = try? PKDrawing(data: data) else { return true }
+        return !drawing.strokes.isEmpty
+    }
+
     private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
-        guard canvasMode == .chordEntry,
-              pendingChordInkConfirmation == nil,
-              pendingChordInkBatchConfirmation == nil,
-              pendingChordCorrection == nil else {
+        let replacementStartedAt = ProcessInfo.processInfo.systemUptime
+        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
+            mode: canvasMode,
+            hasSingleReview: pendingChordInkConfirmation != nil,
+            hasBatchReview: pendingChordInkBatchConfirmation != nil,
+            hasCorrection: pendingChordCorrection != nil
+        ) else {
             return
         }
         guard payloads.isEmpty || chart.pageHandwrittenChordData != nil else {
             return
         }
 
+        let previousDraftByAnchor = Dictionary(
+            chordPreviewState.draftChords.map { ($0.anchor, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var reusedResolutionCount = 0
         let inputs = payloads.compactMap { payload -> ChordInkDraftInput? in
             guard let measure = chart.measure(id: payload.target.measureID) else {
                 return nil
+            }
+
+            let incomingAnchor = ChordInkDraftAnchor(
+                measureID: payload.target.measureID,
+                laneLocation: payload.laneLocation,
+                visualOrder: payload.visualOrder,
+                fraction: payload.target.fraction
+            )
+            if previousDraftByAnchor[incomingAnchor]?.recognitionResult?.personalizationRevision == payload.result.personalizationRevision,
+               let reusedInput = ChordInkDraftPreviewResolutionReusePolicy.reusedInput(
+                previousDraft: previousDraftByAnchor[incomingAnchor],
+                measureID: payload.target.measureID,
+                measureIndex: measure.index,
+                targetFraction: payload.target.fraction,
+                visualOrder: payload.visualOrder,
+                laneLocation: payload.laneLocation,
+                layoutPageSize: payload.layoutPageSize,
+                drawingData: payload.drawingData,
+                strokeCount: payload.timing.strokeCount,
+                isRecognitionCacheHit: payload.timing.cacheHit,
+                targetLifecycle: payload.targetLifecycle
+            ) {
+                reusedResolutionCount += 1
+                return reusedInput
             }
 
             let resolution = ChordInkRenderResolutionPolicy.resolution(
@@ -4448,9 +4332,14 @@ struct EditorView: View {
                 layoutPageSize: payload.layoutPageSize,
                 drawingData: payload.drawingData,
                 candidateTexts: resolution.candidateTexts,
-                bestCandidateText: resolution.decision.acceptedText ?? payload.result.match?.displayText,
+                bestCandidateText: resolution.bestCandidateText,
                 confidence: payload.result.confidence,
-                strokeCount: payload.timing.strokeCount
+                strokeCount: payload.timing.strokeCount,
+                recognitionResult: payload.result,
+                primaryDecision: resolution.primaryDecision,
+                recognitionDecision: resolution.decision,
+                targetLifecycle: payload.targetLifecycle,
+                requiresManualReviewOnly: payload.requiresManualReviewOnly
             )
         }
 
@@ -4465,19 +4354,45 @@ struct EditorView: View {
         )
         chordPreviewState = updatedPreviewState
 
-        IChartTelemetry.record(
-            "chord.preview_updated",
-            properties: Self.chordDraftPreviewTelemetryProperties(
-                payloads: payloads,
-                inputs: inputs,
-                updatedState: updatedPreviewState,
-                layoutStyle: chart.layoutStyle.rawValue
-            )
+        IChartPerformanceTrace.record(
+            "chord.preview.replace",
+            durationMilliseconds: (ProcessInfo.processInfo.systemUptime - replacementStartedAt) * 1_000,
+            metadata: [
+                "targets": "\(payloads.count)",
+                "drafts": "\(updatedPreviewState.draftChords.count)",
+                "cache_hits": "\(payloads.filter { $0.timing.cacheHit }.count)",
+                "reused_resolutions": "\(reusedResolutionCount)",
+                "layout_style": chart.layoutStyle.rawValue
+            ]
         )
+
+        let layoutStyle = chart.layoutStyle.rawValue
+        let workflowProperties = ChordWritingWorkflowTelemetry.previewTimingProperties(
+            batchID: chordWritingBatchID,
+            lastStrokeToPreviewMilliseconds: payloads.contains(where: { !$0.timing.cacheHit })
+                ? ChordWritingWorkflowTelemetry.elapsedMilliseconds(
+                    from: chordDraftRenderCoordinator.lastInputAt, to: Date()) : nil
+        )
+        Self.chordPreviewTelemetryQueue.async {
+            IChartTelemetry.record(
+                "chord.preview_updated",
+                properties: Self.chordDraftPreviewTelemetryProperties(
+                    payloads: payloads,
+                    inputs: inputs,
+                    updatedState: updatedPreviewState,
+                    layoutStyle: layoutStyle
+                ).merging(workflowProperties) { _, value in value }
+            )
+        }
     }
 
     private func handleChordInkDraftBarlinesChanged(_ barlines: [DraftBarline]) {
-        guard canvasMode == .chordEntry else {
+        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
+            mode: canvasMode,
+            hasSingleReview: pendingChordInkConfirmation != nil,
+            hasBatchReview: pendingChordInkBatchConfirmation != nil,
+            hasCorrection: pendingChordCorrection != nil
+        ) else {
             return
         }
 
@@ -4490,6 +4405,7 @@ struct EditorView: View {
             IChartTelemetry.record(
                 "chord.draft_barline_added",
                 properties: [
+                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                     "barline_count": .int(barlines.count),
                     "draft_count": .int(updatedPreviewState.draftChords.count),
                     "unresolved_count": .int(updatedPreviewState.unresolvedBarlineCount),
@@ -4508,15 +4424,66 @@ struct EditorView: View {
             return
         }
 
-        var updatedChart = chart
-        let renderResult = updatedChart.commitChordInkDraftBatch(
-            chordPreviewState,
-            barlineSpacingMode: .drawn
-        )
+        if chordPreviewState.requiresChordConfirmation {
+            guard let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) else {
+                chordInkErrorMessage = "One or more draft chords could not be prepared for review. Keep the ink and try again."
+                showingChordInkError = true
+                return
+            }
+
+            pendingChordInkBatchConfirmation = batch
+            chordReviewStartedAt = Date()
+            IChartTelemetry.record(
+                "chord.confirmation_presented",
+                properties: [
+                    "batch_size": .int(batch.confirmations.count),
+                    "confirm_count": .int(
+                        batch.confirmations.filter { $0.decision.action == .confirm }.count
+                    ),
+                    "result": .string("draft_review"),
+                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                    "layout_style": .string(chart.layoutStyle.rawValue)
+                ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
+            )
+            return
+        }
+
+        _ = renderChordPreviewState(chordPreviewState, reviewResult: "trusted")
+    }
+
+    @discardableResult
+    private func renderChordPreviewState(
+        _ state: ChordPreviewState,
+        reviewResult: String,
+        workflowProperties: IChartTelemetryProperties = [:]
+    ) -> Bool {
+
+        var committedState = state
+        committedState.markRenderableDraftsCommitted()
+        // The live canvas owns the destructive transaction. It validates the
+        // actual PKDrawing and consumes it synchronously on the main actor;
+        // a delayed SwiftUI update must never clear ink added after review.
+        guard let outcome = chordDraftRenderCoordinator.render(chart: chart, state: committedState) else {
+            chordInkErrorMessage = "The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased."
+            showingChordInkError = true
+            return false
+        }
+        let renderResult = outcome.result
+        let updatedChart = outcome.chart
+        guard !renderResult.didRejectIncompleteSourceCoverage else {
+            chordInkErrorMessage = "Some current ink is missing from chord review or the preview is out of date. Nothing was rendered or erased. Review or rewrite that ink, then try again."
+            showingChordInkError = true
+            return false
+        }
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
             chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
             showingChordInkError = true
-            return
+            return false
+        }
+        guard renderResult.unresolvedDraftIDs.isEmpty else {
+            chordInkErrorMessage = "One or more reviewed chords could not be rendered. The draft ink is still available."
+            showingChordInkError = true
+            return false
         }
 
         chart = updatedChart
@@ -4525,27 +4492,54 @@ struct EditorView: View {
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
-        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         chordInkAutomaticRewriteFailures.reset()
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         IChartTelemetry.record(
             "chord.preview_rendered",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "draft_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount),
                 "rendered_count": .int(renderResult.renderedChordCount),
                 "barline_count": .int(renderResult.renderedBarlineCount),
                 "unresolved_count": .int(renderResult.unresolvedDraftIDs.count),
+                "decision": .string(reviewResult),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ]
+            ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
+                .merging(workflowProperties) { _, value in value }
+        )
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
+        return true
+    }
+
+    private var isChordDraftClearPresented: Binding<Bool> {
+        Binding<Bool>(
+            get: {
+                guard let requestedChartID = pendingChordDraftClearChartID else { return false }
+                return requestedChartID == chart.id
+            },
+            set: { isPresented in
+                if !isPresented { pendingChordDraftClearChartID = nil }
+            }
         )
     }
 
+    private var hasPendingChordDraftInk: Bool {
+        !chordPreviewState.isEmpty || chart.pageHandwrittenChordData != nil
+    }
+
+    private func requestClearChordDraftInk() {
+        guard hasPendingChordDraftInk else { return }
+        pendingChordDraftClearChartID = chart.id
+    }
+
     private func handleDiscardChordDrafts() {
-        guard !chordPreviewState.isEmpty || chart.pageHandwrittenChordData != nil else {
+        guard hasPendingChordDraftInk else {
             return
         }
 
@@ -4563,11 +4557,16 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.preview_discarded",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "draft_count": .int(discardedDraftCount),
                 "barline_count": .int(discardedBarlineCount),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ]
+            ].merging(ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .discard)) { _, value in value }
         )
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
     }
 
     private func handleChordInkRecognitionProposal(
@@ -4696,14 +4695,14 @@ struct EditorView: View {
             properties: [
                 "batch_size": .int(confirmations.count),
                 "flow": .string(flow.telemetryValue),
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
                 "result": .string("batch"),
                 "layout_style": .string(chart.layoutStyle.rawValue),
                 "measure_count": .int(chart.measures.count)
             ]
         )
-        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
-            || editorGuidedTourStep == .chordConfirm
-            || editorGuidedTourStep == .chordRender
+        let isGuidedChordConfirmation = editorGuidedTourStep == .writeChords
+            || editorGuidedTourStep == .renderChords
         let trustedTextsByID = Dictionary(
             uniqueKeysWithValues: confirmations.compactMap { confirmation -> (UUID, String)? in
                 guard confirmation.decision.action == .trusted,
@@ -4730,7 +4729,9 @@ struct EditorView: View {
             "chord.confirmation_presented",
             properties: [
                 "batch_size": .int(confirmations.count),
-                "result": .string("batch_confirmation")
+                "result": .string("batch_confirmation"),
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                "layout_style": .string(chart.layoutStyle.rawValue)
             ]
         )
     }
@@ -4743,11 +4744,20 @@ struct EditorView: View {
             result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        let didCommit = commitChordInkBatchCandidates(
-            trimmedCandidateTextByID,
-            batch: batch,
-            resolution: .confirmedSuggestion
-        )
+        let didCommit: Bool
+        switch batch.source {
+        case .recognitionProposal:
+            didCommit = commitChordInkBatchCandidates(
+                trimmedCandidateTextByID,
+                batch: batch,
+                resolution: .confirmedSuggestion
+            )
+        case .draftPreview:
+            didCommit = commitReviewedChordDrafts(
+                trimmedCandidateTextByID,
+                batch: batch
+            )
+        }
 
         guard didCommit else {
             return
@@ -4759,19 +4769,23 @@ struct EditorView: View {
                 continue
             }
 
-            if confirmation.visibleCandidateTexts.contains(acceptedText) {
-                didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
-                    acceptedText: acceptedText,
-                    drawingData: confirmation.drawingData,
-                    candidateTexts: confirmation.candidateTexts,
-                    decision: confirmation.decision
-                ) || didUpdateMemory
-            } else {
-                didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
-                    acceptedText: acceptedText,
-                    drawingData: confirmation.drawingData,
-                    candidateTexts: confirmation.candidateTexts
-                ) || didUpdateMemory
+            learnReviewedPersonalHandwriting(acceptedText, confirmation: confirmation)
+
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                if confirmation.visibleCandidateTexts.contains(acceptedText) {
+                    didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                        acceptedText: acceptedText,
+                        drawingData: confirmation.drawingData,
+                        candidateTexts: confirmation.candidateTexts,
+                        decision: confirmation.decision
+                    ) || didUpdateMemory
+                } else {
+                    didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
+                        acceptedText: acceptedText,
+                        drawingData: confirmation.drawingData,
+                        candidateTexts: confirmation.candidateTexts
+                    ) || didUpdateMemory
+                }
             }
         }
 
@@ -4780,12 +4794,73 @@ struct EditorView: View {
         }
     }
 
-    private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
-        let isGuidedChordConfirmation = editorGuidedTourStep == .chordWrite
-            || editorGuidedTourStep == .chordConfirm
-            || editorGuidedTourStep == .chordRender
+    private func commitReviewedChordDrafts(
+        _ candidateTextByID: [UUID: String],
+        batch: PendingChordInkBatchConfirmation
+    ) -> Bool {
+        let validation = ChordInkDraftReviewPolicy.validation(
+            from: chordPreviewState, batch: batch, candidateTextByDraftID: candidateTextByID
+        )
+        let reviewedState: ChordPreviewState
+        switch validation {
+        case .success(let state):
+            reviewedState = state
+        case .failure(let reason):
+            recordChordReviewRejection(reason, batch: batch, entryTexts: candidateTextByID)
+            chordInkErrorMessage = reason.recoveryMessage
+                + " Nothing was rendered or erased. Diagnostic: \(reason.rawValue)."
+            showingChordInkError = true
+            return false
+        }
 
-        completeEditorGuidedTourStep(.chordWrite)
+        let observations = chordPreviewState.draftChords.map { draft in
+            let previous = draft.previewText.flatMap { ChordRecognitionCompendium.match($0)?.displayText }
+            let accepted = candidateTextByID[draft.id].flatMap { ChordRecognitionCompendium.match($0)?.displayText }
+            return ChordWritingWorkflowTelemetry.ReviewObservation(
+                hadSupportedRead: previous != nil, didChangeRead: previous != accepted
+            )
+        }
+        return renderChordPreviewState(reviewedState, reviewResult: "confirmed",
+            workflowProperties: ChordWritingWorkflowTelemetry.reviewProperties(
+                batchID: chordWritingBatchID, observations: observations,
+                durationMilliseconds: ChordWritingWorkflowTelemetry.elapsedMilliseconds(
+                    from: chordReviewStartedAt, to: Date())
+            ))
+    }
+
+    private func recordChordReviewRejection(
+        _ reason: ChordInkDraftReviewRejection,
+        batch: PendingChordInkBatchConfirmation,
+        entryTexts: [UUID: String]
+    ) {
+        let expected = batch.reviewedDraftState
+        IChartPerformanceTrace.record("chord.review.rejected", metadata: [
+            "reason": reason.rawValue,
+            "layout_style": chart.layoutStyle.rawValue,
+            "current_drafts": "\(chordPreviewState.draftChords.count)",
+            "reviewed_drafts": "\(expected?.draftChords.count ?? 0)",
+            "current_barlines": "\(chordPreviewState.draftBarlines.count)",
+            "reviewed_barlines": "\(expected?.draftBarlines.count ?? 0)",
+            "submitted_entries": "\(entryTexts.count)",
+            "confirmations": "\(batch.confirmations.count)",
+            "drafts_equal": "\(expected.map { $0.draftChords == chordPreviewState.draftChords } ?? false)",
+            "barlines_equal": "\(expected.map { $0.draftBarlines == chordPreviewState.draftBarlines } ?? false)",
+            "layout_equal": "\(expected.map { $0.layoutPageSize == chordPreviewState.layoutPageSize } ?? false)",
+            "entry_ids_equal": "\(Set(entryTexts.keys) == Set(chordPreviewState.draftChords.map(\.id)))",
+            "labels_supported": "\(entryTexts.values.allSatisfy { ChordRecognitionCompendium.match($0) != nil })",
+            "draft_ids_equal": "\(expected.map { $0.draftChords.map(\.id) == chordPreviewState.draftChords.map(\.id) } ?? false)",
+            "draft_ink_equal": "\(expected.map { $0.draftChords.map(\.drawingData) == chordPreviewState.draftChords.map(\.drawingData) } ?? false)",
+            "ownership_equal": "\(expected.map { $0.draftChords.map(\.targetLifecycle) == chordPreviewState.draftChords.map(\.targetLifecycle) } ?? false)",
+            "candidates_equal": "\(expected.map { $0.draftChords.map(\.candidateTexts) == chordPreviewState.draftChords.map(\.candidateTexts) } ?? false)",
+            "drafts_reflexive": "\(chordPreviewState.draftChords == chordPreviewState.draftChords)"
+        ])
+    }
+
+    private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
+        let isGuidedChordConfirmation = editorGuidedTourStep == .writeChords
+            || editorGuidedTourStep == .renderChords
+
+        completeEditorGuidedTourStep(.writeChords)
 
         if !isGuidedChordConfirmation,
            confirmation.decision.action == .trusted,
@@ -4808,10 +4883,12 @@ struct EditorView: View {
             chordInkAutomaticRewriteFailures.reset()
         }
 
-        if !isGuidedChordConfirmation,
+        if HandwritingPersonalizationProductPolicy.isAvailable,
+           !isGuidedChordConfirmation,
            !isCompleteFailure,
            let preferredCandidate = chordInkUserCorrectionMemory.preferredCandidate(
                for: confirmation.candidateTexts,
+               drawingData: confirmation.drawingData,
                decision: confirmation.decision
            ) {
             if commitChordInkCandidate(
@@ -4857,26 +4934,30 @@ struct EditorView: View {
             return
         }
 
-        switch resolution {
-        case .confirmedSuggestion:
-            if chordInkUserCorrectionMemory.recordConfirmedSuggestion(
-                acceptedText: trimmedCandidateText,
-                drawingData: confirmation.drawingData,
-                candidateTexts: confirmation.candidateTexts,
-                decision: confirmation.decision
-            ) {
-                persistChordInkUserCorrectionMemory()
+        learnReviewedPersonalHandwriting(trimmedCandidateText, confirmation: confirmation)
+
+        if HandwritingPersonalizationProductPolicy.isAvailable {
+            switch resolution {
+            case .confirmedSuggestion:
+                if chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                    acceptedText: trimmedCandidateText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts,
+                    decision: confirmation.decision
+                ) {
+                    persistChordInkUserCorrectionMemory()
+                }
+            case .manualCorrection:
+                if chordInkUserCorrectionMemory.recordManualCorrection(
+                    acceptedText: trimmedCandidateText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts
+                ) {
+                    persistChordInkUserCorrectionMemory()
+                }
+            case .autoRendered, .userRuleApplied, .renderedChordCorrection, .reconciledRenderedChord:
+                break
             }
-        case .manualCorrection:
-            if chordInkUserCorrectionMemory.recordManualCorrection(
-                acceptedText: trimmedCandidateText,
-                drawingData: confirmation.drawingData,
-                candidateTexts: confirmation.candidateTexts
-            ) {
-                persistChordInkUserCorrectionMemory()
-            }
-        case .autoRendered, .userRuleApplied, .renderedChordCorrection, .reconciledRenderedChord:
-            break
         }
     }
 
@@ -4949,9 +5030,8 @@ struct EditorView: View {
         selectedNoteSelection = nil
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         #if DEBUG && targetEnvironment(simulator)
         logChordInkCommitTiming(
@@ -5072,13 +5152,14 @@ struct EditorView: View {
         canvasMode = .chordEntry
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
-        completeEditorGuidedTourStep(.chordWrite)
-        completeEditorGuidedTourStep(.chordConfirm)
-        completeEditorGuidedTourStep(.chordRender)
+        completeEditorGuidedTourStep(.writeChords)
+        completeEditorGuidedTourStep(.renderChords)
 
         IChartTelemetry.record(
             "chord.batch_committed",
             properties: [
+                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
+                "layout_style": .string(chart.layoutStyle.rawValue),
                 "batch_size": .int(committedEvents.count),
                 "decision": .string(resolution.rawValue),
                 "result": .string("committed")
@@ -5106,32 +5187,23 @@ struct EditorView: View {
             candidateTexts: chordEvent.sourceCandidateSignature,
             enharmonicChoiceTexts: chart.enharmonicChordSpellingTexts(for: chordEvent, in: measure.id)
         )
-        completeEditorGuidedTourStep(.chordCorrection)
-    }
-
-    private func handleChordDeleted(_ chordEvent: ChordEvent) {
-        guard let sourceInkData = chordEvent.sourceInkData else {
-            return
-        }
-
-        let acceptedText = chordEvent.rawInput ?? chordEvent.symbol.displayText
-        if chordInkUserCorrectionMemory.recordRejectedTrustedCandidate(
-            acceptedText: acceptedText,
-            drawingData: sourceInkData,
-            candidateSignature: chordEvent.sourceCandidateSignature
-        ) {
-            persistChordInkUserCorrectionMemory()
-        }
     }
 
     private func handleChordCorrectionAccepted(
         _ candidateText: String,
-        correction: PendingChordCorrection
+        correction: PendingChordCorrection,
+        teachesHandwriting: Bool = false
     ) {
         let shouldReturnToBrowse = canvasMode == .browse
         let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let match = ChordRecognitionCompendium.match(trimmedCandidateText) else {
             chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
+            showingChordInkError = true
+            return
+        }
+
+        guard let originalChordEvent = chart.chordEvent(id: correction.chordEventID) else {
+            chordInkErrorMessage = "That chord is no longer available. Try writing it again."
             showingChordInkError = true
             return
         }
@@ -5148,6 +5220,44 @@ struct EditorView: View {
         }
 
         chart = updatedChart
+
+        if teachesHandwriting, let drawingData = originalChordEvent.sourceInkData {
+            learnPersonalHandwriting(trimmedCandidateText, drawingData: drawingData, source: .explicitCorrection)
+        }
+
+        let previousRecognitionText = originalChordEvent.rawInput ?? originalChordEvent.symbol.displayText
+        let didUpdateCorrectionMemory = HandwritingPersonalizationProductPolicy.isAvailable
+            ? originalChordEvent.sourceInkData.map { sourceInkData in
+                chordInkUserCorrectionMemory.recordRenderedChordCorrection(
+                    previousText: previousRecognitionText,
+                    displayedPreviousText: correction.currentText,
+                    acceptedText: trimmedCandidateText,
+                    drawingData: sourceInkData,
+                    candidateTexts: originalChordEvent.sourceCandidateSignature
+                )
+            } ?? false
+            : false
+        if didUpdateCorrectionMemory {
+            persistChordInkUserCorrectionMemory()
+        }
+
+        IChartTelemetry.record(
+            "chord.rendered_correction_applied",
+            properties: [
+                "candidate_count": .int(originalChordEvent.sourceCandidateSignature.count),
+                "decision": .string(Self.renderedChordCorrectionFeedbackKind(
+                    previousRecognitionText: previousRecognitionText,
+                    previousRenderedText: correction.currentText,
+                    acceptedText: trimmedCandidateText,
+                    candidateTexts: originalChordEvent.sourceCandidateSignature
+                )),
+                "layout_style": .string(updatedChart.layoutStyle.rawValue),
+                "result": .string(didUpdateCorrectionMemory ? "memory_updated" : "edit_only")
+            ].merging(ChordInkCorrectionTelemetry.sourceProperties(
+                hasSourceInk: originalChordEvent.sourceInkData != nil,
+                sourceRecognitionPipelineVersion: originalChordEvent.sourceRecognitionPipelineVersion
+            )) { _, sourceValue in sourceValue }
+        )
 
         #if DEBUG && targetEnvironment(simulator)
         recordChordCorrectionDiagnostic(
@@ -5235,6 +5345,7 @@ struct EditorView: View {
             suggestedCandidateTexts: confirmation.candidateTexts,
             rawCandidates: confirmation.result.rawCandidates,
             candidateScores: Array(confirmation.result.candidateScores.prefix(12)),
+            reviewCandidateScores: Array(confirmation.result.reviewCandidateScores.prefix(4)),
             confidence: confirmation.result.confidence,
             recognitionReason: confirmation.decision.reason,
             wasCloseRace: confirmation.decision.isCloseRace,
@@ -5246,6 +5357,7 @@ struct EditorView: View {
             primaryWasCloseRace: confirmation.primaryDecision.isCloseRace,
             primaryConfidenceGap: confirmation.primaryDecision.confidenceGap,
             recognitionMetrics: confirmation.result.metrics,
+            trustEvidence: confirmation.result.trustEvidence,
             symbolLedger: confirmation.result.symbolLedger,
             symbolLedgerAssessment: confirmation.result.symbolLedger?.assessment(
                 primaryDisplayText: match.displayText
@@ -5352,6 +5464,35 @@ struct EditorView: View {
 
     #endif
 
+    private func learnPersonalHandwriting(_ text: String, drawingData: Data, source: PersonalInkExampleSource) {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
+        PersonalInkLearning.record(text: text, drawingData: drawingData, source: source,
+                                   captureContext: personalReviewIntakeContext,
+                                   completion: handlePersonalLearningError)
+    }
+
+    private func learnReviewedPersonalHandwriting(_ text: String, confirmation: PendingChordInkConfirmation) {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
+        PersonalInkLearning.recordReview(text: text, presentedText: confirmation.bestCandidateText,
+                                         drawingData: confirmation.drawingData,
+                                         captureContext: personalReviewIntakeContext,
+                                         completion: handlePersonalLearningError)
+    }
+
+    private var personalReviewIntakeContext: PersonalInkCaptureContext {
+        // Review can reuse stored chart ink; this is the review intake session,
+        // not a claim that the strokes were first acquired at this moment.
+        .init(sessionID: personalLearningSessionID, origin: .chartReview,
+              chartStyle: PersonalInkCaptureContext.chartStyleToken(for: chart.layoutStyle.rawValue))
+    }
+
+    private func handlePersonalLearningError(_ error: String?) {
+        if let error {
+            chordInkErrorMessage = "The chord was saved, but its handwriting example was not: \(error)"
+            showingChordInkError = true
+        }
+    }
+
     private func scheduleChordEntryDiagnosticReconciliation(for chartSnapshot: Chart) {
         #if DEBUG && targetEnvironment(simulator)
         let hasRenderedChordEvents = chartSnapshot.systems
@@ -5409,9 +5550,33 @@ struct EditorView: View {
     #endif
 
     private func handleChordInkRewriteRequested() {
+        IChartTelemetry.record("chord.preview_rewritten", properties:
+            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .page))
         chordInkAutomaticRewriteFailures.reset()
         clearChordInkForRewrite()
-        completeEditorGuidedTourStep(.chordUnreadable)
+    }
+
+    private func handleBackToChordInk() {
+        pendingChordInkConfirmation = nil
+        pendingChordInkBatchConfirmation = nil
+        chordReviewStartedAt = nil
+        canvasMode = .chordEntry
+    }
+
+    private func handleChordDraftRewriteRequested(_ confirmation: PendingChordInkConfirmation) {
+        guard let draft = chordPreviewState.draftChords.first(where: { $0.id == confirmation.id }),
+              draft.drawingData == confirmation.drawingData,
+              let outcome = chordDraftRenderCoordinator.rewrite(chart: chart, state: chordPreviewState, draft: draft) else {
+            chordInkErrorMessage = "This chord's ink changed or shares a stroke with other ink. Nothing was erased. Return to ink and use the eraser on that chord."
+            showingChordInkError = true
+            return
+        }
+        chart = outcome.chart
+        handleBackToChordInk()
+        chordReviewEntriesByInk.removeValue(forKey: draft.drawingData)
+        chordPreviewState.discard()
+        IChartTelemetry.record("chord.preview_rewritten", properties:
+            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .local))
     }
 
     private func clearChordInkForRewrite() {
@@ -5420,11 +5585,17 @@ struct EditorView: View {
         chart = updatedChart
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
+        chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         canvasMode = .chordEntry
+        chordWritingBatchID = UUID()
+        chordReviewStartedAt = nil
+        chordReviewEntriesByInk.removeAll()
+        chordDraftRenderCoordinator.lastInputAt = nil
     }
 
     private func persistChordInkUserCorrectionMemory() {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
         do {
             try chordInkUserCorrectionMemoryStore.save(chordInkUserCorrectionMemory)
         } catch {
@@ -5432,6 +5603,35 @@ struct EditorView: View {
             print("iChart chord user correction memory error: \(error)")
             #endif
         }
+    }
+
+    private static func renderedChordCorrectionFeedbackKind(
+        previousRecognitionText: String,
+        previousRenderedText: String,
+        acceptedText: String,
+        candidateTexts: [String]
+    ) -> String {
+        let previousRecognitionDisplayText = ChordRecognitionCompendium
+            .match(previousRecognitionText)?
+            .displayText
+        let previousRenderedDisplayText = ChordRecognitionCompendium
+            .match(previousRenderedText)?
+            .displayText
+        let acceptedDisplayText = ChordRecognitionCompendium
+            .match(acceptedText)?
+            .displayText
+
+        guard previousRecognitionDisplayText == previousRenderedDisplayText else {
+            return "display_space_mismatch"
+        }
+        guard previousRecognitionDisplayText != acceptedDisplayText else {
+            return "equivalent_spelling"
+        }
+
+        let signature = ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
+        return acceptedDisplayText.map(signature.contains) == true
+            ? "candidate_replacement"
+            : "outside_candidates"
     }
 
     private func handleNoteSelectionChanged(_ selection: LeadSheetNoteSelection?) {
@@ -5520,15 +5720,7 @@ struct EditorView: View {
         }
     }
 
-    private func editorHorizontalPadding(for width: CGFloat) -> CGFloat {
-        if width >= 1180 {
-            return 10
-        }
-
-        if width >= 820 {
-            return 14
-        }
-
+    private func editorHorizontalPadding(for _: CGFloat) -> CGFloat {
         return 10
     }
 
@@ -6388,86 +6580,17 @@ private struct RhythmEditChoiceRow: View {
     }
 }
 
-private struct InkResponsivenessSheetView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var value: Double
+enum CueTextEntryPanelGeometry {
+    static let maximumWidth: CGFloat = 420
+    static let horizontalMargin: CGFloat = 20
+    static let headerHeight: CGFloat = 36
+    static let inputHeight: CGFloat = 72
+    static let verticalSpacing: CGFloat = 10
+    static let verticalPadding: CGFloat = 14
+    static let panelHeight = headerHeight + inputHeight + verticalSpacing + verticalPadding * 2
 
-    private var normalizedBinding: Binding<Double> {
-        Binding(
-            get: { LeadSheetInkResponsivenessPolicy.normalized(value) },
-            set: { value = LeadSheetInkResponsivenessPolicy.normalized($0) }
-        )
-    }
-
-    private var percentageText: String {
-        "\(Int((LeadSheetInkResponsivenessPolicy.normalized(value) * 100).rounded()))%"
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Pen Responsiveness") {
-                    HStack(spacing: 14) {
-                        Button {
-                            adjust(-LeadSheetInkResponsivenessPolicy.step)
-                        } label: {
-                            Image(systemName: "minus")
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Decrease pen responsiveness")
-
-                        Slider(
-                            value: normalizedBinding,
-                            in: LeadSheetInkResponsivenessPolicy.minimumValue...LeadSheetInkResponsivenessPolicy.maximumValue,
-                            step: LeadSheetInkResponsivenessPolicy.step
-                        ) {
-                            Text("Pen Responsiveness")
-                        } minimumValueLabel: {
-                            Text("Direct")
-                                .font(.caption)
-                        } maximumValueLabel: {
-                            Text("Smooth")
-                                .font(.caption)
-                        }
-
-                        Button {
-                            adjust(LeadSheetInkResponsivenessPolicy.step)
-                        } label: {
-                            Image(systemName: "plus")
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Increase pen responsiveness")
-                    }
-
-                    HStack {
-                        Spacer()
-                        Text(percentageText)
-                            .font(.headline.monospacedDigit())
-                        Spacer()
-                    }
-
-                    Button("Balanced") {
-                        value = LeadSheetInkResponsivenessPolicy.defaultValue
-                    }
-                }
-            }
-            .navigationTitle("Pen")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func adjust(_ delta: Double) {
-        value = LeadSheetInkResponsivenessPolicy.normalized(value + delta)
+    static func panelWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(maximumWidth, max(1, availableWidth - horizontalMargin * 2))
     }
 }
 
@@ -6486,16 +6609,19 @@ private struct CueTextEntryPanelView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.black.opacity(0.14)
+                // An outside tap dismisses typing rather than reopening the
+                // keyboard while the user navigates the chart.
+                Color.clear
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        requestTextFocus()
+                        endTyping()
                     }
 
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: CueTextEntryPanelGeometry.verticalSpacing) {
                     HStack {
                         PencilOnlyActionButton(title: "Cancel", style: .plain) {
+                            endTyping()
                             onCancel()
                         }
 
@@ -6511,6 +6637,7 @@ private struct CueTextEntryPanelView: View {
                             style: .plain,
                             isEnabled: canAdd
                         ) {
+                            endTyping()
                             onAdd()
                         }
                         .tourActionHighlight(
@@ -6518,6 +6645,9 @@ private struct CueTextEntryPanelView: View {
                             cornerRadius: 8
                         )
                     }
+                    // UIKit-backed buttons otherwise accept the full vertical
+                    // proposal from this overlay and stretch the panel on iPad.
+                    .frame(height: CueTextEntryPanelGeometry.headerHeight)
 
                     ZStack(alignment: .topLeading) {
                         RoundedRectangle(cornerRadius: 8)
@@ -6535,20 +6665,20 @@ private struct CueTextEntryPanelView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        CueTextInputView(
+                        IChartTypedTextView(
                             text: $text,
                             keyboardFocusRequestID: keyboardFocusRequestID
                         )
                         .accessibilityLabel("Text")
                     }
-                    .frame(height: 118)
-                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .onTapGesture {
-                        requestTextFocus()
-                    }
+                    .frame(height: CueTextEntryPanelGeometry.inputHeight)
                 }
-                .padding(18)
-                .frame(width: min(proxy.size.width - 48, 520))
+                .padding(CueTextEntryPanelGeometry.verticalPadding)
+                .frame(
+                    width: CueTextEntryPanelGeometry.panelWidth(for: proxy.size.width),
+                    height: CueTextEntryPanelGeometry.panelHeight,
+                    alignment: .top
+                )
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -6565,68 +6695,11 @@ private struct CueTextEntryPanelView: View {
     private func requestTextFocus() {
         keyboardFocusRequestID += 1
     }
-}
 
-#if canImport(UIKit)
-private struct CueTextInputView: UIViewRepresentable {
-    @Binding var text: String
-    let keyboardFocusRequestID: Int
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
-        textView.delegate = context.coordinator
-        textView.backgroundColor = .clear
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
-        textView.textContainer.lineFragmentPadding = 0
-        textView.autocapitalizationType = .sentences
-        textView.autocorrectionType = .yes
-        textView.isScrollEnabled = false
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.keyboardDismissMode = .interactive
-        return textView
-    }
-
-    func updateUIView(_ textView: UITextView, context: Context) {
-        context.coordinator.text = $text
-
-        if textView.text != text {
-            textView.text = text
-        }
-
-        guard keyboardFocusRequestID > 0,
-              context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
-        else {
-            return
-        }
-
-        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
-        DispatchQueue.main.async {
-            textView.resignFirstResponder()
-            textView.becomeFirstResponder()
-        }
-    }
-
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var text: Binding<String>
-        var lastKeyboardFocusRequestID = 0
-
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func textViewDidChange(_ textView: UITextView) {
-            text.wrappedValue = textView.text
-        }
+    private func endTyping() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
-#endif
 
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss

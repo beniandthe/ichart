@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   createTelemetryIngestDependencies,
@@ -164,31 +165,137 @@ test("sanitized properties drops arrays and objects", () => {
   );
 });
 
+test("writing workflow telemetry retains only bounded content-free fields", () => {
+  const writingBatchID = "D005CE18-075F-4B94-8175-835D20A1B5B9";
+  const row = telemetryRowFromEvent(validEvent({
+    event_name: "chord.preview_rendered",
+    properties: {
+      writing_batch_id: writingBatchID,
+      reviewed_count: 6,
+      changed_chord_count: 2,
+      repaired_no_read_count: 1,
+      rendered_count: 6,
+      last_stroke_to_preview_ms: 321.98765,
+      review_duration_ms: 3_200,
+      accepted_chord_text: "D/F#",
+      drawing_data: "private",
+      chart_id: validContext.installation_id,
+    },
+  }), validContext);
+  assert.ok(row);
+  assert.deepEqual(row.properties, {
+    writing_batch_id: writingBatchID.toLowerCase(),
+    reviewed_count: 6,
+    changed_chord_count: 2,
+    repaired_no_read_count: 1,
+    rendered_count: 6,
+    last_stroke_to_preview_ms: 321.988,
+    review_duration_ms: 3_200,
+  });
+});
+
+test("writing workflow fields cannot carry text or malformed scalar values", () => {
+  assert.deepEqual(sanitizedProperties({
+    writing_batch_id: "private chart title",
+    reviewed_count: "C7",
+    changed_chord_count: true,
+    repaired_no_read_count: -1,
+    last_stroke_to_preview_ms: "private handwriting",
+    review_duration_ms: Infinity,
+    rewrite_outcome: "D/F#",
+  }), {});
+
+  for (const key of ["reviewed_count", "changed_chord_count", "repaired_no_read_count"]) {
+    for (const invalid of [10_001, 1.5, "2", null, false]) {
+      assert.deepEqual(sanitizedProperties({ [key]: invalid }), {});
+    }
+  }
+  for (const key of ["last_stroke_to_preview_ms", "review_duration_ms"]) {
+    for (const invalid of [-1, NaN, Infinity, 86_400_001, null, true]) {
+      assert.deepEqual(sanitizedProperties({ [key]: invalid }), {});
+    }
+  }
+  for (const invalid of [
+    "D005CE18-075F-4B94-8175-835D20A1B5B9\n",
+    "00000000-0000-0000-0000-000000000000",
+  ]) {
+    assert.deepEqual(sanitizedProperties({ writing_batch_id: invalid }), {});
+  }
+});
+
+test("explicit local rewrite, page rewrite and discard remain distinct", () => {
+  for (const outcome of ["local", "page", "discard"]) {
+    const row = telemetryRowFromEvent(validEvent({
+      event_name: outcome === "discard" ? "chord.preview_discarded" : "chord.preview_rewritten",
+      properties: {
+        writing_batch_id: validContext.session_id,
+        rewrite_outcome: outcome,
+      },
+    }), validContext);
+    assert.ok(row);
+    assert.equal(row.properties.rewrite_outcome, outcome);
+    assert.equal(row.properties.writing_batch_id, validContext.session_id);
+  }
+});
+
+test("Swift client and ingest event/property allowlists agree", () => {
+  const client = readFileSync(new URL("../../../iChart/App/Telemetry/IChartTelemetry.swift", import.meta.url), "utf8");
+  const server = readFileSync(new URL("./telemetry_ingest.mjs", import.meta.url), "utf8");
+  for (const name of ["allowedEventNames", "allowedPropertyKeys"]) {
+    const clientBlock = client.match(new RegExp(`${name}: Set<String> = \\[([\\s\\S]*?)\\n    \\]`));
+    const serverBlock = server.match(new RegExp(`${name} = new Set\\(\\[([\\s\\S]*?)\\n\\]\\)`));
+    assert.ok(clientBlock, `missing Swift ${name}`);
+    assert.ok(serverBlock, `missing ingest ${name}`);
+    const strings = (block) => [...block.matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]).sort();
+    assert.deepEqual(strings(clientBlock[1]), strings(serverBlock[1]), `${name} drift`);
+  }
+});
+
 test("telemetry row allows aggregate chord preview handwriting quality without content", () => {
   const row = telemetryRowFromEvent(
     validEvent({
       event_name: "chord.preview_updated",
       properties: {
+        alteration_issue_count: 1,
         barline_count: 0,
+        barline_sequence_issue_count: 0,
         batch_size: 4,
         candidate_count: 12,
+        candidate_limit_issue_count: 0,
         close_race_count: 1,
         cluster_count: 7,
         confidence_bucket: "3_4",
         confirm_count: 1,
         decision: "mixed",
+        dim_quality_issue_count: 1,
         draft_count: 4,
+        extension_issue_count: 1,
         flow: "draft_preview",
         generated_sequence_limit_count: 0,
+        issue_count: 2,
         layout_style: "simpleChordSheet",
         matched_count: 3,
         no_read_count: 1,
+        quality_issue_count: 1,
         raw_candidate_count: 18,
         recognition_ms: 14.12567,
+        recognition_pipeline_version: "maximum-trust-v1-2026-09-10",
         recognition_target_count: 4,
+        review_candidate_count: 2,
         result: "partial",
+        root_accidental_issue_count: 1,
+        root_issue_count: 1,
+        slash_bass_issue_count: 1,
         stroke_count: 13,
+        triangle_quality_issue_count: 1,
+        trust_corroborated_count: 2,
+        trust_outcome: "corroborated",
+        trust_probe_count: 6,
+        trust_rejected_count: 1,
+        trust_symbol_support_count: 4,
+        trust_validation_ms: 8.12345,
         trusted_count: 3,
+        unknown_issue_count: 0,
         unresolved_count: 1,
         raw_chord_text: "D/F#",
         drawing_payload: "not allowed",
@@ -199,26 +306,49 @@ test("telemetry row allows aggregate chord preview handwriting quality without c
 
   assert.ok(row);
   assert.equal(row.event_name, "chord.preview_updated");
+  assert.equal(row.properties.alteration_issue_count, 1);
   assert.equal(row.properties.barline_count, 0);
+  assert.equal(row.properties.barline_sequence_issue_count, 0);
   assert.equal(row.properties.batch_size, 4);
   assert.equal(row.properties.candidate_count, 12);
+  assert.equal(row.properties.candidate_limit_issue_count, 0);
   assert.equal(row.properties.close_race_count, 1);
   assert.equal(row.properties.cluster_count, 7);
   assert.equal(row.properties.confidence_bucket, "3_4");
   assert.equal(row.properties.confirm_count, 1);
   assert.equal(row.properties.decision, "mixed");
+  assert.equal(row.properties.dim_quality_issue_count, 1);
   assert.equal(row.properties.draft_count, 4);
+  assert.equal(row.properties.extension_issue_count, 1);
   assert.equal(row.properties.flow, "draft_preview");
   assert.equal(row.properties.generated_sequence_limit_count, 0);
+  assert.equal(row.properties.issue_count, 2);
   assert.equal(row.properties.layout_style, "simpleChordSheet");
   assert.equal(row.properties.matched_count, 3);
   assert.equal(row.properties.no_read_count, 1);
+  assert.equal(row.properties.quality_issue_count, 1);
   assert.equal(row.properties.raw_candidate_count, 18);
   assert.equal(row.properties.recognition_ms, 14.126);
+  assert.equal(
+    row.properties.recognition_pipeline_version,
+    "maximum-trust-v1-2026-09-10",
+  );
   assert.equal(row.properties.recognition_target_count, 4);
+  assert.equal(row.properties.review_candidate_count, 2);
   assert.equal(row.properties.result, "partial");
+  assert.equal(row.properties.root_accidental_issue_count, 1);
+  assert.equal(row.properties.root_issue_count, 1);
+  assert.equal(row.properties.slash_bass_issue_count, 1);
   assert.equal(row.properties.stroke_count, 13);
+  assert.equal(row.properties.triangle_quality_issue_count, 1);
+  assert.equal(row.properties.trust_corroborated_count, 2);
+  assert.equal(row.properties.trust_outcome, "corroborated");
+  assert.equal(row.properties.trust_probe_count, 6);
+  assert.equal(row.properties.trust_rejected_count, 1);
+  assert.equal(row.properties.trust_symbol_support_count, 4);
+  assert.equal(row.properties.trust_validation_ms, 8.123);
   assert.equal(row.properties.trusted_count, 3);
+  assert.equal(row.properties.unknown_issue_count, 0);
   assert.equal(row.properties.unresolved_count, 1);
   assert.equal(row.properties.raw_chord_text, undefined);
   assert.equal(row.properties.drawing_payload, undefined);
@@ -249,6 +379,33 @@ test("telemetry row accepts chord preview render lifecycle events", () => {
     assert.equal(row.properties.barline_count, 1);
     assert.equal(row.properties.unresolved_count, 0);
   }
+});
+
+test("telemetry row accepts content-free rendered chord correction feedback", () => {
+  const row = telemetryRowFromEvent(
+    validEvent({
+      event_name: "chord.rendered_correction_applied",
+      properties: {
+        candidate_count: 3,
+        decision: "candidate_replacement",
+        layout_style: "simpleChordSheet",
+        result: "memory_updated",
+        source: "recognized_ink",
+        previous_chord_text: "C",
+        accepted_chord_text: "G",
+      },
+    }),
+    validContext
+  );
+
+  assert.ok(row);
+  assert.equal(row.event_name, "chord.rendered_correction_applied");
+  assert.equal(row.properties.candidate_count, 3);
+  assert.equal(row.properties.decision, "candidate_replacement");
+  assert.equal(row.properties.result, "memory_updated");
+  assert.equal(row.properties.source, "recognized_ink");
+  assert.equal(row.properties.previous_chord_text, undefined);
+  assert.equal(row.properties.accepted_chord_text, undefined);
 });
 
 test("ingest stores valid signed-out telemetry batches", async () => {

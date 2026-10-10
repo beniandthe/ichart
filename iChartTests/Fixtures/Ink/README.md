@@ -17,6 +17,11 @@ Ink fixtures are regression evidence, not training data. They should prove that
 known recognition paths stay stable, but they must not become a continuous
 sample collection loop for one writer's hand.
 
+The complete directory is classified as `legacy-regression-v1` with unknown
+writer provenance and `evaluationEligible = false`. No file in this directory,
+and no deterministic transformation derived from one, may be counted in a
+writer-independent accuracy, calibration, confidence, or sample-size claim.
+
 iChart recognition must stay writer-agnostic by default. Do not design,
 tune, or expand the recognizer around one person's repeated chord-writing
 passes. Any future user-specific personalization must be an explicit product

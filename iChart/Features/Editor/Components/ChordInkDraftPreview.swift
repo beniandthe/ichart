@@ -70,7 +70,7 @@ struct ChordInkDraftVisibleDrawingContext {
     var invisibleStrokeIndices: Set<Int>
 
     var visibleStrokeCount: Int {
-        drawing.strokes.count
+        Set(originalStrokeIndices).count
     }
 
     func originalStrokeIndices(for visibleStrokeIndices: Set<Int>) -> Set<Int> {
@@ -99,6 +99,42 @@ struct ChordInkDraftVisibleDrawingContext {
             strokeIndices: originalStrokeIndices(for: recognition.strokeIndices)
         )
     }
+
+    /// A draft barline can be deleted only by removing its original PencilKit
+    /// stroke from the live canvas. Bitmap erasing can split one original
+    /// stroke into several visible fragments, so treating one of those
+    /// fragments as a removable barline could also delete unrelated visible
+    /// chord ink. Keep barline recognition only when the visible fragment has
+    /// one-to-one ownership of its original stroke.
+    func barlineRecognitionWithUnambiguousSourceStrokes(
+        _ recognition: ChordDraftBarlineRecognition
+    ) -> ChordDraftBarlineRecognition {
+        let visibleFragmentCountByOriginalIndex = originalStrokeIndices.reduce(
+            into: [Int: Int](),
+            { counts, originalIndex in
+                counts[originalIndex, default: 0] += 1
+            }
+        )
+        let safeVisibleStrokeIndices = Set(
+            recognition.strokeIndices.filter { visibleIndex in
+                guard originalStrokeIndices.indices.contains(visibleIndex) else {
+                    return false
+                }
+                let originalIndex = originalStrokeIndices[visibleIndex]
+                return visibleFragmentCountByOriginalIndex[originalIndex] == 1
+            }
+        )
+
+        return ChordDraftBarlineRecognition(
+            barlines: recognition.barlines.filter { barline in
+                guard let visibleSourceStrokeIndex = barline.sourceStrokeIndex else {
+                    return false
+                }
+                return safeVisibleStrokeIndices.contains(visibleSourceStrokeIndex)
+            },
+            strokeIndices: safeVisibleStrokeIndices
+        )
+    }
 }
 
 enum ChordInkDraftVisibleStrokePolicy {
@@ -111,11 +147,13 @@ enum ChordInkDraftVisibleStrokePolicy {
         var invisibleStrokeIndices = Set<Int>()
 
         for (index, stroke) in drawing.strokes.enumerated() {
-            if isVisible(stroke) {
-                visibleStrokes.append(stroke)
-                originalStrokeIndices.append(index)
-            } else {
+            let fragments = PencilKitInkAdapter.visibleStrokeFragments(from: stroke)
+                .filter(isVisible)
+            if fragments.isEmpty {
                 invisibleStrokeIndices.insert(index)
+            } else {
+                visibleStrokes.append(contentsOf: fragments)
+                originalStrokeIndices.append(contentsOf: repeatElement(index, count: fragments.count))
             }
         }
 
@@ -237,6 +275,11 @@ struct ChordInkDraftInput: Hashable {
     var bestCandidateText: String?
     var confidence: Double
     var strokeCount: Int
+    var recognitionResult: ChordInkRecognitionResult? = nil
+    var primaryDecision: ChordInkRecognitionDecision? = nil
+    var recognitionDecision: ChordInkRecognitionDecision? = nil
+    var targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
+    var requiresManualReviewOnly: Bool = false
 
     var anchor: ChordInkDraftAnchor {
         ChordInkDraftAnchor(
@@ -244,6 +287,56 @@ struct ChordInkDraftInput: Hashable {
             laneLocation: laneLocation,
             visualOrder: visualOrder,
             fraction: targetFraction
+        )
+    }
+}
+
+enum ChordInkDraftPreviewResolutionReusePolicy {
+    static func reusedInput(
+        previousDraft: ChordInkDraft?,
+        measureID: UUID,
+        measureIndex: Int,
+        targetFraction: Double?,
+        visualOrder: Double?,
+        laneLocation: ChordInkDraftLaneLocation?,
+        layoutPageSize: CGSize?,
+        drawingData: Data,
+        strokeCount: Int,
+        isRecognitionCacheHit: Bool,
+        targetLifecycle: ChordInkRecognitionTargetLifecycle? = nil
+    ) -> ChordInkDraftInput? {
+        guard isRecognitionCacheHit,
+              let previousDraft else {
+            return nil
+        }
+        let incomingAnchor = ChordInkDraftAnchor(
+            measureID: measureID,
+            laneLocation: laneLocation,
+            visualOrder: visualOrder,
+            fraction: targetFraction
+        )
+        guard previousDraft.anchor == incomingAnchor,
+              previousDraft.drawingData == drawingData else {
+            return nil
+        }
+
+        return ChordInkDraftInput(
+            measureID: measureID,
+            measureIndex: measureIndex,
+            targetFraction: targetFraction,
+            visualOrder: visualOrder,
+            laneLocation: laneLocation,
+            layoutPageSize: layoutPageSize,
+            drawingData: drawingData,
+            candidateTexts: previousDraft.candidateTexts,
+            bestCandidateText: previousDraft.bestCandidateText,
+            confidence: previousDraft.confidence,
+            strokeCount: strokeCount,
+            recognitionResult: previousDraft.recognitionResult,
+            primaryDecision: previousDraft.primaryDecision,
+            recognitionDecision: previousDraft.recognitionDecision,
+            targetLifecycle: targetLifecycle,
+            requiresManualReviewOnly: previousDraft.requiresManualReviewOnly
         )
     }
 }
@@ -349,16 +442,10 @@ enum ChordInkDraftPreviewDeduplicationPolicy {
     }
 
     private static func normalizedPreviewText(_ input: ChordInkDraftInput) -> String? {
-        normalizedText(input.bestCandidateText) ?? input.candidateTexts.compactMap(normalizedText).first
-    }
-
-    private static func normalizedText(_ text: String?) -> String? {
-        guard let text else {
-            return nil
-        }
-
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedText.isEmpty ? nil : trimmedText
+        ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [input.bestCandidateText],
+            candidateTexts: input.candidateTexts
+        )
     }
 
     private static func sameLane(_ lhs: ChordInkDraftInput, _ rhs: ChordInkDraftInput) -> Bool {
@@ -442,6 +529,11 @@ struct ChordInkDraft: Identifiable, Hashable {
     var confidence: Double
     var strokeCount: Int
     var isStale: Bool
+    var recognitionResult: ChordInkRecognitionResult?
+    var primaryDecision: ChordInkRecognitionDecision?
+    var recognitionDecision: ChordInkRecognitionDecision?
+    var targetLifecycle: ChordInkRecognitionTargetLifecycle?
+    var requiresManualReviewOnly: Bool
 
     init(id: UUID = UUID(), input: ChordInkDraftInput, selectedText: String? = nil, isStale: Bool = false) {
         self.id = id
@@ -453,16 +545,50 @@ struct ChordInkDraft: Identifiable, Hashable {
         self.laneLocation = input.laneLocation
         self.layoutPageSize = input.layoutPageSize
         self.drawingData = input.drawingData
-        self.candidateTexts = input.candidateTexts
-        self.bestCandidateText = input.bestCandidateText
+        // A stale absorbed target deliberately has no supported suggestion:
+        // source ownership must be repaired before reusing its old read.
+        let resultCandidateTexts = isStale ? []
+            : input.recognitionResult.map(ChordInkRenderResolutionPolicy.candidateTexts(for:)) ?? []
+        let userFacingCandidateTexts = ChordRecognitionCompendium.userFacingCandidateTexts(
+            from: input.candidateTexts + resultCandidateTexts
+        )
+        self.candidateTexts = userFacingCandidateTexts
+        self.bestCandidateText = ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [
+                input.bestCandidateText,
+                isStale ? nil : input.recognitionDecision?.acceptedText,
+                isStale ? nil : input.recognitionResult?.match?.displayText
+            ],
+            candidateTexts: userFacingCandidateTexts
+        )
         self.selectedText = selectedText
         self.confidence = input.confidence
         self.strokeCount = input.strokeCount
         self.isStale = isStale
+        self.recognitionResult = input.recognitionResult
+        self.primaryDecision = input.primaryDecision
+        self.recognitionDecision = input.recognitionDecision
+        self.targetLifecycle = input.targetLifecycle
+        self.requiresManualReviewOnly = input.requiresManualReviewOnly
     }
 
     var previewText: String? {
-        normalizedText(selectedText) ?? normalizedText(bestCandidateText) ?? candidateTexts.compactMap(normalizedText).first
+        if let selectedText,
+           !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // An invalid explicit edit must stay unresolved; falling back to
+            // recognition here would render a different chord than was entered.
+            return ChordInkRenderResolutionPolicy.bestCandidateText(
+                preferredTexts: [selectedText], candidateTexts: []
+            )
+        }
+        return ChordInkRenderResolutionPolicy.bestCandidateText(
+            preferredTexts: [bestCandidateText],
+            candidateTexts: candidateTexts
+        )
+    }
+
+    var previewDisplayText: String {
+        previewText ?? "Add chord"
     }
 
     var isRenderable: Bool {
@@ -473,17 +599,16 @@ struct ChordInkDraft: Identifiable, Hashable {
         return ChordRecognitionCompendium.match(previewText) != nil
     }
 
-    var sourceCandidateSignature: [String] {
-        ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
-    }
-
-    private func normalizedText(_ text: String?) -> String? {
-        guard let text else {
-            return nil
+    var requiresConfirmation: Bool {
+        if let recognitionDecision {
+            return recognitionDecision.action == .confirm
         }
 
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedText.isEmpty ? nil : trimmedText
+        return recognitionResult != nil
+    }
+
+    var sourceCandidateSignature: [String] {
+        ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
     }
 }
 
@@ -512,13 +637,17 @@ private struct ChordInkDraftStrokeFingerprint: Hashable {
         _ previous: ChordInkDraftStrokeFingerprint,
         requiredAddedStrokeGap: CGFloat
     ) -> Bool {
-        guard strokeBounds.count > previous.strokeBounds.count,
-              quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds),
+        guard extends(previous),
               let addedStrokeGap = minimumAddedStrokeGap(after: previous) else {
             return false
         }
 
         return addedStrokeGap >= requiredAddedStrokeGap
+    }
+
+    func extends(_ previous: ChordInkDraftStrokeFingerprint) -> Bool {
+        strokeBounds.count > previous.strokeBounds.count
+            && quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds)
     }
 
     private func minimumAddedStrokeGap(after previous: ChordInkDraftStrokeFingerprint) -> CGFloat? {
@@ -665,6 +794,14 @@ struct ChordPreviewState: Equatable {
         draftChords.filter(\.isRenderable)
     }
 
+    var draftsRequiringConfirmation: [ChordInkDraft] {
+        draftChords.filter { !$0.isRenderable || $0.requiresConfirmation }
+    }
+
+    var requiresChordConfirmation: Bool {
+        !draftsRequiringConfirmation.isEmpty
+    }
+
     var unresolvedChordCount: Int {
         draftChords.count - renderableDraftChords.count
     }
@@ -685,9 +822,26 @@ struct ChordPreviewState: Equatable {
         canRenderAllDraftChords || !renderableBarlines.isEmpty
     }
 
+    /// Review can recover a represented unread chord without granting it a
+    /// recognition match or automatic trust. Source coverage is checked again
+    /// by the atomic commit before any ink can be consumed.
+    var canReviewChordDrafts: Bool {
+        !draftChords.isEmpty
+    }
+
     mutating func replaceDraftChords(with inputs: [ChordInkDraftInput], updatedAt: Date = .now) {
         let deduplicatedInputs = ChordInkDraftPreviewDeduplicationPolicy.deduplicated(inputs)
         let previousRenderableDrafts = draftChords.filter(\.isRenderable)
+        let previousFrozenDraftByIdentity = Dictionary(
+            draftChords.compactMap { draft -> (ChordInkRecognitionFrozenTargetIdentity, ChordInkDraft)? in
+                guard let lifecycle = draft.targetLifecycle,
+                      lifecycle.stage == .frozen else {
+                    return nil
+                }
+                return (lifecycle.frozenTargetIdentity, draft)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         let previousDraftByAnchor = Dictionary(
             draftChords.map { ($0.anchor, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -696,15 +850,61 @@ struct ChordPreviewState: Equatable {
         var resolvedDrafts = [ChordInkDraft]()
 
         for input in deduplicatedInputs {
+            if input.requiresManualReviewOnly {
+                // This is a settled manual-recovery target, not a transient
+                // reader result. Retaining the former preview as another draft
+                // would claim the same source twice and block safe recovery.
+                let previous = previousDraftByAnchor[input.anchor]
+                let selectedText = previous?.drawingData == input.drawingData ? previous?.selectedText : nil
+                var manualDraft = ChordInkDraft(id: previous?.id ?? UUID(), input: input,
+                    selectedText: selectedText, isStale: false)
+                if let lifecycle = manualDraft.targetLifecycle, lifecycle.stage == .stable {
+                    manualDraft.targetLifecycle = lifecycle.advanced(to: .frozen)
+                }
+                resolvedDrafts.append(manualDraft)
+                continue
+            }
+            if let incomingLifecycle = input.targetLifecycle,
+               let frozenDraft = previousFrozenDraftByIdentity[incomingLifecycle.frozenTargetIdentity] {
+                // A later page-wide pass may assign the same target a slightly
+                // different interpretation after unrelated ink is added
+                // elsewhere. Exact target anchor plus prepared-stroke
+                // ownership is the authority once frozen, so keep both the
+                // ownership and interpretation until that target changes.
+                if preservedDraftIDs.insert(frozenDraft.id).inserted {
+                    resolvedDrafts.append(frozenDraft)
+                }
+                continue
+            }
+
             let previousDraft = previousDraftByAnchor[input.anchor]
-            let incomingDraft = ChordInkDraft(
+            var incomingDraft = ChordInkDraft(
                 id: previousDraft?.id ?? UUID(),
                 input: input,
                 selectedText: previousDraft?.selectedText,
                 isStale: false
             )
+            if let stableLifecycle = incomingDraft.targetLifecycle,
+               stableLifecycle.stage == .stable {
+                incomingDraft.targetLifecycle = stableLifecycle.advanced(to: .frozen)
+            }
 
-            if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
+            if previousDraft?.previewText == incomingDraft.previewText,
+               previousDraft?.drawingData == incomingDraft.drawingData {
+                resolvedDrafts.append(incomingDraft)
+            } else if let previousDraft,
+                      Self.shouldHoldPreviousRenderableDraft(
+                        previousDraft,
+                        whileResolving: incomingDraft
+                      ) {
+                // Adding detail inside the same chord can briefly produce no
+                // supported read. Keep the last renderable preview visible but
+                // pair it with an unresolved draft so the stale text cannot be
+                // committed until recognition resolves the expanded ink.
+                resolvedDrafts.append(previousDraft)
+                preservedDraftIDs.insert(previousDraft.id)
+                resolvedDrafts.append(Self.unresolvedAbsorbedDraft(from: input))
+            } else if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
                 by: incomingDraft,
                 from: previousRenderableDrafts,
                 excluding: preservedDraftIDs
@@ -721,6 +921,36 @@ struct ChordPreviewState: Equatable {
             .sorted(by: Self.isOrderedBefore)
         layoutPageSize = deduplicatedInputs.compactMap(\.layoutPageSize).first ?? layoutPageSize
         self.updatedAt = updatedAt
+    }
+
+    mutating func markRenderableDraftsCommitted(updatedAt: Date = .now) {
+        for index in draftChords.indices where draftChords[index].isRenderable {
+            guard let frozenLifecycle = draftChords[index].targetLifecycle,
+                  frozenLifecycle.stage == .frozen else {
+                continue
+            }
+            draftChords[index].targetLifecycle = frozenLifecycle.advanced(to: .committed)
+        }
+        self.updatedAt = updatedAt
+    }
+
+    private static func shouldHoldPreviousRenderableDraft(
+        _ previousDraft: ChordInkDraft,
+        whileResolving incomingDraft: ChordInkDraft
+    ) -> Bool {
+        guard previousDraft.isRenderable,
+              incomingDraft.previewText == nil,
+              previousDraft.anchor == incomingDraft.anchor,
+              let previousFingerprint = ChordInkDraftStrokeFingerprint(
+                drawingData: previousDraft.drawingData
+              ),
+              let incomingFingerprint = ChordInkDraftStrokeFingerprint(
+                drawingData: incomingDraft.drawingData
+              ) else {
+            return false
+        }
+
+        return incomingFingerprint.extends(previousFingerprint)
     }
 
     private static func absorbedPreviousRenderableDraft(
@@ -1076,7 +1306,7 @@ enum ChordDraftBarlineRecognizer {
             return ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
         }
 
-        var acceptedBarlines = [(barline: DraftBarline, strokeIndex: Int)]()
+        var candidateBarlines = [(barline: DraftBarline, strokeIndex: Int)]()
         for indexedStroke in strokes.enumerated() {
             guard let barline = draftBarline(
                 for: indexedStroke.element,
@@ -1086,9 +1316,19 @@ enum ChordDraftBarlineRecognizer {
                 continue
             }
 
-            acceptedBarlines.append((barline, indexedStroke.offset))
+            candidateBarlines.append((barline, indexedStroke.offset))
         }
 
+        let candidateIndices = Set(candidateBarlines.map(\.strokeIndex))
+        let acceptedBarlines = candidateBarlines.filter { candidate in
+            !isOwnedByNeighboringInk(
+                candidate,
+                strokes: strokes,
+                candidateIndices: candidateIndices,
+                chordFrame: chordFrame,
+                pageLayout: pageLayout
+            )
+        }
         let deDuplicatedBarlines = removeVeryCloseBarlines(acceptedBarlines)
 
         return ChordDraftBarlineRecognition(
@@ -1099,6 +1339,103 @@ enum ChordDraftBarlineRecognizer {
             },
             strokeIndices: Set(deDuplicatedBarlines.map(\.strokeIndex))
         )
+    }
+
+    /// These relative ratios are conservative ambiguity gates, not calibrated
+    /// recognition confidence. A mark touching a local construction, or packed
+    /// between comparable ink on both sides, must remain available to chord
+    /// recognition. An isolated mark still uses the existing acceptance rules.
+    private static func isOwnedByNeighboringInk(
+        _ candidate: (barline: DraftBarline, strokeIndex: Int),
+        strokes: [InkStroke],
+        candidateIndices: Set<Int>,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> Bool {
+        let stroke = strokes[candidate.strokeIndex]
+        let bounds = stroke.bounds
+        let height = bounds.height
+        let centerX = (bounds.minX + bounds.maxX) / 2
+        guard height > 0,
+              let systemIndex = candidate.barline.laneLocation?.systemIndex,
+              let first = stroke.points.first, let last = stroke.points.last else {
+            return false
+        }
+
+        var leftNeighbors = [InkBounds](), rightNeighbors = [InkBounds]()
+        for (index, neighbor) in strokes.enumerated() {
+            // Another possible barline is not evidence of text ownership.
+            guard index != candidate.strokeIndex, !candidateIndices.contains(index) else { continue }
+            let other = neighbor.bounds
+            let otherCenterX = (other.minX + other.maxX) / 2
+            guard other.width >= height * 0.18, other.width <= height * 1.50,
+                  other.height <= height * 1.60,
+                  draftBarlineTarget(
+                    at: CGPoint(x: otherCenterX, y: (other.minY + other.maxY) / 2)
+                        .offsetBy(dx: chordFrame.minX, dy: chordFrame.minY),
+                    in: pageLayout
+                  )?.systemIndex == systemIndex else {
+                continue
+            }
+
+            let localBounds = bounds.union(other)
+            if other.width >= height * 0.20,
+               localBounds.width <= height * 1.80, localBounds.height <= height * 1.80,
+               zip(neighbor.points, neighbor.points.dropFirst()).contains(where: {
+                   segmentsAreClose(first, last, $0.0, $0.1, tolerance: height * 0.08)
+               }) {
+                return true
+            }
+
+            let referenceHeight = min(height, other.height)
+            let verticalOverlap = min(bounds.maxY, other.maxY) - max(bounds.minY, other.minY)
+            guard other.height >= height * 0.55,
+                  verticalOverlap >= referenceHeight * 0.50 else { continue }
+            if otherCenterX < centerX,
+               max(0, bounds.minX - other.maxX) <= referenceHeight * 0.30 {
+                leftNeighbors.append(other)
+            } else if otherCenterX > centerX,
+                      max(0, other.minX - bounds.maxX) <= referenceHeight * 0.30 {
+                rightNeighbors.append(other)
+            }
+        }
+        return leftNeighbors.contains { left in
+            rightNeighbors.contains { right in
+                bounds.union(left).union(right).width <= height * 2.75
+            }
+        }
+    }
+
+    private static func segmentsAreClose(
+        _ a: InkPoint, _ b: InkPoint, _ c: InkPoint, _ d: InkPoint,
+        tolerance: Double
+    ) -> Bool {
+        func cross(_ first: InkPoint, _ second: InkPoint, _ point: InkPoint) -> Double {
+            (second.x - first.x) * (point.y - first.y) - (second.y - first.y) * (point.x - first.x)
+        }
+        let abC = cross(a, b, c), abD = cross(a, b, d)
+        let cdA = cross(c, d, a), cdB = cross(c, d, b)
+        if max(min(a.x, b.x), min(c.x, d.x)) <= min(max(a.x, b.x), max(c.x, d.x)),
+           max(min(a.y, b.y), min(c.y, d.y)) <= min(max(a.y, b.y), max(c.y, d.y)),
+           ((abC >= 0 && abD <= 0) || (abC <= 0 && abD >= 0)),
+           ((cdA >= 0 && cdB <= 0) || (cdA <= 0 && cdB >= 0)) {
+            return true
+        }
+        let distanceSquared = min(
+            min(pointToSegmentDistanceSquared(a, c, d), pointToSegmentDistanceSquared(b, c, d)),
+            min(pointToSegmentDistanceSquared(c, a, b), pointToSegmentDistanceSquared(d, a, b))
+        )
+        return distanceSquared <= tolerance * tolerance
+    }
+
+    private static func pointToSegmentDistanceSquared(_ point: InkPoint, _ a: InkPoint, _ b: InkPoint) -> Double {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let lengthSquared = dx * dx + dy * dy
+        let fraction = lengthSquared > 0
+            ? min(max(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared, 0), 1)
+            : 0
+        let distanceX = point.x - (a.x + fraction * dx), distanceY = point.y - (a.y + fraction * dy)
+        return distanceX * distanceX + distanceY * distanceY
     }
 
     private static func draftBarline(
@@ -1241,6 +1578,7 @@ struct ChordInkDraftBatchRenderResult: Equatable {
     var renderedChordIDs: [UUID]
     var renderedBarlineIDs: [UUID]
     var unresolvedDraftIDs: [UUID]
+    var didRejectIncompleteSourceCoverage = false
 
     var renderedChordCount: Int {
         renderedChordIDs.count
@@ -1282,6 +1620,39 @@ extension Chart {
         _ state: ChordPreviewState,
         barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn
     ) -> ChordInkDraftBatchRenderResult {
+        // Stage every measure/barline/chord mutation together. A changed source
+        // or one invalid target cannot leave a partially rendered chart behind.
+        var staged = self
+        let result = staged.applyChordInkDraftBatch(state, barlineSpacingMode: barlineSpacingMode)
+        guard !result.didRejectIncompleteSourceCoverage,
+              result.unresolvedDraftIDs.isEmpty,
+              state.unresolvedChordCount == 0,
+              state.unresolvedBarlineCount == 0 else {
+            let unresolved = Set(result.unresolvedDraftIDs)
+                .union(state.draftChords.filter { !$0.isRenderable }.map(\.id))
+            return ChordInkDraftBatchRenderResult(
+                renderedChordIDs: [], renderedBarlineIDs: [],
+                unresolvedDraftIDs: state.draftChords.filter { unresolved.contains($0.id) }.map(\.id),
+                didRejectIncompleteSourceCoverage: result.didRejectIncompleteSourceCoverage
+            )
+        }
+        self = staged
+        return result
+    }
+
+    private mutating func applyChordInkDraftBatch(
+        _ state: ChordPreviewState,
+        barlineSpacingMode: ChordDraftBarlineSpacingMode
+    ) -> ChordInkDraftBatchRenderResult {
+        // A skipped/oversized target is not an empty patch of canvas. Nothing
+        // may be materialized or globally cleared until every current visible
+        // source fragment is represented by the reviewed drafts or barlines.
+        guard ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state) else {
+            return ChordInkDraftBatchRenderResult(
+                renderedChordIDs: [], renderedBarlineIDs: [], unresolvedDraftIDs: [],
+                didRejectIncompleteSourceCoverage: true
+            )
+        }
         let renderableBarlines = state.renderableBarlines
         let sourceLayout = state.layoutPageSize.map {
             LeadSheetPageLayoutEngine.pageLayout(

@@ -7,7 +7,15 @@
 DerivedData/
 .derived/
 build/
-iChart.xcodeproj/
+# Keep generated project state ignored, but retain the tested native package graph.
+iChart.xcodeproj/*
+!iChart.xcodeproj/project.xcworkspace/
+iChart.xcodeproj/project.xcworkspace/*
+!iChart.xcodeproj/project.xcworkspace/xcshareddata/
+iChart.xcodeproj/project.xcworkspace/xcshareddata/*
+!iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
+!iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.pbxuser
 !default.pbxuser
 *.mode1v3
@@ -26,6 +34,16 @@ xcuserdata/
 .swiftpm/
 Packages/
 dist/
+
+# Local Python tooling and research caches (research source remains tracked)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
 
 # CocoaPods
 Pods/

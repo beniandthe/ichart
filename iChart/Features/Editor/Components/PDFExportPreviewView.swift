@@ -4,8 +4,13 @@ import UIKit
 
 struct PDFExportPreviewView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     let exportedPDF: ExportedPDF
     @State private var showingShareSheet = false
+
+    private var appearance: IChartAppAppearance {
+        IChartAppAppearance(persistedValue: appAppearanceValue)
+    }
 
     var body: some View {
         NavigationStack {
@@ -15,10 +20,13 @@ struct PDFExportPreviewView: View {
                 Divider()
 
                 PDFDocumentView(url: exportedPDF.url)
-                    .background(Color(uiColor: .systemBackground))
+                    .ichartDocumentDisplayAppearance()
             }
                 .navigationTitle(exportedPDF.navigationTitle)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarColorScheme(appearance.colorScheme, for: .navigationBar)
+                .toolbarBackground(appearance.isDark ? Color.black : Color.white, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Done") {
@@ -35,6 +43,8 @@ struct PDFExportPreviewView: View {
                     }
                 }
         }
+        .preferredColorScheme(appearance.colorScheme)
+        .environment(\.colorScheme, appearance.colorScheme)
         .sheet(isPresented: $showingShareSheet) {
             ActivityShareSheet(items: [exportedPDF.url])
         }
@@ -75,7 +85,7 @@ struct PDFExportPreviewView: View {
     }
 }
 
-private struct PDFDocumentView: UIViewRepresentable {
+struct PDFDocumentView: UIViewRepresentable {
     let url: URL
 
     func makeUIView(context: Context) -> PDFView {
@@ -83,7 +93,9 @@ private struct PDFDocumentView: UIViewRepresentable {
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
-        pdfView.backgroundColor = .secondarySystemBackground
+        // The document display filter handles dark viewing; keep the original
+        // paper/surround light so a dark UIKit trait is not inverted twice.
+        pdfView.backgroundColor = UIColor(white: 0.96, alpha: 1)
         return pdfView
     }
 

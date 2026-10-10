@@ -11,6 +11,7 @@ struct ChordInkCandidateComposerScoring: Hashable {
     var dominantSharpNineBonus = 0.08
     var dominantSharpNineTrailingWrapperBonus = 0.36
     var dominantFlatFiveBonus = 0.08
+    var dominantFlatFiveStrongNinthPenalty = 0.12
     var dominantFlatThirteenBonus = 0.08
     var explicitMinorSixthBonus = 0.12
     var dashMinorNinthLookalikePenalty = 0.18
@@ -34,8 +35,11 @@ struct ChordInkCandidateComposerScoring: Hashable {
     var lowercaseSlashBassPenalty = 0.30
     var suspendedSlashLookalikePenalty = 0.45
     var invalidSlashPenalty = 0.75
+    var explicitSixNineBonus = 1.20
+    var suspendedSecondBonus = 1.00
     var suspendedFourthBonus = 1.75
     var dominantSuspendedBonus = 1.65
+    var ninthSuspendedBonus = 1.65
     var plainSuspendedBonus = 0.25
     var missingSuspendedEvidencePenalty = 0.35
     var explainedGlyphBonus = 0.12
@@ -99,7 +103,16 @@ struct ChordInkCandidateScoringPolicy {
         }
 
         if text.contains("7b5") || text.contains("7(b5)") {
-            score += scoring.dominantFlatFiveBonus
+            if hasStrongerAlterationNumberEvidence(
+                "9",
+                than: "5",
+                in: glyphCandidates,
+                candidateColumns: candidateColumns
+            ) {
+                score -= scoring.dominantFlatFiveStrongNinthPenalty
+            } else {
+                score += scoring.dominantFlatFiveBonus
+            }
         }
 
         if text.contains("7b13") || text.contains("7(b13)") {
@@ -200,6 +213,12 @@ struct ChordInkCandidateScoringPolicy {
             score -= scoring.weakDominantSharpAlterationPenalty
         }
 
+        let hasExplicitSixNine = isSixNineSymbol(parsedSymbol)
+            && hasExplicitSixNineEvidence(in: glyphCandidates)
+        if hasExplicitSixNine {
+            score += scoring.explicitSixNineBonus
+        }
+
         if hasValidSlashBass(text),
            slashGlyphConfidence(in: glyphCandidates) >= scoring.slashBassMinConfidence {
             score += scoring.slashBassBonus
@@ -216,16 +235,20 @@ struct ChordInkCandidateScoringPolicy {
             ) {
                 score -= scoring.suspendedSlashLookalikePenalty
             }
-        } else if text.contains("/") {
+        } else if text.contains("/"), !hasExplicitSixNine {
             score -= scoring.invalidSlashPenalty
         }
 
-        if text.hasSuffix("sus") || text.hasSuffix("sus4") {
+        if text.hasSuffix("sus") || text.hasSuffix("sus2") || text.hasSuffix("sus4") {
             if hasSuspendedSuffixEvidence(for: text, in: glyphCandidates) {
-                if text.hasSuffix("sus4") {
+                if text.hasSuffix("sus2") {
+                    score += scoring.suspendedSecondBonus
+                } else if text.hasSuffix("sus4") {
                     score += scoring.suspendedFourthBonus
                 } else if text.hasSuffix("7sus") {
                     score += scoring.dominantSuspendedBonus
+                } else if text.hasSuffix("9sus") {
+                    score += scoring.ninthSuspendedBonus
                 } else {
                     score += scoring.plainSuspendedBonus
                 }
@@ -324,6 +347,31 @@ struct ChordInkCandidateScoringPolicy {
             && symbol.extensions == ["6"]
             && symbol.alterations.isEmpty
             && symbol.slashBass == nil
+    }
+
+    private func isSixNineSymbol(_ symbol: ChordSymbol?) -> Bool {
+        guard let symbol,
+              symbol.kind == .rooted else {
+            return false
+        }
+
+        return symbol.extensions == ["6", "9"]
+            && symbol.alterations.isEmpty
+    }
+
+    private func hasExplicitSixNineEvidence(in glyphCandidates: [GlyphCandidate]) -> Bool {
+        guard glyphCandidates.count >= 4 else {
+            return false
+        }
+
+        return glyphCandidates.indices.dropLast(2).contains { index in
+            glyphCandidates[index].text == "6"
+                && glyphCandidates[index + 1].text == "/"
+                && glyphCandidates[index + 2].text == "9"
+                && glyphCandidates[index].source != .composer
+                && glyphCandidates[index + 1].source != .composer
+                && glyphCandidates[index + 2].source != .composer
+        }
     }
 
     private func hasLikelyRootFlatCollision(
@@ -436,6 +484,39 @@ struct ChordInkCandidateScoringPolicy {
 
         return competingNineConfidence >= 0.95
             && competingNineConfidence > writtenSevenConfidence
+    }
+
+    private func hasStrongerAlterationNumberEvidence(
+        _ competingNumber: String,
+        than writtenNumber: String,
+        in glyphCandidates: [GlyphCandidate],
+        candidateColumns: [[GlyphCandidate]]
+    ) -> Bool {
+        let searchEnd = glyphCandidates.lastIndex(where: { $0.text == "/" })
+            ?? glyphCandidates.endIndex
+        guard searchEnd > 2,
+              let accidentalIndex = glyphCandidates.indices.dropFirst(2).last(where: { index in
+                  index < searchEnd
+                      && (glyphCandidates[index].text == "b" || glyphCandidates[index].text == "#")
+                      && glyphCandidates.indices.contains(index + 1)
+                      && index + 1 < searchEnd
+              }) else {
+            return false
+        }
+
+        let numberIndex = accidentalIndex + 1
+        guard glyphCandidates[numberIndex].text == writtenNumber,
+              candidateColumns.indices.contains(numberIndex) else {
+            return false
+        }
+
+        let writtenConfidence = glyphCandidates[numberIndex].confidence
+        let competingConfidence = candidateColumns[numberIndex]
+            .filter { $0.text == competingNumber }
+            .map(\.confidence)
+            .max() ?? 0
+        return competingConfidence >= 0.90
+            && competingConfidence >= writtenConfidence + 0.15
     }
 
     private func firstExtensionIndex(in glyphCandidates: [GlyphCandidate]) -> Int? {
@@ -777,16 +858,11 @@ struct ChordInkCandidateScoringPolicy {
     }
 
     private func hasValidSlashBass(_ text: String) -> Bool {
-        let pieces = text.split(separator: "/", maxSplits: 1).map(String.init)
-        guard pieces.count == 2 else {
-            return false
-        }
-
-        return ChordPitch.parse(pieces[1]) != nil
+        (try? ChordSymbolParser.parse(text))?.slashBass != nil
     }
 
     private func hasLowercaseSlashBassRoot(_ text: String) -> Bool {
-        guard let slashIndex = text.firstIndex(of: "/") else {
+        guard let slashIndex = text.lastIndex(of: "/") else {
             return false
         }
 
@@ -809,7 +885,7 @@ struct ChordInkCandidateScoringPolicy {
         in glyphCandidates: [GlyphCandidate],
         candidateColumns: [[GlyphCandidate]]
     ) -> Bool {
-        guard let slashIndex = glyphCandidates.firstIndex(where: { $0.text == "/" }),
+        guard let slashIndex = glyphCandidates.lastIndex(where: { $0.text == "/" }),
               candidateColumns.indices.contains(slashIndex) else {
             return false
         }
@@ -825,6 +901,10 @@ struct ChordInkCandidateScoringPolicy {
     ) -> Bool {
         guard glyphCandidates.count >= 4 else {
             return false
+        }
+
+        if text.hasSuffix("sus2") {
+            return glyphCandidates.suffix(4).map(\.text) == ["s", "u", "s", "2"]
         }
 
         if text.hasSuffix("sus4") {

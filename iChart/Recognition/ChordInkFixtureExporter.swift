@@ -113,7 +113,7 @@ enum ChordInkFixtureExporter {
         canonicalDisplayText: String
     ) -> [String] {
         let normalizedWrittenText = normalizedWrittenGlyphText(writtenText)
-        let supportedGlyphs = Set(["A", "B", "C", "D", "E", "F", "G", "#", "b", "+", "△", "°", "ø", "m", "-", "a", "l", "t", "s", "u", "4", "6", "7", "9", "1", "3", "5", "/"])
+        let supportedGlyphs = Set(["A", "B", "C", "D", "E", "F", "G", "#", "b", "+", "△", "°", "ø", "m", "-", "a", "d", "l", "t", "s", "u", "2", "4", "6", "7", "9", "1", "3", "5", "/"])
         let writtenGlyphs = normalizedWrittenText
             .map(String.init)
             .filter { supportedGlyphs.contains($0) }

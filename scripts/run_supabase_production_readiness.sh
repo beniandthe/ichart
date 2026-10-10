@@ -93,6 +93,13 @@ run node --test \
   supabase/functions/_shared/app_store_subscription_authority.test.mjs \
   supabase/functions/_shared/app_store_verifier_config.test.mjs \
   supabase/functions/_shared/forum_post_actions.test.mjs \
+  supabase/functions/_shared/recognition_study_capture_grant.test.mjs \
+  supabase/functions/_shared/recognition_study_collection_authority.test.mjs \
+  supabase/functions/_shared/recognition_study_collection_store.test.mjs \
+  supabase/functions/_shared/recognition_study_capture_upload.test.mjs \
+  supabase/functions/_shared/recognition_study_capture_upload_store.test.mjs \
+  supabase/functions/_shared/recognition_study_consent.test.mjs \
+  supabase/functions/_shared/recognition_study_consent_store.test.mjs \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs \
   supabase/functions/_shared/subscription_retention_jobs.test.mjs \
   supabase/functions/_shared/telemetry_ingest.test.mjs

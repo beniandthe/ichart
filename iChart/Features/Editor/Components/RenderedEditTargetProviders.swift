@@ -39,14 +39,17 @@ struct RenderedEditRouter {
     }
 
     func topHitTarget(at location: CGPoint, in context: RenderedEditContext) -> RenderedEditHitTarget? {
-        RenderedEditHitTarget.highestPriority(in: hitTargets(at: location, in: context))
+        RenderedEditHitTarget.highestPriority(
+            in: hitTargets(at: location, in: context),
+            nearestTo: location
+        )
     }
 
     func tapTarget(at location: CGPoint, in context: RenderedEditContext) -> RenderedEditHitTarget? {
         let tapCandidates = hitTargets(at: location, in: context)
             .filter { !$0.action.isMove && !$0.action.isResize }
         return RenderedEditSelectionPolicy.resolvedTapTarget(
-            RenderedEditHitTarget.highestPriority(in: tapCandidates),
+            RenderedEditHitTarget.highestPriority(in: tapCandidates, nearestTo: location),
             selection: context.selection
         )
     }
@@ -54,9 +57,15 @@ struct RenderedEditRouter {
     func dragTarget(at location: CGPoint, in context: RenderedEditContext) -> RenderedEditHitTarget? {
         let dragCandidates = hitTargets(at: location, in: context)
             .filter { $0.action.isMove || $0.action.isResize }
-        return RenderedEditSelectionPolicy.resolvedDragTarget(
-            RenderedEditHitTarget.highestPriority(in: dragCandidates),
-            selection: context.selection
+            .compactMap {
+                RenderedEditSelectionPolicy.resolvedDragTarget(
+                    $0,
+                    selection: context.selection
+                )
+            }
+        return RenderedEditHitTarget.highestPriority(
+            in: dragCandidates,
+            nearestTo: location
         )
     }
 }
@@ -449,10 +458,14 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     return []
                 }
 
-                let displayMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
+                let renderedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
                     paperFrame: context.pageLayout.paperFrame(for: system),
+                    layoutStyle: context.layoutStyle
+                )
+                let displayMeasure = LeadSheetMeasureResizeGeometry.editableMeasureLayout(
+                    renderedMeasure,
                     layoutStyle: context.layoutStyle
                 )
                 let objectID = RenderedEditObjectID.measure(measureID)

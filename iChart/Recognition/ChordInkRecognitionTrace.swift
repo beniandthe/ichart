@@ -11,6 +11,42 @@ struct ChordInkRecognitionTrace: Codable, Equatable {
         ChordInkRecognitionTracePassBuilder.passes(from: events)
     }
 
+    var sessions: [ChordInkRecognitionTraceSession] {
+        var sessions = [ChordInkRecognitionTraceSession]()
+        var currentEvents = [ChordDraftPreviewDeviceDiagnosticEvent]()
+        var resetTimestamp: Date?
+
+        func finishCurrentSession() {
+            guard !currentEvents.isEmpty else {
+                return
+            }
+
+            sessions.append(
+                ChordInkRecognitionTraceSession(
+                    index: sessions.count,
+                    resetTimestamp: resetTimestamp,
+                    events: currentEvents
+                )
+            )
+            currentEvents = []
+        }
+
+        for event in events {
+            if event.stage == "reset" {
+                finishCurrentSession()
+                resetTimestamp = event.timestamp
+            }
+            currentEvents.append(event)
+        }
+
+        finishCurrentSession()
+        return sessions
+    }
+
+    var latestNonemptySession: ChordInkRecognitionTraceSession? {
+        sessions.last { !$0.passes.isEmpty }
+    }
+
     var stabilityIssues: [ChordInkRecognitionTraceStabilityIssue] {
         previewRegressionIssues()
             + batchSupportedReadRegressionIssues()
@@ -52,6 +88,7 @@ struct ChordInkRecognitionTrace: Codable, Equatable {
                     reason: payload?.reason,
                     supportedCandidates: payload?.supportedCandidates ?? [],
                     topScores: payload?.topScores ?? [],
+                    reviewScores: payload?.reviewScores,
                     strokes: strokes
                 )
             }
@@ -118,8 +155,20 @@ struct ChordInkRecognitionTrace: Codable, Equatable {
     private func batchSupportedReadRegressionIssues() -> [ChordInkRecognitionTraceStabilityIssue] {
         var latestReadableTargetByFingerprint = [ChordInkRecognitionTraceTargetFingerprint: ChordInkRecognitionTracePayloadSnapshot]()
         var issues = [ChordInkRecognitionTraceStabilityIssue]()
+        let resetTimestamps = events
+            .filter { $0.stage == "reset" }
+            .map(\.timestamp)
+            .sorted()
+        var nextResetIndex = 0
 
         for (passIndex, pass) in passes.enumerated() {
+            while nextResetIndex < resetTimestamps.count,
+                  let passTimestamp = pass.startTimestamp,
+                  resetTimestamps[nextResetIndex] <= passTimestamp {
+                latestReadableTargetByFingerprint.removeAll()
+                nextResetIndex += 1
+            }
+
             let payloadsByTargetIndex = Dictionary(
                 pass.payloads.map { ($0.targetIndex, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -306,6 +355,32 @@ struct ChordInkRecognitionTrace: Codable, Equatable {
     }
 }
 
+struct ChordInkRecognitionTraceSession: Equatable {
+    var index: Int
+    var resetTimestamp: Date?
+    var events: [ChordDraftPreviewDeviceDiagnosticEvent]
+
+    var passes: [ChordInkRecognitionTracePass] {
+        trace.passes
+    }
+
+    var stabilityIssues: [ChordInkRecognitionTraceStabilityIssue] {
+        trace.stabilityIssues
+    }
+
+    var observations: [ChordInkRecognitionTraceObservation] {
+        trace.observations
+    }
+
+    var replayableTargets: [ChordInkRecognitionTraceReplayableTarget] {
+        trace.replayableTargets
+    }
+
+    private var trace: ChordInkRecognitionTrace {
+        ChordInkRecognitionTrace(events: events)
+    }
+}
+
 struct ChordInkRecognitionTracePass: Codable, Equatable {
     var kind: ChordInkRecognitionTracePassKind
     var targetEvent: ChordDraftPreviewDeviceDiagnosticEvent?
@@ -374,6 +449,7 @@ struct ChordInkRecognitionTraceReplayableTarget: Codable, Equatable {
     var reason: String?
     var supportedCandidates: [String]
     var topScores: [ChordInkCandidateScore]
+    var reviewScores: [ChordInkCandidateScore]? = nil
     var strokes: [InkStroke]
 
     func fixtureDocument(

@@ -33,7 +33,8 @@ enum ChordRecognitionCompendium {
     }
 
     static func match(_ text: String) -> ChordRecognitionMatch? {
-        guard !usesUnsupportedMajorSuffix(text) else {
+        guard ChordRecognitionDomain.containsOnlyChordInputCharacters(text),
+              !usesUnsupportedMajorSuffix(text) else {
             return nil
         }
 
@@ -41,8 +42,8 @@ enum ChordRecognitionCompendium {
             return ChordRecognitionMatch(rawInput: text, symbol: .chordRepeat)
         }
 
-        let normalizedInput = normalized(text)
-        if let entry = entryByNormalizedAlias[normalizedInput] {
+        if let normalizedInput = normalized(text),
+           let entry = entryByNormalizedAlias[normalizedInput] {
             return ChordRecognitionMatch(rawInput: text, symbol: entry.symbol)
         }
 
@@ -80,9 +81,15 @@ enum ChordRecognitionCompendium {
         }
     }
 
-    fileprivate static func normalized(_ text: String) -> String {
-        text
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    /// Normalizes only explicit aliases and formatting whitespace. Unsupported
+    /// characters are rejected before this point and are never deleted to make
+    /// a different, valid chord spelling.
+    fileprivate static func normalized(_ text: String) -> String? {
+        guard ChordRecognitionDomain.containsOnlyChordInputCharacters(text) else {
+            return nil
+        }
+
+        let explicitlyAliased = text
             .replacingOccurrences(of: "♯", with: "#")
             .replacingOccurrences(of: "＃", with: "#")
             .replacingOccurrences(of: "♭", with: "b")
@@ -96,32 +103,25 @@ enum ChordRecognitionCompendium {
             .replacingOccurrences(of: "⌀", with: "ø")
             .replacingOccurrences(of: "·", with: "•")
             .replacingOccurrences(of: "∙", with: "•")
-            .replacingOccurrences(of: "FLAT", with: "b")
-            .replacingOccurrences(of: "SHARP", with: "#")
-            .filter { character in
-                character.isLetter
-                    || character.isNumber
-                    || character == "#"
-                    || character == "+"
-                    || character == "-"
-                    || character == "/"
-                    || character == "%"
-                    || character == "."
-                    || character == "•"
-                    || character == "△"
-                    || character == "°"
-                    || character == "ø"
-            }
+            .replacingOccurrences(of: "flat", with: "b", options: [.caseInsensitive])
+            .replacingOccurrences(of: "sharp", with: "#", options: [.caseInsensitive])
+
+        return explicitlyAliased
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined()
             .uppercased()
     }
 
     private static func usesUnsupportedMajorSuffix(_ text: String) -> Bool {
-        let normalizedInput = normalized(text)
-        guard let rootSpelling = normalizedRootSpellings.first(where: { normalizedInput.hasPrefix($0) }) else {
+        guard let normalizedInput = normalized(text) else {
+            return false
+        }
+        let compactInput = normalizedInput.replacingOccurrences(of: " ", with: "")
+        guard let rootSpelling = normalizedRootSpellings.first(where: { compactInput.hasPrefix($0) }) else {
             return false
         }
 
-        let suffix = String(normalizedInput.dropFirst(rootSpelling.count))
+        let suffix = String(compactInput.dropFirst(rootSpelling.count))
         guard !suffix.isEmpty else {
             return false
         }
@@ -149,7 +149,7 @@ enum ChordRecognitionCompendium {
         ChordCoverageFamily(name: "dominant sixth/seventh/ninth/eleventh/thirteenth", examples: ["C6", "C7", "C9", "C11", "C13"]),
         ChordCoverageFamily(name: "six-nine", examples: ["C6/9", "C-6/9"]),
         ChordCoverageFamily(name: "add chords", examples: ["Cadd2", "Cadd9", "Cadd11"]),
-        ChordCoverageFamily(name: "altered dominants", examples: ["C7(b9)", "C7(#9)", "C7(#11)", "C7(b13)", "C7alt"]),
+        ChordCoverageFamily(name: "altered and color-tone chords", examples: ["C(#5)", "C(b9)", "C7(#9)", "C7(#11)", "C7(b13)", "C7alt"]),
         ChordCoverageFamily(name: "suspended chords", examples: ["Csus", "Csus2", "Csus4", "C7sus", "C9sus"]),
         ChordCoverageFamily(name: "diminished and half-diminished", examples: ["C°", "C°7", "Cø7", "Cm7b5"]),
         ChordCoverageFamily(name: "minor sixth and minor-major", examples: ["Cm6", "C-△7", "C-△9"]),
@@ -178,7 +178,9 @@ enum ChordRecognitionCompendium {
         var index: [String: ChordRecognitionEntry] = [:]
         for entry in entries {
             for alias in entry.aliases {
-                let normalizedAlias = normalized(alias)
+                guard let normalizedAlias = normalized(alias) else {
+                    continue
+                }
                 if index[normalizedAlias] == nil {
                     index[normalizedAlias] = entry
                 }
@@ -189,7 +191,7 @@ enum ChordRecognitionCompendium {
     }()
 
     private static let normalizedRootSpellings: [String] = baseEntries
-        .map { normalized($0.displayText) }
+        .compactMap { normalized($0.displayText) }
         .sorted { $0.count > $1.count }
 
     private static let baseEntries: [ChordRecognitionEntry] = [

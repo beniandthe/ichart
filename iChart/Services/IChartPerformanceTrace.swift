@@ -48,7 +48,6 @@ enum IChartPerformanceTrace {
         recorder.append(
             IChartPerformanceTraceEvent(
                 timestamp: Date(),
-                processUptimeSeconds: ProcessInfo.processInfo.systemUptime,
                 name: name,
                 durationMilliseconds: durationMilliseconds,
                 metadata: sanitized(metadata),
@@ -58,10 +57,15 @@ enum IChartPerformanceTrace {
         )
     }
 
-    static var reportURL: URL {
+    static var reportURL: URL? {
         recorder.flush()
-        try? recorder.ensureReportExists()
-        return recorder.url
+        do {
+            try recorder.ensureReportExists()
+            return try recorder.exportReport()
+        } catch {
+            // Never fall back to sharing an unsanitized legacy trace.
+            return nil
+        }
     }
 
     static var hasReport: Bool {
@@ -99,7 +103,6 @@ enum IChartPerformanceTrace {
 
 struct IChartPerformanceTraceEvent: Codable, Equatable {
     var timestamp: Date
-    var processUptimeSeconds: TimeInterval
     var name: String
     var durationMilliseconds: Double?
     var metadata: [String: String]
@@ -107,7 +110,7 @@ struct IChartPerformanceTraceEvent: Codable, Equatable {
     var buildNumber: String
 }
 
-private final class IChartPerformanceTraceRecorder {
+final class IChartPerformanceTraceRecorder {
     let url: URL
     var maxTraceSizeBytes: UInt64 = 768 * 1024
 
@@ -143,7 +146,6 @@ private final class IChartPerformanceTraceRecorder {
             try appendSynchronously(
                 IChartPerformanceTraceEvent(
                     timestamp: Date(),
-                    processUptimeSeconds: ProcessInfo.processInfo.systemUptime,
                     name: "performance.report.created",
                     durationMilliseconds: nil,
                     metadata: [:],
@@ -160,6 +162,19 @@ private final class IChartPerformanceTraceRecorder {
                 return
             }
             try fileManager.removeItem(at: url)
+        }
+    }
+
+    func exportReport() throws -> URL {
+        try queue.sync {
+            let source = try Data(contentsOf: url)
+            let sanitized = try IChartPerformanceTraceReportSanitizer.sanitize(source)
+            // A separate snapshot keeps the local trace intact and prevents
+            // historic raw uptime/unknown fields from leaving the device.
+            let exportURL = url.deletingLastPathComponent()
+                .appendingPathComponent("performance-report.jsonl")
+            try sanitized.write(to: exportURL, options: .atomic)
+            return exportURL
         }
     }
 
@@ -193,6 +208,30 @@ private final class IChartPerformanceTraceRecorder {
     private func currentTraceSizeBytes() throws -> UInt64 {
         let attributes = try fileManager.attributesOfItem(atPath: url.fileSystemPath)
         return attributes[.size] as? UInt64 ?? 0
+    }
+}
+
+enum IChartPerformanceTraceReportSanitizer {
+    static func sanitize(_ source: Data) throws -> Data {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        var result = Data()
+        for line in source.split(separator: 0x0A) {
+            // Typed re-encoding is an allowlist: legacy raw uptime and unknown
+            // fields are not part of the export schema. Malformed lines are
+            // excluded, never forwarded as arbitrary diagnostic text.
+            guard var event = try? decoder.decode(IChartPerformanceTraceEvent.self, from: Data(line)) else {
+                continue
+            }
+            event.metadata.removeValue(forKey: "systemUptime")
+            event.metadata.removeValue(forKey: "processUptimeSeconds")
+            result.append(try encoder.encode(event))
+            result.append(0x0A)
+        }
+        return result
     }
 }
 

@@ -37,12 +37,12 @@ struct ChordInkTheoryRoleEvidence: Hashable {
 struct ChordInkTheoryRoleContext: Hashable {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let suffixAndModifierTexts: Set<String> = [
-        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "l", "t",
-        "-", "s", "u", "6", "7", "9", "(", ")", "1", "3", "5", "/"
+        "#", "b", "△", "°", "ø", "•", "+", "m", "a", "d", "l", "t",
+        "-", "s", "u", "2", "6", "7", "9", "(", ")", "1", "3", "5", "/"
     ]
-    private static let directExtensionTexts: Set<String> = ["6", "7", "9"]
+    private static let directExtensionTexts: Set<String> = ["2", "6", "7", "9"]
     private static let alterationDegreeTexts: Set<String> = ["5", "9", "1", "3"]
-    private static let qualityTexts: Set<String> = ["-", "m", "△", "°", "ø", "+", "s", "u", "a", "l", "t"]
+    private static let qualityTexts: Set<String> = ["-", "m", "△", "°", "ø", "+", "s", "u", "a", "d", "l", "t"]
 
     var evidence: [ChordInkTheoryRoleEvidence]
 

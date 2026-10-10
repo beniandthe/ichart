@@ -281,12 +281,14 @@ enum LeadSheetActiveInkScope {
     func chartByPersistingDrawingData(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
-        in chart: Chart
+        in chart: Chart,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Chart? {
         identity.chartByPersistingDrawingData(
             drawingData,
             coordinateSpace: coordinateSpace,
-            in: chart
+            in: chart,
+            assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
         )
     }
 }
@@ -325,7 +327,8 @@ extension LeadSheetActiveInkScope.Identity {
     func chartByPersistingDrawingData(
         _ drawingData: Data?,
         coordinateSpace: PersistentInkCoordinateSpace? = nil,
-        in chart: Chart
+        in chart: Chart,
+        assumesNormalizedPersistentInk: Bool = false
     ) -> Chart? {
         var updatedChart = chart
 
@@ -333,21 +336,24 @@ extension LeadSheetActiveInkScope.Identity {
         case .page:
             guard updatedChart.setPageHandwrittenNotationDrawing(
                 drawingData,
-                coordinateSpace: coordinateSpace
+                coordinateSpace: coordinateSpace,
+                assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
             ) else {
                 return nil
             }
         case .header:
             guard updatedChart.setPageHandwrittenHeaderDrawing(
                 drawingData,
-                coordinateSpace: coordinateSpace
+                coordinateSpace: coordinateSpace,
+                assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
             ) else {
                 return nil
             }
         case .chords:
             guard updatedChart.setPageHandwrittenChordDrawing(
                 drawingData,
-                coordinateSpace: coordinateSpace
+                coordinateSpace: coordinateSpace,
+                assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
             ) else {
                 return nil
             }
@@ -355,7 +361,8 @@ extension LeadSheetActiveInkScope.Identity {
             guard updatedChart.setMeasureHandwrittenRhythmicNotationDrawing(
                 drawingData,
                 coordinateSpace: coordinateSpace,
-                for: measureID
+                for: measureID,
+                assumesNormalizedPersistentInk: assumesNormalizedPersistentInk
             ) else {
                 return nil
             }

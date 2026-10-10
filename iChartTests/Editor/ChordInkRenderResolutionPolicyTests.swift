@@ -2,6 +2,37 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRenderResolutionPolicyTests: XCTestCase {
+    func testExplicitRootRecoveryReservesVisibleSlotWithoutChangingRecognitionDecision() {
+        var result = recognitionResult(
+            matchText: "Gb△7",
+            confidence: 4.8,
+            scores: [
+                candidateScore("Gb△7", confidence: 4.8),
+                candidateScore("Gb△", confidence: 4.7),
+                candidateScore("Gb13", confidence: 4.6)
+            ]
+        )
+        let originalDecision = ChordInkRecognitionPolicy.decision(for: result)
+        result.reviewCandidateScores = [candidateScore("Bb△7", confidence: 4.0)]
+        result.reviewRootAlternatives = ["Bb△7"]
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["Gb△7", "Bb△7", "Gb△"]
+        )
+        XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: result), originalDecision)
+        XCTAssertEqual(result.match?.displayText, "Gb△7")
+    }
+
+    func testRootRecoveryPriorityRequiresAnActualReviewScore() {
+        var result = recognitionResult(
+            matchText: "G",
+            confidence: 4.8,
+            scores: [candidateScore("G", confidence: 4.8), candidateScore("C", confidence: 4.1)]
+        )
+        result.reviewRootAlternatives = ["B", "anything else"]
+        XCTAssertEqual(ChordInkRenderResolutionPolicy.candidateTexts(for: result), ["G", "C"])
+    }
+
     func testRecognitionActionDecodesLegacyAutoRenderValueAsTrusted() throws {
         let data = Data(#""autoRender""#.utf8)
 
@@ -32,7 +63,7 @@ final class ChordInkRenderResolutionPolicyTests: XCTestCase {
         XCTAssertEqual(Array(resolution.candidateTexts.prefix(2)), ["C", "G"])
     }
 
-    func testRejectedTrustedCandidateMemoryDemotesTrustedReadToConfirmation() {
+    func testExplicitlyCorrectedTrustedCandidateMemoryDemotesTrustedReadToConfirmation() {
         let drawingData = Data("rejected C".utf8)
         let result = recognitionResult(
             matchText: "C",
@@ -58,9 +89,88 @@ final class ChordInkRenderResolutionPolicyTests: XCTestCase {
 
         XCTAssertEqual(resolution.decision.action, .confirm)
         XCTAssertEqual(resolution.decision.acceptedText, "C")
-        XCTAssertTrue(resolution.decision.reason.contains("previously rendered as C"))
+        XCTAssertTrue(resolution.decision.reason.contains("previously corrected from C"))
         XCTAssertFalse(resolution.decision.isCloseRace)
         XCTAssertNil(resolution.decision.confidenceGap)
+    }
+
+    func testReviewChoicesReserveVisibleSlotForSimplerSameRootPrimaryCandidate() {
+        let result = recognitionResult(
+            matchText: "C7(#11)(b3)",
+            confidence: 5.41,
+            scores: [
+                candidateScore("C7(#11)(b3)", confidence: 5.41),
+                candidateScore("C7(#11)(b5)", confidence: 5.38),
+                candidateScore("C7(#11)(b9)", confidence: 5.37),
+                candidateScore("C7(#11)", confidence: 4.95)
+            ]
+        )
+
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["C7(#11)(b3)", "C7(#11)(b5)", "C7(#11)"]
+        )
+    }
+
+    func testReviewChoicesSurfaceStrongReviewOnlyCandidateWithoutChangingPrimary() {
+        var result = recognitionResult(
+            matchText: "F#7(b5)",
+            confidence: 4.82,
+            scores: [
+                candidateScore("F#7(b5)", confidence: 4.82),
+                candidateScore("F#7(b9)", confidence: 4.75),
+                candidateScore("F#7(b3)", confidence: 4.47)
+            ]
+        )
+        result.reviewCandidateScores = [
+            candidateScore("F#7(b13)", confidence: 5.02)
+        ]
+
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["F#7(b5)", "F#7(b13)", "F#7(b9)"]
+        )
+        XCTAssertEqual(result.match?.displayText, "F#7(b5)")
+    }
+
+    func testReviewChoicesPreferSimplerSameRootRecoveryForThirdVisibleSlot() {
+        var result = recognitionResult(
+            matchText: "Bb7(#5)",
+            confidence: 4.75,
+            scores: [
+                candidateScore("Bb7(#5)", confidence: 4.75),
+                candidateScore("Bb7(b5)", confidence: 4.72)
+            ]
+        )
+        result.reviewCandidateScores = [
+            candidateScore("Bb7(b5)(b13)", confidence: 5.19),
+            candidateScore("Bb7(#11)", confidence: 3.77)
+        ]
+
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["Bb7(#5)", "Bb7(b5)(b13)", "Bb7(#11)"]
+        )
+    }
+
+    func testReviewChoicesPreferSameStructureOverUnrelatedSimplerQuality() {
+        var result = recognitionResult(
+            matchText: "Db7(b5)",
+            confidence: 4.91,
+            scores: [
+                candidateScore("Db7(b5)", confidence: 4.91),
+                candidateScore("Bb7(b5)", confidence: 4.82),
+                candidateScore("Db7(b9)", confidence: 4.20)
+            ]
+        )
+        result.reviewCandidateScores = [
+            candidateScore("Dbsus", confidence: 4.55)
+        ]
+
+        XCTAssertEqual(
+            Array(ChordInkRenderResolutionPolicy.candidateTexts(for: result).prefix(3)),
+            ["Db7(b5)", "Bb7(b5)", "Db7(b9)"]
+        )
     }
 
     private func recognitionResult(

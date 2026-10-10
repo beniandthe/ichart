@@ -21,6 +21,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         var snapshotToLoad: ChartLibrarySnapshot?
         var loadError: Error?
         var saveError: Error?
+        private(set) var saveAttemptCount = 0
         private(set) var savedSnapshots: [ChartLibrarySnapshot] = []
 
         func loadSnapshot() throws -> ChartLibrarySnapshot? {
@@ -31,6 +32,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
 
         func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws {
+            saveAttemptCount += 1
             if let saveError {
                 throw saveError
             }
@@ -44,8 +46,13 @@ final class ChartLibraryStoreTests: XCTestCase {
         var onSaveFinished: (() -> Void)?
         private let releaseSave = DispatchSemaphore(value: 0)
         private let stateLock = NSLock()
+        private let saveError: Error?
         private var savedSnapshotsStorage: [ChartLibrarySnapshot] = []
         private var saveStartedCountStorage = 0
+
+        init(saveError: Error? = nil) {
+            self.saveError = saveError
+        }
 
         var savedSnapshots: [ChartLibrarySnapshot] {
             stateLock.lock()
@@ -69,10 +76,13 @@ final class ChartLibraryStoreTests: XCTestCase {
             stateLock.unlock()
             onSaveStarted?()
             releaseSave.wait()
+            defer { onSaveFinished?() }
+            if let saveError {
+                throw saveError
+            }
             stateLock.lock()
             savedSnapshotsStorage.append(snapshot)
             stateLock.unlock()
-            onSaveFinished?()
         }
 
         func unblockSave() {
@@ -671,6 +681,228 @@ final class ChartLibraryStoreTests: XCTestCase {
         let savedSnapshot = try XCTUnwrap(repository.savedSnapshots.last)
         XCTAssertTrue(savedSnapshot.charts.isEmpty)
         XCTAssertNil(savedSnapshot.selectedChartID)
+    }
+
+    func testBatchDeleteUsesExactIDsAndPersistsProjectsAndCloudTombstonesOnce() throws {
+        let repository = RecordingChartRepository()
+        let localChart = Chart.blank(title: "Shared Title")
+        var backedUpChart = Chart.blank(title: "Shared Title")
+        backedUpChart.markBackedUpToCloud(ownerID: UUID(), at: Date(timeIntervalSinceReferenceDate: 9_000))
+        let retainedChart = Chart.blank(title: "Shared Title")
+        let unrelatedTombstone = ChartDeletionTombstone(
+            chartID: UUID(),
+            deletedAt: Date(timeIntervalSinceReferenceDate: 8_000),
+            shouldSyncToCloud: true
+        )
+        let sharedProject = ChartProject(
+            title: "Shared Project",
+            chartIDs: [localChart.id, retainedChart.id, backedUpChart.id]
+        )
+        let retainedProject = ChartProject(title: "Retained Project", chartIDs: [retainedChart.id])
+        let store = ChartLibraryStore(
+            charts: [localChart, backedUpChart, retainedChart],
+            selectedChartID: retainedChart.id,
+            deletionTombstones: [unrelatedTombstone],
+            projects: [sharedProject, retainedProject],
+            repository: repository
+        )
+        var syncSnapshots: [ChartLibrarySnapshot] = []
+        store.onSnapshotSaved = { syncSnapshots.append($0) }
+
+        let deletedCount = store.deleteCharts(ids: [localChart.id, backedUpChart.id, UUID()])
+
+        XCTAssertEqual(deletedCount, 2)
+        XCTAssertEqual(store.charts, [retainedChart])
+        XCTAssertEqual(store.selectedChartID, retainedChart.id)
+        XCTAssertEqual(store.projects.first?.chartIDs, [retainedChart.id])
+        XCTAssertEqual(store.projects.last, retainedProject)
+        let localTombstone = try XCTUnwrap(store.deletionTombstones.first { $0.chartID == localChart.id })
+        let cloudTombstone = try XCTUnwrap(store.deletionTombstones.first { $0.chartID == backedUpChart.id })
+        XCTAssertFalse(localTombstone.shouldSyncToCloud)
+        XCTAssertTrue(cloudTombstone.shouldSyncToCloud)
+        XCTAssertEqual(localTombstone.deletedAt, cloudTombstone.deletedAt)
+        XCTAssertTrue(store.deletionTombstones.contains(unrelatedTombstone))
+        XCTAssertEqual(store.deletionTombstones.count, 3)
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(repository.savedSnapshots, [store.snapshot])
+        XCTAssertEqual(syncSnapshots, [store.snapshot])
+    }
+
+    func testBatchDeleteEmptyOrUnknownIDsDoesNotPersistOrNotify() {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Keep")
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let originalSnapshot = store.snapshot
+        var syncNotificationCount = 0
+        store.onSnapshotSaved = { _ in syncNotificationCount += 1 }
+
+        XCTAssertEqual(store.deleteCharts(ids: []), 0)
+        XCTAssertEqual(store.deleteCharts(ids: [UUID(), UUID()]), 0)
+        XCTAssertFalse(store.deleteChart(id: UUID()))
+
+        XCTAssertEqual(store.snapshot, originalSnapshot)
+        XCTAssertEqual(store.persistenceStatus, .ready)
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(syncNotificationCount, 0)
+    }
+
+    func testBatchDeleteSelectedChartSelectsNextSurvivingNeighbor() {
+        let charts = (1...5).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[1].id)
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id, charts[2].id]), 3)
+
+        XCTAssertEqual(store.charts, [charts[3], charts[4]])
+        XCTAssertEqual(store.selectedChartID, charts[3].id)
+    }
+
+    func testBatchDeleteSelectedChartFallsBackToPreviousSurvivor() {
+        let charts = (1...4).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[2].id)
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[2].id, charts[3].id]), 2)
+
+        XCTAssertEqual(store.charts, [charts[0], charts[1]])
+        XCTAssertEqual(store.selectedChartID, charts[1].id)
+    }
+
+    func testBatchDeleteAllChartsClearsSelectionAndLeavesEmptyProject() {
+        let repository = RecordingChartRepository()
+        let charts = (1...2).map { Chart.blank(title: "Chart \($0)") }
+        let project = ChartProject(title: "Project", chartIDs: charts.map(\.id))
+        let store = ChartLibraryStore(
+            charts: charts,
+            selectedChartID: charts[1].id,
+            projects: [project],
+            repository: repository
+        )
+
+        XCTAssertEqual(store.deleteCharts(ids: Set(charts.map(\.id))), 2)
+
+        XCTAssertTrue(store.charts.isEmpty)
+        XCTAssertNil(store.selectedChartID)
+        XCTAssertEqual(store.projects.first?.id, project.id)
+        XCTAssertEqual(store.projects.first?.chartIDs, [])
+        XCTAssertEqual(Set(store.deletionTombstones.map(\.chartID)), Set(charts.map(\.id)))
+        XCTAssertEqual(repository.savedSnapshots, [store.snapshot])
+    }
+
+    func testBatchDeleteSynchronousSaveFailureRestoresSnapshotAndKeepsFailureVisible() {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let charts = (1...3).map { Chart.blank(title: "Chart \($0)") }
+        let tombstone = ChartDeletionTombstone(chartID: charts[0].id, deletedAt: Date(timeIntervalSince1970: 100))
+        let project = ChartProject(title: "Project", chartIDs: charts.map(\.id))
+        let store = ChartLibraryStore(
+            charts: charts,
+            selectedChartID: charts[1].id,
+            deletionTombstones: [tombstone],
+            cloudMetadata: ChartCloudMetadata(ownerID: UUID(), lastSyncAt: Date(timeIntervalSince1970: 200)),
+            projects: [project],
+            repository: repository
+        )
+        let originalSnapshot = store.snapshot
+        var syncNotificationCount = 0
+        store.onSnapshotSaved = { _ in syncNotificationCount += 1 }
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id]), 0)
+
+        XCTAssertEqual(store.snapshot, originalSnapshot)
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertEqual(syncNotificationCount, 0)
+        XCTAssertEqual(store.persistenceStatus, .failed(message: "Could not write saved library."))
+
+        repository.saveError = nil
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id]), 2)
+        XCTAssertEqual(store.charts, [charts[2]])
+        XCTAssertEqual(repository.saveAttemptCount, 2)
+        XCTAssertEqual(repository.savedSnapshots.count, 1)
+        XCTAssertEqual(syncNotificationCount, 1)
+    }
+
+    func testSingleDeleteReturnsFalseAndRestoresSelectionWhenSynchronousSaveFails() {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let charts = (1...2).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[0].id, repository: repository)
+        let originalSnapshot = store.snapshot
+
+        XCTAssertFalse(store.deleteChart(id: charts[0].id))
+
+        XCTAssertEqual(store.snapshot, originalSnapshot)
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(store.persistenceStatus, .failed(message: "Could not write saved library."))
+    }
+
+    func testBatchDeleteSuccessfulSaveIsNotRolledBackForLaterCallbackSaveFailure() {
+        let repository = RecordingChartRepository()
+        let charts = (1...3).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[0].id, repository: repository)
+        var syncNotificationCount = 0
+        store.onSnapshotSaved = { _ in
+            syncNotificationCount += 1
+            repository.saveError = RecordingRepositoryError.save
+            XCTAssertTrue(store.renameChart(id: charts[2].id, to: "Later Edit"))
+        }
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id]), 2)
+
+        XCTAssertEqual(store.charts.map(\.id), [charts[2].id])
+        XCTAssertEqual(store.charts.first?.title, "Later Edit")
+        XCTAssertEqual(store.selectedChartID, charts[2].id)
+        XCTAssertEqual(repository.savedSnapshots.first?.charts, [charts[2]])
+        XCTAssertEqual(repository.saveAttemptCount, 2)
+        XCTAssertEqual(repository.savedSnapshots.count, 1)
+        XCTAssertEqual(syncNotificationCount, 1)
+        XCTAssertEqual(store.persistenceStatus, .failed(message: "Could not write saved library."))
+    }
+
+    func testBatchDeleteAsyncRepositoryAcceptsOneSnapshotBeforeSaveCompletes() {
+        let repository = BlockingAsyncChartRepository()
+        let charts = (1...3).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[0].id, repository: repository)
+        var syncSnapshots: [ChartLibrarySnapshot] = []
+        store.onSnapshotSaved = { syncSnapshots.append($0) }
+        let start = Date()
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id]), 2)
+
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.2)
+        XCTAssertEqual(store.charts, [charts[2]])
+        XCTAssertEqual(store.selectedChartID, charts[2].id)
+        waitUntil(repository.saveStartedCount == 1)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertTrue(syncSnapshots.isEmpty)
+
+        repository.unblockSave()
+        waitUntil(syncSnapshots.count == 1)
+        XCTAssertEqual(repository.saveStartedCount, 1)
+        XCTAssertEqual(repository.savedSnapshots, [store.snapshot])
+        XCTAssertEqual(syncSnapshots, [store.snapshot])
+    }
+
+    func testBatchDeleteAsyncFailureRemainsVisibleWithoutRestoringLaterMutations() {
+        let repository = BlockingAsyncChartRepository(saveError: RecordingRepositoryError.save)
+        let charts = (1...3).map { Chart.blank(title: "Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, selectedChartID: charts[0].id, repository: repository)
+        var syncNotificationCount = 0
+        store.onSnapshotSaved = { _ in syncNotificationCount += 1 }
+
+        XCTAssertEqual(store.deleteCharts(ids: [charts[0].id, charts[1].id]), 2)
+        waitUntil(repository.saveStartedCount == 1)
+        XCTAssertTrue(store.renameChart(id: charts[2].id, to: "Later Edit"))
+
+        repository.unblockSave()
+        waitUntil(repository.saveStartedCount == 2)
+        repository.unblockSave()
+        waitUntil(store.persistenceStatus == .failed(message: "Could not write saved library."))
+
+        XCTAssertEqual(store.charts.map(\.id), [charts[2].id])
+        XCTAssertEqual(store.charts.first?.title, "Later Edit")
+        XCTAssertEqual(Set(store.deletionTombstones.map(\.chartID)), [charts[0].id, charts[1].id])
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+        XCTAssertEqual(syncNotificationCount, 0)
     }
 
     func testDeleteChartCreatesLocalOnlyTombstoneForNeverBackedChart() throws {

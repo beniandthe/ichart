@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ichart-recognition-ml"
+version = "0.1.0"
+description = "Fail-closed contracts for writer-independent iChart chord-recognition research"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+training = [
+    "numpy==2.0.2",
+    "torch==2.7.0",
+    "Pillow==11.3.0",
+]
+export = [
+    "numpy==2.0.2",
+    "torch==2.7.0",
+    "coremltools==9.0",
+    "Pillow==11.3.0",
+]
+
+[project.scripts]
+ichart-recognition-ml = "ichart_recognition_ml.cli:entrypoint"
+
+[tool.setuptools.packages.find]
+include = ["ichart_recognition_ml*"]

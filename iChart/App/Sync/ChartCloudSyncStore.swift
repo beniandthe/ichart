@@ -7,15 +7,21 @@ final class ChartCloudSyncStore: ObservableObject {
     @Published private(set) var lastRemoteBackupAt: Date?
     @Published private(set) var lastSyncAttemptAt: Date?
     @Published private(set) var isWorking = false
+    @Published private(set) var progress: ChartCloudSyncProgress?
+    @Published private(set) var lastOperationResult: ChartCloudSyncOperationResult?
+    @Published private(set) var lastRestoreResult: ChartCloudSyncOperationResult?
+    @Published private(set) var lastFailure: ChartCloudSyncFailure?
 
-    private let service: ChartCloudSyncService?
+    private let service: (any ChartCloudSyncServicing)?
     private weak var libraryStore: ChartLibraryStore?
     private var isSignedIn = false
     private var automaticUploadBackoff = ChartCloudAutomaticUploadBackoff()
     private var queuedUploadTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
+    private var feedbackOperationID: UUID?
+    private var feedbackAccountID: UUID?
 
-    init(service: ChartCloudSyncService?) {
+    init(service: (any ChartCloudSyncServicing)?) {
         self.service = service
         state = service == nil ? .unconfigured : .signedOut
     }
@@ -49,6 +55,15 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     func authStateChanged(_ authState: IChartAuthState) {
+        let accountID: UUID?
+        switch authState {
+        case .signedIn(let session), .passwordRecovery(let session), .temporarilyOffline(let session):
+            accountID = session.id
+        default:
+            accountID = nil
+        }
+        if accountID != feedbackAccountID { clearOperationFeedback() }
+        feedbackAccountID = accountID
         guard service != nil else {
             cancelPendingSyncWork()
             state = .unconfigured
@@ -83,6 +98,7 @@ final class ChartCloudSyncStore: ObservableObject {
 
     func backUpNow(enrollLocalCharts: Bool = true) {
         guard isSignedIn, let service, let libraryStore else {
+            clearOperationFeedback()
             state = service == nil ? .unconfigured : .signedOut
             return
         }
@@ -105,6 +121,7 @@ final class ChartCloudSyncStore: ObservableObject {
 
     func restoreChartsFromCloud() {
         guard isSignedIn, let service, let libraryStore else {
+            clearOperationFeedback()
             state = service == nil ? .unconfigured : .signedOut
             return
         }
@@ -172,10 +189,11 @@ final class ChartCloudSyncStore: ObservableObject {
         return true
     }
 
-    private func runRestore(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
+    private func runRestore(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing) async {
         isWorking = true
         lastSyncAttemptAt = Date()
         state = .syncing
+        let feedbackID = beginOperationFeedback(.restore)
         let startedAt = Date()
         IChartTelemetry.record(
             "cloud.restore_started",
@@ -186,9 +204,14 @@ final class ChartCloudSyncStore: ObservableObject {
         )
 
         do {
-            let result = try await service.restoreFromCloud(localSnapshot: snapshot)
+            let outcome = try await service.restoreFromCloud(localSnapshot: snapshot, onProgress: { [weak self] stage in
+                await self?.updateProgress(stage, operation: .restore, feedbackID: feedbackID)
+            })
+            let result = outcome.syncResult
+            updateProgress(.applyingSnapshot, operation: .restore, feedbackID: feedbackID)
+            var didApplySyncedSnapshot = false
             if let libraryStore {
-                let didApplySyncedSnapshot = libraryStore.applySyncedSnapshot(
+                didApplySyncedSnapshot = libraryStore.applySyncedSnapshot(
                     result.snapshot,
                     ifUnchangedFrom: snapshot
                 )
@@ -197,9 +220,21 @@ final class ChartCloudSyncStore: ObservableObject {
                 }
             }
             lastRemoteBackupAt = result.lastRemoteBackupAt
-            if queuedUploadTask == nil {
+            if queuedUploadTask == nil, feedbackOperationID == feedbackID {
                 state = .synced(Date())
             }
+            finishOperationFeedback(
+                ChartCloudSyncOperationResult(
+                    operation: .restore,
+                    completedAt: Date(),
+                    remoteChartCount: outcome.remoteChartCount,
+                    backedUpChartCount: outcome.backedUpChartCount,
+                    tombstonedChartCount: outcome.tombstonedChartCount,
+                    libraryChartCount: libraryStore?.charts.count ?? snapshot.charts.count,
+                    didApplySnapshot: didApplySyncedSnapshot
+                ),
+                feedbackID: feedbackID
+            )
             IChartTelemetry.record(
                 "cloud.restore_succeeded",
                 properties: [
@@ -209,13 +244,18 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         } catch {
-            state = Self.failureState(for: error)
+            let failure = Self.failureFeedback(for: error, operation: .restore)
+            if feedbackOperationID == feedbackID {
+                state = Self.failureState(for: error, operation: .restore)
+            }
+            failOperationFeedback(failure, feedbackID: feedbackID)
             IChartTelemetry.record(
                 "cloud.restore_failed",
                 properties: [
                     "chart_count": .int(snapshot.charts.count),
                     "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
-                    "error_code": .string(Self.telemetryErrorCode(for: state)),
+                    "error_code": .string(failure.category.rawValue),
+                    "reason": .string(failure.diagnosticStage),
                     "result": .string("failed")
                 ]
             )
@@ -224,7 +264,7 @@ final class ChartCloudSyncStore: ObservableObject {
         isWorking = false
     }
 
-    private func runPush(snapshot: ChartLibrarySnapshot, service: ChartCloudSyncService) async {
+    private func runPush(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing) async {
         queuedUploadTask = nil
         guard !isWorking else {
             queueUpload(snapshot)
@@ -234,6 +274,7 @@ final class ChartCloudSyncStore: ObservableObject {
         isWorking = true
         lastSyncAttemptAt = Date()
         state = .syncing
+        let feedbackID = beginOperationFeedback(.backup)
         let startedAt = Date()
         IChartTelemetry.record(
             "cloud.push_started",
@@ -244,7 +285,9 @@ final class ChartCloudSyncStore: ObservableObject {
         )
 
         do {
-            let result = try await service.pushLocalSnapshot(snapshot)
+            let result = try await service.pushLocalSnapshot(snapshot, onProgress: { [weak self] stage in
+                await self?.updateProgress(stage, operation: .backup, feedbackID: feedbackID)
+            })
             libraryStore?.markChartsBackedUpToCloud(
                 chartIDs: result.backedUpChartIDs,
                 ownerID: result.ownerID,
@@ -258,7 +301,19 @@ final class ChartCloudSyncStore: ObservableObject {
             )
             automaticUploadBackoff.recordSuccess()
             lastRemoteBackupAt = result.lastRemoteBackupAt
-            state = .synced(Date())
+            if feedbackOperationID == feedbackID { state = .synced(Date()) }
+            finishOperationFeedback(
+                ChartCloudSyncOperationResult(
+                    operation: .backup,
+                    completedAt: Date(),
+                    remoteChartCount: nil,
+                    backedUpChartCount: result.backedUpChartIDs.count,
+                    tombstonedChartCount: result.tombstonedChartIDs.count,
+                    libraryChartCount: libraryStore?.charts.count ?? snapshot.charts.count,
+                    didApplySnapshot: nil
+                ),
+                feedbackID: feedbackID
+            )
             IChartTelemetry.record(
                 "cloud.push_succeeded",
                 properties: [
@@ -270,13 +325,16 @@ final class ChartCloudSyncStore: ObservableObject {
             )
         } catch {
             automaticUploadBackoff.recordFailure(at: Date())
-            state = Self.failureState(for: error)
+            let failure = Self.failureFeedback(for: error, operation: .backup)
+            if feedbackOperationID == feedbackID { state = Self.failureState(for: error) }
+            failOperationFeedback(failure, feedbackID: feedbackID)
             IChartTelemetry.record(
                 "cloud.push_failed",
                 properties: [
                     "chart_count": .int(snapshot.charts.count),
                     "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000),
-                    "error_code": .string(Self.telemetryErrorCode(for: state)),
+                    "error_code": .string(failure.category.rawValue),
+                    "reason": .string(failure.diagnosticStage),
                     "result": .string("failed")
                 ]
             )
@@ -286,6 +344,7 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     private func cancelPendingSyncWork() {
+        clearOperationFeedback()
         queuedUploadTask?.cancel()
         queuedUploadTask = nil
         syncTask?.cancel()
@@ -296,6 +355,46 @@ final class ChartCloudSyncStore: ObservableObject {
 
     private var isCloudSyncEntitled: Bool {
         libraryStore?.canUse(.cloudBackup) == true
+    }
+
+    private func beginOperationFeedback(_ operation: ChartCloudSyncOperation) -> UUID {
+        let id = UUID()
+        feedbackOperationID = id
+        progress = ChartCloudSyncProgress(operation: operation, stage: .preparingSession)
+        lastOperationResult = nil
+        lastFailure = nil
+        if operation == .restore { lastRestoreResult = nil }
+        return id
+    }
+
+    private func updateProgress(_ stage: ChartCloudSyncStage, operation: ChartCloudSyncOperation, feedbackID: UUID) {
+        guard feedbackOperationID == feedbackID else { return }
+        progress = ChartCloudSyncProgress(operation: operation, stage: stage)
+    }
+
+    private func finishOperationFeedback(_ result: ChartCloudSyncOperationResult, feedbackID: UUID) {
+        guard feedbackOperationID == feedbackID else { return }
+        feedbackOperationID = nil
+        progress = nil
+        lastFailure = nil
+        lastOperationResult = result
+        if result.operation == .restore { lastRestoreResult = result }
+    }
+
+    private func failOperationFeedback(_ failure: ChartCloudSyncFailure, feedbackID: UUID) {
+        guard feedbackOperationID == feedbackID else { return }
+        feedbackOperationID = nil
+        progress = nil
+        lastOperationResult = nil
+        lastFailure = failure
+    }
+
+    private func clearOperationFeedback() {
+        feedbackOperationID = nil
+        progress = nil
+        lastOperationResult = nil
+        lastRestoreResult = nil
+        lastFailure = nil
     }
 
     private func handleSavedSnapshot(_ snapshot: ChartLibrarySnapshot) {
@@ -312,77 +411,43 @@ final class ChartCloudSyncStore: ObservableObject {
         queueUpload(snapshot)
     }
 
-    nonisolated static func failureState(for error: Error) -> ChartSyncState {
-        if let urlError = error as? URLError,
-           [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
-            return .offline
-        }
-
-        if let postgrestError = error as? PostgrestError {
-            let text = normalizedErrorText(
-                postgrestError.message,
-                postgrestError.detail,
-                postgrestError.hint,
-                postgrestError.code
-            )
-            return failureState(forNormalizedText: text)
-        }
-
-        if let authError = error as? AuthError {
-            return failureState(forNormalizedText: normalizedErrorText(authError.localizedDescription))
-        }
-
-        return failureState(forNormalizedText: normalizedErrorText(error.localizedDescription))
+    nonisolated static func failureState(for error: Error, operation: ChartCloudSyncOperation = .backup) -> ChartSyncState {
+        let failure = failureFeedback(for: error, operation: operation)
+        return failure.category == .offline ? .offline : .failed(failure.detailText)
     }
 
-    private nonisolated static func telemetryErrorCode(for state: ChartSyncState) -> String {
-        switch state {
-        case .offline:
-            return "offline"
-        case .requiresPro:
-            return "requires_pro"
-        case .unconfigured:
-            return "unconfigured"
-        case .signedOut:
-            return "signed_out"
-        default:
-            return "sync_error"
+    nonisolated static func failureFeedback(for error: Error, operation: ChartCloudSyncOperation) -> ChartCloudSyncFailure {
+        let stagedError = error as? ChartCloudSyncStageError
+        let underlying = stagedError?.underlyingError ?? error
+        let category: ChartCloudSyncFailureCategory
+        let foundationCategory = ChartCloudSyncFailureCategory.foundationCategory(for: underlying)
+        if foundationCategory != .unknown {
+            category = foundationCategory
+        } else if let postgrestError = underlying as? PostgrestError {
+            switch postgrestError.code {
+            case "42501": category = .permissionDenied
+            case "PGRST301", "PGRST302", "PGRST303": category = .sessionRequired
+            default: category = .server
+            }
+        } else if let authError = underlying as? AuthError {
+            let sessionCodes = [
+                "session_not_found", "session_expired", "refresh_token_not_found",
+                "refresh_token_already_used", "bad_jwt", "invalid_jwt", "no_authorization"
+            ]
+            if authError == .sessionMissing || sessionCodes.contains(authError.errorCode.rawValue) {
+                category = .sessionRequired
+            } else if case .api(_, _, _, let response) = authError, response.statusCode == 403 {
+                category = .permissionDenied
+            } else {
+                category = .authentication
+            }
+        } else {
+            category = .unknown
         }
-    }
-
-    private nonisolated static func failureState(forNormalizedText text: String) -> ChartSyncState {
-        if text.contains("not connected")
-            || text.contains("network connection")
-            || text.contains("cannot find host")
-            || text.contains("cannot connect") {
-            return .offline
-        }
-
-        if text.contains("missing session")
-            || text.contains("session missing")
-            || text.contains("session expired")
-            || text.contains("auth session")
-            || text.contains("jwt")
-            || text.contains("401")
-            || text.contains("authorization") {
-            return .failed("Sign in again to resume cloud backup.")
-        }
-
-        if text.contains("permission denied")
-            || text.contains("row-level security")
-            || text.contains("rls")
-            || text.contains("403") {
-            return .failed("Cloud permissions blocked backup. Sign in again, then retry.")
-        }
-
-        return .failed("We could not finish cloud backup. Retry when you are online.")
-    }
-
-    private nonisolated static func normalizedErrorText(_ values: String?...) -> String {
-        values
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .lowercased()
+        return ChartCloudSyncFailure(
+            operation: operation,
+            stage: stagedError?.stage ?? .unknown,
+            category: category
+        )
     }
 }

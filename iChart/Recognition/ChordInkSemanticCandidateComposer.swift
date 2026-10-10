@@ -24,6 +24,25 @@ struct ChordInkRecognitionCandidateComposer {
         from glyphCandidateGroups: [[GlyphCandidate]],
         clusters: [InkCluster]
     ) -> ChordInkRecognitionCandidateResult {
+        let glyphCandidateGroups = glyphCandidateGroups.map { column in
+            let rankedColumn = column.sorted { lhs, rhs in
+                if lhs.confidence != rhs.confidence {
+                    return lhs.confidence > rhs.confidence
+                }
+                return lhs.text < rhs.text
+            }
+            return ChordRecognitionDomain.projectTopRanked(rankedColumn, label: { $0.text })
+        }
+        guard !glyphCandidateGroups.isEmpty,
+              glyphCandidateGroups.allSatisfy({ !$0.isEmpty }) else {
+            return ChordInkRecognitionCandidateResult(
+                candidates: [],
+                compositionMetrics: baseComposer.composeDetailed(glyphCandidates: []).metrics,
+                composeMilliseconds: 0,
+                semanticMilliseconds: 0,
+                semanticCandidateCount: 0
+            )
+        }
         let composeStart = Date()
         let compositionResult = baseComposer.composeDetailed(glyphCandidates: glyphCandidateGroups)
         let composeMilliseconds = Self.elapsedMilliseconds(since: composeStart)
@@ -97,6 +116,10 @@ struct ChordInkSemanticCandidateComposer {
             glyphCandidateGroups: glyphCandidateGroups,
             clusters: clusters
         )
+        let bareAlteredColorToneCandidates = bareAlteredColorToneCandidates(
+            from: glyphCandidateGroups,
+            clusters: clusters
+        )
         let singleCandidates = [
             chordRepeatCandidate(roleContext: roleContext),
             diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
@@ -109,7 +132,7 @@ struct ChordInkSemanticCandidateComposer {
             majorSixthCandidate(from: glyphCandidateGroups, clusters: clusters)
         ].compactMap { $0 }
 
-        return singleCandidates + suspendedSuffixCandidates(
+        return bareAlteredColorToneCandidates + singleCandidates + suspendedSuffixCandidates(
             from: glyphCandidateGroups,
             clusters: clusters
         )
@@ -240,6 +263,290 @@ struct ChordInkSemanticCandidateComposer {
         var accidental: String
         var number: String
         var glyphs: [GlyphCandidate]
+    }
+
+    private struct BareAlterationNumberCandidate {
+        var number: String
+        var glyphs: [GlyphCandidate]
+        var evidenceConfidence: Double
+    }
+
+    /// Composes explicitly parenthesized color tones written without a leading
+    /// extension, such as Ab(#5), B#(b9), Db(b3), and Gb(b13). Parenthesis ink
+    /// is removed by the clusterer, so this path requires a complete accidental
+    /// plus number tail and never infers a missing alteration glyph.
+    private func bareAlteredColorToneCandidates(
+        from glyphCandidateGroups: [[GlyphCandidate]],
+        clusters: [InkCluster]
+    ) -> [ChordInkCandidate] {
+        guard glyphCandidateGroups.count == clusters.count,
+              clusters.count >= 3,
+              let rootCandidate = bareAlterationRootCandidate(in: glyphCandidateGroups[0]) else {
+            return []
+        }
+
+        var glyphs = [rootCandidate]
+        var symbolText = rootCandidate.text
+        var index = 1
+
+        // A high accidental immediately after the root is only claimed as the
+        // root accidental when another written accidental remains for the
+        // alteration. This keeps C(#5) distinct from C#(b9).
+        let hasLaterAlterationAccidental = glyphCandidateGroups.indices
+            .dropFirst(2)
+            .contains { groupIndex in
+                accidentalCandidate(
+                    in: glyphCandidateGroups[groupIndex],
+                    minimumConfidence: 0.42
+                ) != nil
+            }
+        if hasLaterAlterationAccidental,
+           glyphCandidateGroups.indices.contains(index),
+           let rootAccidental = accidentalCandidate(
+               in: glyphCandidateGroups[index],
+               minimumConfidence: 0.65
+           ),
+           isHighAccidentalCluster(clusters[index], rootBounds: clusters[0].bounds) {
+            glyphs.append(rootAccidental)
+            symbolText.append(rootAccidental.text)
+            index += 1
+        }
+
+        guard glyphCandidateGroups.indices.contains(index),
+              let alterationAccidental = accidentalCandidate(
+                  in: glyphCandidateGroups[index],
+                  minimumConfidence: 0.42
+              ),
+              index + 1 < glyphCandidateGroups.count,
+              clusters[index].hasRecognitionHint(.parenthesizedAlteration),
+              clusters[(index + 1)...].contains(where: {
+                  $0.hasRecognitionHint(.parenthesizedAlteration)
+              }) else {
+            return []
+        }
+
+        glyphs.append(alterationAccidental)
+        let numberCandidates = bareAlterationNumberCandidates(
+            in: glyphCandidateGroups,
+            clusters: clusters,
+            startingAt: index + 1
+        )
+
+        return numberCandidates.compactMap { numberCandidate in
+            let candidateText = symbolText
+                + "(\(alterationAccidental.text)\(numberCandidate.number))"
+            guard ChordRecognitionCompendium.match(candidateText) != nil else {
+                return nil
+            }
+
+            return ChordInkCandidate(
+                text: candidateText,
+                confidence: 4.78 + numberCandidate.evidenceConfidence * 0.62,
+                glyphCandidates: glyphs + numberCandidate.glyphs
+            )
+        }
+    }
+
+    private func bareAlterationRootCandidate(
+        in group: [GlyphCandidate]
+    ) -> GlyphCandidate? {
+        let strongestConfidence = group.map(\.confidence).max() ?? 0
+        return group
+            .filter { candidate in
+                candidate.confidence >= 0.60
+                    && candidate.confidence + 0.08 >= strongestConfidence
+                    && "ABCDEFG".contains(candidate.text)
+            }
+            .max { lhs, rhs in
+                lhs.confidence < rhs.confidence
+            }
+    }
+
+    private func bareAlterationNumberCandidates(
+        in groups: [[GlyphCandidate]],
+        clusters: [InkCluster],
+        startingAt index: Int
+    ) -> [BareAlterationNumberCandidate] {
+        let remainingCount = groups.count - index
+        guard remainingCount == 1 || remainingCount == 2 else {
+            return []
+        }
+
+        if remainingCount == 2 {
+            guard let oneCandidate = bestCandidate(
+                in: groups[index],
+                text: "1",
+                minimumConfidence: 0.48
+            ) else {
+                return []
+            }
+
+            var candidates: [BareAlterationNumberCandidate] = []
+            if let threeCandidate = bestCandidate(
+                in: groups[index + 1],
+                text: "3",
+                minimumConfidence: 0.40
+            ),
+               isExplicitBareAlterationThree(
+                   groups[index + 1],
+                   cluster: clusters[index + 1]
+               ) {
+                candidates.append(
+                    BareAlterationNumberCandidate(
+                        number: "13",
+                        glyphs: [oneCandidate, threeCandidate],
+                        evidenceConfidence: min(oneCandidate.confidence, max(threeCandidate.confidence, 0.94))
+                    )
+                )
+            }
+
+            if let secondOneCandidate = bestCandidate(
+                in: groups[index + 1],
+                text: "1",
+                minimumConfidence: 0.48
+            ) {
+                candidates.append(
+                    BareAlterationNumberCandidate(
+                        number: "11",
+                        glyphs: [oneCandidate, secondOneCandidate],
+                        evidenceConfidence: min(oneCandidate.confidence, secondOneCandidate.confidence)
+                    )
+                )
+            }
+
+            return candidates.sorted { lhs, rhs in
+                lhs.evidenceConfidence > rhs.evidenceConfidence
+            }
+        }
+
+        let group = groups[index]
+        let cluster = clusters[index]
+        let strongLoopAndTailNine = isStrongLoopAndTailNine(cluster)
+        let explicitThree = isExplicitBareAlterationThree(group, cluster: cluster)
+        var candidates: [BareAlterationNumberCandidate] = []
+
+        if let nineCandidate = bestCandidate(
+            in: group,
+            text: "9",
+            minimumConfidence: 0.38
+        ),
+           strongLoopAndTailNine || nineCandidate.confidence >= 0.75 {
+            candidates.append(
+                BareAlterationNumberCandidate(
+                    number: "9",
+                    glyphs: [nineCandidate],
+                    evidenceConfidence: strongLoopAndTailNine
+                        ? max(nineCandidate.confidence, 0.97)
+                        : nineCandidate.confidence
+                )
+            )
+        }
+
+        if let threeCandidate = bestCandidate(
+            in: group,
+            text: "3",
+            minimumConfidence: 0.40
+        ),
+           explicitThree {
+            candidates.append(
+                BareAlterationNumberCandidate(
+                    number: "3",
+                    glyphs: [threeCandidate],
+                    evidenceConfidence: max(threeCandidate.confidence, 0.94)
+                )
+            )
+        }
+
+        if let fiveCandidate = bestCandidate(
+            in: group,
+            text: "5",
+            minimumConfidence: 0.48
+        ),
+           !explicitThree || fiveCandidate.confidence >= 0.80 {
+            candidates.append(
+                BareAlterationNumberCandidate(
+                    number: "5",
+                    glyphs: [fiveCandidate],
+                    evidenceConfidence: fiveCandidate.confidence
+                )
+            )
+        }
+
+        return candidates.sorted { lhs, rhs in
+            if lhs.evidenceConfidence != rhs.evidenceConfidence {
+                return lhs.evidenceConfidence > rhs.evidenceConfidence
+            }
+            return lhs.number < rhs.number
+        }
+    }
+
+    private func isExplicitBareAlterationThree(
+        _ group: [GlyphCandidate],
+        cluster: InkCluster
+    ) -> Bool {
+        let threeConfidence = candidateConfidence("3", in: group)
+        let fiveConfidence = candidateConfidence("5", in: group)
+        guard threeConfidence >= 0.40,
+              cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        if stroke.isThreeGlyphCandidate {
+            return true
+        }
+
+        // Device-written 3s can finish with a slightly wider return than the
+        // generic glyph gate permits. In the explicit alteration-number slot,
+        // require the two-lobe geometry plus a real recognition advantage over
+        // 5 before accepting that wider form.
+        let width = max(stroke.bounds.width, 1)
+        let height = max(stroke.bounds.height, 1)
+        let aspectRatio = width / height
+        let isWideTwoLobeThree = stroke.points.count >= 10
+            && stroke.bounds.width >= 8
+            && stroke.bounds.height >= 12
+            && stroke.bounds.height <= 30
+            && aspectRatio >= 0.42
+            && aspectRatio <= 1.45
+            && stroke.straightness >= 0.18
+            && stroke.straightness <= 0.70
+            && stroke.angleDegrees >= 35
+            && stroke.angleDegrees <= 135
+            && (stroke.horizontalDirectionChangeCount >= 1 || stroke.hasEarlyTopHorizontalRun)
+
+        return isWideTwoLobeThree
+            && threeConfidence >= fiveConfidence + 0.04
+    }
+
+    private func isStrongLoopAndTailNine(_ cluster: InkCluster) -> Bool {
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first,
+              stroke.isNineGlyphCandidate,
+              !stroke.hasEarlyTopHorizontalRun,
+              let firstPoint = stroke.points.first,
+              let lastPoint = stroke.points.last else {
+            return false
+        }
+
+        let width = max(stroke.bounds.width, 1)
+        let height = max(stroke.bounds.height, 1)
+        let startX = (firstPoint.x - stroke.bounds.minX) / width
+        let startY = (firstPoint.y - stroke.bounds.minY) / height
+        let endX = (lastPoint.x - stroke.bounds.minX) / width
+        let endY = (lastPoint.y - stroke.bounds.minY) / height
+        let loopPoints = stroke.points.prefix(max(4, stroke.points.count * 2 / 3))
+        let loopWidth = (loopPoints.map(\.x).max() ?? stroke.bounds.minX)
+            - (loopPoints.map(\.x).min() ?? stroke.bounds.minX)
+        let loopHeight = (loopPoints.map(\.y).max() ?? stroke.bounds.minY)
+            - (loopPoints.map(\.y).min() ?? stroke.bounds.minY)
+
+        return startX >= 0.58
+            && startY <= 0.25
+            && endX >= 0.58
+            && endY >= 0.78
+            && loopWidth >= width * 0.72
+            && loopHeight >= height * 0.42
     }
 
     private func suspendedSuffixCandidates(
@@ -1513,7 +1820,8 @@ struct ChordInkSemanticCandidateComposer {
 
     private func hasSuspendedSuffixSequenceEvidence(
         in suffixGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
+        clusters: [InkCluster],
+        rootBounds: InkBounds
     ) -> Bool {
         guard suffixGroups.count == 3,
               clusters.count == 3 else {
@@ -1521,7 +1829,7 @@ struct ChordInkSemanticCandidateComposer {
         }
 
         return isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0])
-            && isSuspendedUContext(group: suffixGroups[1], cluster: clusters[1])
+            && isSuspendedUContext(group: suffixGroups[1], cluster: clusters[1], rootBounds: rootBounds)
             && isSuspendedSContext(group: suffixGroups[2], cluster: clusters[2])
     }
 
@@ -1541,7 +1849,7 @@ struct ChordInkSemanticCandidateComposer {
 
         if suffixGroups.count == 3,
            isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
-           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1]),
+           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1], rootBounds: rootBounds),
            isCompactSuspendedFourthTailContext(
                group: suffixGroups[2],
                cluster: clusters[2],
@@ -1553,7 +1861,8 @@ struct ChordInkSemanticCandidateComposer {
         if suffixGroups.count >= 4,
            hasSuspendedSuffixSequenceEvidence(
                in: Array(suffixGroups.prefix(3)),
-               clusters: Array(clusters.prefix(3))
+               clusters: Array(clusters.prefix(3)),
+               rootBounds: rootBounds
            ),
            isSuspendedFourthContext(group: suffixGroups[3], cluster: clusters[3]) {
             return .suspendedFourth
@@ -1562,14 +1871,15 @@ struct ChordInkSemanticCandidateComposer {
         if suffixGroups.count >= 3,
            hasSuspendedSuffixSequenceEvidence(
                in: Array(suffixGroups.prefix(3)),
-               clusters: Array(clusters.prefix(3))
+               clusters: Array(clusters.prefix(3)),
+               rootBounds: rootBounds
            ) {
             return .suspended
         }
 
         if suffixGroups.count >= 3,
            isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
-           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1]),
+           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1], rootBounds: rootBounds),
            isCompactSuspendedTailContext(group: suffixGroups[2], cluster: clusters[2]),
            !hasHardNonSuspendedDescriptorEvidence(in: Array(suffixGroups.prefix(3))) {
             return .compactSuspended
@@ -1577,7 +1887,7 @@ struct ChordInkSemanticCandidateComposer {
 
         if suffixGroups.count == 2,
            isSuspendedSContext(group: suffixGroups[0], cluster: clusters[0]),
-           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1]) {
+           isCompactSuspendedMiddleContext(group: suffixGroups[1], cluster: clusters[1], rootBounds: rootBounds) {
             return .suspended
         }
 
@@ -1627,25 +1937,34 @@ struct ChordInkSemanticCandidateComposer {
 
     private func isSuspendedUContext(
         group: [GlyphCandidate],
-        cluster: InkCluster
+        cluster: InkCluster,
+        rootBounds: InkBounds
     ) -> Bool {
         if group.containsSuspendedCandidate("u", minimumConfidence: 0.45) {
             return true
         }
 
+        // This fallback is used only within suspended-suffix context and after
+        // the lowercase-lane/minor-quality guards. Measure against the owned
+        // root, so enlarging the same `sus` does not lose its middle cup. Do not
+        // rescale the ink or its clock, or change standalone glyph confidence.
+        let scale = ChordInkRecognitionScaleNormalizer.normalizedHeight / max(rootBounds.height, 1)
+        let width = cluster.bounds.width * scale
+        let height = cluster.bounds.height * scale
         return cluster.strokes.count == 1
-            && cluster.bounds.width >= 7
-            && cluster.bounds.width <= 24
-            && cluster.bounds.height >= 7
-            && cluster.bounds.height <= 24
-            && cluster.bounds.width * cluster.bounds.height >= 60
+            && width >= 7
+            && width <= 24
+            && height >= 7
+            && height <= 24
+            && width * height >= 60
     }
 
     private func isCompactSuspendedMiddleContext(
         group: [GlyphCandidate],
-        cluster: InkCluster
+        cluster: InkCluster,
+        rootBounds: InkBounds
     ) -> Bool {
-        if isSuspendedUContext(group: group, cluster: cluster) {
+        if isSuspendedUContext(group: group, cluster: cluster, rootBounds: rootBounds) {
             return true
         }
 
@@ -1708,7 +2027,15 @@ struct ChordInkSemanticCandidateComposer {
         group: [GlyphCandidate],
         cluster: InkCluster
     ) -> Bool {
-        group.contains { candidate in
+        if group.contains(where: { candidate in
+            candidate.text == "2"
+                && candidate.source != .composer
+                && candidate.confidence >= 0.55
+        }) {
+            return false
+        }
+
+        return group.contains { candidate in
             candidate.text == "4" && candidate.confidence >= 0.35
         }
             || cluster.bounds.width <= 18

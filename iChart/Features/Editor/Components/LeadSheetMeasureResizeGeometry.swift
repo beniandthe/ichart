@@ -51,6 +51,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
     var rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot]
     var selectedIndex: Int
     var displayedToManualWidthScale: CGFloat
+    var screenPointsPerDisplayedPoint: CGFloat
+    var baselineCommitManualWidths: [UUID: CGFloat]
     var evenDivisionCommitManualWidths: [UUID: CGFloat]
     var minimumDisplayedWidth: CGFloat
     var maximumDisplayedWidth: CGFloat
@@ -60,7 +62,9 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         edge: ActiveMeasureResizeDrag.Edge,
         rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
         displayedToManualWidthScale: CGFloat,
-        evenDivisionCommitManualWidths: [UUID: CGFloat] = [:]
+        evenDivisionCommitManualWidths: [UUID: CGFloat] = [:],
+        screenPointsPerDisplayedPoint: CGFloat = 1,
+        baselineCommitManualWidths: [UUID: CGFloat] = [:]
     ) {
         guard let selectedIndex = rowMeasures.firstIndex(where: { $0.measureID == selectedMeasureID }) else {
             return nil
@@ -71,6 +75,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         self.rowMeasures = rowMeasures
         self.selectedIndex = selectedIndex
         self.displayedToManualWidthScale = max(0.0001, displayedToManualWidthScale)
+        self.screenPointsPerDisplayedPoint = max(0.0001, screenPointsPerDisplayedPoint)
+        self.baselineCommitManualWidths = baselineCommitManualWidths
         self.evenDivisionCommitManualWidths = evenDivisionCommitManualWidths
         minimumDisplayedWidth = Measure.minimumManualLayoutWidth / self.displayedToManualWidthScale
         maximumDisplayedWidth = Measure.maximumManualLayoutWidth / self.displayedToManualWidthScale
@@ -128,7 +134,7 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
             }
         }
 
-        let committedManualWidths: [UUID: CGFloat] = Dictionary(
+        let affectedManualWidths: [UUID: CGFloat] = Dictionary(
             uniqueKeysWithValues: affectedMeasureIDs.compactMap { measureID in
                 guard let frame = frames[measureID] else {
                     return nil
@@ -140,6 +146,9 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
                 )
             }
         )
+        let committedManualWidths = baselineCommitManualWidths.merging(affectedManualWidths) { _, editedWidth in
+            editedWidth
+        }
         let draggedEdgeX: CGFloat
         if let selectedFrame = frames[selected.measureID] {
             draggedEdgeX = edge == .right ? selectedFrame.maxX : selectedFrame.minX
@@ -150,7 +159,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         let activeEvenDivisionGuideX = activeEvenDivisionGuideX(
             for: draggedEdgeX,
             guides: evenDivisionGuideXs,
-            expectedDivisionIndex: expectedEvenDivisionIndex()
+            expectedDivisionIndex: expectedEvenDivisionIndex(),
+            initialEdgeX: edge == .right ? selected.frame.maxX : selected.frame.minX
         )
 
         if let activeEvenDivisionGuideX {
@@ -252,7 +262,7 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         for draggedEdgeX: CGFloat,
         guides: [CGFloat],
         expectedDivisionIndex: Int?,
-        tolerance: CGFloat = 5
+        initialEdgeX: CGFloat
     ) -> CGFloat? {
         guard let expectedDivisionIndex,
               expectedDivisionIndex > 0,
@@ -261,7 +271,18 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         }
 
         let guideX = guides[expectedDivisionIndex - 1]
-        return abs(guideX - draggedEdgeX) <= tolerance ? guideX : nil
+        let initialDistance = abs(guideX - initialEdgeX) * screenPointsPerDisplayedPoint
+        let currentDistance = abs(guideX - draggedEdgeX) * screenPointsPerDisplayedPoint
+        // A drag beginning on or near an even boundary is a precision edit,
+        // not a request to equalize every measure. Only a deliberate approach
+        // from outside the guide's neighborhood engages the weak snap. The
+        // screen-point distances keep this behavior consistent while zoomed.
+        guard initialDistance > 6,
+              currentDistance <= 2,
+              currentDistance < initialDistance else {
+            return nil
+        }
+        return guideX
     }
 
     private func clampedRightEdgeDelta(
@@ -316,6 +337,13 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
 }
 
 enum LeadSheetMeasureResizePreviewPolicy {
+    static func hasMeaningfulTranslation(
+        _ translationX: CGFloat,
+        screenPointsPerDisplayedPoint: CGFloat = 1
+    ) -> Bool {
+        abs(translationX) * max(0.0001, screenPointsPerDisplayedPoint) >= 0.1
+    }
+
     static func proposedModelWidth(
         initialWidth: CGFloat,
         edge: ActiveMeasureResizeDrag.Edge,
@@ -756,6 +784,78 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
 }
 
 enum LeadSheetMeasureResizeGeometry {
+    static func baselineManualWidthsForPrecisionEdit(
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        chart: Chart,
+        displayedToManualWidthScale: CGFloat = 1
+    ) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .rhythmSectionSheet else { return [:] }
+        // Responsive Equal Row widths are display intent, not necessarily the
+        // stored point widths. Freeze the current bodies before exiting that
+        // intent, so only the dragged pair changes visually on commit.
+        return Dictionary(uniqueKeysWithValues: rowMeasures.map { snapshot in
+            (snapshot.measureID, Measure.clampedManualLayoutWidth(snapshot.frame.width * displayedToManualWidthScale))
+        })
+    }
+
+    static func displayedToManualWidthScale(
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else { return 1 }
+        if chart.layoutStyle == .rhythmSectionSheet,
+           rowMeasures.allSatisfy({ $0.frame.width >= Measure.minimumManualLayoutWidth }) {
+            return 1
+        }
+
+        let standardScale = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        )
+        let standardDisplayedWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        ) / CGFloat(max(1, chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem))
+        let defaultManualWidth = standardDisplayedWidth * standardScale
+        let sourceMeasures = Dictionary(uniqueKeysWithValues: chart.measures.map { ($0.id, $0) })
+        // A packed row can already be proportionally compressed to fit the
+        // paper. Use its effective model/display ratio so committing a pair
+        // keeps the same total row weight and leaves every other bar in place.
+        // The open terminal lane is excluded: its fill-to-margin extension is
+        // not a proportional model width. This also avoids blindly clamping
+        // compressed Rhythm bodies up to 96 displayed points: the 96-point
+        // minimum remains a model limit, scaled into the existing row. A bar
+        // already stored at that minimum still cannot shrink further.
+        for snapshot in rowMeasures {
+            guard let measure = sourceMeasures[snapshot.measureID],
+                  measure.authoringState != .open,
+                  snapshot.frame.width > 0 else { continue }
+
+            let modelWidth = measure.manualLayoutWidth.map { CGFloat($0) } ?? defaultManualWidth
+            return max(0.0001, modelWidth / snapshot.frame.width)
+        }
+        return standardScale
+    }
+
+    static func editableMeasureLayout(
+        _ measure: LeadSheetMeasureLayout,
+        layoutStyle: ChartLayoutStyle
+    ) -> LeadSheetMeasureLayout {
+        guard layoutStyle == .rhythmSectionSheet else {
+            return measure
+        }
+
+        var editableMeasure = measure
+        editableMeasure.frame = CGRect(
+            x: measure.staffFrame.minX,
+            y: measure.frame.minY,
+            width: measure.staffFrame.width,
+            height: measure.frame.height
+        )
+        return editableMeasure
+    }
+
     static func handleFrames(for measure: LeadSheetMeasureLayout) -> LeadSheetMeasureResizeHandleFrames {
         let handleSize = CGSize(width: 18, height: 34)
         let handleY = measure.staffFrame.midY - handleSize.height / 2
@@ -917,6 +1017,232 @@ enum LeadSheetSimpleChordRowEqualizationPolicy {
                 return (measure.id, manualWidth)
             }
         )
+    }
+}
+
+enum LeadSheetRhythmSectionRowEqualizationPolicy {
+    static func manualLayoutWidths(
+        for system: LeadSheetSystemLayout,
+        in pageLayout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .rhythmSectionSheet else {
+            return [:]
+        }
+
+        let sourceMeasures = system.measures.compactMap { measure -> (id: UUID, width: CGFloat)? in
+            guard let measureID = measure.sourceMeasureID else {
+                return nil
+            }
+
+            // The first Rhythm measure's outer frame includes the clef/key/time
+            // signature reserve. Equalization applies to musical measure bodies,
+            // so use the staff frame instead of accidentally baking that reserve
+            // into the first measure's stored width.
+            return (measureID, measure.staffFrame.width)
+        }
+        guard sourceMeasures.count > 1 else {
+            return [:]
+        }
+
+        let paperFrame = pageLayout.paperFrame(for: system)
+        let leadingSignatureWidth = max(
+            0,
+            (system.measures.first?.frame.width ?? 0)
+                - (system.measures.first?.staffFrame.width ?? 0)
+        )
+        let rowBodyWidth = max(1, paperFrame.width - 68 - leadingSignatureWidth - 6)
+        let equalWidth = Measure.clampedManualLayoutWidth(
+            rowBodyWidth / CGFloat(sourceMeasures.count)
+        )
+        return Dictionary(uniqueKeysWithValues: sourceMeasures.map { ($0.id, equalWidth) })
+    }
+}
+
+enum LeadSheetJoinRowEqualizationPolicy {
+    static func manualLayoutWidths(
+        startingAt measureID: UUID,
+        in pageLayout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
+              let selectedSystemIndex = pageLayout.systems.firstIndex(where: { system in
+                  system.measures.first?.sourceMeasureID == measureID
+              }),
+              selectedSystemIndex > 0 else {
+            return [:]
+        }
+
+        let destinationSystem = pageLayout.systems[selectedSystemIndex - 1]
+        let destinationMeasureIDs = destinationSystem.measures.compactMap(\.sourceMeasureID)
+        let joinedMeasureIDs = destinationMeasureIDs + [measureID]
+        guard !destinationMeasureIDs.isEmpty,
+              Set(joinedMeasureIDs).count == joinedMeasureIDs.count else {
+            return [:]
+        }
+
+        let paperFrame = pageLayout.paperFrame(for: destinationSystem)
+        let maxSystemWidth = max(1, paperFrame.width - 68)
+        let targetManualWidth: CGFloat
+        switch chart.layoutStyle {
+        case .simpleChordSheet:
+            let bodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+                chart: chart,
+                maxSystemWidth: maxSystemWidth
+            )
+            targetManualWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
+                bodyWidth / CGFloat(joinedMeasureIDs.count),
+                chart: chart,
+                maxSystemWidth: maxSystemWidth
+            )
+        case .rhythmSectionSheet:
+            let leadingSignatureWidth = max(
+                0,
+                (destinationSystem.measures.first?.frame.width ?? 0)
+                    - (destinationSystem.measures.first?.staffFrame.width ?? 0)
+            )
+            let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - 6)
+            let proposedWidth = bodyWidth / CGFloat(joinedMeasureIDs.count)
+            guard proposedWidth >= Measure.minimumManualLayoutWidth else {
+                return [:]
+            }
+            targetManualWidth = Measure.clampedManualLayoutWidth(proposedWidth)
+        case .leadSheet:
+            return [:]
+        }
+
+        return Dictionary(uniqueKeysWithValues: joinedMeasureIDs.map { ($0, targetManualWidth) })
+    }
+}
+
+struct LeadSheetMoveMeasureToRowBelowPlan {
+    var measureID: UUID
+    var nextRowFirstMeasureID: UUID
+    var sourceRowMeasureIDs: [UUID]
+    var destinationRowMeasureIDs: [UUID]
+    var equalizedManualWidths: [UUID: CGFloat]
+}
+
+enum LeadSheetMoveMeasureToRowBelowPolicy {
+    static func plan(
+        for measureID: UUID,
+        in pageLayout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> LeadSheetMoveMeasureToRowBelowPlan? {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
+              let sourceSystemIndex = pageLayout.systems.firstIndex(where: { system in
+                  system.measures.contains { $0.sourceMeasureID == measureID }
+              }),
+              pageLayout.systems.indices.contains(sourceSystemIndex + 1) else {
+            return nil
+        }
+
+        let sourceSystem = pageLayout.systems[sourceSystemIndex]
+        let destinationSystem = pageLayout.systems[sourceSystemIndex + 1]
+        let sourceMeasureIDs = sourceSystem.measures.compactMap(\.sourceMeasureID)
+        let existingDestinationMeasureIDs = destinationSystem.measures.compactMap(\.sourceMeasureID)
+        guard sourceMeasureIDs.count > 1,
+              sourceMeasureIDs.last == measureID,
+              let nextRowFirstMeasureID = existingDestinationMeasureIDs.first,
+              !existingDestinationMeasureIDs.contains(measureID),
+              let sourcePageIndex = pageIndex(containing: sourceSystem.id, in: pageLayout),
+              let destinationPageIndex = pageIndex(containing: destinationSystem.id, in: pageLayout),
+              sourcePageIndex == destinationPageIndex,
+              chart.canMoveMeasureToRowBelow(
+                measureID,
+                nextRowStartingAt: nextRowFirstMeasureID
+              ) else {
+            return nil
+        }
+
+        let remainingSourceMeasureIDs = Array(sourceMeasureIDs.dropLast())
+        let destinationMeasureIDs = [measureID] + existingDestinationMeasureIDs
+        if let measureCap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
+           destinationMeasureIDs.count > measureCap {
+            return nil
+        }
+
+        guard let sourceWidths = manualLayoutWidths(
+            for: remainingSourceMeasureIDs,
+            using: sourceSystem,
+            in: pageLayout,
+            chart: chart
+        ),
+        let destinationWidths = manualLayoutWidths(
+            for: destinationMeasureIDs,
+            using: destinationSystem,
+            in: pageLayout,
+            chart: chart
+        ) else {
+            return nil
+        }
+
+        var equalizedManualWidths = sourceWidths
+        for (destinationMeasureID, width) in destinationWidths {
+            equalizedManualWidths[destinationMeasureID] = width
+        }
+        let affectedMeasureIDs = Set(remainingSourceMeasureIDs + destinationMeasureIDs)
+        guard Set(equalizedManualWidths.keys) == affectedMeasureIDs else {
+            return nil
+        }
+
+        return LeadSheetMoveMeasureToRowBelowPlan(
+            measureID: measureID,
+            nextRowFirstMeasureID: nextRowFirstMeasureID,
+            sourceRowMeasureIDs: remainingSourceMeasureIDs,
+            destinationRowMeasureIDs: destinationMeasureIDs,
+            equalizedManualWidths: equalizedManualWidths
+        )
+    }
+
+    private static func pageIndex(
+        containing systemID: UUID,
+        in pageLayout: LeadSheetPageLayout
+    ) -> Int? {
+        pageLayout.pages.first { $0.systemIDs.contains(systemID) }?.index
+    }
+
+    private static func manualLayoutWidths(
+        for measureIDs: [UUID],
+        using system: LeadSheetSystemLayout,
+        in pageLayout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> [UUID: CGFloat]? {
+        guard !measureIDs.isEmpty else {
+            return nil
+        }
+
+        let paperFrame = pageLayout.paperFrame(for: system)
+        let maxSystemWidth = max(1, paperFrame.width - 68)
+        let targetManualWidth: CGFloat
+        switch chart.layoutStyle {
+        case .simpleChordSheet:
+            let bodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+                chart: chart,
+                maxSystemWidth: maxSystemWidth
+            )
+            targetManualWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
+                bodyWidth / CGFloat(measureIDs.count),
+                chart: chart,
+                maxSystemWidth: maxSystemWidth
+            )
+        case .rhythmSectionSheet:
+            let leadingSignatureWidth = max(
+                0,
+                (system.measures.first?.frame.width ?? 0)
+                    - (system.measures.first?.staffFrame.width ?? 0)
+            )
+            let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - 6)
+            let proposedWidth = bodyWidth / CGFloat(measureIDs.count)
+            guard proposedWidth >= Measure.minimumManualLayoutWidth else {
+                return nil
+            }
+            targetManualWidth = Measure.clampedManualLayoutWidth(proposedWidth)
+        case .leadSheet:
+            return nil
+        }
+
+        return Dictionary(uniqueKeysWithValues: measureIDs.map { ($0, targetManualWidth) })
     }
 }
 #endif

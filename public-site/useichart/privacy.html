@@ -11,7 +11,11 @@
   <main class="page shell">
     <p class="eyebrow">iChart</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: August 13, 2026</p>
+    <!-- Release hold: coordinate publication with the consent-enabled app and
+         reconciled App Store privacy labels. Telemetry retention configuration
+         is deployed; actual Cron execution and disclosure publication remain gates.
+         The version-specific consent boundaries below must be preserved. -->
+    <p class="updated">Last updated: October 9, 2026</p>
 
     <section>
       <h2>Overview</h2>
@@ -39,12 +43,20 @@
     <section>
       <h2>Support</h2>
       <p>If you contact support, iChart uses the information you provide to understand and respond to the request. Do not send passwords, verification links, recovery links, payment credentials, or private credentials.</p>
+      <p>Manually submitted support messages and reports are retained only as needed to resolve your issue and handle follow-up. We honor verified requests to delete this support data, except for records required for legal or security reasons. This policy is separate from automatic telemetry's daily cleanup and does not automatically delete local reports that you have not shared.</p>
     </section>
 
     <section>
       <h2>Diagnostics And Product Telemetry</h2>
-      <p>iChart collects limited diagnostic and product telemetry to understand reliability, feature usage, and support issues. This can include event names, app version and build, device model, iPadOS version, language/region setting, coarse workflow results, counts, timings, error categories, and aggregate Apple Pencil ink appearance statistics such as stroke count, opacity range, width range, and whether ink normalization was needed.</p>
+      <p>Product telemetry is optional and off by default. You can choose whether to share it using Settings &gt; Privacy &gt; Share app diagnostics. Your app features and subscription do not depend on this choice.</p>
+      <p>Earlier app versions did not include this switch and could send the limited product telemetry described here without a separate opt-in. Update to a version with the Privacy controls to manage sharing, or contact support@useichart.com with a diagnostic-data request.</p>
+      <p>If you opt in, iChart collects limited diagnostic and product telemetry to understand reliability, feature usage, and support issues. This can include event names, app version and build, device model, iPadOS version, language/region setting, time-zone offset, coarse workflow results, counts, timings, error categories, and aggregate Apple Pencil ink appearance statistics such as stroke count, opacity range, width range, and whether ink normalization was needed.</p>
+      <p>Diagnostics include random installation and diagnostic-session identifiers and temporary workflow identifiers that connect events in a writing batch. Diagnostic sessions are created when collection begins and can reset after a change in your sharing choice. When you are signed in, diagnostic records can be linked to your iChart account identifier for reliability and support. These identifiers are used for iChart's own analytics and app functionality, not advertising or tracking across other companies' apps or websites.</p>
+      <p>Chord recognition diagnostics include the recognition pipeline version, counts of reads needing review or receiving no read, correction categories, rendering outcomes, and recognition timings. These are technical and workflow measurements, not a recording of what you wrote.</p>
       <p>iChart telemetry does not collect chart titles, song titles, artist names, emails, account names, raw chord text, handwritten drawing data, PDF files, screenshots, or editable chart documents.</p>
+      <p>You can withdraw consent by turning Share app diagnostics off. This stops new collection and sending and starts cleanup of unsent diagnostic events on this iPad. Previously queued events cannot be sent by a later opt-in. A request already sent may finish. Turning the switch off does not delete records already received by iChart; contact support@useichart.com for a diagnostic-data deletion request.</p>
+      <p>Automatic telemetry received by the service is subject to daily cleanup of events received more than 180 days ago, using the server receipt time rather than a timestamp supplied by the device. Records can remain beyond 180 days until the next successful cleanup. Account deletion removes telemetry still linked to that account. Signed-out records and records previously unlinked from a deleted account cannot automatically be attributed to that account and remain subject to age-based cleanup.</p>
+      <p>Performance reports are separate from automatic product telemetry. They stay on your iPad unless you explicitly share a report from Help &gt; Contact Us. Shared reports contain event timestamps, elapsed timings and diagnostic context, which may include identifiers and error details. Raw device uptime is removed from exported reports. Information you choose to share with support is handled as support data, not as automatic telemetry.</p>
     </section>
 
     <section>
@@ -52,7 +64,7 @@
       <p>iChart does not sell personal information and does not use third-party advertising SDKs. iChart uses Apple-native App Store tools, privacy-limited in-app diagnostics, and support messages you choose to send for release diagnostics and customer support.</p>
     </section>
 
-    <section>
+    <section id="data-requests">
       <h2>Data Requests</h2>
       <p>Signed-in users can initiate account deletion in the app from Settings &gt; Account &gt; Delete Account. Account deletion removes your iChart account, profile, cloud backup records, forum activity, and forum block records from iChart servers, except for records iChart must keep for legal, security, billing, or fraud-prevention reasons. Apple manages App Store billing history and subscription cancellation through Apple account tools.</p>
       <p>For other privacy or account requests, or if you cannot access the app, contact <a href="mailto:support@useichart.com">support@useichart.com</a> from the email tied to your iChart account when possible.</p>

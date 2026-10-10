@@ -11,6 +11,55 @@ final class ChordInkRecognizerTests: XCTestCase {
 
     private let recognizer = ChordInkRecognizer()
 
+    func testIllegalCompleteReadsAreNotScoredChordCandidates() {
+        let candidates = ["Cñ7", "J", "C?", "1"].map {
+            ChordInkCandidate(text: $0, confidence: 5, glyphCandidates: [])
+        }
+        let permissiveMatch: (String) -> ChordRecognitionMatch? = { _ in
+            ChordRecognitionCompendium.match("C7")
+        }
+        let scores = ChordInkRecognizer.candidateScores(
+            from: candidates,
+            minimumConfidence: 3,
+            match: permissiveMatch
+        )
+        XCTAssertTrue(scores.isEmpty)
+        XCTAssertTrue(ChordInkRecognizer.reviewCandidateScores(
+            from: candidates,
+            minimumConfidence: 3,
+            excluding: [],
+            match: permissiveMatch
+        ).isEmpty)
+    }
+
+    func testDetachedCapDeviceDHasACompletePrimaryReadInsteadOfAnEmptyReview() throws {
+        for name in ["DDetachedCapRhythmDeviceCaptured01", "DDetachedCapSimpleDeviceCaptured01"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            for result in [
+                recognizer.recognize(strokes: fixture.strokes),
+                ChordInkMaximumTrustRecognizer().recognize(strokes: fixture.strokes)
+            ] {
+                XCTAssertEqual(result.match?.displayText, "D", name)
+                XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: result).acceptedText, "D", name)
+                XCTAssertTrue(ChordInkRenderResolutionPolicy.candidateTexts(for: result).contains("D"), name)
+            }
+        }
+    }
+
+    func testNewDeviceMinorExtensionsKeepTheirLiteralRootAndDigit() throws {
+        for name in ["DMinor7NarrowCapRhythmDeviceCaptured02", "AMinor9CompactLoopSimpleDeviceCaptured02"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            for result in [
+                recognizer.recognize(strokes: fixture.strokes),
+                ChordInkMaximumTrustRecognizer().recognize(strokes: fixture.strokes)
+            ] {
+                XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, name)
+                XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: result).acceptedText, fixture.expectedDisplayText, name)
+                XCTAssertTrue(ChordInkRenderResolutionPolicy.candidateTexts(for: result).contains(fixture.expectedDisplayText), name)
+            }
+        }
+    }
+
     func testCandidateScoresKeepSupportedCandidatesBeyondRawTopEight() {
         let unsupportedNoise = [
             "E3",
@@ -50,9 +99,67 @@ final class ChordInkRecognizerTests: XCTestCase {
             )
             .compactMap(\.displayText)
 
-        XCTAssertEqual(scores.prefix(8).filter { $0.displayText == nil }.count, 8)
+        XCTAssertTrue(scores.allSatisfy { $0.displayText != nil })
         XCTAssertTrue(supportedDisplayTexts.contains("Db7(b9)"))
         XCTAssertTrue(supportedDisplayTexts.contains("G/B"))
+    }
+
+    func testCandidateScoresExposeBoundedLowConfidenceReviewFallbackWithoutCreatingPrimaryRead() {
+        let candidates = [
+            ChordInkCandidate(text: "C", confidence: 3.58, glyphCandidates: []),
+            ChordInkCandidate(text: "G", confidence: 3.48, glyphCandidates: []),
+            ChordInkCandidate(text: "F", confidence: 3.18, glyphCandidates: [])
+        ]
+
+        let scores = ChordInkRecognizer.reviewCandidateScores(
+            from: candidates,
+            minimumConfidence: 3.30,
+            excluding: [],
+            match: ChordRecognitionCompendium.match
+        )
+        let result = ChordInkRecognitionResult(
+            rawCandidates: candidates.map(\.text),
+            glyphCandidates: [],
+            match: nil,
+            confidence: 0,
+            candidateScores: [],
+            reviewCandidateScores: scores
+        )
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(
+            ChordInkRenderResolutionPolicy.candidateTexts(for: result),
+            ["C", "G"]
+        )
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertNil(decision.acceptedText)
+    }
+
+    func testReviewCandidateScoresCannotChangeAutomaticTrustPolicy() throws {
+        let match = try XCTUnwrap(ChordRecognitionCompendium.match("C"))
+        let result = ChordInkRecognitionResult(
+            rawCandidates: ["C", "G"],
+            glyphCandidates: [[
+                GlyphCandidate(text: "C", confidence: 0.70, source: .template),
+                GlyphCandidate(text: "B", confidence: 0.10, source: .template)
+            ]],
+            match: match,
+            confidence: 4.0,
+            candidateScores: [
+                ChordInkCandidateScore(text: "C", displayText: "C", confidence: 4.0)
+            ],
+            reviewCandidateScores: [
+                ChordInkCandidateScore(text: "G", displayText: "G", confidence: 3.5)
+            ]
+        )
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "C")
+        XCTAssertEqual(
+            ChordInkRenderResolutionPolicy.candidateTexts(for: result),
+            ["C", "G"]
+        )
     }
 
     func testChordInkBatchClustererSplitsClearlySeparatedChordGroups() {
@@ -95,6 +202,144 @@ final class ChordInkRecognizerTests: XCTestCase {
         try assertRecognizes(fixtures: fullArchiveFixtures())
     }
 
+    func testCompletedChordGlyphsRemainStableWhenAbsoluteStrokeChronologyIsPresent() throws {
+        let fixtures = try [
+            "DSlashFSharpCaptured01",
+            "FSharp",
+            "FSharp7Flat5Captured01"
+        ].map { try InkFixtureLoader.load($0, file: #filePath) }
+
+        for fixture in fixtures {
+            var creationTime = 0.0
+            let timedStrokes = fixture.strokes.map { stroke in
+                let pointStart = stroke.points.compactMap(\.timeOffset).min() ?? 0
+                let pointEnd = stroke.points.compactMap(\.timeOffset).max() ?? pointStart
+                let timedStroke = InkStroke(
+                    points: stroke.points.map { point in
+                        InkPoint(
+                            x: point.x,
+                            y: point.y,
+                            timeOffset: point.timeOffset.map { max(0, $0 - pointStart) }
+                        )
+                    },
+                    creationTimeOffset: creationTime
+                )
+                creationTime += max(pointEnd - pointStart, 0.08) + 0.18
+                return timedStroke
+            }
+
+            let result = recognizer.recognize(strokes: timedStrokes)
+
+            XCTAssertEqual(
+                result.match?.displayText,
+                fixture.expectedDisplayText,
+                "(fixture.name) raw=\(Array(result.rawCandidates.prefix(16))) scores=\(Array(result.candidateScores.prefix(8)))"
+            )
+        }
+    }
+
+    func testCapturedFSharpFlatFiveRecognitionIsTranslationInvariant() throws {
+        let fixture = try InkFixtureLoader.load("FSharp7Flat5Captured01", file: #filePath)
+        let translatedStrokes = fixture.strokes.map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(
+                    x: point.x + 640,
+                    y: point.y - 120,
+                    timeOffset: point.timeOffset
+                )
+            })
+        }
+
+        let result = recognizer.recognize(strokes: translatedStrokes)
+
+        XCTAssertEqual(
+            result.match?.displayText,
+            fixture.expectedDisplayText,
+            "raw=\(Array(result.rawCandidates.prefix(16))) glyphs=\(result.glyphCandidates.map { $0.prefix(6).map(\.text) })"
+        )
+    }
+
+    func testCapturedFSharpFlatFiveRecognitionSurvivesOversizedRoundTrip() throws {
+        let fixture = try InkFixtureLoader.load("FSharp7Flat5Captured01", file: #filePath)
+        let originalBounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
+        let directRecognizer = ChordInkRecognizer(normalizesOversizedInput: false)
+
+        for enlargedHeight in [50.0, 52.0, 54.0, 55.0, 56.0, 58.0] {
+            let enlarged = ChordInkRecognitionScaleNormalizer.strokes(
+                from: fixture.strokes,
+                targetHeight: enlargedHeight
+            )
+            let restored = ChordInkRecognitionScaleNormalizer.strokes(
+                from: enlarged,
+                targetHeight: originalBounds.height
+            )
+            let result = directRecognizer.recognize(strokes: restored)
+            var coordinateDelta = 0.0
+            for (originalStroke, recoveredStroke) in zip(fixture.strokes, restored) {
+                for (originalPoint, recoveredPoint) in zip(
+                    originalStroke.points,
+                    recoveredStroke.points
+                ) {
+                    coordinateDelta = max(
+                        coordinateDelta,
+                        abs(originalPoint.x - recoveredPoint.x),
+                        abs(originalPoint.y - recoveredPoint.y)
+                    )
+                }
+            }
+
+            XCTAssertEqual(
+                result.match?.displayText,
+                fixture.expectedDisplayText,
+                "height=\(enlargedHeight) delta=\(coordinateDelta) raw=\(Array(result.rawCandidates.prefix(16))) glyphs=\(result.glyphCandidates.map { $0.prefix(6).map(\.text) })"
+            )
+        }
+    }
+
+    func testCapturedFSharpFlatFiveRecognitionSurvivesRowPlacement() throws {
+        let fixture = try InkFixtureLoader.load("FSharp7Flat5Captured01", file: #filePath)
+        let bounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
+        let scale = 56.0 / bounds.height
+        let rowStrokes = fixture.strokes.map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(
+                    x: 169.955_555_555_555_55 + (point.x - bounds.minX) * scale,
+                    y: 5 + (point.y - bounds.minY) * scale,
+                    timeOffset: point.timeOffset
+                )
+            })
+        }
+        let restored = ChordInkRecognitionScaleNormalizer.strokes(
+            from: rowStrokes,
+            targetHeight: bounds.height
+        )
+        let result = ChordInkRecognizer(normalizesOversizedInput: false)
+            .recognize(strokes: restored)
+
+        XCTAssertEqual(
+            result.match?.displayText,
+            fixture.expectedDisplayText,
+            "raw=\(Array(result.rawCandidates.prefix(16))) glyphs=\(result.glyphCandidates.map { $0.prefix(6).map(\.text) })"
+        )
+    }
+
+    func testBareAlterationNormalizationDoesNotRewriteDominantChordExtensions() throws {
+        let fixtures = try [
+            "BSharp7Flat5Captured02",
+            "C7Sharp5Captured01",
+            "DSharpm7Captured01",
+            "BFlat7Flat5Captured01",
+            "BFlat7Sharp11Captured01",
+            "BFlat13Captured03",
+            "FSharp7Sharp11Captured01",
+            "GFlatMinor7Captured01",
+            "GSharp7Flat13",
+            "GSharp7Sharp11"
+        ].map { try InkFixtureLoader.load($0, file: #filePath) }
+
+        try assertRecognizes(fixtures: fixtures)
+    }
+
     func testRecognizesDominantFlatFiveInkFixtures() throws {
         let fixtures = try allFixtures()
             .filter { $0.expectedDisplayText.contains("(b5)") }
@@ -108,6 +353,14 @@ final class ChordInkRecognizerTests: XCTestCase {
             XCTAssertEqual(result.glyphCandidates.count, fixture.expectedClusterCount, fixture.name)
             XCTAssertGreaterThan(result.confidence, 0, fixture.name)
         }
+    }
+
+    func testResultPreservesGlyphSequenceUsedByAcceptedCandidate() throws {
+        let fixture = try InkFixtureLoader.load("CMajor7", file: #filePath)
+        let result = recognizer.recognize(strokes: fixture.strokes)
+
+        XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText)
+        XCTAssertEqual(result.acceptedGlyphCandidates.map(\.text), fixture.expectedTopGlyphs)
     }
 
     func testDeviceDFlatDiminishedRacePrefersRootAccidentalButRequiresConfirmation() throws {
@@ -258,6 +511,139 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(result.match?.displayText, "Csus4", debugSummary)
         XCTAssertTrue(result.rawCandidates.contains("Csus4"), debugSummary)
         XCTAssertEqual(result.glyphCandidates.count, 5)
+    }
+
+    func testProvisionalGlyphSequencesReachCorrectSuggestionButRequireConfirmation() throws {
+        let cases: [(expected: String, rawExpected: String, strokes: [InkStroke])] = [
+            (
+                "Cadd2",
+                "Cadd2",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("a", offsetX: 52)
+                    + shiftedTemplateStrokes("d", offsetX: 92)
+                    + shiftedTemplateStrokes("d", offsetX: 132)
+                    + shiftedTemplateStrokes("2", offsetX: 175)
+            ),
+            (
+                "F#add9",
+                "F#add9",
+                try shiftedTemplateStrokes("F", offsetX: 0)
+                    + shiftedTemplateStrokes("#", offsetX: 0)
+                    + shiftedTemplateStrokes("a", offsetX: 75)
+                    + shiftedTemplateStrokes("d", offsetX: 115)
+                    + shiftedTemplateStrokes("d", offsetX: 155)
+                    + shiftedTemplateStrokes("9", offsetX: 50)
+            ),
+            (
+                "Bbadd11",
+                "Bbadd11",
+                try shiftedTemplateStrokes("B", offsetX: 0)
+                    + shiftedTemplateStrokes("b", offsetX: 0)
+                    + shiftedTemplateStrokes("a", offsetX: 72)
+                    + shiftedTemplateStrokes("d", offsetX: 112)
+                    + shiftedTemplateStrokes("d", offsetX: 152)
+                    + shiftedTemplateStrokes("1", offsetX: 190)
+                    + shiftedTemplateStrokes("1", offsetX: 215)
+            ),
+            (
+                "Csus2",
+                "Csus2",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("s", offsetX: 52)
+                    + shiftedTemplateStrokes("u", offsetX: 88)
+                    + shiftedTemplateStrokes("s", offsetX: 128)
+                    + shiftedTemplateStrokes("2", offsetX: 175)
+            ),
+            (
+                "C6/9",
+                "C6/9",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("6", offsetX: -28)
+                    + shiftedTemplateStrokes("/", offsetX: 36)
+                    + shiftedTemplateStrokes("9", offsetX: -20)
+            ),
+            (
+                "C-6/9",
+                "C-6/9",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("-", offsetX: 0)
+                    + shiftedTemplateStrokes("6", offsetX: 0)
+                    + shiftedTemplateStrokes("/", offsetX: 65)
+                    + shiftedTemplateStrokes("9", offsetX: 10)
+            ),
+            (
+                "Csus9",
+                "C9sus",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("9", offsetX: -100)
+                    + shiftedTemplateStrokes("s", offsetX: 85)
+                    + shiftedTemplateStrokes("u", offsetX: 130)
+                    + shiftedTemplateStrokes("s", offsetX: 180)
+            ),
+            (
+                "C-△9",
+                "C-△9",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("-", offsetX: 0)
+                    + shiftedTemplateStrokes("△", offsetX: 35)
+                    + shiftedTemplateStrokes("9", offsetX: -20)
+            ),
+            (
+                "C6/9/E",
+                "C6/9/E",
+                try shiftedTemplateStrokes("C", offsetX: 0)
+                    + shiftedTemplateStrokes("6", offsetX: -28)
+                    + shiftedTemplateStrokes("/", offsetX: 36)
+                    + shiftedTemplateStrokes("9", offsetX: -20)
+                    + shiftedTemplateStrokes("/", offsetX: 105)
+                    + shiftedTemplateStrokes("E", offsetX: 200)
+            ),
+            (
+                "Db7(b9)/F",
+                "Db7(b9)/F",
+                try shiftedTemplateStrokes("D", offsetX: 0)
+                    + shiftedTemplateStrokes("b", offsetX: 0)
+                    + shiftedTemplateStrokes("7", offsetX: 0)
+                    + shiftedTemplateStrokes("(", offsetX: 60)
+                    + shiftedTemplateStrokes("b", offsetX: 100)
+                    + shiftedTemplateStrokes("9", offsetX: 30)
+                    + shiftedTemplateStrokes(")", offsetX: 137)
+                    + shiftedTemplateStrokes("/", offsetX: 190)
+                    + shiftedTemplateStrokes("F", offsetX: 290)
+            )
+        ]
+
+        for testCase in cases {
+            let baseResult = recognizer.recognize(
+                strokes: testCase.strokes,
+                options: .includingSymbolLedgerDiagnostics
+            )
+            let maximumTrustResult = ChordInkMaximumTrustRecognizer().recognize(
+                strokes: testCase.strokes,
+                options: .includingSymbolLedgerDiagnostics
+            )
+            let maximumTrustDecision = ChordInkRecognitionPolicy.decision(for: maximumTrustResult)
+            let debugSummary = "expected=\(testCase.expected) base=\(String(describing: baseResult.match?.displayText)) raw=\(Array(baseResult.rawCandidates.prefix(16))) glyphs=\(baseResult.glyphCandidates.map { $0.prefix(8).map(\.text) }) max=\(String(describing: maximumTrustResult.match?.displayText)) evidence=\(String(describing: maximumTrustResult.trustEvidence))"
+
+            XCTAssertEqual(baseResult.match?.displayText, testCase.expected, debugSummary)
+            XCTAssertTrue(baseResult.rawCandidates.contains(testCase.rawExpected), debugSummary)
+            XCTAssertEqual(maximumTrustResult.match?.displayText, testCase.expected, debugSummary)
+            XCTAssertEqual(
+                maximumTrustDecision.action,
+                .confirm,
+                debugSummary
+            )
+            XCTAssertEqual(
+                maximumTrustResult.trustEvidence?.outcome,
+                .insufficientCapturedFamilyEvidence,
+                debugSummary
+            )
+            XCTAssertEqual(
+                maximumTrustDecision.reason,
+                "This chord form still needs handwriting confirmation. Choose the suggestion or type it in.",
+                debugSummary
+            )
+        }
     }
 
     func testRecognizesDominantSuspendedFromGlyphSequence() throws {
@@ -870,6 +1256,49 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(decision.isCloseRace)
     }
 
+    func testResolutionPolicyPrefersSpecificTrustReasonWhenCandidateLimitWasHit() throws {
+        var metrics = ChordInkRecognitionMetrics()
+        metrics.compositionMetrics = ChordInkCandidateCompositionMetrics(
+            selectedColumnCount: 5,
+            generatedSequenceCount: 4096,
+            returnedCandidateCount: 32,
+            maxGeneratedSequences: 4096,
+            hitGeneratedSequenceLimit: true
+        )
+        var result = recognitionResult(
+            matchText: "Cadd2",
+            confidence: 4.120,
+            scores: [
+                candidateScore("Cadd2", confidence: 4.120)
+            ],
+            glyphCandidates: [
+                [glyph("C", confidence: 0.965)],
+                [glyph("a", confidence: 0.950)],
+                [glyph("d", confidence: 0.950)],
+                [glyph("d", confidence: 0.950)],
+                [glyph("2", confidence: 0.950)]
+            ],
+            metrics: metrics
+        )
+        result.trustEvidence = ChordInkTrustEvidence(
+            outcome: .insufficientCapturedFamilyEvidence,
+            symbolSupportCount: 4,
+            completedProbeCount: 0,
+            requiredProbeCount: 4,
+            validationMilliseconds: 0
+        )
+
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+
+        XCTAssertEqual(decision.action, .confirm)
+        XCTAssertEqual(decision.acceptedText, "Cadd2")
+        XCTAssertEqual(
+            decision.reason,
+            "This chord form still needs handwriting confirmation. Choose the suggestion or type it in."
+        )
+        XCTAssertFalse(decision.isCloseRace)
+    }
+
     func testResolutionPolicyPromptsWhenUnsupportedCandidateHasHighPressure() throws {
         let result = recognitionResult(
             matchText: "C7",
@@ -1257,10 +1686,15 @@ final class ChordInkRecognizerTests: XCTestCase {
     private func assertRecognizes(fixtures: [InkFixture]) throws {
         for fixture in fixtures {
             let result = recognizer.recognize(strokes: fixture.strokes)
+            let indexedClusters = StrokeClusterer().indexedClusters(fixture.strokes)
             let glyphSummary = result.glyphCandidates.map { group in
                 group.prefix(8).map { "\($0.text):\($0.confidence)" }
             }
-            let debugSummary = "\(fixture.name) raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(glyphSummary), scores: \(result.candidateScores.prefix(8))"
+            let clusterSummary = indexedClusters.map { indexedCluster in
+                let bounds = indexedCluster.bounds
+                return "strokes=\(indexedCluster.originalIndexes) bounds=(\(bounds.minX),\(bounds.minY),\(bounds.maxX),\(bounds.maxY)) hints=\(String(describing: indexedCluster.cluster.recognitionHints))"
+            }
+            let debugSummary = "\(fixture.name) raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(glyphSummary), clusters: \(clusterSummary), scores: \(result.candidateScores.prefix(8))"
 
             XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, debugSummary)
             XCTAssertFalse(result.rawCandidates.isEmpty, debugSummary)

@@ -82,6 +82,9 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
                     topScores: [
                         ChordInkCandidateScore(text: "D", displayText: "D", confidence: 4.5)
                     ],
+                    reviewScores: [
+                        ChordInkCandidateScore(text: "Db", displayText: "Db", confidence: 3.4)
+                    ],
                     inkStrokes: [inkStroke]
                 )
             ],
@@ -116,10 +119,18 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
 
         let loadedEvents = try recorder.loadEvents()
         XCTAssertEqual(loadedEvents, [event, event])
+        XCTAssertEqual(
+            loadedEvents.first?.recognitionPipelineVersion,
+            ChordInkRecognitionPipelineIdentity.version
+        )
         XCTAssertEqual(loadedEvents.first?.layoutStyle, ChartLayoutStyle.rhythmSectionSheet.rawValue)
         XCTAssertEqual(
             loadedEvents.first?.targetingDiagnosticsVersion,
             LeadSheetChordInkRecognitionBatchTargetingDiagnostics.version
+        )
+        XCTAssertNotEqual(
+            loadedEvents.first?.recognitionPipelineVersion,
+            loadedEvents.first?.targetingDiagnosticsVersion
         )
         XCTAssertEqual(loadedEvents.first?.targetingRoute, "measure_lane")
         XCTAssertEqual(loadedEvents.first?.laneSequentialClusterCount, 3)
@@ -130,6 +141,7 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(loadedEvents.first?.payloads.first?.idleMilliseconds, 410)
         XCTAssertEqual(loadedEvents.first?.payloads.first?.recognitionMilliseconds, 12)
         XCTAssertEqual(loadedEvents.first?.payloads.first?.recognitionTotalMilliseconds, 422)
+        XCTAssertEqual(loadedEvents.first?.payloads.first?.reviewScores?.first?.displayText, "Db")
 
         try recorder.reset()
 
@@ -157,6 +169,35 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(loadedEvents.count, 1)
         XCTAssertEqual(loadedEvents.first?.stage, "targeting")
+        XCTAssertNil(loadedEvents.first?.recognitionPipelineVersion)
         XCTAssertNil(loadedEvents.first?.layoutStyle)
+    }
+
+    func testRecorderRetainsPriorChartEventsUntilSizeLimitIsExceeded() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(
+            url: temporaryDirectory.appendingPathComponent("chord-draft-preview-debug.jsonl")
+        )
+        let firstEvent = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 10),
+            stage: "finish_single"
+        )
+        let nextSession = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 11),
+            stage: "reset"
+        )
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        try recorder.append(firstEvent)
+        XCTAssertFalse(try recorder.resetIfLargerThan(8_000_000))
+        try recorder.append(nextSession)
+        XCTAssertEqual(try recorder.loadEvents(), [firstEvent, nextSession])
+
+        XCTAssertTrue(try recorder.resetIfLargerThan(0))
+        XCTAssertEqual(try recorder.loadEvents(), [])
     }
 }

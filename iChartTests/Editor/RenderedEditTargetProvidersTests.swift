@@ -141,6 +141,151 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertEqual(dragTarget.action, .move)
     }
 
+    func testOverlappingChordTapSelectsChordNearestToTouch() throws {
+        let leftChordID = UUID()
+        let rightChordID = UUID()
+        let provider = FixedHitTargetProvider(targets: [
+            RenderedEditHitTarget(
+                objectID: .chord(leftChordID),
+                action: .select,
+                priority: .objectBodySelect,
+                frame: CGRect(x: 100, y: 100, width: 52, height: 36),
+                requiresSelection: false,
+                mutationRisk: .nonMutating
+            ),
+            RenderedEditHitTarget(
+                objectID: .chord(rightChordID),
+                action: .select,
+                priority: .objectBodySelect,
+                frame: CGRect(x: 132, y: 100, width: 52, height: 36),
+                requiresSelection: false,
+                mutationRisk: .nonMutating
+            )
+        ])
+
+        let target = try XCTUnwrap(
+            RenderedEditRouter(providers: [provider]).tapTarget(
+                at: CGPoint(x: 148, y: 118),
+                in: RenderedEditContext(pageLayout: pageFixture().pageLayout)
+            )
+        )
+
+        XCTAssertEqual(target.objectID, .chord(rightChordID))
+    }
+
+    func testOverlappingUnselectedChordMoveHaloCannotBlockSelectedChordDrag() throws {
+        let blockingChordID = UUID()
+        let selectedChordID = UUID()
+        let overlapFrame = CGRect(x: 100, y: 100, width: 72, height: 44)
+        let provider = FixedHitTargetProvider(targets: [
+            RenderedEditHitTarget(
+                objectID: .chord(blockingChordID),
+                action: .move,
+                priority: .selectedObjectMoveBody,
+                frame: overlapFrame,
+                requiresSelection: true,
+                mutationRisk: .visual
+            ),
+            RenderedEditHitTarget(
+                objectID: .chord(selectedChordID),
+                action: .move,
+                priority: .selectedObjectMoveBody,
+                frame: overlapFrame,
+                requiresSelection: true,
+                mutationRisk: .visual
+            )
+        ])
+        var selection = RenderedEditSelectionState()
+        selection.select(.chord(selectedChordID))
+
+        let target = try XCTUnwrap(
+            RenderedEditRouter(providers: [provider]).dragTarget(
+                at: CGPoint(x: overlapFrame.midX, y: overlapFrame.midY),
+                in: RenderedEditContext(
+                    pageLayout: pageFixture().pageLayout,
+                    selection: selection
+                )
+            )
+        )
+
+        XCTAssertEqual(target.objectID, .chord(selectedChordID))
+        XCTAssertEqual(target.action, .move)
+    }
+
+    func testCompactSimpleSheetMeasureLetsSecondOverlappingChordStartDrag() throws {
+        var chart = Chart.blank(
+            title: "Compact Chord Drag",
+            measureCount: 6,
+            layoutStyle: .simpleChordSheet
+        )
+        let measureIDs = chart.measures.map(\.id)
+        for measureID in measureIDs {
+            _ = chart.setMeasureManualLayoutWidth(96, for: measureID)
+        }
+        let targetMeasureID = try XCTUnwrap(measureIDs.first)
+        let leftChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Bb"),
+                rawInput: "Bb",
+                to: targetMeasureID,
+                atFraction: 0.14
+            )
+        )
+        let rightChordID = try XCTUnwrap(
+            chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("C"),
+                rawInput: "C",
+                to: targetMeasureID,
+                atFraction: 0.35
+            )
+        )
+        XCTAssertTrue(
+            chart.moveChordEventInCommittedChordLane(
+                leftChordID,
+                to: targetMeasureID,
+                atFraction: 0.14
+            )
+        )
+        XCTAssertTrue(
+            chart.moveChordEventInCommittedChordLane(
+                rightChordID,
+                to: targetMeasureID,
+                atFraction: 0.35
+            )
+        )
+
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 768, height: 1_024)
+        )
+        let measure = try XCTUnwrap(
+            pageLayout.systems
+                .flatMap(\.measures)
+                .first { $0.sourceMeasureID == targetMeasureID }
+        )
+        let leftChord = try XCTUnwrap(measure.chordLayouts.first { $0.id == leftChordID })
+        let rightChord = try XCTUnwrap(measure.chordLayouts.first { $0.id == rightChordID })
+        let overlap = LeadSheetChordEditOverlayGeometry
+            .selectedMoveBodyFrame(for: leftChord)
+            .intersection(
+                LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: rightChord)
+            )
+        XCTAssertFalse(overlap.isNull)
+        XCTAssertGreaterThan(overlap.width, 0)
+
+        var selection = RenderedEditSelectionState()
+        selection.select(.chord(rightChordID))
+        let target = try XCTUnwrap(
+            RenderedEditRouter().dragTarget(
+                at: CGPoint(x: overlap.midX, y: overlap.midY),
+                in: RenderedEditContext(pageLayout: pageLayout, selection: selection)
+            )
+        )
+
+        XCTAssertEqual(target.objectID, .chord(rightChordID))
+        XCTAssertEqual(target.action, .move)
+    }
+
     func testSelectedRenderedObjectsCanStartMoveThroughRouter() throws {
         let fixture = pageFixture()
         let router = RenderedEditRouter()
@@ -569,6 +714,14 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         var roadmapLayout: LeadSheetRoadmapMarkerLayout
         var measure: LeadSheetMeasureLayout
         var pageLayout: LeadSheetPageLayout
+    }
+
+    private struct FixedHitTargetProvider: RenderedEditHitTargetProvider {
+        var targets: [RenderedEditHitTarget]
+
+        func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
+            targets
+        }
     }
 
     private func pageFixture(

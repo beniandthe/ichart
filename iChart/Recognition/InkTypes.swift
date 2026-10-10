@@ -1,79 +1,7 @@
 import Foundation
 
-struct InkPoint: Codable, Hashable {
-    var x: Double
-    var y: Double
-    var timeOffset: TimeInterval?
-}
-
-struct InkBounds: Codable, Hashable {
-    var minX: Double
-    var minY: Double
-    var maxX: Double
-    var maxY: Double
-
-    var width: Double {
-        max(0, maxX - minX)
-    }
-
-    var height: Double {
-        max(0, maxY - minY)
-    }
-
-    static let zero = InkBounds(minX: 0, minY: 0, maxX: 0, maxY: 0)
-
-    static func enclosing(_ points: [InkPoint]) -> InkBounds {
-        guard let firstPoint = points.first else {
-            return .zero
-        }
-
-        return points.dropFirst().reduce(
-            InkBounds(
-                minX: firstPoint.x,
-                minY: firstPoint.y,
-                maxX: firstPoint.x,
-                maxY: firstPoint.y
-            )
-        ) { bounds, point in
-            bounds.union(
-                InkBounds(
-                    minX: point.x,
-                    minY: point.y,
-                    maxX: point.x,
-                    maxY: point.y
-                )
-            )
-        }
-    }
-
-    static func enclosing(_ bounds: [InkBounds]) -> InkBounds {
-        guard let firstBounds = bounds.first else {
-            return .zero
-        }
-
-        return bounds.dropFirst().reduce(firstBounds) { partialBounds, nextBounds in
-            partialBounds.union(nextBounds)
-        }
-    }
-
-    func union(_ other: InkBounds) -> InkBounds {
-        InkBounds(
-            minX: min(minX, other.minX),
-            minY: min(minY, other.minY),
-            maxX: max(maxX, other.maxX),
-            maxY: max(maxY, other.maxY)
-        )
-    }
-}
-
-struct InkStroke: Codable, Hashable {
-    var points: [InkPoint]
-    var bounds: InkBounds
-
-    init(points: [InkPoint], bounds: InkBounds? = nil) {
-        self.points = points
-        self.bounds = bounds ?? InkBounds.enclosing(points)
-    }
+enum InkClusterRecognitionHint: String, Codable, Hashable {
+    case parenthesizedAlteration
 }
 
 struct InkCluster: Codable, Hashable {
@@ -81,12 +9,14 @@ struct InkCluster: Codable, Hashable {
     var bounds: InkBounds
     var startTimeOffset: TimeInterval?
     var endTimeOffset: TimeInterval?
+    var recognitionHints: Set<InkClusterRecognitionHint>?
 
     init(
         strokes: [InkStroke],
         bounds: InkBounds? = nil,
         startTimeOffset: TimeInterval? = nil,
-        endTimeOffset: TimeInterval? = nil
+        endTimeOffset: TimeInterval? = nil,
+        recognitionHints: Set<InkClusterRecognitionHint>? = nil
     ) {
         self.strokes = strokes
         self.bounds = bounds ?? InkBounds.enclosing(strokes.map(\.bounds))
@@ -98,6 +28,11 @@ struct InkCluster: Codable, Hashable {
             .flatMap(\.points)
             .compactMap(\.timeOffset)
             .max()
+        self.recognitionHints = recognitionHints
+    }
+
+    func hasRecognitionHint(_ hint: InkClusterRecognitionHint) -> Bool {
+        recognitionHints?.contains(hint) == true
     }
 }
 
@@ -129,7 +64,7 @@ enum ChordInkBatchClusterer {
     static func clusters(for strokes: [InkStroke]) -> [ChordInkBatchCluster] {
         let indexedStrokes = strokes.enumerated()
             .filter { _, stroke in
-                stroke.bounds.width >= 1 || stroke.bounds.height >= 1
+                !stroke.points.isEmpty
             }
             .sorted { lhs, rhs in
                 if lhs.element.bounds.minX == rhs.element.bounds.minX {
@@ -263,10 +198,59 @@ struct ChordInkRecognitionResult: Hashable {
     var glyphCandidates: [[GlyphCandidate]]
     var match: ChordRecognitionMatch?
     var confidence: Double
+    var acceptedGlyphCandidates: [GlyphCandidate] = []
     var candidateScores: [ChordInkCandidateScore] = []
+    /// Rejection-only evidence, not a candidate or alternative chord. Preserves
+    /// caution when invalid complete strings are removed from scored candidates.
+    var rejectedCandidateConfidence: Double? = nil
+    /// Grammar-supported alternatives offered only in the explicit review UI.
+    /// Automatic recognition policy deliberately ignores these scores.
+    var reviewCandidateScores: [ChordInkCandidateScore] = []
+    /// Explicit root-conflict recoveries that need a visible review slot.
+    /// Like reviewCandidateScores, these never enter the automatic decision.
+    var reviewRootAlternatives: [String] = []
+    /// Personal evidence is review-only and must never enter base trust scoring.
+    var personalSuggestion: ChordInkPersonalSuggestion? = nil
+    var personalizationRevision: UUID? = nil
     var symbolLedger: ChordInkSymbolLedgerSnapshot? = nil
     var symbolLedgerAssessment: ChordInkSymbolLedgerAssessment? = nil
+    var trustEvidence: ChordInkTrustEvidence? = nil
+    /// Request-local ownership context, never part of the recognizer cache.
+    /// A partial erase cannot establish that the remaining root is complete.
+    var requiresEditReview: Bool = false
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
+}
+
+enum ChordInkTrustEvidenceOutcome: String, Codable, Hashable, CaseIterable {
+    case corroborated
+    case insufficientSymbolEvidence
+    case insufficientCapturedFamilyEvidence
+    case insufficientPointDensity
+    case conflictingExtensionEvidence
+    case conflictingAccidentalEvidence
+    case conflictingAlterationEvidence
+    case conflictingQualityEvidence
+    case implausibleRootGeometry
+    case unstableUnderPointDensity
+    case unstableUnderScale
+    case unstableUnderCounterclockwiseRotation
+    case unstableUnderClockwiseRotation
+}
+
+/// Corroborating evidence required before a high-confidence chord is allowed
+/// to render without confirmation. The evidence intentionally contains no chord
+/// text or stroke data so it is also safe to summarize in diagnostics.
+struct ChordInkTrustEvidence: Codable, Hashable {
+    var outcome: ChordInkTrustEvidenceOutcome
+    var symbolSupportCount: Int
+    var completedProbeCount: Int
+    var requiredProbeCount: Int
+    var validationMilliseconds: Double
+
+    var isCorroborated: Bool {
+        outcome == .corroborated
+            && completedProbeCount == requiredProbeCount
+    }
 }
 
 enum ChordInkRecognitionAction: Codable, Hashable {
@@ -348,7 +332,26 @@ enum ChordInkRecognitionPolicy {
     private static let ambiguousAcceptedRootGlyphRaceGap = 0.08
     private static let unsupportedCandidatePressureGap = 0.02
 
+    /// Compare native evidence with a personal suggestion independently of the
+    /// request's edit-review requirement. This is not permission to render:
+    /// callers must still use decision(for:) for the actual user-facing action.
+    static func recognitionEvidenceDecision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        var evidence = result
+        evidence.requiresEditReview = false
+        return decision(for: evidence)
+    }
+
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        if result.requiresEditReview {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: result.match?.displayText,
+                reason: "This chord was edited. Check the complete chord before rendering.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
         guard let match = result.match else {
             return ChordInkRecognitionDecision(
                 action: .confirm,
@@ -370,6 +373,22 @@ enum ChordInkRecognitionPolicy {
                 action: .confirm,
                 acceptedText: acceptedText,
                 reason: "Low-confidence read. Choose a suggestion or type the chord you meant.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
+
+        // Prefer the specific musician-facing trust explanation over a generic
+        // candidate-budget message. Maximum-trust validation may deliberately
+        // mark an otherwise strong long chord as handwriting-unproven even when
+        // its bounded candidate beam also reached the safety limit.
+        if let trustEvidence = result.trustEvidence,
+           !trustEvidence.isCorroborated {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: acceptedText,
+                reason: confirmationReason(for: trustEvidence.outcome),
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil
@@ -499,6 +518,36 @@ enum ChordInkRecognitionPolicy {
         )
     }
 
+    private static func confirmationReason(
+        for outcome: ChordInkTrustEvidenceOutcome
+    ) -> String {
+        switch outcome {
+        case .corroborated:
+            return "Choose a suggestion or type the chord you meant."
+        case .insufficientSymbolEvidence:
+            return "I couldn't verify every part of this chord. Choose a suggestion or type it in."
+        case .insufficientCapturedFamilyEvidence:
+            return "This chord form still needs handwriting confirmation. Choose the suggestion or type it in."
+        case .insufficientPointDensity:
+            return "This chord is too sparse to place confidently. Choose a suggestion or type it in."
+        case .conflictingExtensionEvidence:
+            return "The extension could be read more than one way. Choose a suggestion or type it in."
+        case .conflictingAccidentalEvidence:
+            return "The accidental could be read more than one way. Choose a suggestion or type it in."
+        case .conflictingAlterationEvidence:
+            return "The alteration could be read more than one way. Choose a suggestion or type it in."
+        case .conflictingQualityEvidence:
+            return "The chord quality could be read more than one way. Choose a suggestion or type it in."
+        case .implausibleRootGeometry:
+            return "This mark doesn't have a reliable chord-root shape. Choose a suggestion or type the chord you meant."
+        case .unstableUnderPointDensity,
+             .unstableUnderScale,
+             .unstableUnderCounterclockwiseRotation,
+             .unstableUnderClockwiseRotation:
+            return "Small variations change this read. Choose a suggestion or type the chord you meant."
+        }
+    }
+
     static func rankedSupportedScores(for result: ChordInkRecognitionResult) -> [ChordInkCandidateScore] {
         var bestByDisplayText: [String: ChordInkCandidateScore] = [:]
 
@@ -566,15 +615,17 @@ enum ChordInkRecognitionPolicy {
         result: ChordInkRecognitionResult,
         bestConfidence: Double
     ) -> Bool {
-        guard let strongestUnsupported = result.candidateScores
+        // Defensive compatibility for manually constructed/older result sources;
+        // the native reader now emits only supported candidateScores.
+        let legacyRejectedConfidence = result.candidateScores
             .filter({ $0.displayText == nil })
-            .max(by: { lhs, rhs in
-                lhs.confidence < rhs.confidence
-            }) else {
+            .map(\.confidence).max()
+        guard let strongestRejected = [result.rejectedCandidateConfidence, legacyRejectedConfidence]
+            .compactMap({ $0 }).max() else {
             return false
         }
 
-        return strongestUnsupported.confidence + unsupportedCandidatePressureGap >= bestConfidence
+        return strongestRejected + unsupportedCandidatePressureGap >= bestConfidence
     }
 
     private static func shouldConfirmMissingRootEvidence(
