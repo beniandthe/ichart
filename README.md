@@ -25,7 +25,7 @@ do not hand-edit generated project files.
 ```sh
 swift test
 xcodegen generate
-xcodebuild test -project iChart.xcodeproj -scheme iChart -destination 'platform=iOS Simulator,name=<available iPad>' -resultBundlePath /private/tmp/iChart-<unique-run>.xcresult CODE_SIGNING_ALLOWED=NO
+xcodebuild test -project iChart.xcodeproj -scheme iChart -onlyUsePackageVersionsFromResolvedFile -destination 'platform=iOS Simulator,name=<available iPad>' -resultBundlePath /private/tmp/iChart-<unique-run>.xcresult CODE_SIGNING_ALLOWED=NO
 xcrun xcresulttool get test-results summary --path /private/tmp/iChart-<unique-run>.xcresult
 ```
 
@@ -34,17 +34,26 @@ test command requires a nonzero executed test count. App tests, physical iPad
 installation, Pencil behavior, release signing, upload, and publication are
 separate gates in the [release backlog](docs/project-state.md#release-gates).
 
+The native dependency lock at
+`iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
+is tracked; the rest of the generated project stays ignored. Normal native CI
+and CodeQL builds require that graph. Update the lock deliberately and verify
+the changed dependencies rather than resolving a new graph implicitly.
+
 Normal CI runs SwiftPM and the iChart Simulator suite. The retained
 RecognitionStudy and Python/Core ML contracts run only when the CI workflow is
 manually dispatched with `run_recognition_research` enabled. Ordinary app
 changes do not require Python model training or a research artifact package.
+The ordinary app job also runs the seven dependency-free packaging guard tests
+that keep experimental comparison resources out of normal builds.
 
 ## Development policy
 
 - Preserve chart ink, saved profiles, and frozen evaluation evidence.
 - Keep existing recognition/parser/trust regressions in app validation.
-- Use the standard reader for the release path; optional handwriting learning
-  has an explicit setting and does not establish trained-ML accuracy.
+- Use the standard reader for the release path. Handwriting setup, teaching,
+  evaluation and runtime personalization are parked and unavailable in the
+  current app; their code and saved examples remain preserved.
 - Do not embed experimental comparison artifacts in an ordinary app build.
 - Fix a reproduced recognition defect with a bounded comparison; reopen broad
   research only under a new written experiment and a fixed acceptance rule.

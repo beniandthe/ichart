@@ -1,6 +1,66 @@
 import XCTest
 
 final class ProjectConfigurationTests: XCTestCase {
+    func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let lockURL = projectRoot.appendingPathComponent(
+            "iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        )
+        let lock = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: lockURL)) as? [String: Any]
+        )
+        let pins = try XCTUnwrap(lock["pins"] as? [[String: Any]])
+        let expectedVersions = [
+            "supabase-swift": "2.55.3",
+            "swift-asn1": "1.7.3",
+            "swift-clocks": "1.1.1",
+            "swift-concurrency-extras": "1.4.1",
+            "swift-crypto": "4.5.2",
+            "swift-http-types": "1.8.0",
+            "xctest-dynamic-overlay": "1.13.1"
+        ]
+        XCTAssertEqual(pins.count, expectedVersions.count)
+        XCTAssertEqual(Set(pins.compactMap { $0["identity"] as? String }), Set(expectedVersions.keys))
+        for pin in pins {
+            let identity = try XCTUnwrap(pin["identity"] as? String)
+            let state = try XCTUnwrap(pin["state"] as? [String: Any])
+            XCTAssertEqual(state["version"] as? String, expectedVersions[identity])
+            let revision = try XCTUnwrap(state["revision"] as? String)
+            XCTAssertNotNil(revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression))
+        }
+    }
+
+    func testGeneratedProjectIgnoreRetainsOnlyNativePackageLock() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let ignoreText = try String(contentsOf: projectRoot.appendingPathComponent(".gitignore"))
+        XCTAssertFalse(ignoreText.components(separatedBy: .newlines).contains("iChart.xcodeproj/"))
+        XCTAssertTrue(ignoreText.contains("iChart.xcodeproj/*"))
+        XCTAssertTrue(ignoreText.contains(
+            "!iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        ))
+    }
+
+    func testNativeCIAndCodeQLRequireLockedDependencies() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let ciText = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/ci.yml"))
+        let codeQLText = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/codeql.yml"))
+        XCTAssertEqual(ciText.components(separatedBy: "-onlyUsePackageVersionsFromResolvedFile").count - 1, 2)
+        XCTAssertTrue(codeQLText.contains("-project iChart.xcodeproj"))
+        XCTAssertTrue(codeQLText.contains("-onlyUsePackageVersionsFromResolvedFile"))
+        let lockPattern = #"iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved"#
+        XCTAssertEqual(ciText.components(separatedBy: lockPattern).count - 1, 2)
+        XCTAssertTrue(codeQLText.contains(lockPattern))
+        XCTAssertTrue(ciText.contains(
+            "python3 -m unittest discover -s scripts -p 'test_personal_comparison_packaging.py' -v"
+        ))
+    }
+
     func testIPadBuildDeclaresFullScreenAndAllOrientations() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let projectRoot = testFileURL

@@ -78,7 +78,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)'; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
@@ -132,7 +132,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)'; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
@@ -156,6 +156,10 @@ jobs:
         if: steps.app_changes.outputs.run_tests == 'true'
         run: xcodegen generate
 
+      - name: Verify experimental resources stay out of ordinary builds
+        if: steps.app_changes.outputs.run_tests == 'true'
+        run: python3 -m unittest discover -s scripts -p 'test_personal_comparison_packaging.py' -v
+
       - name: Select iPad simulator
         if: steps.app_changes.outputs.run_tests == 'true'
         run: .github/scripts/select-ipad-simulator.sh
@@ -166,6 +170,7 @@ jobs:
           xcodebuild test \
             -project iChart.xcodeproj \
             -scheme iChart \
+            -onlyUsePackageVersionsFromResolvedFile \
             -destination "$SIMULATOR_DESTINATION" \
             -resultBundlePath "$RUNNER_TEMP/iChart.xcresult" \
             CODE_SIGNING_ALLOWED=NO
@@ -226,6 +231,7 @@ jobs:
           xcodebuild test \
             -project iChart.xcodeproj \
             -scheme RecognitionStudy \
+            -onlyUsePackageVersionsFromResolvedFile \
             -destination "$SIMULATOR_DESTINATION" \
             -resultBundlePath "$RUNNER_TEMP/RecognitionStudy.xcresult" \
             CODE_SIGNING_ALLOWED=NO

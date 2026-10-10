@@ -10,8 +10,10 @@ remain open.
 ## Candidate and source review
 
 Active branch: `codex/app-release-normalization`; base HEAD:
-`3062164007ae5b13ad100bd71a96857ffce989a9`. This remains an uncommitted working
-candidate, not a new commit or pushed branch.
+`3062164007ae5b13ad100bd71a96857ffce989a9`. The review below covered the
+uncommitted working candidate. After separate user approval, that exact candidate
+was committed locally as `8296848` with a clean working tree and unchanged source
+fingerprints. No push or distribution action followed that checkpoint.
 
 The final inventory accounts for **58 tracked changes and 58 untracked files**
 before adding this receipt. New application and regression files are included
@@ -102,10 +104,47 @@ as requested, with no signature directory or embedded provisioning profile.
 - Privacy manifest SHA-256:
   `ab3d5b9ae5283d14ec0a00e70881ea36808eb4c2e29d3e0af3803cad459a480a`.
 
-No archive/export, physical-iPad operation, user account change, deployment,
-purchase, campaign activation, commit, push or upload was performed. The earlier
+During the review, no archive/export, physical-iPad operation, user account change,
+deployment, purchase, campaign activation, commit, push or upload was performed. The earlier
 user-reported physical checklist still binds the installed privacy revision;
 these additional changes affect tests/CI only.
+
+## Repository alignment before push
+
+The follow-up audit of checkpoint `8296848` found no source/resource, version,
+signing-configuration, telemetry-allowlist or backend-import mismatch. The release
+path still parks handwriting setup and runtime personalization. Historical ink
+fixtures and research refs remain preserved; the bounded file scan found no
+unexpected generated/cache/signing assets or live credential evidence.
+
+The native `Package.resolved` was previously ignored. It is now retained at the
+conventional Xcode workspace path, byte-matching the tested graph: Supabase
+`2.55.3` and six transitive packages. Other generated project files remain
+ignored. Native CI and CodeQL require the lock; lock changes trigger their
+appropriate checks. CodeQL now specifies the project explicitly. The ordinary
+app CI job also selects the existing experimental-resource packaging guards;
+this does not run ML training or promote a model.
+
+- Focused native configuration tests: **32 passed, zero failed, zero skipped**,
+  independently verified in `Configuration.xcresult`.
+- Focused SwiftPM configuration tests: **32 passed, zero failed, zero skipped**.
+- Dependency-free packaging guards: **seven passed**.
+- Workflow YAML parses and tracked shell scripts pass syntax checks.
+- A fresh source-tree export regenerates a byte-identical project, app scheme
+  and dependency lock. Xcode lists both retained schemes using strict locked
+  dependency resolution with the tested cached packages. This is not an
+  independent package download, fresh full-suite rerun or new device acceptance.
+- Fresh `origin/main` is `90fd4b0d0c575c9254b6fb490fe0f0f1f03274fd`, an ancestor
+  of the release branch; no incoming main commits need reconciliation.
+
+No application/runtime source, package version, public policy draft, campaign,
+backend migration or user data was changed by this cleanup. The original full
+app/Release receipts remain attached to their tested snapshot; the focused
+checks above cover the new repository/test wiring. Push, remote CI and public
+release remain separate outcomes.
+
+Private follow-up receipts:
+`/private/tmp/iChartPushReadiness-20261009.rkXtTQ/`.
 
 ## Remaining release decisions and timed checks
 
@@ -119,9 +158,9 @@ these additional changes affect tests/CI only.
 3. Coordinate public policy/App Privacy with the consent-enabled release.
    Current store metadata/build-number availability needs live refresh before
    distribution packaging; the unsigned local build does not reserve build 75.
-4. Obtain the appropriate authority for commit/push and distribution
-   signing/archive/export/upload. Keep the public campaign off until its
-   remaining customer cases and publication gates are resolved.
+4. The local checkpoint commit is complete. Obtain the appropriate authority for
+   push and distribution signing/archive/export/upload. Keep the public campaign
+   off until its remaining customer cases and publication gates are resolved.
 
 Private native/SwiftPM/Release receipts:
 `/private/tmp/iChartFinalCandidate-20261009.E6ZZvp/`.

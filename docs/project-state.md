@@ -39,8 +39,13 @@ research or expand it into a new app backlog.
    were repaired; CI now includes the offer/authority/account contracts. The
    inspected Release artifact remains `1.2.1 (75)`, with 13 warning diagnostics.
    See [the final candidate receipt](final-candidate-review-2026-10-09.md).
-   Distribution signing/archive, commit, push/remote CI, upload, public policy
-   publication and campaign activation remain separate authorized outcomes.
+   The verified candidate is committed locally as `8296848`; its working tree
+   was clean after the checkpoint. Distribution signing/archive, push/remote CI,
+   upload, public policy publication and campaign activation remain separate
+   authorized outcomes. The follow-up repository alignment preserves the tested
+   native dependency lock and verifies 32 native / 32 SwiftPM configuration tests
+   plus seven packaging guards. App runtime and package versions are unchanged;
+   see [the alignment receipt](final-candidate-review-2026-10-09.md#repository-alignment-before-push).
 
 ## Active tree and purpose
 
@@ -59,12 +64,14 @@ not approval to publish. A build or test count is not evidence of improved fresh
 handwriting recognition. Signing, installation, Pencil interaction, upload, and
 publication must each be recorded separately.
 
-**Current authorization — October 8:** the user has lifted the build-75 hold
+**Current authorization — October 9:** the user has lifted the build-75 hold
 for building and installing an updated test app only. **1.2.1 (75)** is now
 Development-signed, installed and launched, with the accepted privacy/cleanup
 changes and handwriting setup/teaching/runtime personalization parked. Saved
 chart content and ink, PDFs, setlist and profile data were preserved in the
-before/after checks below. This is not authorization
+before/after checks below. The separately approved local checkpoint commit is
+`8296848`; repository-alignment cleanup is now in scope, but push is not yet
+authorized. This is not authorization
 for archive/export, upload, public release, policy publication or campaign
 activation. Complimentary Pro is **one calendar month free, then automatic paid
 renewal unless canceled**, following explicit Apple offer acceptance. New/expired
@@ -158,8 +165,8 @@ the new build 62 candidate.
 
 ## Preserved work and current evidence
 
-| Priority | Deliverable | Acceptance check | Status |
-| --- | --- | --- | --- |
+| Deliverable | Recorded evidence | Release disposition |
+| --- | --- | --- |
 | Chord-only reader/suggestion boundary | Implemented in retained research tree; documented build 57 installed and launched on 2026-10-03 | Keep the safety behavior; do not claim a new accuracy gain. |
 | Full input retained for newly taught lessons | Implemented and tested in retained tree; prepared build 60 was not installed at that checkpoint | Keep storage fix and legacy compatibility; discarded legacy points cannot be recovered. |
 | Before/After learning eligibility and internal candidate cleanup | Implemented and tested in retained tree | Retain maintenance fixes; workflow tests do not establish personalization benefit. |
@@ -945,9 +952,12 @@ closeout sequence above, then record each gate before requesting push approval.
    successful local build. Existing signing/account/release checklists remain
    supporting procedures, not evidence that this candidate passed them.
 
-Ordinary CI runs SwiftPM and iChart Simulator tests. ResearchStudy and Python/
+Ordinary CI runs SwiftPM and iChart Simulator tests. RecognitionStudy and Python/
 Core ML contracts are explicit opt-in checks through workflow dispatch. This
 changes which project is required for an app pass; core app tests remain enabled.
+Native builds require the committed dependency lock, and the ordinary app job
+runs seven dependency-free experimental-resource packaging guards without
+running ML training.
 The current backend CI job retains telemetry-ingest contracts and now adds the
 complimentary-offer, transaction-authority and account-deletion contracts. Its
 new command passes 502 tests locally; together the two commands select 518

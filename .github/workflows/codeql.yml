@@ -48,7 +48,7 @@ jobs:
               changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
               printf '%s\n' "$changed_files"
 
-              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml)'; then
+              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved)'; then
                 run_codeql=true
                 reason="CodeQL is enabled because production Swift or build inputs changed."
               else
@@ -87,7 +87,9 @@ jobs:
         if: steps.codeql_scope.outputs.run_codeql == 'true'
         run: |
           xcodebuild build \
+            -project iChart.xcodeproj \
             -scheme iChart \
+            -onlyUsePackageVersionsFromResolvedFile \
             -destination "generic/platform=iOS Simulator" \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO
