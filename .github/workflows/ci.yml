@@ -164,14 +164,19 @@ jobs:
         if: steps.app_changes.outputs.run_tests == 'true'
         run: .github/scripts/select-ipad-simulator.sh
 
+      - name: Verify simulator accessibility wrapper with mocked commands
+        if: steps.app_changes.outputs.run_tests == 'true'
+        run: python3 .github/scripts/test_simulator_accessibility.py -v
+
       - name: Run iChart Xcode tests
         if: steps.app_changes.outputs.run_tests == 'true'
         run: |
-          xcodebuild test \
+          bash .github/scripts/with-simulator-accessibility.sh "$SIMULATOR_DESTINATION" -- xcodebuild test \
             -project iChart.xcodeproj \
             -scheme iChart \
             -onlyUsePackageVersionsFromResolvedFile \
             -destination "$SIMULATOR_DESTINATION" \
+            -parallel-testing-enabled NO \
             -resultBundlePath "$RUNNER_TEMP/iChart.xcresult" \
             CODE_SIGNING_ALLOWED=NO
 
@@ -180,8 +185,9 @@ jobs:
         run: |
           xcrun xcresulttool get test-results summary \
             --path "$RUNNER_TEMP/iChart.xcresult" > "$RUNNER_TEMP/iChart-summary.json"
-          python3 - "$RUNNER_TEMP/iChart-summary.json" <<'PY'
+          python3 - "$RUNNER_TEMP/iChart-summary.json" "$SIMULATOR_DESTINATION" <<'PY'
           import json
+          import re
           import sys
           with open(sys.argv[1], encoding="utf-8") as source:
               summary = json.load(source)
@@ -191,6 +197,17 @@ jobs:
           print(f"App tests: {passed} passed, {failed} failed, {skipped} skipped")
           if summary.get("result") != "Passed" or passed < 1 or failed != 0:
               raise SystemExit("App validation requires executed, passing tests.")
+          destination = re.fullmatch(r"platform=iOS Simulator,id=([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})", sys.argv[2])
+          if destination is None:
+              raise SystemExit("App validation requires an exact selected simulator UUID.")
+          expected_device = destination.group(1).upper()
+          configurations = summary.get("devicesAndConfigurations")
+          if not isinstance(configurations, list) or not configurations:
+              raise SystemExit("App validation requires device execution evidence.")
+          executed = [row for row in configurations if row.get("passedTests", 0) + row.get("failedTests", 0) > 0]
+          if not executed or any(row.get("device", {}).get("deviceId", "").upper() != expected_device for row in executed):
+              raise SystemExit("App tests must execute only on the configured simulator; unexpected or missing device UUID.")
+          print(f"Verified executed tests on configured simulator {expected_device}")
           PY
 
       - name: Upload Xcode result bundle on failure

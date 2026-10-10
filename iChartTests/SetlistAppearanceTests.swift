@@ -104,6 +104,7 @@ final class SetlistAppearanceTests: XCTestCase {
             .environmentObject(fixture.pdfStore)
             .environmentObject(fixture.chartStore)
             .defaultAppStorage(fixture.defaults)
+            .environment(\.accessibilityEnabled, true)
         let readerHost = UIHostingController(rootView: reader)
         let readerWindow = try makeWindow(host: readerHost, deviceStyle: .light)
         defer { readerWindow.close() }
@@ -149,6 +150,7 @@ final class SetlistAppearanceTests: XCTestCase {
             .environmentObject(fixture.pdfStore)
             .environmentObject(fixture.chartStore)
             .defaultAppStorage(fixture.defaults)
+            .environment(\.accessibilityEnabled, true)
         let host = UIHostingController(rootView: reader)
         let window = try makeWindow(host: host, deviceStyle: .light)
         defer { window.close() }
@@ -231,18 +233,14 @@ final class SetlistAppearanceTests: XCTestCase {
             window.layoutIfNeeded()
             let views = descendants(bar).filter(isVisible)
             var titleFrames: [CGRect] = []
-            for view in views {
+            for node in try NativeAccessibilityLookup.nodes(in: bar) {
+                let view = node.element as? UIView
                 let button = view as? UIButton
-                if (view as? UILabel)?.text == title || view.accessibilityLabel == title ||
+                if (view as? UILabel)?.text == title || node.element.accessibilityLabel == title ||
                     button?.configuration?.title == title || button?.title(for: .normal) == title {
-                    titleFrames.append(view.convert(view.bounds, to: window))
-                }
-                // A SwiftUI toolbar Text may be an accessibility element rather
-                // than a UILabel. Use its public frame to find its native item.
-                for element in view.accessibilityElements ?? [] {
-                    if let element = element as? UIAccessibilityElement, element.accessibilityLabel == title {
-                        titleFrames.append(window.convert(element.accessibilityFrame, from: window.screen.coordinateSpace))
-                    }
+                    let frame = node.frame(in: window)
+                    if frame.origin.x.isFinite, frame.origin.y.isFinite, frame.width.isFinite, frame.height.isFinite,
+                       !frame.isEmpty, !frame.intersection(window.bounds).isEmpty { titleFrames.append(frame) }
                 }
             }
             let candidates = views.compactMap { view -> (view: UIView, frame: CGRect)? in

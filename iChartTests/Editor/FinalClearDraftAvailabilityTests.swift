@@ -15,7 +15,9 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
         defer { mounted.close() }
         XCTAssertNil(mounted.model.chart.pageHandwrittenChordData)
         XCTAssertTrue(mounted.canvas.chordPreviewState.isEmpty)
-        XCTAssertTrue(clearElements(in: mounted.window).isEmpty)
+        XCTAssertFalse(try NativeAccessibilityLookup.matching("Write & Render", in: mounted.window,
+            buttonsOnly: true).isEmpty, "The negative control requires a discoverable editor toolbar.")
+        XCTAssertTrue(try clearElements(in: mounted.window).isEmpty)
     }
 
     func testStoredValidDrawingWithoutPreviewStillOffersEnabledClearDraftInk() async throws {
@@ -81,11 +83,14 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
     private func mountEditor(with chart: Chart) async throws -> MountedEditor {
         let model = FinalClearDraftChartModel(chart)
         let isolatedRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let root = EditorView(chart: Binding(get: { model.chart }, set: { model.chart = $0 }),
-            chordInkUserCorrectionMemoryStore: .init(url: isolatedRoot.appendingPathComponent("corrections.json")),
-            initialCanvasMode: .chordEntry)
+        let root = NavigationStack {
+            EditorView(chart: Binding(get: { model.chart }, set: { model.chart = $0 }),
+                chordInkUserCorrectionMemoryStore: .init(url: isolatedRoot.appendingPathComponent("corrections.json")),
+                initialCanvasMode: .chordEntry)
+        }
             .environmentObject(ChartLibraryStore(charts: [chart], selectedChartID: chart.id))
             .environmentObject(IChartPDFLibraryStore(baseDirectory: isolatedRoot.appendingPathComponent("PDF Library")))
+            .environment(\.accessibilityEnabled, true)
         let host = UIHostingController(rootView: root)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }, "A foreground native test scene is required.")
@@ -114,9 +119,9 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
     private func assertEnabledClear(in mounted: MountedEditor) async throws {
         for _ in 0..<20 {
             mounted.window.layoutIfNeeded()
-            let elements = clearElements(in: mounted.window)
+            let elements = try clearElements(in: mounted.window)
             if !elements.isEmpty {
-                XCTAssertTrue(elements.contains { !$0.accessibilityTraits.contains(.notEnabled) },
+                XCTAssertTrue(elements.contains { $0.isEnabled },
                     "Clear Draft Ink must be enabled for retained ink or a represented preview.")
                 return
             }
@@ -128,17 +133,19 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
         attachment.name = "Current editor clear eligibility"
         attachment.lifetime = .keepAlways
         add(attachment)
+        let nodes = try NativeAccessibilityLookup.nodes(in: mounted.window)
+        let details = nodes.map { node in
+            "\(type(of: node.element)): label=\(node.element.accessibilityLabel ?? "nil"), button=\(node.isButton), enabled=\(node.isEnabled), frame=\(node.frame(in: mounted.window)), owner=\(type(of: node.owner))"
+        }.joined(separator: "\n")
+        let diagnostics = XCTAttachment(string: details)
+        diagnostics.name = "Current editor accessibility lookup diagnostics"
+        diagnostics.lifetime = .keepAlways
+        add(diagnostics)
         XCTFail("Current EditorView did not expose Clear Draft Ink although draft ink is retained.")
     }
 
-    private func clearElements(in root: UIView) -> [NSObject] {
-        let views = [root] + descendants(root)
-        // SwiftUI text/buttons can expose public accessibility elements instead
-        // of native UILabel/UIButton views, as in SetlistAppearanceTests.
-        let elements = views.flatMap { view -> [NSObject] in
-            [view] + (view.accessibilityElements ?? []).compactMap { $0 as? NSObject }
-        }
-        return elements.filter { $0.accessibilityLabel == "Clear Draft Ink" }
+    private func clearElements(in root: UIView) throws -> [NativeAccessibilityLookup.Node] {
+        try NativeAccessibilityLookup.matching("Clear Draft Ink", in: root, buttonsOnly: true)
     }
 
     private func descendants(_ root: UIView) -> [UIView] {
