@@ -32,7 +32,7 @@ enum LeadSheetChordEditOverlayGeometry {
             x: chordLayout.frame.minX - 6,
             y: chordLayout.frame.minY - 2,
             width: chordLayout.frame.width + 12,
-            height: max(28, chordLayout.frame.height + 4)
+            height: chordLayout.frame.height + 4
         )
     }
 

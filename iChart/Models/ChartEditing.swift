@@ -1437,6 +1437,68 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func setChordEventManualDisplayScale(_ scale: Double?, for chordEventID: UUID) -> Double? {
+        guard let location = chordEventLocation(id: chordEventID) else {
+            return nil
+        }
+
+        let normalizedScale = scale.map(ChordEvent.clampedManualDisplayScale)
+        let chord = systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+        guard chord.manualDisplayScale != normalizedScale || chord.manualDisplayWidth != nil else {
+            return normalizedScale
+        }
+
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayScale = normalizedScale
+        // Reading an old chart never migrates its authored width. Only a new
+        // explicit size edit (including reset to the default) replaces it.
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayWidth = nil
+        updatedAt = .now
+        return normalizedScale
+    }
+
+    @discardableResult
+    mutating func setChordEventManualHorizontalScale(_ scale: Double?, for chordEventID: UUID) -> Double? {
+        guard let location = chordEventLocation(id: chordEventID) else {
+            return nil
+        }
+
+        let normalizedScale = scale.map(ChordEvent.clampedManualHorizontalScale)
+        let chord = systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+        guard chord.manualHorizontalScale != normalizedScale
+                || chord.manualDisplayWidth != nil
+                || chord.manualDisplayScale != nil else {
+            return normalizedScale
+        }
+
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualHorizontalScale = normalizedScale
+        // Do not migrate persisted sizing while reading a chart. A deliberate
+        // width edit (including reset) alone replaces the older sizing choices.
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayWidth = nil
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .manualDisplayScale = nil
+        updatedAt = .now
+        return normalizedScale
+    }
+
+    @discardableResult
     mutating func setChordEventManualLaneFraction(_ fraction: Double?, for chordEventID: UUID) -> Double? {
         guard let location = chordEventLocation(id: chordEventID) else {
             return nil
@@ -1489,6 +1551,7 @@ extension Chart {
         var chordEvent = systems[sourceLocation.systemIndex]
             .measures[sourceLocation.measureIndex]
             .chordEvents[sourceLocation.chordIndex]
+        chordEvent.manualVisualLaneFraction = nil
 
         if sourceLocation.systemIndex == targetLocation.systemIndex,
            sourceLocation.measureIndex == targetLocation.measureIndex {
@@ -1529,8 +1592,34 @@ extension Chart {
     mutating func moveChordEventInCommittedChordLane(
         _ chordEventID: UUID,
         to targetMeasureID: UUID,
-        atFraction fraction: Double?
+        atFraction fraction: Double?,
+        visualFraction: Double? = nil,
+        preserveMusicalPlacement: Bool = false
     ) -> Bool {
+        guard let visualSourceLocation = chordEventLocation(id: chordEventID),
+              let visualTargetLocation = measureLocation(id: targetMeasureID) else { return false }
+        let normalizedVisualFraction = visualFraction.map(ChordEvent.clampedManualLaneFraction)
+        if preserveMusicalPlacement,
+           visualSourceLocation.systemIndex == visualTargetLocation.systemIndex,
+           visualSourceLocation.measureIndex == visualTargetLocation.measureIndex {
+            guard let normalizedVisualFraction else { return false }
+            systems[visualSourceLocation.systemIndex]
+                .measures[visualSourceLocation.measureIndex]
+                .chordEvents[visualSourceLocation.chordIndex]
+                .manualVisualLaneFraction = normalizedVisualFraction
+            updatedAt = .now
+            return true
+        }
+        // Musical moves clear any previous override, then attach the exact
+        // visual result only when the caller explicitly supplies one.
+        defer {
+            if let movedLocation = chordEventLocation(id: chordEventID) {
+                systems[movedLocation.systemIndex]
+                    .measures[movedLocation.measureIndex]
+                    .chordEvents[movedLocation.chordIndex]
+                    .manualVisualLaneFraction = normalizedVisualFraction
+            }
+        }
         guard layoutStyle == .simpleChordSheet,
               let sourceLocation = chordEventLocation(id: chordEventID),
               let targetLocation = measureLocation(id: targetMeasureID),

@@ -15,6 +15,7 @@ struct ChordTypographyToken: Hashable {
 
 struct ChartTypographyResolver: Hashable {
     static let simpleChordPrimaryFontSize: CGFloat = 46
+    static let minimumPracticalChordPrimaryFontSize: CGFloat = 12
     static let simpleChordSuffixScale: CGFloat = 0.54
     static let simpleChordSlashBassScale: CGFloat = 0.56
     static let simpleChordTokenGapWidth: CGFloat = 2

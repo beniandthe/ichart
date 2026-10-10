@@ -46,6 +46,13 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/storekit-subscription-claims/index.mjs"
 
+# The endpoint is authenticated; the campaign remains off unless its server-only
+# enable/window/signing configuration is explicitly complete.
+[functions.storekit-complimentary-offers]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/storekit-complimentary-offers/index.mjs"
+
 [functions.subscription-retention-jobs]
 enabled = true
 verify_jwt = false

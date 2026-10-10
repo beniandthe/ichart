@@ -51,6 +51,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
     var rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot]
     var selectedIndex: Int
     var displayedToManualWidthScale: CGFloat
+    var screenPointsPerDisplayedPoint: CGFloat
+    var baselineCommitManualWidths: [UUID: CGFloat]
     var evenDivisionCommitManualWidths: [UUID: CGFloat]
     var minimumDisplayedWidth: CGFloat
     var maximumDisplayedWidth: CGFloat
@@ -60,7 +62,9 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         edge: ActiveMeasureResizeDrag.Edge,
         rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
         displayedToManualWidthScale: CGFloat,
-        evenDivisionCommitManualWidths: [UUID: CGFloat] = [:]
+        evenDivisionCommitManualWidths: [UUID: CGFloat] = [:],
+        screenPointsPerDisplayedPoint: CGFloat = 1,
+        baselineCommitManualWidths: [UUID: CGFloat] = [:]
     ) {
         guard let selectedIndex = rowMeasures.firstIndex(where: { $0.measureID == selectedMeasureID }) else {
             return nil
@@ -71,6 +75,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         self.rowMeasures = rowMeasures
         self.selectedIndex = selectedIndex
         self.displayedToManualWidthScale = max(0.0001, displayedToManualWidthScale)
+        self.screenPointsPerDisplayedPoint = max(0.0001, screenPointsPerDisplayedPoint)
+        self.baselineCommitManualWidths = baselineCommitManualWidths
         self.evenDivisionCommitManualWidths = evenDivisionCommitManualWidths
         minimumDisplayedWidth = Measure.minimumManualLayoutWidth / self.displayedToManualWidthScale
         maximumDisplayedWidth = Measure.maximumManualLayoutWidth / self.displayedToManualWidthScale
@@ -128,7 +134,7 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
             }
         }
 
-        let committedManualWidths: [UUID: CGFloat] = Dictionary(
+        let affectedManualWidths: [UUID: CGFloat] = Dictionary(
             uniqueKeysWithValues: affectedMeasureIDs.compactMap { measureID in
                 guard let frame = frames[measureID] else {
                     return nil
@@ -140,6 +146,9 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
                 )
             }
         )
+        let committedManualWidths = baselineCommitManualWidths.merging(affectedManualWidths) { _, editedWidth in
+            editedWidth
+        }
         let draggedEdgeX: CGFloat
         if let selectedFrame = frames[selected.measureID] {
             draggedEdgeX = edge == .right ? selectedFrame.maxX : selectedFrame.minX
@@ -150,7 +159,8 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         let activeEvenDivisionGuideX = activeEvenDivisionGuideX(
             for: draggedEdgeX,
             guides: evenDivisionGuideXs,
-            expectedDivisionIndex: expectedEvenDivisionIndex()
+            expectedDivisionIndex: expectedEvenDivisionIndex(),
+            initialEdgeX: edge == .right ? selected.frame.maxX : selected.frame.minX
         )
 
         if let activeEvenDivisionGuideX {
@@ -252,7 +262,7 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         for draggedEdgeX: CGFloat,
         guides: [CGFloat],
         expectedDivisionIndex: Int?,
-        tolerance: CGFloat = 5
+        initialEdgeX: CGFloat
     ) -> CGFloat? {
         guard let expectedDivisionIndex,
               expectedDivisionIndex > 0,
@@ -261,7 +271,18 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
         }
 
         let guideX = guides[expectedDivisionIndex - 1]
-        return abs(guideX - draggedEdgeX) <= tolerance ? guideX : nil
+        let initialDistance = abs(guideX - initialEdgeX) * screenPointsPerDisplayedPoint
+        let currentDistance = abs(guideX - draggedEdgeX) * screenPointsPerDisplayedPoint
+        // A drag beginning on or near an even boundary is a precision edit,
+        // not a request to equalize every measure. Only a deliberate approach
+        // from outside the guide's neighborhood engages the weak snap. The
+        // screen-point distances keep this behavior consistent while zoomed.
+        guard initialDistance > 6,
+              currentDistance <= 2,
+              currentDistance < initialDistance else {
+            return nil
+        }
+        return guideX
     }
 
     private func clampedRightEdgeDelta(
@@ -316,6 +337,13 @@ struct LeadSheetMeasureResizeTransaction: Hashable {
 }
 
 enum LeadSheetMeasureResizePreviewPolicy {
+    static func hasMeaningfulTranslation(
+        _ translationX: CGFloat,
+        screenPointsPerDisplayedPoint: CGFloat = 1
+    ) -> Bool {
+        abs(translationX) * max(0.0001, screenPointsPerDisplayedPoint) >= 0.1
+    }
+
     static func proposedModelWidth(
         initialWidth: CGFloat,
         edge: ActiveMeasureResizeDrag.Edge,
@@ -756,6 +784,60 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
 }
 
 enum LeadSheetMeasureResizeGeometry {
+    static func baselineManualWidthsForPrecisionEdit(
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        chart: Chart,
+        displayedToManualWidthScale: CGFloat = 1
+    ) -> [UUID: CGFloat] {
+        guard chart.layoutStyle == .rhythmSectionSheet else { return [:] }
+        // Responsive Equal Row widths are display intent, not necessarily the
+        // stored point widths. Freeze the current bodies before exiting that
+        // intent, so only the dragged pair changes visually on commit.
+        return Dictionary(uniqueKeysWithValues: rowMeasures.map { snapshot in
+            (snapshot.measureID, Measure.clampedManualLayoutWidth(snapshot.frame.width * displayedToManualWidthScale))
+        })
+    }
+
+    static func displayedToManualWidthScale(
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        chart: Chart,
+        maxSystemWidth: CGFloat
+    ) -> CGFloat {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else { return 1 }
+        if chart.layoutStyle == .rhythmSectionSheet,
+           rowMeasures.allSatisfy({ $0.frame.width >= Measure.minimumManualLayoutWidth }) {
+            return 1
+        }
+
+        let standardScale = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        )
+        let standardDisplayedWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+            chart: chart,
+            maxSystemWidth: maxSystemWidth
+        ) / CGFloat(max(1, chart.layoutStyle.profile.measureDefaults.preferredMeasuresPerSystem))
+        let defaultManualWidth = standardDisplayedWidth * standardScale
+        let sourceMeasures = Dictionary(uniqueKeysWithValues: chart.measures.map { ($0.id, $0) })
+        // A packed row can already be proportionally compressed to fit the
+        // paper. Use its effective model/display ratio so committing a pair
+        // keeps the same total row weight and leaves every other bar in place.
+        // The open terminal lane is excluded: its fill-to-margin extension is
+        // not a proportional model width. This also avoids blindly clamping
+        // compressed Rhythm bodies up to 96 displayed points: the 96-point
+        // minimum remains a model limit, scaled into the existing row. A bar
+        // already stored at that minimum still cannot shrink further.
+        for snapshot in rowMeasures {
+            guard let measure = sourceMeasures[snapshot.measureID],
+                  measure.authoringState != .open,
+                  snapshot.frame.width > 0 else { continue }
+
+            let modelWidth = measure.manualLayoutWidth.map { CGFloat($0) } ?? defaultManualWidth
+            return max(0.0001, modelWidth / snapshot.frame.width)
+        }
+        return standardScale
+    }
+
     static func editableMeasureLayout(
         _ measure: LeadSheetMeasureLayout,
         layoutStyle: ChartLayoutStyle

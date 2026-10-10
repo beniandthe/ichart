@@ -187,7 +187,7 @@ struct PersonalHandwritingEvaluationView: View {
 
     private var startView: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Use a blank test chart—not existing song ink. Start capture, close this panel, and use Chords to write the requested set of fresh complete chords across a few measures. Include a full row at normal speed.")
+            Text("Use a blank test chart—not existing song ink. Start capture, close this panel, and use Write & Render to write the requested set of fresh complete chords across a few measures. Include a full row at normal speed.")
             Text("Do not render, confirm, transpose, or change chart style during capture. When finished writing, wait for previews to settle, reopen this screen, then stop and label. If something goes wrong, record it; do not rewrite just to get a better score.")
                 .font(.callout).foregroundStyle(.secondary)
             Text("The profile is frozen during capture. The base recognizer is unchanged. Stopping, scoring, and missing reads do not train anything.")
@@ -237,7 +237,7 @@ struct PersonalHandwritingEvaluationView: View {
                     Text("Full-source ink and target ownership saved for this revision.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("The latest ink capture is still pending. Return to Chords and let previews settle before stopping. Ending without scoring preserves partial evidence, not a complete test.")
+                    Text("The latest ink capture is still pending. Return to Write & Render and let previews settle before stopping. Ending without scoring preserves partial evidence, not a complete test.")
                         .font(.callout).foregroundStyle(.orange)
                 }
             }

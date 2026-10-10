@@ -12,13 +12,13 @@ struct IChartTypedTextField: UIViewRepresentable {
     var font: UIFont = .preferredFont(forTextStyle: .body)
     var textAlignment: NSTextAlignment = .natural
     var borderStyle: UITextField.BorderStyle = .roundedRect
-    var keyboardFocusRequestID = 0
+    var onKeyboardRequested: (() -> Void)?
     var onNext: (() -> Void)?
 
     func makeUIView(context: Context) -> IChartTypedUITextField {
         let field = IChartTypedUITextField()
         field.delegate = context.coordinator
-        field.clearButtonMode = .whileEditing
+        field.clearButtonMode = .never
         field.adjustsFontForContentSizeCategory = true
         field.spellCheckingType = .no
         field.smartDashesType = .no
@@ -40,20 +40,14 @@ struct IChartTypedTextField: UIViewRepresentable {
         field.returnKeyType = onNext == nil ? .done : .next
         if field.text != text { field.text = text }
         field.requestsFocus = isFocused
-        let explicitlyRequestsKeyboard = keyboardFocusRequestID > 0
-            && context.coordinator.lastKeyboardFocusRequestID != keyboardFocusRequestID
-        context.coordinator.lastKeyboardFocusRequestID = keyboardFocusRequestID
-        if explicitlyRequestsKeyboard { field.requestsFocus = true }
+        field.onKeyboardRequested = onKeyboardRequested
+        field.keyboardButton.accessibilityLabel = "Use keyboard for \(placeholder)"
         // Wait until UIKit has applied the complete sibling focus update. A
         // previous row must not resign a newly requested row's first responder.
         DispatchQueue.main.async { [weak field] in
             guard let field else { return }
             if field.requestsFocus, field.window != nil {
-                if explicitlyRequestsKeyboard {
-                    IChartNativeKeyboardFocus.request(field)
-                } else if !field.isFirstResponder {
-                    field.becomeFirstResponder()
-                }
+                if !field.isFirstResponder { IChartNativeKeyboardFocus.request(field) }
             } else if !field.requestsFocus, field.isFirstResponder {
                 DispatchQueue.main.async { [weak field] in
                     guard let field, !field.requestsFocus, field.isFirstResponder else { return }
@@ -64,10 +58,14 @@ struct IChartTypedTextField: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    static func dismantleUIView(_ field: IChartTypedUITextField, coordinator: Coordinator) {
+        field.requestsFocus = false
+        field.resignFirstResponder()
+        IChartKeyboardInputContext.finish(for: field)
+    }
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         var parent: IChartTypedTextField
-        var lastKeyboardFocusRequestID = 0
         private weak var activeField: UITextField?
 
         init(parent: IChartTypedTextField) { self.parent = parent }
@@ -82,6 +80,7 @@ struct IChartTypedTextField: UIViewRepresentable {
 
         func textFieldDidEndEditing(_ textField: UITextField) {
             (textField as? IChartTypedUITextField)?.requestsFocus = false
+            IChartKeyboardInputContext.finish(for: textField)
             parent.isFocused = false
         }
 
@@ -110,7 +109,7 @@ struct IChartTypedTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.font = .preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 49)
         view.textContainer.lineFragmentPadding = 0
         view.autocapitalizationType = .sentences
         view.autocorrectionType = .yes
@@ -136,6 +135,11 @@ struct IChartTypedTextView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    static func dismantleUIView(_ view: IChartTypedUITextView, coordinator: Coordinator) {
+        view.requestsFocus = false
+        view.resignFirstResponder()
+        IChartKeyboardInputContext.finish(for: view)
+    }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: IChartTypedTextView
@@ -146,6 +150,7 @@ struct IChartTypedTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) { parent.text = textView.text }
         func textViewDidEndEditing(_ textView: UITextView) {
             (textView as? IChartTypedUITextView)?.requestsFocus = false
+            IChartKeyboardInputContext.finish(for: textView)
         }
         @objc func doneTyping() {
             textView?.requestsFocus = false
@@ -154,56 +159,203 @@ struct IChartTypedTextView: UIViewRepresentable {
     }
 }
 
-final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate {
+final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
     var requestsFocus = false
+    var onKeyboardRequested: (() -> Void)?
+    let keyboardButton = IChartNativeKeyboardFocus.makeButton()
+    private lazy var keyboardTap = IChartNativeKeyboardFocus.makeTap(target: self,
+        action: #selector(directTap), delegate: self)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addInteraction(UIScribbleInteraction(delegate: self))
+        installInputControls()
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        installInputControls()
+    }
+    override func rightViewRect(forBounds bounds: CGRect) -> CGRect {
+        CGRect(x: max(0, bounds.width - 48), y: max(0, (bounds.height - 44) / 2), width: 44, height: 44)
+    }
+    private func installInputControls() {
         addInteraction(UIScribbleInteraction(delegate: self))
+        rightView = keyboardButton
+        rightViewMode = .always
+        keyboardButton.addTarget(self, action: #selector(openKeyboard), for: .touchUpInside)
+        addGestureRecognizer(keyboardTap)
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil, requestsFocus { becomeFirstResponder() }
+        if window != nil, requestsFocus, !isFirstResponder { IChartNativeKeyboardFocus.request(self) }
+        if window == nil { IChartKeyboardInputContext.finish(for: self) }
+    }
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { IChartKeyboardInputContext.finish(for: self) }
+        return resigned
     }
     func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
-        isEnabled && isUserInteractionEnabled && bounds.contains(location)
+        guard isEnabled, isUserInteractionEnabled, bounds.contains(location),
+              !rightViewRect(forBounds: bounds).contains(location) else { return false }
+        IChartKeyboardInputContext.handwritingBegan(in: self)
+        return true
+    }
+    func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {
+        IChartKeyboardInputContext.handwritingBegan(in: self)
+    }
+    @objc private func openKeyboard() {
+        guard isEnabled, isUserInteractionEnabled else { return }
+        IChartNativeKeyboardFocus.request(self)
+        onKeyboardRequested?()
+    }
+    @objc private func directTap() { IChartNativeKeyboardFocus.request(self, restarting: false) }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !keyboardButton.frame.contains(touch.location(in: self))
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === keyboardTap || otherGestureRecognizer === keyboardTap
     }
 }
 
-final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate {
+final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
     var requestsFocus = false
+    let keyboardButton = IChartNativeKeyboardFocus.makeButton()
+    private lazy var keyboardTap = IChartNativeKeyboardFocus.makeTap(target: self,
+        action: #selector(directTap), delegate: self)
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
-        addInteraction(UIScribbleInteraction(delegate: self))
+        installInputControls()
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        installInputControls()
+    }
+    private func installInputControls() {
         addInteraction(UIScribbleInteraction(delegate: self))
+        keyboardButton.accessibilityLabel = "Use keyboard for text"
+        keyboardButton.addTarget(self, action: #selector(openKeyboard), for: .touchUpInside)
+        addSubview(keyboardButton)
+        addGestureRecognizer(keyboardTap)
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        keyboardButton.frame = CGRect(x: bounds.maxX - 44, y: bounds.minY, width: 44, height: 44)
+        keyboardButton.isEnabled = isEditable
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil, requestsFocus { becomeFirstResponder() }
+        if window != nil, requestsFocus, !isFirstResponder { IChartNativeKeyboardFocus.request(self) }
+        if window == nil { IChartKeyboardInputContext.finish(for: self) }
+    }
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { IChartKeyboardInputContext.finish(for: self) }
+        return resigned
     }
     func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
-        isEditable && isUserInteractionEnabled && bounds.contains(location)
+        let keyboardFrame = CGRect(x: bounds.maxX - 44, y: bounds.minY, width: 44, height: 44)
+        guard isEditable, isUserInteractionEnabled, bounds.contains(location),
+              !keyboardFrame.contains(location) else { return false }
+        IChartKeyboardInputContext.handwritingBegan(in: self)
+        return true
+    }
+    func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {
+        IChartKeyboardInputContext.handwritingBegan(in: self)
+    }
+    @objc private func openKeyboard() {
+        guard isEditable, isUserInteractionEnabled else { return }
+        IChartNativeKeyboardFocus.request(self)
+    }
+    @objc private func directTap() { IChartNativeKeyboardFocus.request(self, restarting: false) }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !keyboardButton.frame.contains(touch.location(in: self))
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === keyboardTap || otherGestureRecognizer === keyboardTap
     }
 }
 
+/// Scope the shared expected-input hint to the owned native text control. A new
+/// field takes ownership before UIKit resigns its sibling, so the sibling's
+/// end-edit callback cannot restore Pencil intent over the keyboard request.
+@MainActor
+enum IChartKeyboardInputContext {
+    private static weak var owner: UIView?
+    private static var originalPencilInputExpected: Bool?
+    private static var context: UITextInputContext?
+
+    static func begin(for input: UIView) {
+        guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return }
+        guard let current = UITextInputContext.current() else { return }
+        if owner == nil {
+            restore()
+            originalPencilInputExpected = current.isPencilInputExpected
+            context = current
+        }
+        owner = input
+        current.isPencilInputExpected = false
+    }
+
+    static func finish(for input: UIView) {
+        guard owner === input else { return }
+        restore()
+    }
+
+    static func handwritingBegan(in input: UIView) {
+        guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return }
+        // A new owned Scribble start may arrive before the previous sibling's
+        // end-edit callback. Relinquish that keyboard lease immediately.
+        restore()
+        UITextInputContext.current()?.isPencilInputExpected = true
+    }
+
+    private static func restore() {
+        if let context, let originalPencilInputExpected, !context.isPencilInputExpected {
+            context.isPencilInputExpected = originalPencilInputExpected
+        }
+        owner = nil
+        context = nil
+        originalPencilInputExpected = nil
+    }
+}
+
+@MainActor
 private enum IChartNativeKeyboardFocus {
-    static func request(_ input: UIView & UITextInput) {
+    static func request(_ input: UIView & UITextInput, restarting: Bool = true) {
         let selection = input.selectedTextRange
-        // An Edit request can arrive while Scribble already owns first responder.
-        // Reissue UIKit's ordinary keyboard request without changing text or
-        // leaving Scribble disabled for subsequent writing in the field.
-        if input.isFirstResponder { input.resignFirstResponder() }
-        input.becomeFirstResponder()
+        if restarting, input.isFirstResponder { input.resignFirstResponder() }
+        IChartKeyboardInputContext.begin(for: input)
+        if input.isFirstResponder { input.reloadInputViews() }
+        else if !input.becomeFirstResponder() { IChartKeyboardInputContext.finish(for: input) }
         if let selection { input.selectedTextRange = selection }
     }
+    static func makeButton() -> UIButton {
+        let button = IChartInputKeyboardButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "keyboard")
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+        button.configuration = configuration
+        button.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
+        return button
+    }
+    static func makeTap(target: AnyObject, action: Selector, delegate: UIGestureRecognizerDelegate) -> UITapGestureRecognizer {
+        let tap = UITapGestureRecognizer(target: target, action: action)
+        tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue),
+                                 NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
+        tap.cancelsTouchesInView = false
+        tap.delegate = delegate
+        return tap
+    }
+}
+
+/// UITextField sizes its right view from sizeThatFits, not its initial frame.
+/// Keep the embedded action's actual target at least 44 points in both axes.
+private final class IChartInputKeyboardButton: UIButton {
+    override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
+    override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
 }
 
 private enum IChartTypingAccessory {

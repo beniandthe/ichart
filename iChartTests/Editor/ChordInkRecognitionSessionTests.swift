@@ -7,7 +7,8 @@ import XCTest
 final class ChordInkRecognitionSessionTests: XCTestCase {
     func testReviewOnlyRequestBypassesRecognitionPersonalizationAndExistingCacheWithoutPoisoningIt() throws {
         let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
-        let session = ChordInkRecognitionSession(queue: .init(label: "review-only-cache"), recognizer: recognizer)
+        let session = ChordInkRecognitionSession(queue: .init(label: "review-only-cache"), recognizer: recognizer,
+            allowsPersonalInk: true)
         var request = Self.request(strokeCount: 1)
         var profile = PersonalInkProfile()
         profile.isEnabled = true
@@ -48,7 +49,8 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
     func testEditReviewIsRequestLocalEvenOnCacheHitsAndPairedEvaluation() {
         for flags in [[false, true, false], [true, false]] {
             let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
-            let session = ChordInkRecognitionSession(queue: .init(label: "edit-review-cache"), recognizer: recognizer)
+            let session = ChordInkRecognitionSession(queue: .init(label: "edit-review-cache"), recognizer: recognizer,
+                allowsPersonalInk: true)
             var request = Self.request(strokeCount: 1)
             request.evaluationContext = .init(runID: UUID(), profile: PersonalInkSnapshot(profile: .init()))
             for (index, requiresReview) in flags.enumerated() {
@@ -78,7 +80,8 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
         try profile.learn(strokes: request.strokes, label: "G", kind: .chord, source: .explicitCorrection)
         request.evaluationContext = .init(runID: UUID(), profile: PersonalInkSnapshot(profile: profile))
         let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
-        let session = ChordInkRecognitionSession(queue: .init(label: "edit-personal-cache"), recognizer: recognizer)
+        let session = ChordInkRecognitionSession(queue: .init(label: "edit-personal-cache"), recognizer: recognizer,
+            allowsPersonalInk: true)
         for (index, edited) in [false, true, false].enumerated() {
             request.requiresEditReview = edited
             let done = expectation(description: "edit and personal arbitration")
@@ -112,7 +115,8 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
             try $0.learn(strokes: request.strokes, label: "A", kind: .chord, source: .setup)
         }
         let session = ChordInkRecognitionSession(queue: .init(label: "evaluation-frozen"),
-            recognizer: StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)]), personalProfile: store)
+            recognizer: StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)]), personalProfile: store,
+            allowsPersonalInk: true)
         let done = expectation(description: "paired evidence")
         session.start(request: request) { payload in
             XCTAssertEqual(payload.result.match?.displayText, "C")
@@ -143,7 +147,8 @@ final class ChordInkRecognitionSessionTests: XCTestCase {
         let store = PersonalInkProfileStore(url: folder.appendingPathComponent("profile.json"))
         let request = Self.request(strokeCount: 1)
         let recognizer = StubChordInkRecognizer(results: [Self.result(for: "C", confidence: 4.5)])
-        let session = ChordInkRecognitionSession(queue: DispatchQueue(label: "personal-cache-test"), recognizer: recognizer, personalProfile: store)
+        let session = ChordInkRecognitionSession(queue: DispatchQueue(label: "personal-cache-test"), recognizer: recognizer,
+            personalProfile: store, allowsPersonalInk: true)
         let first = expectation(description: "base")
         session.start(request: request) { payload in
             XCTAssertNil(payload.result.personalSuggestion)

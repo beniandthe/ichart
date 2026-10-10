@@ -152,6 +152,150 @@ final class TrialTelemetryTransportTests: XCTestCase {
         }
     }
 
+    func testUnconsentedServiceClearsLegacyQueueAndNeverCreatesIdentityOrSends() async throws {
+        let queue = makeQueue()
+        try queue.append(event())
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-off-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        TrialTelemetryHTTPStub.configure([.status(202)])
+        let telemetry = service(queue, consentStore: consent, installationID: nil)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        await telemetry.record("app.launched")
+        await telemetry.flush()
+        await telemetry.flushIfNeeded()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
+        XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
+    }
+
+    func testExplicitConsentEnablesRecordingAndWithdrawalDropsOfflineBacklog() async throws {
+        let queue = makeQueue()
+        let consent = makeConsentStore(granted: false)
+        let telemetry = service(queue, consentStore: consent)
+        TrialTelemetryHTTPStub.configure([.offline, .status(202)])
+        consent.setConsentGranted(true)
+        await telemetry.record("app.launched")
+        let oldEvent = try XCTUnwrap(try queue.loadEvents().first)
+        consent.setConsentGranted(false)
+        await telemetry.consentDidChange()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        await telemetry.record("chord.preview_discarded")
+        await telemetry.flush()
+        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
+        consent.setConsentGranted(true)
+        await telemetry.record("chord.preview_discarded")
+        let delivered = try sentIDs()
+        XCTAssertEqual(delivered.count, 2)
+        XCTAssertEqual(delivered.first, oldEvent.clientEventID)
+        XCTAssertNotEqual(delivered.last, oldEvent.clientEventID)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+    }
+
+    func testRecordCapturedBeforeOptInOrWithdrawalCannotRunAfterLaterOptIn() async throws {
+        let queue = makeQueue()
+        let consent = makeConsentStore(granted: false)
+        let telemetry = service(queue, consentStore: consent)
+        let disabledConsent = consent.snapshot
+        consent.setConsentGranted(true)
+        await telemetry.record("app.launched", expectedConsent: disabledConsent)
+        let earlierConsent = consent.snapshot
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        await telemetry.record("app.launched", expectedConsent: earlierConsent)
+        await telemetry.flush(expectedConsent: earlierConsent)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
+    }
+
+    func testWithdrawalThenOptInBeforeCleanupCannotReviveQueueAfterRecreation() async throws {
+        let queue = makeQueue()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-relaunch-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let originalService = service(queue, consentStore: consent, installationID: nil)
+        TrialTelemetryHTTPStub.configure([.offline])
+        await originalService.record("app.launched")
+        let withdrawnEvent = try XCTUnwrap(try queue.loadEvents().first)
+
+        // Do not notify the first actor: model termination before its queued
+        // withdrawal cleanup, followed by a fresh store and service on launch.
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        XCTAssertTrue(consent.requiresQueueReset)
+        let recreatedConsent = IChartTelemetryConsentStore(defaults: defaults)
+        XCTAssertTrue(recreatedConsent.snapshot.isGranted)
+        XCTAssertTrue(recreatedConsent.requiresQueueReset)
+        let recreatedService = service(queue, consentStore: recreatedConsent, installationID: nil)
+        XCTAssertFalse(recreatedConsent.requiresQueueReset)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+
+        TrialTelemetryHTTPStub.configure([.status(202)])
+        await recreatedService.flush()
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
+        await recreatedService.record("chord.preview_discarded")
+        let freshEvent = try XCTUnwrap(try queue.loadEvents().first)
+        XCTAssertNotEqual(freshEvent.clientEventID, withdrawnEvent.clientEventID)
+        // The empty flush intentionally started the existing retry cooldown.
+        // Explicitly flush the newly consented event rather than assuming an
+        // immediate opportunistic retry during that interval.
+        await recreatedService.flush()
+        let delivered = try sentIDs()
+        XCTAssertEqual(delivered.count, 1)
+        XCTAssertNotEqual(delivered.first, withdrawnEvent.clientEventID)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+    }
+
+    func testWithdrawalCancelsInFlightRequestAndClearsQueue() async throws {
+        let queue = makeQueue()
+        try queue.append(event())
+        let consent = makeConsentStore(granted: true)
+        let telemetry = service(queue, consentStore: consent)
+        let started = expectation(description: "Telemetry request started")
+        let completed = expectation(description: "Withdrawn telemetry flush completed")
+        TrialTelemetryHTTPStub.configure([.held], onRequest: { started.fulfill() })
+        let flush = Task {
+            await telemetry.flush()
+            completed.fulfill()
+        }
+        defer { flush.cancel() }
+        await fulfillment(of: [started], timeout: 2)
+        consent.setConsentGranted(false)
+        await telemetry.consentDidChange()
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
+        XCTAssertEqual(TrialTelemetryHTTPStub.cancellationCount, 1)
+    }
+
+    func testOldInFlightCompletionCannotDequeueEventsFromAnotherConsentGeneration() async throws {
+        let queue = makeQueue()
+        let original = event()
+        try queue.append(original)
+        let consent = makeConsentStore(granted: true)
+        let telemetry = service(queue, consentStore: consent)
+        let started = expectation(description: "Original telemetry request started")
+        let completed = expectation(description: "Previous consent generation flush completed")
+        TrialTelemetryHTTPStub.configure([.held, .status(202)], onRequest: { started.fulfill() })
+        let flush = Task {
+            await telemetry.flush()
+            completed.fulfill()
+        }
+        defer { flush.cancel() }
+        await fulfillment(of: [started], timeout: 2)
+        TrialTelemetryHTTPStub.setOnRequest(nil)
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        await telemetry.record("chord.preview_discarded")
+        let replacement = try XCTUnwrap(try queue.loadEvents().first)
+        XCTAssertNotEqual(replacement.clientEventID, original.clientEventID)
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [replacement.clientEventID])
+        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
+        await telemetry.flush()
+        XCTAssertEqual(try sentIDs(), [original.clientEventID, replacement.clientEventID])
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+    }
+
     private func makeQueue() -> IChartTelemetryQueueStore {
         IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("iChart-trial-telemetry-tests", isDirectory: true)
@@ -159,7 +303,19 @@ final class TrialTelemetryTransportTests: XCTestCase {
             .appendingPathComponent("queue.json"))
     }
 
-    private func service(_ queue: IChartTelemetryQueueStore, now: @escaping () -> Date = Date.init) -> IChartTelemetryService {
+    private func makeConsentStore(granted: Bool) -> IChartTelemetryConsentStore {
+        let defaults = UserDefaults(suiteName: "iChart-trial-telemetry-consent-\(UUID().uuidString)")!
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(granted)
+        return consent
+    }
+
+    private func service(
+        _ queue: IChartTelemetryQueueStore,
+        consentStore: IChartTelemetryConsentStore? = nil,
+        installationID: UUID? = UUID(),
+        now: @escaping () -> Date = Date.init
+    ) -> IChartTelemetryService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TrialTelemetryHTTPStub.self]
         return IChartTelemetryService(
@@ -167,7 +323,8 @@ final class TrialTelemetryTransportTests: XCTestCase {
             publishableKey: "publishable-test-key",
             sessionStore: nil,
             queueStore: queue,
-            installationID: UUID(),
+            installationID: installationID,
+            consentStore: consentStore ?? makeConsentStore(granted: true),
             urlSession: URLSession(configuration: configuration),
             now: now
         )
@@ -204,7 +361,7 @@ final class TrialTelemetryTransportTests: XCTestCase {
 }
 
 private final class TrialTelemetryHTTPStub: URLProtocol {
-    enum Response { case status(Int), offline }
+    enum Response { case status(Int), offline, held }
     struct CapturedRequest {
         let body: Data
         let apiKey: String?
@@ -214,6 +371,14 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
     private static let lock = NSLock()
     private static var responses: [Response] = []
     private static var captured: [CapturedRequest] = []
+    private static var onRequest: (() -> Void)?
+    private static var cancelledRequests = 0
+
+    static var cancellationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelledRequests
+    }
 
     static var requests: [CapturedRequest] {
         lock.lock()
@@ -221,11 +386,19 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         return captured
     }
 
-    static func configure(_ values: [Response]) {
+    static func configure(_ values: [Response], onRequest: (() -> Void)? = nil) {
         lock.lock()
         defer { lock.unlock() }
         responses = values
         captured = []
+        cancelledRequests = 0
+        self.onRequest = onRequest
+    }
+
+    static func setOnRequest(_ callback: (() -> Void)?) {
+        lock.lock()
+        defer { lock.unlock() }
+        onRequest = callback
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -241,11 +414,15 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         Self.lock.lock()
         Self.captured.append(capture)
         let response = Self.responses.isEmpty ? Response.status(202) : Self.responses.removeFirst()
+        let onRequest = Self.onRequest
         Self.lock.unlock()
+        onRequest?()
 
         switch response {
         case .offline:
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+        case .held:
+            break
         case .status(let status):
             guard let url = request.url,
                   let result = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
@@ -258,7 +435,11 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.lock.lock()
+        Self.cancelledRequests += 1
+        Self.lock.unlock()
+    }
 
     private static func body(of request: URLRequest) -> Data {
         if let body = request.httpBody { return body }

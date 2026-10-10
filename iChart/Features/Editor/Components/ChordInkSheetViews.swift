@@ -5,6 +5,45 @@ private enum ChordInkManualEntryShortcut {
     static let chordRepeatText = ChordSymbol.chordRepeatDisplayText
 }
 
+enum ChordInkReviewEntryValidation: Equatable {
+    case valid
+    case empty
+    case unsupported
+
+    init(text: String?) {
+        let trimmedText = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedText.isEmpty {
+            self = .empty
+        } else {
+            self = ChordRecognitionCompendium.match(trimmedText) != nil ? .valid : .unsupported
+        }
+    }
+
+    var isRenderable: Bool { self == .valid }
+
+    func feedbackText(hasMissingChordGuidance: Bool = false) -> String? {
+        switch self {
+        case .valid:
+            return nil
+        case .empty:
+            return hasMissingChordGuidance ? nil : "Enter a chord"
+        case .unsupported:
+            return "Check this chord spelling"
+        }
+    }
+
+    static func remainingCount(for entryTexts: [String?]) -> Int {
+        entryTexts.reduce(into: 0) { count, text in
+            if !Self(text: text).isRenderable { count += 1 }
+        }
+    }
+
+    static func remainingMessage(for count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return count == 1 ? "1 chord needs attention" : "\(count) chords need attention"
+    }
+}
+
 /// Review is outside the ink canvas: finger, Pencil and pointer must all work.
 /// A bounded height also keeps UIKit buttons from taking the ScrollView's space.
 private struct ChordInkReviewButton: View {
@@ -135,6 +174,49 @@ struct PendingChordInkBatchConfirmation: Identifiable {
     }
 }
 
+enum ChordInkDraftReviewRejection: String, Error {
+    case wrongReviewSource
+    case missingSnapshot
+    case draftCountChanged
+    case draftsChanged
+    case barlinesChanged
+    case layoutChanged
+    case confirmationIDsChanged
+    case emptyDraft
+    case entryIDsChanged
+    case emptyEntry
+    case unsupportedEntry
+
+    /// Content-free explanations identify the failed safeguard without exposing
+    /// handwriting, entered chord text or chart/target identifiers.
+    var recoveryMessage: String {
+        switch self {
+        case .wrongReviewSource:
+            return "This review is not attached to the current draft. Return to writing and reopen review."
+        case .missingSnapshot:
+            return "This review is missing its draft snapshot. Return to writing and reopen review."
+        case .draftCountChanged:
+            return "The number of draft chords changed while review was open. Return to writing and reopen review."
+        case .draftsChanged:
+            return "The draft chords changed while review was open. Return to writing and reopen review."
+        case .barlinesChanged:
+            return "The draft barlines changed while review was open. Return to writing and reopen review."
+        case .layoutChanged:
+            return "The draft layout changed while review was open. Return to writing and reopen review."
+        case .confirmationIDsChanged:
+            return "The review rows no longer match the draft. Return to writing and reopen review."
+        case .emptyDraft:
+            return "There are no draft chords in this review. Return to writing and reopen review."
+        case .entryIDsChanged:
+            return "The review entries do not match this batch. Return to writing and reopen review."
+        case .emptyEntry:
+            return "One reviewed entry is empty. Enter a chord in every review row, then render again."
+        case .unsupportedEntry:
+            return "One reviewed entry is unsupported. Correct that entry or choose a suggestion, then render again."
+        }
+    }
+}
+
 enum ChordInkDraftReviewPolicy {
     static func batch(for state: ChordPreviewState) -> PendingChordInkBatchConfirmation? {
         let drafts = state.draftChords
@@ -192,32 +274,66 @@ enum ChordInkDraftReviewPolicy {
         batch: PendingChordInkBatchConfirmation,
         candidateTextByDraftID: [UUID: String]
     ) -> ChordPreviewState? {
-        guard batch.source == .draftPreview,
-              let expected = batch.reviewedDraftState,
-              state.draftChords == expected.draftChords,
-              state.draftBarlines == expected.draftBarlines,
-              state.layoutPageSize == expected.layoutPageSize,
-              batch.confirmations.map(\.id) == expected.draftChords.map(\.id) else {
-            return nil
+        try? validation(from: state, batch: batch, candidateTextByDraftID: candidateTextByDraftID).get()
+    }
+
+    static func validation(
+        from state: ChordPreviewState,
+        batch: PendingChordInkBatchConfirmation,
+        candidateTextByDraftID: [UUID: String]
+    ) -> Result<ChordPreviewState, ChordInkDraftReviewRejection> {
+        guard batch.source == .draftPreview else { return .failure(.wrongReviewSource) }
+        guard let expected = batch.reviewedDraftState else { return .failure(.missingSnapshot) }
+        guard state.draftChords.count == expected.draftChords.count,
+              batch.confirmations.count == state.draftChords.count else {
+            return .failure(.draftCountChanged)
         }
-        return reviewedState(from: state, candidateTextByDraftID: candidateTextByDraftID)
+        guard state.draftChords == expected.draftChords else { return .failure(.draftsChanged) }
+        guard state.draftBarlines == expected.draftBarlines else { return .failure(.barlinesChanged) }
+        guard state.layoutPageSize == expected.layoutPageSize else { return .failure(.layoutChanged) }
+        guard batch.confirmations.map(\.id) == expected.draftChords.map(\.id) else {
+            return .failure(.confirmationIDsChanged)
+        }
+        return validation(from: state, candidateTextByDraftID: candidateTextByDraftID)
     }
 
     static func reviewedState(
         from state: ChordPreviewState,
         candidateTextByDraftID: [UUID: String]
     ) -> ChordPreviewState? {
+        try? validation(from: state, candidateTextByDraftID: candidateTextByDraftID).get()
+    }
+
+    /// A sheet may retain temporary input while its batch changes. Submission
+    /// owns only the visible batch's IDs; missing current entries stay empty and
+    /// cannot become valid by inheriting a stale row or recognition suggestion.
+    static func submissionTexts(
+        for batch: PendingChordInkBatchConfirmation,
+        candidateTextByDraftID: [UUID: String]
+    ) -> [UUID: String] {
+        batch.confirmations.reduce(into: [UUID: String]()) { entries, confirmation in
+            entries[confirmation.id] = (candidateTextByDraftID[confirmation.id] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private static func validation(
+        from state: ChordPreviewState,
+        candidateTextByDraftID: [UUID: String]
+    ) -> Result<ChordPreviewState, ChordInkDraftReviewRejection> {
         let drafts = state.draftChords
-        guard !drafts.isEmpty,
-              Set(candidateTextByDraftID.keys) == Set(drafts.map(\.id)),
-              drafts.allSatisfy({ draft in
-                  guard let candidateText = candidateTextByDraftID[draft.id],
-                        !candidateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                      return false
-                  }
-                  return ChordRecognitionCompendium.match(candidateText) != nil
-              }) else {
-            return nil
+        guard !drafts.isEmpty else { return .failure(.emptyDraft) }
+        guard Set(candidateTextByDraftID.keys) == Set(drafts.map(\.id)) else {
+            return .failure(.entryIDsChanged)
+        }
+        for draft in drafts {
+            guard let candidateText = candidateTextByDraftID[draft.id],
+                  !candidateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .failure(.emptyEntry)
+            }
+            guard ChordRecognitionCompendium.match(candidateText) != nil else {
+                return .failure(.unsupportedEntry)
+            }
         }
 
         var reviewedState = state
@@ -227,7 +343,7 @@ enum ChordInkDraftReviewPolicy {
                 reviewedState.draftChords[index].selectedText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
-        return reviewedState
+        return .success(reviewedState)
     }
 }
 
@@ -300,7 +416,6 @@ struct ChordInkBatchConfirmationSheetView: View {
     @State private var candidateTextByID: [UUID: String]
     // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
     @State private var focusedConfirmationID: UUID?
-    @State private var keyboardFocusRequestIDByID: [UUID: Int] = [:]
     @State private var keyboardScrollConfirmationID: UUID?
     @State private var keyboardScrollRequestID = 0
     @State private var confirmsRewriteAll = false
@@ -363,9 +478,16 @@ struct ChordInkBatchConfirmationSheetView: View {
                     }
                 }
 
+                if let remainingMessage = ChordInkReviewEntryValidation.remainingMessage(for: remainingEntryCount) {
+                    Text(remainingMessage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("Chord review remaining entries")
+                }
+
                 HStack(spacing: 10) {
                     if let onBackToInk {
-                        ChordInkReviewButton(title: "Back to Ink") {
+                        ChordInkReviewButton(title: "Back to Writing") {
                             focusedConfirmationID = nil
                             onBackToInk()
                         }
@@ -421,16 +543,17 @@ struct ChordInkBatchConfirmationSheetView: View {
     }
 
     private var trimmedCandidateTextByID: [UUID: String] {
-        candidateTextByID.reduce(into: [UUID: String]()) { result, element in
-            result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        ChordInkDraftReviewPolicy.submissionTexts(for: batch, candidateTextByDraftID: candidateTextByID)
     }
 
     private var canRenderAll: Bool {
-        batch.confirmations.allSatisfy { confirmation in
-            guard let text = trimmedCandidateTextByID[confirmation.id] else { return false }
-            return ChordRecognitionCompendium.match(text) != nil
-        }
+        remainingEntryCount == 0
+    }
+
+    private var remainingEntryCount: Int {
+        ChordInkReviewEntryValidation.remainingCount(
+            for: batch.confirmations.map { candidateTextByID[$0.id] }
+        )
     }
 
     private func chordRow(for confirmation: PendingChordInkConfirmation) -> some View {
@@ -448,15 +571,6 @@ struct ChordInkBatchConfirmationSheetView: View {
                         .foregroundStyle(.orange)
                 }
 
-                ChordInkReviewButton(
-                    title: "Edit",
-                    systemImageName: "keyboard",
-                    style: .plain,
-                    accessibilityLabel: "Type chord for measure \(confirmation.displayMeasureNumber)"
-                ) {
-                    requestKeyboard(for: confirmation.id)
-                }
-                .frame(width: 92)
             }
 
             IChartTypedTextField(
@@ -476,13 +590,22 @@ struct ChordInkBatchConfirmationSheetView: View {
                     }
                 ),
                 font: .systemFont(ofSize: 20, weight: .semibold),
-                keyboardFocusRequestID: keyboardFocusRequestIDByID[confirmation.id] ?? 0,
+                onKeyboardRequested: { requestKeyboard(for: confirmation.id) },
                 onNext: nextConfirmationID(after: confirmation.id).map { nextID in
                     { requestKeyboard(for: nextID) }
                 }
             )
             .frame(height: 52)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
+
+            if let feedback = ChordInkReviewEntryValidation(text: candidateTextByID[confirmation.id])
+                .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
+                Text(feedback)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("Chord entry feedback for measure \(confirmation.displayMeasureNumber)")
+            }
 
             if let reviewMessage = confirmation.reviewMessage {
                 Text(reviewMessage)
@@ -539,7 +662,6 @@ struct ChordInkBatchConfirmationSheetView: View {
 
     private func requestKeyboard(for id: UUID) {
         focusedConfirmationID = id
-        keyboardFocusRequestIDByID[id, default: 0] += 1
         keyboardScrollConfirmationID = id
         keyboardScrollRequestID += 1
     }
@@ -595,7 +717,6 @@ struct ChordInkConfirmationSheetView: View {
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
     @State private var confirmsRewriteAll = false
     @State private var isManualEntryFocused = false
-    @State private var keyboardFocusRequestID = 0
 
     init(
         confirmation: PendingChordInkConfirmation,
@@ -635,21 +756,13 @@ struct ChordInkConfirmationSheetView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                ChordInkReviewButton(title: "Edit", systemImageName: "keyboard", style: .plain,
-                    accessibilityLabel: "Type chord for measure \(confirmation.displayMeasureNumber)") {
-                    isManualEntryFocused = true
-                    keyboardFocusRequestID += 1
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
                 IChartTypedTextField(
                     placeholder: "Type chord",
                     text: $manualCandidateText,
                     isFocused: $isManualEntryFocused,
                     font: .preferredFont(forTextStyle: .title2),
                     textAlignment: .center,
-                    borderStyle: .none,
-                    keyboardFocusRequestID: keyboardFocusRequestID
+                    borderStyle: .none
                 )
                     .animation(nil, value: manualCandidateText)
                     #if DEBUG && targetEnvironment(simulator)
@@ -669,6 +782,14 @@ struct ChordInkConfirmationSheetView: View {
                             .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
+
+                if let feedback = ChordInkReviewEntryValidation(text: manualCandidateText)
+                    .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
+                    Text(feedback)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 shortcutButtons
                 actionButtons
@@ -758,7 +879,7 @@ struct ChordInkConfirmationSheetView: View {
             )
 
             if let onBackToInk {
-                ChordInkReviewButton(title: "Back to Ink") {
+                ChordInkReviewButton(title: "Back to Writing") {
                     isManualEntryFocused = false
                     onBackToInk()
                 }
@@ -824,7 +945,6 @@ struct ChordCorrectionSheetView: View {
     @State private var candidateText: String
     @State private var teachesHandwriting = false
     @State private var isManualEntryFocused = false
-    @State private var keyboardFocusRequestID = 0
 
     init(
         correction: PendingChordCorrection,
@@ -848,21 +968,13 @@ struct ChordCorrectionSheetView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
 
-                ChordInkReviewButton(title: "Edit", systemImageName: "keyboard", style: .plain,
-                    accessibilityLabel: "Type chord for measure \(correction.displayMeasureNumber)") {
-                    isManualEntryFocused = true
-                    keyboardFocusRequestID += 1
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
                 IChartTypedTextField(
                     placeholder: "Type chord",
                     text: $candidateText,
                     isFocused: $isManualEntryFocused,
                     font: .preferredFont(forTextStyle: .title2),
                     textAlignment: .center,
-                    borderStyle: .none,
-                    keyboardFocusRequestID: keyboardFocusRequestID
+                    borderStyle: .none
                 )
                     .animation(nil, value: candidateText)
                     .padding(.horizontal, 18)
@@ -875,6 +987,12 @@ struct ChordCorrectionSheetView: View {
                             .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
+
+                if trimmedCandidateText.isEmpty {
+                    Text("Enter a chord")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
 
                 shortcutButtons
                 if canTeachHandwriting {

@@ -3,6 +3,19 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
+    func testSmallExplicitChordKeepsSmallVisibleBoxAndUsableControls() {
+        let chordLayout = LeadSheetChordLayout(
+            id: UUID(), text: "C7", frame: CGRect(x: 120, y: 72, width: 3, height: 4),
+            snapGuideTarget: CGPoint(x: 120, y: 132)
+        )
+        let box = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
+        XCTAssertEqual(box.width, 15, accuracy: 0.001)
+        XCTAssertEqual(box.height, 8, accuracy: 0.001)
+        XCTAssertEqual(box.midY, chordLayout.frame.midY, accuracy: 0.001)
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        XCTAssertEqual(controls.trailingResize.size, CGSize(width: 18, height: 18))
+    }
+
     func testControlFramesAreFingerFriendly() {
         let chordLayout = LeadSheetChordLayout(
             id: UUID(),

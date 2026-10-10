@@ -2614,6 +2614,209 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
+    func testChordFineDragNearBeatGuideCommitsExactFractionAndPreservesMusicInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for meter in [Meter(numerator: 3, denominator: 4), Meter(numerator: 4, denominator: 4), Meter(numerator: 6, denominator: 8)] {
+                for delta in [CGFloat(-1.25), -0.2, 0.2, 1.25] {
+                    var chart = Chart.blank(title: "Fine Chord Drag", measureCount: 2, layoutStyle: style)
+                    chart.defaultMeter = meter
+                    let measureID = chart.measures[0].id
+                    let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+                        try ChordSymbolParser.parse("C7"), rawInput: "C7", to: measureID, atFraction: 0.3
+                    ))
+                    let size = CGSize(width: 900, height: 1200)
+                    let seedLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+                    let seedMeasure = try XCTUnwrap(seedLayout.systems.first?.measures.first)
+                    let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(for: seedMeasure, referenceFrame: seedMeasure.chordBandFrame)
+                    let guideX = LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)[1]
+                    let seedFraction = Double((guideX - seedMeasure.chordBandFrame.minX) / seedMeasure.chordBandFrame.width)
+                    XCTAssertTrue(chart.moveChordEventInCommittedChordLane(chordID, to: measureID, atFraction: seedFraction,
+                                                                         visualFraction: seedFraction, preserveMusicalPlacement: true))
+                    let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+                    let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+                    let chordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
+                    XCTAssertEqual(chordLayout.frame.minX, guideX, accuracy: 0.001)
+                    let before = chart
+                    let start = CGPoint(x: chordLayout.frame.minX + 5, y: chordLayout.frame.midY)
+                    var drag = ActiveChordMoveDrag(chordID: chordID, sourcePageLayout: sourceLayout,
+                                                  initialFrame: chordLayout.frame, currentFrame: chordLayout.frame, startLocation: start)
+                    let location = CGPoint(x: start.x + delta, y: start.y)
+                    let preview = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(at: location, for: drag, chart: chart))
+                    XCTAssertNil(preview.activeGuideX)
+                    XCTAssertEqual(preview.targetX, chordLayout.frame.minX + delta, accuracy: 0.0001)
+                    drag.currentPositionPreview = preview
+                    // A stale/snap-feedback display frame must not re-snap commit.
+                    drag.currentFrame.origin.x = guideX
+                    let target = try XCTUnwrap(LeadSheetChordMoveDragPolicy.target(at: location, for: drag, chart: chart))
+                    XCTAssertEqual(target.measureID, preview.measureID)
+                    XCTAssertEqual(target.fraction, preview.targetFraction, accuracy: 0.000001)
+                    XCTAssertTrue(chart.moveChordEventInCommittedChordLane(chordID, to: target.measureID,
+                                                                         atFraction: target.fraction, visualFraction: target.fraction,
+                                                                         preserveMusicalPlacement: true))
+                    let restored = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+                    let afterLayout = LeadSheetPageLayoutEngine.pageLayout(for: restored, pageSize: size)
+                    let afterMeasure = try XCTUnwrap(afterLayout.systems.first?.measures.first)
+                    let afterChordLayout = try XCTUnwrap(afterMeasure.chordLayouts.first { $0.id == chordID })
+                    XCTAssertEqual(afterChordLayout.frame.minX, preview.targetX, accuracy: 0.001)
+                    var expectedChord = before.measures[0].chordEvents[0]
+                    expectedChord.manualVisualLaneFraction = preview.targetFraction
+                    XCTAssertEqual(restored.measures[0].chordEvents[0], expectedChord)
+                    XCTAssertEqual(restored.measures[0].rhythmMap, before.measures[0].rhythmMap)
+                    XCTAssertEqual(restored.measures[1], before.measures[1])
+                    XCTAssertEqual(afterMeasure.frame, sourceMeasure.frame)
+                }
+            }
+        }
+    }
+
+    func testChordWeakSnapUsesScreenToleranceAndDoesNotLatchPriorFeedback() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let chart = Chart.blank(title: "Weak Chord Snap", measureCount: 1, layoutStyle: style)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+            let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+            let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(for: measure, referenceFrame: measure.chordBandFrame)
+            let guideX = LeadSheetChordPlacementGuidePolicy.guideXs(for: chart.defaultMeter, in: guideFrame)[1]
+            let frame = CGRect(x: guideX + 20, y: measure.chordBandFrame.minY, width: 18, height: 20)
+            let start = CGPoint(x: frame.midX, y: frame.midY)
+            var drag = ActiveChordMoveDrag(chordID: UUID(), sourcePageLayout: layout, initialFrame: frame,
+                                          currentFrame: frame, startLocation: start, screenPointsPerDisplayedPoint: 2)
+            let nearLocation = CGPoint(x: start.x - 19.25, y: start.y)
+            let snapped = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(at: nearLocation, for: drag, chart: chart))
+            XCTAssertEqual(snapped.activeGuideX, guideX)
+            XCTAssertEqual(snapped.targetX, guideX, accuracy: 0.0001)
+            drag.currentFrame.origin.x = guideX
+            drag.currentPositionPreview = snapped
+            let awayLocation = CGPoint(x: start.x - 18.75, y: start.y)
+            let unsnapped = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(at: awayLocation, for: drag, chart: chart))
+            XCTAssertNil(unsnapped.activeGuideX)
+            XCTAssertEqual(unsnapped.targetX, guideX + 1.25, accuracy: 0.0001)
+            let crossed = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(
+                at: CGPoint(x: start.x - 20.75, y: start.y), for: drag, chart: chart
+            ))
+            XCTAssertEqual(crossed.activeGuideX, guideX)
+            let pastTolerance = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(
+                at: CGPoint(x: start.x - 21.25, y: start.y), for: drag, chart: chart
+            ))
+            XCTAssertNil(pastTolerance.activeGuideX)
+            XCTAssertEqual(pastTolerance.targetX, guideX - 1.25, accuracy: 0.0001)
+        }
+    }
+
+    func testChordFineDragStartingNearGuideStaysUnsnappedAcrossIt() {
+        let reference = CGRect(x: 100, y: 200, width: 400, height: 40)
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(referenceFrame: reference, leadingRepeatMarkerMaxX: nil, meterChangeFrame: nil)
+        for meter in [Meter(numerator: 3, denominator: 4), Meter(numerator: 4, denominator: 4), Meter(numerator: 6, denominator: 8)] {
+            let guideX = LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)[1]
+            for delta in [CGFloat(-4), -3, -1.25, -0.2, 0.2, 1.25] {
+                let x = guideX + 3 + delta
+                let resolved = LeadSheetChordPlacementGuidePolicy.resolvedDragFraction(
+                    rawFraction: Double((x - reference.minX) / reference.width), initialX: guideX + 3,
+                    screenPointsPerDisplayedPoint: 1, referenceFrame: reference, guideFrame: guideFrame, meter: meter
+                )
+                XCTAssertNil(resolved.activeGuideX)
+                XCTAssertEqual(reference.minX + reference.width * CGFloat(resolved.fraction), x, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testChordDragCommitUsesCachedPreviewWithoutStatelessResnapOrRetarget() throws {
+        let chart = Chart.blank(title: "Frozen Chord Commit", measureCount: 2, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let reference = measure.chordBandFrame
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(for: measure, referenceFrame: reference)
+        let guideX = LeadSheetChordPlacementGuidePolicy.guideXs(for: chart.defaultMeter, in: guideFrame)[1]
+        let frame = CGRect(x: guideX, y: reference.minY, width: 18, height: 20)
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        var drag = ActiveChordMoveDrag(chordID: UUID(), sourcePageLayout: layout, initialFrame: frame, currentFrame: frame, startLocation: start)
+        let preview = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(
+            at: CGPoint(x: start.x + 0.2, y: start.y), for: drag, chart: chart
+        ))
+        drag.currentPositionPreview = preview
+        drag.currentFrame.origin.x = layout.paperFrame.maxX - 20
+        let target = try XCTUnwrap(LeadSheetChordMoveDragPolicy.target(
+            at: CGPoint(x: layout.paperFrame.maxX - 30, y: start.y), for: drag, chart: chart
+        ))
+        XCTAssertEqual(target.measureID, preview.measureID)
+        XCTAssertEqual(target.fraction, preview.targetFraction, accuracy: 0.000001)
+        XCTAssertNotEqual(target.fraction, Double((guideX - reference.minX) / reference.width))
+    }
+
+    func testChordFineDragCommitThresholdIgnoresNoMotionAndSupportsZoomAndVerticalMoves() throws {
+        let chart = Chart.blank(title: "Chord Drag Threshold", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+        let frame = CGRect(x: 200, y: 300, width: 18, height: 20)
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        var drag = ActiveChordMoveDrag(chordID: UUID(), sourcePageLayout: layout, initialFrame: frame, currentFrame: frame, startLocation: start)
+        XCTAssertFalse(LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(for: drag, at: start))
+        XCTAssertFalse(LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: start.x + 0.05, y: start.y)))
+        XCTAssertTrue(LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: start.x + 0.2, y: start.y)))
+        drag.screenPointsPerDisplayedPoint = 2
+        XCTAssertTrue(LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: start.x, y: start.y + 0.06)))
+        drag.screenPointsPerDisplayedPoint = 0.5
+        XCTAssertFalse(LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: start.x + 0.1, y: start.y)))
+    }
+
+    func testChordFineDragBoundsRespectRepeatAndMeterReservationsWithoutChangingStatelessPlacement() {
+        let reference = CGRect(x: 100, y: 200, width: 300, height: 40)
+        let meter = Meter(numerator: 4, denominator: 4)
+        let meterFrame = CGRect(x: 108, y: 200, width: 35, height: 40)
+        let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(referenceFrame: reference,
+                                                                      leadingRepeatMarkerMaxX: 136, meterChangeFrame: meterFrame)
+        let boundedLeading = LeadSheetChordPlacementGuidePolicy.resolvedDragFraction(
+            rawFraction: -0.2, initialX: guideFrame.minX + 3, screenPointsPerDisplayedPoint: 1,
+            referenceFrame: reference, guideFrame: guideFrame, meter: meter
+        )
+        XCTAssertNil(boundedLeading.activeGuideX)
+        XCTAssertEqual(reference.minX + reference.width * CGFloat(boundedLeading.fraction), meterFrame.maxX + 6, accuracy: 0.0001)
+        let boundedTrailing = LeadSheetChordPlacementGuidePolicy.resolvedDragFraction(
+            rawFraction: 1.2, initialX: guideFrame.minX + 3, screenPointsPerDisplayedPoint: 1,
+            referenceFrame: reference, guideFrame: guideFrame, meter: meter
+        )
+        XCTAssertEqual(reference.minX + reference.width * CGFloat(boundedTrailing.fraction), reference.maxX - 1, accuracy: 0.0001)
+        let guideX = LeadSheetChordPlacementGuidePolicy.guideXs(for: meter, in: guideFrame)[1]
+        let stateless = LeadSheetChordPlacementGuidePolicy.resolvedFraction(
+            rawFraction: Double((guideX + 10 - reference.minX) / reference.width),
+            referenceFrame: reference, guideFrame: guideFrame, meter: meter
+        )
+        XCTAssertEqual(stateless.activeGuideX, guideX)
+    }
+
+    func testChordWeakDragCrossMeasureUsesOffCenterPointerAndDestinationMeter() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Cross Measure Fine Drag", measureCount: 2, layoutStyle: style)
+            let sourceID = chart.measures[0].id
+            let targetID = chart.measures[1].id
+            chart.systems[0].measures[1].meterOverride = Meter(numerator: 6, denominator: 8)
+            let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Db7(b9)"), rawInput: "Db7(b9)", to: sourceID, atFraction: 0.18
+            ))
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+            let sourceMeasure = try XCTUnwrap(layout.systems.first?.measures.first)
+            let targetMeasure = try XCTUnwrap(layout.systems.first?.measures.dropFirst().first)
+            let chord = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
+            let start = CGPoint(x: chord.frame.maxX - 2, y: chord.frame.midY)
+            var drag = ActiveChordMoveDrag(chordID: chordID, sourcePageLayout: layout,
+                                          initialFrame: chord.frame, currentFrame: chord.frame, startLocation: start)
+            let location = CGPoint(x: targetMeasure.chordBandFrame.minX + 10, y: start.y)
+            let rawFrame = LeadSheetChordMoveDragPolicy.previewFrame(for: drag, at: location, boundedBy: layout.paperFrame)
+            XCTAssertLessThan(rawFrame.midX, targetMeasure.chordBandFrame.minX)
+            let preview = try XCTUnwrap(LeadSheetChordMoveDragPolicy.positionPreview(at: location, for: drag, chart: chart))
+            XCTAssertEqual(preview.measureID, targetID)
+            XCTAssertEqual(preview.guideXs.count, 6)
+            XCTAssertEqual(preview.targetX, preview.guideFrame.minX, accuracy: 0.0001)
+            drag.currentPositionPreview = preview
+            let target = try XCTUnwrap(LeadSheetChordMoveDragPolicy.target(at: location, for: drag, chart: chart))
+            XCTAssertEqual(target.measureID, targetID)
+            XCTAssertEqual(target.fraction, preview.targetFraction, accuracy: 0.000001)
+            XCTAssertTrue(chart.moveChordEventInCommittedChordLane(chordID, to: targetID,
+                                                                 atFraction: target.fraction, visualFraction: target.fraction))
+            XCTAssertTrue(chart.measures[0].chordEvents.isEmpty)
+            XCTAssertEqual(chart.measures[1].chordEvents.first?.id, chordID)
+            XCTAssertEqual(try XCTUnwrap(chart.measures[1].chordEvents.first?.manualVisualLaneFraction), preview.targetFraction, accuracy: 0.000001)
+        }
+    }
+
     func testCommittedChordBarlineOverlayRequiresDeleteControlForDeletion() throws {
         let chart = Chart.blank(title: "Barline Delete", measureCount: 2, layoutStyle: .simpleChordSheet)
         let layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -2692,13 +2895,15 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             currentFrame: sourceChordLayout.frame,
             startLocation: CGPoint(x: controlFrames.trailingResize.midX, y: controlFrames.trailingResize.midY)
         )
-        let widenedFrame = LeadSheetChordResizeDragPolicy.previewFrame(
+        let compressedFrame = LeadSheetChordResizeDragPolicy.previewFrame(
             for: trailingDrag,
-            at: CGPoint(x: controlFrames.trailingResize.midX + 48, y: controlFrames.trailingResize.midY),
+            at: CGPoint(x: controlFrames.trailingResize.midX - 8, y: controlFrames.trailingResize.midY),
             boundedBy: sourceLayout.paperFrame
         )
-        XCTAssertEqual(widenedFrame.minX, sourceChordLayout.frame.minX, accuracy: 0.001)
-        XCTAssertEqual(widenedFrame.width, sourceChordLayout.frame.width + 48, accuracy: 0.001)
+        XCTAssertEqual(compressedFrame.minX, sourceChordLayout.frame.minX, accuracy: 0.001)
+        XCTAssertEqual(compressedFrame.width, sourceChordLayout.frame.width - 8, accuracy: 0.001)
+        XCTAssertEqual(compressedFrame.height, sourceChordLayout.frame.height, accuracy: 0.001)
+        XCTAssertEqual(compressedFrame.midY, sourceChordLayout.frame.midY, accuracy: 0.001)
 
         XCTAssertNil(
             LeadSheetChordEditOverlayGeometry.resizeHitTarget(
@@ -2707,6 +2912,129 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 selectedChordID: chordID
             )
         )
+    }
+
+    func testChordResizeHasBoundedWidthCompressionAndNeverChangesHeight() {
+        let chart = Chart.blank(title: "Uniform size", measureCount: 1, layoutStyle: .simpleChordSheet)
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+        let frame = CGRect(x: 100, y: 100, width: 30, height: 40)
+        var drag = ActiveChordResizeDrag(
+            chordID: UUID(), sourcePageLayout: pageLayout, edge: .trailing,
+            initialFrame: frame, currentFrame: frame, startLocation: CGPoint(x: 130, y: 120), initialHorizontalScale: 0.65
+        )
+        // Full natural width is minimum compression, not font enlargement.
+        let enlarged = LeadSheetChordResizeDragPolicy.previewFrame(
+            for: drag, at: CGPoint(x: 160, y: 120), boundedBy: frame
+        )
+        XCTAssertEqual(enlarged.width, 30 / 0.65, accuracy: 0.001)
+        XCTAssertEqual(enlarged.height, 40, accuracy: 0.001)
+        XCTAssertEqual(enlarged.minX, frame.minX, accuracy: 0.001)
+        XCTAssertEqual(enlarged.midY, frame.midY, accuracy: 0.001)
+        drag.currentFrame = enlarged
+        XCTAssertEqual(LeadSheetChordResizeDragPolicy.horizontalScale(for: drag), 1, accuracy: 0.001)
+
+        let reduced = LeadSheetChordResizeDragPolicy.previewFrame(
+            for: drag, at: CGPoint(x: 103, y: 120), boundedBy: frame
+        )
+        XCTAssertEqual(reduced.width, 30 / 0.65 * 0.35, accuracy: 0.001)
+        XCTAssertEqual(reduced.height, 40, accuracy: 0.001)
+        XCTAssertLessThan(reduced.width, CGFloat(ChordEvent.minimumManualDisplayWidth))
+        drag.currentFrame = reduced
+        XCTAssertEqual(LeadSheetChordResizeDragPolicy.horizontalScale(for: drag), 0.35, accuracy: 0.001)
+    }
+
+    func testChordResizeHasFineZoomAwareMovementAndFiniteSafetyBounds() {
+        let chart = Chart.blank(title: "Fine size", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+        let frame = CGRect(x: 100, y: 100, width: 30, height: 40)
+        let drag = ActiveChordResizeDrag(
+            chordID: UUID(), sourcePageLayout: pageLayout, edge: .trailing,
+            initialFrame: frame, currentFrame: frame, startLocation: CGPoint(x: 130, y: 120),
+            initialHorizontalScale: 0.65, screenPointsPerDisplayedPoint: 2
+        )
+        XCTAssertFalse(LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: drag, at: drag.startLocation))
+        XCTAssertFalse(LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: 130.04, y: 220)))
+        XCTAssertTrue(LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: drag, at: CGPoint(x: 130.06, y: 120)))
+        for delta: CGFloat in [-1.25, -0.2, 0.2, 1.25] {
+            let preview = LeadSheetChordResizeDragPolicy.previewFrame(
+                for: drag, at: CGPoint(x: 130 + delta, y: 120), boundedBy: frame
+            )
+            XCTAssertEqual(preview.width, 30 + delta, accuracy: 0.0001)
+            XCTAssertEqual(preview.height, 40, accuracy: 0.0001)
+            XCTAssertEqual(preview.minY, frame.minY, accuracy: 0.0001)
+        }
+        XCTAssertEqual(
+            LeadSheetChordResizeDragPolicy.previewFrame(for: drag, at: CGPoint(x: CGFloat.nan, y: 120), boundedBy: frame),
+            frame
+        )
+        let tiny = LeadSheetChordResizeDragPolicy.previewFrame(for: drag, at: CGPoint(x: -1_000, y: 120), boundedBy: frame)
+        let huge = LeadSheetChordResizeDragPolicy.previewFrame(for: drag, at: CGPoint(x: 100_000, y: 120), boundedBy: frame)
+        XCTAssertEqual(tiny.width / frame.width * 0.65, CGFloat(ChordEvent.minimumManualHorizontalScale), accuracy: 0.001)
+        XCTAssertEqual(huge.width / frame.width * 0.65, CGFloat(ChordEvent.maximumManualHorizontalScale), accuracy: 0.001)
+        XCTAssertEqual(tiny.height, frame.height)
+        XCTAssertEqual(huge.height, frame.height)
+    }
+
+    func testChordResizePreviewCommitAndReopenMatchInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let sizes: [(horizontal: Double?, legacyScale: Double?, legacyWidth: Double?)] = [
+                (0.35, nil, nil), (0.65, nil, nil), (1, nil, nil),
+                (nil, 0.1, nil), (nil, 1.8, nil), (nil, nil, 18), (nil, nil, 240)
+            ]
+            for size in sizes {
+                var chart = Chart.blank(title: "Persistent size", measureCount: 4, layoutStyle: style)
+                let measureID = try XCTUnwrap(chart.measures.first?.id)
+                let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+                    try ChordSymbolParser.parse("Bbmaj7(#11)/D"), rawInput: "Bbmaj7(#11)/D", to: measureID, atFraction: 0.25
+                ))
+                if let horizontal = size.horizontal {
+                    _ = chart.setChordEventManualHorizontalScale(horizontal, for: chordID)
+                } else if let legacyScale = size.legacyScale {
+                    _ = chart.setChordEventManualDisplayScale(legacyScale, for: chordID)
+                } else {
+                    _ = chart.setChordEventManualDisplayWidth(size.legacyWidth, for: chordID)
+                }
+                let beforeEvent = try XCTUnwrap(chart.chordEvent(id: chordID))
+                let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1200))
+                let original = try XCTUnwrap(before.systems.flatMap(\.measures).flatMap(\.chordLayouts).first { $0.id == chordID })
+                for delta: CGFloat in [-1.25, -0.2, 0.2, 1.25, 30] {
+                    var drag = ActiveChordResizeDrag(
+                        chordID: chordID, sourcePageLayout: before, edge: .trailing,
+                        initialFrame: original.frame, currentFrame: original.frame,
+                        startLocation: CGPoint(x: original.frame.maxX, y: original.frame.midY),
+                        initialHorizontalScale: original.horizontalCompressionScale
+                    )
+                    drag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(
+                        for: drag, at: CGPoint(x: drag.startLocation.x + delta, y: drag.startLocation.y), boundedBy: before.paperFrame
+                    )
+                    var resized = chart
+                    let scale = LeadSheetChordResizeDragPolicy.horizontalScale(for: drag)
+                    _ = resized.setChordEventManualHorizontalScale(scale, for: chordID)
+                    let placement = try XCTUnwrap(LeadSheetChordResizeDragPolicy.visualPlacement(for: drag))
+                    XCTAssertTrue(resized.moveChordEventInCommittedChordLane(
+                        chordID, to: placement.measureID, atFraction: nil,
+                        visualFraction: placement.fraction, preserveMusicalPlacement: true
+                    ))
+                    resized = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(resized))
+                    let after = LeadSheetPageLayoutEngine.pageLayout(for: resized, pageSize: CGSize(width: 900, height: 1200))
+                    let committed = try XCTUnwrap(after.systems.flatMap(\.measures).flatMap(\.chordLayouts).first { $0.id == chordID })
+                    XCTAssertEqual(committed.frame.minX, drag.currentFrame.minX, accuracy: 0.001)
+                    XCTAssertEqual(committed.frame.midY, drag.currentFrame.midY, accuracy: 0.001)
+                    XCTAssertEqual(committed.frame.width, drag.currentFrame.width, accuracy: 0.001)
+                    XCTAssertEqual(committed.frame.height, drag.currentFrame.height, accuracy: 0.001)
+                    XCTAssertEqual(try XCTUnwrap(committed.renderFontSize), original.baseFontSize, accuracy: 0.001)
+                    XCTAssertEqual(committed.frame.height, original.frame.height, accuracy: 0.001)
+                    XCTAssertEqual(committed.horizontalCompressionScale, CGFloat(scale), accuracy: 0.001)
+                    XCTAssertEqual(after.systems.flatMap(\.measures).map(\.frame), before.systems.flatMap(\.measures).map(\.frame))
+                    var expected = beforeEvent
+                    expected.manualHorizontalScale = scale
+                    expected.manualDisplayScale = nil
+                    expected.manualDisplayWidth = nil
+                    expected.manualVisualLaneFraction = placement.fraction
+                    XCTAssertEqual(resized.chordEvent(id: chordID), expected)
+                }
+            }
+        }
     }
 
     func testBrowseModeKeepsCueTextEditable() {
@@ -4182,9 +4510,23 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.timeSignatureEdit.activeToolTitle, "Time Signature")
         XCTAssertEqual(EditorCanvasMode.rhythmicNotationEdit.activeToolTitle, "Rhythm")
         XCTAssertEqual(EditorCanvasMode.headerEntry.activeToolTitle, "Header")
-        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Chords")
-        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Ink")
+        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolTitle, "Write & Render")
+        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolTitle, "Free Ink")
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
+    }
+
+    func testWritingToolNamesExplainTheirPurposeWithoutChangingInputRoutingOrTelemetry() {
+        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolInstruction, "Write chords and barlines in the blue lanes.")
+        XCTAssertEqual(EditorCanvasMode.freeHand.activeToolInstruction, "Draw notes and marks that stay as handwriting.")
+        XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordInkEditing)
+        XCTAssertFalse(EditorCanvasMode.chordEntry.allowsPageInkEditing)
+        XCTAssertTrue(EditorCanvasMode.freeHand.allowsPageInkEditing)
+        XCTAssertFalse(EditorCanvasMode.freeHand.allowsChordInkEditing)
+        XCTAssertEqual(EditorCanvasMode.chordEntry.telemetryValue, "chord_entry")
+        XCTAssertEqual(EditorCanvasMode.freeHand.telemetryValue, "free_hand")
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .chordEntry), .chords)
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .freeHand), .ink)
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryControlCount, 5)
     }
 
     func testScrollMarginPolicyBlocksPaperGesturesOnlyWhenRestricted() {
@@ -4363,7 +4705,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertNil(preview.committedManualWidths[thirdID])
     }
 
-    func testMeasureResizeTransactionHighlightsEvenDivisionGuideWhenActiveEdgeAligns() throws {
+    func testMeasureResizeTransactionKeepsGuidesAvailableWithoutSnappingAtDragStart() throws {
         let firstID = UUID()
         let secondID = UUID()
         let thirdID = UUID()
@@ -4386,10 +4728,252 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(alignedPreview.evenDivisionGuideXs.count, 2)
         XCTAssertEqual(alignedPreview.evenDivisionGuideXs[0], 280)
         XCTAssertEqual(alignedPreview.evenDivisionGuideXs[1], 460)
-        XCTAssertEqual(alignedPreview.activeEvenDivisionGuideX, 280)
+        XCTAssertNil(alignedPreview.activeEvenDivisionGuideX)
+        XCTAssertEqual(alignedPreview.affectedMeasureIDs, [firstID, secondID])
+        XCTAssertNil(alignedPreview.committedManualWidths[thirdID])
         XCTAssertNil(unalignedPreview.activeEvenDivisionGuideX)
         XCTAssertEqual(unalignedPreview.committedManualWidths[firstID], 220)
         XCTAssertEqual(unalignedPreview.committedManualWidths[secondID], 140)
+    }
+
+    func testMeasureResizeTransactionAllowsFractionalPairEditsStartingAtEvenBoundary() throws {
+        let ids = (0..<4).map { _ in UUID() }
+        let snapshots = ids.enumerated().map { index, id in
+            measureResizeSnapshot(id, x: 100 + CGFloat(index) * 180, width: 180)
+        }
+        for edge in [ActiveMeasureResizeDrag.Edge.left, .right] {
+            let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+                selectedMeasureID: edge == .right ? ids[0] : ids[1],
+                edge: edge,
+                rowMeasures: snapshots,
+                displayedToManualWidthScale: 1.25
+            ))
+            for delta in [CGFloat(-1.25), -0.2, 0, 0.2, 1.25] {
+                let preview = transaction.preview(for: delta)
+                XCTAssertNil(preview.activeEvenDivisionGuideX)
+                XCTAssertEqual(preview.affectedMeasureIDs, [ids[0], ids[1]])
+                XCTAssertEqual(try XCTUnwrap(preview.frame(for: ids[0])).width, 180 + delta, accuracy: 0.0001)
+                XCTAssertEqual(try XCTUnwrap(preview.frame(for: ids[1])).width, 180 - delta, accuracy: 0.0001)
+                XCTAssertEqual(try XCTUnwrap(preview.committedManualWidths[ids[0]]), (180 + delta) * 1.25, accuracy: 0.0001)
+                XCTAssertEqual(try XCTUnwrap(preview.committedManualWidths[ids[1]]), (180 - delta) * 1.25, accuracy: 0.0001)
+                for untouchedIndex in 2..<4 {
+                    XCTAssertEqual(preview.frame(for: ids[untouchedIndex]), snapshots[untouchedIndex].frame)
+                    XCTAssertNil(preview.committedManualWidths[ids[untouchedIndex]])
+                }
+            }
+        }
+    }
+
+    func testMeasureResizeTransactionAllowsFineTuningNearEvenBoundaryWithoutStickyZone() throws {
+        let ids = (0..<3).map { _ in UUID() }
+        let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: ids[0],
+            edge: .right,
+            rowMeasures: [
+                measureResizeSnapshot(ids[0], x: 100, width: 183),
+                measureResizeSnapshot(ids[1], x: 283, width: 177),
+                measureResizeSnapshot(ids[2], x: 460, width: 180)
+            ],
+            displayedToManualWidthScale: 1
+        ))
+        for delta in [CGFloat(-4), -3, -1, 0, 1] {
+            let preview = transaction.preview(for: delta)
+            XCTAssertNil(preview.activeEvenDivisionGuideX)
+            XCTAssertEqual(try XCTUnwrap(preview.frame(for: ids[0])).width, 183 + delta, accuracy: 0.0001)
+            XCTAssertEqual(try XCTUnwrap(preview.frame(for: ids[1])).width, 177 - delta, accuracy: 0.0001)
+            XCTAssertEqual(preview.frame(for: ids[2]), transaction.rowMeasures[2].frame)
+        }
+    }
+
+    func testMeasureResizeEvenSnapRequiresDeliberateApproachAndHasNarrowScreenPointTolerance() throws {
+        let ids = (0..<3).map { _ in UUID() }
+        let snapshots = [
+            measureResizeSnapshot(ids[0], x: 100, width: 200),
+            measureResizeSnapshot(ids[1], x: 300, width: 160),
+            measureResizeSnapshot(ids[2], x: 460, width: 180)
+        ]
+        let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: ids[0],
+            edge: .right,
+            rowMeasures: snapshots,
+            displayedToManualWidthScale: 1,
+            screenPointsPerDisplayedPoint: 2
+        ))
+        XCTAssertNil(transaction.preview(for: 0).activeEvenDivisionGuideX)
+        XCTAssertNil(transaction.preview(for: 5).activeEvenDivisionGuideX)
+        XCTAssertNil(transaction.preview(for: -18.75).activeEvenDivisionGuideX)
+        XCTAssertEqual(transaction.preview(for: -19.25).activeEvenDivisionGuideX, 280)
+        XCTAssertEqual(transaction.preview(for: -20.75).activeEvenDivisionGuideX, 280)
+        XCTAssertNil(transaction.preview(for: -21.25).activeEvenDivisionGuideX)
+
+        let snapped = transaction.preview(for: -20)
+        XCTAssertEqual(snapped.affectedMeasureIDs, ids)
+        XCTAssertTrue(ids.allSatisfy { snapped.frame(for: $0)?.width == 180 })
+    }
+
+    func testMeasureResizeCommitThresholdPreservesSubPointAdjustmentsWhileIgnoringNoDrag() {
+        XCTAssertFalse(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(0))
+        XCTAssertFalse(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(0.05))
+        XCTAssertTrue(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(0.2))
+        XCTAssertTrue(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(-0.2))
+        XCTAssertTrue(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(0.06, screenPointsPerDisplayedPoint: 2))
+        XCTAssertFalse(LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(0.1, screenPointsPerDisplayedPoint: 0.5))
+    }
+
+    func testMeasureResizeFractionalPairCommitRendersWithoutMovingUntouchedBarsInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for delta in [CGFloat(-1.25), -0.2, 0.2, 1.25] {
+                var chart = Chart.blank(title: "Precise Resize", measureCount: 4, layoutStyle: style)
+                // Store exact equal widths so Rhythm has a full four-bar row
+                // and exercises exiting persistent Equal Row intent.
+                for measure in chart.measures {
+                    _ = chart.setMeasureManualLayoutWidth(140, for: measure.id)
+                }
+                let pageSize = CGSize(width: 900, height: 1400)
+                let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+                let row = try XCTUnwrap(before.systems.first)
+                XCTAssertEqual(row.measures.count, 4)
+                let snapshots = row.measures.compactMap { measure -> LeadSheetMeasureResizeMeasureSnapshot? in
+                    guard let id = measure.sourceMeasureID else { return nil }
+                    return LeadSheetMeasureResizeMeasureSnapshot(
+                        measureID: id,
+                        frame: LeadSheetMeasureResizeGeometry.editableMeasureLayout(measure, layoutStyle: style).frame
+                    )
+                }
+                let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+                    selectedMeasureID: snapshots[0].measureID,
+                    edge: .right,
+                    rowMeasures: snapshots,
+                    displayedToManualWidthScale: LeadSheetMeasureResizeGeometry.displayedToManualWidthScale(
+                        rowMeasures: snapshots,
+                        chart: chart,
+                        maxSystemWidth: before.paperFrame(for: row).width - 68
+                    ),
+                    baselineCommitManualWidths: LeadSheetMeasureResizeGeometry.baselineManualWidthsForPrecisionEdit(
+                        rowMeasures: snapshots,
+                        chart: chart
+                    )
+                ))
+                let preview = transaction.preview(for: delta)
+                let originalMeasures = chart.measures
+                XCTAssertNil(preview.activeEvenDivisionGuideX)
+                for (id, width) in preview.committedManualWidths {
+                    _ = chart.setMeasureManualLayoutWidth(width, for: id)
+                }
+                let restored = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+                let after = LeadSheetPageLayoutEngine.pageLayout(for: restored, pageSize: pageSize)
+                let afterRow = try XCTUnwrap(after.systems.first)
+                XCTAssertEqual(afterRow.measures.compactMap(\.sourceMeasureID), snapshots.map(\.measureID))
+                for index in snapshots.indices {
+                    let rendered = LeadSheetMeasureResizeGeometry.editableMeasureLayout(afterRow.measures[index], layoutStyle: style).frame
+                    let expected = try XCTUnwrap(preview.frame(for: snapshots[index].measureID))
+                    XCTAssertEqual(rendered.minX, expected.minX, accuracy: 0.001, "\(style) bar \(index) should commit where it previewed")
+                    XCTAssertEqual(rendered.width, expected.width, accuracy: 0.001, "\(style) bar \(index) should preserve its exact fractional width")
+                    if index >= 2 {
+                        var expectedSource = originalMeasures[index]
+                        if style == .rhythmSectionSheet {
+                            expectedSource.manualLayoutWidth = Double(snapshots[index].frame.width)
+                        }
+                        XCTAssertEqual(restored.measures[index], expectedSource)
+                    }
+                }
+            }
+        }
+    }
+
+    func testSimpleMeasureResizeUsesEffectiveScaleForAlreadyCompressedImplicitRow() throws {
+        var chart = Chart.blank(title: "Packed Resize", measureCount: 6, layoutStyle: .simpleChordSheet)
+        let pageSize = CGSize(width: 900, height: 1400)
+        let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let row = try XCTUnwrap(before.systems.first)
+        XCTAssertEqual(row.measures.count, 6)
+        let snapshots = row.measures.compactMap { measure -> LeadSheetMeasureResizeMeasureSnapshot? in
+            guard let id = measure.sourceMeasureID else { return nil }
+            return LeadSheetMeasureResizeMeasureSnapshot(measureID: id, frame: measure.frame)
+        }
+        let scale = LeadSheetMeasureResizeGeometry.displayedToManualWidthScale(
+            rowMeasures: snapshots,
+            chart: chart,
+            maxSystemWidth: before.paperFrame(for: row).width - 68
+        )
+        let standardScale = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
+            chart: chart,
+            maxSystemWidth: before.paperFrame(for: row).width - 68
+        )
+        XCTAssertGreaterThan(scale, standardScale)
+        let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: snapshots[0].measureID,
+            edge: .right,
+            rowMeasures: snapshots,
+            displayedToManualWidthScale: scale
+        ))
+        let preview = transaction.preview(for: 1.25)
+        for (id, width) in preview.committedManualWidths {
+            _ = chart.setMeasureManualLayoutWidth(width, for: id)
+        }
+        let after = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let afterRow = try XCTUnwrap(after.systems.first)
+        XCTAssertEqual(afterRow.measures.count, 6)
+        for index in snapshots.indices {
+            let expected = try XCTUnwrap(preview.frame(for: snapshots[index].measureID))
+            XCTAssertEqual(afterRow.measures[index].frame.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(afterRow.measures[index].frame.width, expected.width, accuracy: 0.001)
+            if index >= 2 {
+                XCTAssertNil(chart.measures[index].manualLayoutWidth)
+            }
+        }
+    }
+
+    func testRhythmMeasureResizeUsesModelScaleForBodiesCompressedBelowDisplayedMinimum() throws {
+        var chart = Chart.blank(title: "Compressed Rhythm Resize", key: .cFlatMajor, measureCount: 5, layoutStyle: .rhythmSectionSheet)
+        for measure in chart.measures {
+            _ = chart.setMeasureManualLayoutWidth(100, for: measure.id)
+        }
+        let pageSize = CGSize(width: 720, height: 1400)
+        let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let row = try XCTUnwrap(before.systems.first)
+        XCTAssertEqual(row.measures.count, 5)
+        let snapshots = row.measures.compactMap { measure -> LeadSheetMeasureResizeMeasureSnapshot? in
+            guard let id = measure.sourceMeasureID else { return nil }
+            return LeadSheetMeasureResizeMeasureSnapshot(
+                measureID: id,
+                frame: LeadSheetMeasureResizeGeometry.editableMeasureLayout(measure, layoutStyle: chart.layoutStyle).frame
+            )
+        }
+        XCTAssertLessThan(snapshots[0].frame.width, Measure.minimumManualLayoutWidth)
+        let scale = LeadSheetMeasureResizeGeometry.displayedToManualWidthScale(
+            rowMeasures: snapshots,
+            chart: chart,
+            maxSystemWidth: before.paperFrame(for: row).width - 68
+        )
+        XCTAssertGreaterThan(scale, 1)
+        let baselineWidths = LeadSheetMeasureResizeGeometry.baselineManualWidthsForPrecisionEdit(
+            rowMeasures: snapshots,
+            chart: chart,
+            displayedToManualWidthScale: scale
+        )
+        XCTAssertEqual(try XCTUnwrap(baselineWidths[snapshots[0].measureID]), 100, accuracy: 0.001)
+        let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: snapshots[0].measureID,
+            edge: .right,
+            rowMeasures: snapshots,
+            displayedToManualWidthScale: scale,
+            baselineCommitManualWidths: baselineWidths
+        ))
+        let preview = transaction.preview(for: 0.2)
+        for (id, width) in preview.committedManualWidths {
+            XCTAssertGreaterThanOrEqual(width, Measure.minimumManualLayoutWidth)
+            _ = chart.setMeasureManualLayoutWidth(width, for: id)
+        }
+        let after = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let afterRow = try XCTUnwrap(after.systems.first)
+        XCTAssertEqual(afterRow.measures.compactMap(\.sourceMeasureID), snapshots.map(\.measureID))
+        for index in snapshots.indices {
+            let rendered = LeadSheetMeasureResizeGeometry.editableMeasureLayout(afterRow.measures[index], layoutStyle: chart.layoutStyle).frame
+            let expected = try XCTUnwrap(preview.frame(for: snapshots[index].measureID))
+            XCTAssertEqual(rendered.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(rendered.width, expected.width, accuracy: 0.001)
+        }
     }
 
     func testMeasureResizeTransactionEvenDivisionGuideEqualizesWholeRow() throws {

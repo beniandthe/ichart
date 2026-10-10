@@ -584,6 +584,44 @@ enum LeadSheetStaffLineGeometry {
     }
 }
 
+struct LeadSheetChordRenderFit {
+    var rootFontSize: CGFloat
+    var horizontalScale: CGFloat
+    var naturalWidth: CGFloat
+    var renderedWidth: CGFloat
+    var minimumReadableWidth: CGFloat
+    var meetsReadableMinimum: Bool
+}
+
+enum LeadSheetChordTextFitting {
+    // Standalone legacy calculation retained for compatibility. Interactive
+    // chord rendering no longer fits its typography to an available width.
+    static func fit(
+        availableWidth: CGFloat,
+        preferredRootFontSize: CGFloat,
+        minimumRootFontSize: CGFloat,
+        preferredNaturalWidth: CGFloat,
+        maximumRootFontSize: CGFloat? = nil
+    ) -> LeadSheetChordRenderFit {
+        let availableWidth = availableWidth.isFinite ? max(0.01, availableWidth) : 0.01
+        let preferredWidth = preferredNaturalWidth.isFinite ? max(0.01, preferredNaturalWidth) : 1
+        let preferredSize = max(0.01, preferredRootFontSize)
+        let fittingSize = preferredSize * min(1, availableWidth / preferredWidth)
+        let requestedMaximum = maximumRootFontSize.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? preferredSize
+        let rootSize = min(fittingSize, requestedMaximum)
+        let naturalWidth = preferredWidth * rootSize / preferredSize
+        let minimumReadableWidth = preferredWidth * min(preferredSize, minimumRootFontSize) / preferredSize
+        return LeadSheetChordRenderFit(
+            rootFontSize: rootSize,
+            horizontalScale: 1,
+            naturalWidth: naturalWidth,
+            renderedWidth: naturalWidth,
+            minimumReadableWidth: minimumReadableWidth,
+            meetsReadableMinimum: rootSize + 0.001 >= min(preferredSize, minimumRootFontSize)
+        )
+    }
+}
+
 struct LeadSheetNotationRenderer {
     let chart: Chart
 
@@ -752,28 +790,69 @@ struct LeadSheetNotationRenderer {
         )
     }
 
+    func cueTextFont(emphasis: CueEmphasis, scale: CGFloat) -> UIFont {
+        style.textFont(size: LeadSheetCueTextTypography.fontSize(
+            layoutStyle: chart.layoutStyle, emphasis: emphasis, scale: scale
+        ))
+    }
+
+    func cueTextRenderMetrics(for cueText: CueText, maximumWidth: CGFloat) -> (size: CGSize, lineCount: Int) {
+        let font = cueTextFont(emphasis: cueText.emphasis, scale: CGFloat(cueText.scale))
+        let attributedText = NSAttributedString(string: cueText.text, attributes: [
+            .font: font,
+            .paragraphStyle: LeadSheetHeaderTextFittingPolicy.paragraphStyle(alignment: .left)
+        ])
+        let naturalBounds = attributedText.boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil
+        )
+        let width = min(max(1, maximumWidth), max(28, ceil(naturalBounds.width) + 12))
+        let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(
+            CTFramesetterCreateWithAttributedString(attributedText),
+            CFRange(location: 0, length: attributedText.length), nil,
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude), nil
+        )
+        var height = max(16, max(font.pointSize * 1.34, ceil(suggestedSize.height) + 1))
+        var frame = LeadSheetHeaderTextFittingPolicy.textFrame(
+            for: cueText.text, in: CGSize(width: width, height: height), font: font
+        )
+        // Measure the same CoreText frame used for drawing. Font ascent and
+        // leading can require a little more than the suggested rectangle.
+        for _ in 0..<8 {
+            if CTFrameGetVisibleStringRange(frame).length == attributedText.length { break }
+            height += max(1, ceil(font.lineHeight))
+            frame = LeadSheetHeaderTextFittingPolicy.textFrame(
+                for: cueText.text, in: CGSize(width: width, height: height), font: font
+            )
+        }
+        return (CGSize(width: width, height: height), CFArrayGetCount(CTFrameGetLines(frame)))
+    }
+
     func drawCueText(_ cueTextLayout: LeadSheetCueTextLayout) {
-        let fontSize: CGFloat
         let alpha: CGFloat
         switch cueTextLayout.emphasis {
         case .subtle:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 12.5 : 12
             alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.72 : 0.68
         case .normal:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 14 : 13.5
             alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.82 : 0.78
         case .strong:
-            fontSize = chart.layoutStyle == .rhythmSectionSheet ? 15.5 : 15
             alpha = chart.layoutStyle == .rhythmSectionSheet ? 0.92 : 0.88
         }
 
-        drawText(
-            cueTextLayout.text,
-            in: cueTextLayout.frame,
-            font: style.textFont(size: fontSize * cueTextLayout.scale),
+        let rect = cueTextLayout.frame
+        guard let context = UIGraphicsGetCurrentContext(), rect.width >= 1, rect.height >= 1 else { return }
+        let frame = LeadSheetHeaderTextFittingPolicy.textFrame(
+            for: cueTextLayout.text, in: rect.size,
+            font: cueTextFont(emphasis: cueTextLayout.emphasis, scale: cueTextLayout.scale),
             color: style.inkColor.withAlphaComponent(alpha),
             alignment: cueTextLayout.position == .trailingEdge ? .right : .left
         )
+        context.saveGState()
+        context.textMatrix = .identity
+        context.translateBy(x: rect.minX, y: rect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        CTFrameDraw(frame, context)
+        context.restoreGState()
     }
 
     func drawEnding(_ endingLayout: LeadSheetEndingLayout) {
@@ -943,6 +1022,16 @@ struct LeadSheetNotationRenderer {
     }
 
     func drawChord(_ chordLayout: LeadSheetChordLayout) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let compression = chordRenderFit(for: chordLayout).horizontalScale
+        context.saveGState()
+        defer { context.restoreGState() }
+        // Compress the complete chord around its saved left anchor. A single
+        // x-only transform covers root, suffix, bass, token gaps, and vector
+        // music symbols without changing any font height or vertical position.
+        context.translateBy(x: chordLayout.frame.minX, y: 0)
+        context.scaleBy(x: compression, y: 1)
+        context.translateBy(x: -chordLayout.frame.minX, y: 0)
         if chart.layoutStyle == .simpleChordSheet {
             drawSimpleChord(chordLayout)
             return
@@ -951,11 +1040,76 @@ struct LeadSheetNotationRenderer {
         drawStructuredChord(chordLayout)
     }
 
-    private func drawStructuredChord(_ chordLayout: LeadSheetChordLayout) {
-        let rootFontSize = style.chordFontSize(
-            fitting: chordLayout.frame,
-            text: chordLayout.text
+    func chordRenderFit(for chordLayout: LeadSheetChordLayout) -> LeadSheetChordRenderFit {
+        let configuredSize = chart.layoutStyle == .simpleChordSheet
+            ? ChartTypographyResolver.simpleChordPrimaryFontSize
+            : ChartTypographyResolver.structuredChordPrimaryFontSize
+        let naturalSize = chordRenderSize(for: chordLayout, primaryFontSize: configuredSize)
+        let horizontalScale = chordLayout.horizontalCompressionScale.isFinite
+            ? min(1, max(0.35, chordLayout.horizontalCompressionScale))
+            : 1
+        let minimumSize = ChartTypographyResolver.minimumPracticalChordPrimaryFontSize
+        return LeadSheetChordRenderFit(
+            rootFontSize: configuredSize,
+            horizontalScale: horizontalScale,
+            naturalWidth: naturalSize.width,
+            renderedWidth: naturalSize.width * horizontalScale,
+            minimumReadableWidth: naturalSize.width * 0.35,
+            meetsReadableMinimum: configuredSize + 0.001 >= minimumSize
         )
+    }
+
+    /// Uncompressed typography dimensions. Compression is a drawing transform,
+    /// never a font-size change or a neighbor-driven fitting instruction.
+    func chordRenderSize(for chordLayout: LeadSheetChordLayout, primaryFontSize: CGFloat) -> CGSize {
+        let isSimple = chart.layoutStyle == .simpleChordSheet
+        let rootSize = primaryFontSize.isFinite ? max(0.01, primaryFontSize) : 0.01
+        let suffixSize = isSimple
+            ? style.simpleChordSuffixFontSize(primarySize: rootSize)
+            : style.structuredChordSuffixFontSize(primarySize: rootSize)
+        let bassSize = isSimple
+            ? style.simpleChordSlashBassFontSize(primarySize: rootSize)
+            : style.structuredChordSlashBassFontSize(primarySize: rootSize)
+        let runs = chordRenderRuns(
+            for: chordLayout,
+            rootFont: style.chordFont(size: rootSize),
+            suffixFont: style.chordFont(size: suffixSize),
+            slashBassFont: style.chordFont(size: bassSize),
+            symbolFont: style.chordSymbolFont(size: suffixSize),
+            suffixFontSize: suffixSize
+        )
+        let configuredSize = isSimple
+            ? ChartTypographyResolver.simpleChordPrimaryFontSize
+            : ChartTypographyResolver.structuredChordPrimaryFontSize
+        let gapWidth = CGFloat(max(0, runs.count - 1))
+            * ChartTypographyResolver.simpleChordTokenGapWidth * rootSize / configuredSize
+        let rootHeight = runs.filter { $0.role == .primaryText }.map(\.size.height).max()
+            ?? (chordLayout.text as NSString).size(withAttributes: [.font: style.chordFont(size: rootSize)]).height
+        let suffixY = rootHeight * (isSimple ? 0.16 : 0.18)
+        let bassHeight = runs.filter { $0.role == .slashBassText }.map(\.size.height).max() ?? 0
+        let bassY = max(0, rootHeight - bassHeight * (isSimple ? 0.96 : 0.92))
+        let totalHeight = runs.map { run -> CGFloat in
+            switch run.role {
+            case .primaryText: return run.size.height
+            case .slashBassText: return bassY + run.size.height
+            case .suffixText, .musicSymbol: return suffixY + run.size.height
+            }
+        }.max() ?? rootHeight
+        return CGSize(
+            width: max(0.01, runs.reduce(CGFloat(0)) { $0 + $1.size.width } + gapWidth),
+            height: max(0.01, totalHeight)
+        )
+    }
+
+    func fittedChordLayouts(_ chordLayouts: [LeadSheetChordLayout]) -> [LeadSheetChordLayout] {
+        // Compatibility entry point shared by editor and export. Layout has
+        // already resolved the user's horizontal compression. Neighboring
+        // chords and the measure's available space never override that choice.
+        chordLayouts
+    }
+
+    private func drawStructuredChord(_ chordLayout: LeadSheetChordLayout) {
+        let rootFontSize = chordRenderFit(for: chordLayout).rootFontSize
         let suffixFontSize = style.structuredChordSuffixFontSize(primarySize: rootFontSize)
         let slashBassFontSize = style.structuredChordSlashBassFontSize(primarySize: rootFontSize)
         let rootFont = style.chordFont(size: rootFontSize)
@@ -970,18 +1124,15 @@ struct LeadSheetNotationRenderer {
             symbolFont: symbolFont,
             suffixFontSize: suffixFontSize
         )
-        let gapWidth = runs.count > 1
-            ? CGFloat(runs.count - 1) * ChartTypographyResolver.simpleChordTokenGapWidth
-            : 0
-        let totalWidth = max(1, runs.reduce(CGFloat(0)) { $0 + $1.size.width } + gapWidth)
-        let horizontalScale = min(1, chordLayout.frame.width / totalWidth)
-        let renderedWidth = totalWidth * horizontalScale
-        let startX = chordLayout.frame.minX + max(0, (chordLayout.frame.width - renderedWidth) / 2)
+        let tokenGapWidth = ChartTypographyResolver.simpleChordTokenGapWidth
+            * rootFontSize / ChartTypographyResolver.structuredChordPrimaryFontSize
+        let startX = chordLayout.frame.minX
         let rootHeight = runs
             .filter { $0.role == .primaryText }
             .map(\.size.height)
             .max() ?? (chordLayout.text as NSString).size(withAttributes: [.font: rootFont]).height
-        let rootY = chordLayout.frame.midY - rootHeight / 2
+        let rootY = chordLayout.frame.midY
+            - chordRenderSize(for: chordLayout, primaryFontSize: rootFontSize).height / 2
         let suffixY = rootY + rootHeight * 0.18
         let slashBassHeight = runs
             .filter { $0.role == .slashBassText }
@@ -989,30 +1140,11 @@ struct LeadSheetNotationRenderer {
             .max() ?? ("/B" as NSString).size(withAttributes: [.font: slashBassFont]).height
         let slashBassY = rootY + max(0, rootHeight - slashBassHeight * 0.92)
 
-        guard let context = UIGraphicsGetCurrentContext() else {
-            drawChordRuns(
-                runs,
-                originX: startX,
-                rootY: rootY,
-                suffixY: suffixY,
-                slashBassY: slashBassY
-            )
-            return
-        }
-
-        context.saveGState()
-        context.translateBy(x: startX, y: 0)
-        context.scaleBy(x: horizontalScale, y: 1)
-        defer { context.restoreGState() }
-
-        drawChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY)
+        drawChordRuns(runs, originX: startX, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY, tokenGapWidth: tokenGapWidth)
     }
 
     private func drawSimpleChord(_ chordLayout: LeadSheetChordLayout) {
-        let rootFontSize = style.simpleChordPrimaryFontSize(
-            fitting: chordLayout.frame,
-            text: chordLayout.text
-        )
+        let rootFontSize = chordRenderFit(for: chordLayout).rootFontSize
         let rootFont = style.chordFont(size: rootFontSize)
         let suffixFontSize = style.simpleChordSuffixFontSize(primarySize: rootFontSize)
         let slashBassFontSize = style.simpleChordSlashBassFontSize(primarySize: rootFontSize)
@@ -1027,22 +1159,15 @@ struct LeadSheetNotationRenderer {
             symbolFont: symbolFont,
             suffixFontSize: suffixFontSize
         )
-        let gapWidth = runs.count > 1
-            ? CGFloat(runs.count - 1) * ChartTypographyResolver.simpleChordTokenGapWidth
-            : 0
-        let totalWidth = max(1, runs.reduce(CGFloat(0)) { $0 + $1.size.width } + gapWidth)
-        let requestedHorizontalScale = min(
-            1,
-            max(0.01, chordLayout.horizontalCompressionScale)
-        )
-        let fittingHorizontalScale = min(1, chordLayout.frame.width / totalWidth)
-        let horizontalScale = min(requestedHorizontalScale, fittingHorizontalScale)
+        let tokenGapWidth = ChartTypographyResolver.simpleChordTokenGapWidth
+            * rootFontSize / ChartTypographyResolver.simpleChordPrimaryFontSize
         let startX = chordLayout.frame.minX
         let rootHeight = runs
             .filter { $0.role == .primaryText }
             .map(\.size.height)
             .max() ?? (chordLayout.text as NSString).size(withAttributes: [.font: rootFont]).height
-        let rootY = chordLayout.frame.midY - rootHeight / 2
+        let rootY = chordLayout.frame.midY
+            - chordRenderSize(for: chordLayout, primaryFontSize: rootFontSize).height / 2
         let suffixY = rootY + rootHeight * 0.16
         let slashBassHeight = runs
             .filter { $0.role == .slashBassText }
@@ -1050,23 +1175,7 @@ struct LeadSheetNotationRenderer {
             .max() ?? ("/B" as NSString).size(withAttributes: [.font: slashBassFont]).height
         let slashBassY = rootY + max(0, rootHeight - slashBassHeight * 0.96)
 
-        guard let context = UIGraphicsGetCurrentContext() else {
-            drawChordRuns(
-                runs,
-                originX: startX,
-                rootY: rootY,
-                suffixY: suffixY,
-                slashBassY: slashBassY
-            )
-            return
-        }
-
-        context.saveGState()
-        context.translateBy(x: startX, y: 0)
-        context.scaleBy(x: horizontalScale, y: 1)
-        defer { context.restoreGState() }
-
-        drawChordRuns(runs, originX: 0, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY)
+        drawChordRuns(runs, originX: startX, rootY: rootY, suffixY: suffixY, slashBassY: slashBassY, tokenGapWidth: tokenGapWidth)
     }
 
     private func chordRenderRuns(
@@ -1105,7 +1214,7 @@ struct LeadSheetNotationRenderer {
                 && !font.supportsNotationGlyph(token.text)
             let size = drawsVectorSymbol
                 ? vectorChordSymbolSize(for: token.text, fontSize: suffixFontSize)
-                : (token.text as NSString).size(withAttributes: [.font: font])
+                : ChordRenderSizeCache.size(for: token.text, font: font)
 
             return ChordRenderRun(
                 text: token.text,
@@ -1122,13 +1231,14 @@ struct LeadSheetNotationRenderer {
         originX: CGFloat,
         rootY: CGFloat,
         suffixY: CGFloat,
-        slashBassY: CGFloat
+        slashBassY: CGFloat,
+        tokenGapWidth: CGFloat
     ) {
         var cursorX = originX
 
         for (index, run) in runs.enumerated() {
             if index > 0 {
-                cursorX += ChartTypographyResolver.simpleChordTokenGapWidth
+                cursorX += tokenGapWidth
             }
 
             let y: CGFloat
@@ -1176,7 +1286,7 @@ struct LeadSheetNotationRenderer {
     }
 
     private func drawVectorChordSymbol(_ text: String, in frame: CGRect) {
-        let lineWidth = max(CGFloat(1), min(frame.width, frame.height) * 0.1)
+        let lineWidth = max(CGFloat(0.01), min(frame.width, frame.height) * 0.1)
         style.inkColor.setStroke()
 
         switch text {
@@ -1228,6 +1338,29 @@ struct LeadSheetNotationRenderer {
             drawRest(.eighthRest, for: noteLayout)
         case .measureRepeat:
             drawMeasureRepeat(for: noteLayout)
+        }
+    }
+
+    func notePaintedBounds(_ noteLayout: LeadSheetNoteLayout) -> CGRect {
+        noteLayout.paintedBounds(
+            stemWidth: style.stemWidth(staffSpace: noteLayout.staffSpace),
+            beamThickness: style.beamThickness(staffSpace: noteLayout.staffSpace),
+            tieWidth: style.tieMidpointWidth(staffSpace: noteLayout.staffSpace)
+        ) { symbol, point, anchorName in
+            guard let glyph = NotationGlyphCatalog.glyph(for: symbol) else { return nil }
+            let metrics = style.glyphMetrics(for: symbol)
+            let fontSize = style.notationGlyphPointSize(for: symbol, staffSpace: noteLayout.staffSpace, metrics: metrics)
+            let font = style.notationGlyphFont(size: fontSize, requiring: glyph)
+            guard let path = NotationGlyphPathCache.path(for: glyph, font: font),
+                  let centerAnchor = metrics?.boundingBox?.center else {
+                let size = (glyph as NSString).size(withAttributes: [.font: font])
+                return CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height)
+            }
+            let anchor = anchorName.flatMap { metrics?.anchor(named: $0) } ?? centerAnchor
+            let scale = fontSize / 4
+            let origin = CGPoint(x: point.x - CGFloat(anchor.x) * scale, y: point.y + CGFloat(anchor.y) * scale)
+            let box = path.boundingBoxOfPath
+            return CGRect(x: origin.x + box.minX, y: origin.y - box.maxY, width: box.width, height: box.height)
         }
     }
 
@@ -2384,6 +2517,22 @@ private extension UIFont {
         let font = self as CTFont
         let hasGlyphs = CTFontGetGlyphsForCharacters(font, &characters, &glyphs, characters.count)
         return hasGlyphs && glyphs.allSatisfy { $0 != 0 }
+    }
+}
+
+private enum ChordRenderSizeCache {
+    private static let sizes: NSCache<NSString, NSValue> = {
+        let cache = NSCache<NSString, NSValue>()
+        cache.countLimit = 1_024
+        return cache
+    }()
+
+    static func size(for text: String, font: UIFont) -> CGSize {
+        let key = "\(font.fontName)|\(font.pointSize)|\(text)" as NSString
+        if let cached = sizes.object(forKey: key) { return cached.cgSizeValue }
+        let size = (text as NSString).size(withAttributes: [.font: font])
+        sizes.setObject(NSValue(cgSize: size), forKey: key)
+        return size
     }
 }
 

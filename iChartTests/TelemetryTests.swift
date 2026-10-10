@@ -4,6 +4,59 @@ import XCTest
 @testable import iChart
 
 final class TelemetryTests: XCTestCase {
+    func testTelemetryConsentDefaultsOffAndRejectsLegacyOrUnknownValues() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-consent-\(UUID().uuidString)"))
+        defaults.set(UUID().uuidString, forKey: IChartTelemetryConsentStore.installationIDPreferenceKey)
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        XCTAssertFalse(consent.snapshot.isGranted)
+        XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
+        for value in ["true", "telemetry-consent-v0", "telemetry-consent-v2"] {
+            defaults.set(value, forKey: IChartTelemetryConsentStore.preferenceKey)
+            XCTAssertFalse(consent.snapshot.isGranted)
+            XCTAssertNil(consent.installationID(for: consent.snapshot))
+        }
+        consent.setConsentGranted(true)
+        XCTAssertTrue(consent.snapshot.isGranted)
+        XCTAssertEqual(defaults.string(forKey: IChartTelemetryConsentStore.preferenceKey), IChartTelemetryConsentStore.currentVersion)
+    }
+
+    func testTelemetryWithdrawalInvalidatesPriorConsentAndInstallationIdentity() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-consent-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let originalConsent = consent.snapshot
+        let originalID = try XCTUnwrap(consent.installationID(for: originalConsent))
+        consent.setConsentGranted(false)
+        XCTAssertFalse(consent.snapshot.isGranted)
+        XCTAssertNil(defaults.object(forKey: IChartTelemetryConsentStore.preferenceKey))
+        XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
+        consent.setConsentGranted(true)
+        XCTAssertNotEqual(consent.snapshot, originalConsent)
+        XCTAssertNil(consent.performIfGranted(matching: originalConsent) { true })
+        XCTAssertNotEqual(try XCTUnwrap(consent.installationID(for: consent.snapshot)), originalID)
+    }
+
+    func testQueueResetRemainsUntilSuccessfulCleanupForMatchingConsent() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-reset-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let oldConsent = consent.snapshot
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        let currentConsent = consent.snapshot
+        XCTAssertTrue(consent.requiresQueueReset)
+        XCTAssertFalse(consent.clearQueuedEvents(matching: oldConsent) {
+            XCTFail("An old consent generation must not clear the queue")
+        })
+        XCTAssertTrue(consent.requiresQueueReset)
+        XCTAssertThrowsError(try consent.clearQueuedEvents(matching: currentConsent) {
+            throw NSError(domain: "TelemetryCleanupTest", code: 1)
+        })
+        XCTAssertTrue(consent.requiresQueueReset)
+        XCTAssertTrue(consent.clearQueuedEvents(matching: currentConsent) {})
+        XCTAssertFalse(consent.requiresQueueReset)
+    }
+
     func testTelemetryPrivacyDropsUnknownContentLikeProperties() {
         let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
             "layout_style": .string("leadSheet"),

@@ -356,7 +356,7 @@ private struct ChartPDFRenderer {
         drawRepeatMarkers(leadingMarkers, using: renderer)
         drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
-        for chordLayout in measure.chordLayouts {
+        for chordLayout in renderer.fittedChordLayouts(measure.chordLayouts) {
             renderer.drawChord(chordLayout)
         }
 

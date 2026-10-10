@@ -3,6 +3,47 @@ import XCTest
 @testable import iChart
 
 final class EditorCommandLayoutPolicyTests: XCTestCase {
+    func testSelectedChordWidthControlIsContextualAndUsesTheSafeResetPolicy() throws {
+        XCTAssertEqual(EditorChordWidthAdjustmentPolicy.selectionInstruction,
+                       "Drag to move · Right handle adjusts width.")
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let editor = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        XCTAssertTrue(editor.contains("if canResetSelectedChordWidth {"))
+        XCTAssertTrue(editor.contains("title: \"Reset Width\""))
+        XCTAssertTrue(editor.contains("action: resetSelectedChordWidth"))
+        XCTAssertTrue(editor.contains("Text(EditorChordWidthAdjustmentPolicy.selectionInstruction)"))
+        XCTAssertTrue(editor.contains("EditorChordWidthAdjustmentPolicy.resetWidth("))
+        XCTAssertTrue(editor.contains("for: selectedChordID, in: &chart, pageSize: latestEditorContentSize"))
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestinations, [.select, .chords, .ink, .measures])
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryControlCount, 5,
+                       "Selected-object polish must not add a permanent toolbar destination")
+    }
+
+    func testClearDraftInkRequestsConfirmationWithoutClearingAndChecksTheConfirmedChart() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let editor = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        XCTAssertTrue(editor.contains("title: \"Clear Draft Ink\""))
+        XCTAssertTrue(editor.contains("action: requestClearChordDraftInk"))
+        XCTAssertFalse(editor.contains("action: handleDiscardChordDrafts"),
+                       "The visible clear action cannot bypass confirmation")
+        let requestStart = try XCTUnwrap(editor.range(of: "private func requestClearChordDraftInk()"))
+        let clearStart = try XCTUnwrap(editor.range(of: "private func handleDiscardChordDrafts()"))
+        let requestSource = String(editor[requestStart.lowerBound..<clearStart.lowerBound])
+        XCTAssertTrue(requestSource.contains("pendingChordDraftClearChartID = chart.id"))
+        XCTAssertFalse(requestSource.contains("setPageHandwrittenChordDrawing"))
+        XCTAssertFalse(requestSource.contains("chordPreviewState.discard()"))
+        XCTAssertFalse(requestSource.contains("handleDiscardChordDrafts()"))
+        XCTAssertTrue(editor.contains("\"Clear draft ink?\""))
+        XCTAssertTrue(editor.contains("presenting: pendingChordDraftClearChartID"))
+        XCTAssertTrue(editor.contains("Button(\"Clear Draft Ink\", role: .destructive)"))
+        XCTAssertTrue(editor.contains("guard requestedChartID == chart.id else { return }"),
+                       "A stale confirmation must not clear another chart")
+        XCTAssertTrue(editor.contains("Button(\"Cancel\", role: .cancel) {}"))
+        XCTAssertTrue(editor.contains("This removes all unrendered chord and barline writing. Rendered notation and Free Ink stay unchanged."))
+    }
+
     func testQuickStartPreparesEnoughMeasuresForItsChordExercise() {
         XCTAssertEqual(IChartQuickStartSetupPolicy.minimumStartingMeasureCount, 4)
         XCTAssertEqual(
@@ -55,7 +96,8 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
 
     func testQuickStartKeepsOptionalExitAndCoreTargetsClear() {
         XCTAssertNil(IChartEditorGuidedTourStep.setup.forwardActionTitle)
-        XCTAssertEqual(IChartEditorGuidedTourStep.writeChords.targetText, "Chords • write C, F, G, C")
+        XCTAssertEqual(IChartEditorGuidedTourStep.writeChords.targetText, "Write & Render • write C, F, G, C")
+        XCTAssertEqual(IChartEditorGuidedTourStep.renderChords.targetText, "Render Chords / Review & Render")
         XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add / Layout / Delete")
         XCTAssertEqual(IChartEditorGuidedTourStep.addCue.targetText, "Tools > Text")
         XCTAssertEqual(IChartEditorGuidedTourStep.export.forwardActionTitle, "Skip Export")

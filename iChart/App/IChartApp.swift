@@ -9,6 +9,7 @@ struct IChartApp: App {
     @StateObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @StateObject private var forumStore: IChartForumStore
     @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
+    @StateObject private var setlistStore: IChartPDFSetlistStore
 
     init() {
         let appInitSpan = IChartPerformanceTrace.start("app.init")
@@ -35,6 +36,7 @@ struct IChartApp: App {
         _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
         _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
         _pdfLibraryStore = StateObject(wrappedValue: pdfLibraryStore)
+        _setlistStore = StateObject(wrappedValue: IChartPDFSetlistStore.live())
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
@@ -53,6 +55,7 @@ struct IChartApp: App {
                 .environmentObject(subscriptionStore)
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
+                .environmentObject(setlistStore)
                 .task {
                     let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
                     await subscriptionStore.bootstrap()

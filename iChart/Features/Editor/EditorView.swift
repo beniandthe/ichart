@@ -101,9 +101,9 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Four measures are ready. Change the setup if you want, then create the page."
         case .writeChords:
-            "Tap Chords and write C, F, G, C in the first four measures. The small labels are previews."
+            "Tap Write & Render and write C, F, G, C in the first four measures. The small labels are previews."
         case .renderChords:
-            "If iChart asks, choose the intended chord. When the previews look right, tap Render Chords."
+            "Check the previews, then tap Render Chords or Review & Render. If Confirm Chords opens, correct the text or choose a suggestion, then tap Render All."
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
@@ -113,7 +113,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .export:
             "Tap Export PDF when the chart is ready. Your editable chart stays in Charts."
         case .finish:
-            "You know the core loop. Ink and every advanced structure tool remain available in Help > How To."
+            "You know the core loop. Free Ink and every advanced structure tool remain available in Help > How To."
         }
     }
 
@@ -122,9 +122,9 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Create Blank Page"
         case .writeChords:
-            "Chords • write C, F, G, C"
+            "Write & Render • write C, F, G, C"
         case .renderChords:
-            "Render Chords"
+            "Render Chords / Review & Render"
         case .shapeForm:
             "Measures • Add / Layout / Delete"
         case .addCue:
@@ -330,6 +330,7 @@ struct EditorView: View {
     @State private var personalHandwritingStartsWithEvaluation = false
     @State private var personalLearningSessionID = UUID()
     @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
+    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     @State private var chordPreviewState = ChordPreviewState()
     @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
     @State private var chordWritingBatchID = UUID()
@@ -343,6 +344,7 @@ struct EditorView: View {
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
     @State private var chordInkErrorMessage = ""
     @State private var showingChordInkError = false
+    @State private var pendingChordDraftClearChartID: UUID?
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
@@ -388,12 +390,36 @@ struct EditorView: View {
         self.chordInkUserCorrectionMemoryStore = chordInkUserCorrectionMemoryStore
         self.onExit = onExit
         _canvasMode = State(initialValue: Self.releaseSafeInitialCanvasMode(initialCanvasMode))
-        _chordInkUserCorrectionMemory = State(
-            initialValue: (try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory()
+        _chordInkUserCorrectionMemory = State(initialValue:
+            HandwritingPersonalizationProductPolicy.isAvailable
+                ? ((try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory())
+                : ChordInkUserCorrectionMemory()
         )
     }
 
     var body: some View {
+        editorContent
+            .confirmationDialog(
+                "Clear draft ink?",
+                isPresented: isChordDraftClearPresented,
+                titleVisibility: .visible,
+                presenting: pendingChordDraftClearChartID
+            ) { requestedChartID in
+                Button("Clear Draft Ink", role: .destructive) {
+                    pendingChordDraftClearChartID = nil
+                    guard requestedChartID == chart.id else { return }
+                    handleDiscardChordDrafts()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This removes all unrendered chord and barline writing. Rendered notation and Free Ink stay unchanged.")
+            }
+            .onChange(of: chart.id) { _, _ in
+                pendingChordDraftClearChartID = nil
+            }
+    }
+
+    private var editorContent: some View {
         VStack(spacing: 0) {
             editorNavigationChrome
 
@@ -421,8 +447,8 @@ struct EditorView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color(red: 0.95, green: 0.94, blue: 0.91),
-                    Color(red: 0.90, green: 0.93, blue: 0.96)
+                    appAppearance.isDark ? Color(red: 0.06, green: 0.08, blue: 0.11) : Color(red: 0.95, green: 0.94, blue: 0.91),
+                    appAppearance.isDark ? Color(red: 0.09, green: 0.12, blue: 0.15) : Color(red: 0.90, green: 0.93, blue: 0.96)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -452,6 +478,8 @@ struct EditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .preferredColorScheme(appAppearance.colorScheme)
+        .environment(\.colorScheme, appAppearance.colorScheme)
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .upgrade(let feature):
@@ -478,9 +506,11 @@ struct EditorView: View {
             ChartTypographySheetView(chart: $chart)
         }
         .sheet(isPresented: $showingPersonalHandwriting) {
-            PersonalHandwritingView(chartID: chart.id, layoutStyle: chart.layoutStyle,
-                                    hasChordInk: hasUnrenderedChordInkForEvaluation,
-                                    startsWithEvaluation: personalHandwritingStartsWithEvaluation)
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                PersonalHandwritingView(chartID: chart.id, layoutStyle: chart.layoutStyle,
+                                        hasChordInk: hasUnrenderedChordInkForEvaluation,
+                                        startsWithEvaluation: personalHandwritingStartsWithEvaluation)
+            }
         }
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
@@ -539,11 +569,13 @@ struct EditorView: View {
                     }
                 }
             )
+            .id(batch.id)
         }
         .sheet(item: $pendingChordCorrection) { correction in
             ChordCorrectionSheetView(
                 correction: correction,
-                canTeachHandwriting: PersonalInkProfileStore.shared.snapshot().profile.isEnabled
+                canTeachHandwriting: HandwritingPersonalizationProductPolicy.isAvailable
+                    && PersonalInkProfileStore.shared.snapshot().profile.isEnabled
                     && chart.chordEvent(id: correction.chordEventID)?.sourceInkData != nil,
                 onAcceptCandidate: { candidateText, teachesHandwriting in
                     handleChordCorrectionAccepted(candidateText, correction: correction, teachesHandwriting: teachesHandwriting)
@@ -824,8 +856,10 @@ struct EditorView: View {
                 .frame(width: columnWidth, alignment: .leading)
 
                 Menu {
-                    personalHandwritingMenuButton
-                    Divider()
+                    if HandwritingPersonalizationProductPolicy.isAvailable {
+                        personalHandwritingMenuButton
+                        Divider()
+                    }
                     if canvasMode.locksDocumentActions {
                         Text("Choose Done before changing other document settings.")
                     }
@@ -998,15 +1032,18 @@ struct EditorView: View {
     }
 
     private var personalHandwritingMenuButton: some View {
-        let captureActive = PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil
+        let captureActive = HandwritingPersonalizationProductPolicy.isAvailable
+            && PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil
         return Button {
+            guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
             personalHandwritingStartsWithEvaluation = captureActive
             showingPersonalHandwriting = true
             offeredPersonalHandwriting = true
         } label: {
             Label(captureActive ? "Saved Chart Test" : "My Handwriting", systemImage: "hand.draw")
         }
-        .disabled(canvasMode.locksDocumentActions && !captureActive)
+        .disabled(!HandwritingPersonalizationProductPolicy.isAvailable
+            || (canvasMode.locksDocumentActions && !captureActive))
         .accessibilityIdentifier("personal.open")
     }
 
@@ -1331,7 +1368,7 @@ struct EditorView: View {
                 handleChordTabTapped()
             } label: {
                 EditorMenuTabLabel(
-                    title: "Chords",
+                    title: EditorCanvasMode.chordEntry.activeToolTitle,
                     systemImage: "pencil",
                     isSelected: canvasMode == .chordEntry,
                     selectedColor: EditorToolAccent.semanticRead,
@@ -1346,6 +1383,7 @@ struct EditorView: View {
                 )
             )
             .buttonStyle(.plain)
+            .accessibilityHint("Write chords and barlines, then review and render them onto the chart")
 
         case .ink:
             Button {
@@ -1356,7 +1394,7 @@ struct EditorView: View {
                 toggleFreeHandMode()
             } label: {
                 EditorMenuTabLabel(
-                    title: "Ink",
+                    title: EditorCanvasMode.freeHand.activeToolTitle,
                     systemImage: canvasMode.freeHandTabSymbol,
                     isSelected: canvasMode == .freeHand,
                     selectedColor: EditorToolAccent.persistentInk,
@@ -1371,8 +1409,8 @@ struct EditorView: View {
                 )
             )
             .buttonStyle(.plain)
-            .accessibilityLabel("Ink")
-            .accessibilityHint("Persistent free-writing that iChart does not interpret")
+            .accessibilityLabel(EditorCanvasMode.freeHand.activeToolTitle)
+            .accessibilityHint("Freehand notes and marks that stay as handwriting and are not converted to notation")
 
         case .measures:
             Button {
@@ -1517,8 +1555,10 @@ struct EditorView: View {
         }
 
         if canvasMode == .chordEntry {
-            if !chordPreviewState.isEmpty {
+            if hasPendingChordDraftInk {
                 chordDraftActiveToolActions
+            }
+            if !chordPreviewState.isEmpty {
                 chordDiagnosticStatusChip
             }
         }
@@ -1586,6 +1626,15 @@ struct EditorView: View {
                         systemImage: "text.badge.checkmark",
                         action: handleCorrectSelectedChord
                     )
+
+                    if canResetSelectedChordWidth {
+                        activeToolButton(
+                            title: "Reset Width",
+                            systemImage: "arrow.uturn.backward",
+                            action: resetSelectedChordWidth
+                        )
+                        .accessibilityHint("Restore the chord's natural width without moving it")
+                    }
 
                     activeToolButton(
                         title: "Delete",
@@ -1692,8 +1741,16 @@ struct EditorView: View {
     @ViewBuilder
     private var selectedRenderedEditLabel: some View {
         if selectedChord != nil {
-            Label("Chord", systemImage: "textformat")
-                .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Chord", systemImage: "textformat")
+                    .font(.subheadline.weight(.semibold))
+                Text(EditorChordWidthAdjustmentPolicy.selectionInstruction)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityElement(children: .combine)
         } else if selectedCommittedBarlineMeasureID != nil {
             Label("Barline", systemImage: "pause")
                 .font(.subheadline.weight(.semibold))
@@ -1971,11 +2028,11 @@ struct EditorView: View {
             )
 
             activeToolButton(
-                title: "Discard",
+                title: "Clear Draft Ink",
                 systemImage: "xmark.circle",
                 isDestructive: true,
-                isDisabled: chordPreviewState.isEmpty,
-                action: handleDiscardChordDrafts
+                isDisabled: !hasPendingChordDraftInk,
+                action: requestClearChordDraftInk
             )
         }
     }
@@ -2212,6 +2269,7 @@ struct EditorView: View {
                 ? handleRhythmicNotationPreviewChanged
                 : nil
         )
+        .ichartDocumentDisplayAppearance()
         .onAppear {
             guard !didRecordFirstCanvasAppear else {
                 return
@@ -2234,6 +2292,10 @@ struct EditorView: View {
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
+    }
+
+    private var appAppearance: IChartAppAppearance {
+        IChartAppAppearance(persistedValue: appAppearanceValue)
     }
 
     private var editorPerformanceTraceMetadata: [String: String] {
@@ -2805,6 +2867,10 @@ struct EditorView: View {
 
     private var selectedChord: ChordEvent? {
         selectedChordID.flatMap { chart.chordEvent(id: $0) }
+    }
+
+    private var canResetSelectedChordWidth: Bool {
+        selectedChord.map { EditorChordWidthAdjustmentPolicy.canResetWidth(of: $0) } ?? false
     }
 
     private var canDeleteSelectedCommittedChordBarline: Bool {
@@ -3625,6 +3691,13 @@ struct EditorView: View {
         handleChordCorrectionRequested(selectedChordID)
     }
 
+    private func resetSelectedChordWidth() {
+        guard let selectedChordID else { return }
+        _ = EditorChordWidthAdjustmentPolicy.resetWidth(
+            for: selectedChordID, in: &chart, pageSize: latestEditorContentSize
+        )
+    }
+
     private func deleteSelectedChord() {
         guard let selectedChordID else {
             return
@@ -3776,7 +3849,7 @@ struct EditorView: View {
     @discardableResult
     private func clearRenderedRhythm(in measureID: UUID) -> Bool {
         guard isDedicatedRhythmToolAvailable else {
-            noteEditErrorMessage = "Use Ink for page-level handwritten rhythm notes in this version."
+            noteEditErrorMessage = "Use Free Ink for page-level handwritten rhythm notes in this version."
             showingNoteEditError = true
             return false
         }
@@ -4199,10 +4272,12 @@ struct EditorView: View {
 
     private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
         let replacementStartedAt = ProcessInfo.processInfo.systemUptime
-        guard canvasMode == .chordEntry,
-              pendingChordInkConfirmation == nil,
-              pendingChordInkBatchConfirmation == nil,
-              pendingChordCorrection == nil else {
+        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
+            mode: canvasMode,
+            hasSingleReview: pendingChordInkConfirmation != nil,
+            hasBatchReview: pendingChordInkBatchConfirmation != nil,
+            hasCorrection: pendingChordCorrection != nil
+        ) else {
             return
         }
         guard payloads.isEmpty || chart.pageHandwrittenChordData != nil else {
@@ -4312,7 +4387,12 @@ struct EditorView: View {
     }
 
     private func handleChordInkDraftBarlinesChanged(_ barlines: [DraftBarline]) {
-        guard canvasMode == .chordEntry else {
+        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
+            mode: canvasMode,
+            hasSingleReview: pendingChordInkConfirmation != nil,
+            hasBatchReview: pendingChordInkBatchConfirmation != nil,
+            hasCorrection: pendingChordCorrection != nil
+        ) else {
             return
         }
 
@@ -4437,8 +4517,29 @@ struct EditorView: View {
         return true
     }
 
+    private var isChordDraftClearPresented: Binding<Bool> {
+        Binding<Bool>(
+            get: {
+                guard let requestedChartID = pendingChordDraftClearChartID else { return false }
+                return requestedChartID == chart.id
+            },
+            set: { isPresented in
+                if !isPresented { pendingChordDraftClearChartID = nil }
+            }
+        )
+    }
+
+    private var hasPendingChordDraftInk: Bool {
+        !chordPreviewState.isEmpty || chart.pageHandwrittenChordData != nil
+    }
+
+    private func requestClearChordDraftInk() {
+        guard hasPendingChordDraftInk else { return }
+        pendingChordDraftClearChartID = chart.id
+    }
+
     private func handleDiscardChordDrafts() {
-        guard !chordPreviewState.isEmpty || chart.pageHandwrittenChordData != nil else {
+        guard hasPendingChordDraftInk else {
             return
         }
 
@@ -4670,19 +4771,21 @@ struct EditorView: View {
 
             learnReviewedPersonalHandwriting(acceptedText, confirmation: confirmation)
 
-            if confirmation.visibleCandidateTexts.contains(acceptedText) {
-                didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
-                    acceptedText: acceptedText,
-                    drawingData: confirmation.drawingData,
-                    candidateTexts: confirmation.candidateTexts,
-                    decision: confirmation.decision
-                ) || didUpdateMemory
-            } else {
-                didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
-                    acceptedText: acceptedText,
-                    drawingData: confirmation.drawingData,
-                    candidateTexts: confirmation.candidateTexts
-                ) || didUpdateMemory
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                if confirmation.visibleCandidateTexts.contains(acceptedText) {
+                    didUpdateMemory = chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                        acceptedText: acceptedText,
+                        drawingData: confirmation.drawingData,
+                        candidateTexts: confirmation.candidateTexts,
+                        decision: confirmation.decision
+                    ) || didUpdateMemory
+                } else {
+                    didUpdateMemory = chordInkUserCorrectionMemory.recordManualCorrection(
+                        acceptedText: acceptedText,
+                        drawingData: confirmation.drawingData,
+                        candidateTexts: confirmation.candidateTexts
+                    ) || didUpdateMemory
+                }
             }
         }
 
@@ -4695,14 +4798,17 @@ struct EditorView: View {
         _ candidateTextByID: [UUID: String],
         batch: PendingChordInkBatchConfirmation
     ) -> Bool {
-        guard batch.source == .draftPreview,
-              batch.confirmations.count == chordPreviewState.draftChords.count,
-              let reviewedState = ChordInkDraftReviewPolicy.reviewedState(
-                  from: chordPreviewState,
-                  batch: batch,
-                  candidateTextByDraftID: candidateTextByID
-              ) else {
-            chordInkErrorMessage = "This review no longer matches the ink, or a chord is unsupported. Go back to ink and review again. Nothing was rendered or erased."
+        let validation = ChordInkDraftReviewPolicy.validation(
+            from: chordPreviewState, batch: batch, candidateTextByDraftID: candidateTextByID
+        )
+        let reviewedState: ChordPreviewState
+        switch validation {
+        case .success(let state):
+            reviewedState = state
+        case .failure(let reason):
+            recordChordReviewRejection(reason, batch: batch, entryTexts: candidateTextByID)
+            chordInkErrorMessage = reason.recoveryMessage
+                + " Nothing was rendered or erased. Diagnostic: \(reason.rawValue)."
             showingChordInkError = true
             return false
         }
@@ -4720,6 +4826,34 @@ struct EditorView: View {
                 durationMilliseconds: ChordWritingWorkflowTelemetry.elapsedMilliseconds(
                     from: chordReviewStartedAt, to: Date())
             ))
+    }
+
+    private func recordChordReviewRejection(
+        _ reason: ChordInkDraftReviewRejection,
+        batch: PendingChordInkBatchConfirmation,
+        entryTexts: [UUID: String]
+    ) {
+        let expected = batch.reviewedDraftState
+        IChartPerformanceTrace.record("chord.review.rejected", metadata: [
+            "reason": reason.rawValue,
+            "layout_style": chart.layoutStyle.rawValue,
+            "current_drafts": "\(chordPreviewState.draftChords.count)",
+            "reviewed_drafts": "\(expected?.draftChords.count ?? 0)",
+            "current_barlines": "\(chordPreviewState.draftBarlines.count)",
+            "reviewed_barlines": "\(expected?.draftBarlines.count ?? 0)",
+            "submitted_entries": "\(entryTexts.count)",
+            "confirmations": "\(batch.confirmations.count)",
+            "drafts_equal": "\(expected.map { $0.draftChords == chordPreviewState.draftChords } ?? false)",
+            "barlines_equal": "\(expected.map { $0.draftBarlines == chordPreviewState.draftBarlines } ?? false)",
+            "layout_equal": "\(expected.map { $0.layoutPageSize == chordPreviewState.layoutPageSize } ?? false)",
+            "entry_ids_equal": "\(Set(entryTexts.keys) == Set(chordPreviewState.draftChords.map(\.id)))",
+            "labels_supported": "\(entryTexts.values.allSatisfy { ChordRecognitionCompendium.match($0) != nil })",
+            "draft_ids_equal": "\(expected.map { $0.draftChords.map(\.id) == chordPreviewState.draftChords.map(\.id) } ?? false)",
+            "draft_ink_equal": "\(expected.map { $0.draftChords.map(\.drawingData) == chordPreviewState.draftChords.map(\.drawingData) } ?? false)",
+            "ownership_equal": "\(expected.map { $0.draftChords.map(\.targetLifecycle) == chordPreviewState.draftChords.map(\.targetLifecycle) } ?? false)",
+            "candidates_equal": "\(expected.map { $0.draftChords.map(\.candidateTexts) == chordPreviewState.draftChords.map(\.candidateTexts) } ?? false)",
+            "drafts_reflexive": "\(chordPreviewState.draftChords == chordPreviewState.draftChords)"
+        ])
     }
 
     private func handleTapConfirmedChordRecognition(_ confirmation: PendingChordInkConfirmation) {
@@ -4749,7 +4883,8 @@ struct EditorView: View {
             chordInkAutomaticRewriteFailures.reset()
         }
 
-        if !isGuidedChordConfirmation,
+        if HandwritingPersonalizationProductPolicy.isAvailable,
+           !isGuidedChordConfirmation,
            !isCompleteFailure,
            let preferredCandidate = chordInkUserCorrectionMemory.preferredCandidate(
                for: confirmation.candidateTexts,
@@ -4801,26 +4936,28 @@ struct EditorView: View {
 
         learnReviewedPersonalHandwriting(trimmedCandidateText, confirmation: confirmation)
 
-        switch resolution {
-        case .confirmedSuggestion:
-            if chordInkUserCorrectionMemory.recordConfirmedSuggestion(
-                acceptedText: trimmedCandidateText,
-                drawingData: confirmation.drawingData,
-                candidateTexts: confirmation.candidateTexts,
-                decision: confirmation.decision
-            ) {
-                persistChordInkUserCorrectionMemory()
+        if HandwritingPersonalizationProductPolicy.isAvailable {
+            switch resolution {
+            case .confirmedSuggestion:
+                if chordInkUserCorrectionMemory.recordConfirmedSuggestion(
+                    acceptedText: trimmedCandidateText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts,
+                    decision: confirmation.decision
+                ) {
+                    persistChordInkUserCorrectionMemory()
+                }
+            case .manualCorrection:
+                if chordInkUserCorrectionMemory.recordManualCorrection(
+                    acceptedText: trimmedCandidateText,
+                    drawingData: confirmation.drawingData,
+                    candidateTexts: confirmation.candidateTexts
+                ) {
+                    persistChordInkUserCorrectionMemory()
+                }
+            case .autoRendered, .userRuleApplied, .renderedChordCorrection, .reconciledRenderedChord:
+                break
             }
-        case .manualCorrection:
-            if chordInkUserCorrectionMemory.recordManualCorrection(
-                acceptedText: trimmedCandidateText,
-                drawingData: confirmation.drawingData,
-                candidateTexts: confirmation.candidateTexts
-            ) {
-                persistChordInkUserCorrectionMemory()
-            }
-        case .autoRendered, .userRuleApplied, .renderedChordCorrection, .reconciledRenderedChord:
-            break
         }
     }
 
@@ -5089,15 +5226,17 @@ struct EditorView: View {
         }
 
         let previousRecognitionText = originalChordEvent.rawInput ?? originalChordEvent.symbol.displayText
-        let didUpdateCorrectionMemory = originalChordEvent.sourceInkData.map { sourceInkData in
-            chordInkUserCorrectionMemory.recordRenderedChordCorrection(
-                previousText: previousRecognitionText,
-                displayedPreviousText: correction.currentText,
-                acceptedText: trimmedCandidateText,
-                drawingData: sourceInkData,
-                candidateTexts: originalChordEvent.sourceCandidateSignature
-            )
-        } ?? false
+        let didUpdateCorrectionMemory = HandwritingPersonalizationProductPolicy.isAvailable
+            ? originalChordEvent.sourceInkData.map { sourceInkData in
+                chordInkUserCorrectionMemory.recordRenderedChordCorrection(
+                    previousText: previousRecognitionText,
+                    displayedPreviousText: correction.currentText,
+                    acceptedText: trimmedCandidateText,
+                    drawingData: sourceInkData,
+                    candidateTexts: originalChordEvent.sourceCandidateSignature
+                )
+            } ?? false
+            : false
         if didUpdateCorrectionMemory {
             persistChordInkUserCorrectionMemory()
         }
@@ -5326,12 +5465,14 @@ struct EditorView: View {
     #endif
 
     private func learnPersonalHandwriting(_ text: String, drawingData: Data, source: PersonalInkExampleSource) {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
         PersonalInkLearning.record(text: text, drawingData: drawingData, source: source,
                                    captureContext: personalReviewIntakeContext,
                                    completion: handlePersonalLearningError)
     }
 
     private func learnReviewedPersonalHandwriting(_ text: String, confirmation: PendingChordInkConfirmation) {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
         PersonalInkLearning.recordReview(text: text, presentedText: confirmation.bestCandidateText,
                                          drawingData: confirmation.drawingData,
                                          captureContext: personalReviewIntakeContext,
@@ -5454,6 +5595,7 @@ struct EditorView: View {
     }
 
     private func persistChordInkUserCorrectionMemory() {
+        guard HandwritingPersonalizationProductPolicy.isAvailable else { return }
         do {
             try chordInkUserCorrectionMemoryStore.save(chordInkUserCorrectionMemory)
         } catch {
@@ -6530,10 +6672,6 @@ private struct CueTextEntryPanelView: View {
                         .accessibilityLabel("Text")
                     }
                     .frame(height: CueTextEntryPanelGeometry.inputHeight)
-                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .onTapGesture {
-                        requestTextFocus()
-                    }
                 }
                 .padding(CueTextEntryPanelGeometry.verticalPadding)
                 .frame(

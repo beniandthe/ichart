@@ -714,6 +714,7 @@ final class ChordInkRecognitionSession {
     private let queue: DispatchQueue
     private let recognizer: ChordInkRecognizing
     private let personalProfile: PersonalInkProfileStore?
+    private let allowsPersonalInk: Bool
     private let operationLock = NSLock()
     private var activeOperationID: UUID?
     private var cachedResults: [CacheKey: ChordInkRecognitionResult] = [:]
@@ -723,11 +724,13 @@ final class ChordInkRecognitionSession {
     init(
         queue: DispatchQueue,
         recognizer: ChordInkRecognizing,
-        personalProfile: PersonalInkProfileStore? = nil
+        personalProfile: PersonalInkProfileStore? = nil,
+        allowsPersonalInk: Bool = HandwritingPersonalizationProductPolicy.isAvailable
     ) {
         self.queue = queue
         self.recognizer = recognizer
         self.personalProfile = personalProfile
+        self.allowsPersonalInk = allowsPersonalInk
     }
 
     func start(
@@ -889,7 +892,9 @@ final class ChordInkRecognitionSession {
         // recognition input instead; request.drawingData still flows through
         // the payload for persistence and correction evidence.
         let key = CacheKey(strokes: request.strokes, options: request.options)
-        let profile = request.evaluationContext?.profile ?? personalProfile?.snapshot()
+        let profile = allowsPersonalInk
+            ? (request.evaluationContext?.profile ?? personalProfile?.snapshot())
+            : nil
         if let result = cachedResults[key] {
             let adapted = scoped(personalized(result, key: key, profile: profile), to: request)
             return (adapted, true, evaluationPrediction(base: scoped(result, to: request), adapted: adapted, request: request))
@@ -919,7 +924,8 @@ final class ChordInkRecognitionSession {
 
     private func evaluationPrediction(base: ChordInkRecognitionResult, adapted: ChordInkRecognitionResult,
                                       request: ChordInkRecognitionSessionRequest) -> PersonalInkEvaluationPrediction? {
-        guard let context = request.evaluationContext else { return nil }
+        guard allowsPersonalInk,
+              let context = request.evaluationContext else { return nil }
         let baseDecision = ChordInkRecognitionPolicy.decision(for: base)
         let selection = ChordInkRenderResolutionPolicy.personalSelection(for: adapted)
         return .init(runID: context.runID,

@@ -293,6 +293,6 @@ enum PersonalInkEvaluationSourceError: LocalizedError {
     case invalid
 
     var errorDescription: String? {
-        "The prepared handwriting source is invalid or too large, so it was not saved. Return to Chords and try the capture again."
+        "The prepared handwriting source is invalid or too large, so it was not saved. Return to Write & Render and try the capture again."
     }
 }

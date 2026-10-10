@@ -1,5 +1,16 @@
 import Foundation
 
+enum EditorChordDraftPreviewUpdatePolicy {
+    static func allowsUpdate(
+        mode: EditorCanvasMode,
+        hasSingleReview: Bool,
+        hasBatchReview: Bool,
+        hasCorrection: Bool
+    ) -> Bool {
+        mode == .chordEntry && !hasSingleReview && !hasBatchReview && !hasCorrection
+    }
+}
+
 enum EditorCommandDestination: String, CaseIterable, Hashable, Identifiable {
     case documentSettings
     case select

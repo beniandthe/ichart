@@ -21,6 +21,7 @@ let package = Package(
                 "Features/Editor",
                 "Features/RecognitionStudy",
                 "Features/Library/LibraryView.swift",
+                "Features/Library/SetlistsView.swift",
                 "Resources",
                 "Shared/ChartFontPreset+SwiftUI.swift"
             ]

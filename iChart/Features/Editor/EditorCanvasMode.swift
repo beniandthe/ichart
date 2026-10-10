@@ -71,11 +71,11 @@ enum EditorCanvasMode: Hashable {
         case .headerEntry:
             return "Header"
         case .chordEntry:
-            return "Chords"
+            return "Write & Render"
         case .noteEdit:
             return "Rhythm Edit"
         case .freeHand:
-            return "Ink"
+            return "Free Ink"
         case .textEdit:
             return "Text"
         }
@@ -152,11 +152,11 @@ enum EditorCanvasMode: Hashable {
         case .headerEntry:
             return "Write in the page header."
         case .chordEntry:
-            return "Write chords inside the blue lanes."
+            return "Write chords and barlines in the blue lanes."
         case .noteEdit:
             return "Select a rendered rhythm note."
         case .freeHand:
-            return "Write persistent ink; iChart never reads or interprets it."
+            return "Draw notes and marks that stay as handwriting."
         case .textEdit:
             return "Tap a measure, then add text above or below."
         }

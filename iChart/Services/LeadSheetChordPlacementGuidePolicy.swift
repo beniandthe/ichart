@@ -93,4 +93,40 @@ enum LeadSheetChordPlacementGuidePolicy {
             closestGuideX
         )
     }
+
+    static func resolvedDragFraction(
+        rawFraction: Double,
+        initialX: CGFloat,
+        screenPointsPerDisplayedPoint: CGFloat,
+        referenceFrame: CGRect,
+        guideFrame: CGRect,
+        meter: Meter
+    ) -> (fraction: Double, activeGuideX: CGFloat?) {
+        let scale = max(0.0001, screenPointsPerDisplayedPoint)
+        let clampedFraction = ChordEvent.clampedManualLaneFraction(rawFraction)
+        let rawX = referenceFrame.minX + referenceFrame.width * CGFloat(clampedFraction)
+        let safeMinX = max(referenceFrame.minX, guideFrame.minX)
+        let safeMaxX = max(safeMinX, referenceFrame.maxX - 1)
+        let boundedX = min(max(rawX, safeMinX), safeMaxX)
+        let boundedFraction = ChordEvent.clampedManualLaneFraction(Double(
+            (boundedX - referenceFrame.minX) / max(1, referenceFrame.width)
+        ))
+        // Starting on/near a particular guide means precision editing around
+        // it. Only deliberately approaching a different/farther guide enables
+        // the weak snap; feedback from a prior preview is not an input.
+        let eligibleGuides = guideXs(for: meter, in: guideFrame).filter { guideX in
+            let initialDistance = abs(guideX - initialX) * scale
+            let currentDistance = abs(guideX - boundedX) * scale
+            return initialDistance > 6 && currentDistance <= 2 && currentDistance < initialDistance
+        }
+        guard let snappedX = eligibleGuides.min(by: { abs($0 - boundedX) < abs($1 - boundedX) }) else {
+            return (boundedFraction, nil)
+        }
+        return (
+            ChordEvent.clampedManualLaneFraction(Double(
+                (snappedX - referenceFrame.minX) / max(1, referenceFrame.width)
+            )),
+            snappedX
+        )
+    }
 }

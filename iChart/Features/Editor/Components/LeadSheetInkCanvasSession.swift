@@ -1083,18 +1083,19 @@ enum LeadSheetInkCanvasSyncPolicy {
     static func shouldReprojectActiveCanvas(
         currentScopeIdentity: LeadSheetActiveInkScope.Identity?,
         targetScopeIdentity: LeadSheetActiveInkScope.Identity,
-        shouldPreserveDirtyActiveCanvas: Bool
+        shouldPreserveDirtyActiveCanvas: Bool,
+        hasCoordinateSpaceChange: Bool = false
     ) -> Bool {
-        guard !shouldPreserveDirtyActiveCanvas else {
-            return false
-        }
-
         // A hidden canvas deliberately keeps its last drawing long enough for
         // persistence, but that drawing does not belong to a newly activated
         // scope. Reproject only when the resident pixels are already known to
         // represent the target scope; the normal model load below will install
         // the correct drawing for a fresh or switched scope.
-        return currentScopeIdentity == targetScopeIdentity
+        guard currentScopeIdentity == targetScopeIdentity else { return false }
+        // Dirty source remains authoritative over model writebacks. A changed
+        // coordinate space still requires transforming that resident source
+        // before accepting new ink in the resized canvas.
+        return !shouldPreserveDirtyActiveCanvas || hasCoordinateSpaceChange
     }
 
     static func shouldLoadIncomingCanvasDirectly(

@@ -4,6 +4,76 @@ import XCTest
 @testable import iChart
 
 final class StaffSystemDensityTests: XCTestCase {
+    func testManualChordCompressionKeepsSystemsPaginationAndInkStableAtEveryDensity() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for density in StaffSystemDensity.allCases {
+                var baselineChart = makeChart(style: style)
+                baselineChart.setStaffSystemDensity(density)
+                let measureID = baselineChart.measures[0].id
+                let chordID = try XCTUnwrap(baselineChart.appendRecognizedChordEvent(
+                    try ChordSymbolParser.parse("Dbmaj7(#11)/F#"), rawInput: "Dbmaj7(#11)/F#",
+                    to: measureID, atFraction: 0.25
+                ))
+                let ink = Data([1, 2, 3, 4])
+                baselineChart.pageHandwrittenNotationData = ink
+                baselineChart.pageHandwrittenChordData = ink
+                let before = pageLayout(baselineChart)
+                let original = try XCTUnwrap(before.systems.flatMap(\.measures).flatMap(\.chordLayouts).first { $0.id == chordID })
+                // Packed layout system IDs are regenerated on every layout;
+                // page membership must be compared by persistent measure IDs.
+                func measureIDsByPage(_ layout: LeadSheetPageLayout) -> [[UUID]] {
+                    let measuresBySystem = Dictionary(uniqueKeysWithValues: layout.systems.map {
+                        ($0.id, $0.measures.compactMap(\.sourceMeasureID))
+                    })
+                    return layout.pages.map { page in
+                        page.systemIDs.flatMap { measuresBySystem[$0] ?? [] }
+                    }
+                }
+                for scale in [0.35, 0.65, 1.0] {
+                    var resized = baselineChart
+                    _ = resized.setChordEventManualHorizontalScale(scale, for: chordID)
+                    let restored = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(resized))
+                    let after = pageLayout(restored)
+                    XCTAssertEqual(after.systems.map(\.frame), before.systems.map(\.frame))
+                    XCTAssertEqual(after.systems.flatMap(\.measures).map(\.frame), before.systems.flatMap(\.measures).map(\.frame))
+                    XCTAssertEqual(after.systems.flatMap(\.measures).map(\.staffFrame), before.systems.flatMap(\.measures).map(\.staffFrame))
+                    XCTAssertEqual(measureIDsByPage(after), measureIDsByPage(before))
+                    XCTAssertEqual(after.pageBounds, before.pageBounds)
+                    XCTAssertEqual(restored.pageHandwrittenNotationData, ink)
+                    XCTAssertEqual(restored.pageHandwrittenChordData, ink)
+                    let chord = try XCTUnwrap(after.systems.flatMap(\.measures).flatMap(\.chordLayouts).first { $0.id == chordID })
+                    XCTAssertEqual(chord.naturalFrame, original.naturalFrame)
+                    XCTAssertEqual(chord.frame.width, original.frame.width * CGFloat(scale), accuracy: 0.001)
+                    XCTAssertEqual(chord.frame.height, original.frame.height, accuracy: 0.001)
+                    XCTAssertEqual(chord.renderFontSize, original.renderFontSize)
+                    XCTAssertEqual(chord.frame.midY, original.frame.midY, accuracy: 0.001)
+                }
+            }
+        }
+    }
+
+    func testDefaultMeasuredChordClearsStaffWithoutShrinkingAndCompressionKeepsItsHeightAndAnchor() throws {
+        for font in ChartFontFamilyPreset.selectableCases {
+            var chart = makeChart(style: .rhythmSectionSheet)
+            chart.setMatchedFontFamily(font)
+            chart.setStaffSystemDensity(.dense)
+            let measureID = chart.measures[0].id
+            let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Bb7"), rawInput: "Bb7", to: measureID, atFraction: 0.05
+            ))
+            let before = pageLayout(chart)
+            let measure = try XCTUnwrap(before.systems.first?.measures.first)
+            let original = try XCTUnwrap(measure.chordLayouts.first)
+            XCTAssertEqual(original.renderFontSize, ChartTypographyResolver.structuredChordPrimaryFontSize)
+            XCTAssertLessThanOrEqual(original.frame.maxY + 0.5, measure.staffFrame.minY + 0.001)
+            _ = chart.setChordEventManualHorizontalScale(0.5, for: chordID)
+            let after = try XCTUnwrap(pageLayout(chart).systems.first?.measures.first?.chordLayouts.first)
+            XCTAssertEqual(after.frame.midY, original.frame.midY, accuracy: 0.001)
+            XCTAssertEqual(after.renderFontSize, ChartTypographyResolver.structuredChordPrimaryFontSize)
+            XCTAssertEqual(after.frame.height, original.frame.height, accuracy: 0.001)
+        }
+    }
+
     func testStandardRetainsOriginalEngravingGeometryAndFirstPageCapacity() throws {
         let originalMetrics: [(EngravingPreset, CGFloat, CGFloat, Int)] = [
             (.compact, 124, 18, 5),

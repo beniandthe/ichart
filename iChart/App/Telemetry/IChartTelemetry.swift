@@ -123,13 +123,26 @@ enum IChartTelemetry {
         lock.unlock()
     }
 
+    static func setConsentGranted(_ isGranted: Bool) {
+        let configured = service
+        (configured?.consentStore ?? .shared).setConsentGranted(isGranted)
+        Task.detached(priority: .utility) {
+            await configured?.consentDidChange()
+        }
+    }
+
     static func record(_ eventName: String, properties: IChartTelemetryProperties = [:]) {
         guard let service = service else {
             return
         }
 
+        let consent = service.consentStore.snapshot
+        guard consent.isGranted else {
+            Task.detached(priority: .utility) { await service.consentDidChange() }
+            return
+        }
         Task.detached(priority: .utility) {
-            await service.record(eventName, properties: properties)
+            await service.record(eventName, properties: properties, expectedConsent: consent)
         }
     }
 
@@ -138,13 +151,16 @@ enum IChartTelemetry {
             return
         }
 
+        let consent = service.consentStore.snapshot
         Task.detached(priority: .utility) {
-            await service.flush()
+            await service.flush(expectedConsent: consent)
         }
     }
 
     static func flushPendingEventsIfNeeded() async {
-        await service?.flushIfNeeded()
+        guard let service = service else { return }
+        let consent = service.consentStore.snapshot
+        await service.flushIfNeeded(expectedConsent: consent)
     }
 
     private static var service: IChartTelemetryService? {
@@ -155,18 +171,22 @@ enum IChartTelemetry {
 }
 
 actor IChartTelemetryService {
+    nonisolated let consentStore: IChartTelemetryConsentStore
     private let endpointURL: URL
     private let publishableKey: String
     private let sessionStore: IChartSupabaseSessionStore?
     private let queueStore: IChartTelemetryQueueStore
-    private let installationID: UUID
-    private let sessionID: UUID
+    private let suppliedInstallationID: UUID?
+    private let suppliedSessionID: UUID?
+    private var installationID: UUID?
+    private var sessionID: UUID?
     private let urlSession: URLSession
     private let now: () -> Date
     private var isFlushing = false
     private var lastFlushAttemptAt: Date?
+    private var observedConsent: IChartTelemetryConsentSnapshot?
+    private var inFlightRequest: IChartTelemetryRequest?
 
-    private static let installationIDKey = "iChart.telemetry.installation-id.v1"
     private static let opportunisticFlushInterval: TimeInterval = 20
     private static let opportunisticFlushQueueThreshold = 8
     private static let maxBatchSize = 40
@@ -178,8 +198,9 @@ actor IChartTelemetryService {
         publishableKey: String,
         sessionStore: IChartSupabaseSessionStore?,
         queueStore: IChartTelemetryQueueStore,
-        installationID: UUID,
-        sessionID: UUID = UUID(),
+        installationID: UUID? = nil,
+        sessionID: UUID? = nil,
+        consentStore: IChartTelemetryConsentStore = .shared,
         urlSession: URLSession = .shared,
         now: @escaping () -> Date = Date.init
     ) {
@@ -187,10 +208,31 @@ actor IChartTelemetryService {
         self.publishableKey = publishableKey
         self.sessionStore = sessionStore
         self.queueStore = queueStore
+        self.consentStore = consentStore
+        suppliedInstallationID = installationID
+        suppliedSessionID = sessionID
         self.installationID = installationID
         self.sessionID = sessionID
         self.urlSession = urlSession
         self.now = now
+        let consent = consentStore.snapshot
+        if consent.isGranted && !consentStore.requiresQueueReset {
+            observedConsent = consent
+        } else {
+            // A queue from builds that collected without this explicit consent
+            // must never become eligible merely because the user later opts in.
+            do {
+                if try consentStore.clearQueuedEvents(matching: consent, {
+                    try queueStore.clear()
+                }) {
+                    observedConsent = consent
+                } else {
+                    observedConsent = nil
+                }
+            } catch {
+                observedConsent = nil
+            }
+        }
     }
 
     static func live(
@@ -210,8 +252,7 @@ actor IChartTelemetryService {
                 .appendingPathComponent("app-telemetry-ingest"),
             publishableKey: configuration.publishableKey,
             sessionStore: clients?.sessionStore,
-            queueStore: .live(),
-            installationID: resolvedInstallationID()
+            queueStore: .live()
         )
     }
 
@@ -229,12 +270,22 @@ actor IChartTelemetryService {
         }
     }
 
-    func record(_ eventName: String, properties: IChartTelemetryProperties = [:]) async {
-        guard IChartTelemetryPrivacy.allowedEventNames.contains(eventName) else {
+    func consentDidChange() {
+        _ = preparedConsent()
+    }
+
+    func record(
+        _ eventName: String,
+        properties: IChartTelemetryProperties = [:],
+        expectedConsent: IChartTelemetryConsentSnapshot? = nil
+    ) async {
+        guard let consent = preparedConsent(),
+              expectedConsent == nil || expectedConsent == consent,
+              IChartTelemetryPrivacy.allowedEventNames.contains(eventName),
+              let context = currentContext(for: consent) else {
             return
         }
 
-        let context = currentContext()
         let event = IChartTelemetryEvent(
             clientEventID: UUID(),
             eventName: eventName,
@@ -252,25 +303,32 @@ actor IChartTelemetryService {
         )
 
         do {
-            try queueStore.append(event)
+            guard try consentStore.performIfGranted(matching: consent, {
+                try queueStore.append(event)
+                return true
+            }) == true else { return }
         } catch {
             return
         }
 
         if shouldFlushOpportunistically() {
-            await flush()
+            await flush(expectedConsent: consent)
         }
     }
 
-    func flushIfNeeded() async {
-        guard shouldFlushOpportunistically() else {
+    func flushIfNeeded(expectedConsent: IChartTelemetryConsentSnapshot? = nil) async {
+        guard let consent = preparedConsent(),
+              expectedConsent == nil || expectedConsent == consent,
+              shouldFlushOpportunistically() else {
             return
         }
-        await flush()
+        await flush(expectedConsent: consent)
     }
 
-    func flush() async {
-        guard !Task.isCancelled, !isFlushing else {
+    func flush(expectedConsent: IChartTelemetryConsentSnapshot? = nil) async {
+        guard let consent = preparedConsent(),
+              expectedConsent == nil || expectedConsent == consent,
+              !Task.isCancelled, !isFlushing else {
             return
         }
 
@@ -282,30 +340,41 @@ actor IChartTelemetryService {
         // batch waiting for another editor event. Bound each attempt so a slow
         // connection or continuous writing cannot make one flush run forever.
         for _ in 0..<Self.maximumBatchesPerFlush {
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled, consentStore.snapshot == consent else {
+                _ = preparedConsent()
                 return
             }
             do {
-                guard let batch = try nextBatch() else {
+                guard let batch = try nextBatch(for: consent) else {
                     return
                 }
-                try await send(body: batch.body)
+                try await send(body: batch.body, consent: consent)
                 // Reload before removal: recording can append while send awaits.
-                try queueStore.removeEvents(withIDs: Set(batch.events.map(\.clientEventID)))
+                guard try consentStore.performIfGranted(matching: consent, {
+                    try queueStore.removeEvents(withIDs: Set(batch.events.map(\.clientEventID)))
+                    return true
+                }) == true else {
+                    _ = preparedConsent()
+                    return
+                }
             } catch {
                 // Keep the original event IDs for an idempotent later retry.
+                _ = preparedConsent()
                 return
             }
         }
     }
 
-    private func nextBatch() throws -> (events: [IChartTelemetryEvent], body: Data)? {
-        let queuedEvents = try queueStore.loadEvents().prefix(Self.maxBatchSize)
+    private func nextBatch(for consent: IChartTelemetryConsentSnapshot) throws -> (events: [IChartTelemetryEvent], body: Data)? {
+        guard let loadedEvents = try consentStore.performIfGranted(matching: consent, {
+            try queueStore.loadEvents()
+        }) else { return nil }
+        let queuedEvents = loadedEvents.prefix(Self.maxBatchSize)
         guard !queuedEvents.isEmpty else {
             return nil
         }
 
-        let context = currentContext()
+        guard let context = currentContext(for: consent) else { return nil }
         var byteCount = try Self.encoder.encode(
             IChartTelemetryBatch(context: context, events: [])
         ).count
@@ -329,7 +398,8 @@ actor IChartTelemetryService {
         return (events, body)
     }
 
-    private func send(body: Data) async throws {
+    private func send(body: Data, consent: IChartTelemetryConsentSnapshot) async throws {
+        guard consentStore.snapshot == consent, !Task.isCancelled else { throw CancellationError() }
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
@@ -343,7 +413,31 @@ actor IChartTelemetryService {
 
         request.httpBody = body
 
-        let (_, response) = try await urlSession.data(for: request)
+        let pendingRequest = IChartTelemetryRequest()
+        inFlightRequest = pendingRequest
+        defer {
+            if inFlightRequest === pendingRequest { inFlightRequest = nil }
+        }
+        let response: URLResponse = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let started = consentStore.performIfGranted(matching: consent) {
+                    let task = urlSession.dataTask(with: request) { _, response, error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if let response {
+                            continuation.resume(returning: response)
+                        } else {
+                            continuation.resume(throwing: URLError(.badServerResponse))
+                        }
+                    }
+                    pendingRequest.start(task)
+                    return true
+                }
+                if started != true { continuation.resume(throwing: CancellationError()) }
+            }
+        } onCancel: {
+            pendingRequest.cancel()
+        }
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
@@ -363,29 +457,43 @@ actor IChartTelemetryService {
         return now().timeIntervalSince(lastFlushAttemptAt) >= Self.opportunisticFlushInterval
     }
 
-    private func currentContext() -> IChartTelemetryContext {
-        IChartTelemetryContext(
-            installationID: installationID,
-            sessionID: sessionID,
-            appVersion: Self.bundleValue(for: "CFBundleShortVersionString", fallback: "unknown"),
-            buildNumber: Self.bundleValue(for: "CFBundleVersion", fallback: "unknown"),
-            platform: Self.platformName,
-            osVersion: Self.osVersion,
-            deviceModel: Self.deviceModel,
-            localeLanguage: Locale.current.identifier,
-            timeZoneOffsetMinutes: TimeZone.current.secondsFromGMT() / 60
-        )
+    private func currentContext(for consent: IChartTelemetryConsentSnapshot) -> IChartTelemetryContext? {
+        guard let resolvedID = installationID ?? consentStore.installationID(for: consent) else { return nil }
+        return consentStore.performIfGranted(matching: consent) {
+            installationID = resolvedID
+            let resolvedSessionID = sessionID ?? UUID()
+            sessionID = resolvedSessionID
+            return IChartTelemetryContext(
+                installationID: resolvedID,
+                sessionID: resolvedSessionID,
+                appVersion: Self.bundleValue(for: "CFBundleShortVersionString", fallback: "unknown"),
+                buildNumber: Self.bundleValue(for: "CFBundleVersion", fallback: "unknown"),
+                platform: Self.platformName,
+                osVersion: Self.osVersion,
+                deviceModel: Self.deviceModel,
+                localeLanguage: Locale.current.identifier,
+                timeZoneOffsetMinutes: TimeZone.current.secondsFromGMT() / 60
+            )
+        }
     }
 
-    private static func resolvedInstallationID(defaults: UserDefaults = .standard) -> UUID {
-        if let storedValue = defaults.string(forKey: installationIDKey),
-           let uuid = UUID(uuidString: storedValue) {
-            return uuid
+    private func preparedConsent() -> IChartTelemetryConsentSnapshot? {
+        let consent = consentStore.snapshot
+        if consent != observedConsent || !consent.isGranted || consentStore.requiresQueueReset {
+            inFlightRequest?.cancel()
+            do {
+                guard try consentStore.clearQueuedEvents(matching: consent, {
+                    try queueStore.clear()
+                }) else { return nil }
+            } catch {
+                return nil
+            }
+            installationID = suppliedInstallationID
+            sessionID = suppliedSessionID
+            lastFlushAttemptAt = nil
+            observedConsent = consent
         }
-
-        let uuid = UUID()
-        defaults.set(uuid.uuidString, forKey: installationIDKey)
-        return uuid
+        return consent.isGranted ? consent : nil
     }
 
     private static func bundleValue(for key: String, fallback: String) -> String {
@@ -430,6 +538,26 @@ actor IChartTelemetryService {
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }()
+}
+
+private final class IChartTelemetryRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var isCancelled = false
+
+    func start(_ task: URLSessionDataTask) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.task = task
+        if isCancelled { task.cancel() } else { task.resume() }
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        isCancelled = true
+        task?.cancel()
+    }
 }
 
 final class IChartTelemetryQueueStore {
@@ -483,6 +611,12 @@ final class IChartTelemetryQueueStore {
     func removeEvents(withIDs ids: Set<UUID>) throws {
         let remainingEvents = try loadEvents().filter { !ids.contains($0.clientEventID) }
         try save(remainingEvents)
+    }
+
+    func clear() throws {
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
     }
 
     private func save(_ events: [IChartTelemetryEvent]) throws {

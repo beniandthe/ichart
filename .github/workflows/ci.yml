@@ -36,6 +36,14 @@ jobs:
       - name: Verify client and ingest allowlists agree
         run: node --test supabase/functions/_shared/telemetry_ingest.test.mjs
 
+      - name: Verify complimentary offers and subscription/account contracts
+        run: >-
+          node --test
+          supabase/functions/_shared/*complimentary_offer*.test.mjs
+          supabase/functions/_shared/app_store_subscription_authority.test.mjs
+          supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
+          supabase/functions/_shared/account_deletion.test.mjs
+
   swift-package:
     name: SwiftPM tests
     runs-on: macos-26

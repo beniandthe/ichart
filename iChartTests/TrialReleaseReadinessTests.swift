@@ -65,8 +65,7 @@ final class TrialReleaseReadinessTests: XCTestCase {
     func testCustomerNoticeDisclosesIdentifiersAndRecognitionDiagnostics() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("public-site/useichart/privacy.html"))
-        XCTAssertTrue(text.contains("random installation identifier"))
-        XCTAssertTrue(text.contains("session identifier"))
+        XCTAssertTrue(text.contains("random installation and diagnostic-session identifiers"))
         XCTAssertTrue(text.contains("linked to your iChart account identifier"))
         XCTAssertTrue(text.contains("recognition pipeline version"))
         XCTAssertTrue(text.contains("telemetry does not collect chart titles"))

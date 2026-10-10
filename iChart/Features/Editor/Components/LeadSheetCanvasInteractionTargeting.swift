@@ -19,6 +19,7 @@ struct ActiveChordMoveDrag {
     var currentFrame: CGRect
     var startLocation: CGPoint
     var currentPositionPreview: LeadSheetChordMovePositionPreview? = nil
+    var screenPointsPerDisplayedPoint: CGFloat = 1
 }
 
 struct ActiveChordResizeDrag {
@@ -32,11 +33,21 @@ struct ActiveChordResizeDrag {
     var initialFrame: CGRect
     var currentFrame: CGRect
     var startLocation: CGPoint
+    var initialHorizontalScale: CGFloat = 1
+    var screenPointsPerDisplayedPoint: CGFloat = 1
 }
 
 typealias LeadSheetChordMovePositionGuidePolicy = LeadSheetChordPlacementGuidePolicy
 
 enum LeadSheetChordMoveDragPolicy {
+    static func hasMeaningfulTranslation(
+        for drag: ActiveChordMoveDrag,
+        at location: CGPoint
+    ) -> Bool {
+        hypot(location.x - drag.startLocation.x, location.y - drag.startLocation.y)
+            * max(0.0001, drag.screenPointsPerDisplayedPoint) >= 0.1
+    }
+
     static func previewFrame(
         for drag: ActiveChordMoveDrag,
         at location: CGPoint,
@@ -70,6 +81,16 @@ enum LeadSheetChordMoveDragPolicy {
         for drag: ActiveChordMoveDrag,
         chart: Chart? = nil
     ) -> (measureID: UUID, fraction: Double)? {
+        if let chart {
+            // Commit the exact drag preview. Re-running the stateless 18-point
+            // placement policy here would undo the user's fine adjustment.
+            guard let preview = drag.currentPositionPreview
+                ?? positionPreview(at: location, for: drag, chart: chart) else {
+                return nil
+            }
+            return (preview.measureID, preview.targetFraction)
+        }
+
         let locationTarget = LeadSheetCanvasInteractionTargeting.chordMoveTarget(
             measureAnchor: location,
             fractionAnchorX: drag.currentFrame.minX,
@@ -103,38 +124,76 @@ enum LeadSheetChordMoveDragPolicy {
         for drag: ActiveChordMoveDrag,
         chart: Chart
     ) -> LeadSheetChordMovePositionPreview? {
-        LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+        let initialCenter = CGPoint(x: drag.initialFrame.midX, y: drag.initialFrame.midY)
+        let movementFrame = drag.sourcePageLayout.paperFrame(containing: initialCenter)
+            ?? drag.sourcePageLayout.paperFrame
+        let rawFrame = previewFrame(for: drag, at: location, boundedBy: movementFrame)
+        return LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
             measureAnchor: location,
-            fractionAnchorX: drag.currentFrame.minX,
+            fractionAnchorX: rawFrame.minX,
             in: drag.sourcePageLayout,
-            chart: chart
+            chart: chart,
+            dragInitialX: drag.initialFrame.minX,
+            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint
+        ) ?? LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
+            measureAnchor: CGPoint(x: rawFrame.midX, y: rawFrame.midY),
+            fractionAnchorX: rawFrame.minX,
+            in: drag.sourcePageLayout,
+            chart: chart,
+            dragInitialX: drag.initialFrame.minX,
+            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint
         )
     }
 }
 
 enum LeadSheetChordResizeDragPolicy {
+    static func hasMeaningfulTranslation(
+        for drag: ActiveChordResizeDrag,
+        at location: CGPoint
+    ) -> Bool {
+        abs(location.x - drag.startLocation.x)
+            * max(0.0001, drag.screenPointsPerDisplayedPoint) >= 0.1
+    }
+
+    static func horizontalScale(for drag: ActiveChordResizeDrag) -> Double {
+        ChordEvent.clampedManualHorizontalScale(
+            Double(drag.initialHorizontalScale * drag.currentFrame.width / max(0.001, drag.initialFrame.width))
+        )
+    }
+
+    static func visualPlacement(for drag: ActiveChordResizeDrag) -> (measureID: UUID, fraction: Double)? {
+        guard let measure = drag.sourcePageLayout.systems.flatMap(\.measures).first(where: {
+            $0.chordLayouts.contains { $0.id == drag.chordID }
+        }), let measureID = measure.sourceMeasureID, measure.chordBandFrame.width > 0 else {
+            return nil
+        }
+        return (
+            measureID,
+            ChordEvent.clampedManualLaneFraction(Double(
+                (drag.currentFrame.minX - measure.chordBandFrame.minX) / measure.chordBandFrame.width
+            ))
+        )
+    }
+
     static func previewFrame(
         for drag: ActiveChordResizeDrag,
         at location: CGPoint,
-        boundedBy movementFrame: CGRect
+        boundedBy _: CGRect
     ) -> CGRect {
-        let minimumWidth = CGFloat(ChordEvent.minimumManualDisplayWidth)
-        let maximumWidth = min(
-            CGFloat(ChordEvent.maximumManualDisplayWidth),
-            max(minimumWidth, movementFrame.width)
-        )
         let deltaX = location.x - drag.startLocation.x
-
+        guard deltaX.isFinite else { return drag.initialFrame }
+        let initialScale = CGFloat(ChordEvent.clampedManualHorizontalScale(Double(drag.initialHorizontalScale)))
         let proposedWidth = drag.initialFrame.width + deltaX
-        let availableWidth = max(minimumWidth, movementFrame.maxX - drag.initialFrame.minX)
-        let resolvedWidth = min(
-            maximumWidth,
-            min(availableWidth, max(minimumWidth, proposedWidth))
-        )
+        // Width-only compression has explicit limits, never a density-based
+        // font fit. Height and vertical position remain fixed throughout a drag.
+        let scale = CGFloat(ChordEvent.clampedManualHorizontalScale(
+            Double(initialScale * proposedWidth / max(0.001, drag.initialFrame.width))
+        ))
+        let ratio = scale / initialScale
         return CGRect(
             x: drag.initialFrame.minX,
             y: drag.initialFrame.minY,
-            width: resolvedWidth,
+            width: drag.initialFrame.width * ratio,
             height: drag.initialFrame.height
         )
     }
@@ -311,7 +370,9 @@ enum LeadSheetCanvasInteractionTargeting {
         measureAnchor: CGPoint,
         fractionAnchorX: CGFloat,
         in pageLayout: LeadSheetPageLayout?,
-        chart: Chart
+        chart: Chart,
+        dragInitialX: CGFloat? = nil,
+        screenPointsPerDisplayedPoint: CGFloat = 1
     ) -> LeadSheetChordMovePositionPreview? {
         guard let target = chordMoveRawTarget(
             measureAnchor: measureAnchor,
@@ -323,12 +384,24 @@ enum LeadSheetCanvasInteractionTargeting {
         }
 
         let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
-        let resolved = LeadSheetChordMovePositionGuidePolicy.resolvedFraction(
-            rawFraction: target.rawFraction,
-            referenceFrame: target.referenceFrame,
-            guideFrame: target.guideFrame,
-            meter: meter
-        )
+        let resolved: (fraction: Double, activeGuideX: CGFloat?)
+        if let dragInitialX {
+            resolved = LeadSheetChordMovePositionGuidePolicy.resolvedDragFraction(
+                rawFraction: target.rawFraction,
+                initialX: dragInitialX,
+                screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint,
+                referenceFrame: target.referenceFrame,
+                guideFrame: target.guideFrame,
+                meter: meter
+            )
+        } else {
+            resolved = LeadSheetChordMovePositionGuidePolicy.resolvedFraction(
+                rawFraction: target.rawFraction,
+                referenceFrame: target.referenceFrame,
+                guideFrame: target.guideFrame,
+                meter: meter
+            )
+        }
         let targetX = target.referenceFrame.minX
             + target.referenceFrame.width * CGFloat(resolved.fraction)
 

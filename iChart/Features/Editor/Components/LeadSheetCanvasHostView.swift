@@ -1617,7 +1617,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private lazy var chordInkRecognitionSession = ChordInkRecognitionSession(
         queue: chordInkRecognitionQueue,
         recognizer: chordInkRecognizer,
-        personalProfile: .shared
+        personalProfile: HandwritingPersonalizationProductPolicy.isAvailable ? .shared : nil,
+        allowsPersonalInk: HandwritingPersonalizationProductPolicy.isAvailable
     )
     private lazy var inkSerializationSession = LeadSheetInkSerializationSession(
         queue: inkSerializationQueue
@@ -1680,6 +1681,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeCanvasScopeIdentity: LeadSheetActiveInkScope.Identity?
     private var activeCanvasScope: LeadSheetActiveInkScope?
     private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
+    private var hasDeferredActiveInkGeometrySync = false
     private var savedHeaderInkCanvasState: LeadSheetSavedInkCanvasState?
     private var savedPageInkCanvasState: LeadSheetSavedInkCanvasState?
     private var savedHeaderInkCanvasStrokeCount = 0
@@ -2324,7 +2326,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawRepeatMarkers(leadingMarkers, using: renderer)
             drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
-            for chordLayout in measure.chordLayouts {
+            for chordLayout in renderer.fittedChordLayouts(measure.chordLayouts) {
                 let chordLayoutForDisplay = displayChordLayout(for: chordLayout)
                 renderer.drawChord(chordLayoutForDisplay)
                 if interactionMode.allowsChordObjectEditing,
@@ -2990,6 +2992,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             var previewLayout = chordLayout
             previewLayout.frame = activeChordResizeDrag.currentFrame
             previewLayout.fitFrame = activeChordResizeDrag.currentFrame
+            previewLayout.renderFontSize = chordLayout.baseFontSize
+            previewLayout.horizontalCompressionScale = CGFloat(LeadSheetChordResizeDragPolicy.horizontalScale(for: activeChordResizeDrag))
+            previewLayout.usesManualHorizontalScale = true
             previewLayout.snapGuideTarget = CGPoint(
                 x: activeChordResizeDrag.currentFrame.minX,
                 y: activeChordResizeDrag.currentFrame.maxY + 1
@@ -3303,18 +3308,26 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         measureAndSystemLayout(for: measureID)?.measure
     }
 
-    private func measureResizeDisplayedToManualWidthScale() -> CGFloat {
-        guard chart.layoutStyle == .simpleChordSheet,
-              let pageLayout,
-              let selectedMeasureID,
-              let selectedSystem = measureAndSystemLayout(for: selectedMeasureID)?.system else {
+    private func measureResizeDisplayedToManualWidthScale(
+        rowMeasures: [LeadSheetMeasureResizeMeasureSnapshot],
+        in system: LeadSheetSystemLayout
+    ) -> CGFloat {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
+              let pageLayout else {
             return 1
         }
 
-        return LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthScale(
+        return LeadSheetMeasureResizeGeometry.displayedToManualWidthScale(
+            rowMeasures: rowMeasures,
             chart: chart,
-            maxSystemWidth: max(1, pageLayout.paperFrame(for: selectedSystem).width - 68)
+            maxSystemWidth: max(1, pageLayout.paperFrame(for: system).width - 68)
         )
+    }
+
+    private func canvasScreenPointsPerDisplayedPoint() -> CGFloat {
+        let origin = convert(CGPoint.zero, to: window)
+        let unitX = convert(CGPoint(x: 1, y: 0), to: window)
+        return max(0.0001, hypot(unitX.x - origin.x, unitX.y - origin.y))
     }
 
     private func measureResizeTransaction(
@@ -3355,12 +3368,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             evenDivisionCommitManualWidths = [:]
         }
 
+        let displayedToManualWidthScale = measureResizeDisplayedToManualWidthScale(
+            rowMeasures: snapshots,
+            in: system
+        )
         return LeadSheetMeasureResizeTransaction(
             selectedMeasureID: measureID,
             edge: edge,
             rowMeasures: snapshots,
-            displayedToManualWidthScale: measureResizeDisplayedToManualWidthScale(),
-            evenDivisionCommitManualWidths: evenDivisionCommitManualWidths
+            displayedToManualWidthScale: displayedToManualWidthScale,
+            evenDivisionCommitManualWidths: evenDivisionCommitManualWidths,
+            screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
+            baselineCommitManualWidths: LeadSheetMeasureResizeGeometry.baselineManualWidthsForPrecisionEdit(
+                rowMeasures: snapshots,
+                chart: chart,
+                displayedToManualWidthScale: displayedToManualWidthScale
+            )
         )
     }
 
@@ -3784,10 +3807,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         guard canvasView === pageInkCanvasView else { return }
         isUsingInkTool = false
+        let resumesDeferredGeometry = hasDeferredActiveInkGeometrySync
+        if resumesDeferredGeometry {
+            // The completed stroke still belongs to the old canvas geometry.
+            // Apply the latest layout to the whole resident drawing before any
+            // subsequent stroke or recognition request can use the new frame.
+            syncPageInkCanvas()
+            hasDeferredActiveInkGeometrySync = false
+            scheduleInkSessionWorkAfterDrawingChange(
+                strokeCount: activeCanvasStrokeCount,
+                activeRole: activeInkAuthoringSessionRole()
+            )
+        }
         if activeInkAuthoringSessionRole() == .chord {
             chordDraftRenderCoordinator?.lastInputAt = Date()
         }
-        if activeInkAuthoringSessionRole() == .chord,
+        if !resumesDeferredGeometry,
+           activeInkAuthoringSessionRole() == .chord,
+           HandwritingPersonalizationProductPolicy.isAvailable,
            PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
             // PencilKit may deliver a final pressure update after tool end, or
             // none for a cancelled interaction. Recheck the current source;
@@ -3936,7 +3973,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         persistActiveInkIfNeeded(knownInkSnapshot: currentCanvasInkSnapshot())
-        if PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
+        if HandwritingPersonalizationProductPolicy.isAvailable,
+           PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil {
             // Empty/fully erased ink must replace older source evidence too.
             // The ordinary empty-preview flow remains unchanged outside tests.
             scheduleInkSessionWorkAfterDrawingChange(strokeCount: rawStrokeCount, activeRole: activeRole)
@@ -4676,21 +4714,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             var updatedChart = chart
             let translationX = recognizer.translation(in: self).x
+            guard LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(
+                translationX,
+                screenPointsPerDisplayedPoint: activeMeasureResizeDrag.transaction?.screenPointsPerDisplayedPoint
+                    ?? canvasScreenPointsPerDisplayedPoint()
+            ) else {
+                self.activeMeasureResizeDrag = nil
+                setNeedsDisplay()
+                return
+            }
             let committedWidths: [UUID: CGFloat]
-            if abs(translationX) < 0.5 {
-                committedWidths = [:]
-            } else if let transaction = activeMeasureResizeDrag.transaction {
+            if let transaction = activeMeasureResizeDrag.transaction {
                 committedWidths = transaction.preview(for: translationX).committedManualWidths
             } else {
                 committedWidths = [:]
             }
             var didApplyResize = false
             if committedWidths.isEmpty {
-                guard abs(translationX) >= 0.5 else {
-                    self.activeMeasureResizeDrag = nil
-                    setNeedsDisplay()
-                    return
-                }
                 let proposedWidth = LeadSheetMeasureResizePreviewPolicy.proposedModelWidth(
                     initialWidth: activeMeasureResizeDrag.initialWidth,
                     edge: activeMeasureResizeDrag.edge,
@@ -4789,7 +4829,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 sourcePageLayout: pageLayout,
                 initialFrame: chordLayout.frame,
                 currentFrame: chordLayout.frame,
-                startLocation: startLocation
+                startLocation: startLocation,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
             )
             editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
             lockParentScrollForChordMove()
@@ -4864,7 +4905,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 edge: .trailing,
                 initialFrame: chordLayout.frame,
                 currentFrame: chordLayout.frame,
-                startLocation: startLocation
+                startLocation: startLocation,
+                initialHorizontalScale: chordLayout.horizontalCompressionScale,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
             )
             editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             lockParentScrollForChordMove()
@@ -4892,7 +4935,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
 
             if recognizer.state == .ended {
-                commitChordResize(activeChordResizeDrag)
+                if LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: activeChordResizeDrag, at: location) {
+                    commitChordResize(activeChordResizeDrag)
+                }
                 self.activeChordResizeDrag = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
@@ -4915,10 +4960,20 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         var updatedChart = chart
         var didChange = false
 
-        didChange = updatedChart.setChordEventManualDisplayWidth(
-            Double(activeChordResizeDrag.currentFrame.width),
+        didChange = updatedChart.setChordEventManualHorizontalScale(
+            LeadSheetChordResizeDragPolicy.horizontalScale(for: activeChordResizeDrag),
             for: activeChordResizeDrag.chordID
         ) != nil || didChange
+
+        if let placement = LeadSheetChordResizeDragPolicy.visualPlacement(for: activeChordResizeDrag) {
+            didChange = updatedChart.moveChordEventInCommittedChordLane(
+                activeChordResizeDrag.chordID,
+                to: placement.measureID,
+                atFraction: nil,
+                visualFraction: placement.fraction,
+                preserveMusicalPlacement: true
+            ) || didChange
+        }
 
         guard didChange else {
             return
@@ -4961,16 +5016,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chart: chart
         )
 
-        guard let activeGuideX = updatedDrag.currentPositionPreview?.activeGuideX else {
+        guard let positionPreview = updatedDrag.currentPositionPreview else {
             return updatedDrag
         }
 
-        var snappedFrame = updatedDrag.currentFrame
-        snappedFrame.origin.x = min(
-            max(activeGuideX, activePaperFrame.minX),
-            max(activePaperFrame.minX, activePaperFrame.maxX - snappedFrame.width)
+        var positionedFrame = updatedDrag.currentFrame
+        positionedFrame.origin.x = positionPreview.targetX
+        positionedFrame.size.width = min(
+            positionedFrame.width,
+            max(1, positionPreview.referenceFrame.maxX - positionedFrame.minX)
         )
-        updatedDrag.currentFrame = snappedFrame
+        updatedDrag.currentFrame = positionedFrame
         return updatedDrag
     }
 
@@ -4978,7 +5034,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ activeChordMoveDrag: ActiveChordMoveDrag,
         at location: CGPoint
     ) {
-        guard let target = LeadSheetChordMoveDragPolicy.target(
+        guard LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(
+            for: activeChordMoveDrag,
+            at: location
+        ), let target = LeadSheetChordMoveDragPolicy.target(
             at: location,
             for: activeChordMoveDrag,
             chart: chart
@@ -4987,10 +5046,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         var updatedChart = chart
+        let isFineAdjustmentWithinMeasure = chart.measureContainingChordEvent(
+            id: activeChordMoveDrag.chordID
+        )?.id == target.measureID
+            && activeChordMoveDrag.currentPositionPreview?.activeGuideX == nil
         guard updatedChart.moveChordEventInCommittedChordLane(
             activeChordMoveDrag.chordID,
             to: target.measureID,
-            atFraction: target.fraction
+            atFraction: target.fraction,
+            visualFraction: target.fraction,
+            preserveMusicalPlacement: isFineAdjustmentWithinMeasure
         ) else {
             return
         }
@@ -5161,6 +5226,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ]
         )
         guard let activeInkScope = activeInkScope() else {
+            hasDeferredActiveInkGeometrySync = false
             if !interactionMode.allowsAnyInkEditing {
                 ChordLaneLocalBreadcrumbs.record(
                     "sync_hide_no_ink_mode",
@@ -5199,13 +5265,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             for: activeInkScope,
             pageLayout: pageLayout
         )
+        let residentCoordinateSpace = activeCanvasCoordinateSpace
+            ?? PersistentInkCoordinateSpace(size: pageInkCanvasView.bounds.size)
+        let hasCoordinateSpaceChange = residentCoordinateSpace != targetCoordinateSpace
+        let hasResidentGeometryChange = activeCanvasScopeIdentity == targetScopeIdentity
+            && (pageInkCanvasView.frame != activeInkScope.frame || hasCoordinateSpaceChange)
+        if isUsingInkTool, hasResidentGeometryChange {
+            // Keep the in-flight stroke, frame and coordinate metadata together.
+            // Drawing callbacks may continue, but no old-frame background work
+            // may resume until the completed stroke has been reprojected.
+            hasDeferredActiveInkGeometrySync = true
+            if let role = activeInkAuthoringSessionRole() {
+                // A final PencilKit drawing callback can lag tool end. The
+                // resident source still owns this deferred handoff.
+                inkAuthoringSessionState.markDirty(role)
+            }
+            cancelPendingInkSessionScheduledWork()
+            return
+        }
         let shouldPreserveDirtyActiveCanvas = LeadSheetInkCanvasSyncPolicy.shouldPreserveDirtyActiveCanvas(
             activeInkScope: activeInkScope,
             interactionMode: interactionMode,
             sessionState: inkAuthoringSessionState,
             didSwitchInkScope: switchedInkScope
         )
+        var didReprojectActiveCanvas = false
         if switchedInkScope {
+            hasDeferredActiveInkGeometrySync = false
             if let outgoingCanvasScope {
                 persistActiveInkIfNeeded(activeInkScope: outgoingCanvasScope)
             }
@@ -5213,11 +5299,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         } else if LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
             currentScopeIdentity: activeCanvasScopeIdentity,
             targetScopeIdentity: targetScopeIdentity,
-            shouldPreserveDirtyActiveCanvas: shouldPreserveDirtyActiveCanvas
+            shouldPreserveDirtyActiveCanvas: shouldPreserveDirtyActiveCanvas,
+            hasCoordinateSpaceChange: hasCoordinateSpaceChange
         ) {
-            reprojectActiveCanvasDrawingIfNeeded(
+            didReprojectActiveCanvas = reprojectActiveCanvasDrawingIfNeeded(
                 activeInkScope: activeInkScope,
                 to: targetCoordinateSpace
+            )
+        }
+        if hasResidentGeometryChange, !didReprojectActiveCanvas {
+            // An origin-only frame change still invalidates captured targeting
+            // geometry even though the drawing's local coordinates are equal.
+            invalidatePendingInkWorkAfterProgrammaticCanvasChange(
+                strokeCount: pageInkCanvasView.drawing.strokes.count
             )
         }
         pageInkCanvasView.isHidden = false
@@ -5237,6 +5331,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
+            if hasResidentGeometryChange, !hasDeferredActiveInkGeometrySync {
+                scheduleInkSessionWorkAfterDrawingChange(
+                    strokeCount: activeCanvasStrokeCount,
+                    activeRole: activeInkAuthoringSessionRole()
+                )
+            }
             requestActiveInkFocusIfNeeded()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "preserved_dirty_active_canvas")
@@ -5788,10 +5888,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func reprojectActiveCanvasDrawingIfNeeded(
         activeInkScope: LeadSheetActiveInkScope,
         to targetCoordinateSpace: PersistentInkCoordinateSpace?
-    ) {
+    ) -> Bool {
         guard let targetCoordinateSpace else {
             activeCanvasCoordinateSpace = nil
-            return
+            return false
         }
 
         let sourceCoordinateSpace = activeCanvasCoordinateSpace
@@ -5799,14 +5899,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let sourceCoordinateSpace,
               sourceCoordinateSpace != targetCoordinateSpace else {
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            return
+            return false
         }
 
         let currentDrawing = pageInkCanvasView.drawing
-        let strokeCount = activeCanvasStrokeCount
+        let strokeCount = currentDrawing.strokes.count
         guard strokeCount > 0 else {
+            invalidatePendingInkWorkAfterProgrammaticCanvasChange(strokeCount: 0)
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            return
+            return true
         }
 
         isSyncingInkCanvasFromModel = true
@@ -5825,6 +5926,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             sourceCoordinateSpace: sourceCoordinateSpace,
             targetCoordinateSpace: targetCoordinateSpace
         )
+        return true
     }
 
     private func recordInkCoordinateSpaceReprojection(
@@ -5863,7 +5965,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func beginChordInkEvaluationSource(requestID: UUID, inkRevision: UInt64) {
-        guard let context = PersonalInkEvaluationStore.shared.context(chartID: chart.id) else {
+        guard HandwritingPersonalizationProductPolicy.isAvailable,
+              let context = PersonalInkEvaluationStore.shared.context(chartID: chart.id) else {
             chordInkEvaluationSourceContext = nil
             return
         }
@@ -5873,7 +5976,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func beginChordInkEvaluationInputIfNeeded() {
-        guard !isSyncingInkCanvasFromModel,
+        guard HandwritingPersonalizationProductPolicy.isAvailable,
+              !isSyncingInkCanvasFromModel,
               activeInkAuthoringSessionRole() == .chord,
               PersonalInkEvaluationStore.shared.context(chartID: chart.id) != nil else { return }
         beginChordInkEvaluationSource(requestID: UUID(), inkRevision: inkDrawingRevision)
@@ -5955,6 +6059,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeRole: LeadSheetInkAuthoringSessionRole?
     ) {
         cancelPendingInkSessionScheduledWork()
+        guard !hasDeferredActiveInkGeometrySync else { return }
         let evaluationRequestID: UUID?
         if activeRole == .chord {
             let requestID = UUID()
@@ -6499,7 +6604,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordInkEditedTargetState.accept(nextOwnership, in: editScope)
         }
 
-        if flow == .draftPreview,
+        if HandwritingPersonalizationProductPolicy.isAvailable,
+           flow == .draftPreview,
            let capture = chordInkEvaluationSourceContext,
            capture.requestID == result.requestID,
            let source = result.evaluationSource {
@@ -6536,9 +6642,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
 
         case .ready(let requests, let usesBatch):
-            let evaluation = chordInkEvaluationSourceContext.flatMap {
-                $0.requestID == result.requestID ? $0.context : nil
-            }
+            let evaluation = HandwritingPersonalizationProductPolicy.isAvailable
+                ? chordInkEvaluationSourceContext.flatMap {
+                    $0.requestID == result.requestID ? $0.context : nil
+                }
+                : nil
             let requests = requests.map { request in
                 var request = request
                 request.evaluationContext = evaluation
@@ -6692,7 +6800,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
-            PersonalInkEvaluationCapture.record([payload], chart: chart, bindsSource: true)
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                PersonalInkEvaluationCapture.record([payload], chart: chart, bindsSource: true)
+            }
             // A stable no-read still carries authoritative target ownership.
             // Publish it so the per-target reducer can preserve an unchanged
             // frozen target or reopen only the target whose ink changed.
@@ -6757,7 +6867,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
 
         if flow == .draftPreview {
-            PersonalInkEvaluationCapture.record(payloads, chart: chart, bindsSource: true)
+            if HandwritingPersonalizationProductPolicy.isAvailable {
+                PersonalInkEvaluationCapture.record(payloads, chart: chart, bindsSource: true)
+            }
             // Do not erase no-read targets from the batch. Their lifecycle and
             // exact prepared-stroke identity are needed to keep unrelated ink
             // from retroactively replacing an earlier frozen target.

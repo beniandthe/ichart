@@ -306,30 +306,56 @@ final class ChartLibraryStore: ObservableObject {
 
     @discardableResult
     func deleteChart(id chartID: Chart.ID) -> Bool {
-        guard let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
-            return false
+        deleteCharts(ids: [chartID]) > 0
+    }
+
+    /// Returns the accepted deletion count. Repositories that save asynchronously
+    /// report the eventual save result through `persistenceStatus`.
+    @discardableResult
+    func deleteCharts(ids chartIDs: Set<Chart.ID>) -> Int {
+        let deletedCharts = charts.filter { chartIDs.contains($0.id) }
+        guard !deletedCharts.isEmpty else {
+            return 0
         }
 
-        var updatedCharts = charts
-        updatedCharts.remove(at: chartIndex)
-        let fallbackSelection = chartIndex < updatedCharts.count
-            ? updatedCharts[chartIndex].id
-            : updatedCharts.last?.id
-        let proposedSelection = selectedChartID == chartID ? fallbackSelection : selectedChartID
+        let previousSnapshot = snapshot
+        let deletedChartIDs = Set(deletedCharts.map(\.id))
+        let updatedCharts = charts.filter { !deletedChartIDs.contains($0.id) }
+        var proposedSelection = selectedChartID
+        if let selectedChartID,
+           deletedChartIDs.contains(selectedChartID),
+           let selectedIndex = charts.firstIndex(where: { $0.id == selectedChartID }) {
+            proposedSelection = charts.dropFirst(selectedIndex + 1)
+                .first { !deletedChartIDs.contains($0.id) }?.id
+                ?? updatedCharts.last?.id
+        }
 
-        let shouldSyncTombstoneToCloud = charts[chartIndex].hasCloudBackupRecord
         let deletedAt = Date()
-        performPersistedBatch {
+        let didAcceptPersistence = performPersistedBatch {
             charts = updatedCharts
-            removeChartFromAllProjectsInPlace(chartID)
-            upsertTombstone(
-                chartID: chartID,
-                deletedAt: deletedAt,
-                shouldSyncToCloud: shouldSyncTombstoneToCloud
-            )
+            for chart in deletedCharts {
+                removeChartFromAllProjectsInPlace(chart.id)
+                upsertTombstone(
+                    chartID: chart.id,
+                    deletedAt: deletedAt,
+                    shouldSyncToCloud: chart.hasCloudBackupRecord
+                )
+            }
             selectedChartID = Self.sanitizedSelection(proposedSelection, charts: updatedCharts)
         }
-        return true
+
+        if !didAcceptPersistence {
+            // Keep the failure visible without saving or syncing a rollback.
+            let wasPersistenceEnabled = persistenceEnabled
+            persistenceEnabled = false
+            charts = previousSnapshot.charts
+            projects = previousSnapshot.projects
+            deletionTombstones = previousSnapshot.deletionTombstones
+            selectedChartID = previousSnapshot.selectedChartID
+            persistenceEnabled = wasPersistenceEnabled
+            return 0
+        }
+        return deletedCharts.count
     }
 
     @discardableResult
@@ -532,24 +558,24 @@ final class ChartLibraryStore: ObservableObject {
         ChartLibraryStore(snapshot: .preview)
     }
 
-    private func persistIfNeeded() {
+    @discardableResult
+    private func persistIfNeeded() -> Bool {
         guard persistenceEnabled else {
-            return
+            return true
         }
         guard let repository else {
             persistenceStatus = .notTracking
-            return
+            return true
         }
 
         let snapshotToPersist = snapshot
         let shouldNotifyCloudSync = cloudSyncNotificationsEnabled
         guard repository.savesSnapshotsOffMainThread else {
-            persistSnapshotSynchronously(
+            return persistSnapshotSynchronously(
                 snapshotToPersist,
                 repository: repository,
                 notifyCloudSync: shouldNotifyCloudSync
             )
-            return
         }
 
         persistenceGeneration += 1
@@ -559,6 +585,7 @@ final class ChartLibraryStore: ObservableObject {
             generation: persistenceGeneration
         )
         scheduleAsyncPersistenceIfNeeded(repository: repository)
+        return true
     }
 
     private func scheduleAsyncPersistenceIfNeeded(repository: ChartRepository) {
@@ -607,19 +634,22 @@ final class ChartLibraryStore: ObservableObject {
         _ snapshot: ChartLibrarySnapshot,
         repository: ChartRepository,
         notifyCloudSync: Bool
-    ) {
+    ) -> Bool {
         do {
             try repository.saveSnapshot(snapshot)
             persistenceStatus = .saved(at: .now)
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
+            return true
         } catch {
             persistenceStatus = .failed(message: error.localizedDescription)
+            return false
         }
     }
 
-    private func performPersistedBatch(notifyCloudSync: Bool = true, _ mutation: () -> Void) {
+    @discardableResult
+    private func performPersistedBatch(notifyCloudSync: Bool = true, _ mutation: () -> Void) -> Bool {
         let wasPersistenceEnabled = persistenceEnabled
         let wasCloudSyncNotificationsEnabled = cloudSyncNotificationsEnabled
         persistenceEnabled = false
@@ -627,8 +657,9 @@ final class ChartLibraryStore: ObservableObject {
         mutation()
         persistenceEnabled = wasPersistenceEnabled
         cloudSyncNotificationsEnabled = wasCloudSyncNotificationsEnabled && notifyCloudSync
-        persistIfNeeded()
+        let didAcceptPersistence = persistIfNeeded()
         cloudSyncNotificationsEnabled = wasCloudSyncNotificationsEnabled
+        return didAcceptPersistence
     }
 
     private func upsertTombstone(
