@@ -33,6 +33,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      - name: Verify change-scope predicates
+        run: python3 .github/scripts/test_workflow_scope.py -v
+
       - name: Decide CodeQL scope
         id: codeql_scope
         shell: bash
@@ -48,9 +51,9 @@ jobs:
               changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
               printf '%s\n' "$changed_files"
 
-              if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved)'; then
+              if grep -Eq '^(iChart/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/codeql\.yml|\.github/scripts/)' <<< "$changed_files"; then
                 run_codeql=true
-                reason="CodeQL is enabled because production Swift or build inputs changed."
+                reason="CodeQL is enabled because production Swift, build inputs, or analyzer tooling changed."
               else
                 reason="No production Swift or build inputs changed; CodeQL analysis is skipped for this documentation/static-site/test-only pass."
               fi
@@ -78,7 +81,7 @@ jobs:
 
       - name: Initialize CodeQL
         if: steps.codeql_scope.outputs.run_codeql == 'true'
-        uses: github/codeql-action/init@v4.38.0
+        uses: github/codeql-action/init@v4.38.3
         with:
           languages: swift
           build-mode: manual
@@ -96,4 +99,4 @@ jobs:
 
       - name: Perform CodeQL analysis
         if: steps.codeql_scope.outputs.run_codeql == 'true'
-        uses: github/codeql-action/analyze@v4.38.0
+        uses: github/codeql-action/analyze@v4.38.3

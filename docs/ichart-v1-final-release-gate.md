@@ -1,6 +1,6 @@
 # iChart V1.0 Final Release Gate
 
-Status: Active release-gate source of truth
+Status: Historical V1.0 release-gate record; superseded by [Project state](project-state.md)
 Created: 2026-07-15
 Last refreshed: 2026-07-31
 Current candidate baseline: iChart V1.0 App Review StoreKit-completeness repair for build `1.0 (36)`
@@ -15,10 +15,9 @@ logo app icon, public-site source cleanup, and email verification landing-page
 source plus live deployment, in-app account deletion, and App Review
 recording/submission evidence
 
-This document is the final release gate and ordered plan for iChart V1.0.
-If another planning document conflicts with this file on launch ordering, gate
-status, or release blockers, this file wins until it is replaced by a newer
-release-gate document.
+This document retains the final release gate and ordered plan for iChart V1.0.
+Its version, submission state, and blockers describe that historical release.
+Use [Project state](project-state.md) for the current candidate and release gates.
 
 Supporting docs:
 

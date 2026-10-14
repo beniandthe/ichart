@@ -61,6 +61,37 @@ final class ProjectConfigurationTests: XCTestCase {
         ))
     }
 
+    func testCodeQLScopeExercisesAnalyzerUpdatesAndSharedBuildTooling() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let workflow = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/codeql.yml"))
+        let filterLine = try XCTUnwrap(workflow.components(separatedBy: .newlines).first {
+            $0.contains("grep -Eq")
+        })
+        let parts = filterLine.components(separatedBy: "grep -Eq '")
+        XCTAssertEqual(parts.count, 2)
+        let expression = try XCTUnwrap(parts.last?.components(separatedBy: "'").first)
+        let filter = try NSRegularExpression(pattern: expression)
+        let requiredPaths = [
+            ".github/workflows/codeql.yml",
+            ".github/scripts/install-xcodegen.sh",
+            ".github/scripts/select-ipad-simulator.sh",
+            "iChart/App/AppRootView.swift",
+            "ThirdParty/NotationFonts/SMuFL/font.otf",
+            "scripts/embed_personal_comparison.sh",
+            "project.yml",
+            "Package.swift",
+            "iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        ]
+        for path in requiredPaths {
+            XCTAssertNotNil(filter.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)), path)
+        }
+        for path in ["README.md", "docs/project-state.md", "public-site/useichart/index.html", "iChartTests/ExampleTests.swift"] {
+            XCTAssertNil(filter.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)), path)
+        }
+    }
+
     func testIPadBuildDeclaresFullScreenAndAllOrientations() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let projectRoot = testFileURL
@@ -1674,7 +1705,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.1\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.2\""))
         // A release build number advances; pinning an old literal blocks
         // ordinary releases without protecting the bundle-version contract.
         XCTAssertNotNil(projectText.range(

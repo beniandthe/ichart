@@ -1,4 +1,7 @@
 import math
+import os
+from pathlib import Path
+import tempfile
 import unittest
 from dataclasses import replace
 
@@ -8,6 +11,16 @@ import torch
 from ichart_recognition_ml.features import InkPoint, InkStroke, rasterize
 from ichart_recognition_ml.research import personal_support_crossfit as crossfit
 from ichart_recognition_ml.research.uji_personal import Sample
+
+
+def retained_swift_golden_paths(configured_root, default_root):
+    """Only absent, undeclared external fixtures may skip this retained replay."""
+    root = Path(configured_root).expanduser() if configured_root is not None else default_root
+    if configured_root is None and not root.exists():
+        raise unittest.SkipTest(
+            "Retained Swift goldens are external; set ICHART_RETAINED_SWIFT_GOLDEN_ROOT to replay them"
+        )
+    return root / "fixture.json", root / "report.json"
 
 
 class SupportCrossfitTests(unittest.TestCase):
@@ -96,12 +109,32 @@ class SupportCrossfitTests(unittest.TestCase):
         self.assertEqual(original[1].points, reversed_shape[0].points)
 
     def test_support_adapter_matches248_retained_swift_geometry_and_pixel_goldens(self):
-        result = crossfit.verify_support_adapter()
+        fixture, report = retained_swift_golden_paths(
+            os.environ.get("ICHART_RETAINED_SWIFT_GOLDEN_ROOT"), crossfit.GOLDEN_ROOT
+        )
+        result = crossfit.verify_support_adapter(fixture=fixture, app_report=report)
         self.assertEqual(result["supportChecks"], 248)
         self.assertEqual(result["checksSHA256"], "808b9f75a74af8b48d384c2ba0274ebf2d47d0a90bbb9784ddccba6e6d4070f8")
         self.assertTrue(result["pixelsExactlyMatched"])
         self.assertFalse(result["modelInferencePerformed"])
         self.assertFalse(result["queryTruthRead"])
+
+    def test_undeclared_absent_external_goldens_are_an_explicit_skip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(unittest.SkipTest):
+                retained_swift_golden_paths(None, Path(directory) / "absent")
+
+    def test_explicit_missing_goldens_still_fail_instead_of_skipping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture, report = retained_swift_golden_paths(str(Path(directory) / "absent"), Path(directory))
+            with self.assertRaises(ValueError):
+                crossfit.verify_support_adapter(fixture=fixture, app_report=report)
+
+    def test_partially_available_default_goldens_still_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture, report = retained_swift_golden_paths(None, Path(directory))
+            with self.assertRaises(ValueError):
+                crossfit.verify_support_adapter(fixture=fixture, app_report=report)
 
     def test_source_only_generic_fit_copy_reasons_do_not_require_answers(self):
         cases = (("r", "t", {"r"}, {"t"}, ["generic-fit-raw-raster-copy", "generic-fit-normalized-trajectory-copy"]),

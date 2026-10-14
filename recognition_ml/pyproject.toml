@@ -12,12 +12,12 @@ dependencies = []
 [project.optional-dependencies]
 training = [
     "numpy==2.0.2",
-    "torch==2.7.0",
+    "torch==2.13.0",
     "Pillow==12.3.0",
 ]
 export = [
     "numpy==2.0.2",
-    "torch==2.7.0",
+    "torch==2.13.0",
     "coremltools==9.0",
     "Pillow==12.3.0",
 ]
