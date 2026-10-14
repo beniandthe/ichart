@@ -1705,7 +1705,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.1\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.2\""))
         // A release build number advances; pinning an old literal blocks
         // ordinary releases without protecting the bundle-version contract.
         XCTAssertNotNil(projectText.range(

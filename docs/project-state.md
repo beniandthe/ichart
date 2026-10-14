@@ -9,13 +9,15 @@ evidence for their recorded revisions, not an automatically expanding backlog.
 - Clean release checkout:
   `/Users/benirossman/.codex/worktrees/app-release-normalization/Smart Chart`.
 - Audited starting main: `b98267639fd8df69a246722e1c8f96d3e7060a24`.
-- `project.yml` is authoritative: iChart `1.2.1 (75)`, bundle `com.ichart.app`,
+- `project.yml` is authoritative: iChart `1.2.2 (76)`, bundle `com.ichart.app`,
   team `N6G8X4K46U`, iPad, minimum iOS 17. Regenerate with `xcodegen generate`;
   preserve the tracked native `Package.resolved`.
 - Ordinary entry uses the existing Write & Render / review / repair workflow.
   Handwriting setup, teaching, and runtime personalization remain parked.
   Graph/MyScript MVPs are separate research lanes, not this shipping binary.
-- This cleanup does not change app features, accounts, billing, the public
+- The user selected `1.2.2 (76)` for the next upload; the only production build
+  input change is that version/build metadata. This cleanup does not change app
+  features, accounts, billing, the public
   complimentary-offer campaign, live services, or saved chart/ink data.
 
 ## GitHub and verification checkpoint
@@ -67,17 +69,21 @@ merging; neither skipped goldens nor export tests establish handwriting accuracy
 
 Distribution archive and local App Store Connect IPA export succeeded at
 `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-14-repo-cleanup`.
-The archive is `iChart-1.2.1-75.xcarchive`; the IPA is `export/iChart.ipa`.
-IPA SHA-256: `ad19f8d145cbc7362cd395c8a32b9b0a191de60a9e583bcc1d94ef9a843ba7c6`.
+The candidate archive is `iChart-1.2.2-76.xcarchive`; the IPA is
+`export-1.2.2-76/iChart.ipa`.
+IPA SHA-256: `af6bff8bc6c3fb8c87446b43533ef194268e380578575e0c3b0a6d72a4464f88`.
 Strict deep signature verification passed; the matching App Store profile and
 Apple Distribution identity expire June 20, 2027. No experimental model or SDK
 was present. These are local package facts, not an upload or device test.
 
-The archived shipping inputs match audited starting main; this cleanup changes
-documentation, tests, CI and optional research dependencies, not app runtime
-inputs. Verify that equality against final merged main before reusing the IPA.
-The archive log contains 133 warning occurrences across 13 distinct diagnostics;
-this is not a warning-free build. Apple build-number availability is unverified.
+The archived app runtime inputs match audited starting main; only the requested
+version/build lines in `project.yml` changed. Documentation, tests, CI and
+optional research dependencies are not app runtime changes. Verify the archived
+build inputs against final merged main before reusing the IPA. The archive log
+contains 133 warning occurrences across nine distinct warning messages; this is
+not a warning-free build. The earlier `1.2.1 (75)` archive and `export/` IPA are
+preserved in the same directory, but are not the next upload candidate.
+Apple-side build availability and editable version status remain unverified.
 
 ## Preserved work
 
@@ -107,11 +113,12 @@ credentials, large models, or unrelated marketing material into this release.
    locked native dependencies and project-scoped manual distribution signing.
    Inspect archive/IPA identity, signatures/profile, and absence of experimental
    models/SDKs. A valid local identity/profile is not itself a successful archive.
-3. **Apple upload:** verify the highest already-uploaded build for `1.2.1` in
-   App Store Connect before reusing `75` or selecting the next build number.
-   No build-75 upload receipt was found locally. Organizer history does not
-   establish the store's highest build. Upload/processing is not authorized by
-   this repository cleanup and must be recorded separately.
+3. **Apple upload:** the user selected `1.2.2 (76)`. Verify that build `76` is
+   available and the intended App Store version is editable before upload.
+   Organizer history and local artifacts do not establish the store's highest
+   build. No authenticated catalog read was available through a permitted path;
+   do not bypass the saved browser restriction. Upload/processing is not
+   authorized by this repository cleanup and must be recorded separately.
 4. **Public-release privacy/business gates:** live privacy-policy and App Privacy
    alignment, actual retention execution, and remaining complimentary-offer
    cohort/free-period/renewal observations remain explicit. Keep the campaign
