@@ -77,9 +77,9 @@ and ordinary billing/signing unchanged. This is not actual free-period redemptio
 or paid renewal, nor new/returning/annual customer validation. Apple acceptance is
 established, but benefit fulfillment, free-period/renewal and device failure-
 feedback acceptance remain open. See the
-[current access and pending-term receipt](project-state.md#access-recovery-and-pending-term-diagnosis--october-9)
+[current access and pending-term receipt](project-state-history-through-2026-10-10.md#access-recovery-and-pending-term-diagnosis--october-9)
 and historical
-[guard receipt](project-state.md#sandbox-qa-owner-guard-inactive-deployment-receipt--october-8).
+[guard receipt](project-state-history-through-2026-10-10.md#sandbox-qa-owner-guard-inactive-deployment-receipt--october-8).
 Introductory dates and verified Apple fulfillment remain open.
 
 **Latest continuation:** the completed promotional predicate now accepts
@@ -98,7 +98,7 @@ purchase flags. Fresh native-delivery snapshots preserve all 19 saved files'
 chart/ink/PDF/setlist/profile/evaluation content, selection and current Pro
 plan/status/expiry/auto-renew fields. Backup/sync/verification timestamps changed;
 this is not strict full-state identity or fresh Pencil/visual acceptance. See the
-[native delivery receipt](project-state.md#completed-offer-native-delivery--october-9).
+[native delivery receipt](project-state-history-through-2026-10-10.md#completed-offer-native-delivery--october-9).
 Four authenticated monthly/annual status responses pass disabled/no-attempt/
 no-signature checks. Normal launch restores diagnostic-free operation; all
 19 saved files' chart/ink/PDF/setlist/profile/evaluation content is preserved.
@@ -108,7 +108,7 @@ auto-renew metadata, so strict entitlement/full-state identity is not claimed.
 Campaign remains off, all temporary dates absent and ordinary signing/billing
 configuration unchanged. Disabled QA recovery is still scheduled-only; no window
 was opened. See the
-[deployment receipt](project-state.md#completed-offer-focused-inactive-deployment--october-9).
+[deployment receipt](project-state-history-through-2026-10-10.md#completed-offer-focused-inactive-deployment--october-9).
 
 The next no-new-purchase Apple gate is the existing monthly schedule's start,
 **October 10 at 8:42:40 AM PDT**. Current database rows still report scheduled,
@@ -118,7 +118,7 @@ zero-charge terms and later paid renewal before calling fulfillment complete.
 Do not infer completed payment mode from the prior signed pending renewal.
 New/returning/annual cases remain separate, with legitimate isolated QA histories
 and purchase-specific approval. See the
-[completion repair receipt](project-state.md#completed-offer-and-billing-boundary-local-repair--october-9).
+[completion repair receipt](project-state-history-through-2026-10-10.md#completed-offer-and-billing-boundary-local-repair--october-9).
 
 Production/public offers are not activated. The offer-specific continuation
 changed no base product/price, entitlement, notification setting, server retention
@@ -126,7 +126,7 @@ or store policy. The later, separately approved telemetry-only retention
 deployment and unpublished policy draft are recorded in the
 [privacy closeout](privacy-telemetry-release-closeout-2026-10-09.md); its first
 real scheduled run remains open. See the
-[current cleanup decisions](project-state.md#pre-build-75-cleanup-and-decisions--2026-10-07).
+[current cleanup decisions](project-state-history-through-2026-10-10.md#pre-build-75-cleanup-and-decisions--2026-10-07).
 
 Resume trigger: after Apple product, Supabase secret, or Edge Function changes,
 repeat the applicable bounded smoke checks before continuing Sandbox purchase QA.
@@ -426,20 +426,20 @@ At expiry, the normal entitlement policy applies without deleting stored work.
 introductory/promotional app flow, signer and environment-scoped ledger are
 implemented locally. Monthly/annual promotional definitions are visibly saved.
 Backend, synthetic SQL and native test receipts are recorded in
-[project state](project-state.md#complimentary-pro-windowconfiguration-follow-up--october-8).
+[project state](project-state-history-through-2026-10-10.md#complimentary-pro-windowconfiguration-follow-up--october-8).
 Approved key staging, offline legacy promotional DER verification and read-only
 Apple Production/Sandbox authentication probes passed; the synthetic transaction
 returned the expected `4040010` in both environments. This is not a real offer
 purchase or scheduling test. The six existing deployed function code hashes and
 JWT settings stayed unchanged; secret updates increased their platform revision
 numbers by three. Evidence is recorded in the
-[signing receipt](project-state.md#complimentary-pro-signing-key-staging-receipt--october-8).
-The [inactive deployment receipt](project-state.md#complimentary-pro-inactive-deployment-receipt--october-8)
+[signing receipt](project-state-history-through-2026-10-10.md#complimentary-pro-signing-key-staging-receipt--october-8).
+The [inactive deployment receipt](project-state-history-through-2026-10-10.md#complimentary-pro-inactive-deployment-receipt--october-8)
 records live access/boot checks and the exact deployed migration version.
 Introductory dates, actual Apple redemption/scheduling and
 deployed full-Pro delivery remain open. No live commercial activation, renewal
 extension or distribution action occurred. Build 75 now has a
-[fresh test/build/install receipt](project-state.md#build-75-test-build-and-install-receipt--october-8):
+[fresh test/build/install receipt](project-state-history-through-2026-10-10.md#build-75-test-build-and-install-receipt--october-8):
 147 native tests passed, 0 failed and 2 opt-in live tests were skipped. The
 Development-signed app installed/launched and retained chart content/ink, PDFs,
 setlist and handwriting examples. Startup-window logs show authenticated HTTP
@@ -552,7 +552,7 @@ Next: obtain separate approval for explicit Sandbox offer acceptance and a
 bounded real claim window, then verify same-product Apple scheduling and the
 later benefit/renewal/recovery. Do not enable a public campaign, configure
 introductory dates or change a real subscription to make this test pass.
-Full receipts are in [project state](project-state.md#same-owner-live-status-and-signer-compatibility-receipt--october-9).
+Full receipts are in [project state](project-state-history-through-2026-10-10.md#same-owner-live-status-and-signer-compatibility-receipt--october-9).
 
 #### Earlier staged execution plan — October 8 preflight (not executed)
 

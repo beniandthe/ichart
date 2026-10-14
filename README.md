@@ -11,7 +11,7 @@ missed reads, render editable chart objects, save, and export. Recognition is
 assisted entry with explicit correction; near-perfect automatic recognition is
 not a release requirement or a demonstrated capability.
 
-The active branch is `codex/app-release-normalization`. Recognition research is
+The shipping branch is `main`. Recognition research is
 retained in place and on named parking branches. See
 [Parked recognition research](docs/parked-recognition/README.md) for the inventory
 and recovery instructions. Parking does not delete experiments, charts, profiles,

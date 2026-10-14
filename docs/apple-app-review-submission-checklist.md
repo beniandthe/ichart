@@ -1,9 +1,11 @@
 # iChart Apple App Review Submission Checklist
 
-Status: V1.0 App Review checklist for build `1.0 (35)` rejection and build `1.0 (36)` repair
+Status: Historical V1.0 App Review checklist for build `1.0 (35)` rejection and build `1.0 (36)` repair
 Last updated: 2026-07-31
 
-Use this checklist before every App Review submission or resubmission. It is
+Use [Project state](project-state.md) for the current candidate and gates. The
+version-specific checks below are retained historical evidence, not instructions
+to submit a current build as version `1.0`. This checklist was
 based on Apple's App Review Guidelines, account-deletion guidance,
 auto-renewable subscription guidance, App Review preparation guidance, and App
 Store Connect privacy guidance.
