@@ -38,18 +38,46 @@ passed / 0 failed / 103 skipped; 1,683 SwiftPM passed / 0 failed / 89 skipped;
 nonzero execution. Direct-main CodeQL was deferred, not a new scan; actual
 pre-merge analysis and Dependency Review are separate receipts.
 
-October 14 configuration gate at audited starting main: **32 native tests
-passed / 0 failed / 0 skipped**, verified by `xcresulttool` on the isolated
+October 14 configuration checks executed **33 native tests passed / 0 failed /
+0 skipped**, verified by `xcresulttool` on the isolated
 `DB02387F-6B8E-43DE-9BE5-58E4FC15B411` Simulator. No generated-project drift.
-Release archive/export and final merge-head CI are separate gates below.
 
-Maintenance PR #81 changes CodeQL and Python actions; its ordinary green checks
-did not execute the changed analyzer or optional Python action. Actual dispatched
-compatibility runs are `38597125017` (CodeQL) and `38597132705` (opt-in research).
-PR #80 changes optional Torch training/export pins; its ordinary green checks
-did not exercise Torch. Its opt-in compatibility run is `38597918073`. Inspect
-executed tests and processed analysis before merging; keep an unsupported or
-failed research-toolchain update parked rather than redefining it as an app gate.
+[Cleanup PR #82](https://github.com/beniandthe/ichart/pull/82) integrates the
+exact maintenance heads from PR #81 (`452a659`, CodeQL/Python actions) and
+PR #80 (`4e0fcf9`, optional Torch pins). Retire those PRs as superseded only after
+the verified cleanup merge; preserve their heads under archive tags first.
+
+The audit reproduced a CI routing defect: `grep -q` could exit early on a large
+file list, causing its upstream `printf` to fail under `pipefail` and falsely
+skip matching tests. All three predicates now use here-strings; four executable
+Bash regression tests cover their actual workflow expressions, including large
+inputs. CodeQL scope also includes analyzer workflow and shared build tooling.
+Green scope-only jobs before this repair are not execution evidence.
+
+The optional Python gate previously errored on a developer-local retained golden
+fixture path. Missing, undeclared external fixtures now produce an explicit skip;
+an explicitly configured missing, incomplete or corrupt fixture still fails.
+The local crossfit test module executed **12 passed / 0 failed / 0 skipped**,
+including the retained 248-case fixture on this Mac. This does not establish
+Torch 2.13 compatibility. Require fresh, actual PR checks, processed CodeQL, and
+the opt-in Python/Core ML compatibility gate at the final cleanup head before
+merging; neither skipped goldens nor export tests establish handwriting accuracy.
+
+## Signed local package
+
+Distribution archive and local App Store Connect IPA export succeeded at
+`/Users/benirossman/.local/share/ichart/release-candidates/2026-10-14-repo-cleanup`.
+The archive is `iChart-1.2.1-75.xcarchive`; the IPA is `export/iChart.ipa`.
+IPA SHA-256: `ad19f8d145cbc7362cd395c8a32b9b0a191de60a9e583bcc1d94ef9a843ba7c6`.
+Strict deep signature verification passed; the matching App Store profile and
+Apple Distribution identity expire June 20, 2027. No experimental model or SDK
+was present. These are local package facts, not an upload or device test.
+
+The archived shipping inputs match audited starting main; this cleanup changes
+documentation, tests, CI and optional research dependencies, not app runtime
+inputs. Verify that equality against final merged main before reusing the IPA.
+The archive log contains 133 warning occurrences across 13 distinct diagnostics;
+this is not a warning-free build. Apple build-number availability is unverified.
 
 ## Preserved work
 

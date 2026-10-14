@@ -56,6 +56,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      - name: Verify change-scope predicates
+        run: python3 .github/scripts/test_workflow_scope.py -v
+
       - name: Detect app-impacting changes
         id: app_changes
         shell: bash
@@ -78,7 +81,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)' <<< "$changed_files"; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
@@ -110,6 +113,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      - name: Verify change-scope predicates
+        run: python3 .github/scripts/test_workflow_scope.py -v
+
       - name: Detect app-impacting changes
         id: app_changes
         shell: bash
@@ -132,7 +138,7 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)'; then
+          if grep -Eq '^(iChart/|iChartTests/|ThirdParty/|scripts/|Package.swift|Package.resolved|project.yml|iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved|\.github/workflows/ci.yml|\.github/scripts/)' <<< "$changed_files"; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
