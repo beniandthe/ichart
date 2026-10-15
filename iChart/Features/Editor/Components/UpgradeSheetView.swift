@@ -54,19 +54,23 @@ struct UpgradeSheetView: View {
 
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
+    @Environment(\.betaProStore) private var betaProStore
     @Environment(\.dismiss) private var dismiss
     @State private var complimentaryPurchaseFeedback: IChartComplimentaryPurchaseFeedback?
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
-                if IChartProductAccessPolicy.current.includesAllFeatures {
+                if IChartProductAccessPolicy.current.isFreeBeta {
                     Text(IChartLegalLinks.freeProTitle)
                         .font(.largeTitle.weight(.semibold))
                     Text(IChartLegalLinks.freeProNotice)
                     Text(IChartLegalLinks.futurePricingNotice)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    if let betaProStore {
+                        IChartBetaProControls(store: betaProStore, allowsLeaving: false, didJoin: { dismiss() })
+                    }
                     Button("Done") { dismiss() }
                         .buttonStyle(.borderedProminent)
                 } else {
@@ -160,7 +164,7 @@ struct UpgradeSheetView: View {
                 }
             }
             .padding(24)
-            .navigationTitle(IChartProductAccessPolicy.current.includesAllFeatures ? "Pro Access" : "Upgrade")
+            .navigationTitle(IChartProductAccessPolicy.current.isFreeBeta ? "Pro Access" : "Upgrade")
             .navigationBarTitleDisplayMode(.inline)
         }
     }

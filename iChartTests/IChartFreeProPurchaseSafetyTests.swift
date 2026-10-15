@@ -6,7 +6,9 @@ final class IChartFreeProProductCopyTests: XCTestCase {
     func testFreeAccessHasNoAutomaticPaidConversionPromise() {
         XCTAssertTrue(IChartProductAccessPolicy.current.includesAllFeatures)
         XCTAssertFalse(IChartProductAccessPolicy.current.offersPaidPurchases)
-        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("No subscription or trial"))
+        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("No subscription or payment"))
+        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("Leave or rejoin"))
+        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("during beta"))
         XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("advance notice"))
         XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("choose and confirm"))
         XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("will not automatically"))
@@ -15,22 +17,25 @@ final class IChartFreeProProductCopyTests: XCTestCase {
     func testExistingBillingCopyDoesNotClaimCancellationOrRefund() {
         XCTAssertTrue(IChartLegalLinks.existingBillingNotice.contains("does not cancel"))
         XCTAssertTrue(IChartLegalLinks.existingBillingNotice.contains("or issue a refund"))
-        XCTAssertEqual(IChartLegalLinks.refundHelpURL.host, "reportaproblem.apple.com")
+        XCTAssertTrue(IChartLegalLinks.existingBillingNotice.contains("Manage My Subscription"))
     }
 
     func testProductionSettingsAndFallbackSheetHaveSeparateFreeContent() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let settings = try String(contentsOf: root.appendingPathComponent("iChart/Features/Library/LibraryView.swift"), encoding: .utf8)
         let sheet = try String(contentsOf: root.appendingPathComponent("iChart/Features/Editor/Components/UpgradeSheetView.swift"), encoding: .utf8)
-        XCTAssertTrue(settings.contains("if isFreeAccess {\n                freeAccessControls"))
+        XCTAssertTrue(settings.contains("if isFreeBeta {\n                freeAccessControls"))
         let start = try XCTUnwrap(settings.range(of: "private var freeAccessControls: some View {"))
         let end = try XCTUnwrap(settings.range(of: "private var storeKitControls: some View {", range: start.upperBound..<settings.endIndex))
         let freeControls = String(settings[start.lowerBound..<end.lowerBound])
         XCTAssertFalse(freeControls.contains(".purchase("))
         XCTAssertFalse(freeControls.contains("purchaseComplimentaryOffer("))
-        XCTAssertTrue(freeControls.contains("Manage Existing Subscription"))
+        XCTAssertTrue(freeControls.contains("Manage My Subscription"))
+        XCTAssertFalse(settings.contains("Request an Apple Refund"))
+        XCTAssertFalse(freeControls.contains("refundHelpURL"))
+        XCTAssertTrue(freeControls.contains("IChartBetaProControls(store: betaProStore)"))
         XCTAssertTrue(freeControls.contains("IChartLegalLinks.existingBillingNotice"))
-        XCTAssertTrue(sheet.contains("if IChartProductAccessPolicy.current.includesAllFeatures {"))
+        XCTAssertTrue(sheet.contains("if IChartProductAccessPolicy.current.isFreeBeta {"))
         XCTAssertTrue(sheet.contains("IChartLegalLinks.freeProNotice"))
     }
 }

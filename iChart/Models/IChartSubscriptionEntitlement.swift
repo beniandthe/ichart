@@ -165,7 +165,9 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     func allowsForumDownloadAccess(accessPolicy: IChartProductAccessPolicy) -> Bool {
-        guard !accessPolicy.includesAllFeatures else { return true }
+        // Downloaded customer documents remain usable in either Beta mode.
+        // This is distinct from permission to obtain new Forum documents.
+        guard !accessPolicy.isFreeBeta else { return true }
 
         switch status {
         case .proActive:
@@ -180,7 +182,7 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     func shouldRemoveForumDownloads(accessPolicy: IChartProductAccessPolicy) -> Bool {
-        guard !accessPolicy.includesAllFeatures else { return false }
+        guard !accessPolicy.isFreeBeta else { return false }
 
         switch status {
         case .basic, .proExpired, .legacyLocalPro:

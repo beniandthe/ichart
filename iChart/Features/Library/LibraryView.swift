@@ -469,9 +469,9 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "creditcard",
             body: IChartLegalLinks.existingBillingNotice,
             bullets: [
-                "Settings includes Manage Existing Subscription and a link to Apple's refund request service.",
+                "Settings includes Manage My Subscription for existing Apple billing.",
                 "Apple controls cancellations, charges, and refund decisions. Free app access is separate from your existing Apple billing history.",
-                "Cancelling an old subscription does not remove your free Pro features in this version."
+                "Cancelling an old subscription does not remove free beta Pro. You can separately choose Basic or rejoin Pro in Settings."
             ]
         ),
         IChartHelpArticleSection(
@@ -538,7 +538,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "star.circle",
             body: IChartLegalLinks.freeProNotice,
             bullets: [
-                "There is no three-chart cap or purchase requirement in this version.",
+                "Pro has no chart cap or purchase requirement during beta. If you choose Basic, you can create up to 3 local charts; your existing work stays editable.",
                 "A subscription expiry or refund does not remove free Pro access or trigger subscription-based backup removal during this free-access period.",
                 IChartLegalLinks.futurePricingNotice
             ]
@@ -576,7 +576,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: IChartLegalLinks.existingBillingNotice,
             bullets: [
                 "No new subscription purchase is required or offered for free Pro access in this version.",
-                "You can manage an existing Apple subscription or request a refund through Apple from Settings.",
+                "Manage My Subscription in Settings opens Apple's controls for an existing subscription. Changing app access does not cancel Apple billing.",
                 IChartLegalLinks.futurePricingNotice
             ]
         ),
@@ -711,6 +711,7 @@ struct LibraryView: View {
     @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @EnvironmentObject private var forumStore: IChartForumStore
     @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
+    @Environment(\.betaProStore) private var betaProStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -849,6 +850,7 @@ struct LibraryView: View {
         .task {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
+            synchronizeBetaAccess(authStore.state)
             cloudSyncStore.authStateChanged(authStore.state)
             forumStore.resumePendingUploads(
                 charts: store.charts,
@@ -858,6 +860,7 @@ struct LibraryView: View {
             updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
+            synchronizeBetaAccess(state)
             cloudSyncStore.authStateChanged(state)
             forumStore.resumePendingUploads(
                 charts: store.charts,
@@ -1937,6 +1940,12 @@ struct LibraryView: View {
         selectedHomeTab = .charts
         chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
         guidedTourStep = .welcome
+    }
+
+    private func synchronizeBetaAccess(_ state: IChartAuthState) {
+        guard IChartProductAccessPolicy.current.isFreeBeta, let betaProStore else { return }
+        betaProStore.authStateChanged(state)
+        store.applyAccessPolicy(betaProStore.freeProAccess ? .freeAllFeatures : .betaBasic)
     }
 
     private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
@@ -6245,12 +6254,20 @@ private struct IChartPlanSettings: View {
     @ObservedObject var store: ChartLibraryStore
     @ObservedObject var subscriptionStore: IChartStoreKitSubscriptionStore
     @ObservedObject var forumStore: IChartForumStore
+    @Environment(\.betaProStore) private var betaProStore
     let theme: IChartHomeTheme
     let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
     let onForumQASampleDataChanged: (Bool) -> Void
     @State private var complimentaryPurchaseFeedback: IChartComplimentaryPurchaseFeedback?
 
     private var isFreeAccess: Bool { store.entitlements.accessPolicy.includesAllFeatures }
+    private var isFreeBeta: Bool { IChartProductAccessPolicy.current.isFreeBeta }
+    private var planTitle: String {
+        isFreeBeta ? (isFreeAccess ? IChartLegalLinks.freeProTitle : IChartLegalLinks.betaBasicTitle) : store.subscriptionState.displayTitle
+    }
+    private var planDetail: String {
+        isFreeBeta ? (isFreeAccess ? IChartLegalLinks.freeProNotice : IChartLegalLinks.betaBasicNotice) : store.subscriptionState.detailText
+    }
 
     #if DEBUG
     @State private var debugPreview: IChartDebugPlanPreview = .basic
@@ -6272,7 +6289,7 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Cloud Backup",
-                    value: isFreeAccess ? "Included" : store.subscriptionState.cloudAccessText,
+                    value: isFreeBeta ? (isFreeAccess ? "Included" : "Not included in Basic") : store.subscriptionState.cloudAccessText,
                     systemImageName: "icloud.and.arrow.up",
                     theme: theme
                 )
@@ -6281,12 +6298,12 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Forums",
-                    value: isFreeAccess ? "Included" : store.subscriptionState.forumsAccessText,
+                    value: isFreeBeta ? (isFreeAccess ? "Included" : "Not included in Basic") : store.subscriptionState.forumsAccessText,
                     systemImageName: "bubble.left.and.bubble.right",
                     theme: theme
                 )
 
-                if !isFreeAccess, let graceEndsAt = store.subscriptionState.graceEndsAt {
+                if !isFreeBeta, let graceEndsAt = store.subscriptionState.graceEndsAt {
                     planDivider
 
                     IChartSettingsRow(
@@ -6305,7 +6322,7 @@ private struct IChartPlanSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if isFreeAccess {
+            if isFreeBeta {
                 freeAccessControls
             } else {
                 storeKitControls
@@ -6331,17 +6348,17 @@ private struct IChartPlanSettings: View {
 
     private var planHeader: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: isFreeAccess ? "star.fill" : store.subscriptionState.systemImageName)
+            Image(systemName: isFreeBeta ? (isFreeAccess ? "star.fill" : "person.crop.circle") : store.subscriptionState.systemImageName)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(statusTint)
                 .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(isFreeAccess ? IChartLegalLinks.freeProTitle : store.subscriptionState.displayTitle)
+                Text(planTitle)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.panelTitle)
 
-                Text(isFreeAccess ? IChartLegalLinks.freeProNotice : store.subscriptionState.detailText)
+                Text(planDetail)
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -6349,7 +6366,7 @@ private struct IChartPlanSettings: View {
 
             Spacer(minLength: 12)
 
-            Text(isFreeAccess ? "Free" : store.subscriptionState.badgeText)
+            Text(isFreeBeta ? (isFreeAccess ? "Free" : "Basic") : store.subscriptionState.badgeText)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(statusTint)
                 .padding(.horizontal, 10)
@@ -6375,6 +6392,7 @@ private struct IChartPlanSettings: View {
 
     private var statusTint: Color {
         if isFreeAccess { return Color(red: 0.16, green: 0.48, blue: 0.24) }
+        if isFreeBeta { return IChartHomeBrand.blue }
         switch store.subscriptionState.status {
         case .proActive:
             return Color(red: 0.16, green: 0.48, blue: 0.24)
@@ -6391,6 +6409,9 @@ private struct IChartPlanSettings: View {
 
     private var freeAccessControls: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let betaProStore {
+                IChartBetaProControls(store: betaProStore)
+            }
             Text(IChartLegalLinks.futurePricingNotice)
                 .font(.caption)
                 .foregroundStyle(theme.panelSecondary)
@@ -6408,7 +6429,7 @@ private struct IChartPlanSettings: View {
             Button {
                 Task { await subscriptionStore.manageSubscriptions() }
             } label: {
-                Label("Manage Existing Subscription", systemImage: "person.crop.circle")
+                Label("Manage My Subscription", systemImage: "person.crop.circle")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -6422,12 +6443,6 @@ private struct IChartPlanSettings: View {
             }
             .buttonStyle(.bordered)
             .disabled(subscriptionStore.state.isWorking)
-
-            Link(destination: IChartLegalLinks.refundHelpURL) {
-                Label("Request an Apple Refund", systemImage: "arrow.uturn.backward.circle")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
 
             if let statusText = subscriptionStore.state.statusText {
                 Text(statusText)

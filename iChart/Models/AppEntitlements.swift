@@ -136,6 +136,9 @@ struct AppEntitlements: Codable, Hashable {
 
     var localChartLimit: Int? {
         guard !accessPolicy.includesAllFeatures else { return nil }
+        if accessPolicy == .betaBasic {
+            return Self.recommendedBasicChartLimit
+        }
 
         switch subscription.status {
         case .proActive, .proGrace, .legacyLocalPro:
@@ -154,6 +157,9 @@ struct AppEntitlements: Codable, Hashable {
 
     func includes(_ feature: EntitledFeature) -> Bool {
         guard !accessPolicy.includesAllFeatures else { return true }
+        if accessPolicy == .betaBasic {
+            return Self.basicIncludes(feature)
+        }
 
         if subscription.status == .proGrace {
             switch feature {
@@ -177,23 +183,7 @@ struct AppEntitlements: Codable, Hashable {
 
         switch activePlan {
         case .free:
-            switch feature {
-            case .pdfExport,
-                 .documentTransposition,
-                 .fontPresets,
-                 .roadmapNotationTools,
-                 .advancedRhythmEditing:
-                return true
-            case .unlimitedLocalCharts,
-                 .syncedChartOrganization,
-                 .cloudBackup,
-                 .forums,
-                 .sharedBandLibraries,
-                 .setlistsAndVersionHistory,
-                 .aiRecognitionCleanup,
-                 .projects:
-                return false
-            }
+            return Self.basicIncludes(feature)
         case .proLifetime:
             switch feature {
             case .unlimitedLocalCharts,
@@ -214,6 +204,26 @@ struct AppEntitlements: Codable, Hashable {
             }
         case .studioSubscription:
             return true
+        }
+    }
+
+    private static func basicIncludes(_ feature: EntitledFeature) -> Bool {
+        switch feature {
+        case .pdfExport,
+             .documentTransposition,
+             .fontPresets,
+             .roadmapNotationTools,
+             .advancedRhythmEditing:
+            return true
+        case .unlimitedLocalCharts,
+             .syncedChartOrganization,
+             .cloudBackup,
+             .forums,
+             .sharedBandLibraries,
+             .setlistsAndVersionHistory,
+             .aiRecognitionCleanup,
+             .projects:
+            return false
         }
     }
 

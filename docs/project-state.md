@@ -3,7 +3,66 @@
 Updated: 2026-10-15. This is the current release handoff. Historical reports are
 evidence for their recorded revisions, not an automatically expanding backlog.
 
-## Current change: free Pro while the app is stabilized
+## Latest revision: voluntary free Pro during beta
+
+- Version/build stays **1.2.3 (78)**. Every verified account starts with free
+  Pro. Settings offers **Leave Pro — Use Basic** and **Rejoin Pro — Free During
+  Beta**, without checkout. Both choices are saved against the authenticated
+  account, not Apple receipts or shared chart files. Delayed requests and UI
+  actions cannot apply one account's choice to a different account.
+- Basic limits new-chart creation to three charts and disables Pro-only
+  services. Existing charts remain editable even above that limit. Existing
+  Projects data, PDFs and setlist links are retained; cloud backups are not
+  deleted. Rejoining restores feature access without changing billing history.
+- **Manage My Subscription** and purchase-history restore remain. The public
+  refund-request button is removed. Changing beta membership does **not** cancel
+  existing Apple billing or issue a refund. The private goodwill email is an
+  unsent draft, awaiting exact-message approval; no customer identifiers or
+  private draft payload belong in this repository.
+- An account-scoped, acknowledged in-app notice can warn before beta ends.
+  **No notice, deadline, paid conversion, email campaign or purchase is active.**
+  A future paid transition still requires reviewed implementation and explicit
+  Apple purchase confirmation; this feature does not create an auto-renewal.
+- Production migration `20261015232153_voluntary_free_pro_beta` adds private
+  participation records and bounded own-account RPCs. The setter also requires
+  an expected-owner rejection guard, while `auth.uid()` remains authoritative.
+  Global backup-retention protection is independent of individual participation.
+  Live role-bound QA Leave/Rejoin assertions passed inside a rolled-back
+  transaction; zero choices remained saved. All 86 original subscription rows
+  matched their before/after digest. Notice/deadline fields remain null.
+- Fresh final native validation: **2,431 passed / 0 failed / 103 existing
+  skips**, 2,534 total, including five mounted beta-control cases, fourteen store
+  cases and nine access/data-preservation cases. The configured Simulator and
+  accessibility wrapper were used. Backend validation: **592 shared contracts
+  plus 47 PostgreSQL contracts passed / 0 failed / 0 skipped**. Complete SwiftPM
+  execution before the final extra expected-owner overload passed **1,715 / 0 /
+  89 skips**; the final store/core/copy subset then passed **26 / 0 / 0**.
+- The revised development app was signed, replacement-installed and normally
+  launched on the iPad; installed identity reads **1.2.3 (78)**. Hands-on testing
+  of the new Leave/Rejoin flow remains pending. A new local Release archive and
+  IPA were signed/exported and passed strict signature checks, with version/build
+  1.2.3 (78) and `get-task-allow=false`. They are retained separately under
+  `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-15-free-pro-1.2.3-78-beta-controls`.
+  Current IPA SHA-256:
+  `981d40a50e80d54b65fecf1a1c278d08374f8c9b674c915087249f84fa7399cd`.
+  Fresh device snapshots preserve all eleven chart objects, Projects,
+  tombstones and cloud metadata, plus all 21 other non-log files byte-for-byte
+  (PDFs, setlist index and parked profiles included). The library file changed
+  only for selection and a refresh of genuine subscription verification/expiry/
+  renewal metadata; the performance log also changed. Do not call every file
+  byte-identical or imply that beta membership created a paid entitlement.
+  Earlier build-78/77 packages below are preserved, not silently overwritten.
+  No upload, submission, push or merge is established by this revision.
+- The new private membership table intentionally has deny-all RLS; the two new
+  authenticated SECURITY DEFINER RPCs intentionally expose only bounded
+  own-account operations with empty search paths. Their advisor notices are not
+  a reason to broaden direct table permissions. See the advisor explanations for
+  [deny-all private RLS](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+  and [bounded definer RPCs](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable).
+  Existing MFA warning and compiler warnings remain; this is not a clean
+  repository-wide security audit.
+
+## Earlier free-Pro baseline and retained packages
 
 - User decision: every legitimate account receives all shipped Pro features free,
   with no checkout, trial deadline or automatic conversion to paid. Normal account
@@ -55,7 +114,8 @@ evidence for their recorded revisions, not an automatically expanding backlog.
 - Free Plan and fallback Upgrade UI replace purchase/offer controls with free
   access information. Ordinary and complimentary purchase entry points also
   return before checkout. Management/restore of existing Apple purchase history
-  and Apple's refund-request link remain available in Settings.
+  remain available in Settings. The latest revision above removes the public
+  refund-request link and adds voluntary beta participation.
 - Backend migration **20261015203728_free_pro_access** was applied through the
   connected Supabase migration tool on October 15. The deployed policy has no
   automatic end. It grants access only to live, confirmed, non-anonymous,
