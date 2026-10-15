@@ -12,9 +12,25 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   this is not a date-based trial or the previous complimentary-month campaign.
 - Implementation branch: `codex/free-pro-access-2026-10-15`, based on verified
   `main` at `025d2ce50489215cfd4baa5de341ff99b02623fa`. Current source candidate is
-  **1.2.2 (77)**. Build 76 was reported ready in TestFlight; preserve that artifact,
-  but it does not contain this free-access change. Build 77's Apple availability,
-  distribution signing, physical-device acceptance and upload are unverified.
+  **1.2.3 (77)**, as explicitly requested on October 15. Build 76 was reported
+  ready in TestFlight; preserve that artifact,
+  but it does not contain this free-access change. Build 77's new version metadata
+  passed all 2,403 native tests / 0 failures / 103 existing skips; 36 focused
+  configuration/copy tests passed without failures or skips. The intended
+  Simulator bundle reports 1.2.3 (77) and visibly launches to the account screen.
+  The development-signed build was installed over 76 and launched on the wired
+  iPad, with its new version/build read back from the device. A signed Release
+  archive and local App Store IPA export also succeeded. Archive and exported-app
+  strict signatures and exact version/build metadata were verified; this is not
+  an upload. Physical user acceptance and Apple build-number availability/upload
+  remain unverified. No existing charts, accounts or subscriptions were deleted.
+  Before/after iPad snapshots verify exact chart, PDF, setlist and parked-profile
+  preservation; only the append-only performance log grew. The private archive,
+  export and preservation receipts are retained under
+  `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-15-free-pro-1.2.3-77`.
+  IPA SHA-256: `eb8905ac4818d9f3be7ca952cafc7cad809d6239cfb3c6464d0326a9c4abcd39`.
+  Exported Release entitlements have the expected team/bundle and
+  `get-task-allow=false`; compiler warnings remain in the archive log.
 - Runtime feature access is separate from truthful subscription state. Existing
   billing records and Apple receipt/notification verification are not rewritten.
   Local chart limits are removed; cloud, Forums and Projects are included; local
