@@ -161,6 +161,12 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     var allowsForumDownloadAccess: Bool {
+        allowsForumDownloadAccess(accessPolicy: .current)
+    }
+
+    func allowsForumDownloadAccess(accessPolicy: IChartProductAccessPolicy) -> Bool {
+        guard !accessPolicy.includesAllFeatures else { return true }
+
         switch status {
         case .proActive:
             return true
@@ -170,6 +176,12 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     var shouldRemoveForumDownloads: Bool {
+        shouldRemoveForumDownloads(accessPolicy: .current)
+    }
+
+    func shouldRemoveForumDownloads(accessPolicy: IChartProductAccessPolicy) -> Bool {
+        guard !accessPolicy.includesAllFeatures else { return false }
+
         switch status {
         case .basic, .proExpired, .legacyLocalPro:
             return true

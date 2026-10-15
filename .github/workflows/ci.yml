@@ -44,6 +44,16 @@ jobs:
           supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
           supabase/functions/_shared/account_deletion.test.mjs
 
+      - name: Install pinned isolated PostgreSQL test runtime
+        run: >-
+          npm ci --prefix scripts/free-pro-test-dependencies
+          --include=dev --ignore-scripts --no-audit --no-fund --prefer-offline
+
+      - name: Verify free-access policy, ownership and retention in PostgreSQL
+        env:
+          ICHART_PGLITE_MODULE_PATH: ${{ github.workspace }}/scripts/free-pro-test-dependencies/node_modules/@electric-sql/pglite/dist/index.js
+        run: node --test scripts/test_free_pro_access.mjs
+
   swift-package:
     name: SwiftPM tests
     runs-on: macos-26

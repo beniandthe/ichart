@@ -94,6 +94,15 @@ export async function handleSubscriptionRetentionJobRequest(request, dependencie
   }
 
   const jobResult = await dependencies.runRetentionJobs(body.value?.run_at ?? null);
+  if (jobResult?.retention_status === "paused_free_access") {
+    // The DB also suppresses previously queued access-loss notices. Do not ask
+    // for or send any queued email while feature access is free, even if an old
+    // dispatcher dependency accidentally supplies a stale claimed event.
+    return jsonResponse(202, {
+      accepted: true, job: jobResult, email_status: "suppressed_free_access",
+      emails_attempted: 0, emails_sent: 0, emails_failed: 0,
+    });
+  }
   if (!dependencies.emailProviderConfigured) {
     return jsonResponse(202, {
       accepted: true,

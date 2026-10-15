@@ -165,8 +165,11 @@ final class IChartPDFLibraryStore: ObservableObject {
         items.filter { $0.source == source }
     }
 
-    func visibleItems(for subscription: IChartSubscriptionEntitlement) -> [IChartPDFLibraryItem] {
-        guard subscription.allowsForumDownloadAccess else {
+    func visibleItems(
+        for subscription: IChartSubscriptionEntitlement,
+        accessPolicy: IChartProductAccessPolicy = .current
+    ) -> [IChartPDFLibraryItem] {
+        guard subscription.allowsForumDownloadAccess(accessPolicy: accessPolicy) else {
             return items.filter { $0.source != .forumDownload }
         }
 
@@ -319,8 +322,12 @@ final class IChartPDFLibraryStore: ObservableObject {
     }
 
     @discardableResult
-    func removeForumDownloadsIfInactive(for subscription: IChartSubscriptionEntitlement) -> Int {
-        guard recoveryErrorMessage == nil, subscription.shouldRemoveForumDownloads else {
+    func removeForumDownloadsIfInactive(
+        for subscription: IChartSubscriptionEntitlement,
+        accessPolicy: IChartProductAccessPolicy = .current
+    ) -> Int {
+        guard recoveryErrorMessage == nil,
+              subscription.shouldRemoveForumDownloads(accessPolicy: accessPolicy) else {
             return 0
         }
 

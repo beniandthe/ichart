@@ -60,6 +60,16 @@ struct UpgradeSheetView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
+                if IChartProductAccessPolicy.current.includesAllFeatures {
+                    Text(IChartLegalLinks.freeProTitle)
+                        .font(.largeTitle.weight(.semibold))
+                    Text(IChartLegalLinks.freeProNotice)
+                    Text(IChartLegalLinks.futurePricingNotice)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.borderedProminent)
+                } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Unlock Pro")
                         .font(.largeTitle.weight(.semibold))
@@ -147,9 +157,10 @@ struct UpgradeSheetView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+                }
             }
             .padding(24)
-            .navigationTitle("Upgrade")
+            .navigationTitle(IChartProductAccessPolicy.current.includesAllFeatures ? "Pro Access" : "Upgrade")
             .navigationBarTitleDisplayMode(.inline)
         }
     }

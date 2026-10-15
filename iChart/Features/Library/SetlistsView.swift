@@ -150,7 +150,10 @@ struct IChartSetlistDetailView: View {
 
     private var setlist: IChartPDFSetlist? { setlistStore.setlist(id: setlistID) }
     private var entries: [IChartPDFSetlistResolvedEntry] {
-        setlist?.resolvedEntries(in: pdfStore.visibleItems(for: chartStore.subscriptionState)) ?? []
+        setlist?.resolvedEntries(in: pdfStore.visibleItems(
+            for: chartStore.subscriptionState,
+            accessPolicy: chartStore.entitlements.accessPolicy
+        )) ?? []
     }
 
     var body: some View {
@@ -348,7 +351,9 @@ private struct IChartSetlistPDFPicker: View {
     @State private var selectedIDs: Set<UUID> = []
     @State private var errorMessage: String?
 
-    private var items: [IChartPDFLibraryItem] { pdfStore.visibleItems(for: chartStore.subscriptionState) }
+    private var items: [IChartPDFLibraryItem] {
+        pdfStore.visibleItems(for: chartStore.subscriptionState, accessPolicy: chartStore.entitlements.accessPolicy)
+    }
 
     var body: some View {
         NavigationStack {
@@ -445,7 +450,10 @@ struct IChartSetlistPerformanceReader: View {
 
     private var setlist: IChartPDFSetlist? { setlistStore.setlist(id: setlistID) }
     private var entries: [IChartPDFSetlistResolvedEntry] {
-        setlist?.resolvedEntries(in: pdfStore.visibleItems(for: chartStore.subscriptionState)) ?? []
+        setlist?.resolvedEntries(in: pdfStore.visibleItems(
+            for: chartStore.subscriptionState,
+            accessPolicy: chartStore.entitlements.accessPolicy
+        )) ?? []
     }
     private var entryIDs: [UUID] { entries.map(\.id) }
     private var currentIndex: Int? { IChartSetlistReaderNavigation.index(in: entryIDs, selectedID: selectedID) }

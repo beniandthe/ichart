@@ -414,6 +414,10 @@ export async function handleComplimentaryOfferRequest(request, dependencies, con
     const ownerID = await dependencies.authenticatedUserID?.(request);
     if (!isCampaignUUID(ownerID)) return respond(401, unavailable("signed_in_account_required"));
     const attemptID = body.attemptID?.toLowerCase();
+    if (configuration.freeAccessPhaseActive === true) {
+      return respond(200, unavailable("free_access_active", { enabled: false,
+        freeAccess: true, accessPolicyID: configuration.accessPolicyID }), attemptID);
+    }
     // Disabled campaigns cannot issue signatures. Explicit QA-only exceptions
     // are independent, bounded recognition/diagnostic paths, never activation.
     if (!configuration.enabled) {

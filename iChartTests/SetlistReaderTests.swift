@@ -92,10 +92,10 @@ final class SetlistReaderTests: XCTestCase {
         XCTAssertNil(pdfView.document)
     }
 
-    func testPerformanceReaderDropsForumPDFWhenAccessChangesWithoutDeletingSource() async throws {
+    func testFreeAccessReaderKeepsForumPDFOpenAcrossBillingExpiryAndRefresh() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try writePDF(title: "Forum Song", pageCount: 1, in: directory)
+        let source = try writePDF(title: "Customer Gig", pageCount: 1, in: directory)
         let pdfStore = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library", isDirectory: true))
         let saved = try pdfStore.save(ExportedPDF(url: source, chartTitle: "Forum Song", layoutStyle: .simpleChordSheet,
             transpositionView: .concert, chordTranspositionSemitones: 0, pageCount: 1,
@@ -110,9 +110,41 @@ final class SetlistReaderTests: XCTestCase {
         let window = try makeWindow(host: host)
         defer { window.close() }
         let pdfView = try await waitForPDFView(in: host.view)
+        let originalDocument = try XCTUnwrap(pdfView.document)
+
+        for status in [IChartSubscriptionStatus.proExpired, .basic, .unavailable, .proGrace] {
+            let billing = IChartSubscriptionEntitlement(status: status)
+            chartStore.applySubscriptionState(billing)
+            XCTAssertEqual(pdfStore.removeForumDownloadsIfInactive(for: billing), 0)
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertTrue(pdfView.document === originalDocument)
+            XCTAssertEqual(chartStore.entitlements.subscription, billing)
+            XCTAssertEqual(setlistStore.setlist(id: setlist.id)?.entries, [entry])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: saved.url.path))
+        }
+    }
+
+    func testPerformanceReaderDropsForumPDFWhenAccessChangesWithoutDeletingSource() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try writePDF(title: "Forum Song", pageCount: 1, in: directory)
+        let pdfStore = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library", isDirectory: true))
+        let saved = try pdfStore.save(ExportedPDF(url: source, chartTitle: "Forum Song", layoutStyle: .simpleChordSheet,
+            transpositionView: .concert, chordTranspositionSemitones: 0, pageCount: 1,
+            fileSizeBytes: try Data(contentsOf: source).count, exportedAt: .now), source: .forumDownload)
+        let setlistStore = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists", isDirectory: true))
+        let setlist = try setlistStore.create(name: "Gig")
+        let entry = try setlistStore.add(pdfItem: try XCTUnwrap(pdfStore.items.first), to: setlist.id)
+        let chartStore = ChartLibraryStore(charts: [], entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .paidSubscription))
+        let reader = IChartSetlistPerformanceReader(setlistID: setlist.id, startingEntryID: entry.id)
+            .environmentObject(setlistStore).environmentObject(pdfStore).environmentObject(chartStore)
+        let host = UIHostingController(rootView: reader)
+        let window = try makeWindow(host: host)
+        defer { window.close() }
+        let pdfView = try await waitForPDFView(in: host.view)
         XCTAssertNotNil(pdfView.document)
 
-        chartStore.entitlements = AppEntitlements(subscription: .proGrace(graceEndsAt: .now.addingTimeInterval(60)))
+        chartStore.entitlements = AppEntitlements(subscription: .proGrace(graceEndsAt: .now.addingTimeInterval(60)), accessPolicy: .paidSubscription)
         try await waitForUnavailableReader(in: window)
         XCTAssertNil(pdfView.document, "Even a transition-retained PDF view must release revoked content")
         XCTAssertTrue(descendants(window).compactMap { $0 as? PDFView }.allSatisfy { $0.document == nil },

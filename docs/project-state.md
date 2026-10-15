@@ -1,7 +1,72 @@
 # Project state and next Apple build
 
-Updated: 2026-10-14. This is the current release handoff. Historical reports are
+Updated: 2026-10-15. This is the current release handoff. Historical reports are
 evidence for their recorded revisions, not an automatically expanding backlog.
+
+## Current change: free Pro while the app is stabilized
+
+- User decision: every legitimate account receives all shipped Pro features free,
+  with no checkout, trial deadline or automatic conversion to paid. Normal account
+  confirmation and account-safety requirements remain. Returning to paid access
+  requires advance customer notice and an explicitly confirmed paid subscription;
+  this is not a date-based trial or the previous complimentary-month campaign.
+- Implementation branch: `codex/free-pro-access-2026-10-15`, based on verified
+  `main` at `025d2ce50489215cfd4baa5de341ff99b02623fa`. Current source candidate is
+  **1.2.2 (77)**. Build 76 was reported ready in TestFlight; preserve that artifact,
+  but it does not contain this free-access change. Build 77's Apple availability,
+  distribution signing, physical-device acceptance and upload are unverified.
+- Runtime feature access is separate from truthful subscription state. Existing
+  billing records and Apple receipt/notification verification are not rewritten.
+  Local chart limits are removed; cloud, Forums and Projects are included; local
+  forum PDFs and their setlist links survive refund, expiry and unavailable billing.
+  Experimental handwriting setup/personalization remains independently parked.
+- Free Plan and fallback Upgrade UI replace purchase/offer controls with free
+  access information. Ordinary and complimentary purchase entry points also
+  return before checkout. Management/restore of existing Apple purchase history
+  and Apple's refund-request link remain available in Settings.
+- Backend migration **20261015203728_free_pro_access** was applied through the
+  connected Supabase migration tool on October 15. The deployed policy has no
+  automatic end. It grants access only to live, confirmed, non-anonymous,
+  non-banned accounts; existing chart ownership, Forum moderation, provenance
+  and quota predicates stay in place. Live sequential role-bound checks verified
+  eligible grants and no cross-owner chart/snapshot visibility.
+- Subscription-based backup deletion and access-loss notices are paused. Original
+  paid retention/claim functions are parked privately and not API-callable;
+  removing the free policy fails closed rather than deleting overdue backups.
+  Account-requested deletion and telemetry privacy retention are unchanged.
+  Retention Edge version 41 and offer Edge version 42 are active. The old offer
+  runtime is explicitly disabled with `free_access_active`, without constructing
+  Apple signer/verifier dependencies for that request path.
+- Existing installed apps still enforce their old local paywalls until updated.
+  Server deployment is not app distribution.
+- Local final verification: **2,403 native passed / 0 failed / 103 existing skips**
+  (2,506 total), on exact Simulator `BA44A6B3-E630-42C2-B627-2A7995C63C4E` using
+  the existing accessibility wrapper; **1,693 SwiftPM passed / 0 failed / 89
+  existing skips** (1,782 total); **618 backend passed / 0 failed / 0 skipped**,
+  including 26 PGlite PostgreSQL/policy contracts. The three mounted free fallback
+  cases and both stale-checkout guards actually executed. The private Plan view
+  is source-contract checked, not mounted or physically device-verified.
+  The first native run omitted the required Simulator wrapper and failed two
+  existing Clear Draft Ink accessibility lookups even though the screenshots
+  showed enabled buttons. The final correctly configured run passed unchanged
+  assertions; no production Editor code was changed to address that test setup.
+  Full local Supabase/Docker pgTAP was unavailable and is not counted as a pass.
+  Live retention/offer endpoints still reject requests without authorization;
+  this is an authentication smoke check, not an actual customer purchase/login.
+- **Apple billing is not cancelled or refunded by this access grant.** Removing
+  subscriptions from sale, stopping renewals and refund handling remain separate
+  Apple actions. No such action has occurred. Do not claim that existing subscribers
+  cannot be charged. The saved Apple-access restriction remains in force.
+- Previously approved App Store/public wording still describes Basic/paid Pro.
+  Preserve those exact approved payloads as history; prepare the changed free
+  policy wording for fresh exact approval before metadata/public-policy submission.
+  Do not silently reuse the old approval or publish revised copy as housekeeping.
+- Future paid rollout must review existing Apple auto-renew status, customer notice,
+  explicit opt-in, fresh retention/grace periods and suppressed mail. Never blindly
+  restore parked paid deletion functions or old elapsed deadlines.
+
+The sections below preserve the October 14 build-76 cleanup receipts. They do not
+establish signing, upload or release of the current free-access candidate.
 
 ## Shipping baseline
 

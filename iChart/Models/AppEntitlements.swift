@@ -102,19 +102,27 @@ struct AppEntitlements: Codable, Hashable {
 
     private(set) var activePlan: IChartPlan
     private(set) var subscription: IChartSubscriptionEntitlement
+    // Runtime product policy, deliberately excluded from persisted billing data.
+    let accessPolicy: IChartProductAccessPolicy
 
     init(
         activePlan: IChartPlan,
-        subscription: IChartSubscriptionEntitlement? = nil
+        subscription: IChartSubscriptionEntitlement? = nil,
+        accessPolicy: IChartProductAccessPolicy = .current
     ) {
         let resolvedSubscription = subscription ?? IChartSubscriptionEntitlement.legacyStatus(for: activePlan)
         self.activePlan = resolvedSubscription.effectivePlan
         self.subscription = resolvedSubscription
+        self.accessPolicy = accessPolicy
     }
 
-    init(subscription: IChartSubscriptionEntitlement) {
+    init(
+        subscription: IChartSubscriptionEntitlement,
+        accessPolicy: IChartProductAccessPolicy = .current
+    ) {
         self.activePlan = subscription.effectivePlan
         self.subscription = subscription
+        self.accessPolicy = accessPolicy
     }
 
     mutating func applySubscription(_ subscription: IChartSubscriptionEntitlement) {
@@ -127,6 +135,8 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     var localChartLimit: Int? {
+        guard !accessPolicy.includesAllFeatures else { return nil }
+
         switch subscription.status {
         case .proActive, .proGrace, .legacyLocalPro:
             return nil
@@ -143,6 +153,8 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     func includes(_ feature: EntitledFeature) -> Bool {
+        guard !accessPolicy.includesAllFeatures else { return true }
+
         if subscription.status == .proGrace {
             switch feature {
             case .unlimitedLocalCharts,

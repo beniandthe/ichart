@@ -148,7 +148,10 @@ struct IChartApp: App {
             currentLibraryEntitlement: store.entitlements.subscription
         )
         store.applySubscriptionState(resolvedEntitlement)
-        pdfLibraryStore.removeForumDownloadsIfInactive(for: resolvedEntitlement)
+        pdfLibraryStore.removeForumDownloadsIfInactive(
+            for: resolvedEntitlement,
+            accessPolicy: store.entitlements.accessPolicy
+        )
     }
 }
 
