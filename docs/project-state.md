@@ -12,9 +12,11 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   this is not a date-based trial or the previous complimentary-month campaign.
 - Implementation branch: `codex/free-pro-access-2026-10-15`, based on verified
   `main` at `025d2ce50489215cfd4baa5de341ff99b02623fa`. Current source candidate is
-  **1.2.3 (77)**, as explicitly requested on October 15. Build 76 was reported
+  **1.2.3 (78)**, corrected explicitly on October 15. The signed build-77 package
+  and its verification receipts below are preserved; a build-number change does
+  not carry their package identity forward. Build 76 was reported
   ready in TestFlight; preserve that artifact,
-  but it does not contain this free-access change. Build 77's new version metadata
+  but it does not contain this free-access change. Build 77's previous version metadata
   passed all 2,403 native tests / 0 failures / 103 existing skips; 36 focused
   configuration/copy tests passed without failures or skips. The intended
   Simulator bundle reports 1.2.3 (77) and visibly launches to the account screen.
@@ -31,6 +33,20 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   IPA SHA-256: `eb8905ac4818d9f3be7ca952cafc7cad809d6239cfb3c6464d0326a9c4abcd39`.
   Exported Release entitlements have the expected team/bundle and
   `get-task-allow=false`; compiler warnings remain in the archive log.
+- Build **1.2.3 (78)** now replaces 77 as the current candidate. This is a
+  build-number-only correction: **41 focused native tests / 0 failures / 0 skips**
+  and **36 configuration/copy tests / 0 failures / 0 skips** passed. Development
+  signing, replacement iPad installation, normal launch and installed-version
+  readback succeeded. The signed Release archive/export and strict signatures
+  also passed, with exported `get-task-allow=false`. Fresh before/after snapshots
+  preserve all existing chart/PDF/setlist/profile files exactly; diagnostic log
+  rotation and a new telemetry queue are not chart-data changes.
+  Current private package directory:
+  `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-15-free-pro-1.2.3-78`.
+  Current IPA SHA-256:
+  `4d0764d3375f8cea569812b549f7b7eb2595fd38a5341d7ceb13f27867fa686d`.
+  Build 77's retained IPA hash is unchanged. Physical user acceptance, Apple-side
+  build availability, upload and review/submission remain separate pending gates.
 - Runtime feature access is separate from truthful subscription state. Existing
   billing records and Apple receipt/notification verification are not rewritten.
   Local chart limits are removed; cloud, Forums and Projects are included; local
