@@ -79,6 +79,45 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.url.path(percentEncoded: false)))
     }
 
+    func testFreeAccessPreservesForumPDFsSetlistEntriesAndBytesAcrossEveryBillingStateAndReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bytes = Data("%PDF-1.7\n% Customer chart retained\n".utf8)
+        let source = root.appendingPathComponent("Source.pdf")
+        try bytes.write(to: source)
+        let library = root.appendingPathComponent("library", isDirectory: true)
+        let store = IChartPDFLibraryStore(baseDirectory: library)
+        let exported = ExportedPDF(url: source, chartTitle: "Retained Forum Chart", layoutStyle: .simpleChordSheet,
+            transpositionView: .concert, chordTranspositionSemitones: 0, pageCount: 1,
+            fileSizeBytes: bytes.count, exportedAt: Date(timeIntervalSinceReferenceDate: 10))
+        let forumPDF = try store.save(exported, source: .forumDownload)
+        let localPDF = try store.save(exported, source: .chartExport)
+        let setlistStore = IChartPDFSetlistStore(baseDirectory: root.appendingPathComponent("setlists", isDirectory: true))
+        let setlist = try setlistStore.create(name: "Customer Gig")
+        let forumItem = try XCTUnwrap(store.items.first { $0.source == .forumDownload })
+        let entry = try setlistStore.add(pdfItem: forumItem, to: setlist.id)
+        let originalItems = store.items
+        let originalSetlists = setlistStore.setlists
+
+        for status in IChartSubscriptionStatus.allCases {
+            let billing = IChartSubscriptionEntitlement(status: status)
+            XCTAssertEqual(store.removeForumDownloadsIfInactive(for: billing), 0)
+            XCTAssertEqual(store.visibleItems(for: billing), originalItems)
+            XCTAssertEqual(store.items, originalItems)
+            let resolved = try XCTUnwrap(setlistStore.setlist(id: setlist.id)).resolvedEntries(in: store.visibleItems(for: billing))
+            XCTAssertEqual(resolved.map(\.id), [entry.id])
+            XCTAssertEqual(resolved.first?.pdfItem?.id, forumItem.id)
+            XCTAssertEqual(try Data(contentsOf: forumPDF.url), bytes)
+            XCTAssertEqual(try Data(contentsOf: localPDF.url), bytes)
+        }
+
+        let reopened = IChartPDFLibraryStore(baseDirectory: library)
+        XCTAssertEqual(reopened.visibleItems(for: .proExpired()), originalItems)
+        XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: root.appendingPathComponent("setlists", isDirectory: true)).setlists, originalSetlists)
+        XCTAssertNotNil(reopened.exportedPDF(for: forumItem))
+    }
+
     func testInactiveSubscriptionRemovesForumDownloadsButKeepsChartExports() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -104,7 +143,7 @@ final class PDFLibraryStoreTests: XCTestCase {
         let chartExport = try store.save(exportedPDF, source: .chartExport)
         let forumDownload = try store.save(exportedPDF, source: .forumDownload)
 
-        let removedCount = store.removeForumDownloadsIfInactive(for: .basic)
+        let removedCount = store.removeForumDownloadsIfInactive(for: .basic, accessPolicy: .paidSubscription)
 
         XCTAssertEqual(removedCount, 1)
         XCTAssertEqual(store.items.count, 1)
@@ -142,13 +181,14 @@ final class PDFLibraryStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.removeForumDownloadsIfInactive(
-                for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200))
+                for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200)),
+                accessPolicy: .paidSubscription
             ),
             0
         )
-        XCTAssertTrue(store.visibleItems(for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200))).isEmpty)
-        XCTAssertEqual(store.removeForumDownloadsIfInactive(for: .unavailable), 0)
-        XCTAssertTrue(store.visibleItems(for: .unavailable).isEmpty)
+        XCTAssertTrue(store.visibleItems(for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200)), accessPolicy: .paidSubscription).isEmpty)
+        XCTAssertEqual(store.removeForumDownloadsIfInactive(for: .unavailable, accessPolicy: .paidSubscription), 0)
+        XCTAssertTrue(store.visibleItems(for: .unavailable, accessPolicy: .paidSubscription).isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: forumDownload.url.path(percentEncoded: false)))
     }
 
@@ -338,7 +378,7 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertThrowsError(try fixture.store.deleteItems(ids: [fixture.originalItems[0].id]))
         XCTAssertEqual(try Data(contentsOf: retainedURL), retainedBytes)
         XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: .chartExport))
-        XCTAssertEqual(fixture.store.removeForumDownloadsIfInactive(for: .basic), 0)
+        XCTAssertEqual(fixture.store.removeForumDownloadsIfInactive(for: .basic, accessPolicy: .paidSubscription), 0)
         XCTAssertEqual(try Data(contentsOf: retainedURL), retainedBytes)
 
         try FileManager.default.removeItem(at: manifest)

@@ -43,6 +43,23 @@ jobs:
           supabase/functions/_shared/app_store_subscription_authority.test.mjs
           supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
           supabase/functions/_shared/account_deletion.test.mjs
+          supabase/functions/_shared/forum_post_actions.test.mjs
+
+      - name: Install pinned isolated PostgreSQL test runtime
+        run: >-
+          npm ci --prefix scripts/free-pro-test-dependencies
+          --include=dev --ignore-scripts --no-audit --no-fund --prefer-offline
+
+      - name: Verify free-access policy, ownership and retention in PostgreSQL
+        env:
+          ICHART_PGLITE_MODULE_PATH: ${{ github.workspace }}/scripts/free-pro-test-dependencies/node_modules/@electric-sql/pglite/dist/index.js
+        run: node --test scripts/test_free_pro_access.mjs scripts/test_beta_pro_participation.mjs
+
+      - name: Verify atomic Forum publication with competing PostgreSQL sessions
+        run: |
+          set -euo pipefail
+          command -v pg_config >/dev/null || { echo "PostgreSQL server binaries are required for the Forum concurrency regression." >&2; exit 1; }
+          ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_forum_publish_concurrency.mjs
 
   swift-package:
     name: SwiftPM tests

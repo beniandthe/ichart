@@ -434,7 +434,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "faq-forums",
             title: "What are Forums?",
             systemImageName: "bubble.left.and.bubble.right",
-            body: "Forums are a Pro space for sharing useful chart PDFs with other musicians.",
+            body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
@@ -454,24 +454,24 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "faq-basic-pro",
-            title: "What changes with Pro?",
+            title: "Is Pro free?",
             systemImageName: "star.circle",
-            body: "Basic is the local chart writer. Pro adds the service-backed parts of iChart.",
+            body: IChartLegalLinks.freeProNotice,
             bullets: [
-                "Basic includes local chart writing, three local charts, and PDF export.",
-                "Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums.",
-                "If Pro ends, local charts remain yours, but over-cap access and cloud features follow the downgrade rules in Settings."
+                "Your account includes unlimited local charts, Projects, cloud backup and restore, Forums, and PDF export without a purchase.",
+                "Online features still require a verified account and a connection; your local charts remain available offline.",
+                IChartLegalLinks.futurePricingNotice
             ]
         ),
         IChartHelpArticleSection(
             id: "faq-subscription",
-            title: "Why is Pro a subscription instead of one purchase?",
+            title: "What if I already subscribed?",
             systemImageName: "creditcard",
-            body: "Pro is a subscription because cloud backup, restore, Forums, account recovery, and support all have ongoing server costs.",
+            body: IChartLegalLinks.existingBillingNotice,
             bullets: [
-                "The subscription keeps those services running as the app grows.",
-                "If iChart comes to another platform, that app will be free to download.",
-                "Your Pro access will transfer through your iChart account."
+                "Settings includes Manage My Subscription for existing Apple billing.",
+                "Apple controls cancellations, charges, and refund decisions. Free app access is separate from your existing Apple billing history.",
+                "Cancelling an old subscription does not remove free Pro access. You can separately choose Basic or rejoin Pro in Settings."
             ]
         ),
         IChartHelpArticleSection(
@@ -505,7 +505,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "music.note.list",
             body: "Use iChart to create, edit, save, and export charts you are allowed to use and share.",
             bullets: [
-                "Basic includes local chart-writing tools and PDF export.",
+                "Free Pro access includes unlimited local charts, all shipped local authoring tools, and PDF export.",
                 "Keep titles, notes, credits, and chart details clear for the musicians reading the chart.",
                 "Deleting a local chart removes it from your local library."
             ]
@@ -534,13 +534,13 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "policy-plan",
-            title: "Basic, Pro, And Downgrades",
+            title: "Free Pro Access",
             systemImageName: "star.circle",
-            body: "Basic keeps the local writer available. Pro adds the larger library and online features.",
+            body: IChartLegalLinks.freeProNotice,
             bullets: [
-                "Basic keeps three local charts, all local authoring tools, and PDF export.",
-                "Pro adds unlimited charts, Projects, cloud backup and restore, and Forums.",
-                "If Pro ends while your library is above the Basic cap, chart access locks until you choose three active Basic charts; cloud backup is removed after the paid period or Apple billing grace ends."
+                "Pro currently has no chart cap or purchase requirement. If you choose Basic, you can create up to 3 local charts; your existing work stays editable.",
+                "A subscription expiry or refund does not remove free Pro access or trigger subscription-based backup removal during this free-access period.",
+                IChartLegalLinks.futurePricingNotice
             ]
         )
     ]
@@ -573,11 +573,11 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "legal-subscriptions",
             title: "Subscriptions",
             systemImageName: "creditcard",
-            body: "Pro is an auto-renewing subscription managed through Apple purchase and restore flows.",
+            body: IChartLegalLinks.existingBillingNotice,
             bullets: [
-                "Apple handles purchase and restore in the app.",
-                "Pro unlocks unlimited local charts, Projects, cloud backup and restore, and Forums.",
-                "If Pro cannot be verified, cloud backup and Forums pause while Basic local authoring and PDF export remain available within the Basic chart cap."
+                "No new subscription purchase is required or offered for free Pro access in this version.",
+                "Manage My Subscription in Settings opens Apple's controls for an existing subscription. Changing app access does not cancel Apple billing.",
+                IChartLegalLinks.futurePricingNotice
             ]
         ),
         IChartHelpArticleSection(
@@ -711,6 +711,7 @@ struct LibraryView: View {
     @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @EnvironmentObject private var forumStore: IChartForumStore
     @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
+    @Environment(\.betaProStore) private var betaProStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
     @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
     @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
@@ -849,8 +850,10 @@ struct LibraryView: View {
         .task {
             cloudSyncStore.attach(libraryStore: store)
             await authStore.bootstrap()
+            synchronizeBetaAccess(authStore.state)
             cloudSyncStore.authStateChanged(authStore.state)
-            forumStore.resumePendingUploads(
+            forumStore.applyAccess(
+                entitlements: store.entitlements,
                 charts: store.charts,
                 currentUserID: authStore.state.signedInSession?.id
             )
@@ -858,8 +861,10 @@ struct LibraryView: View {
             updateAccountLandingPresentation()
         }
         .onChange(of: authStore.state) { _, state in
+            synchronizeBetaAccess(state)
             cloudSyncStore.authStateChanged(state)
-            forumStore.resumePendingUploads(
+            forumStore.applyAccess(
+                entitlements: store.entitlements,
                 charts: store.charts,
                 currentUserID: state.signedInSession?.id
             )
@@ -868,15 +873,19 @@ struct LibraryView: View {
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
+            forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id)
             applyForumDownloadAccess(store.subscriptionState)
-            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState).map(\.id)))
+            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
             refreshForumHomeIfVisible()
         }
         .onChange(of: store.charts.map(\.id)) { _, ids in
             selectedChartIDs.formIntersection(Set(ids))
+            forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id)
         }
         .onChange(of: pdfLibraryStore.items.map(\.id)) { _, _ in
-            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState).map(\.id)))
+            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
         }
         .onChange(of: chartsWorkspaceModeRawValue) { _, _ in
             isSelectingCharts = false
@@ -1273,7 +1282,9 @@ struct LibraryView: View {
                 ) {
                     IChartLockedFeatureView(
                         title: "Projects require Pro",
-                        message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
+                        message: IChartProductAccessPolicy.current.isFreeBeta
+                            ? "Rejoin free Pro in Settings to use Projects. Your existing projects and charts are kept."
+                            : "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
                         systemImageName: "lock.folder",
                         theme: homeTheme
                     )
@@ -1297,15 +1308,15 @@ struct LibraryView: View {
                 librarySelectionBar(
                     isSelecting: $isSelectingPDFs,
                     selectedIDs: $selectedPDFIDs,
-                    availableIDs: Set(pdfLibraryStore.visibleItems(for: store.subscriptionState).map(\.id)),
+                    availableIDs: Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)),
                     noun: "PDFs"
                 ) {
-                    let items = pdfLibraryStore.visibleItems(for: store.subscriptionState)
+                    let items = pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy)
                         .filter { selectedPDFIDs.contains($0.id) }
                     deleteRequest = IChartLibraryDeleteRequest(pdfs: items)
                 }
                 IChartPDFLibraryHomeView(
-                    items: pdfLibraryStore.visibleItems(for: store.subscriptionState),
+                    items: pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy),
                     theme: homeTheme,
                     isSelecting: isSelectingPDFs,
                     selectedIDs: selectedPDFIDs,
@@ -1404,7 +1415,9 @@ struct LibraryView: View {
                 } else {
                     IChartLockedFeatureView(
                         title: "Forums require Pro",
-                        message: "Upgrade to Pro to join iChart Forums.",
+                        message: IChartProductAccessPolicy.current.isFreeBeta
+                            ? "Rejoin free Pro in Settings to use Forums. Your downloaded PDFs and queued charts are kept."
+                            : "Upgrade to Pro to join iChart Forums.",
                         systemImageName: "lock.icloud",
                         theme: homeTheme
                     )
@@ -1446,7 +1459,7 @@ struct LibraryView: View {
 
                 IChartHomePanel(
                     title: "Plan",
-                    systemImageName: store.subscriptionState.systemImageName,
+                    systemImageName: store.entitlements.accessPolicy.includesAllFeatures ? "star.fill" : store.subscriptionState.systemImageName,
                     theme: homeTheme
                 ) {
                     IChartPlanSettings(
@@ -1761,7 +1774,7 @@ struct LibraryView: View {
                 selectedPDFIDs.subtract(request.ids)
                 isSelectingPDFs = !selectedPDFIDs.isEmpty
             } catch {
-                selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState).map(\.id)))
+                selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
                 isSelectingPDFs = !selectedPDFIDs.isEmpty
                 presentLibraryError(error.localizedDescription)
             }
@@ -1939,6 +1952,12 @@ struct LibraryView: View {
         guidedTourStep = .welcome
     }
 
+    private func synchronizeBetaAccess(_ state: IChartAuthState) {
+        guard IChartProductAccessPolicy.current.isFreeBeta, let betaProStore else { return }
+        betaProStore.authStateChanged(state)
+        store.applyAccessPolicy(betaProStore.freeProAccess ? .freeAllFeatures : .betaBasic)
+    }
+
     private func apply(subscriptionPreview: IChartSubscriptionEntitlement) {
         withAnimation(.easeInOut(duration: 0.18)) {
             store.applySubscriptionState(subscriptionPreview)
@@ -1948,9 +1967,12 @@ struct LibraryView: View {
     }
 
     private func applyForumDownloadAccess(_ subscription: IChartSubscriptionEntitlement) {
-        pdfLibraryStore.removeForumDownloadsIfInactive(for: subscription)
+        pdfLibraryStore.removeForumDownloadsIfInactive(
+            for: subscription,
+            accessPolicy: store.entitlements.accessPolicy
+        )
         if selectedPDFLibraryItem?.source == .forumDownload,
-           !subscription.allowsForumDownloadAccess {
+           !subscription.allowsForumDownloadAccess(accessPolicy: store.entitlements.accessPolicy) {
             selectedPDFLibraryItem = nil
         }
     }
@@ -6242,10 +6264,20 @@ private struct IChartPlanSettings: View {
     @ObservedObject var store: ChartLibraryStore
     @ObservedObject var subscriptionStore: IChartStoreKitSubscriptionStore
     @ObservedObject var forumStore: IChartForumStore
+    @Environment(\.betaProStore) private var betaProStore
     let theme: IChartHomeTheme
     let onSelectSubscriptionState: (IChartSubscriptionEntitlement) -> Void
     let onForumQASampleDataChanged: (Bool) -> Void
     @State private var complimentaryPurchaseFeedback: IChartComplimentaryPurchaseFeedback?
+
+    private var isFreeAccess: Bool { store.entitlements.accessPolicy.includesAllFeatures }
+    private var isFreeBeta: Bool { IChartProductAccessPolicy.current.isFreeBeta }
+    private var planTitle: String {
+        isFreeBeta ? (isFreeAccess ? IChartLegalLinks.freeProTitle : IChartLegalLinks.betaBasicTitle) : store.subscriptionState.displayTitle
+    }
+    private var planDetail: String {
+        isFreeBeta ? (isFreeAccess ? IChartLegalLinks.freeProNotice : IChartLegalLinks.betaBasicNotice) : store.subscriptionState.detailText
+    }
 
     #if DEBUG
     @State private var debugPreview: IChartDebugPlanPreview = .basic
@@ -6267,7 +6299,7 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Cloud Backup",
-                    value: store.subscriptionState.cloudAccessText,
+                    value: isFreeBeta ? (isFreeAccess ? "Included" : "Not included in Basic") : store.subscriptionState.cloudAccessText,
                     systemImageName: "icloud.and.arrow.up",
                     theme: theme
                 )
@@ -6276,12 +6308,12 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Forums",
-                    value: store.subscriptionState.forumsAccessText,
+                    value: isFreeBeta ? (isFreeAccess ? "Included" : "Not included in Basic") : store.subscriptionState.forumsAccessText,
                     systemImageName: "bubble.left.and.bubble.right",
                     theme: theme
                 )
 
-                if let graceEndsAt = store.subscriptionState.graceEndsAt {
+                if !isFreeBeta, let graceEndsAt = store.subscriptionState.graceEndsAt {
                     planDivider
 
                     IChartSettingsRow(
@@ -6300,7 +6332,11 @@ private struct IChartPlanSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            storeKitControls
+            if isFreeBeta {
+                freeAccessControls
+            } else {
+                storeKitControls
+            }
 
             #if DEBUG
             debugControls
@@ -6322,17 +6358,17 @@ private struct IChartPlanSettings: View {
 
     private var planHeader: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: store.subscriptionState.systemImageName)
+            Image(systemName: isFreeBeta ? (isFreeAccess ? "star.fill" : "person.crop.circle") : store.subscriptionState.systemImageName)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(statusTint)
                 .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(store.subscriptionState.displayTitle)
+                Text(planTitle)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.panelTitle)
 
-                Text(store.subscriptionState.detailText)
+                Text(planDetail)
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -6340,7 +6376,7 @@ private struct IChartPlanSettings: View {
 
             Spacer(minLength: 12)
 
-            Text(store.subscriptionState.badgeText)
+            Text(isFreeBeta ? (isFreeAccess ? "Free" : "Basic") : store.subscriptionState.badgeText)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(statusTint)
                 .padding(.horizontal, 10)
@@ -6365,6 +6401,8 @@ private struct IChartPlanSettings: View {
     }
 
     private var statusTint: Color {
+        if isFreeAccess { return Color(red: 0.16, green: 0.48, blue: 0.24) }
+        if isFreeBeta { return IChartHomeBrand.blue }
         switch store.subscriptionState.status {
         case .proActive:
             return Color(red: 0.16, green: 0.48, blue: 0.24)
@@ -6376,6 +6414,53 @@ private struct IChartPlanSettings: View {
             return Color(red: 0.48, green: 0.48, blue: 0.50)
         case .basic, .legacyLocalPro:
             return IChartHomeBrand.blue
+        }
+    }
+
+    private var freeAccessControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let betaProStore {
+                IChartBetaProControls(store: betaProStore)
+            }
+            Text(IChartLegalLinks.futurePricingNotice)
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().overlay(theme.panelBorder)
+            Text("Existing Apple Purchases")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.panelTitle)
+            Text(IChartLegalLinks.existingBillingNotice)
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await subscriptionStore.manageSubscriptions() }
+            } label: {
+                Label("Manage My Subscription", systemImage: "person.crop.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+
+            Button {
+                Task { await subscriptionStore.restorePurchases() }
+            } label: {
+                Label("Restore Purchase History", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+
+            if let statusText = subscriptionStore.state.statusText {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            IChartLegalLinksView().tint(IChartHomeBrand.blue)
         }
     }
 

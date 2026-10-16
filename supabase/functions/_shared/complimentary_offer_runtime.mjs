@@ -3,10 +3,16 @@ import { createLegacyPromotionalOfferSigner } from "./complimentary_offer_signat
 import { createAppStoreSignedDataVerifiers } from "./app_store_signed_data_verifier.mjs";
 import { createFreshComplimentaryAppleDependencies } from "./complimentary_offer_apple_client.mjs";
 import { createSupabaseComplimentaryOfferDependencies } from "./supabase_complimentary_offer_store.mjs";
+import { applyFreeProAccessToOfferConfiguration } from "./free_pro_access_policy.mjs";
 
 export function createComplimentaryOfferRuntime(env = globalThis.Deno?.env) {
-  let configuration = complimentaryCampaignConfigurationFromEnv(env);
+  let configuration = applyFreeProAccessToOfferConfiguration(complimentaryCampaignConfigurationFromEnv(env));
   const store = createSupabaseComplimentaryOfferDependencies(env);
+  if (configuration.freeAccessPhaseActive) {
+    // No Apple snapshot/verifier/signer is constructed for this free phase.
+    // Old clients still receive a compatible, explicit disabled-offer response.
+    return { configuration, dependencies: { authenticatedUserID: store.authenticatedUserID } };
+  }
   // Keep global claim verification unchanged, including its existing production
   // -> Sandbox signature-verification fallback. Only this campaign's API target
   // and policy use the separate, explicitly selected environment.

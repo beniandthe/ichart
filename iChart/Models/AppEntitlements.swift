@@ -102,19 +102,27 @@ struct AppEntitlements: Codable, Hashable {
 
     private(set) var activePlan: IChartPlan
     private(set) var subscription: IChartSubscriptionEntitlement
+    // Runtime product policy, deliberately excluded from persisted billing data.
+    let accessPolicy: IChartProductAccessPolicy
 
     init(
         activePlan: IChartPlan,
-        subscription: IChartSubscriptionEntitlement? = nil
+        subscription: IChartSubscriptionEntitlement? = nil,
+        accessPolicy: IChartProductAccessPolicy = .current
     ) {
         let resolvedSubscription = subscription ?? IChartSubscriptionEntitlement.legacyStatus(for: activePlan)
         self.activePlan = resolvedSubscription.effectivePlan
         self.subscription = resolvedSubscription
+        self.accessPolicy = accessPolicy
     }
 
-    init(subscription: IChartSubscriptionEntitlement) {
+    init(
+        subscription: IChartSubscriptionEntitlement,
+        accessPolicy: IChartProductAccessPolicy = .current
+    ) {
         self.activePlan = subscription.effectivePlan
         self.subscription = subscription
+        self.accessPolicy = accessPolicy
     }
 
     mutating func applySubscription(_ subscription: IChartSubscriptionEntitlement) {
@@ -127,6 +135,11 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     var localChartLimit: Int? {
+        guard !accessPolicy.includesAllFeatures else { return nil }
+        if accessPolicy == .betaBasic {
+            return Self.recommendedBasicChartLimit
+        }
+
         switch subscription.status {
         case .proActive, .proGrace, .legacyLocalPro:
             return nil
@@ -143,6 +156,11 @@ struct AppEntitlements: Codable, Hashable {
     }
 
     func includes(_ feature: EntitledFeature) -> Bool {
+        guard !accessPolicy.includesAllFeatures else { return true }
+        if accessPolicy == .betaBasic {
+            return Self.basicIncludes(feature)
+        }
+
         if subscription.status == .proGrace {
             switch feature {
             case .unlimitedLocalCharts,
@@ -165,23 +183,7 @@ struct AppEntitlements: Codable, Hashable {
 
         switch activePlan {
         case .free:
-            switch feature {
-            case .pdfExport,
-                 .documentTransposition,
-                 .fontPresets,
-                 .roadmapNotationTools,
-                 .advancedRhythmEditing:
-                return true
-            case .unlimitedLocalCharts,
-                 .syncedChartOrganization,
-                 .cloudBackup,
-                 .forums,
-                 .sharedBandLibraries,
-                 .setlistsAndVersionHistory,
-                 .aiRecognitionCleanup,
-                 .projects:
-                return false
-            }
+            return Self.basicIncludes(feature)
         case .proLifetime:
             switch feature {
             case .unlimitedLocalCharts,
@@ -202,6 +204,26 @@ struct AppEntitlements: Codable, Hashable {
             }
         case .studioSubscription:
             return true
+        }
+    }
+
+    private static func basicIncludes(_ feature: EntitledFeature) -> Bool {
+        switch feature {
+        case .pdfExport,
+             .documentTransposition,
+             .fontPresets,
+             .roadmapNotationTools,
+             .advancedRhythmEditing:
+            return true
+        case .unlimitedLocalCharts,
+             .syncedChartOrganization,
+             .cloudBackup,
+             .forums,
+             .sharedBandLibraries,
+             .setlistsAndVersionHistory,
+             .aiRecognitionCleanup,
+             .projects:
+            return false
         }
     }
 
@@ -226,6 +248,9 @@ struct AppEntitlements: Codable, Hashable {
             let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount) ?? 0
 
             if remainingSlots == 0 {
+                if accessPolicy == .betaBasic {
+                    return "Basic creation limit reached. Existing charts stay editable; rejoin free Pro in Settings to add more."
+                }
                 return "Basic limit reached: \(localChartLimit) local charts. Pro removes the cap."
             }
 

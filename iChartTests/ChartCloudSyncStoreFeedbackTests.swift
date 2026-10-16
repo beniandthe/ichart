@@ -134,12 +134,30 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         await fulfillment(of: [completed], timeout: 2)
         observer.cancel()
         let charts = library.charts
-        library.entitlements = .free
+        library.entitlements = AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription)
         store.authStateChanged(.signedIn(account()))
         XCTAssertEqual(store.state, .requiresPro)
         XCTAssertNil(store.lastRestoreResult)
         XCTAssertNil(store.lastOperationResult)
         XCTAssertEqual(library.charts, charts)
+    }
+
+    func testFreeAccountCanRestoreAfterBillingExpiresWithoutLosingCharts() async {
+        let (store, library, _) = await configuredStore(chartCount: 4)
+        library.entitlements = AppEntitlements(subscription: .proExpired(), accessPolicy: .freeAllFeatures)
+        store.authStateChanged(.signedIn(account()))
+        let completed = expectation(description: "Expired-billing free account restored")
+        let observer = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in completed.fulfill() }
+
+        store.restoreChartsFromCloud()
+
+        await fulfillment(of: [completed], timeout: 2)
+        observer.cancel()
+        XCTAssertNotEqual(store.state, .requiresPro)
+        XCTAssertNotNil(store.lastRestoreResult)
+        XCTAssertEqual(library.charts.count, 4)
+        XCTAssertEqual(library.subscriptionState.status, .proExpired)
+        XCTAssertNil(library.localChartLimit)
     }
 
     func testRestoreFailureHasActualStageAndNoRawErrorOrUnsupportedSignInAdvice() async throws {

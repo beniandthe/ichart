@@ -1,0 +1,9 @@
+{
+  "name": "ichart-free-pro-postgres-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated development-only PostgreSQL runtime for the mandatory free-access policy regressions.",
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
+}

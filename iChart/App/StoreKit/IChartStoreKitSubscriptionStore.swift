@@ -103,7 +103,9 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             return
         }
 
-        await loadProducts()
+        if IChartProductAccessPolicy.current.offersPaidPurchases {
+            await loadProducts()
+        }
         await recoverUnfinishedTransactions()
         listenForTransactionUpdates()
         await refreshEntitlements()
@@ -209,6 +211,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func purchase(_ product: Product) async {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+            state = .ready
+            return
+        }
         state = .purchasing
         let startedAt = Date()
         IChartTelemetry.record(
@@ -295,6 +301,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func purchase(_ option: IChartStoreKitProductOption) async {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+            state = .ready
+            return
+        }
         if let product = productsByID[option.id] {
             await purchase(product)
             return
@@ -311,6 +321,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     @discardableResult
     func purchaseComplimentaryOffer(_ displayedOffer: IChartComplimentaryOffer) async -> Bool {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+            state = .ready
+            return false
+        }
         guard !complimentaryPurchaseInFlight,
               complimentaryOffers.contains(displayedOffer),
               let subscriptionClaimService else {
@@ -605,7 +619,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         complimentaryOfferStatuses = []
         complimentaryAttemptIDsByProduct = [:]
 
-        guard let subscriptionClaimService, !products.isEmpty else {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases,
+              let subscriptionClaimService, !products.isEmpty else {
             return
         }
 
@@ -999,6 +1014,12 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     private func loadProducts() async {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+            products = []
+            productsByID = [:]
+            productOptions = []
+            return
+        }
         do {
             let fetchedProducts = try await Product.products(for: productIDs)
             products = fetchedProducts.sorted { lhs, rhs in

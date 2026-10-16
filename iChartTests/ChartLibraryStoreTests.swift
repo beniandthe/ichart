@@ -108,12 +108,66 @@ final class ChartLibraryStoreTests: XCTestCase {
         let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
-        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+        let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
         let didCreateChart = store.createBlankChart()
 
         XCTAssertFalse(didCreateChart)
         XCTAssertEqual(store.charts.count, AppEntitlements.recommendedFreeChartLimit)
+    }
+
+    func testFreeAccessKeepsOverCapLibraryAndSelectionAcrossEveryBillingRefresh() throws {
+        let repository = RecordingChartRepository()
+        let charts = (1...6).map { Chart.blank(title: "Customer Chart \($0)") }
+        let store = ChartLibraryStore(charts: charts, entitlements: .free,
+            selectedChartID: charts[4].id, repository: repository)
+        let projectID = try XCTUnwrap(store.createProject(title: "Customer Song", chartIDs: charts.map(\.id)))
+        let originalProjects = store.projects
+
+        for status in IChartSubscriptionStatus.allCases {
+            let billing = IChartSubscriptionEntitlement(status: status, willAutoRenew: false)
+            store.applySubscriptionState(billing)
+            XCTAssertEqual(store.entitlements.subscription, billing)
+            XCTAssertEqual(repository.savedSnapshots.last?.entitlements.subscription, billing)
+            XCTAssertEqual(store.charts, charts)
+            XCTAssertEqual(store.projects, originalProjects)
+            XCTAssertEqual(store.selectedChartID, charts[4].id)
+            XCTAssertNil(store.localChartLimit)
+            XCTAssertTrue(store.canOpenChartsForEditing)
+            XCTAssertTrue(store.canCreateChart)
+            XCTAssertTrue(store.canUse(.projects))
+            XCTAssertTrue(store.canUse(.cloudBackup))
+            XCTAssertTrue(store.canUse(.forums))
+            XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+            XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[4].id))
+            XCTAssertTrue(store.deletionTombstones.isEmpty)
+        }
+
+        let reopenedSnapshot = try ChartPersistenceCoders.decoder.decode(ChartLibrarySnapshot.self,
+            from: ChartPersistenceCoders.encoder.encode(store.snapshot))
+        let reopened = ChartLibraryStore(snapshot: reopenedSnapshot)
+        XCTAssertEqual(reopened.charts, charts)
+        XCTAssertEqual(reopened.projects.first?.id, projectID)
+        XCTAssertEqual(reopened.selectedChartID, charts[4].id)
+        XCTAssertTrue(reopened.canOpenChartsForEditing)
+        XCTAssertTrue(reopened.createBlankChart())
+        XCTAssertNotNil(reopened.duplicateChart(id: charts[0].id))
+        XCTAssertEqual(reopened.charts.count, 8)
+        XCTAssertEqual(reopened.entitlements.subscription, store.entitlements.subscription)
+    }
+
+    func testFreeAccessSupportsProjectMutationsWithoutPaidSubscription() throws {
+        let chart = Chart.blank(title: "Original")
+        let store = ChartLibraryStore(charts: [chart], entitlements: .free)
+        let projectID = try XCTUnwrap(store.createProject(title: "Song"))
+        XCTAssertTrue(store.addChartToProject(chartID: chart.id, projectID: projectID))
+        XCTAssertTrue(store.renameProject(id: projectID, to: "Rehearsal"))
+        XCTAssertTrue(store.createBlankChart(projectID: projectID))
+        let duplicateID = try XCTUnwrap(store.duplicateChart(id: chart.id, projectID: projectID))
+        XCTAssertTrue(store.removeChartFromProject(chartID: duplicateID, projectID: projectID))
+        XCTAssertTrue(store.deleteProject(id: projectID))
+        XCTAssertEqual(store.charts.count, 3, "Removing organization never deletes its charts")
+        XCTAssertEqual(store.entitlements.subscription, .basic)
     }
 
     func testLegacyLocalProAllowsCreatingMoreCharts() {
@@ -122,7 +176,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(
             charts: charts,
-            entitlements: AppEntitlements(activePlan: .proLifetime)
+            entitlements: AppEntitlements(activePlan: .proLifetime, accessPolicy: .paidSubscription)
         )
 
         let didCreateChart = store.createBlankChart(in: .bFlatMajor)
@@ -163,7 +217,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(
             charts: charts,
-            entitlements: AppEntitlements(subscription: .activePro())
+            entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .paidSubscription)
         )
 
         store.applySubscriptionState(.proExpired(verifiedAt: Date(timeIntervalSinceReferenceDate: 42)))
@@ -184,7 +238,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(
             charts: charts,
-            entitlements: AppEntitlements(subscription: .activePro())
+            entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .paidSubscription)
         )
 
         store.applySubscriptionState(
@@ -209,7 +263,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(
             charts: charts,
-            entitlements: AppEntitlements(subscription: .proExpired())
+            entitlements: AppEntitlements(subscription: .proExpired(), accessPolicy: .paidSubscription)
         )
 
         XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
@@ -227,7 +281,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         let charts = (1...AppEntitlements.recommendedBasicChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
-        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+        let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
         XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
         XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
@@ -236,7 +290,7 @@ final class ChartLibraryStoreTests: XCTestCase {
     }
 
     func testProjectsRequireActiveProSubscription() {
-        let store = ChartLibraryStore(charts: ChartSamples.previewCharts, entitlements: .free)
+        let store = ChartLibraryStore(charts: ChartSamples.previewCharts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
         XCTAssertNil(store.createProject(title: "Song Folder"))
 
@@ -608,7 +662,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         let charts = (1...AppEntitlements.recommendedFreeChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
-        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+        let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
         let duplicateID = store.duplicateChart(id: charts[0].id)
 
@@ -952,7 +1006,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(
             charts: charts,
-            entitlements: .free,
+            entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription),
             selectedChartID: charts[3].id,
             repository: repository
         )
@@ -980,7 +1034,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         let charts = (1...AppEntitlements.recommendedBasicChartLimit).map {
             Chart.blank(title: "Chart \($0)")
         }
-        let store = ChartLibraryStore(charts: charts, entitlements: .free)
+        let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
         XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[0].id))
         XCTAssertEqual(store.charts.map(\.id), charts.map(\.id))

@@ -2,6 +2,11 @@ begin;
 
 select no_plan();
 
+-- This suite preserves the parked paid-mode contract. The independent free
+-- access suite exercises the shipping free policy. Transaction rollback restores
+-- the singleton; application/service roles cannot mutate this policy.
+delete from private.ichart_free_access_policy;
+
 insert into auth.users (id, email, raw_user_meta_data)
 values
     (
@@ -20,6 +25,10 @@ values
         '{}'::jsonb
     )
 on conflict (id) do nothing;
+
+update auth.users set email_confirmed_at = now()
+where id in ('00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003');
 
 update public.profiles
 set first_name = 'Beni',

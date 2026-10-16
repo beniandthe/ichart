@@ -95,6 +95,9 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     var requiresLocalChartPruningForCurrentPlan: Bool {
+        // Voluntarily leaving free Pro must not force deletion or lock editing
+        // of existing charts. Only new-chart capacity is limited in Beta Basic.
+        guard !entitlements.accessPolicy.isFreeBeta else { return false }
         guard let localChartLimit else {
             return false
         }
@@ -138,6 +141,14 @@ final class ChartLibraryStore: ObservableObject {
         entitlements = updatedEntitlements
     }
 
+    func applyAccessPolicy(_ accessPolicy: IChartProductAccessPolicy) {
+        guard entitlements.accessPolicy != accessPolicy else { return }
+        entitlements = AppEntitlements(
+            subscription: entitlements.subscription,
+            accessPolicy: accessPolicy
+        )
+    }
+
     @discardableResult
     func createBlankChart(
         in key: DocumentKey = .cMajor,
@@ -163,7 +174,7 @@ final class ChartLibraryStore: ObservableObject {
             )
         }
 
-        guard canCreateChart else {
+        guard canCreateChart, projectID == nil || canUse(.projects) else {
             return false
         }
 
@@ -202,7 +213,7 @@ final class ChartLibraryStore: ObservableObject {
         transpositionView: TranspositionView? = nil,
         projectID: ChartProject.ID? = nil
     ) -> Chart.ID? {
-        guard canCreateChart,
+        guard canCreateChart, projectID == nil || canUse(.projects),
               let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
             return nil
         }
@@ -405,9 +416,18 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     func applySyncedSnapshot(_ snapshot: ChartLibrarySnapshot) {
+        let accessPolicy = entitlements.accessPolicy
         performPersistedBatch(notifyCloudSync: false) {
             charts = snapshot.charts
-            entitlements = snapshot.entitlements
+            // Saved snapshots carry billing evidence, never account Beta mode.
+            if accessPolicy.isFreeBeta {
+                entitlements = AppEntitlements(
+                    subscription: snapshot.entitlements.subscription,
+                    accessPolicy: accessPolicy
+                )
+            } else {
+                entitlements = snapshot.entitlements
+            }
             deletionTombstones = Self.normalizedTombstones(snapshot.deletionTombstones)
             cloudMetadata = snapshot.cloudMetadata
             projects = Self.normalizedProjects(snapshot.projects, charts: snapshot.charts)

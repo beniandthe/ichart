@@ -7,6 +7,7 @@ struct IChartApp: App {
     @StateObject private var authStore: IChartAuthStore
     @StateObject private var cloudSyncStore: ChartCloudSyncStore
     @StateObject private var subscriptionStore: IChartStoreKitSubscriptionStore
+    @StateObject private var betaProStore: IChartBetaProStore
     @StateObject private var forumStore: IChartForumStore
     @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
     @StateObject private var setlistStore: IChartPDFSetlistStore
@@ -34,6 +35,7 @@ struct IChartApp: App {
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
         _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
         _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
+        _betaProStore = StateObject(wrappedValue: IChartBetaProStore.live(clients: supabaseClients))
         _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
         _pdfLibraryStore = StateObject(wrappedValue: pdfLibraryStore)
         _setlistStore = StateObject(wrappedValue: IChartPDFSetlistStore.live())
@@ -56,8 +58,13 @@ struct IChartApp: App {
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
                 .environmentObject(setlistStore)
+                .environment(\.betaProStore, betaProStore)
+                .environment(\.betaProRetryAction, { await retryBetaAccess() })
+                .modifier(IChartBetaProNoticePresenter(store: betaProStore))
                 .task {
                     let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
+                    synchronizeBetaAccess(authStore.state)
+                    await retryBetaAccess()
                     await subscriptionStore.bootstrap()
                     IChartPerformanceTrace.record("app.bootstrap.subscriptionStore.complete")
                     applySubscriptionState(subscriptionStore.entitlement)
@@ -84,10 +91,16 @@ struct IChartApp: App {
                         ]
                     )
                 }
+                .onChange(of: betaProStore.freeProAccess) { _, _ in
+                    applyBetaAccessPolicy()
+                    cloudSyncStore.authStateChanged(authStore.state)
+                }
                 .task(id: scenePhase) {
                     guard scenePhase == .active else {
                         return
                     }
+                    synchronizeBetaAccess(authStore.state)
+                    await retryBetaAccess()
                     // Retry a persisted diagnostic backlog while the app is
                     // active, even if the musician generates no further events.
                     // No network request is made when the queue is empty.
@@ -108,6 +121,8 @@ struct IChartApp: App {
                     }
                 }
                 .onChange(of: authStore.state) { _, state in
+                    // Apply the new account's choice before scheduling cloud work.
+                    synchronizeBetaAccess(state)
                     cloudSyncStore.authStateChanged(state)
                     IChartTelemetry.record(
                         "auth.state_changed",
@@ -117,6 +132,7 @@ struct IChartApp: App {
                         ]
                     )
                     Task {
+                        await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
                         IChartTelemetry.flush()
@@ -134,7 +150,9 @@ struct IChartApp: App {
                     }
                     Task {
                         await authStore.handleAuthCallback(url: url)
+                        synchronizeBetaAccess(authStore.state)
                         cloudSyncStore.authStateChanged(authStore.state)
+                        await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
                         IChartTelemetry.flush()
@@ -143,12 +161,38 @@ struct IChartApp: App {
         }
     }
 
+    private func synchronizeBetaAccess(_ state: IChartAuthState) {
+        betaProStore.authStateChanged(state)
+        applyBetaAccessPolicy()
+    }
+
+    @MainActor
+    private func retryBetaAccess() async {
+        await betaProStore.retryAfterSessionRecovery {
+            if case .temporarilyOffline = authStore.state, !authStore.isWorking {
+                await authStore.refreshSession()
+            }
+            // A real recovered session must select its own cached access policy
+            // before cloud observes the account. Failed reconnects remain offline.
+            synchronizeBetaAccess(authStore.state)
+            cloudSyncStore.authStateChanged(authStore.state)
+        }
+    }
+
+    private func applyBetaAccessPolicy() {
+        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
+        store.applyAccessPolicy(betaProStore.freeProAccess ? .freeAllFeatures : .betaBasic)
+    }
+
     private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {
         let resolvedEntitlement = entitlement.resolvedForLibraryApplication(
             currentLibraryEntitlement: store.entitlements.subscription
         )
         store.applySubscriptionState(resolvedEntitlement)
-        pdfLibraryStore.removeForumDownloadsIfInactive(for: resolvedEntitlement)
+        pdfLibraryStore.removeForumDownloadsIfInactive(
+            for: resolvedEntitlement,
+            accessPolicy: store.entitlements.accessPolicy
+        )
     }
 }
 
