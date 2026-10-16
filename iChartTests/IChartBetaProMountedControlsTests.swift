@@ -19,7 +19,7 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         XCTAssertTrue(leave.isEnabled)
         XCTAssertGreaterThan(leave.frame(in: mounted.window).width, 0)
         XCTAssertGreaterThan(leave.frame(in: mounted.window).height, 0)
-        XCTAssertTrue(try NativeAccessibilityLookup.matching("Rejoin Pro — Free During Beta", in: mounted.window).isEmpty)
+        XCTAssertTrue(try NativeAccessibilityLookup.matching("Rejoin Pro — Free", in: mounted.window).isEmpty)
         try assertNoCheckout(in: mounted.window)
         XCTAssertTrue(fixture.service.setRequests.isEmpty)
     }
@@ -32,7 +32,7 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         let mounted = try mount(IChartBetaProControls(store: fixture.store, didJoin: { joinedCount += 1 }))
         defer { mounted.close() }
 
-        let rejoin = try await button("Rejoin Pro — Free During Beta", in: mounted.window)
+        let rejoin = try await button("Rejoin Pro — Free", in: mounted.window)
         XCTAssertTrue(rejoin.isEnabled)
         XCTAssertTrue(try NativeAccessibilityLookup.matching("Leave Pro — Use Basic", in: mounted.window).isEmpty)
         try assertNoCheckout(in: mounted.window)
@@ -80,7 +80,7 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         let mounted = try mount(IChartBetaProControls(store: fixture.store, didJoin: { joinedCount += 1 }))
         defer { mounted.close() }
 
-        try activate(try await button("Rejoin Pro — Free During Beta", in: mounted.window))
+        try activate(try await button("Rejoin Pro — Free", in: mounted.window))
         try await waitUntil(in: mounted.window) { fixture.store.errorMessage != nil && !fixture.store.isWorking }
         let error = try XCTUnwrap(fixture.store.errorMessage)
         try await waitUntil(in: mounted.window) {
@@ -92,7 +92,7 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         XCTAssertFalse(fixture.store.isEnrolled)
         XCTAssertFalse(fixture.store.freeProAccess)
         XCTAssertEqual(joinedCount, 0)
-        let retryRejoin = try await button("Rejoin Pro — Free During Beta", in: mounted.window)
+        let retryRejoin = try await button("Rejoin Pro — Free", in: mounted.window)
         let retryRefresh = try await button("Try Again", in: mounted.window)
         XCTAssertTrue(retryRejoin.isEnabled)
         XCTAssertTrue(retryRefresh.isEnabled)
@@ -114,7 +114,7 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         let mounted = try mount(root)
         defer { mounted.close() }
 
-        let rejoin = try await button("Rejoin Pro — Free During Beta", in: mounted.window)
+        let rejoin = try await button("Rejoin Pro — Free", in: mounted.window)
         let done = try await button("Done", in: mounted.window)
         XCTAssertTrue(rejoin.isEnabled)
         XCTAssertTrue(done.isEnabled)

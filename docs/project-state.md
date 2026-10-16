@@ -3,7 +3,66 @@
 Updated: 2026-10-15. This is the current release handoff. Historical reports are
 evidence for their recorded revisions, not an automatically expanding backlog.
 
-## Current pre-push checkpoint: free-beta account-loop audit
+## Current repair checkpoint: public free Pro and atomic Forum publication
+
+The approved public-facing title is **Pro — Free**. The app now says Pro is
+currently free with an iChart account, allows leaving/rejoining in Settings, and
+requires advance pricing notice plus Apple confirmation for any new paid
+subscription. Existing Apple billing remains separate. These are display-string
+changes, not a billing, recognition, chart-format or access-policy transition.
+Internal beta identifiers and persisted membership/RPC keys remain compatible.
+
+The admitted-publish race found on PR #83 is repaired in source. Publication now
+uses one service-only database operation that locks the account and stored post,
+checks current eligibility/access/ownership/status, and finalizes provenance plus
+visibility in the same transaction. The participation setter takes the same
+account lock, covering both existing and initially absent membership. Auth bans
+and deletion also conflict with that row lock. A completed opt-out/ban denies a
+waiting publisher; an already-committing publisher finishes before the access
+change can complete. Withdrawal/removal is not resurrected. There is no fallback
+to the old finalizer-plus-publication PATCH and no new authenticated moderation
+or provenance-finalization grant.
+
+- The original wired race was reproduced, and both added revocation regressions
+  failed against the old handler before passing against the repair.
+- Final focused handler/PostgreSQL tests: **141 passed / 0 failed / 0 skipped**,
+  including 56 handler cases and 85 single-session PostgreSQL cases. The full
+  shared backend suite separately passed **641 / 0 / 0**; these overlap, not add.
+- Real PostgreSQL **17.11**, with independent sessions, passed all **six** lock
+  ordering scenarios (**7** Node tests including the parent). Observed blocking
+  comes from `pg_blocking_pids`, not timing assumptions. Each run owns and stops
+  a private synthetic Unix-socket-only cluster. CI now runs this regression using
+  the runner's PostgreSQL server binaries; remote execution is still a fresh gate.
+- Full native tests passed **2,446 / 0 / 103 existing skips** (2,549 total), with
+  the exact configured Simulator verified from `xcresulttool`. Full SwiftPM
+  passed **1,724 / 0 / 89 existing skips** (1,813 total). Four workflow-scope
+  regressions passed. An independent read-only bypass/regression review found no
+  concrete surviving defect in the focused backend candidate. This is not a
+  repository-wide security scan or handwriting-accuracy evidence.
+- Production migration **20261016022548_atomic_forum_publication** is applied.
+  Its exact SQL digest matches the repository; the initial uncommitted CLI
+  filename was aligned to the version actually recorded by Supabase, without
+  changing SQL or rewriting migration history. Service-only grants/empty search
+  paths and the absence of authenticated status UPDATE privileges are verified.
+  Existing advisor notices remain unchanged. The live Forum endpoint is still
+  **version 42**: the human separately approved replacing only that endpoint
+  **after fresh PR checks pass and the repair is merged**. Do not claim the live
+  admitted-publish path has changed before that deployment/readback.
+- Version/build remains **1.2.3 (78)**. A new signed local archive/export succeeded
+  in the private `2026-10-15-free-pro-1.2.3-78-public-wording-atomic-publish`
+  candidate directory. IPA SHA-256:
+  `10677b28a289da6b938eda3e4886d6b3e6a29e0bbbdb289edb5ad07577305ee4`.
+  Prior packages are preserved. The previously installed account-loop acceptance
+  passed at the preceding `e854bf0` candidate; it is not a claim of a new physical
+  test of this wording-only app follow-up.
+- Fresh exact-head PR CI, actual CodeQL analysis/processing and Dependency Review
+  must pass before a normal guarded squash merge. Earlier `e854bf0` green results
+  do not validate this repair. Apple build availability, private editable version,
+  configured locales, listing/privacy alignment, upload and submission remain
+  separate. New English listing/privacy/terms drafts are private and **unapproved**;
+  public UI wording approval does not authorize publishing those documents.
+
+## Previous pre-push checkpoint: free-beta account-loop audit (`e854bf0`)
 
 Version/build remains **1.2.3 (78)** on
 `codex/free-pro-access-2026-10-15`. This follow-up preserves the voluntary free-Pro

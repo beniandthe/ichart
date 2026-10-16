@@ -6,12 +6,13 @@ final class IChartFreeProProductCopyTests: XCTestCase {
     func testFreeAccessHasNoAutomaticPaidConversionPromise() {
         XCTAssertTrue(IChartProductAccessPolicy.current.includesAllFeatures)
         XCTAssertFalse(IChartProductAccessPolicy.current.offersPaidPurchases)
-        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("No subscription or payment"))
-        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("Leave or rejoin"))
-        XCTAssertTrue(IChartLegalLinks.freeProNotice.contains("during beta"))
-        XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("advance notice"))
-        XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("choose and confirm"))
-        XCTAssertTrue(IChartLegalLinks.futurePricingNotice.contains("will not automatically"))
+        XCTAssertEqual(IChartLegalLinks.freeProTitle, "Pro — Free")
+        XCTAssertEqual(
+            IChartLegalLinks.freeProNotice + " " + IChartLegalLinks.futurePricingNotice,
+            "Pro is currently free with your iChart account. Leave or rejoin at any time in Settings. We’ll notify you before pricing changes; a new paid subscription will require your confirmation with Apple."
+        )
+        XCTAssertTrue(IChartLegalLinks.betaBasicNotice.contains("rejoin at any time in Settings"))
+        XCTAssertTrue(IChartLegalLinks.betaBasicNotice.contains("existing charts and downloads are kept"))
     }
 
     func testExistingBillingCopyDoesNotClaimCancellationOrRefund() {
@@ -37,6 +38,23 @@ final class IChartFreeProProductCopyTests: XCTestCase {
         XCTAssertTrue(freeControls.contains("IChartLegalLinks.existingBillingNotice"))
         XCTAssertTrue(sheet.contains("if IChartProductAccessPolicy.current.isFreeBeta {"))
         XCTAssertTrue(sheet.contains("IChartLegalLinks.freeProNotice"))
+    }
+
+    func testCurrentFreeAccessSurfacesDoNotDescribeTheAppAsBeta() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let paths = [
+            "iChart/Services/IChartLegalLinks.swift",
+            "iChart/Features/Editor/Components/IChartBetaProControls.swift",
+            "iChart/Features/Editor/Components/UpgradeSheetView.swift",
+            "iChart/Features/Library/LibraryView.swift"
+        ]
+        let retiredCopy = ["During Beta", "during beta", "free beta Pro", "Free Pro beta", "Pro Beta Update", "before beta ends", "while iChart is in beta"]
+        for path in paths {
+            let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+            for phrase in retiredCopy {
+                XCTAssertFalse(source.contains(phrase), "Retired customer-facing copy in \(path): \(phrase)")
+            }
+        }
     }
 }
 

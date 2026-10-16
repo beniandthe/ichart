@@ -55,6 +55,12 @@ jobs:
           ICHART_PGLITE_MODULE_PATH: ${{ github.workspace }}/scripts/free-pro-test-dependencies/node_modules/@electric-sql/pglite/dist/index.js
         run: node --test scripts/test_free_pro_access.mjs scripts/test_beta_pro_participation.mjs
 
+      - name: Verify atomic Forum publication with competing PostgreSQL sessions
+        run: |
+          set -euo pipefail
+          command -v pg_config >/dev/null || { echo "PostgreSQL server binaries are required for the Forum concurrency regression." >&2; exit 1; }
+          ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_forum_publish_concurrency.mjs
+
   swift-package:
     name: SwiftPM tests
     runs-on: macos-26

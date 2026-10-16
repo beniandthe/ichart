@@ -33,10 +33,10 @@ struct IChartBetaProControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if store.ownerID == nil {
-                Text("Sign in to your verified iChart account to use free Pro during beta.")
+                Text("Sign in to your verified iChart account to use free Pro.")
                     .font(.footnote)
             } else if store.status?.betaAvailable == false {
-                Text("Free Pro beta access is currently unavailable. Your saved work is kept.")
+                Text("Free Pro access is currently unavailable. Your saved work is kept.")
                     .font(.footnote)
             } else if store.freeProAccess {
                 if allowsLeaving {
@@ -49,7 +49,7 @@ struct IChartBetaProControls: View {
                         .disabled(store.isWorking)
                 }
             } else {
-                Button("Rejoin Pro — Free During Beta") {
+                Button("Rejoin Pro — Free") {
                     guard let owner = store.ownerID else { return }
                     Task {
                         if await store.setParticipating(true, for: owner), store.freeProAccess { didJoin() }
@@ -91,7 +91,7 @@ struct IChartBetaProControls: View {
             }
             Button("Keep Free Pro", role: .cancel) {}
         } message: {
-            Text("Basic can create up to 3 local charts and does not include Projects, cloud backup or Forums. Your existing work stays on this iPad and remains editable. Rejoin Pro free during beta whenever you want. This does not cancel Apple billing.")
+            Text("Basic can create up to 3 local charts and does not include Projects, cloud backup or Forums. Your existing work stays on this iPad and remains editable. Rejoin free Pro at any time in Settings. This does not cancel Apple billing.")
         }
     }
 }
@@ -102,7 +102,7 @@ struct IChartBetaProNoticePresenter: ViewModifier {
     @ObservedObject var store: IChartBetaProStore
 
     func body(content: Content) -> some View {
-        content.alert(store.pendingNotice?.title ?? "Pro Beta Update", isPresented: Binding(
+        content.alert(store.pendingNotice?.title ?? "Pro Access Update", isPresented: Binding(
             get: { store.pendingNotice != nil },
             set: { _ in }
         ), presenting: store.pendingNotice) { notice in

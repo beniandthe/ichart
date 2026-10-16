@@ -1,6 +1,7 @@
 // Actual isolated PostgreSQL/RLS regression. External Auth and Storage service
-// prerequisites are modeled; existing June/July + both free-beta migrations run
-// unchanged. No customer DB, credentials, messages, billing or network is used.
+// prerequisites are modeled; existing June/July + free-beta and atomic Forum
+// migrations run unchanged. This single-session engine does not verify lock
+// ordering across sessions. No customer DB, credentials, messages or billing is used.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { isAbsolute } from "node:path";
@@ -15,10 +16,14 @@ const { pgcrypto } = await import(new URL("./contrib/pgcrypto.js", pathToFileURL
 const migrations = new URL("../supabase/migrations/", import.meta.url);
 const freeMigration = "20261015203728_free_pro_access.sql";
 const betaMigration = "20261015232153_voluntary_free_pro_beta.sql";
+const atomicForumMigration = "20261016022548_atomic_forum_publication.sql";
 const a = "81000000-0000-4000-8000-000000000001";
 const b = "81000000-0000-4000-8000-000000000002";
 const chart = "82000000-0000-4000-8000-000000000001";
 const snapshot = "83000000-0000-4000-8000-000000000001";
+const song = "84000000-0000-4000-8000-000000000001";
+const post = "85000000-0000-4000-8000-000000000001";
+const validSHA256 = "a".repeat(64);
 
 async function fixture() {
   const db = await PGlite.create({ extensions: { pgcrypto } });
@@ -50,6 +55,7 @@ async function fixture() {
   }
   await db.exec(await readFile(new URL(freeMigration,migrations),"utf8"));
   await db.exec(await readFile(new URL(betaMigration,migrations),"utf8"));
+  await db.exec(await readFile(new URL(atomicForumMigration,migrations),"utf8"));
   await db.exec(`insert into auth.users(id,email,email_confirmed_at,raw_user_meta_data)
     values ('${a}','beta-a@example.test',now(),'{"first_name":"Alpha","last_name":"Tester"}'),
       ('${b}','beta-b@example.test',now(),'{"first_name":"Beta","last_name":"Tester"}');
@@ -72,6 +78,29 @@ async function denied(db,query,code="42501") {
   await db.exec("savepoint expected_denial");
   try { await assert.rejects(db.exec(query),error=>error.code===code); }
   finally { await db.exec("rollback to savepoint expected_denial; release savepoint expected_denial"); }
+}
+
+async function pendingPublication(db) {
+  await db.exec(`reset role;
+    insert into public.forum_songs(id,song_title,artist_name,normalized_song_title,normalized_artist_name,created_by)
+      values ('${song}','Real Song','Artist','real song','artist','${a}');
+    insert into public.forum_chart_posts(id,song_id,owner_id,chart_title,arranger_credit,creator_display_name,layout_style,pdf_storage_path)
+      values ('${post}','${song}','${a}','Chart','Arranger','Alpha Tester','simpleChordSheet','${a}/${post}.pdf');
+    insert into storage.objects(bucket_id,name,owner_id) values ('forum_chart_pdfs','${a}/${post}.pdf','${a}');`);
+}
+function publishSQL({postID=post,ownerID=a,byteSize="32000",sha256=`'${validSHA256}'`}={}) {
+  return `select public.publish_forum_chart_post('${postID}'::uuid,'${ownerID}'::uuid,${byteSize},${sha256})`;
+}
+async function publicationState(db) {
+  await db.exec("reset role");
+  return { post:await scalar(db,`select to_jsonb(p) from public.forum_chart_posts p where id='${post}'`),
+    provenance:(await db.query("select * from private.forum_chart_pdf_provenance")).rows };
+}
+async function rejectUnchangedPublication(db,query,code="42501") {
+  const before=await publicationState(db);
+  await db.exec("set local role service_role");
+  await denied(db,query,code);
+  assert.deepEqual(await publicationState(db),before,"Rejection must preserve post and provenance together");
 }
 
 test("voluntary beta participation uses real PostgreSQL account-bound access",async t=>{
@@ -259,5 +288,147 @@ test("voluntary beta participation uses real PostgreSQL account-bound access",as
     await denied(db,`select public.set_free_pro_beta_participation(true,'${a}'::uuid)`,"55000");
     assert.equal((await choose(db,false)).participating,false);
     await db.exec("reset role");await denied(db,"select public.run_subscription_retention_jobs()","P0001");
+  });
+  await scenario("service-only atomic publication validates provenance and publishes with default membership and no enrollment",async()=>{
+    await pendingPublication(db);
+    const beforeBilling=await scalar(db,`select to_jsonb(s) from public.subscriptions s where owner_id='${a}'`);
+    await db.exec("set local role service_role");
+    const result=await scalar(db,publishSQL({sha256:`'  ${validSHA256.toUpperCase()}  '`}));
+    assert.equal(result.id,post);assert.equal(result.owner_id,a);assert.equal(result.status,"published");
+    assert.equal(result.pdf_provenance_status,"validated");
+    assert.ok(Number.isFinite(Date.parse(result.pdf_validated_at)));
+    assert.ok(Number.isFinite(Date.parse(result.published_at)));
+    const state=await publicationState(db);
+    assert.deepEqual(state.post,result);assert.equal(state.provenance.length,1);
+    const provenance=state.provenance[0];
+    assert.equal(provenance.post_id,post);assert.equal(provenance.owner_id,a);
+    assert.equal(provenance.storage_path,`${a}/${post}.pdf`);
+    assert.equal(Number(provenance.byte_size),32000);assert.equal(provenance.sha256,validSHA256);
+    assert.equal(provenance.validated_by,"service_role");
+    assert.equal(provenance.storage_object_id,await scalar(db,"select id from storage.objects"));
+    assert.equal(await scalar(db,"select count(*)::int from private.free_pro_beta_memberships"),0);
+    assert.deepEqual(await scalar(db,`select to_jsonb(s) from public.subscriptions s where owner_id='${a}'`),beforeBilling);
+  });
+  for(const paid of [false,true]) {
+    await scenario(`atomic publication rejects opt-out with ${paid?"active paid":"Basic"} billing and keeps provenance pending`,async()=>{
+      await pendingPublication(db);
+      if(paid) await db.exec(`update public.subscriptions set plan='studioSubscription',status='active',
+        provider='storekit',app_store_status='active',entitlement_expires_at=now()+interval '1 year' where owner_id='${a}'`);
+      await owner(db);await choose(db,false);
+      await rejectUnchangedPublication(db,publishSQL());
+    });
+  }
+  for(const [label,mutation] of [
+    ["phone-only confirmed","email_confirmed_at=null,phone_confirmed_at=now()"],
+    ["expired ban","banned_until=now()-interval '1 minute'"],
+  ]) {
+    await scenario(`atomic publication permits eligible ${label} account`,async()=>{
+      await pendingPublication(db);await db.exec(`update auth.users set ${mutation} where id='${a}'`);
+      await db.exec("set local role service_role");
+      assert.equal((await scalar(db,publishSQL())).status,"published");
+      assert.equal((await publicationState(db)).provenance.length,1);
+    });
+  }
+  for(const [label,mutation] of [
+    ["unconfirmed","email_confirmed_at=null,phone_confirmed_at=null"],
+    ["anonymous","is_anonymous=true"],["currently banned","banned_until=now()+interval '1 day'"],
+    ["soft-deleted","deleted_at=now()"],
+  ]) {
+    await scenario(`atomic publication rejects ${label} account with no partial finalization`,async()=>{
+      await pendingPublication(db);await db.exec(`update auth.users set ${mutation} where id='${a}'`);
+      await rejectUnchangedPublication(db,publishSQL());
+    });
+  }
+  await scenario("atomic publication rejects missing account without creating provenance",async()=>{
+    await pendingPublication(db);await db.exec(`delete from auth.users where id='${b}'`);
+    await rejectUnchangedPublication(db,publishSQL({ownerID:b}));
+  });
+  await scenario("atomic publication checks stored owner even when service supplies another eligible owner",async()=>{
+    await pendingPublication(db);
+    await rejectUnchangedPublication(db,publishSQL({ownerID:b}));
+  });
+  for(const status of ["removed","hidden"]) {
+    await scenario(`atomic publication rejects ${status} status without rewriting post or provenance`,async()=>{
+      await pendingPublication(db);await db.exec(`update public.forum_chart_posts set status='${status}' where id='${post}'`);
+      await rejectUnchangedPublication(db,publishSQL(),"55000");
+    });
+  }
+  await scenario("atomic publication rejects missing post without finalizing another post",async()=>{
+    await pendingPublication(db);
+    await rejectUnchangedPublication(db,publishSQL({postID:chart}),"55000");
+  });
+  for(const status of ["published","flagged"]) {
+    await scenario(`atomic publication is idempotent for eligible ${status} post and preserves provenance`,async()=>{
+      await pendingPublication(db);await db.exec("set local role service_role");await scalar(db,publishSQL());
+      await db.exec(`reset role;update public.forum_chart_posts set status='${status}',published_at='2026-01-01T00:00:00Z'
+        where id='${post}';update private.forum_chart_pdf_provenance set validated_at='2026-01-01T00:00:00Z'`);
+      const before=await publicationState(db);await db.exec("set local role service_role");
+      assert.deepEqual(await scalar(db,publishSQL({byteSize:"17",sha256:"repeat('b',64)"})),before.post);
+      assert.deepEqual(await publicationState(db),before);
+      await owner(db);await choose(db,false);
+      await rejectUnchangedPublication(db,publishSQL());
+    });
+  }
+  for(const [label,options] of [
+    ["null size",{byteSize:"null"}],["zero size",{byteSize:"0"}],["negative size",{byteSize:"-1"}],
+    ["oversized PDF",{byteSize:"10485761"}],["null checksum",{sha256:"null"}],
+    ["short checksum",{sha256:"repeat('a',63)"}],["non-hex checksum",{sha256:"repeat('g',64)"}],
+  ]) {
+    await scenario(`atomic publication rejects ${label} with no provenance or publication`,async()=>{
+      await pendingPublication(db);await rejectUnchangedPublication(db,publishSQL(options),"22023");
+    });
+  }
+  await scenario("canonical stored PDF path is enforced before publication and no provenance is fabricated",async()=>{
+    await pendingPublication(db);
+    const before=await publicationState(db);
+    await denied(db,`update public.forum_chart_posts set pdf_storage_path='${a}/wrong.pdf' where id='${post}'`,"23514");
+    assert.deepEqual(await publicationState(db),before);
+  });
+  for(const mutation of ["delete", "rename", "wrong bucket"]) {
+    await scenario(`atomic publication rejects ${mutation} of matching storage object without partial writes`,async()=>{
+      await pendingPublication(db);
+      if(mutation==="delete") await db.exec("delete from storage.objects");
+      if(mutation==="rename") await db.exec(`update storage.objects set name='${a}/wrong.pdf'`);
+      if(mutation==="wrong bucket") await db.exec("insert into storage.buckets(id,name) values ('other','other');update storage.objects set bucket_id='other'");
+      await rejectUnchangedPublication(db,publishSQL(),"22023");
+    });
+  }
+  await scenario("publication failure after finalization rolls back private provenance and public validation together",async()=>{
+    await pendingPublication(db);
+    await db.exec(`create function public.synthetic_reject_publication() returns trigger language plpgsql as $$
+      begin if new.status='published' then raise exception 'Synthetic publication failure' using errcode='P0001'; end if;
+      return new; end; $$;
+      create trigger synthetic_reject_publication before update on public.forum_chart_posts
+      for each row execute function public.synthetic_reject_publication()`);
+    await rejectUnchangedPublication(db,publishSQL(),"P0001");
+  });
+  for(const role of ["anon","authenticated"]) {
+    await scenario(`${role} cannot call either atomic RPC or spoof another publication owner`,async()=>{
+      await pendingPublication(db);const before=await publicationState(db);
+      for(const schema of ["public","private"]) {
+        // Inspect ACL as fixture owner: clients cannot resolve the private
+        // signature at all because schema USAGE is also denied.
+        assert.equal(await scalar(db,`select has_function_privilege('${role}','${schema}.publish_forum_chart_post(uuid,uuid,bigint,text)','execute')`),false);
+      }
+      await owner(db);await db.exec(`set local role ${role}`);
+      for(const schema of ["public","private"]) {
+        for(const claimedOwner of [a,b]) await denied(db,publishSQL({ownerID:claimedOwner}).replace("public.publish_",`${schema}.publish_`));
+      }
+      await denied(db,`update public.forum_chart_posts set status='published' where id='${post}'`);
+      assert.deepEqual(await publicationState(db),before);
+    });
+  }
+  await scenario("serialized participation setter keeps its existing owner guard and restores publication after rejoin",async()=>{
+    await pendingPublication(db);await owner(db);
+    await denied(db,`select public.set_free_pro_beta_participation(null,'${a}'::uuid)`,"22004");
+    await denied(db,`select public.set_free_pro_beta_participation(true,null)`);
+    await denied(db,`select public.set_free_pro_beta_participation(true,'${b}'::uuid)`);
+    assert.equal((await choose(db,false)).free_pro_access,false);
+    await rejectUnchangedPublication(db,publishSQL());
+    await owner(db);assert.equal((await choose(db,true)).free_pro_access,true);
+    await db.exec("reset role;set local role service_role");
+    assert.equal((await scalar(db,publishSQL())).status,"published");
+    await db.exec("reset role");
+    assert.equal(await scalar(db,"select count(*)::int from private.free_pro_beta_memberships"),1);
   });
 });

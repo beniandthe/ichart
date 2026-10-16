@@ -19,7 +19,7 @@ export function createForumPostActionDependencies(env = globalThis.Deno?.env, op
     hasForumAccess: (request) => authenticatedForumAccess(request, configuration, env, fetcher),
     fetchPost: (postID) => fetchForumPost(configuration, postID, fetcher),
     fetchSong: (songID) => fetchForumSong(configuration, songID, fetcher),
-    finalizePostPDF: (payload) => finalizeForumPostPDF(configuration, payload, fetcher),
+    publishPost: (payload) => publishForumPost(configuration, payload, fetcher),
     updatePostStatus: (payload) => updateForumPostStatus(configuration, payload, fetcher),
   };
 }
@@ -161,23 +161,23 @@ async function handlePublishAction({ post, ownerID, body, dependencies }) {
     });
   }
 
-  const finalizePostPDF = dependencies.finalizePostPDF;
-  const updatePostStatus = dependencies.updatePostStatus;
-  if (typeof finalizePostPDF !== "function" || typeof updatePostStatus !== "function") {
+  const publishPost = dependencies.publishPost;
+  if (typeof publishPost !== "function") {
     return jsonResponse(501, { accepted: false, error: "Forum post publisher is not configured." });
   }
 
-  await finalizePostPDF({
-    postID: post.id,
-    byteSize,
-    sha256,
-  });
-  const publishedPost = await updatePostStatus({
-    postID: post.id,
-    status: "published",
-    expectedStatus: "pending",
-    publishedAt: new Date().toISOString(),
-  });
+  let publishedPost;
+  try {
+    // ownerID comes from verified authentication, not a JSON owner_id. The RPC
+    // locks current account/access and the post, then finalizes + publishes in
+    // one transaction. Never fall back to the old separate privileged writes.
+    publishedPost = await publishPost({ postID: post.id, ownerID, byteSize, sha256 });
+  } catch (error) {
+    return jsonResponse(error instanceof ForumPublishError ? error.status : 503, {
+      accepted: false,
+      error: error instanceof ForumPublishError ? error.message : "Forum publication could not be completed. Try again.",
+    });
+  }
 
   if (publishedPost === null || publishedPost === undefined) {
     return jsonResponse(409, {
@@ -381,20 +381,32 @@ async function fetchForumSong(configuration, songID, fetcher) {
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
 
-async function finalizeForumPostPDF(configuration, { postID, byteSize, sha256 }, fetcher) {
-  await supabaseJSON(
-    configuration,
-    "/rest/v1/rpc/finalize_forum_chart_post_pdf",
-    {
-      method: "POST",
-      body: {
-        target_post_id: postID,
-        target_byte_size: byteSize,
-        target_sha256: sha256,
-      },
-    },
-    fetcher
-  );
+class ForumPublishError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+async function publishForumPost(configuration, { postID, ownerID, byteSize, sha256 }, fetcher) {
+  const response = await fetcher(`${configuration.supabaseURL}/rest/v1/rpc/publish_forum_chart_post`, {
+    method: "POST",
+    headers: { apikey: configuration.secretKey, authorization: `Bearer ${configuration.secretKey}`,
+      accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({ target_post_id: postID, target_owner_id: ownerID,
+      target_byte_size: byteSize, target_sha256: sha256 }),
+  });
+  if (!response.ok) {
+    let code;
+    try { code = (await response.json())?.code; } catch { /* Safe generic outage below. */ }
+    // Never expose upstream SQL messages, details, credentials or response text.
+    if (code === "42501") throw new ForumPublishError(403, "Pro access is no longer available for this publication.");
+    if (code === "55000") throw new ForumPublishError(409, "Forum post changed before it could be published. Review its current status and try again.");
+    if (code === "22023") throw new ForumPublishError(422, "Forum PDF could not be validated for publication.");
+    throw new ForumPublishError(503, "Forum publication could not be completed. Try again.");
+  }
+  const post = await response.json();
+  if (post?.id !== postID || post?.owner_id !== ownerID || !["published", "flagged"].includes(post?.status)) {
+    throw new ForumPublishError(503, "Forum publication could not be completed. Try again.");
+  }
+  return post;
 }
 
 async function updateForumPostStatus(configuration, { postID, status, expectedStatus, publishedAt }, fetcher) {

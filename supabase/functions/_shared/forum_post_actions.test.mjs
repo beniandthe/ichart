@@ -50,8 +50,7 @@ test("publish rejects metadata that is missing or garbage", async () => {
       hasForumAccess: async () => true,
       fetchPost: async () => post({ chart_title: "!!!!!!!!", arranger_credit: "aaaaaa" }),
       fetchSong: async () => song({ song_title: "", artist_name: "/////" }),
-      finalizePostPDF: async () => assert.fail("invalid metadata must not finalize"),
-      updatePostStatus: async () => assert.fail("invalid metadata must not publish"),
+      publishPost: async () => assert.fail("invalid metadata must not publish"),
     }
   );
 
@@ -66,7 +65,7 @@ test("publish rejects metadata that is missing or garbage", async () => {
   ]);
 });
 
-test("publish finalizes provenance and marks an owned pending post published", async () => {
+test("publish sends provenance and verified ownership to one atomic publisher", async () => {
   const calls = [];
   const response = await handleForumPostActionRequest(
     request({ action: "publish", post_id: postID, byte_size: 32000, sha256: validSHA256 }),
@@ -75,10 +74,9 @@ test("publish finalizes provenance and marks an owned pending post published", a
       hasForumAccess: async () => true,
       fetchPost: async () => post(),
       fetchSong: async () => song(),
-      finalizePostPDF: async (payload) => calls.push(["finalize", payload]),
-      updatePostStatus: async (payload) => {
-        calls.push(["update", payload]);
-        return post({ status: payload.status, published_at: payload.publishedAt });
+      publishPost: async (payload) => {
+        calls.push(payload);
+        return post({ status: "published", published_at: "2026-10-15T20:00:00Z" });
       },
     }
   );
@@ -88,15 +86,10 @@ test("publish finalizes provenance and marks an owned pending post published", a
   assert.equal(body.accepted, true);
   assert.equal(body.state, "published");
   assert.equal(body.post.status, "published");
-  assert.equal(calls[0][0], "finalize");
-  assert.deepEqual(calls[0][1], { postID, byteSize: 32000, sha256: validSHA256 });
-  assert.equal(calls[1][0], "update");
-  assert.equal(calls[1][1].postID, postID);
-  assert.equal(calls[1][1].status, "published");
-  assert.equal(calls[1][1].expectedStatus, "pending");
+  assert.deepEqual(calls, [{ postID, ownerID, byteSize: 32000, sha256: validSHA256 }]);
 });
 
-test("publish returns conflict instead of fabricating success when its conditional update matches no row", async () => {
+test("publish returns conflict instead of fabricating success when atomic publisher finds no pending row", async () => {
   const response = await handleForumPostActionRequest(
     request({ action: "publish", post_id: postID, byte_size: 32000, sha256: validSHA256 }),
     {
@@ -104,9 +97,8 @@ test("publish returns conflict instead of fabricating success when its condition
       hasForumAccess: async () => true,
       fetchPost: async () => post(),
       fetchSong: async () => song(),
-      finalizePostPDF: async () => {},
-      updatePostStatus: async (payload) => {
-        assert.equal(payload.expectedStatus, "pending");
+      publishPost: async (payload) => {
+        assert.deepEqual(payload, { postID, ownerID, byteSize: 32000, sha256: validSHA256 });
         return null;
       },
     }
@@ -120,9 +112,10 @@ test("publish returns conflict instead of fabricating success when its condition
   assert.equal(body.state, undefined);
 });
 
-test("wired conditional publish cannot resurrect a withdrawal completed during PDF finalization", async () => {
+test("wired atomic publish cannot resurrect a withdrawal completed before its transaction", async () => {
   let savedPost = post();
   const patchCalls = [];
+  let atomicCalls = 0;
   let withdrawalBody;
   const dependencies = createForumPostActionDependencies({
     SUPABASE_URL: "https://synthetic.invalid",
@@ -133,16 +126,19 @@ test("wired conditional publish cannot resurrect a withdrawal completed during P
     if (target.pathname === "/auth/v1/user") return Response.json({ id: ownerID });
     if (target.pathname === "/rest/v1/rpc/current_user_has_active_pro") return Response.json(true);
     if (target.pathname === "/rest/v1/forum_songs") return Response.json([song()]);
-    if (target.pathname === "/rest/v1/rpc/finalize_forum_chart_post_pdf") {
-      // Finish the real withdrawal handler before the suspended publish reaches
-      // its PATCH. This ordering is deterministic, with no timers or sleeps.
+    if (target.pathname === "/rest/v1/rpc/publish_forum_chart_post") {
+      atomicCalls += 1;
+      assert.deepEqual(JSON.parse(options.body), { target_post_id: postID, target_owner_id: ownerID,
+        target_byte_size: 32000, target_sha256: validSHA256 });
+      // Finish the real withdrawal handler before the atomic transaction reads
+      // the post. This deterministically models a completed earlier withdrawal.
       const withdrawal = await handleForumPostActionRequest(
         request({ action: "withdraw", post_id: postID }), dependencies
       );
       assert.equal(withdrawal.status, 202);
       withdrawalBody = await withdrawal.json();
       assert.equal(savedPost.status, "removed");
-      return new Response(null, { status: 204 });
+      return Response.json({ code: "55000", message: "Only pending forum posts can be published" }, { status: 400 });
     }
     if (target.pathname === "/rest/v1/forum_chart_posts") {
       assert.equal(target.searchParams.get("id"), `eq.${postID}`);
@@ -163,11 +159,10 @@ test("wired conditional publish cannot resurrect a withdrawal completed during P
     request({ action: "publish", post_id: postID, byte_size: 32000, sha256: validSHA256 }), dependencies
   );
   assert.equal(withdrawalBody.state, "removed");
-  assert.equal(patchCalls.length, 2);
+  assert.equal(atomicCalls, 1);
+  assert.equal(patchCalls.length, 1);
   assert.equal(patchCalls[0].update.status, "removed");
   assert.equal(patchCalls[0].target.searchParams.get("status"), null);
-  assert.equal(patchCalls[1].update.status, "published");
-  assert.equal(patchCalls[1].target.searchParams.get("status"), "eq.pending");
   assert.equal(savedPost.status, "removed");
   assert.equal(publish.status, 409);
   const body = await publish.json();
@@ -175,6 +170,39 @@ test("wired conditional publish cannot resurrect a withdrawal completed during P
   assert.equal(body.post, undefined);
   assert.equal(body.state, undefined);
 });
+
+for (const revocation of ["Basic choice", "account ban"]) {
+  test(`atomic publish rechecks ${revocation} after admission without a legacy write fallback`, async () => {
+    let access = true;
+    let atomicCalls = 0;
+    const dependencies = createForumPostActionDependencies({
+      SUPABASE_URL: "https://synthetic.invalid", SUPABASE_SERVICE_ROLE_KEY: "server-only-test-key",
+      SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_key",
+    }, { fetch: async (url, options) => {
+      const target = new URL(url);
+      if (target.pathname === "/auth/v1/user") return Response.json({ id: ownerID });
+      if (target.pathname === "/rest/v1/rpc/current_user_has_active_pro") return Response.json(access);
+      if (target.pathname === "/rest/v1/forum_chart_posts" && options.method === "GET") return Response.json([post()]);
+      if (target.pathname === "/rest/v1/forum_songs") { access = false; return Response.json([song()]); }
+      if (target.pathname === "/rest/v1/rpc/publish_forum_chart_post") {
+        atomicCalls += 1;
+        assert.equal(access, false);
+        assert.equal(options.headers.authorization, "Bearer server-only-test-key");
+        assert.deepEqual(JSON.parse(options.body), { target_post_id: postID, target_owner_id: ownerID,
+          target_byte_size: 32000, target_sha256: validSHA256 });
+        return Response.json({ code: "42501", message: "private database detail must not leak" }, { status: 403 });
+      }
+      assert.fail(`No legacy finalizer or publication PATCH is allowed: ${options.method} ${target.pathname}`);
+    } });
+    const response = await handleForumPostActionRequest(request({ action: "publish", post_id: postID,
+      owner_id: otherOwnerID, byte_size: 32000, sha256: validSHA256 }), dependencies);
+    assert.equal(response.status, 403);
+    const body = await response.json();
+    assert.equal(body.accepted, false);
+    assert.equal(atomicCalls, 1);
+    assert.doesNotMatch(JSON.stringify(body), /private database detail/);
+  });
+}
 
 test("withdraw removes only pending owner submissions", async () => {
   const updates = [];
@@ -233,7 +261,7 @@ for (const scenario of ["opted-out Basic", "active-paid but opted-out Basic", "b
     const response = await handleForumPostActionRequest(
       request({ action: "publish", post_id: postID, byte_size: 32000, sha256: validSHA256 }),
       { authenticatedUserID: async () => ownerID, hasForumAccess: async () => false,
-        fetchPost: unexpected, fetchSong: unexpected, finalizePostPDF: unexpected, updatePostStatus: unexpected }
+        fetchPost: unexpected, fetchSong: unexpected, publishPost: unexpected }
     );
     assert.equal(response.status, 403);
     assert.equal((await response.json()).accepted, false);
@@ -246,7 +274,7 @@ for (const [label, checker] of [["missing checker", undefined], ["unavailable ch
     const unexpected = () => assert.fail("Unavailable access check must not touch posts.");
     const response = await handleForumPostActionRequest(request({ action: "publish", post_id: postID }),
       { authenticatedUserID: async () => ownerID, hasForumAccess: checker,
-        fetchPost: unexpected, finalizePostPDF: unexpected, updatePostStatus: unexpected });
+        fetchPost: unexpected, publishPost: unexpected });
     assert.equal(response.status, 503);
     assert.equal((await response.json()).error, "Forum publishing access could not be verified.");
   });
@@ -257,7 +285,7 @@ test("free beta account needs no paid receipt; leaving denies publishing and rej
   const writes = [];
   const dependencies = { authenticatedUserID: async () => ownerID, hasForumAccess: async () => access,
     fetchPost: async () => post(), fetchSong: async () => song(),
-    finalizePostPDF: async () => writes.push("finalize"), updatePostStatus: async () => {
+    publishPost: async () => {
       writes.push("publish");
       return post({ status: "published" });
     } };
@@ -265,17 +293,16 @@ test("free beta account needs no paid receipt; leaving denies publishing and rej
     byte_size: 32000, sha256: validSHA256 }), dependencies);
   assert.equal((await publish()).status, 202);
   access = false; assert.equal((await publish()).status, 403);
-  assert.deepEqual(writes, ["finalize", "publish"]);
+  assert.deepEqual(writes, ["publish"]);
   access = true; assert.equal((await publish()).status, 202);
-  assert.deepEqual(writes, ["finalize", "publish", "finalize", "publish"]);
+  assert.deepEqual(writes, ["publish", "publish"]);
 });
 
 test("eligible caller still cannot publish another owner's post", async () => {
   const response = await handleForumPostActionRequest(request({ action: "publish", post_id: postID }),
     { authenticatedUserID: async () => ownerID, hasForumAccess: async () => true,
       fetchPost: async () => post({ owner_id: otherOwnerID }),
-      finalizePostPDF: () => assert.fail("Cross-owner publish must not finalize"),
-      updatePostStatus: () => assert.fail("Cross-owner publish must not update") });
+      publishPost: () => assert.fail("Cross-owner publish must not publish") });
   assert.equal(response.status, 403);
 });
 
@@ -387,6 +414,78 @@ for (const key of ["sb_secret_not_a_public_key", "server-only-test-key",
       await assert.rejects(dependencies.hasForumAccess(request({})));
     }
   });
+}
+
+test("wired atomic publish returns finalized post from its service-only RPC with verified owner", async () => {
+  const published = post({ status: "published", published_at: "2026-10-15T20:00:00Z",
+    pdf_validated_at: "2026-10-15T20:00:00Z", pdf_provenance_status: "validated" });
+  const { response, atomicCalls } = await wiredPublish(() => Response.json(published));
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { accepted: true, action: "publish", state: "published", post: published });
+  assert.equal(atomicCalls, 1);
+});
+
+for (const [label, reply, expectedStatus, expectedError] of [
+  ["revoked access", () => Response.json({ code: "42501", message: "private SQL owner detail", details: "server-only-test-key" }, { status: 400 }),
+    403, "Pro access is no longer available for this publication."],
+  ["post status conflict", () => Response.json({ code: "55000", message: "private SQL owner detail" }, { status: 400 }),
+    409, "Forum post changed before it could be published. Review its current status and try again."],
+  ["invalid provenance", () => Response.json({ code: "22023", message: "private SQL owner detail" }, { status: 400 }),
+    422, "Forum PDF could not be validated for publication."],
+  ["missing RPC", () => Response.json({ code: "PGRST202", message: "private SQL owner detail" }, { status: 404 }),
+    503, "Forum publication could not be completed. Try again."],
+  ["database outage", () => new Response("private SQL owner detail", { status: 503 }),
+    503, "Forum publication could not be completed. Try again."],
+  ["unknown SQL error", () => Response.json({ code: "XX000", message: "private SQL owner detail" }, { status: 500 }),
+    503, "Forum publication could not be completed. Try again."],
+  ["network rejection", () => { throw new Error("private SQL owner detail"); },
+    503, "Forum publication could not be completed. Try again."],
+  ["malformed JSON", () => new Response("private SQL owner detail"),
+    503, "Forum publication could not be completed. Try again."],
+  ["null result", () => Response.json(null),
+    503, "Forum publication could not be completed. Try again."],
+  ["row array", () => Response.json([post({ status: "published" })]),
+    503, "Forum publication could not be completed. Try again."],
+  ["wrong owner", () => Response.json(post({ status: "published", owner_id: otherOwnerID })),
+    503, "Forum publication could not be completed. Try again."],
+  ["wrong post", () => Response.json(post({ status: "published", id: songID })),
+    503, "Forum publication could not be completed. Try again."],
+  ["invalid returned status", () => Response.json(post({ status: "pending" })),
+    503, "Forum publication could not be completed. Try again."],
+]) {
+  test(`wired atomic publish sanitizes ${label} and makes no legacy write fallback`, async () => {
+    const { response, atomicCalls } = await wiredPublish(reply);
+    assert.equal(response.status, expectedStatus);
+    assert.deepEqual(await response.json(), { accepted: false, error: expectedError });
+    assert.equal(atomicCalls, 1);
+  });
+}
+
+async function wiredPublish(reply) {
+  let atomicCalls = 0;
+  const dependencies = createForumPostActionDependencies({
+    SUPABASE_URL: "https://synthetic.invalid", SUPABASE_SERVICE_ROLE_KEY: "server-only-test-key",
+    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_key",
+  }, { fetch: async (url, options) => {
+    const target = new URL(url);
+    if (target.pathname === "/auth/v1/user") return Response.json({ id: ownerID });
+    if (target.pathname === "/rest/v1/rpc/current_user_has_active_pro") return Response.json(true);
+    if (target.pathname === "/rest/v1/forum_chart_posts" && options.method === "GET") return Response.json([post()]);
+    if (target.pathname === "/rest/v1/forum_songs" && options.method === "GET") return Response.json([song()]);
+    if (target.pathname === "/rest/v1/rpc/publish_forum_chart_post") {
+      atomicCalls += 1;
+      assert.equal(options.method, "POST");
+      assert.equal(options.headers.apikey, "server-only-test-key");
+      assert.equal(options.headers.authorization, "Bearer server-only-test-key");
+      assert.deepEqual(JSON.parse(options.body), { target_post_id: postID, target_owner_id: ownerID,
+        target_byte_size: 32000, target_sha256: validSHA256 });
+      return reply();
+    }
+    assert.fail(`No legacy finalizer or publication PATCH is allowed: ${options.method} ${target.pathname}`);
+  } });
+  const response = await handleForumPostActionRequest(request({ action: "publish", post_id: postID,
+    owner_id: otherOwnerID, byte_size: 32000, sha256: validSHA256 }), dependencies);
+  return { response, atomicCalls };
 }
 
 function request(body) {

@@ -91,6 +91,7 @@ async function fixture() {
   assert.ok(baselineRollbackCap > 0 && baselineRollbackCap < 8, "Existing rollback upload limit must be enforced.");
   await db.exec(await readFile(new URL(freeMigration, migrationDirectory), "utf8"));
   await db.exec(await readFile(new URL("20261015232153_voluntary_free_pro_beta.sql", migrationDirectory), "utf8"));
+  await db.exec(await readFile(new URL("20261016022548_atomic_forum_publication.sql", migrationDirectory), "utf8"));
   return { db, baselineRollbackCap };
 }
 

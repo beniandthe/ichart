@@ -471,7 +471,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Settings includes Manage My Subscription for existing Apple billing.",
                 "Apple controls cancellations, charges, and refund decisions. Free app access is separate from your existing Apple billing history.",
-                "Cancelling an old subscription does not remove free beta Pro. You can separately choose Basic or rejoin Pro in Settings."
+                "Cancelling an old subscription does not remove free Pro access. You can separately choose Basic or rejoin Pro in Settings."
             ]
         ),
         IChartHelpArticleSection(
@@ -538,7 +538,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "star.circle",
             body: IChartLegalLinks.freeProNotice,
             bullets: [
-                "Pro has no chart cap or purchase requirement during beta. If you choose Basic, you can create up to 3 local charts; your existing work stays editable.",
+                "Pro currently has no chart cap or purchase requirement. If you choose Basic, you can create up to 3 local charts; your existing work stays editable.",
                 "A subscription expiry or refund does not remove free Pro access or trigger subscription-based backup removal during this free-access period.",
                 IChartLegalLinks.futurePricingNotice
             ]
@@ -1283,7 +1283,7 @@ struct LibraryView: View {
                     IChartLockedFeatureView(
                         title: "Projects require Pro",
                         message: IChartProductAccessPolicy.current.isFreeBeta
-                            ? "Rejoin Pro free during beta in Settings to use Projects. Your existing projects and charts are kept."
+                            ? "Rejoin free Pro in Settings to use Projects. Your existing projects and charts are kept."
                             : "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
                         systemImageName: "lock.folder",
                         theme: homeTheme
@@ -1416,7 +1416,7 @@ struct LibraryView: View {
                     IChartLockedFeatureView(
                         title: "Forums require Pro",
                         message: IChartProductAccessPolicy.current.isFreeBeta
-                            ? "Rejoin Pro free during beta in Settings to use Forums. Your downloaded PDFs and queued charts are kept."
+                            ? "Rejoin free Pro in Settings to use Forums. Your downloaded PDFs and queued charts are kept."
                             : "Upgrade to Pro to join iChart Forums.",
                         systemImageName: "lock.icloud",
                         theme: homeTheme
