@@ -852,7 +852,8 @@ struct LibraryView: View {
             await authStore.bootstrap()
             synchronizeBetaAccess(authStore.state)
             cloudSyncStore.authStateChanged(authStore.state)
-            forumStore.resumePendingUploads(
+            forumStore.applyAccess(
+                entitlements: store.entitlements,
                 charts: store.charts,
                 currentUserID: authStore.state.signedInSession?.id
             )
@@ -862,7 +863,8 @@ struct LibraryView: View {
         .onChange(of: authStore.state) { _, state in
             synchronizeBetaAccess(state)
             cloudSyncStore.authStateChanged(state)
-            forumStore.resumePendingUploads(
+            forumStore.applyAccess(
+                entitlements: store.entitlements,
                 charts: store.charts,
                 currentUserID: state.signedInSession?.id
             )
@@ -871,12 +873,16 @@ struct LibraryView: View {
         }
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
+            forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id)
             applyForumDownloadAccess(store.subscriptionState)
             selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
             refreshForumHomeIfVisible()
         }
         .onChange(of: store.charts.map(\.id)) { _, ids in
             selectedChartIDs.formIntersection(Set(ids))
+            forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
+                currentUserID: authStore.state.signedInSession?.id)
         }
         .onChange(of: pdfLibraryStore.items.map(\.id)) { _, _ in
             selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
@@ -1276,7 +1282,9 @@ struct LibraryView: View {
                 ) {
                     IChartLockedFeatureView(
                         title: "Projects require Pro",
-                        message: "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
+                        message: IChartProductAccessPolicy.current.isFreeBeta
+                            ? "Rejoin Pro free during beta in Settings to use Projects. Your existing projects and charts are kept."
+                            : "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
                         systemImageName: "lock.folder",
                         theme: homeTheme
                     )
@@ -1407,7 +1415,9 @@ struct LibraryView: View {
                 } else {
                     IChartLockedFeatureView(
                         title: "Forums require Pro",
-                        message: "Upgrade to Pro to join iChart Forums.",
+                        message: IChartProductAccessPolicy.current.isFreeBeta
+                            ? "Rejoin Pro free during beta in Settings to use Forums. Your downloaded PDFs and queued charts are kept."
+                            : "Upgrade to Pro to join iChart Forums.",
                         systemImageName: "lock.icloud",
                         theme: homeTheme
                     )

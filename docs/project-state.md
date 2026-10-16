@@ -3,7 +3,81 @@
 Updated: 2026-10-15. This is the current release handoff. Historical reports are
 evidence for their recorded revisions, not an automatically expanding backlog.
 
-## Latest revision: voluntary free Pro during beta
+## Current pre-push checkpoint: free-beta account-loop audit
+
+Version/build remains **1.2.3 (78)** on
+`codex/free-pro-access-2026-10-15`. This follow-up preserves the voluntary free-Pro
+policy below and closes concrete recovery/access/queue gaps; it does not resume
+recognition research, start billing, or publish an Apple release.
+
+- **Recovery:** Try Again reconnects the actual offline session before reading
+  membership. Store-owned/coalesced reads survive a cancelled foreground waiter;
+  a same-owner offline transition invalidates obsolete recovery work. Account
+  and generation guards reject stale responses. An uncertain write acknowledgement
+  preserves the last confirmed local choice and reconciles with a read, never an
+  automatic replay of the possibly committed choice.
+- **Basic access:** stale project-variant sheets cannot create or duplicate into
+  Projects after leaving Pro. Existing over-cap charts remain editable. Locked
+  feature/capacity messages point to the free Rejoin action, not paid checkout.
+- **Forum queues:** Basic/account changes pause publishing without discarding
+  drafts. Rejoin resumes only the matching owner's pending items without concurrent
+  duplicate sends. Withdrawal, removal and queue dismissal cannot be resurrected
+  by late progress, success or cancellation callbacks. Failed cleanup stays
+  actionable rather than automatically publishing. Basic cleanup no longer fails
+  merely because its subsequent Pro-only home-feed refresh is forbidden.
+- **Server authority:** `forum-post-actions` now checks the authenticated user's
+  current access before service-role publishing, using the original user bearer
+  and a public/anon API key. It supports Supabase's publishable-key dictionary
+  as well as the prior key forms, rejects secret/service-role keys for that check,
+  and fails closed on invalid access responses/configuration. Publishing atomically
+  requires the post still be `pending`; a concurrent withdrawal/removal wins and
+  the late publish returns 409 instead of fabricating success. Owned cleanup,
+  provenance, quotas and existing authentication remain enforced. Focused Edge
+  **version 42** is active with JWT verification enabled; all three deployed
+  files were read back and match the tested bundle. No new migration or permission
+  broadening was needed. The Forum regression suite is now included explicitly
+  in ordinary CI.
+- **Live role-bound audit:** all **86** existing accounts were checked in a
+  read-only rolled-back transaction: **65 eligible / 65 granted**, with zero
+  owner/status-helper mismatches, foreign-owner chart/snapshot visibility, or
+  rows visible without the access grant. No customer choice was changed. Local
+  PostgreSQL cases additionally cover verified email/phone, anonymous, unverified,
+  banned/past-ban, deleted/missing accounts, account-scoped participation, protected
+  table ownership and paused retention. These are role-bound policy checks, not
+  86 physical logins or a live customer publishing exercise.
+- **Final local execution:** native **2,445 passed / 0 failed / 103 existing
+  skips** (2,548 total), verified with `xcresulttool` and nonzero execution on
+  Simulator `BA44A6B3-E630-42C2-B627-2A7995C63C4E`; complete SwiftPM **1,723
+  passed / 0 failed / 89 existing skips** (1,812 total); shared backend **625
+  passed / 0 failed / 0 skipped** plus PostgreSQL **54 / 0 / 0**; four Bash scope
+  regressions passed. The final native receipt is
+  `/private/tmp/iChartBetaFinalFullNative-20261015-003.xcresult`. The immediately
+  preceding run had one outdated test expectation after a remove action; it is
+  preserved, and the replacement asserts Withdrawn after withdrawal and Removed
+  after removal. No production change was made to conceal that failure. Parked
+  research/integration skips are not passes or recognition-accuracy evidence.
+- **Device/package:** the final development app passed strict signing,
+  replacement installation, normal launch and exact **1.2.3 (78)** readback.
+  Before/after snapshots preserve all eleven chart objects, Projects, 49
+  tombstones, cloud metadata and selection; 15 PDF files and the one six-entry
+  setlist remain intact. All 22 pre-existing files other than the performance log
+  are byte-identical; that log changed and a diagnostic queue was added. Final Release
+  archive/export and both strict signatures passed, with expected team/bundle and
+  `get-task-allow=false`. Current private candidate:
+  `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-15-free-pro-1.2.3-78-final-audit/export-final/iChart.ipa`.
+  IPA SHA-256: `b37a63faa3da68d35409f7058d2a9f109276b644ae84cc038b8e3dd4d0cfa463`.
+  Earlier packages and the interim audit archive/export are preserved.
+- **Remaining boundaries:** the new physical Leave Pro → reopen existing work →
+  Rejoin flow still needs a short user acceptance check. Local verification and
+  packaging do not establish a GitHub push, remote CI, Apple upload, listing
+  approval, submission or public availability. Compiler/advisor warnings remain;
+  this is not a repository-wide clean security bill. No beta-ending notice/date,
+  paid conversion or customer campaign is active. Future paid-return notice,
+  explicit Apple consent and the promised private goodwill fulfilment remain
+  separately parked; the approved goodwill email has been sent, not a refund or
+  subscription cancellation. Customer identifiers/message payloads stay private.
+
+## Previous voluntary-beta checkpoint: `f8fece4`
 
 - Version/build stays **1.2.3 (78)**. Every verified account starts with free
   Pro. Settings offers **Leave Pro — Use Basic** and **Rejoin Pro — Free During
@@ -16,9 +90,9 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   deleted. Rejoining restores feature access without changing billing history.
 - **Manage My Subscription** and purchase-history restore remain. The public
   refund-request button is removed. Changing beta membership does **not** cancel
-  existing Apple billing or issue a refund. The private goodwill email is an
-  unsent draft, awaiting exact-message approval; no customer identifiers or
-  private draft payload belong in this repository.
+  existing Apple billing or issue a refund. The private goodwill email was later
+  sent after exact-message approval; no customer identifiers or private message
+  payload belong in this repository.
 - An account-scoped, acknowledged in-app notice can warn before beta ends.
   **No notice, deadline, paid conversion, email campaign or purchase is active.**
   A future paid transition still requires reviewed implementation and explicit
@@ -30,7 +104,7 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   Live role-bound QA Leave/Rejoin assertions passed inside a rolled-back
   transaction; zero choices remained saved. All 86 original subscription rows
   matched their before/after digest. Notice/deadline fields remain null.
-- Fresh final native validation: **2,431 passed / 0 failed / 103 existing
+- That revision's native validation: **2,431 passed / 0 failed / 103 existing
   skips**, 2,534 total, including five mounted beta-control cases, fourteen store
   cases and nine access/data-preservation cases. The configured Simulator and
   accessibility wrapper were used. Backend validation: **592 shared contracts
@@ -43,7 +117,7 @@ evidence for their recorded revisions, not an automatically expanding backlog.
   IPA were signed/exported and passed strict signature checks, with version/build
   1.2.3 (78) and `get-task-allow=false`. They are retained separately under
   `/Users/benirossman/.local/share/ichart/release-candidates/2026-10-15-free-pro-1.2.3-78-beta-controls`.
-  Current IPA SHA-256:
+  That revision's IPA SHA-256:
   `981d40a50e80d54b65fecf1a1c278d08374f8c9b674c915087249f84fa7399cd`.
   Fresh device snapshots preserve all eleven chart objects, Projects,
   tombstones and cloud metadata, plus all 21 other non-log files byte-for-byte

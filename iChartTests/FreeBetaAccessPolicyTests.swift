@@ -121,6 +121,25 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertEqual(store.entitlements.subscription, .basic)
     }
 
+    func testStaleProjectTargetCannotCreateOrDuplicateVariantAfterLeavingPro() {
+        let chart = Chart.blank(title: "Existing Project Chart")
+        let project = ChartProject(title: "Existing Project", chartIDs: [chart.id])
+        let store = ChartLibraryStore(charts: [chart], entitlements: AppEntitlements(subscription: .activePro()),
+            selectedChartID: chart.id, projects: [project])
+        store.applyAccessPolicy(.betaBasic)
+        let before = store.snapshot
+
+        XCTAssertFalse(store.createBlankChart(projectID: project.id))
+        XCTAssertNil(store.duplicateChart(id: chart.id, projectID: project.id))
+        XCTAssertEqual(store.snapshot, before)
+        XCTAssertEqual(store.charts(in: project), [chart])
+        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertTrue(store.createBlankChart(), "Plain Basic chart creation remains available under the cap")
+        XCTAssertNotNil(store.duplicateChart(id: chart.id), "Plain duplication remains available under the cap")
+        XCTAssertEqual(store.charts.count, 3)
+        XCTAssertEqual(store.projects, [project])
+    }
+
     func testSavedLibraryDoesNotPersistOrAcceptRuntimeBetaPolicy() throws {
         let billing = billingEvidence(.proActive)
         let entitlements = AppEntitlements(subscription: billing, accessPolicy: .betaBasic)

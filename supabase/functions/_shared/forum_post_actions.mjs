@@ -16,6 +16,7 @@ export function createForumPostActionDependencies(env = globalThis.Deno?.env, op
 
   return {
     authenticatedUserID: (request) => authenticatedUserIDFromBearer(request, configuration, fetcher),
+    hasForumAccess: (request) => authenticatedForumAccess(request, configuration, env, fetcher),
     fetchPost: (postID) => fetchForumPost(configuration, postID, fetcher),
     fetchSong: (songID) => fetchForumSong(configuration, songID, fetcher),
     finalizePostPDF: (payload) => finalizeForumPostPDF(configuration, payload, fetcher),
@@ -49,6 +50,21 @@ export async function handleForumPostActionRequest(request, dependencies = {}) {
   const ownerID = await authenticatedUserID(request);
   if (ownerID === null) {
     return jsonResponse(401, { accepted: false, error: "A signed-in iChart account is required." });
+  }
+
+  if (action === "publish") {
+    if (typeof dependencies.hasForumAccess !== "function") {
+      return jsonResponse(503, { accepted: false, error: "Forum publishing access could not be verified." });
+    }
+    let allowed;
+    try { allowed = await dependencies.hasForumAccess(request); } catch {
+      return jsonResponse(503, { accepted: false, error: "Forum publishing access could not be verified." });
+    }
+    if (allowed !== true) {
+      return allowed === false
+        ? jsonResponse(403, { accepted: false, error: "Pro access is required to publish to Forums." })
+        : jsonResponse(503, { accepted: false, error: "Forum publishing access could not be verified." });
+    }
   }
 
   const fetchPost = dependencies.fetchPost;
@@ -159,14 +175,22 @@ async function handlePublishAction({ post, ownerID, body, dependencies }) {
   const publishedPost = await updatePostStatus({
     postID: post.id,
     status: "published",
+    expectedStatus: "pending",
     publishedAt: new Date().toISOString(),
   });
+
+  if (publishedPost === null || publishedPost === undefined) {
+    return jsonResponse(409, {
+      accepted: false,
+      error: "Forum post changed before it could be published. Review its current status and try again.",
+    });
+  }
 
   return jsonResponse(202, {
     accepted: true,
     action: "publish",
     state: "published",
-    post: publishedPost ?? { ...post, status: "published" },
+    post: publishedPost,
   });
 }
 
@@ -293,6 +317,61 @@ async function fetchForumPost(configuration, postID, fetcher) {
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
 
+async function authenticatedForumAccess(request, configuration, env, fetcher) {
+  const match = (request.headers.get("authorization") ?? "").match(/^Bearer\s+(\S+)$/i);
+  const publicKey = forumPublicKeyFromEnv(env, configuration.secretKey);
+  if (match === null || publicKey === null) throw new Error("Forum access context unavailable.");
+  // Use the SAME verified incoming JWT, never service-role Authorization. The
+  // existing helper binds auth.uid() and checks live eligibility + beta choice;
+  // no caller UUID, cached flag or raw paid subscription can authorize publish.
+  const response = await fetcher(`${configuration.supabaseURL}/rest/v1/rpc/current_user_has_active_pro`, {
+    method: "POST",
+    headers: { apikey: publicKey, authorization: `Bearer ${match[1]}`,
+      accept: "application/json", "content-type": "application/json" },
+    body: "{}",
+  });
+  if (!response.ok) throw new Error("Forum access lookup failed.");
+  const allowed = await response.json();
+  if (typeof allowed !== "boolean") throw new Error("Forum access response unavailable.");
+  return allowed;
+}
+
+function forumPublicKeyFromEnv(env, serviceKey) {
+  const value = (key) => typeof env?.get === "function" ? env.get(key) : env?.[key];
+  const usable = (key) => {
+    if (typeof key !== "string" || key.length === 0 || key.length > 8192 || /\s/.test(key)
+        || key === serviceKey || key.startsWith("sb_secret_")) return false;
+    if (key.startsWith("sb_publishable_")) return true;
+    // Legacy ANON keys are JWTs. A service-role/unknown-role JWT is never an
+    // acceptable apikey for this user-context authorization request.
+    const parts = key.split(".");
+    if (parts.length !== 3) return false;
+    try {
+      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      return JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, "="))).role === "anon";
+    } catch { return false; }
+  };
+  // Standard current Edge runtime provides a JSON dictionary. An explicitly
+  // malformed dictionary fails closed rather than silently selecting another
+  // namespace. Bound parsing and never coerce non-string values into keys.
+  const plural = value("SUPABASE_PUBLISHABLE_KEYS");
+  if (plural !== undefined && plural !== null && plural !== "") {
+    if (typeof plural !== "string" || plural.length > 32768) return null;
+    let keys;
+    try { keys = JSON.parse(plural); } catch { return null; }
+    if (keys === null || typeof keys !== "object" || Array.isArray(keys)) return null;
+    const names = Object.keys(keys);
+    if (names.length === 0 || names.length > 32 || !Object.values(keys).every(usable)) return null;
+    return keys[Object.hasOwn(keys, "default") ? "default" : names.sort()[0]];
+  }
+  for (const name of ["SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"]) {
+    const key = value(name);
+    if (key === undefined || key === null || key === "") continue;
+    return usable(key) ? key : null;
+  }
+  return null;
+}
+
 async function fetchForumSong(configuration, songID, fetcher) {
   const rows = await supabaseGET(
     configuration,
@@ -318,7 +397,7 @@ async function finalizeForumPostPDF(configuration, { postID, byteSize, sha256 },
   );
 }
 
-async function updateForumPostStatus(configuration, { postID, status, publishedAt }, fetcher) {
+async function updateForumPostStatus(configuration, { postID, status, expectedStatus, publishedAt }, fetcher) {
   const update = { status };
   if (publishedAt !== undefined) {
     update.published_at = publishedAt;
@@ -326,7 +405,9 @@ async function updateForumPostStatus(configuration, { postID, status, publishedA
 
   const rows = await supabaseJSON(
     configuration,
-    `/rest/v1/forum_chart_posts?id=eq.${encodeURIComponent(postID)}&select=*`,
+    `/rest/v1/forum_chart_posts?id=eq.${encodeURIComponent(postID)}`
+      + (expectedStatus === undefined ? "" : `&status=eq.${encodeURIComponent(expectedStatus)}`)
+      + "&select=*",
     {
       method: "PATCH",
       body: update,

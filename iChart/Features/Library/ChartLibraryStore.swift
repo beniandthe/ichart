@@ -174,7 +174,7 @@ final class ChartLibraryStore: ObservableObject {
             )
         }
 
-        guard canCreateChart else {
+        guard canCreateChart, projectID == nil || canUse(.projects) else {
             return false
         }
 
@@ -213,7 +213,7 @@ final class ChartLibraryStore: ObservableObject {
         transpositionView: TranspositionView? = nil,
         projectID: ChartProject.ID? = nil
     ) -> Chart.ID? {
-        guard canCreateChart,
+        guard canCreateChart, projectID == nil || canUse(.projects),
               let chartIndex = charts.firstIndex(where: { $0.id == chartID }) else {
             return nil
         }

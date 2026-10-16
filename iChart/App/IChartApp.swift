@@ -59,11 +59,12 @@ struct IChartApp: App {
                 .environmentObject(pdfLibraryStore)
                 .environmentObject(setlistStore)
                 .environment(\.betaProStore, betaProStore)
+                .environment(\.betaProRetryAction, { await retryBetaAccess() })
                 .modifier(IChartBetaProNoticePresenter(store: betaProStore))
                 .task {
                     let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
                     synchronizeBetaAccess(authStore.state)
-                    await betaProStore.refresh()
+                    await retryBetaAccess()
                     await subscriptionStore.bootstrap()
                     IChartPerformanceTrace.record("app.bootstrap.subscriptionStore.complete")
                     applySubscriptionState(subscriptionStore.entitlement)
@@ -99,7 +100,7 @@ struct IChartApp: App {
                         return
                     }
                     synchronizeBetaAccess(authStore.state)
-                    await betaProStore.refresh()
+                    await retryBetaAccess()
                     // Retry a persisted diagnostic backlog while the app is
                     // active, even if the musician generates no further events.
                     // No network request is made when the queue is empty.
@@ -131,7 +132,7 @@ struct IChartApp: App {
                         ]
                     )
                     Task {
-                        await betaProStore.refresh()
+                        await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
                         IChartTelemetry.flush()
@@ -151,7 +152,7 @@ struct IChartApp: App {
                         await authStore.handleAuthCallback(url: url)
                         synchronizeBetaAccess(authStore.state)
                         cloudSyncStore.authStateChanged(authStore.state)
-                        await betaProStore.refresh()
+                        await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
                         IChartTelemetry.flush()
@@ -163,6 +164,19 @@ struct IChartApp: App {
     private func synchronizeBetaAccess(_ state: IChartAuthState) {
         betaProStore.authStateChanged(state)
         applyBetaAccessPolicy()
+    }
+
+    @MainActor
+    private func retryBetaAccess() async {
+        await betaProStore.retryAfterSessionRecovery {
+            if case .temporarilyOffline = authStore.state, !authStore.isWorking {
+                await authStore.refreshSession()
+            }
+            // A real recovered session must select its own cached access policy
+            // before cloud observes the account. Failed reconnects remain offline.
+            synchronizeBetaAccess(authStore.state)
+            cloudSyncStore.authStateChanged(authStore.state)
+        }
     }
 
     private func applyBetaAccessPolicy() {

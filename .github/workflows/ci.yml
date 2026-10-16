@@ -43,6 +43,7 @@ jobs:
           supabase/functions/_shared/app_store_subscription_authority.test.mjs
           supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
           supabase/functions/_shared/account_deletion.test.mjs
+          supabase/functions/_shared/forum_post_actions.test.mjs
 
       - name: Install pinned isolated PostgreSQL test runtime
         run: >-

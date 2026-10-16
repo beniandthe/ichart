@@ -54,20 +54,27 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var uploadQueue: [ForumUploadQueueItem]
 
     private let service: IChartForumServicing
+    private let defaults: UserDefaults
     #if DEBUG
     private let qaSampleService = IChartForumQASampleService()
     #endif
     private var lastQuery = ""
     private var activeUploadIDs: Set<ForumUploadQueueItem.ID> = []
+    private var uploadTasks: [ForumUploadQueueItem.ID: Task<Void, Never>] = [:]
+    private var uploadCleanupIDs: Set<ForumUploadQueueItem.ID> = []
+    private var allowsForumPublishing = false
+    private var uploadOwnerID: UUID?
+    private var uploadCharts: [Chart] = []
 
-    private init(service: IChartForumServicing) {
+    init(service: IChartForumServicing, defaults: UserDefaults = .standard) {
         self.service = service
+        self.defaults = defaults
         #if DEBUG
-        isQASampleDataEnabled = UserDefaults.standard.bool(forKey: Self.qaSampleDataStorageKey)
+        isQASampleDataEnabled = defaults.bool(forKey: Self.qaSampleDataStorageKey)
         #else
         isQASampleDataEnabled = false
         #endif
-        uploadQueue = Self.loadUploadQueue()
+        uploadQueue = Self.loadUploadQueue(defaults: defaults)
         state = service.isConfigured ? .signedOut : .unconfigured
     }
 
@@ -91,6 +98,8 @@ final class IChartForumStore: ObservableObject {
     static let qaSampleDataStorageKey = "iChartForumQASampleDataEnabled"
     private static let uploadQueueStorageKey = "iChartForumUploadQueue"
 
+    var hasUploadWorkInFlight: Bool { !uploadTasks.isEmpty }
+
     func setQASampleDataEnabled(_ isEnabled: Bool) {
         #if DEBUG
         guard isQASampleDataEnabled != isEnabled else {
@@ -98,7 +107,7 @@ final class IChartForumStore: ObservableObject {
         }
 
         isQASampleDataEnabled = isEnabled
-        UserDefaults.standard.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
+        defaults.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
         selectedDetail = nil
         downloadedPDF = nil
         statusMessage = isEnabled ? "Sample forum charts loaded." : nil
@@ -163,6 +172,10 @@ final class IChartForumStore: ObservableObject {
             )
             return
         }
+        guard allowsForumPublishing, uploadOwnerID == ownerID else {
+            errorMessage = "Rejoin free Pro in Settings before posting to Forums. Your local chart is unchanged."
+            return
+        }
 
         var publishDraft = draft
         publishDraft.selectedChartID = chart.id
@@ -210,13 +223,37 @@ final class IChartForumStore: ObservableObject {
             ]
         )
 
-        Task {
-            await processUpload(itemID: item.id, chart: chart, draft: publishDraft)
+        startUpload(itemID: item.id, chart: chart, draft: publishDraft)
+    }
+
+    /// Membership and account changes pause queued publishing, never discard it.
+    /// Completed downloads remain in the independent PDF library.
+    func applyAccess(entitlements: AppEntitlements, charts: [Chart], currentUserID: UUID?) {
+        let changedOwner = uploadOwnerID != currentUserID
+        let previouslyAllowed = allowsForumPublishing
+        uploadOwnerID = currentUserID
+        uploadCharts = charts
+        allowsForumPublishing = entitlements.includes(.forums) && currentUserID != nil
+        if !allowsForumPublishing || changedOwner {
+            uploadTasks.values.forEach { $0.cancel() }
         }
+        guard allowsForumPublishing else {
+            selectedDetail = nil
+            state = currentUserID == nil ? .signedOut : .requiresPro
+            if uploadQueue.contains(where: { $0.stage.isActive }) {
+                statusMessage = "Forum uploads are paused. Your queued charts are kept; rejoin free Pro in Settings to resume."
+            }
+            return
+        }
+        if !previouslyAllowed || changedOwner {
+            statusMessage = nil
+            errorMessage = nil
+        }
+        resumePendingUploads(charts: charts, currentUserID: currentUserID)
     }
 
     func resumePendingUploads(charts: [Chart], currentUserID: UUID?) {
-        guard let currentUserID else {
+        guard allowsForumPublishing, let currentUserID, uploadOwnerID == currentUserID else {
             return
         }
 
@@ -226,7 +263,6 @@ final class IChartForumStore: ObservableObject {
             }
 
             guard let ownerID = item.ownerID, ownerID == currentUserID else {
-                clearUploadQueueItem(item)
                 continue
             }
 
@@ -239,18 +275,21 @@ final class IChartForumStore: ObservableObject {
                 continue
             }
 
-            Task {
-                await processUpload(itemID: item.id, chart: chart, draft: item.draft)
-            }
+            startUpload(itemID: item.id, chart: chart, draft: item.draft)
         }
     }
 
     func retryUpload(_ item: ForumUploadQueueItem, charts: [Chart], currentUserID: UUID?) {
         guard let currentUserID, let ownerID = item.ownerID, ownerID == currentUserID else {
-            clearUploadQueueItem(item)
             errorMessage = "This queued upload belongs to another signed-in account."
             return
         }
+        guard allowsForumPublishing, uploadOwnerID == currentUserID else {
+            errorMessage = "Rejoin free Pro in Settings to resume this queued upload."
+            return
+        }
+        guard uploadQueue.contains(where: { $0.id == item.id && $0.stage == .failed }),
+              !uploadCleanupIDs.contains(item.id) else { return }
 
         guard let chart = charts.first(where: { $0.id == item.chartID }) else {
             updateUploadQueueItem(
@@ -262,40 +301,76 @@ final class IChartForumStore: ObservableObject {
         }
 
         updateUploadQueueItem(item.id, stage: .queued, errorMessage: nil)
-        Task {
-            await processUpload(itemID: item.id, chart: chart, draft: item.draft)
-        }
+        startUpload(itemID: item.id, chart: chart, draft: item.draft)
     }
 
     func withdrawUpload(_ item: ForumUploadQueueItem) async {
+        let cleanupIDs = beginUploadCleanup(postID: item.postID)
+        defer { uploadCleanupIDs.subtract(cleanupIDs) }
         await run(successMessage: "Forum submission withdrawn.") {
             try await activeService.withdrawPost(postID: item.postID)
             updateUploadQueueItem(item.id, stage: .withdrawn, errorMessage: nil)
-            state = .loaded(try await activeService.loadHome(query: lastQuery))
+            try await refreshAfterOwnedCleanup()
         }
+        holdFailedCleanupUploads(cleanupIDs)
     }
 
     func clearUploadQueueItem(_ item: ForumUploadQueueItem) {
+        uploadTasks[item.id]?.cancel()
         uploadQueue.removeAll { $0.id == item.id }
         persistUploadQueue()
     }
 
     func withdrawPost(_ detail: IChartForumPostDetail) async {
+        let cleanupIDs = beginUploadCleanup(postID: detail.post.id)
+        defer { uploadCleanupIDs.subtract(cleanupIDs) }
         await run(successMessage: "Forum submission withdrawn.") {
             try await activeService.withdrawPost(postID: detail.post.id)
+            cleanupIDs.forEach { updateUploadQueueItem($0, stage: .withdrawn, errorMessage: nil) }
             selectedDetail = nil
             downloadedPDF = nil
-            state = .loaded(try await activeService.loadHome(query: lastQuery))
+            try await refreshAfterOwnedCleanup()
         }
+        holdFailedCleanupUploads(cleanupIDs)
     }
 
     func removePost(_ detail: IChartForumPostDetail) async {
+        let cleanupIDs = beginUploadCleanup(postID: detail.post.id)
+        defer { uploadCleanupIDs.subtract(cleanupIDs) }
         await run(successMessage: "Chart removed from Forums.") {
             try await activeService.removePost(postID: detail.post.id)
+            cleanupIDs.forEach { updateUploadQueueItem($0, stage: .removed, errorMessage: nil) }
             selectedDetail = nil
             downloadedPDF = nil
-            state = .loaded(try await activeService.loadHome(query: lastQuery))
+            try await refreshAfterOwnedCleanup()
         }
+        holdFailedCleanupUploads(cleanupIDs)
+    }
+
+    private func beginUploadCleanup(postID: UUID) -> Set<ForumUploadQueueItem.ID> {
+        let ids = Set(uploadQueue.filter { $0.postID == postID }.map(\.id))
+        uploadCleanupIDs.formUnion(ids)
+        ids.forEach { uploadTasks[$0]?.cancel() }
+        return ids
+    }
+
+    private func holdFailedCleanupUploads(_ ids: Set<ForumUploadQueueItem.ID>) {
+        guard let errorMessage else { return }
+        for id in ids where uploadQueue.contains(where: { $0.id == id && $0.stage.isActive }) {
+            updateUploadQueueItem(id, stage: .failed, errorMessage: errorMessage)
+        }
+    }
+
+    private func canUpdateActiveUpload(_ itemID: ForumUploadQueueItem.ID) -> Bool {
+        !uploadCleanupIDs.contains(itemID) && uploadQueue.contains { $0.id == itemID && $0.stage.isActive }
+    }
+
+    private func refreshAfterOwnedCleanup() async throws {
+        guard allowsForumPublishing else {
+            state = uploadOwnerID == nil ? .signedOut : .requiresPro
+            return
+        }
+        state = .loaded(try await activeService.loadHome(query: lastQuery))
     }
 
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
@@ -384,8 +459,22 @@ final class IChartForumStore: ObservableObject {
         selectedDetail = nil
     }
 
+    private func startUpload(itemID: ForumUploadQueueItem.ID, chart: Chart, draft: ForumPublishDraft) {
+        guard allowsForumPublishing, canUpdateActiveUpload(itemID), uploadTasks[itemID] == nil,
+              !activeUploadIDs.contains(itemID) else { return }
+        uploadTasks[itemID] = Task { [weak self] in
+            guard let self else { return }
+            await self.processUpload(itemID: itemID, chart: chart, draft: draft)
+            self.uploadTasks[itemID] = nil
+            // A quick rejoin can arrive before cancellation finishes. Resume
+            // after the old task exits so a post is never sent concurrently.
+            self.resumePendingUploads(charts: self.uploadCharts, currentUserID: self.uploadOwnerID)
+        }
+    }
+
     private func processUpload(itemID: ForumUploadQueueItem.ID, chart: Chart, draft: ForumPublishDraft) async {
-        guard !activeUploadIDs.contains(itemID) else {
+        guard allowsForumPublishing, canUpdateActiveUpload(itemID), !Task.isCancelled,
+              !activeUploadIDs.contains(itemID) else {
             return
         }
 
@@ -393,8 +482,7 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
-        guard let ownerID = queueItem.ownerID else {
-            clearUploadQueueItem(queueItem)
+        guard let ownerID = queueItem.ownerID, ownerID == uploadOwnerID else {
             return
         }
 
@@ -412,10 +500,13 @@ final class IChartForumStore: ObservableObject {
                 exportedAt: queueItem.createdAt
             ) { [weak self] stage in
                 await MainActor.run {
-                    self?.updateUploadQueueItem(itemID, stage: stage, errorMessage: nil)
+                    guard let self, self.allowsForumPublishing, self.uploadOwnerID == ownerID,
+                          self.canUpdateActiveUpload(itemID), !Task.isCancelled else { return }
+                    self.updateUploadQueueItem(itemID, stage: stage, errorMessage: nil)
                 }
             }
 
+            guard canUpdateActiveUpload(itemID) else { return }
             updateUploadQueueItem(itemID, stage: .published, errorMessage: nil)
             statusMessage = "Forum chart published."
             errorMessage = nil
@@ -427,7 +518,7 @@ final class IChartForumStore: ObservableObject {
                     "result": .string("published")
                 ]
             )
-            if activeService.isConfigured {
+            if allowsForumPublishing, uploadOwnerID == ownerID, !Task.isCancelled, activeService.isConfigured {
                 do {
                     state = .loaded(try await activeService.loadHome(query: lastQuery))
                 } catch {
@@ -435,6 +526,11 @@ final class IChartForumStore: ObservableObject {
                 }
             }
         } catch {
+            guard canUpdateActiveUpload(itemID) else { return }
+            if error is CancellationError || Task.isCancelled || !allowsForumPublishing || uploadOwnerID != ownerID {
+                updateUploadQueueItem(itemID, stage: .queued, errorMessage: nil)
+                return
+            }
             updateUploadQueueItem(itemID, stage: .failed, errorMessage: Self.displayText(for: error))
             errorMessage = Self.displayText(for: error)
             IChartTelemetry.record(
@@ -469,11 +565,11 @@ final class IChartForumStore: ObservableObject {
             return
         }
 
-        UserDefaults.standard.set(data, forKey: Self.uploadQueueStorageKey)
+        defaults.set(data, forKey: Self.uploadQueueStorageKey)
     }
 
-    private static func loadUploadQueue() -> [ForumUploadQueueItem] {
-        guard let data = UserDefaults.standard.data(forKey: uploadQueueStorageKey),
+    private static func loadUploadQueue(defaults: UserDefaults) -> [ForumUploadQueueItem] {
+        guard let data = defaults.data(forKey: uploadQueueStorageKey),
               var items = try? JSONDecoder().decode([ForumUploadQueueItem].self, from: data) else {
             return []
         }
@@ -562,7 +658,7 @@ final class IChartForumStore: ObservableObject {
     }
 }
 
-private protocol IChartForumServicing: Sendable {
+protocol IChartForumServicing: Sendable {
     var isConfigured: Bool { get }
     func loadHome(query: String) async throws -> [IChartForumSongSummary]
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail
@@ -723,9 +819,13 @@ private actor IChartForumQASampleService: IChartForumServicing {
         }
 
         await progress(.preparingPDF)
+        try Task.checkCancellation()
         await progress(.uploadingPDF)
+        try Task.checkCancellation()
         await progress(.submittingMetadata)
+        try Task.checkCancellation()
         await progress(.validating)
+        try Task.checkCancellation()
         let song = resolvedSong(for: publishDraft)
         let post = ForumChartPost(
             id: postID,
@@ -1523,6 +1623,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         exportedAt: Date,
         progress: @escaping (ForumUploadStage) async -> Void
     ) async throws {
+        try Task.checkCancellation()
         let validationErrors = draft.validationErrors(availableChartIDs: [chart.id])
         guard validationErrors.isEmpty else {
             throw IChartForumServiceError.invalidPublishDraft(
@@ -1542,6 +1643,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         )
         let storagePath = publishDraft.storagePath(ownerID: ownerID, postID: postID)
         await progress(.preparingPDF)
+        try Task.checkCancellation()
         let exportedPDF = try await pdfExporter.exportPDF(
             for: chart,
             context: ChartPDFExportContext(
@@ -1555,6 +1657,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let pdfData = try Data(contentsOf: exportedPDF.url)
         let pdfSHA256 = Self.sha256HexDigest(for: pdfData)
         await progress(.uploadingPDF)
+        try Task.checkCancellation()
         do {
             try await client.storage
                 .from(bucketID)
@@ -1577,7 +1680,9 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         var shouldRollbackUploadedPDF = true
         do {
             await progress(.submittingMetadata)
+            try Task.checkCancellation()
             song = try await resolvedSong(for: publishDraft, ownerID: ownerID)
+            try Task.checkCancellation()
             let postInsert = ForumChartPostInsert(
                 id: postID,
                 songID: song.id,
@@ -1603,6 +1708,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             }
             shouldRollbackUploadedPDF = false
             await progress(.validating)
+            try Task.checkCancellation()
             try await forumPostAction(
                 action: .publish,
                 postID: postID,

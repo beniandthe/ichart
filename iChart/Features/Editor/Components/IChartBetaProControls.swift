@@ -6,14 +6,24 @@ private struct IChartBetaProStoreKey: EnvironmentKey {
     static let defaultValue: IChartBetaProStore? = nil
 }
 
+private struct IChartBetaProRetryActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () async -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var betaProStore: IChartBetaProStore? {
         get { self[IChartBetaProStoreKey.self] }
         set { self[IChartBetaProStoreKey.self] = newValue }
     }
+
+    var betaProRetryAction: (@MainActor () async -> Void)? {
+        get { self[IChartBetaProRetryActionKey.self] }
+        set { self[IChartBetaProRetryActionKey.self] = newValue }
+    }
 }
 
 struct IChartBetaProControls: View {
+    @Environment(\.betaProRetryAction) private var retryAction
     @ObservedObject var store: IChartBetaProStore
     var allowsLeaving = true
     var didJoin: () -> Void = {}
@@ -60,7 +70,12 @@ struct IChartBetaProControls: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("beta_pro_error")
-                Button("Try Again") { Task { await store.refresh() } }
+                Button("Try Again") {
+                    Task {
+                        if let retryAction { await retryAction() }
+                        else { await store.refresh() }
+                    }
+                }
                     .buttonStyle(.bordered)
                     .disabled(store.isWorking)
             }

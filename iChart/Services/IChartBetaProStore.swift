@@ -17,6 +17,10 @@ final class IChartBetaProStore: ObservableObject {
     private let defaults: UserDefaults
     private var isOffline = false
     private var generation: UInt64 = 0
+    private var refreshTask: Task<Void, Never>?
+    private var refreshTaskID: UUID?
+    private var sessionRecoveryTask: Task<Void, Never>?
+    private var sessionRecoveryTaskID: UUID?
 
     init(service: (any IChartBetaProService)?, defaults: UserDefaults = .standard) {
         self.service = service
@@ -28,6 +32,14 @@ final class IChartBetaProStore: ObservableObject {
     func authStateChanged(ownerID nextOwnerID: UUID?, isOffline nextOffline: Bool = false) {
         guard ownerID != nextOwnerID || isOffline != nextOffline else { return }
         generation &+= 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshTaskID = nil
+        // A new auth phase needs its own recovery attempt, even for the same
+        // owner. Do not cancel the old task: it may be initiating this very
+        // offline-to-online transition. Its ID cannot clear a newer attempt.
+        sessionRecoveryTask = nil
+        sessionRecoveryTaskID = nil
         ownerID = nextOwnerID
         isOffline = nextOffline
         isWorking = false
@@ -44,20 +56,70 @@ final class IChartBetaProStore: ObservableObject {
     }
 
     func refresh() async {
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
         guard let requestOwner = ownerID, !isOffline, let service, !isWorking else { return }
         generation &+= 1
         let requestGeneration = generation
+        let requestID = UUID()
         isWorking = true
         errorMessage = nil
-        defer { if isCurrent(requestOwner, requestGeneration) { isWorking = false } }
-        do {
-            let response = try await service.fetchStatus(for: requestOwner)
-            guard isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
-            try apply(response, expectedOwner: requestOwner)
-        } catch {
-            guard isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
-            errorMessage = "Could not refresh your free Pro settings. Your last saved choice is unchanged. Try again when connected."
+        // The store owns the request. A backgrounded view may cancel its waiter,
+        // but the next foreground waiter must still receive this current read.
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.refreshTaskID == requestID {
+                    self.refreshTask = nil
+                    self.refreshTaskID = nil
+                }
+                if self.isCurrent(requestOwner, requestGeneration) { self.isWorking = false }
+            }
+            do {
+                let response = try await service.fetchStatus(for: requestOwner)
+                guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
+                try self.apply(response, expectedOwner: requestOwner)
+            } catch {
+                guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
+                self.errorMessage = "Could not refresh your free Pro settings. This iPad is still using your last confirmed setting. Try again when connected."
+            }
         }
+        refreshTaskID = requestID
+        refreshTask = task
+        await task.value
+    }
+
+    /// The app supplies real session recovery followed by synchronous account /
+    /// access-policy synchronization. Only then may a read reconcile membership.
+    /// This never repeats a possibly committed participation mutation.
+    func retryAfterSessionRecovery(_ recoverSession: @escaping @MainActor () async -> Void) async {
+        if let sessionRecoveryTask {
+            await sessionRecoveryTask.value
+            return
+        }
+        guard let requestOwner = ownerID else { return }
+        // Never mistake an in-flight mutation for a refresh to be coalesced.
+        guard !isWorking else {
+            if let refreshTask { await refreshTask.value }
+            return
+        }
+        let requestID = UUID()
+        let task = Task { @MainActor [weak self] in
+            defer {
+                if self?.sessionRecoveryTaskID == requestID {
+                    self?.sessionRecoveryTask = nil
+                    self?.sessionRecoveryTaskID = nil
+                }
+            }
+            await recoverSession()
+            guard let self, self.ownerID == requestOwner else { return }
+            await self.refresh()
+        }
+        sessionRecoveryTaskID = requestID
+        sessionRecoveryTask = task
+        await task.value
     }
 
     /// Success means the current owner's server response confirmed the choice.
@@ -96,7 +158,7 @@ final class IChartBetaProStore: ObservableObject {
             return true
         } catch {
             guard isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return false }
-            errorMessage = "Your free Pro choice could not be saved. Your last saved choice is unchanged. Please try again."
+            errorMessage = "Could not confirm your Pro choice. This iPad is still using your last confirmed setting. Reconnect to check your account."
             return false
         }
     }

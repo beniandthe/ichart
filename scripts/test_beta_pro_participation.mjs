@@ -107,6 +107,43 @@ test("voluntary beta participation uses real PostgreSQL account-bound access",as
     await db.exec("reset role");
     assert.equal(await scalar(db,"select count(*)::int from private.free_pro_beta_memberships"),1);
   });
+  await scenario("phone-only confirmation is eligible and supports leave/rejoin without a paid receipt",async()=>{
+    await db.exec(`update auth.users set email_confirmed_at=null,phone='+15555550101',phone_confirmed_at=now()
+      where id='${a}'`);
+    await owner(db);assert.equal((await status(db)).eligible,true);assert.equal((await status(db)).free_pro_access,true);
+    assert.equal((await choose(db,false)).free_pro_access,false);
+    assert.equal((await choose(db,true)).free_pro_access,true);
+    assert.equal(await scalar(db,"select provider from public.subscriptions"),"none");
+  });
+  await scenario("expired ban no longer denies an otherwise verified account",async()=>{
+    await db.exec(`update auth.users set banned_until=now()-interval '1 minute' where id='${a}'`);
+    await owner(db);assert.equal((await status(db)).eligible,true);
+    assert.equal(await scalar(db,"select public.current_user_has_active_pro()"),true);
+    assert.equal((await choose(db,false)).free_pro_access,false);
+    assert.equal((await choose(db,true)).free_pro_access,true);
+  });
+  for(const row of [
+    {label:"default Basic billing",paid:false,leave:false,ineligible:false},
+    {label:"active paid billing",paid:true,leave:false,ineligible:false},
+    {label:"explicit Basic with active paid billing",paid:true,leave:true,ineligible:false},
+    {label:"explicit Basic with no paid billing",paid:false,leave:true,ineligible:false},
+    {label:"unconfirmed account",paid:true,leave:false,ineligible:true},
+  ]) {
+    await scenario(`status JSON and both helper decisions agree for ${row.label}`,async()=>{
+      if(row.paid) await db.exec(`update public.subscriptions set plan='studioSubscription',status='active',
+        provider='storekit',app_store_status='active',entitlement_expires_at=now()+interval '1 year'
+        where owner_id='${a}'`);
+      if(row.leave) { await owner(db);await choose(db,false);await db.exec("reset role"); }
+      if(row.ineligible) await db.exec(`update auth.users set email_confirmed_at=null where id='${a}'`);
+      await owner(db);const result=await status(db);
+      assert.equal(result.owner_id,a);assert.equal(result.participating,!row.leave);
+      assert.equal(result.eligible,!row.ineligible);
+      const expected=result.beta_available&&result.eligible&&result.participating;
+      assert.equal(result.free_pro_access,expected);
+      assert.equal(await scalar(db,"select public.current_user_has_free_pro_access()"),expected);
+      assert.equal(await scalar(db,"select public.current_user_has_active_pro()"),expected);
+    });
+  }
   for(const lifecycle of ["active","expired","refunded","revoked"]) {
     await scenario(`explicit Basic choice wins over ${lifecycle} Apple billing state without rewriting it`,async()=>{
       await db.exec(`update public.subscriptions set provider='storekit',app_store_status='${lifecycle}',

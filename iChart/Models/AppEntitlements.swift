@@ -248,6 +248,9 @@ struct AppEntitlements: Codable, Hashable {
             let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount) ?? 0
 
             if remainingSlots == 0 {
+                if accessPolicy == .betaBasic {
+                    return "Basic creation limit reached. Existing charts stay editable; rejoin free Pro in Settings to add more."
+                }
                 return "Basic limit reached: \(localChartLimit) local charts. Pro removes the cap."
             }
 
