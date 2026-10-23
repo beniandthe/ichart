@@ -4,7 +4,7 @@ Implementation base: `origin/main` at `5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43`
 
 Scope: personal PDF file import, owned local storage, truthful document metadata, and existing PDF setlists. Graph/MyScript work remains separate and unchanged.
 
-Status: implemented, tested, and installed as a separate proof app. The hands-on Files-picker and offline iPad acceptance test is pending.
+Status: implemented, tested, and installed as a separate proof app. The physical startup deadlock after sign-in is repaired; the library is visible and responsive on the iPad. The hands-on Files-picker and offline acceptance test is pending.
 
 ## Implemented behavior
 
@@ -28,6 +28,8 @@ Status: implemented, tested, and installed as a separate proof app. The hands-on
 | Device build/signature | Development build succeeded; strict deep signature verification passed |
 | Device installation | Separate **iChart PDF Import**, `com.ichart.app.pdfimportproof`, version 1.2.3 (78), installed and read back |
 | Device fixture | Copied to the proof app's Documents folder; device bytes read back and exactly match the fixture |
+| Startup repair regressions | 53 passed, 0 failed, 0 skipped across telemetry, transport, privacy controls, PDF import, and mounted setlist reader tests |
+| Physical startup repair | 1 UI check passed on iPad Air 4, iPadOS 26.6.2; normally launched proof process reached the signed-in library with the optional Quick Start banner, and two accessibility/screenshot captures returned |
 | Physical acceptance | Pending user operation of Files import, setlists, and offline relaunch |
 
 The initial native attempt caught a PDFKit option-type error in the new encrypted-fixture test. It was corrected before the passing run; no tests executed in that failed build. A separate proof-project attempt exposed a duplicate Info.plist resource; only the local proof configuration was corrected before its successful build. Existing compiler warnings remain.
@@ -46,7 +48,19 @@ Local execution artifacts:
 
 The local proof spec was materialized from this branch's authoritative `project.yml`. Its changes are limited to a separate project/bundle/display name, private generated Info.plist path, an exclusive `ichart-pdfimportproof` URL scheme, Files visibility for disposable inputs, and excluding the original Info.plist from copied resources. It uses the exact tracked native package lock. The proof spec is `/private/tmp/ichart-pdf-import-20261023/proof-project.yml`.
 
-The production bundle/configuration in the repository is unchanged. The public app and recognition lab bundles were not replaced. The agent did not launch the proof app or change the device's network state. This is a development-signed installation, not TestFlight distribution or an App Store release.
+The production bundle/configuration in the repository is unchanged. The public app and recognition lab bundles were not replaced. After the user brought the iPad online, the agent launched the proof app. The agent has not changed the device's network state. This is a development-signed installation, not TestFlight distribution or an App Store release.
+
+## Physical startup diagnosis
+
+The user reported completing sign-in, followed by a persistent loading/launch screen. The proof app's device report at 10:10 on October 23 confirms a watchdog termination (`FRONTBOARD`, `0x8BADF00D`) for a deadlock. The main thread held SwiftUI's update lock and waited for the telemetry consent lock. A utility thread held that consent lock while changing UserDefaults, whose synchronous SwiftUI observer waited for the update lock.
+
+This path was inherited from the release base and was unchanged by the PDF feature. The repair separates memory-only consent admission from main-thread preference persistence, retaining generation checks for withdrawal, queue cleanup, and installation identity. Persisted consent is loaded at store initialization; the consent setter is the sole runtime writer. Five new regressions cover synchronous preference-observer reentry and stale identity/reset persistence. The focused 53-test run passed, and the replaced proof app reached the signed-in library on the physical iPad. The [sanitized diagnostic receipt](qa/pdf-import-2026-10-23/startup-diagnostic.json) records the evidence without copying the full device report into the repository.
+
+The temporary UI runner attached only to the existing proof process, launched through devicectl with no XCTest environment injected into the app. It changed no app preferences, tapped no controls, and captured the library twice. Its first build failed because the temporary runner lacked a product name; the corrected runner executed one passing test. This confirms startup and returning accessibility snapshots; physical Files import and offline persistence remain separate gates. Local results: `/private/tmp/ichart-pdf-import-20261023/StartupRegression01.xcresult` and `/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/StartupAfterFix02.xcresult`.
+
+Installation-ID persistence is now asynchronous. Abrupt termination before the first identity write may split analytics continuity across identifiers. The ingest validator accepts event identifiers independently of batch context, so this window does not block delivery of the durable backlog.
+
+The separate proof scheme also differs from the production auth callback scheme. Existing-account password sign-in does not use that callback. Email verification and password-reset links are outside this proof walkthrough until proof-specific callback routing is configured.
 
 ## Offline iPad walkthrough
 

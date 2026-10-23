@@ -123,6 +123,7 @@ enum IChartTelemetry {
         lock.unlock()
     }
 
+    @MainActor
     static func setConsentGranted(_ isGranted: Bool) {
         let configured = service
         (configured?.consentStore ?? .shared).setConsentGranted(isGranted)
