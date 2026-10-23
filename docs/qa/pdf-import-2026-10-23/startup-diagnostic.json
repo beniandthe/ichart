@@ -27,7 +27,7 @@
     "conclusion": "Lock inversion between the consent store and SwiftUI defaults observation. The PDF feature had not changed these source paths."
   },
   "after_fix": {
-    "status": "installed and physical startup verified; hands-on PDF import/offline acceptance pending",
+    "status": "installed and physical startup verified; user reports PDF import success; physical setlist use/offline acceptance pending",
     "native_regressions": {
       "passed": 53,
       "failed": 0,

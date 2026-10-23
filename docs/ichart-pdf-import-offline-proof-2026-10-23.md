@@ -4,7 +4,7 @@ Implementation base: `origin/main` at `5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43`
 
 Scope: personal PDF file import, owned local storage, truthful document metadata, and existing PDF setlists. Graph/MyScript work remains separate and unchanged.
 
-Status: implemented, tested, and installed as a separate proof app. The physical startup deadlock after sign-in is repaired; the library is visible and responsive on the iPad. The hands-on Files-picker and offline acceptance test is pending.
+Status: PDF import succeeds on the physical iPad, and its saved setlist reference is present. The online startup deadlock and offline account-restoration bug are repaired. The replacement build is tested and installed; iPadOS requires developer-build trust/verification before the physical offline reader retest.
 
 ## Implemented behavior
 
@@ -30,7 +30,10 @@ Status: implemented, tested, and installed as a separate proof app. The physical
 | Device fixture | Copied to the proof app's Documents folder; device bytes read back and exactly match the fixture |
 | Startup repair regressions | 53 passed, 0 failed, 0 skipped across telemetry, transport, privacy controls, PDF import, and mounted setlist reader tests |
 | Physical startup repair | 1 UI check passed on iPad Air 4, iPadOS 26.6.2; normally launched proof process reached the signed-in library with the optional Quick Start banner, and two accessibility/screenshot captures returned |
-| Physical acceptance | Pending user operation of Files import, setlists, and offline relaunch |
+| Offline-entry repair regressions | 95 passed, 0 failed, 0 skipped on the dedicated iPad simulator; includes all 10 new auth-restoration cases. Swift Package PDF checks: 42 passed, 0 failed. Replacement proof build and strict signature verification passed. |
+| Physical PDF import | User reported "ok imported successfully" on October 23; exact file, both-page rendering, and screenshots were not supplied with that report |
+| Device import/setlist readback | One personal import, stored as 2 pages / 3,528 bytes; owned PDF bytes match the supplied fixture; one setlist entry refers to that PDF ID. The disposable source is still present. This is storage evidence, not offline reader rendering. |
+| Physical acceptance | Pending setlist use, source independence, and offline relaunch |
 
 The initial native attempt caught a PDFKit option-type error in the new encrypted-fixture test. It was corrected before the passing run; no tests executed in that failed build. A separate proof-project attempt exposed a duplicate Info.plist resource; only the local proof configuration was corrected before its successful build. Existing compiler warnings remain.
 
@@ -61,6 +64,14 @@ The temporary UI runner attached only to the existing proof process, launched th
 Installation-ID persistence is now asynchronous. Abrupt termination before the first identity write may split analytics continuity across identifiers. The ingest validator accepts event identifiers independently of batch context, so this window does not block delivery of the durable backlog.
 
 The separate proof scheme also differs from the production auth callback scheme. Existing-account password sign-in does not use that callback. Email verification and password-reset links are outside this proof walkthrough until proof-specific callback routing is configured.
+
+## Offline account-entry diagnosis
+
+The user reported "The internet connection appears to be offline" inside the account/sign-in screen after reopening offline. A nonexpired saved SDK session can restore successfully without a request, but the app then awaits a separate profile fetch before publishing its restored account state. If that request fails offline, the cold-start state remains signed out and the account cover blocks local content. The preexisting expired-session path already maps a connectivity failure to `temporarilyOffline`; the valid-session/profile path did not.
+
+The repair is limited to restoration of a recovered, verified session: a typed profile transport error selects `temporarilyOffline` without clearing the saved session or local documents. Authorization errors, missing profiles, malformed sessions, unverified users, and interactive sign-in/signup remain outside that fallback. All ten injected-service regressions passed within a 95-test native run; the 42 selected Swift Package PDF tests also passed. The replacement proof build passed strict signature verification and was installed. Both device manifests were read back unchanged after the update. See the [offline-entry diagnostic receipt](qa/pdf-import-2026-10-23/offline-entry-diagnostic.json).
+
+The attempted offline UI diagnostic did not execute its test because iPadOS refused to launch the separate test runner with an untrusted developer certificate. That runner launch limitation is separate from the user's in-app profile error and provides no offline reader result. The earlier proof build launched through devicectl with the normal environment. After installing the offline-entry repair, iPadOS also denied the new proof build's launch for signature/entitlement/profile-trust reasons. The user was asked to reconnect briefly, open the new build once, then disconnect and repeat the physical offline entry/reader checks. The agent has not changed network settings.
 
 ## Offline iPad walkthrough
 

@@ -127,7 +127,7 @@ private struct IChartPendingAuthFlow: Codable {
     }
 }
 
-private protocol IChartAccountServicing {
+protocol IChartAccountServicing {
     var isConfigured: Bool { get }
     func restoreSession() async throws -> IChartAuthState
     func signUp(
@@ -180,7 +180,7 @@ final class IChartAuthStore: ObservableObject {
         return !hasCompleteAccountIdentity
     }
 
-    private init(
+    init(
         service: IChartAccountServicing,
         pendingVerificationEmailStorage: any AuthLocalStorage = IChartSupabaseAuthLocalStorage()
     ) {
@@ -223,7 +223,19 @@ final class IChartAuthStore: ObservableObject {
                let email = restorablePendingVerificationEmail() {
                 restoredState = .pendingEmailVerification(email: email)
             }
-            try await applyAuthState(restoredState)
+            do {
+                try await applyAuthState(restoredState)
+            } catch {
+                // A recovered, verified session still owns its local library
+                // when the separate profile request cannot reach the network.
+                // Interactive sign-in and identity completion stay strict.
+                guard case .signedIn(let session) = restoredState,
+                      session.isEmailVerified,
+                      IChartAuthConnectivity.isConnectivityError(error) else {
+                    throw error
+                }
+                try await applyAuthState(.temporarilyOffline(session))
+            }
         }
     }
 
@@ -822,6 +834,38 @@ extension IChartAuthState {
     }
 }
 
+private enum IChartAuthConnectivity {
+    static func isConnectivityError(_ error: Error, allowDescriptionFallback: Bool = false) -> Bool {
+        var currentError = error as NSError
+        for _ in 0..<4 {
+            if currentError.domain == NSURLErrorDomain {
+                return [
+                    URLError.Code.notConnectedToInternet,
+                    .networkConnectionLost,
+                    .cannotFindHost,
+                    .cannotConnectToHost,
+                    .timedOut
+                ].contains(URLError.Code(rawValue: currentError.code))
+            }
+            guard currentError.code != 401, currentError.code != 403 else { return false }
+            guard let underlying = currentError.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+            currentError = underlying
+        }
+
+        // Preserve the existing auth-refresh compatibility behavior. A profile
+        // restoration fallback requires an actual transport error, never prose
+        // from an authorization, missing-profile or decoding failure.
+        guard allowDescriptionFallback else { return false }
+        let text = error.localizedDescription.lowercased()
+        return text.contains("not connected")
+            || text.contains("network connection")
+            || text.contains("cannot find host")
+            || text.contains("cannot connect")
+            || text.contains("could not connect")
+            || text.contains("timed out")
+    }
+}
+
 private struct IChartUnconfiguredAccountService: IChartAccountServicing {
     let isConfigured = false
 
@@ -1109,7 +1153,7 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
             )
             return try await restoreState(from: restoredSession)
         } catch {
-            if Self.isConnectivityError(error) {
+            if IChartAuthConnectivity.isConnectivityError(error, allowDescriptionFallback: true) {
                 await sessionStore.update(session)
                 return .temporarilyOffline(accountSession(for: session.user))
             }
@@ -1136,26 +1180,6 @@ private struct IChartSupabaseAccountService: IChartAccountServicing {
         }
 
         return metadata
-    }
-
-    private static func isConnectivityError(_ error: Error) -> Bool {
-        if let urlError = error as? URLError {
-            return [
-                .notConnectedToInternet,
-                .networkConnectionLost,
-                .cannotFindHost,
-                .cannotConnectToHost,
-                .timedOut
-            ].contains(urlError.code)
-        }
-
-        let text = error.localizedDescription.lowercased()
-        return text.contains("not connected")
-            || text.contains("network connection")
-            || text.contains("cannot find host")
-            || text.contains("cannot connect")
-            || text.contains("could not connect")
-            || text.contains("timed out")
     }
 
     private func tokenHashCallback(from url: URL) -> (tokenHash: String, type: EmailOTPType)? {

@@ -30,10 +30,11 @@
     "CFBundleVersion": "78",
     "UIFileSharingEnabled": true,
     "LSSupportsOpeningDocumentsInPlace": true,
-    "executable_sha256": "af889677be491787e859169dc0ab436a0f5e599439740c2c48aea3a0ec7bdaab",
+    "executable_sha256": "e5f15a54858dfede1183904638dd7bbc10e9888fbc32806b0468ab7c058aecff",
     "strict_signature_verified": true,
     "installation_readback_verified": true,
-    "launched_by_agent": true
+    "launched_by_agent": false,
+    "latest_launch_status": "iPadOS denied new build launch pending developer profile trust/verification"
   },
   "fixture": {
     "path": "output/pdf/ichart-pdf-import-offline-proof.pdf",
@@ -42,7 +43,15 @@
     "sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
     "device_documents_readback_matches": true
   },
-  "physical_files_import_and_offline_acceptance": "pending hands-on iPad test",
+  "physical_files_import_and_offline_acceptance": "PDF import and durable setlist reference confirmed; offline account repair installed, awaiting developer-build verification and physical offline reader retest",
+  "physical_import_user_report": {
+    "date": "2026-10-23",
+    "message": "ok imported successfully",
+    "exact_file_confirmed": false,
+    "both_pages_confirmed": false,
+    "setlist_use_confirmed": false,
+    "offline_reopen_confirmed": false
+  },
   "source_sha256": {
     "Package.swift": "e3e1828e0945453e264f9642e15aeaf8e5810a831542106d2ec05fd2b70c2b8c",
     "iChart/Services/PDFImportService.swift": "060848cc90e241cccae7d99e7103cccdb7bc4715a85bb234e3ef0edbe59fe8be",
@@ -57,7 +66,9 @@
     "iChart/App/Telemetry/IChartTelemetry.swift": "57bc2e307aba7f2aedb3767e32c7c5294c8f2e8417a718118e77a9995fae0ab4",
     "iChart/App/Telemetry/IChartTelemetryConsentStore.swift": "bfdc853f1c98437b2295ddc7f9b10f5ba58cf9b0a56758d952c6f23adde70583",
     "iChartTests/TelemetryTests.swift": "58f69a9db991d16bf3b23f6cb7582c9fc182e4a5ccb1738ca87e5bb32de68416",
-    "iChartTests/TrialTelemetryTransportTests.swift": "9db86374e613e041b597223ab1a78a695c9d0713f093ed8bb370e2fd85f5df1e"
+    "iChartTests/TrialTelemetryTransportTests.swift": "9db86374e613e041b597223ab1a78a695c9d0713f093ed8bb370e2fd85f5df1e",
+    "iChart/App/Auth/IChartAuthStore.swift": "53a3dbf976cfe9dd38b2d1cc64c7b3ba24ae6d2706ac3147a587b9f5681e383c",
+    "iChartTests/AuthStoreOfflineRestoreTests.swift": "212a123777345cb4a516cea4a6475216ec0d04b618b842a25a3bf2b75ebcf384"
   },
   "boundaries": {
     "graph_myscript_edits": false,
@@ -75,5 +86,15 @@
     "failed_physical_ui_tests": 0,
     "observed_screen": "Signed-in library with optional Quick Start banner",
     "diagnostic_receipt": "startup-diagnostic.json"
+  },
+  "offline_entry_repair": {
+    "native_passed": 95,
+    "native_failed": 0,
+    "native_skipped": 0,
+    "swift_package_passed": 42,
+    "swift_package_failed": 0,
+    "new_auth_restore_tests": 10,
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/OfflineAuthRegression01.xcresult",
+    "receipt": "offline-entry-diagnostic.json"
   }
 }
