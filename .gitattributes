@@ -1,0 +1,2 @@
+# Generated PDF fixtures contain format-significant whitespace.
+output/pdf/*.pdf binary

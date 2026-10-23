@@ -1079,7 +1079,7 @@ struct LibraryView: View {
         }
         .sheet(item: $selectedPDFLibraryItem) { item in
             if let exportedPDF = pdfLibraryStore.exportedPDF(for: item) {
-                PDFExportPreviewView(exportedPDF: exportedPDF)
+                PDFExportPreviewView(exportedPDF: exportedPDF, source: item.source)
             } else {
                 NavigationStack {
                     ContentUnavailableView(
@@ -1305,6 +1305,10 @@ struct LibraryView: View {
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                IChartPDFImportButton(identifier: "pdf.library.import") { item in
+                    selectedPDFLibraryItem = item
+                }
+                .buttonStyle(.borderedProminent)
                 librarySelectionBar(
                     isSelecting: $isSelectingPDFs,
                     selectedIDs: $selectedPDFIDs,
@@ -2652,7 +2656,7 @@ private struct IChartPDFLibraryHomeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Exports and forum downloads appear here so you can preview, share, or remove them later.")
+            Text("Import a PDF from Files, or find your exports and forum downloads here. Add saved PDFs to a setlist for offline reading.")
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2771,8 +2775,12 @@ private struct IChartPDFLibraryRow: View {
 
                 HStack(spacing: 7) {
                     metadataPill(item.source.itemTitle)
-                    metadataPill(item.layoutStyle.displayText)
-                    metadataPill(item.transpositionText)
+                    if let layoutStyle = item.layoutStyle {
+                        metadataPill(layoutStyle.displayText)
+                    }
+                    if let transpositionText = item.transpositionText {
+                        metadataPill(transpositionText)
+                    }
                     metadataPill(item.pageCountText)
                     metadataPill(item.fileSizeText)
                 }
@@ -2787,6 +2795,7 @@ private struct IChartPDFLibraryRow: View {
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Open \(item.displayTitle)")
+            .accessibilityIdentifier("pdf.library.open.\(item.id.uuidString)")
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")

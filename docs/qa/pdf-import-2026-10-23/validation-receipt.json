@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-23",
+  "base_commit": "5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43",
+  "branch": "codex/pdf-import-setlists",
+  "native_tests": {
+    "passed": 106,
+    "failed": 0,
+    "skipped": 0,
+    "device": {
+      "architecture": "arm64",
+      "deviceId": "90A50B5D-884A-4CCD-B6F0-1E7EFD03A693",
+      "deviceName": "iChart PDF Import QA 2026-10-23",
+      "modelName": "iPad (A16)",
+      "osBuildNumber": "23F77",
+      "osVersion": "26.5",
+      "platform": "iOS Simulator"
+    },
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/PDFImportFocused02.xcresult"
+  },
+  "swift_package_tests": {
+    "passed": 79,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/private/tmp/ichart-pdf-import-20261023/focused-swiftpm.log"
+  },
+  "proof_app": {
+    "CFBundleIdentifier": "com.ichart.app.pdfimportproof",
+    "CFBundleDisplayName": "iChart PDF Import",
+    "CFBundleShortVersionString": "1.2.3",
+    "CFBundleVersion": "78",
+    "UIFileSharingEnabled": true,
+    "LSSupportsOpeningDocumentsInPlace": true,
+    "executable_sha256": "d611d48d8c2142eb0ba526d8aaf15e6459b6dc895b64b2ebe20aac7626adbb5e",
+    "strict_signature_verified": true,
+    "installation_readback_verified": true,
+    "launched_by_agent": false
+  },
+  "fixture": {
+    "path": "output/pdf/ichart-pdf-import-offline-proof.pdf",
+    "pages": 2,
+    "bytes": 3528,
+    "sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
+    "device_documents_readback_matches": true
+  },
+  "physical_files_import_and_offline_acceptance": "pending hands-on iPad test",
+  "source_sha256": {
+    "Package.swift": "e3e1828e0945453e264f9642e15aeaf8e5810a831542106d2ec05fd2b70c2b8c",
+    "iChart/Services/PDFImportService.swift": "060848cc90e241cccae7d99e7103cccdb7bc4715a85bb234e3ef0edbe59fe8be",
+    "iChart/Services/PDFLibraryStore.swift": "59d169e589f7c6bbd07d6215fb46a91112bc28fca0fa5759a5f40cbdf0c782b4",
+    "iChart/Services/ChartExporting.swift": "676ba5c568b02772ac9ea974db0a139ae291891cc79db26cdb64df5be7139f2f",
+    "iChart/Features/Library/PDFImportView.swift": "ef1f3272b9a83a5dfb8ae84a1285047c3edb7b63b24b60143ca52f5d10fe283b",
+    "iChart/Features/Library/LibraryView.swift": "6a6475228f22e8cd930884e82581b0440497bcab5af4a466877d41f9e849358e",
+    "iChart/Features/Library/SetlistsView.swift": "a1c55f646cf22524d67f4ae8ffe161d94b0c3f8d2ab8132b0874950d59e1644d",
+    "iChart/Features/Editor/Components/PDFExportPreviewView.swift": "43762e1dba0ccbffdb2dfd8dcd18dc2fbdd4cfe336a97f1b08fc25a790c0c61f",
+    "iChartTests/PDFImportTests.swift": "8fc410d5ad594e25cdd26353e766c17f1361ecc294e83fcfcc89710d88912e62",
+    "iChartTests/SetlistReaderTests.swift": "f46a76051ddb6b84f06b7303a8a0fb7972a50782f4f6cd1f7decdc582f20f21f"
+  },
+  "boundaries": {
+    "graph_myscript_edits": false,
+    "backend_changes": false,
+    "openai_requests": false,
+    "production_app_replaced": false,
+    "testflight_upload": false,
+    "public_release": false
+  }
+}

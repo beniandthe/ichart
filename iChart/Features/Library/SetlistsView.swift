@@ -255,7 +255,8 @@ struct IChartSetlistDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(song.displayTitle).font(.headline)
                 if let item = song.pdfItem, pdfStore.exportedPDF(for: item) != nil {
-                    Text("\(item.pageCountText) · \(item.transpositionText)").font(.subheadline).foregroundStyle(.secondary)
+                    Text([item.pageCountText, item.transpositionText].compactMap { $0 }.joined(separator: " · "))
+                        .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     Label("Unavailable PDF", systemImage: "exclamationmark.triangle")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -358,8 +359,13 @@ private struct IChartSetlistPDFPicker: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    IChartPDFImportButton(identifier: "setlists.pick.import") { item in
+                        selectedIDs.insert(item.id)
+                    }
+                }
                 if items.isEmpty {
-                    ContentUnavailableView("No PDFs Available", systemImage: "doc.richtext", description: Text("Export a chart or download a PDF to your library, then add it to a setlist."))
+                    ContentUnavailableView("No PDFs Available", systemImage: "doc.richtext", description: Text("Import a PDF from Files, export a chart, or download a forum PDF to add it to this setlist."))
                 }
                 ForEach(items) { item in
                     Button {
@@ -368,7 +374,7 @@ private struct IChartSetlistPDFPicker: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.displayTitle).font(.headline)
-                                Text("\(item.source.itemTitle) · \(item.transpositionText) · \(item.pageCountText)")
+                                Text([item.source.itemTitle, item.transpositionText, item.pageCountText].compactMap { $0 }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
