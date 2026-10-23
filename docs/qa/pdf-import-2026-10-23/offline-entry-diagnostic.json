@@ -39,11 +39,19 @@
     "disposable_original_still_present": true
   },
   "physical_retest": {
-    "status": "pending one-time developer-build verification online, then offline reopening and PDF reader check",
+    "status": "passed core offline entry and saved setlist/PDF reading by user report",
     "new_build_launch": "iPadOS denied launch for signature/entitlement/profile-trust reasons; app code did not execute in this attempt",
     "normal_launch_receipt": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/offline-fix-launch.json",
     "offline_ui_runner": "Test did not execute: developer certificate trust blocked runner launch",
-    "network_state_changed_by_agent": false
+    "network_state_changed_by_agent": false,
+    "user_report": {
+      "date": "2026-10-23",
+      "message": "It opens offline and the saved setlist/PDF is readable",
+      "evidence_kind": "user report after requested reconnect-once, disconnect, force-close, and reopen sequence",
+      "all_pages_explicitly_confirmed": false,
+      "physical_source_deletion_confirmed": false
+    },
+    "developer_build_verification": "User completed retry sequence and confirmed offline app entry/readability"
   },
   "boundaries": {
     "public_app_replaced": false,

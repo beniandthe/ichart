@@ -34,7 +34,7 @@
     "strict_signature_verified": true,
     "installation_readback_verified": true,
     "launched_by_agent": false,
-    "latest_launch_status": "iPadOS denied new build launch pending developer profile trust/verification"
+    "latest_launch_status": "User confirmed offline reopening with saved setlist/PDF readable"
   },
   "fixture": {
     "path": "output/pdf/ichart-pdf-import-offline-proof.pdf",
@@ -43,7 +43,7 @@
     "sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
     "device_documents_readback_matches": true
   },
-  "physical_files_import_and_offline_acceptance": "PDF import and durable setlist reference confirmed; offline account repair installed, awaiting developer-build verification and physical offline reader retest",
+  "physical_files_import_and_offline_acceptance": "Core physical offline proof passed by user report: import, saved setlist/PDF, offline reopening/readability. Every page and physical source deletion were not separately confirmed.",
   "physical_import_user_report": {
     "date": "2026-10-23",
     "message": "ok imported successfully",
@@ -95,6 +95,13 @@
     "swift_package_failed": 0,
     "new_auth_restore_tests": 10,
     "result_bundle": "/private/tmp/ichart-pdf-import-20261023/OfflineAuthRegression01.xcresult",
-    "receipt": "offline-entry-diagnostic.json"
+    "receipt": "offline-entry-diagnostic.json",
+    "physical_offline_user_report": {
+      "date": "2026-10-23",
+      "message": "It opens offline and the saved setlist/PDF is readable",
+      "evidence_kind": "user report after requested reconnect-once, disconnect, force-close, and reopen sequence",
+      "all_pages_explicitly_confirmed": false,
+      "physical_source_deletion_confirmed": false
+    }
   }
 }
