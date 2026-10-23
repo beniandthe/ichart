@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-23",
+  "base_commit": "5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43",
+  "runtime_source_commit": "f59157c0d122b2b73a77c37b504ab707d030ec11",
+  "native_full": {
+    "passed": 2474,
+    "failed": 0,
+    "skipped": 103,
+    "selected_simulator_id": "90A50B5D-884A-4CCD-B6F0-1E7EFD03A693",
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/production-review/FullNative01.xcresult"
+  },
+  "swiftpm_full": {
+    "passed": 1735,
+    "failed": 0,
+    "skipped": 89,
+    "log": "/private/tmp/ichart-pdf-import-20261023/production-review/swiftpm-full.log"
+  },
+  "compatibility_added_after_full_suites": {
+    "native_passed": 3,
+    "native_failed": 0,
+    "native_skipped": 0,
+    "swiftpm_passed": 3,
+    "swiftpm_failed": 0,
+    "swiftpm_skipped": 0,
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/production-review/CompatibilityNative01.xcresult"
+  },
+  "workflow_scope": {
+    "passed": 4
+  },
+  "resource_isolation": {
+    "passed": 7
+  },
+  "accessibility_wrapper": {
+    "passed": 15
+  },
+  "backend_contracts": {
+    "pure_passed": 574,
+    "pglite_passed": 85,
+    "postgres_passed": 7,
+    "total_passed": 666,
+    "failed": 0,
+    "skipped": 0,
+    "synthetic_only": true,
+    "live_backend_changed": false
+  },
+  "ordinary_release_compile": {
+    "passed": true,
+    "bundle_identifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "78",
+    "signed": false,
+    "installed": false,
+    "experimental_resources_present": false
+  },
+  "physical_extended_proof": {
+    "evidence_kind": "user report plus independent storage readback",
+    "message": "Both pages work offline after deleting the original",
+    "active_source_absent": true,
+    "trash_copy_present": true,
+    "retained_pdf_bytes": 3528,
+    "retained_pdf_sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c"
+  },
+  "recovery_contract": "Forward compatible emergency build retains imported-data decoder and local reader; legacy binary downgrade over imported container unsupported",
+  "remote_ci": "pending review PR",
+  "source_sha256": {
+    "iChartTests/PDFImportCompatibilityTests.swift": "b7aedc8df68e85ed604a277e0a8ce8575bf4e9c4ef10147adfb7b352515430b7",
+    "iChart/App/Auth/IChartAuthStore.swift": "53a3dbf976cfe9dd38b2d1cc64c7b3ba24ae6d2706ac3147a587b9f5681e383c",
+    "iChart/App/Telemetry/IChartTelemetryConsentStore.swift": "bfdc853f1c98437b2295ddc7f9b10f5ba58cf9b0a56758d952c6f23adde70583",
+    "iChart/Services/PDFImportService.swift": "060848cc90e241cccae7d99e7103cccdb7bc4715a85bb234e3ef0edbe59fe8be",
+    "iChart/Services/PDFLibraryStore.swift": "59d169e589f7c6bbd07d6215fb46a91112bc28fca0fa5759a5f40cbdf0c782b4"
+  }
+}

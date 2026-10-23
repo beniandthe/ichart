@@ -43,7 +43,7 @@
     "sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
     "device_documents_readback_matches": true
   },
-  "physical_files_import_and_offline_acceptance": "Core physical offline proof passed by user report: import, saved setlist/PDF, offline reopening/readability. Every page and physical source deletion were not separately confirmed.",
+  "physical_files_import_and_offline_acceptance": "Extended physical proof passed: both pages readable in saved setlist after source deletion and offline cold reopening, per user; active source absence and owned PDF bytes independently verified",
   "physical_import_user_report": {
     "date": "2026-10-23",
     "message": "ok imported successfully",
@@ -102,6 +102,18 @@
       "evidence_kind": "user report after requested reconnect-once, disconnect, force-close, and reopen sequence",
       "all_pages_explicitly_confirmed": false,
       "physical_source_deletion_confirmed": false
+    },
+    "physical_extended_user_report": {
+      "date": "2026-10-23",
+      "message": "Both pages work offline after deleting the original",
+      "evidence_kind": "User report after specified delete/disconnect/force-close/reopen sequence, with independent storage readback",
+      "all_pages_explicitly_confirmed": true,
+      "physical_source_deletion_confirmed": true,
+      "original_active_documents_path_absent": true,
+      "original_copy_only_in_trash": true,
+      "owned_pdf_bytes_after_deletion": 3528,
+      "owned_pdf_sha256_after_deletion": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c"
     }
-  }
+  },
+  "production_review_receipt": "production-review-receipt.json"
 }

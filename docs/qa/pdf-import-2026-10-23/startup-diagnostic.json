@@ -27,7 +27,7 @@
     "conclusion": "Lock inversion between the consent store and SwiftUI defaults observation. The PDF feature had not changed these source paths."
   },
   "after_fix": {
-    "status": "installed and physical startup verified; user reports PDF import success; physical setlist use/offline acceptance pending",
+    "status": "installed and physical startup verified; subsequent offline account repair and extended PDF/setlist acceptance completed (see offline-entry and production-review receipts)",
     "native_regressions": {
       "passed": 53,
       "failed": 0,
@@ -43,7 +43,9 @@
       "observed_screen": "Signed-in library with optional Quick Start banner and PDFs/Setlists navigation",
       "captures": 2,
       "app_launched_normally_before_runner": true,
-      "app_launch_environment": { "TERM": "dumb" },
+      "app_launch_environment": {
+        "TERM": "dumb"
+      },
       "result_bundle": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/StartupAfterFix02.xcresult"
     },
     "executable_sha256": "af889677be491787e859169dc0ab436a0f5e599439740c2c48aea3a0ec7bdaab",

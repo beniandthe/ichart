@@ -36,10 +36,11 @@
     "entry_references_owned_pdf": true,
     "pdf_manifest_unchanged_after_update": true,
     "setlist_manifest_unchanged_after_update": true,
-    "disposable_original_still_present": true
+    "disposable_original_still_present": false,
+    "disposable_original_in_trash_only": true
   },
   "physical_retest": {
-    "status": "passed core offline entry and saved setlist/PDF reading by user report",
+    "status": "passed extended offline entry and both PDF pages after source deletion by user report; source absence and retained bytes independently confirmed",
     "new_build_launch": "iPadOS denied launch for signature/entitlement/profile-trust reasons; app code did not execute in this attempt",
     "normal_launch_receipt": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/offline-fix-launch.json",
     "offline_ui_runner": "Test did not execute: developer certificate trust blocked runner launch",
@@ -51,7 +52,18 @@
       "all_pages_explicitly_confirmed": false,
       "physical_source_deletion_confirmed": false
     },
-    "developer_build_verification": "User completed retry sequence and confirmed offline app entry/readability"
+    "developer_build_verification": "User completed retry sequence and confirmed offline app entry/readability",
+    "extended_user_report": {
+      "date": "2026-10-23",
+      "message": "Both pages work offline after deleting the original",
+      "evidence_kind": "User report after specified delete/disconnect/force-close/reopen sequence, with independent storage readback",
+      "all_pages_explicitly_confirmed": true,
+      "physical_source_deletion_confirmed": true,
+      "original_active_documents_path_absent": true,
+      "original_copy_only_in_trash": true,
+      "owned_pdf_bytes_after_deletion": 3528,
+      "owned_pdf_sha256_after_deletion": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c"
+    }
   },
   "boundaries": {
     "public_app_replaced": false,
