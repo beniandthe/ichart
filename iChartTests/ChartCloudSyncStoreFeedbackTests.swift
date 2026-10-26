@@ -7,12 +7,16 @@ import XCTest
 
 @MainActor
 final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
+    // Allow hosted simulator scheduling delays while retaining all feedback,
+    // receipt, chart, and backup-count assertions below.
+    private let operationCompletionTimeout: TimeInterval = 30
+
     func testZeroCloudRestoreReceiptSurvivesFollowingAutomaticBackup() async throws {
         let (store, library, service) = await configuredStore(chartCount: 4)
         let restored = expectation(description: "Zero cloud restore completed")
         let restoreObserver = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in restored.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [restored], timeout: 2)
+        await fulfillment(of: [restored], timeout: operationCompletionTimeout)
         restoreObserver.cancel()
         let receipt = try XCTUnwrap(store.lastRestoreResult)
         XCTAssertEqual(receipt.remoteChartCount, 0)
@@ -23,7 +27,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let backedUp = expectation(description: "Following automatic backup completed")
         let backupObserver = store.$lastOperationResult.compactMap { $0 }.filter { $0.operation == .backup }.first().sink { _ in backedUp.fulfill() }
         library.onSnapshotSaved?(library.snapshot)
-        await fulfillment(of: [backedUp], timeout: 4)
+        await fulfillment(of: [backedUp], timeout: operationCompletionTimeout)
         backupObserver.cancel()
         XCTAssertEqual(store.lastRestoreResult, receipt)
         XCTAssertEqual(store.lastOperationResult?.operation, .backup)
@@ -36,13 +40,13 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let completed = expectation(description: "First restore completed")
         let first = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in completed.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: operationCompletionTimeout)
         first.cancel()
         await service.holdNextRestore()
         let downloading = expectation(description: "New restore downloading")
         let progress = store.$progress.compactMap { $0 }.filter { $0.operation == .restore && $0.stage == .readingSnapshots }.first().sink { _ in downloading.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [downloading], timeout: 2)
+        await fulfillment(of: [downloading], timeout: operationCompletionTimeout)
         progress.cancel()
         XCTAssertNil(store.lastRestoreResult)
         XCTAssertEqual(store.progress?.displayTitle, "Restoring charts")
@@ -50,7 +54,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let finished = expectation(description: "Second restore completed")
         let second = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in finished.fulfill() }
         await service.releaseRestore()
-        await fulfillment(of: [finished], timeout: 2)
+        await fulfillment(of: [finished], timeout: operationCompletionTimeout)
         second.cancel()
         XCTAssertNil(store.progress)
         XCTAssertEqual(library.charts.count, 1)
@@ -62,13 +66,13 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let downloading = expectation(description: "Restore began")
         let progress = store.$progress.compactMap { $0 }.filter { $0.stage == .readingSnapshots }.first().sink { _ in downloading.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [downloading], timeout: 2)
+        await fulfillment(of: [downloading], timeout: operationCompletionTimeout)
         progress.cancel()
         library.charts[0].title = "Local change during restore"
         let completed = expectation(description: "Restore conditional apply finished")
         let receiptObserver = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in completed.fulfill() }
         await service.releaseRestore()
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: operationCompletionTimeout)
         receiptObserver.cancel()
         let receipt = try XCTUnwrap(store.lastRestoreResult)
         XCTAssertEqual(receipt.remoteChartCount, 1)
@@ -85,7 +89,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let downloading = expectation(description: "Restore began")
         let progress = store.$progress.compactMap { $0 }.filter { $0.stage == .readingSnapshots }.first().sink { _ in downloading.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [downloading], timeout: 2)
+        await fulfillment(of: [downloading], timeout: operationCompletionTimeout)
         progress.cancel()
         store.authStateChanged(.signedOut)
         XCTAssertNil(store.progress)
@@ -93,7 +97,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let finished = expectation(description: "Old restore finished")
         let working = store.$isWorking.dropFirst().filter { !$0 }.first().sink { _ in finished.fulfill() }
         await service.releaseRestore()
-        await fulfillment(of: [finished], timeout: 2)
+        await fulfillment(of: [finished], timeout: operationCompletionTimeout)
         working.cancel()
         XCTAssertEqual(store.state, .signedOut)
         XCTAssertNil(store.progress)
@@ -110,13 +114,13 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let downloading = expectation(description: "Restore began before sign-out")
         let progress = store.$progress.compactMap { $0 }.filter { $0.stage == .readingSnapshots }.first().sink { _ in downloading.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [downloading], timeout: 2)
+        await fulfillment(of: [downloading], timeout: operationCompletionTimeout)
         progress.cancel()
         store.authStateChanged(.signedOut)
         let finished = expectation(description: "Old restore failed after sign-out")
         let working = store.$isWorking.dropFirst().filter { !$0 }.first().sink { _ in finished.fulfill() }
         await service.releaseRestore()
-        await fulfillment(of: [finished], timeout: 2)
+        await fulfillment(of: [finished], timeout: operationCompletionTimeout)
         working.cancel()
         XCTAssertEqual(store.state, .signedOut)
         XCTAssertNil(store.progress)
@@ -131,7 +135,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let completed = expectation(description: "Restore completed")
         let observer = store.$lastRestoreResult.compactMap { $0 }.first().sink { _ in completed.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: operationCompletionTimeout)
         observer.cancel()
         let charts = library.charts
         library.entitlements = AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription)
@@ -151,7 +155,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
 
         store.restoreChartsFromCloud()
 
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: operationCompletionTimeout)
         observer.cancel()
         XCTAssertNotEqual(store.state, .requiresPro)
         XCTAssertNotNil(store.lastRestoreResult)
@@ -169,7 +173,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let failed = expectation(description: "Restore failure feedback")
         let observer = store.$lastFailure.compactMap { $0 }.first().sink { _ in failed.fulfill() }
         store.restoreChartsFromCloud()
-        await fulfillment(of: [failed], timeout: 2)
+        await fulfillment(of: [failed], timeout: operationCompletionTimeout)
         observer.cancel()
         let failure = try XCTUnwrap(store.lastFailure)
         XCTAssertEqual(failure.operation, .restore)
@@ -204,7 +208,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         let ready = expectation(description: "Initial signed-in backup completed")
         let observer = store.$lastOperationResult.compactMap { $0 }.first().sink { _ in ready.fulfill() }
         store.authStateChanged(.signedIn(account()))
-        await fulfillment(of: [ready], timeout: 2)
+        await fulfillment(of: [ready], timeout: operationCompletionTimeout)
         observer.cancel()
         return (store, library, service)
     }
