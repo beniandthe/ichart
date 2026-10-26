@@ -268,6 +268,7 @@ final class NotationReadabilityLayoutTests: XCTestCase {
         }
     }
 
+    #if canImport(UIKit)
     func testPerformanceNavigationLabelBoundsClearChordsAtEveryDensity() throws {
         for layoutStyle in ChartLayoutStyle.allCases {
             for density in StaffSystemDensity.allCases {
@@ -287,6 +288,8 @@ final class NotationReadabilityLayoutTests: XCTestCase {
             }
         }
     }
+
+    #endif
 
     private func densityProofChart(layoutStyle: ChartLayoutStyle) throws -> Chart {
         var chart = Chart.blank(title: "Readable density", measureCount: 8, layoutStyle: layoutStyle)
