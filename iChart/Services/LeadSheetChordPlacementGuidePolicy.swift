@@ -25,7 +25,7 @@ enum LeadSheetChordPlacementGuidePolicy {
     ) -> CGRect {
         let leadingRepeatMaxX = measure.repeatMarkerLayouts
             .filter { $0.edge == .leading }
-            .map(\.frame.maxX)
+            .map(\.occupiedFrame.maxX)
             .max()
         return guideFrame(
             referenceFrame: referenceFrame,

@@ -784,8 +784,8 @@ struct LeadSheetNotationRenderer {
         drawRoadmapLabel(
             text.uppercased(),
             in: frame,
-            font: style.textFont(size: isRhythmSection ? 13.4 : 13),
-            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.86 : 0.78),
+            font: navigationFont(size: (isRhythmSection ? 13.4 : 13) * chart.notationReadability.navigationScale),
+            color: style.inkColor.withAlphaComponent(chart.notationReadability == .performance ? 1 : (isRhythmSection ? 0.86 : 0.78)),
             alignment: .right
         )
     }
@@ -870,7 +870,7 @@ struct LeadSheetNotationRenderer {
             path.move(to: CGPoint(x: endingLayout.frame.maxX, y: bracketY))
             path.addLine(to: CGPoint(x: endingLayout.frame.maxX, y: hookBottomY))
         }
-        path.lineWidth = (isRhythmSection ? 1.45 : 1.35) * style.strokeScale
+        path.lineWidth = (isRhythmSection ? 1.45 : 1.35) * style.strokeScale * chart.notationReadability.strokeScale
         style.inkColor.setStroke()
         path.stroke()
 
@@ -878,17 +878,28 @@ struct LeadSheetNotationRenderer {
             return
         }
 
-        drawText(
-            endingLayout.text,
-            in: CGRect(
-                x: endingLayout.frame.minX + 6,
-                y: bracketY + 1,
-                width: min(70, max(1, endingLayout.frame.width - 12)),
-                height: max(1, endingLayout.frame.height - 4)
-            ),
-            font: style.textFont(size: isRhythmSection ? 12.4 : 12),
-            color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.92 : 0.88)
+        let labelFrame = CGRect(
+            x: endingLayout.frame.minX + 6,
+            y: bracketY + 1,
+            width: min(70, max(1, endingLayout.frame.width - 12)),
+            height: max(1, endingLayout.frame.height - 4)
         )
+        if chart.notationReadability == .standard {
+            drawText(
+                endingLayout.text,
+                in: labelFrame,
+                font: style.textFont(size: isRhythmSection ? 12.4 : 12),
+                color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.92 : 0.88)
+            )
+        } else {
+            drawRoadmapLabel(
+                endingLayout.text,
+                in: labelFrame,
+                font: navigationFont(size: (isRhythmSection ? 12.4 : 12) * chart.notationReadability.navigationScale),
+                color: style.inkColor,
+                alignment: .left
+            )
+        }
     }
 
     func drawRoadmapMarker(_ markerLayout: LeadSheetRoadmapMarkerLayout) {
@@ -896,7 +907,7 @@ struct LeadSheetNotationRenderer {
         let baseFontSize = roadmapMarkerBaseFontSize(for: markerLayout)
         let label = markerLayout.text.uppercased()
         let labelFrame = roadmapMarkerLabelFrame(for: markerLayout)
-        let color = style.inkColor.withAlphaComponent(isRhythmSection ? 0.94 : 0.88)
+        let color = style.inkColor.withAlphaComponent(chart.notationReadability == .performance ? 1 : (isRhythmSection ? 0.94 : 0.88))
 
         // Standalone Coda and Segno markers must not pass through attributed-text
         // fitting. Some SMuFL fonts (notably Finale Broadway) expose a line height
@@ -917,14 +928,14 @@ struct LeadSheetNotationRenderer {
             in: labelFrame,
             baseFontSize: baseFontSize,
             minimumFontSize: roadmapMarkerMinimumFontSize(for: markerLayout),
-            baseFontProvider: { style.textFont(size: $0) },
+            baseFontProvider: { navigationFont(size: $0) },
             symbolFontProvider: roadmapSymbolFont(for:baseFont:)
         )
 
         drawRoadmapLabel(
             label,
             in: labelFrame,
-            font: style.textFont(size: fontSize),
+            font: navigationFont(size: fontSize),
             color: color,
             alignment: .center
         )
@@ -1441,14 +1452,11 @@ struct LeadSheetNotationRenderer {
                 partialFrame.union(marker.frame)
             }
         let staffSpace = staffSpace(fromStaffHeight: frame.height)
-        let separation = style.repeatBarlineSeparation(staffSpace: staffSpace)
-        let lineWidth = style.repeatLineWidth(staffSpace: staffSpace)
-        let dotRadius = style.repeatDotRadius(staffSpace: staffSpace)
-        let dotOffset = style.repeatDotOffset(
-            thinLineWidth: lineWidth,
-            dotRadius: dotRadius,
-            staffSpace: staffSpace
-        )
+        let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: frame.height)
+        let separation = metrics.separation
+        let lineWidth = metrics.lineWidth
+        let dotRadius = metrics.dotRadius
+        let dotOffset = metrics.dotOffset
         let centerX = firstMarker.frame.midX
         let trailingLineX = terminalTrailingLineX ?? centerX + separation / 2
         let leadingLineX = terminalTrailingLineX.map { $0 - separation }
@@ -1461,6 +1469,15 @@ struct LeadSheetNotationRenderer {
             to: frame.maxY,
             width: lineWidth
         )
+
+        if chart.repeatWings {
+            if edges.contains(.leading) {
+                drawRepeatWings(at: leadingLineX, direction: 1, in: frame, metrics: metrics)
+            }
+            if edges.contains(.trailing) {
+                drawRepeatWings(at: trailingLineX, direction: -1, in: frame, metrics: metrics)
+            }
+        }
         drawRepeatBarline(
             at: trailingLineX,
             from: frame.minY,
@@ -1512,6 +1529,23 @@ struct LeadSheetNotationRenderer {
         path.move(to: CGPoint(x: x, y: startY))
         path.addLine(to: CGPoint(x: x, y: endY))
         path.lineWidth = width
+        style.inkColor.setStroke()
+        path.stroke()
+    }
+
+    private func drawRepeatWings(
+        at x: CGFloat,
+        direction: CGFloat,
+        in frame: CGRect,
+        metrics: LeadSheetRepeatReadabilityMetrics
+    ) {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: x, y: frame.minY))
+        path.addLine(to: CGPoint(x: x + direction * metrics.wingLength, y: frame.minY - metrics.wingHeight))
+        path.move(to: CGPoint(x: x, y: frame.maxY))
+        path.addLine(to: CGPoint(x: x + direction * metrics.wingLength, y: frame.maxY + metrics.wingHeight))
+        path.lineWidth = metrics.wingLineWidth
+        path.lineCapStyle = .round
         style.inkColor.setStroke()
         path.stroke()
     }
@@ -1617,13 +1651,21 @@ struct LeadSheetNotationRenderer {
         color: UIColor,
         alignment: NSTextAlignment
     ) {
-        let attributedText = LeadSheetRoadmapLabelFitting.attributedText(
+        let attributedText = NSMutableAttributedString(attributedString: LeadSheetRoadmapLabelFitting.attributedText(
             text,
             baseFont: font,
             color: color,
             alignment: alignment,
             symbolFontProvider: roadmapSymbolFont(for:baseFont:)
-        )
+        ))
+        if chart.notationReadability == .performance {
+            // Several bundled handwriting fonts have no bold face. Fill and stroke
+            // their outlines so emphasis works with the selected notation style.
+            attributedText.addAttributes(
+                [.strokeWidth: -1.2, .strokeColor: color],
+                range: NSRange(location: 0, length: attributedText.length)
+            )
+        }
 
         attributedText.draw(
             with: rect,
@@ -1637,6 +1679,17 @@ struct LeadSheetNotationRenderer {
             layoutStyle: chart.layoutStyle,
             type: markerLayout.type,
             scale: markerLayout.scale
+        )
+    }
+
+    private func navigationFont(size: CGFloat) -> UIFont {
+        guard chart.notationReadability == .performance else {
+            return style.textFont(size: size)
+        }
+        return style.typography.textUIFont(
+            size: size,
+            weight: .bold,
+            fallback: UIFont.systemFont(ofSize: size, weight: .bold)
         )
     }
 
@@ -2020,14 +2073,7 @@ private struct LeadSheetNotationStyle {
     }
 
     var strokeScale: CGFloat {
-        switch engravingPreset {
-        case .compact:
-            return 0.92
-        case .balanced, .wide:
-            return 1
-        case .bold:
-            return 1.28
-        }
+        engravingPreset.strokeScale
     }
 
     func staffLineWidth(staffSpace: CGFloat) -> CGFloat {

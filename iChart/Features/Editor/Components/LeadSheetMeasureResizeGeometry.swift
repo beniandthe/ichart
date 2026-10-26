@@ -640,7 +640,12 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
                 paperFrame: paperFrame,
                 layoutStyle: layoutStyle
               ) else {
-            return marker.frame
+            return marker.occupiedFrame
+        }
+
+        if let separation = marker.boundarySeparation {
+            let renderedCenterX = terminalTrailingLineX - separation / 2
+            return marker.occupiedFrame.offsetBy(dx: renderedCenterX - marker.frame.midX, dy: 0)
         }
 
         let staffSpace = max(CGFloat(1), (marker.frame.height - 4) / 4)

@@ -243,6 +243,8 @@ struct Chart: Identifiable, Codable, Hashable {
     var stylePreset: StylePreset
     var engravingPreset: EngravingPreset
     var staffSystemDensity: StaffSystemDensity
+    var notationReadability: NotationReadabilityPreset
+    var repeatWings: Bool
     var pageHandwrittenNotationData: Data?
     var pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenHeaderData: Data?
@@ -295,6 +297,8 @@ struct Chart: Identifiable, Codable, Hashable {
         stylePreset: StylePreset,
         engravingPreset: EngravingPreset = .balanced,
         staffSystemDensity: StaffSystemDensity = .standard,
+        notationReadability: NotationReadabilityPreset = .standard,
+        repeatWings: Bool = false,
         pageHandwrittenNotationData: Data? = nil,
         pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenHeaderData: Data? = nil,
@@ -337,6 +341,8 @@ struct Chart: Identifiable, Codable, Hashable {
         self.stylePreset = stylePreset
         self.engravingPreset = engravingPreset
         self.staffSystemDensity = staffSystemDensity
+        self.notationReadability = notationReadability
+        self.repeatWings = repeatWings
         self.pageHandwrittenNotationData = normalizedPersistentInkDrawingData(pageHandwrittenNotationData)
         self.pageHandwrittenNotationCoordinateSpace = Self.coordinateSpace(
             pageHandwrittenNotationCoordinateSpace,
@@ -387,6 +393,8 @@ struct Chart: Identifiable, Codable, Hashable {
         case stylePreset
         case engravingPreset
         case staffSystemDensity
+        case notationReadability
+        case repeatWings
         case pageHandwrittenNotationData
         case pageHandwrittenNotationCoordinateSpace
         case pageHandwrittenHeaderData
@@ -445,6 +453,8 @@ struct Chart: Identifiable, Codable, Hashable {
         // Keep saved page ink aligned with the original layout until the user
         // deliberately chooses a different system density.
         staffSystemDensity = try container.decodeIfPresent(StaffSystemDensity.self, forKey: .staffSystemDensity) ?? .standard
+        notationReadability = try container.decodeIfPresent(NotationReadabilityPreset.self, forKey: .notationReadability) ?? .standard
+        repeatWings = try container.decodeIfPresent(Bool.self, forKey: .repeatWings) ?? false
         pageHandwrittenNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenNotationData)
         )

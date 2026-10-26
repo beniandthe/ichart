@@ -133,7 +133,7 @@ extension LeadSheetSystemLayout {
                 frames.append(measure.chordWritingFrame)
             }
             frames.append(contentsOf: measure.chordLayouts.map(\.naturalFrame))
-            frames.append(contentsOf: measure.repeatMarkerLayouts.map(\.frame))
+            frames.append(contentsOf: measure.repeatMarkerLayouts.map(\.occupiedFrame))
             frames.append(contentsOf: measure.cueTextLayouts.map(\.frame))
             if let meterChangeFrame = measure.meterChangeFrame {
                 frames.append(meterChangeFrame)
@@ -365,6 +365,12 @@ struct LeadSheetRepeatMarkerLayout: Identifiable, Hashable {
     var roadmapObjectID: UUID
     var edge: Edge
     var frame: CGRect
+    var verticalOutset: CGFloat = 0
+    var boundarySeparation: CGFloat? = nil
+
+    var occupiedFrame: CGRect {
+        frame.insetBy(dx: 0, dy: -verticalOutset)
+    }
 
     var id: String {
         "\(roadmapObjectID.uuidString)-\(edge.rawValue)"
@@ -515,6 +521,48 @@ enum LeadSheetPageLayoutEngine {
     private static let simpleChordMeasureContentPadding: CGFloat = 24
     private static let simpleChordLaneEdgeInset: CGFloat = 1
 
+    private struct ReadabilityAnnotationSpacing {
+        var endingTopOffset: CGFloat
+        var contentTop: CGFloat
+        var wingClearance: CGFloat
+    }
+
+    private static func readabilityAnnotationSpacing(
+        for chart: Chart,
+        measureIDs: [UUID]? = nil
+    ) -> ReadabilityAnnotationSpacing {
+        let isSimple = chart.layoutStyle == .simpleChordSheet
+        let pointMarkers = chart.roadmapObjects.filter {
+            $0.type.isPointMarker && (measureIDs?.contains($0.startMeasureID) ?? true)
+        }
+        let pointBottom = pointMarkers.map { marker -> CGFloat in
+            let containsGlyph = marker.type.containsNotationMarkerGlyph
+            let baseHeight: CGFloat = isSimple ? (containsGlyph ? 44 : 34) : (containsGlyph ? 32 : 24)
+            let baseTop: CGFloat = isSimple ? (containsGlyph ? -19 : -14) : (containsGlyph ? -10 : -5)
+            let height = baseHeight * CGFloat(marker.resolvedScale) * chart.notationReadability.navigationScale
+            let labelOverhang = containsGlyph ? max(4, height * 0.18) : 0
+            return baseTop + (baseHeight + height) / 2 + labelOverhang
+        }.max() ?? 0
+        let hasEndings = chart.roadmapObjects.contains { object in
+            guard object.type.isEnding else { return false }
+            return measureIDs.map { roadmapObject(object, intersects: $0, in: chart) } ?? true
+        }
+        let endingTopOffset = pointMarkers.isEmpty ? 0 : max(14, pointBottom + 4)
+        let endingBottom = hasEndings ? 2 + endingTopOffset + chart.notationReadability.endingHeight : 0
+        let annotationBottom = max(pointBottom, endingBottom)
+        let hasRepeat = chart.roadmapObjects.contains { $0.type == .repeatSpan }
+        let baseMetrics = chart.engravingPreset.layoutMetrics
+        let repeatMetrics = LeadSheetRepeatReadabilityMetrics(
+            chart: chart,
+            staffHeight: isSimple ? 76 : baseMetrics.staffLineSpacing * 4 + 4
+        )
+        return ReadabilityAnnotationSpacing(
+            endingTopOffset: endingTopOffset,
+            contentTop: annotationBottom > 0 ? annotationBottom + 6 : 0,
+            wingClearance: hasRepeat ? repeatMetrics.verticalOutset : 0
+        )
+    }
+
     private struct VisualPolicy {
         let chart: Chart
 
@@ -525,10 +573,6 @@ enum LeadSheetPageLayoutEngine {
         var metrics: LeadSheetEngravingMetrics {
             var metrics = chart.engravingPreset.layoutMetrics
             metrics.originalSystemHeight = metrics.systemHeight
-            guard chart.staffSystemDensity != .standard else {
-                return metrics
-            }
-
             let minimumSystemHeight: CGFloat
             if layoutStyle == .simpleChordSheet {
                 minimumSystemHeight = 30 + metrics.simpleChordGridHeight
@@ -547,6 +591,18 @@ enum LeadSheetPageLayoutEngine {
             case .dense:
                 metrics.systemHeight = minimumSystemHeight
                 metrics.systemSpacing = 8
+            }
+
+            if chart.notationReadability != .standard || chart.repeatWings {
+                let annotationSpacing = LeadSheetPageLayoutEngine.readabilityAnnotationSpacing(for: chart)
+                let extraHeight: CGFloat
+                if layoutStyle == .simpleChordSheet {
+                    extraHeight = max(0, annotationSpacing.contentTop + annotationSpacing.wingClearance - 22)
+                } else {
+                    extraHeight = annotationSpacing.contentTop + annotationSpacing.wingClearance
+                    metrics.chordBandHeight += annotationSpacing.contentTop
+                }
+                metrics.systemHeight += extraHeight
             }
             return metrics
         }
@@ -979,7 +1035,8 @@ enum LeadSheetPageLayoutEngine {
                 metrics: metrics
             )
             : packedSystemPlans(for: chart, maxSystemWidth: paperFrame.width - 68)
-        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty else {
+        let readabilityActive = chart.notationReadability != .standard || chart.repeatWings
+        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive else {
             return plans
         }
 
@@ -1001,7 +1058,7 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy
             )
             let contentBounds: CGRect
-            if chart.staffSystemDensity == .standard {
+            if chart.staffSystemDensity == .standard && !readabilityActive {
                 // Standard rows keep their original engraving. Only cue
                 // overhang needs additional space when its text wraps or moves.
                 let cueFrames = measuredSystem.measures.flatMap(\.cueTextLayouts).map(\.frame)
@@ -1166,13 +1223,19 @@ enum LeadSheetPageLayoutEngine {
         let chordBandHeight = metrics.chordBandHeight
         let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
         let isRhythmSectionSheet = chart.layoutStyle == .rhythmSectionSheet
+        let measureIDs = plan.measures.compactMap(\.measure?.id)
+        let readabilityActive = chart.notationReadability != .standard || chart.repeatWings
+        let annotationSpacing = readabilityAnnotationSpacing(for: chart, measureIDs: measureIDs)
         let staffTop: CGFloat
         if isSimpleChordSheet {
-            staffTop = frame.minY + 24
+            let annotationInset = readabilityActive
+                ? max(24, annotationSpacing.contentTop + annotationSpacing.wingClearance + 2)
+                : 24
+            staffTop = frame.minY + annotationInset
         } else if isRhythmSectionSheet {
-            staffTop = frame.minY + chordBandHeight + 6
+            staffTop = frame.minY + chordBandHeight + 6 + (readabilityActive ? annotationSpacing.wingClearance : 0)
         } else {
-            staffTop = frame.minY + chordBandHeight + 2
+            staffTop = frame.minY + chordBandHeight + 2 + (readabilityActive ? annotationSpacing.wingClearance : 0)
         }
         let staffLineYPositions = isSimpleChordSheet
             ? []
@@ -1229,7 +1292,6 @@ enum LeadSheetPageLayoutEngine {
         } else {
             timeSignatureFrame = nil
         }
-        let measureIDs = plan.measures.compactMap(\.measure?.id)
         let sectionText = chart.sectionLabels.first(where: { measureIDs.contains($0.anchorMeasureID) })?.text
         let sectionTextFrame = sectionText.map { _ in
             CGRect(
@@ -1258,7 +1320,10 @@ enum LeadSheetPageLayoutEngine {
                 structuredRoadmapReserveHeight = 0
             }
             let rhythmSectionLabelReserveHeight: CGFloat = isRhythmSectionSheet && sectionText != nil ? 22 : 0
-            roadmapTopReserveHeight = max(structuredRoadmapReserveHeight, rhythmSectionLabelReserveHeight)
+            roadmapTopReserveHeight = max(
+                readabilityActive ? annotationSpacing.contentTop : structuredRoadmapReserveHeight,
+                rhythmSectionLabelReserveHeight
+            )
         }
         let roadmapText = chart.roadmapObjects.first(where: {
             !$0.type.usesStructuredLayout
@@ -1313,7 +1378,7 @@ enum LeadSheetPageLayoutEngine {
             for: chart,
             systemIndex: index,
             systemFrame: frame,
-            topOffset: hasPointMarkerLayouts ? 14 : 0,
+            topOffset: readabilityActive ? annotationSpacing.endingTopOffset : (hasPointMarkerLayouts ? 14 : 0),
             measureLayouts: measures
         )
 
@@ -1408,7 +1473,7 @@ enum LeadSheetPageLayoutEngine {
                     x: startX,
                     y: systemFrame.minY + 2 + topOffset,
                     width: max(1, endX - startX),
-                    height: 20
+                    height: chart.notationReadability.endingHeight
                 )
                 let text = roadmapObject.displayText
                     ?? roadmapObject.type.compactEndingDisplayText
@@ -1461,7 +1526,7 @@ enum LeadSheetPageLayoutEngine {
                     baseMarkerHeight = containsNotationGlyph ? 32 : 24
                     baseMarkerTopOffset = containsNotationGlyph ? -10 : -5
                 }
-                let markerScale = CGFloat(roadmapObject.resolvedScale)
+                let markerScale = CGFloat(roadmapObject.resolvedScale) * chart.notationReadability.navigationScale
                 let markerHeight = baseMarkerHeight * markerScale
                 let markerTopOffset = baseMarkerTopOffset - (markerHeight - baseMarkerHeight) / 2
                 let movementFrame = CGRect(
@@ -2046,6 +2111,9 @@ enum LeadSheetPageLayoutEngine {
         let meterChangeFrame = meterChange.map { _ in
             visualPolicy.inlineMeterChangeFrame(in: measureContentFrame, staffFrame: staffFrame)
         }
+        let repeatMarkerLayouts = measure.map {
+            Self.repeatMarkerLayouts(for: $0, chart: chart, staffFrame: staffFrame)
+        } ?? []
         let baseChordBandFrame = isSimpleChordSheet ? CGRect(
             x: staffFrame.minX + simpleChordLaneEdgeInset,
             y: staffFrame.minY + 4,
@@ -2057,11 +2125,20 @@ enum LeadSheetPageLayoutEngine {
             width: measureContentFrame.width - 6,
             height: max(1, chordBandHeight - 4 - roadmapTopReserveHeight)
         )
-        let chordBandFrame = chordBandFrameByReservingInlineMeterChange(
+        var chordBandFrame = chordBandFrameByReservingInlineMeterChange(
             baseChordBandFrame,
             meterChangeFrame: meterChangeFrame,
             visualPolicy: visualPolicy
         )
+        if isSimpleChordSheet,
+           chart.notationReadability != .standard || chart.repeatWings,
+           let trailingRepeatMinX = repeatMarkerLayouts
+            .filter({ $0.edge == .trailing })
+            .map(\.occupiedFrame.minX)
+            .min() {
+            let safeMaxX = max(chordBandFrame.minX + 1, min(chordBandFrame.maxX, trailingRepeatMinX - 6))
+            chordBandFrame.size.width = safeMaxX - chordBandFrame.minX
+        }
         let writableFrame = isSimpleChordSheet ? staffFrame.insetBy(dx: 2, dy: 2) : CGRect(
             x: measureContentFrame.minX + 2,
             y: chordBandFrame.minY,
@@ -2124,11 +2201,6 @@ enum LeadSheetPageLayoutEngine {
                 isAutoFill: placement.isAutoFill
             )
         }
-        let repeatMarkerLayouts = repeatMarkerLayouts(
-            for: measure,
-            chart: chart,
-            staffFrame: staffFrame
-        )
         let rawChordLayouts: [LeadSheetChordLayout]
         if isSimpleChordSheet {
             rawChordLayouts = simpleChordLayouts(
@@ -2241,7 +2313,7 @@ enum LeadSheetPageLayoutEngine {
     ) -> [LeadSheetChordLayout] {
         let leadingRepeatMaxX = repeatMarkerLayouts
             .filter { $0.edge == .leading }
-            .map(\.frame.maxX)
+            .map(\.occupiedFrame.maxX)
             .max()
         let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
             referenceFrame: chordBandFrame,
@@ -2537,7 +2609,7 @@ enum LeadSheetPageLayoutEngine {
         guard !visualFractions.isEmpty else { return chordLayouts }
         let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
             referenceFrame: chordBandFrame,
-            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.frame.maxX).max(),
+            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
             meterChangeFrame: meterChangeFrame
         )
         return chordLayouts.map { chordLayout in
@@ -2568,7 +2640,7 @@ enum LeadSheetPageLayoutEngine {
             : ChartTypographyResolver.structuredChordPrimaryFontSize
         let safeGuideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
             referenceFrame: chordBandFrame,
-            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.frame.maxX).max(),
+            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
             meterChangeFrame: meterChangeFrame
         )
         return chordLayouts.map { chordLayout in
@@ -3269,9 +3341,14 @@ enum LeadSheetPageLayoutEngine {
         staffFrame: CGRect
     ) -> [LeadSheetRepeatMarkerLayout] {
         let staffSpace = max(CGFloat(1), staffFrame.height / 4)
-        let markerWidth = chart.layoutStyle == .simpleChordSheet
+        let baselineMarkerWidth = chart.layoutStyle == .simpleChordSheet
             ? max(CGFloat(8), staffSpace * 0.95)
             : max(CGFloat(12), staffSpace * 1.6)
+        let readabilityActive = chart.notationReadability != .standard || chart.repeatWings
+        let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: staffFrame.height)
+        let markerWidth = readabilityActive
+            ? max(baselineMarkerWidth, metrics.horizontalExtent * 2)
+            : baselineMarkerWidth
 
         return chart.roadmapObjects
             .filter { $0.type == .repeatSpan }
@@ -3284,7 +3361,9 @@ enum LeadSheetPageLayoutEngine {
                             edge: .leading,
                             centerX: staffFrame.minX,
                             staffFrame: staffFrame,
-                            markerWidth: markerWidth
+                            markerWidth: markerWidth,
+                            verticalOutset: readabilityActive ? metrics.verticalOutset : 0,
+                            boundarySeparation: readabilityActive ? metrics.separation : nil
                         )
                     )
                 }
@@ -3296,7 +3375,9 @@ enum LeadSheetPageLayoutEngine {
                             edge: .trailing,
                             centerX: staffFrame.maxX,
                             staffFrame: staffFrame,
-                            markerWidth: markerWidth
+                            markerWidth: markerWidth,
+                            verticalOutset: readabilityActive ? metrics.verticalOutset : 0,
+                            boundarySeparation: readabilityActive ? metrics.separation : nil
                         )
                     )
                 }
@@ -3310,7 +3391,9 @@ enum LeadSheetPageLayoutEngine {
         edge: LeadSheetRepeatMarkerLayout.Edge,
         centerX: CGFloat,
         staffFrame: CGRect,
-        markerWidth: CGFloat
+        markerWidth: CGFloat,
+        verticalOutset: CGFloat,
+        boundarySeparation: CGFloat?
     ) -> LeadSheetRepeatMarkerLayout {
         LeadSheetRepeatMarkerLayout(
             roadmapObjectID: roadmapObject.id,
@@ -3320,7 +3403,9 @@ enum LeadSheetPageLayoutEngine {
                 y: staffFrame.minY,
                 width: markerWidth,
                 height: staffFrame.height
-            )
+            ),
+            verticalOutset: verticalOutset,
+            boundarySeparation: boundarySeparation
         )
     }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum ChartAppearancePanel: String, Identifiable {
     case documentStyle
@@ -51,6 +52,7 @@ struct ChartAppearanceSheetView: View {
                 case .notationFont:
                     notationFontRows
                 case .engraving:
+                    notationReadabilityRows
                     engravingRows
                 }
             }
@@ -124,6 +126,37 @@ struct ChartAppearanceSheetView: View {
         }
     }
 
+    private var notationReadabilityRows: some View {
+        Section {
+            NotationReadabilityPreview(chart: chart)
+                .frame(height: 118)
+                .background(Color.white)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Repeat and first ending preview. \(chart.notationReadability.displayText) readability. Angled repeat wings \(chart.repeatWings ? "on" : "off").")
+
+            ForEach(NotationReadabilityPreset.allCases) { preset in
+                AppearanceChoiceRow(
+                    title: preset.displayText,
+                    detail: preset.detailText,
+                    isSelected: chart.notationReadability == preset
+                ) {
+                    applyAppearanceChange("Updating notation...") {
+                        chart.setNotationReadability(preset)
+                    }
+                }
+            }
+
+            Toggle("Angled Repeat Wings", isOn: Binding(
+                get: { chart.repeatWings },
+                set: { chart.setRepeatWings($0) }
+            ))
+        } header: {
+            Text("Notation Readability")
+        } footer: {
+            Text("Applies to this chart and its exported PDF.")
+        }
+    }
+
     private func notationPreview(for preset: NotationFontPreset) -> String {
         let four = NotationGlyphCatalog.timeSignatureDigit(4) ?? "4"
         let three = NotationGlyphCatalog.timeSignatureDigit(3) ?? "3"
@@ -145,6 +178,124 @@ struct ChartAppearanceSheetView: View {
 
             operationMessage = nil
         }
+    }
+}
+
+private struct NotationReadabilityPreview: UIViewRepresentable {
+    let chart: Chart
+
+    func makeUIView(context: Context) -> NotationReadabilityPreviewView {
+        NotationReadabilityPreviewView()
+    }
+
+    func updateUIView(_ view: NotationReadabilityPreviewView, context: Context) {
+        view.applyAppearance(from: chart)
+    }
+}
+
+private final class NotationReadabilityPreviewView: UIView {
+    private var chart = NotationReadabilityPreviewView.makeSampleChart()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .white
+        isUserInteractionEnabled = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        backgroundColor = .white
+        isUserInteractionEnabled = false
+        contentMode = .redraw
+    }
+
+    func applyAppearance(from source: Chart) {
+        chart.notationReadability = source.notationReadability
+        chart.repeatWings = source.repeatWings
+        chart.notationFont = source.notationFont
+        chart.typography = source.typography
+        chart.engravingPreset = source.engravingPreset
+        chart.staffSystemDensity = source.staffSystemDensity
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext(), bounds.width > 0 else {
+            return
+        }
+
+        let page = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart,
+            pageSize: CGSize(width: 720, height: 1_100)
+        )
+        guard let system = page.systems.first else {
+            return
+        }
+
+        let previewMeasures = system.measures.filter { $0.sourceMeasureID != nil }
+        let contentFrames = previewMeasures.flatMap { measure in
+            [measure.staffFrame] + measure.chordLayouts.map(\.frame) + measure.repeatMarkerLayouts.map(\.occupiedFrame)
+        } + system.endingLayouts.map(\.frame)
+        guard let firstFrame = contentFrames.first else {
+            return
+        }
+        let contentFrame = contentFrames.dropFirst().reduce(firstFrame) { $0.union($1) }
+            .insetBy(dx: -16, dy: -16)
+        let scale = min(bounds.width / contentFrame.width, bounds.height / contentFrame.height)
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.translateBy(
+            x: (bounds.width - contentFrame.width * scale) / 2,
+            y: (bounds.height - contentFrame.height * scale) / 2
+        )
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -contentFrame.minX, y: -contentFrame.minY)
+
+        let renderer = LeadSheetNotationRenderer(chart: chart)
+        renderer.drawStaffLines(for: system)
+        for ending in system.endingLayouts {
+            renderer.drawEnding(ending)
+        }
+        if let firstMeasure = previewMeasures.first {
+            renderer.drawRepeatBoundary(LeadSheetRepeatBoundaryPolicy.leadingMarkers(atStartOf: firstMeasure))
+        }
+        for (index, measure) in previewMeasures.enumerated() {
+            for chord in measure.chordLayouts {
+                renderer.drawChord(chord)
+            }
+            let nextMeasure = previewMeasures.indices.contains(index + 1) ? previewMeasures[index + 1] : nil
+            let markers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(after: measure, before: nextMeasure)
+            if markers.isEmpty {
+                renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+            } else {
+                renderer.drawRepeatBoundary(markers)
+            }
+        }
+    }
+
+    private static func makeSampleChart() -> Chart {
+        var sample = Chart.blank(title: "Notation Preview", measureCount: 2, layoutStyle: .simpleChordSheet)
+        sample.stylePreset = .plainWhite
+        for (index, text) in ["Cmaj7", "G7"].enumerated() {
+            guard let symbol = try? ChordSymbolParser.parse(text) else {
+                continue
+            }
+            sample.systems[0].measures[index].chordEvents = [ChordEvent(
+                id: UUID(),
+                symbol: symbol,
+                startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 2),
+                duration: .whole,
+                rhythmPlacement: .hidden,
+                tieOut: false,
+                hitStyle: .none,
+                rawInput: text
+            )]
+        }
+        let measures = sample.measures
+        sample.addRepeatSpan(startMeasureID: measures[0].id, endMeasureID: measures[1].id)
+        sample.addEndingSpan(.ending1, startMeasureID: measures[1].id, endMeasureID: measures[1].id)
+        return sample
     }
 }
 
