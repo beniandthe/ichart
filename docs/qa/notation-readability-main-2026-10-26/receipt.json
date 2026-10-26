@@ -1,0 +1,170 @@
+{
+  "date": "2026-10-26",
+  "feature": "Readable repeats and navigation in regular iChart",
+  "sourceBranch": "codex/notation-readability-main",
+  "sourceCommit": "618bff02c802acb20166528cf577e4cec2efd8db",
+  "baseCommit": "5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43",
+  "product": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "79",
+    "executableSha256": "f6b93c72fe6d3f8e2c3546542533b7680a73d558ebf5e98ea3e41c30fe1976c6",
+    "signedAppParkedAt": "/Users/benirossman/.codex/worktrees/notation-main-app/Smart Chart/.build/installed-main-app-1.2.3-79/iChart.app"
+  },
+  "validation": {
+    "mainRegression": {
+      "passed": 784,
+      "failed": 0,
+      "skipped": 2,
+      "skipReason": "Existing optional device-replay fixtures absent"
+    },
+    "finalRendererProof": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    "actualSavedDataPreservationTests": {
+      "executed": 3,
+      "passed": 3
+    },
+    "signedDeviceBuild": "passed",
+    "codeSignature": "verified",
+    "inPlaceInstallation": "success",
+    "launchAndRunningProcess": "verified",
+    "visualInspection": "Native settings screenshot and synthetic PDF proofs inspected",
+    "priorRepeatLabVisualAcceptance": "User confirmed signs and symbols look good",
+    "currentMainPhysicalVisualAcceptance": "Pending user interaction"
+  },
+  "preservation": {
+    "chartCount": 10,
+    "chartIDsUnchanged": true,
+    "existingChartFieldsAndInkUnchanged": true,
+    "legacyAppearanceRetained": true,
+    "onlyChartAdditions": {
+      "notationReadability": "standard",
+      "repeatWings": false
+    },
+    "pdfCount": 16,
+    "setlistCount": 1,
+    "pdfsSetlistsCorrectionsAndPersonalProfilesHashMatched": true,
+    "protectedFilesMatched": 22,
+    "excludedVolatileDiagnostics": [
+      "telemetry-queue.json",
+      "performance-trace.jsonl"
+    ],
+    "libraryBeforeSha256": "19845ac91ed768140b0436d02dcf7391242916ab67a5faacf91e722bfc365495",
+    "libraryAfterSha256": "d7017828bf1a1585e508aa9e60bcba59a63bade57bfc8d84cd3b20b8110a95ff"
+  },
+  "isolation": {
+    "graphMyScriptSourceChanges": false,
+    "recognitionSourceChanges": false,
+    "backendSourceChanges": false,
+    "otherIChartInstallationsComparedUnchanged": 43,
+    "existingDataRestoredOrReplaced": false,
+    "privateFixturesCommitted": false,
+    "githubPushOrMerge": false,
+    "appStoreRelease": false
+  },
+  "backup": {
+    "before": "/Users/benirossman/Documents/Smart Chart/.build/device-backups/2026-10-26-main-repeat-before",
+    "after": "/Users/benirossman/Documents/Smart Chart/.build/device-backups/2026-10-26-main-repeat-after",
+    "files": 57,
+    "bytes": 61145530,
+    "allBackupHashesRechecked": true
+  },
+  "settingsRoute": "Engraving > Notation Readability…",
+  "existingChartDefaults": {
+    "notationReadability": "standard",
+    "repeatWings": false
+  },
+  "artifacts": [
+    {
+      "path": "petaluma-navigation-performance.png",
+      "sha256": "c2a43631386a7c7bd952183541b97d5c53e58338cbd1d0eb8ad9503928b56a83"
+    },
+    {
+      "path": "petaluma-navigation-standard.png",
+      "sha256": "dab6a7323e4695e8cc02dd89c4a0125a1bc8382d56d62074fe15cb9d2b8225a6"
+    },
+    {
+      "path": "repeat-performance-straight-emphasis.png",
+      "sha256": "995a012dcf9a1fc1e64123140651a36c4198b416163f4d635cc4b575020429ff"
+    },
+    {
+      "path": "repeat-standard-straight.png",
+      "sha256": "37ebd47573b9182016c9d7fd2313b5c221382a7822cae759f68cd495fd35f862"
+    },
+    {
+      "path": "notation-readability-settings-performance.png",
+      "sha256": "10e7e221c3a47990efc2f6f2c14bbad41c6305c9811ad27f75b2e602258ef544"
+    },
+    {
+      "path": "notation-readability-settings-standard.png",
+      "sha256": "a36f4d5fe9defbf2ad1f8cf588a8cb7a5c112df225546185accbea07202b8904"
+    },
+    {
+      "path": "readability-rhythmSectionSheet-performance-page-1.png",
+      "sha256": "24b2e42244e41cd655bd96536918f92d14111003536b0f5fb9a72b1703df914c"
+    },
+    {
+      "path": "readability-rhythmSectionSheet-performance.pdf",
+      "sha256": "9f47f2aa2a4dd997cf112fa16705816eaeb9aa56acc867f8ea70a17335499ce8"
+    },
+    {
+      "path": "readability-rhythmSectionSheet-standard-page-1.png",
+      "sha256": "15e2d68cf9b8cc7316d888d41f53376ef93b4bb939c04bd472d07307ca6e341a"
+    },
+    {
+      "path": "readability-rhythmSectionSheet-standard.pdf",
+      "sha256": "e1614c9b2ef516bd5e1babb303bd3e3685ba4a724223d9c1a86cc22bf29272fa"
+    },
+    {
+      "path": "readability-leadSheet-performance-page-1.png",
+      "sha256": "208a36d149f8b8d133ce8576eeca2f9bec0b8355fee79036d2e1f5d1d4981701"
+    },
+    {
+      "path": "readability-leadSheet-performance.pdf",
+      "sha256": "f2d4f4005f93d93f3142f8fc629cf4bd96a48262f0af578e9fb5f68f4379ccde"
+    },
+    {
+      "path": "readability-leadSheet-standard-page-1.png",
+      "sha256": "7e0c01d2466853d13fc6f9fe5b3b2b1bc3d4c5501d3b61b20e928ff637319a2f"
+    },
+    {
+      "path": "readability-leadSheet-standard.pdf",
+      "sha256": "2f5ab6ab60dc93db4c738f00f8e741737592a761d694e5e85c005da3afd1f6d2"
+    },
+    {
+      "path": "readability-simpleChordSheet-performance-page-1.png",
+      "sha256": "f4cf4eec7d39dd18df8a11e9faa278784581d7921d7827cbb1f6f3edd094733d"
+    },
+    {
+      "path": "readability-simpleChordSheet-performance.pdf",
+      "sha256": "5642feb4fc1998afe99a111d18cc08f62f8f8eda190464943a7d55b7f6ee8337"
+    },
+    {
+      "path": "readability-simpleChordSheet-standard-page-1.png",
+      "sha256": "3295323fffe14d1234806b29f155da19206ed8da3b4d2374cefc950489dfa504"
+    },
+    {
+      "path": "readability-simpleChordSheet-standard.pdf",
+      "sha256": "8f34922f29910117163b6360ffc9ae5e72b29a595784ce9795941573ecd1a301"
+    },
+    {
+      "path": "repeat-winged-combined.png",
+      "sha256": "0c2184cbb77185aee7cb921f2bb8fd67420cfadb171642403b34c031db25c171"
+    },
+    {
+      "path": "repeat-winged-end.png",
+      "sha256": "a07ab873d0425681851999c83136cedf72c9057ac2642bbff8958f61beede5ca"
+    },
+    {
+      "path": "repeat-winged-start.png",
+      "sha256": "a1e46200824615842731577bb6e9a9d5cb372e4d4397de169697b6db46a664b2"
+    },
+    {
+      "path": "repeat-performance-straight.png",
+      "sha256": "995a012dcf9a1fc1e64123140651a36c4198b416163f4d635cc4b575020429ff"
+    }
+  ]
+}

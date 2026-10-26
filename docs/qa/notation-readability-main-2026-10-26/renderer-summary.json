@@ -1,0 +1,42 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "0D3454BE-1A21-4910-8FD6-FFD3EB43E908",
+        "deviceName" : "iChart Local QA iPad 26.5",
+        "modelName" : "iPad (A16)",
+        "osBuildNumber" : "23F77",
+        "osVersion" : "26.5",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 8,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "iChart · Built with macOS 26.5.2",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1793048674.268,
+  "passedTests" : 8,
+  "result" : "Passed",
+  "skippedTests" : 0,
+  "startTime" : 1793048665.656,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - iChart",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 8
+}

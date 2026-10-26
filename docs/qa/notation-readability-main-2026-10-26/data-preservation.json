@@ -1,0 +1,20 @@
+{
+  "chartCount": 10,
+  "chartIDsUnchanged": true,
+  "existingChartFieldsAndInkUnchanged": true,
+  "legacyAppearanceRetained": true,
+  "onlyChartAdditions": {
+    "notationReadability": "standard",
+    "repeatWings": false
+  },
+  "pdfCount": 16,
+  "setlistCount": 1,
+  "pdfsSetlistsCorrectionsAndPersonalProfilesHashMatched": true,
+  "protectedFilesMatched": 22,
+  "excludedVolatileDiagnostics": [
+    "telemetry-queue.json",
+    "performance-trace.jsonl"
+  ],
+  "libraryBeforeSha256": "19845ac91ed768140b0436d02dcf7391242916ab67a5faacf91e722bfc365495",
+  "libraryAfterSha256": "d7017828bf1a1585e508aa9e60bcba59a63bade57bfc8d84cd3b20b8110a95ff"
+}
