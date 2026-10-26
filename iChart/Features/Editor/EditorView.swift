@@ -309,6 +309,7 @@ struct EditorView: View {
     @State private var showingSetupSheet = false
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
+    @State private var showingNotationReadabilitySheet = false
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
@@ -504,6 +505,9 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingTypographySheet) {
             ChartTypographySheetView(chart: $chart)
+        }
+        .sheet(isPresented: $showingNotationReadabilitySheet) {
+            ChartAppearanceSheetView(chart: $chart, panel: .engraving)
         }
         .sheet(isPresented: $showingPersonalHandwriting) {
             if HandwritingPersonalizationProductPolicy.isAvailable {
@@ -1231,6 +1235,15 @@ struct EditorView: View {
                 } label: {
                     notationMenuLabel(preset.displayText, isSelected: chart.engravingPreset == preset)
                 }
+            }
+
+            Divider()
+
+            Button {
+                activateSelectTool(clearsMeasureSelection: true)
+                showingNotationReadabilitySheet = true
+            } label: {
+                Label("Notation Readability…", systemImage: "repeat")
             }
         } label: {
             Label("Engraving", systemImage: "slider.horizontal.3")
@@ -2288,7 +2301,7 @@ struct EditorView: View {
     // accept a stray stroke behind that panel.
     private var isPresentingEditorPanel: Bool {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
-            || showingTypographySheet || showingPersonalHandwriting
+            || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil

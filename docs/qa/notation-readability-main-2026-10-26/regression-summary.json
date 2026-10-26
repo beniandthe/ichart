@@ -1,0 +1,46 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "0D3454BE-1A21-4910-8FD6-FFD3EB43E908",
+        "deviceName" : "iChart Local QA iPad 26.5",
+        "modelName" : "iPad (A16)",
+        "osBuildNumber" : "23F77",
+        "osVersion" : "26.5",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 784,
+      "skippedTests" : 2,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "iChart · Built with macOS 26.5.2",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1793048521.512,
+  "passedTests" : 784,
+  "result" : "Passed",
+  "skippedTests" : 2,
+  "startTime" : 1793048498.44,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - iChart",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "75% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 1.12s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 786
+}

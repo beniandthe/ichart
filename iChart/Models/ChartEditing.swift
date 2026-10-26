@@ -96,6 +96,24 @@ extension Chart {
         updatedAt = .now
     }
 
+    mutating func setNotationReadability(_ preset: NotationReadabilityPreset) {
+        guard notationReadability != preset else {
+            return
+        }
+
+        notationReadability = preset
+        updatedAt = .now
+    }
+
+    mutating func setRepeatWings(_ enabled: Bool) {
+        guard repeatWings != enabled else {
+            return
+        }
+
+        repeatWings = enabled
+        updatedAt = .now
+    }
+
     mutating func setStaffSystemDensity(_ density: StaffSystemDensity) {
         guard staffSystemDensity != density else {
             return

@@ -473,6 +473,33 @@ enum StaffSystemDensity: String, Codable, CaseIterable, Hashable, Identifiable {
     }
 }
 
+enum NotationReadabilityPreset: String, Codable, CaseIterable, Hashable, Identifiable {
+    case standard
+    case performance
+
+    var id: String { rawValue }
+
+    var displayText: String {
+        switch self {
+        case .standard: return "Standard"
+        case .performance: return "Performance"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .standard:
+            return "Original repeat signs, endings, and navigation symbols."
+        case .performance:
+            return "Stronger repeats, larger ending numbers, and clearer navigation cues."
+        }
+    }
+
+    var navigationScale: CGFloat { self == .performance ? 1.18 : 1 }
+    var strokeScale: CGFloat { self == .performance ? 1.55 : 1 }
+    var endingHeight: CGFloat { self == .performance ? 26 : 20 }
+}
+
 enum EngravingPreset: String, Codable, CaseIterable, Hashable, Identifiable {
     case compact
     case balanced
@@ -515,6 +542,14 @@ enum EngravingPreset: String, Codable, CaseIterable, Hashable, Identifiable {
             return 1
         case .bold:
             return 1.12
+        }
+    }
+
+    var strokeScale: CGFloat {
+        switch self {
+        case .compact: return 0.92
+        case .balanced, .wide: return 1
+        case .bold: return 1.28
         }
     }
 }
