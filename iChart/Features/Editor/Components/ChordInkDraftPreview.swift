@@ -1337,25 +1337,47 @@ enum ChordDraftBarlineOverlayGeometry {
         )
     }
 
+    static func sourceHighlightFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
+        guard barline.kind.isRepeat, !barline.sourceStrokeGeometry.isEmpty else { return nil }
+        let points = barline.sourceStrokeGeometry.flatMap(\.points)
+        guard !points.isEmpty, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              sourceOrigin.x.isFinite, sourceOrigin.y.isFinite else { return nil }
+        let xs = points.map { CGFloat($0.x) + sourceOrigin.x }
+        let ys = points.map { CGFloat($0.y) + sourceOrigin.y }
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return nil }
+        return CGRect(x: minX - 4, y: minY - 4, width: maxX - minX + 8, height: maxY - minY + 8)
+    }
+
+    static func selectionFrame(for barline: DraftBarline, in laneFrame: CGRect, sourceOrigin: CGPoint? = nil) -> CGRect {
+        if let sourceOrigin,
+           let sourceFrame = sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin) {
+            return sourceFrame.insetBy(dx: -3, dy: -3)
+        }
+        return lineFrame(for: barline, in: laneFrame).insetBy(dx: 3, dy: 8)
+    }
+
     static func hitTarget(
         at location: CGPoint,
         barlines: [DraftBarline],
         laneFrameForBarline: (DraftBarline) -> CGRect?,
-        selectedBarlineID: UUID?
+        selectedBarlineID: UUID?,
+        sourceOrigin: CGPoint? = nil
     ) -> ChordDraftBarlineHitTarget? {
+        if let selectedBarlineID,
+           let selected = barlines.last(where: { $0.id == selectedBarlineID }),
+           let laneFrame = laneFrameForBarline(selected) {
+            let controls = controlFrames(for: selected, in: laneFrame)
+            if controls.delete.insetBy(dx: -deleteHitOutset, dy: -deleteHitOutset).contains(location) {
+                return ChordDraftBarlineHitTarget(barlineID: selected.id, action: .delete)
+            }
+        }
+
         for barline in barlines.reversed() {
             guard let laneFrame = laneFrameForBarline(barline) else {
                 continue
             }
 
-            if selectedBarlineID == barline.id {
-                let controls = controlFrames(for: barline, in: laneFrame)
-                if controls.delete.insetBy(dx: -deleteHitOutset, dy: -deleteHitOutset).contains(location) {
-                    return ChordDraftBarlineHitTarget(barlineID: barline.id, action: .delete)
-                }
-            }
-
-            if lineFrame(for: barline, in: laneFrame).insetBy(dx: 3, dy: 8).contains(location) {
+            if selectionFrame(for: barline, in: laneFrame, sourceOrigin: sourceOrigin).contains(location) {
                 return ChordDraftBarlineHitTarget(
                     barlineID: barline.id,
                     action: selectedBarlineID == barline.id ? .delete : .select

@@ -72,6 +72,20 @@ enum ChordDraftBarlinePreviewDrawing {
         return Geometry(boundaryX: x, barXs: lineXs, dotFrames: dotFrames, lineWidth: lineWidth)
     }
 
+    static func sourceHighlightFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
+        ChordDraftBarlineOverlayGeometry.sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin)
+    }
+
+    static func drawSourceHighlight(_ barline: DraftBarline, sourceOrigin: CGPoint, color: UIColor, selected: Bool) {
+        guard let frame = sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin) else { return }
+        // A single outline identifies the owned ink. Keep its handwritten bars
+        // and dots as the only sign on the page until the user renders it.
+        let path = UIBezierPath(roundedRect: frame, cornerRadius: 4)
+        color.setStroke()
+        path.lineWidth = selected ? 2 : 1
+        path.stroke()
+    }
+
     static func draw(_ barline: DraftBarline, in frame: CGRect, chart: Chart, color: UIColor, selected: Bool) {
         let geometry = geometry(for: barline, in: frame, chart: chart, selected: selected)
         let path = UIBezierPath()
@@ -2955,7 +2969,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.72)
             : UIColor(red: 0.9, green: 0.46, blue: 0.12, alpha: 0.64)
         let selected = selectedDraftBarlineID == barline.id
-        ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
+        if barline.kind.isRepeat {
+            if let pageLayout {
+                let sourceOrigin = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout).origin
+                ChordDraftBarlinePreviewDrawing.drawSourceHighlight(barline, sourceOrigin: sourceOrigin, color: color, selected: selected)
+            }
+        } else {
+            ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
+        }
 
         guard selected else { return }
 
@@ -3803,7 +3824,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             laneFrameForBarline: { [weak self] barline in
                 self?.chordDraftLaneFrame(for: barline, in: pageLayout)
             },
-            selectedBarlineID: selectedDraftBarlineID
+            selectedBarlineID: selectedDraftBarlineID,
+            sourceOrigin: LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout).origin
         )
     }
 

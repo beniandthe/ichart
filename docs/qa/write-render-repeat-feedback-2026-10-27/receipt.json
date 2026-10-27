@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-27",
+  "feature": "Repeat preview and populated-open-tail boundary feedback fixes",
+  "branch": "codex/write-render-repeat-signs",
+  "baseCommit": "5920d32a",
+  "product": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "82",
+    "processID": 2516,
+    "running": true,
+    "exactExecutableMatch": true,
+    "otherIChartInstallationsCompared": 43,
+    "changedOtherIChartInstallations": []
+  },
+  "signedArtifact": ".build/installed-main-app-1.2.3-82/iChart.app",
+  "executableSHA256": "f50140ec965d37ec982300fbcb34f210912d0f1c202061d4f04f7bea1247f6e4",
+  "strictSigningVerified": true,
+  "reportedIssues": [
+    "Toolbar repeat strings compressed to truncated text",
+    "Canonical preview dots appeared beside retained handwritten dots",
+    "Closing repeat appeared to include the following populated open measure"
+  ],
+  "findings": {
+    "persistedRepeatBoundsWereCorrect": true,
+    "cause": "Terminal-repeat geometry treated every real open measure as empty continuation, including the following chord-bearing measure",
+    "noStoredChartRepairOrChordRecognitionChange": true
+  },
+  "changes": [
+    "Toolbar repeats use fixed-size geometry with intrinsic scroll width",
+    "Lane preview outlines the exact owned source ink instead of drawing another repeat glyph",
+    "Repeat outline and draft selection share source bounds and coordinate origin",
+    "Real open measures with rendered local musical content prevent terminal close relocation",
+    "Toolbar chords and repeat signs use consistent lane order"
+  ],
+  "verification": {
+    "native": {
+      "totalTestCount": 849,
+      "passedTests": 847,
+      "failedTests": 0,
+      "skippedTests": 2
+    },
+    "newFeedbackTests": 17,
+    "providedSavedChartReplayExecuted": true,
+    "providedChartBytesUnchangedByReplay": true,
+    "nativeEditorAndPDFVisualsInspected": true,
+    "syntheticPublicArtifactsOnly": true,
+    "independentReview": "Reported boundary cause confirmed; outline-hit mismatch fixed and rereviewed"
+  },
+  "preservation": {
+    "charts": 12,
+    "chartIDsUnchanged": true,
+    "chartIDOrderUnchanged": true,
+    "existingFieldsAndInkUnchanged": true,
+    "libraryBytesIdentical": true,
+    "allPersistedJSONIdentical": true,
+    "pdfCount": 16,
+    "setlistCount": 1,
+    "protectedFilesHashMatched": 22,
+    "protectedChangedPaths": [],
+    "correctionAndProfileFilesIdentical": true
+  },
+  "readback": {
+    "afterInstallPassed": true,
+    "afterLaunchPassed": true,
+    "firstPostLaunchCopy": "Transient telemetry-queue cleanup raced copy; incomplete snapshot retained separately; completed snapshot taken with main app paused and then app relaunched",
+    "before": ".build/device-backups/2026-10-27-write-repeat-feedback/before",
+    "afterLaunch": ".build/device-backups/2026-10-27-write-repeat-feedback/after-launch",
+    "baselineFiles": 54,
+    "baselineBytes": 51990325
+  },
+  "boundaries": {
+    "GraphMyScriptImplementationsChanged": false,
+    "otherIChartInstallsUnchanged": 43,
+    "backendChanged": false,
+    "existingChartDataModified": false
+  },
+  "freshPencilAcceptance": "Pending user retest on installed build 82",
+  "sourceFiles": [
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkDraftPreview.swift",
+      "sha256": "42e64387a4517fb2ef2ea548ec419d0c581714d251806b748caa377b8df5ab56"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift",
+      "sha256": "528473ffe41cf9d8fc7784478721c1dc3697c4a7876ca8e4977164eead99f620"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/LeadSheetMeasureResizeGeometry.swift",
+      "sha256": "7a577046ee960f3bb35d062cfabd23075799493a8870f81a0f7941c0a4d0decd"
+    },
+    {
+      "file": "iChart/Features/Editor/EditorView.swift",
+      "sha256": "6cf982401ed99527e1cb9d4316320d79cb49d94dc3a417c7ad55dab1a5b2d2b6"
+    },
+    {
+      "file": "iChartTests/Editor/WriteRepeatFeedbackReplayTests.swift",
+      "sha256": "f491973ef510a7ec1838d4625ad0aaf1039ed9728494cfcbc9e908682b32d7cd"
+    },
+    {
+      "file": "iChartTests/Editor/RepeatPreviewFeedbackTests.swift",
+      "sha256": "9e093b3da6dadc7885da2f017fa3d4f7746abe680da36eac1a552df4f1c7d96d"
+    },
+    {
+      "file": "iChartTests/Editor/LeadSheetSimpleChordTerminalBarlineGeometryTests.swift",
+      "sha256": "0486d09fc3c5d2f5619417d2c6133683a245b4476a2cab439193357c7075925e"
+    },
+    {
+      "file": "iChartTests/ProjectConfigurationTests.swift",
+      "sha256": "c54b5c99e01650acaba60b91493a1a6638a5e39f6d5ca8e2b2c40bab77445c94"
+    },
+    {
+      "file": "project.yml",
+      "sha256": "a9ef5551a74d8f9d770f33e6c23ad8ee632629a7328880d963000bd97cf2c04c"
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "synthetic-open-tail-row.png",
+      "sha256": "306b6a80d2645c92ada0bf715ea92bf0bc6b57bd1977927df61453f53b392bf0"
+    },
+    {
+      "file": "toolbar-repeat-symbols.png",
+      "sha256": "ee4d135e1715bac376d686e85b3b24fec6167da2ac0aacd687b92b5369e88c3b"
+    }
+  ]
+}

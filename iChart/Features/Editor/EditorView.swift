@@ -2494,7 +2494,7 @@ struct EditorView: View {
         let chordItems = chordPreviewState.draftChords.map { draft in
             ChordDiagnosticPreviewItem(
                 id: "chord-\(draft.id.uuidString)",
-                visualOrder: draft.visualOrder ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0),
+                visualOrder: ChordDiagnosticPreviewOrderPolicy.visualOrder(for: draft),
                 kind: .chord(draft.previewDisplayText)
             )
         }
@@ -5970,7 +5970,58 @@ private struct ChordDiagnosticPreviewStrip: View {
     }
 }
 
-private struct ChordDiagnosticPreviewStripContent: View {
+enum ChordDiagnosticBarlineSymbolGeometry {
+    struct Geometry {
+        let barSegments: [CGRect]
+        let dotFrames: [CGRect]
+    }
+
+    static func width(for kind: DraftBarlineKind) -> CGFloat {
+        kind == .single ? 16 : (kind == .repeatBoth ? 40 : 30)
+    }
+
+    static func geometry(for kind: DraftBarlineKind, in bounds: CGRect) -> Geometry {
+        let centerX = bounds.midX
+        let top = bounds.minY + 5
+        let height = max(1, bounds.height - 10)
+        let barXs = kind.isRepeat ? [centerX - 2.5, centerX + 2.5] : [centerX]
+        let bars = barXs.map { CGRect(x: $0 - 1, y: top, width: 2, height: height) }
+        var dotXs = [CGFloat]()
+        if kind.endsRepeat { dotXs.append(centerX - 8) }
+        if kind.startsRepeat { dotXs.append(centerX + 8) }
+        let dots = dotXs.flatMap { x in
+            [bounds.midY - 4, bounds.midY + 4].map { y in
+                CGRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3)
+            }
+        }
+        return Geometry(barSegments: bars, dotFrames: dots)
+    }
+}
+
+struct ChordDiagnosticBarlineSymbol: View {
+    let kind: DraftBarlineKind
+
+    var body: some View {
+        Canvas { context, size in
+            let geometry = ChordDiagnosticBarlineSymbolGeometry.geometry(for: kind, in: CGRect(origin: .zero, size: size))
+            for bar in geometry.barSegments { context.fill(Path(roundedRect: bar, cornerRadius: 0.5), with: .foreground) }
+            for dot in geometry.dotFrames { context.fill(Path(ellipseIn: dot), with: .foreground) }
+        }
+        .frame(width: ChordDiagnosticBarlineSymbolGeometry.width(for: kind), height: 28)
+        .fixedSize(horizontal: true, vertical: true)
+        .accessibilityLabel(kind.displayName)
+    }
+}
+
+enum ChordDiagnosticPreviewOrderPolicy {
+    static func visualOrder(for draft: ChordInkDraft) -> Double {
+        draft.laneLocation?.visualOrder
+            ?? draft.visualOrder
+            ?? Double(draft.measureIndex) + (draft.targetFraction ?? 0)
+    }
+}
+
+struct ChordDiagnosticPreviewStripContent: View {
     let items: [ChordDiagnosticPreviewItem]
 
     var body: some View {
@@ -5993,16 +6044,14 @@ private struct ChordDiagnosticPreviewStripContent: View {
                             .background(Color.primary.opacity(0.055))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     case .barline(let kind):
-                        Text(ChordDraftBarlinePresentationPolicy.previewText(for: kind))
-                            .font(.title3.weight(.semibold).monospaced())
-                            .frame(width: kind.isRepeat ? (kind == .repeatBoth ? 48 : 36) : ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
-                            .accessibilityLabel(kind.displayName)
+                        ChordDiagnosticBarlineSymbol(kind: kind)
                     }
                 }
             }
         }
         .padding(.horizontal, ChordDiagnosticPreviewMetrics.horizontalInset)
         .frame(minWidth: ChordDiagnosticPreviewMetrics.stripWidth, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -6087,7 +6136,7 @@ private struct ChordDiagnosticPreviewUIKitScrollView<Content: View>: UIViewRepre
 }
 #endif
 
-private struct ChordDiagnosticPreviewItem: Identifiable {
+struct ChordDiagnosticPreviewItem: Identifiable {
     enum Kind {
         case chord(String)
         case barline(DraftBarlineKind)
@@ -6098,12 +6147,11 @@ private struct ChordDiagnosticPreviewItem: Identifiable {
     let kind: Kind
 }
 
-private enum ChordDiagnosticPreviewMetrics {
+enum ChordDiagnosticPreviewMetrics {
     static let stripWidth: CGFloat = 216
     static let stripHeight: CGFloat = 42
     static let chordMinWidth: CGFloat = 32
     static let placeholderWidth: CGFloat = 32
-    static let barlineWidth: CGFloat = 16
     static let itemSpacing: CGFloat = 8
     static let horizontalInset: CGFloat = 7
     static let nonScrollingItemCount = 5

@@ -687,7 +687,18 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
     }
 
     private static func isTerminalContinuationMeasure(_ measure: LeadSheetMeasureLayout) -> Bool {
-        measure.sourceMeasureID == nil || measure.isOpen
+        if measure.sourceMeasureID == nil {
+            return true
+        }
+
+        // An open measure can already contain rendered music. Only an empty
+        // continuation may share the preceding repeat's row-end boundary.
+        return measure.isOpen
+            && measure.chordLayouts.isEmpty
+            && measure.noteLayouts.isEmpty
+            && measure.cueTextLayouts.isEmpty
+            && measure.repeatMarkerLayouts.isEmpty
+            && measure.meterChangeFrame == nil
     }
 
     static func terminalFillerFrame(
