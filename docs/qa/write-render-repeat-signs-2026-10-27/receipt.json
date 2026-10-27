@@ -19,7 +19,7 @@
   ],
   "evidence": {
     "source": "Synthetic InkStroke and PencilKit fixtures; native rendering and chart persistence tests",
-    "freshPhysicalPencilAcceptance": "Pending; no physical-device installation or data operations in this change",
+    "freshPhysicalPencilAcceptance": "Installation, launch and exact data preservation verified; fresh Pencil visual acceptance pending user testing",
     "swiftPM": {
       "totalTestCount": 1849,
       "passedTests": 1760,
@@ -44,13 +44,20 @@
       "passed": 3,
       "scope": "Chart snapshot fields and ink; local PDF/setlist identity and original document bytes"
     },
-    "independentReview": "Confirmed duplicate-interval source-provenance finding fixed by atomic rejection; final source review found no remaining actionable issue"
+    "independentReview": "Confirmed duplicate-interval source-provenance finding fixed by atomic rejection; final source review found no remaining actionable issue",
+    "freshNativeInstallGate": {
+      "totalTestCount": 83,
+      "passedTests": 83,
+      "failedTests": 0,
+      "skippedTests": 0
+    }
   },
   "boundaries": {
     "GraphMyScriptRecognitionImplementationsChanged": false,
     "recognitionLabAppsOrDataChanged": false,
     "backendChanged": false,
-    "physicalDeviceTouched": false
+    "physicalDeviceTouched": true,
+    "physicalDeviceActionScope": "Main com.ichart.app backup, in-place update, launch, and readback only; all 43 other iChart installs unchanged"
   },
   "visual": {
     "file": "draft-preview.png",
@@ -120,7 +127,13 @@
     },
     {
       "file": "iChartTests/ProjectConfigurationTests.swift",
-      "sha256": "4fce9702617d98a23119bdc918edb29487e30f5fe4e00af1ae5dfd0bdf461404"
+      "sha256": "bebc451c1bbb61d13cdc99fd9aab8b09809edacea5a88b428a97b568469b1f0a"
     }
-  ]
+  ],
+  "sourceFeatureCommit": "5746a5bd3a9a4db15e6c87f14aa817ae2e08f95a",
+  "build": "1.2.3 (81)",
+  "validationStages": {
+    "nativeRegression": "Feature implementation at 5746a5bd; only the development build number and matching config assertion changed afterward",
+    "freshNativeInstallGate": "83 passed, 0 failed, 0 skipped with build 81 against a fresh 11-chart iPad snapshot"
+  }
 }
