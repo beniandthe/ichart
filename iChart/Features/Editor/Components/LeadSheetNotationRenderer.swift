@@ -860,17 +860,19 @@ struct LeadSheetNotationRenderer {
         let bracketY = endingLayout.frame.minY + 3
         let hookBottomY = endingLayout.frame.maxY
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: endingLayout.frame.minX, y: bracketY))
-        path.addLine(to: CGPoint(x: endingLayout.frame.maxX, y: bracketY))
         if endingLayout.showsLeadingHook {
+            path.move(to: CGPoint(x: endingLayout.frame.minX, y: hookBottomY))
+            path.addLine(to: CGPoint(x: endingLayout.frame.minX, y: bracketY))
+        } else {
             path.move(to: CGPoint(x: endingLayout.frame.minX, y: bracketY))
-            path.addLine(to: CGPoint(x: endingLayout.frame.minX, y: hookBottomY))
         }
+        path.addLine(to: CGPoint(x: endingLayout.frame.maxX, y: bracketY))
         if endingLayout.showsTrailingHook {
-            path.move(to: CGPoint(x: endingLayout.frame.maxX, y: bracketY))
             path.addLine(to: CGPoint(x: endingLayout.frame.maxX, y: hookBottomY))
         }
         path.lineWidth = (isRhythmSection ? 1.45 : 1.35) * style.strokeScale * chart.notationReadability.strokeScale
+        path.lineCapStyle = .butt
+        path.lineJoinStyle = .miter
         style.inkColor.setStroke()
         path.stroke()
 
@@ -878,28 +880,50 @@ struct LeadSheetNotationRenderer {
             return
         }
 
-        let labelFrame = CGRect(
+        let labelFrame = endingLayout.labelFrame.isEmpty ? CGRect(
             x: endingLayout.frame.minX + 6,
             y: bracketY + 1,
-            width: min(70, max(1, endingLayout.frame.width - 12)),
+            width: max(1, endingLayout.frame.width - 12),
             height: max(1, endingLayout.frame.height - 4)
+        ) : endingLayout.labelFrame
+        let fontSize = endingLayout.labelFontSize > 0
+            ? endingLayout.labelFontSize
+            : (isRhythmSection ? 12.4 : 12) * chart.notationReadability.navigationScale
+        endingLabelAttributedText(endingLayout.text, fontSize: fontSize).draw(
+            with: labelFrame,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
         )
-        if chart.notationReadability == .standard {
-            drawText(
-                endingLayout.text,
-                in: labelFrame,
-                font: style.textFont(size: isRhythmSection ? 12.4 : 12),
-                color: style.inkColor.withAlphaComponent(isRhythmSection ? 0.92 : 0.88)
-            )
-        } else {
-            drawRoadmapLabel(
-                endingLayout.text,
-                in: labelFrame,
-                font: navigationFont(size: (isRhythmSection ? 12.4 : 12) * chart.notationReadability.navigationScale),
-                color: style.inkColor,
-                alignment: .left
+    }
+
+    func endingLabelFont(size: CGFloat) -> UIFont {
+        navigationFont(size: size)
+    }
+
+    func endingLabelAttributedText(_ text: String, fontSize: CGFloat) -> NSAttributedString {
+        let isRhythmSection = chart.layoutStyle == .rhythmSectionSheet
+        let color = chart.notationReadability == .performance
+            ? style.inkColor
+            : style.inkColor.withAlphaComponent(isRhythmSection ? 0.92 : 0.88)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        let attributedText = LeadSheetRoadmapLabelFitting.attributedText(
+            text,
+            baseFont: endingLabelFont(size: fontSize),
+            color: color,
+            alignment: .left,
+            symbolFontProvider: roadmapSymbolFont(for:baseFont:)
+        )
+        let fullRange = NSRange(location: 0, length: attributedText.length)
+        attributedText.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+        if chart.notationReadability == .performance {
+            attributedText.addAttributes(
+                [.strokeWidth: -1.2, .strokeColor: color],
+                range: fullRange
             )
         }
+        return attributedText
     }
 
     func drawRoadmapMarker(_ markerLayout: LeadSheetRoadmapMarkerLayout) {

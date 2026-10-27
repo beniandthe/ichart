@@ -16,7 +16,10 @@ final class NotationReadabilityPreservationTests: XCTestCase {
         XCTAssertFalse(rawCharts.isEmpty, "The local preservation snapshot must contain charts.")
         XCTAssertEqual(snapshot.charts.count, rawCharts.count)
         XCTAssertEqual(Set(snapshot.charts.map(\.id)).count, rawCharts.count)
-        XCTAssertTrue(snapshot.charts.allSatisfy { $0.notationReadability == .standard && !$0.repeatWings })
+        for (chart, rawChart) in zip(snapshot.charts, rawCharts) {
+            XCTAssertEqual(chart.notationReadability.rawValue, rawChart["notationReadability"] as? String ?? "standard")
+            XCTAssertEqual(chart.repeatWings, rawChart["repeatWings"] as? Bool ?? false)
+        }
 
         let temporaryDirectory = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }

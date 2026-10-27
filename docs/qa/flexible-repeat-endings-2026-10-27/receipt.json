@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-27",
+  "feature": "Flexible repeat endings",
+  "baseCommit": "f3ac863836fed5eda52a25503a860fb967aaccd6",
+  "branch": "codex/flexible-repeat-endings",
+  "product": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "80",
+    "executableSHA256": "3574eddd951bee65160159f1f3525f6ee4511d0e6259faa2f2974e440f75ffbb"
+  },
+  "validation": {
+    "featureNative": {
+      "passed": 416,
+      "failed": 0,
+      "skipped": 0
+    },
+    "targetedSwiftPM": {
+      "passed": 337,
+      "failed": 0
+    },
+    "installGate": {
+      "passed": 36,
+      "failed": 0,
+      "skipped": 0
+    },
+    "signedBuild": "passed",
+    "inPlaceInstall": "success",
+    "launchAndRunning": "verified",
+    "physicalVisualAcceptance": "User confirmed the new endings look good"
+  },
+  "preservation": {
+    "libraryJSONIdentical": true,
+    "charts": 10,
+    "chartIDsUnchanged": true,
+    "existingFieldsAndInkUnchanged": true,
+    "repeatWingsEnabledCharts": 1,
+    "pdfCount": 16,
+    "setlistCount": 1,
+    "protectedFilesHashMatched": 23,
+    "protectedChangedPaths": []
+  },
+  "isolation": {
+    "graphMyScriptSourceChanges": false,
+    "recognitionSourceChanges": false,
+    "backendSourceChanges": false,
+    "otherIChartInstallationsComparedUnchanged": 43,
+    "privateDataPublished": false
+  },
+  "privateBackup": {
+    "retainedLocally": true,
+    "fileCount": 54,
+    "bytes": 55337824
+  },
+  "artifacts": [
+    {
+      "file": "ending-editor-custom-draft.png",
+      "sha256": "0f4f2bf16eff330aaee914baec1e8f2e87b9e7165ecbe9ed6ed10f0f68672ebc"
+    },
+    {
+      "file": "flexible-endings-leadSheet-closed-page-1.png",
+      "sha256": "43b000b79c12d8d5ab8e3122851ad694b7bd5951a336f6170a5d12251adf861f"
+    },
+    {
+      "file": "flexible-endings-leadSheet-closed.pdf",
+      "sha256": "45133fc1ecefee54a3c144a779d756421109af512a32a1f26eef8b8c1412545a"
+    },
+    {
+      "file": "flexible-endings-leadSheet-open-page-1.png",
+      "sha256": "c419653550eda13cf566817e866879b9f253651f0e68582735ddebe92a36a6d0"
+    },
+    {
+      "file": "flexible-endings-leadSheet-open.pdf",
+      "sha256": "e366b6f29fbabbc8d48600bf8b15cd7ac064ac66b00f0ea4c9c1175e8806246e"
+    },
+    {
+      "file": "flexible-endings-rhythmSectionSheet-closed-page-1.png",
+      "sha256": "06872a3567974e90213b0b98af36d8ddd0c774b7a6f4ed542179cff4d4446837"
+    },
+    {
+      "file": "flexible-endings-rhythmSectionSheet-closed.pdf",
+      "sha256": "0a3a507167c7cd94be8dad7921b020db4b24aeeda4b008e77dcaa8754ad18682"
+    },
+    {
+      "file": "flexible-endings-rhythmSectionSheet-open-page-1.png",
+      "sha256": "13e7817268e8c4641c7d015e462bd6eae0cfe8f0a7f6b86e51c43ef1f92d6cb0"
+    },
+    {
+      "file": "flexible-endings-rhythmSectionSheet-open.pdf",
+      "sha256": "b03c408a2ffb232d7b46eb11675dfd2c91f32ad9931a3afc91d97a13a932a337"
+    },
+    {
+      "file": "flexible-endings-simpleChordSheet-closed-page-1.png",
+      "sha256": "2a9d5d4f7452865b56ffee7b7477b6e8618772545f9dae3604661e5ca4975367"
+    },
+    {
+      "file": "flexible-endings-simpleChordSheet-closed.pdf",
+      "sha256": "f6a98078e676e999a40d013e7f116854ea01ed111be7b033b13936c525a9a0e9"
+    },
+    {
+      "file": "flexible-endings-simpleChordSheet-open-page-1.png",
+      "sha256": "1c1cc0bbb2b371854cd2065fc6468e97023e74ce118c63377e7c704f2e2b46a4"
+    },
+    {
+      "file": "flexible-endings-simpleChordSheet-open.pdf",
+      "sha256": "5f3d240b641cfff8637bcb9652a119dc5405202f4c3b816cef1a205604da9abd"
+    }
+  ],
+  "deviceTestedSourceCommit": "85ae084cfc5138786a4259f073cbbaee45b2f6c6",
+  "deviceTestedSourceFiles": [
+    {
+      "path": "iChart/Features/Editor/Components/EndingEditorSheet.swift",
+      "sha256": "c04a215fde41373cd496dea7c178ab6ae30c965db7524b482da0ed40f18ea7dc"
+    },
+    {
+      "path": "iChart/Services/LeadSheetEndingTextLayout.swift",
+      "sha256": "b786a01819bf49052391465e368860729f83c6f0b4dd2f8e3b1e55d125a2e1cc"
+    },
+    {
+      "path": "iChartTests/Editor/EndingEditorSheetTests.swift",
+      "sha256": "77ddb9f8db2c5800183c98624534b986e5c08220390b954d18e9713d9d898eae"
+    },
+    {
+      "path": "iChartTests/Editor/FlexibleEndingHitTargetTests.swift",
+      "sha256": "b509c3f8416e1c2d6df7068686eb6d2845c49ea5189415886163ee2fc7f391b6"
+    },
+    {
+      "path": "iChartTests/FlexibleEndingEditingTests.swift",
+      "sha256": "49e47cc782eced65b69953023d7189d8670353b1a70ac7e26dd4e2b020272865"
+    },
+    {
+      "path": "iChartTests/FlexibleEndingLayoutTests.swift",
+      "sha256": "60eddb1ecd5fe77d3bff999e2bcde09a1d23f7af42dc652ab1ef753e073bb9fc"
+    },
+    {
+      "path": "iChartTests/FlexibleEndingRendererTests.swift",
+      "sha256": "c73647d95d0f1ffffb764d7e98dc0e98e96977ee22d4fcd5da4207f02bbaf52b"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/LeadSheetNotationRenderer.swift",
+      "sha256": "7334273988d2e8e3006904dd945e1d60d792de35e82357d4aab288eda668d8fd"
+    },
+    {
+      "path": "iChart/Features/Editor/EditorView.swift",
+      "sha256": "bb822195379183853a2508041c4de62507c8a3b7a41042ccdddd17c090583ccd"
+    },
+    {
+      "path": "iChart/Models/ChartAnnotations.swift",
+      "sha256": "56870c7c5718643912ec3a59878d7e9f777ea7355445c9e16869a23ce1126d4b"
+    },
+    {
+      "path": "iChart/Models/ChartEditing.swift",
+      "sha256": "5ada21df0ba8d97ca7b4d51b1d83e4055fbbfcfd0c2c28caf2ab0d7c89c85733"
+    },
+    {
+      "path": "iChart/Services/LeadSheetPageLayout.swift",
+      "sha256": "dccbea20e96c948fcde3f4da5729d7ba7c6c50a9bcbfe3c73d7b803bbe62c4a8"
+    },
+    {
+      "path": "iChartTests/NotationReadabilityPreservationTests.swift",
+      "sha256": "72a2704013f08258c0c5ed98ed072db66b1684085570c889d0f0b6efb306683b"
+    },
+    {
+      "path": "iChartTests/ProjectConfigurationTests.swift",
+      "sha256": "e5213b983669a58ef740ef07ed60252ed5783f60ebed2f6c1c02bb4af1540083"
+    },
+    {
+      "path": "project.yml",
+      "sha256": "cc9c3b5e02caf9af7781edcb5c97fe15a0be99818b9aa49d163a66536f334ef6"
+    }
+  ],
+  "reviewFollowUp": {
+    "change": "Reserve actual ending bounds when a section label shifts a continuation downward",
+    "regressionBeforeFix": {
+      "executed": 2,
+      "failingTests": 1,
+      "assertionFailures": 12,
+      "legacyGeometryTestPassed": true
+    },
+    "nativeAfterFix": {
+      "passed": 454,
+      "failed": 0,
+      "skipped": 0
+    },
+    "physicalDeviceActions": false,
+    "sourceFiles": [
+      {
+        "path": "iChart/Services/LeadSheetPageLayout.swift",
+        "sha256": "03d5a8e8ff6148a6e9245f35c348185b64367c0cdc76ad606e0d38441fbfddda"
+      },
+      {
+        "path": "iChartTests/FlexibleEndingLayoutTests.swift",
+        "sha256": "81adf3bd79f4197164f0fbde76a47b3bbf83a00e963db7a9f7e328fdee1433ae"
+      }
+    ]
+  }
+}
