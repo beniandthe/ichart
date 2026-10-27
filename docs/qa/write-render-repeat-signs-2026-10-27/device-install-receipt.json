@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-27",
+  "feature": "Automatic repeat signs in Write & Render on main iPad app",
+  "branch": "codex/write-render-repeat-signs",
+  "sourceFeatureCommit": "5746a5bd3a9a4db15e6c87f14aa817ae2e08f95a",
+  "sourceIncludesBuildNumberUpdate": true,
+  "product": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "81",
+    "running": true,
+    "processID": 2475,
+    "exactExecutableMatch": true,
+    "launchOutcome": "success"
+  },
+  "signedApp": ".build/installed-main-app-1.2.3-81/iChart.app",
+  "executableSHA256": "5ddb253ed995d94dffe68295484d5c63f73cded9bac8ee5eacf33fd29ea2add8",
+  "strictSigningVerified": true,
+  "profileIncludesTargetDevice": true,
+  "freshNativeInstallGate": {
+    "totalTestCount": 83,
+    "passedTests": 83,
+    "failedTests": 0,
+    "skippedTests": 0
+  },
+  "preservation": {
+    "libraryJSONIdentical": true,
+    "libraryBytesIdentical": true,
+    "charts": 11,
+    "chartIDsUnchanged": true,
+    "chartIDOrderUnchanged": true,
+    "existingFieldsAndInkUnchanged": true,
+    "pdfCount": 16,
+    "setlistCount": 1,
+    "protectedFilesHashMatched": 22,
+    "protectedChangedPaths": [],
+    "allPersistedJSONIdentical": true,
+    "correctionAndProfileFilesChecked": 3,
+    "correctionAndProfileFilesIdentical": true
+  },
+  "postInstallPreservationPassed": true,
+  "postLaunchPreservationPassed": true,
+  "otherIChartInstallationsUnchanged": 43,
+  "changedOtherIChartInstallations": [],
+  "backupBefore": ".build/device-backups/2026-10-27-write-render-repeats/before",
+  "readbackAfterInstall": ".build/device-backups/2026-10-27-write-render-repeats/after-install",
+  "readbackAfterLaunch": ".build/device-backups/2026-10-27-write-render-repeats/after-launch",
+  "backupFiles": 54,
+  "backupBytes": 56383202,
+  "recognitionImplementationsChanged": false,
+  "graphMyScriptDeviceActions": false,
+  "physicalVisualAcceptance": "Pending user testing of fresh Pencil writing",
+  "buildConfigurationFiles": [
+    {
+      "file": "project.yml",
+      "sha256": "2e0e5247f85b36d99adfe479f2060a59a74fc295535975e4e6d05f08225fd3d3"
+    },
+    {
+      "file": "iChartTests/ProjectConfigurationTests.swift",
+      "sha256": "bebc451c1bbb61d13cdc99fd9aab8b09809edacea5a88b428a97b568469b1f0a"
+    }
+  ]
+}

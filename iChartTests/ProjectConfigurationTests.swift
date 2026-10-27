@@ -1188,13 +1188,15 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Select when you want to check the page or change something already on it."))
         XCTAssertTrue(libraryText.contains("Tap Done to leave the current tool and return to Select."))
         XCTAssertTrue(libraryText.contains("You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first."))
-        XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords and barlines into chart notation."))
+        XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation."))
         XCTAssertTrue(libraryText.contains("Write in the highlighted Corridor Lane above the staff."))
         XCTAssertTrue(libraryText.contains("The small text under your writing is the preview."))
         XCTAssertTrue(libraryText.contains("Draw a barline in the same lane when you want it placed with the chords."))
+        XCTAssertTrue(libraryText.contains("Draw repeat bars with two dots on the right to start a repeat"))
+        XCTAssertTrue(libraryText.contains("If an end repeat has no matching start, Render asks whether to repeat from the beginning."))
         XCTAssertTrue(libraryText.contains("When review opens, correct the chord text or choose a suggestion before rendering."))
         XCTAssertTrue(libraryText.contains("Erasing just that writing and rewriting it is another option."))
-        XCTAssertTrue(libraryText.contains("Use Render Chords or Review & Render to finish your chord and barline writing."))
+        XCTAssertTrue(libraryText.contains("Use Render Chords or Review & Render to finish your chord, barline, and repeat-sign writing."))
         XCTAssertTrue(libraryText.contains("If review is needed, the button says Review & Render and opens Confirm Chords."))
         XCTAssertTrue(libraryText.contains("Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion."))
         XCTAssertTrue(libraryText.contains("Each entry needs a supported chord before the final render is available."))
@@ -1706,7 +1708,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.3\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"80\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"82\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(

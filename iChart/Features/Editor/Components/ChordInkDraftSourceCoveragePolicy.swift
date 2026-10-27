@@ -39,16 +39,18 @@ enum ChordInkDraftSourceCoveragePolicy {
         if !state.draftBarlines.isEmpty {
             // Use the detector's normal visibility/remapping contract only to
             // verify barlines. Its claims still debit the full source multiset.
-            let context = ChordInkDraftVisibleStrokePolicy.visibleDrawingContext(from: source)
             guard let pageSize = state.layoutPageSize,
                   pageSize.width.isFinite, pageSize.height.isFinite,
                   pageSize.width > 0, pageSize.height > 0,
                   state.draftBarlines.allSatisfy(\.isRenderable) else { return false }
             let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
                 includesChordInkContinuationLanes: true)
-            let fresh = ChordDraftBarlineRecognizer.recognize(
+            let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+            let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+                from: source, chordFrame: chordFrame, pageLayout: layout)
+            let fresh = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
                 strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing),
-                chordFrame: LeadSheetActiveInkScope.chordWritingFrame(for: layout), pageLayout: layout)
+                chordFrame: chordFrame, pageLayout: layout)
             let safe = context.barlineRecognitionWithUnambiguousSourceStrokes(fresh)
             let remapped = context.remappedBarlineRecognition(safe)
             let freshByIdentity = Dictionary(grouping: remapped.barlines, by: \.identitySignature)
@@ -57,15 +59,18 @@ enum ChordInkDraftSourceCoveragePolicy {
             for barline in state.draftBarlines {
                 guard let sourceIndex = barline.sourceStrokeIndex,
                       source.strokes.indices.contains(sourceIndex),
-                      let visible = visibleBySource[sourceIndex], visible.count == 1,
                       let matches = freshByIdentity[barline.identitySignature], matches.count == 1,
                       let current = matches.first, current.isRenderable,
                       current.metrics == barline.metrics,
                       current.measureIndex == barline.measureIndex,
                       current.laneLocation == barline.laneLocation,
                       current.fraction == barline.fraction,
-                      current.layoutPageSize == barline.layoutPageSize,
-                      claim(context.drawing.strokes[visible[0]]) else { return false }
+                      current.layoutPageSize == barline.layoutPageSize else { return false }
+                for ownedIndex in barline.ownedSourceStrokeIndices {
+                    guard source.strokes.indices.contains(ownedIndex),
+                          let visible = visibleBySource[ownedIndex], visible.count == 1,
+                          claim(context.drawing.strokes[visible[0]]) else { return false }
+                }
             }
         }
         return unclaimed.isEmpty
