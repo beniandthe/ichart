@@ -140,6 +140,63 @@ final class FlexibleEndingLayoutTests: XCTestCase {
         }
     }
 
+    func testContinuationEndingClearsSectionLabelAndMusicAtEveryDensity() throws {
+        for style in ChartLayoutStyle.allCases {
+            for density in StaffSystemDensity.allCases {
+                var chart = chart(style: style, density: density, count: 6)
+                chart.notationReadability = .standard
+                chart.repeatWings = false
+                let endingID = try addEnding("1–3", from: 0, through: 5, to: &chart)
+                let continuationID = chart.measures[2].id
+                chart.sectionLabels.append(SectionLabel(
+                    id: UUID(), text: "B", type: .sectionName,
+                    anchorMeasureID: continuationID,
+                    anchorSystemID: chart.systems[1].id,
+                    rawInput: "B"
+                ))
+                let layout = pageLayout(chart)
+                let system = try XCTUnwrap(layout.systems.first {
+                    $0.measures.contains { $0.sourceMeasureID == continuationID }
+                })
+                let ending = try XCTUnwrap(system.endingLayouts.first { $0.roadmapObjectID == endingID })
+                let sectionFrame = try XCTUnwrap(system.sectionTextFrame)
+                let measure = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == continuationID })
+                let contentTop = style == .simpleChordSheet ? measure.staffFrame.minY : measure.chordBandFrame.minY
+
+                // A continuation has no label or leading hook. It still needs
+                // reserve when a new section pushes its bracket down the row.
+                XCTAssertFalse(ending.showsText)
+                XCTAssertFalse(ending.showsLeadingHook)
+                XCTAssertEqual(ending.labelLineCount, 1)
+                XCTAssertEqual(ending.laneIndex, 0)
+                XCTAssertEqual(ending.frame.height, chart.notationReadability.endingHeight, accuracy: 0.001)
+                XCTAssertGreaterThanOrEqual(ending.frame.minY, sectionFrame.maxY + 4 - 0.001)
+                XCTAssertLessThanOrEqual(ending.occupiedFrame.maxY + 4, contentTop + 0.001)
+                if style == .simpleChordSheet {
+                    XCTAssertFalse(ending.occupiedFrame.intersects(measure.staffFrame))
+                }
+                assertPageClearance(layout, chart: chart)
+            }
+        }
+    }
+
+    func testUnshiftedLegacyContinuationKeepsOriginalSimpleChordGeometry() throws {
+        for density in StaffSystemDensity.allCases {
+            var chart = chart(style: .simpleChordSheet, density: density, count: 6)
+            let ids = chart.measures.map(\.id)
+            let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: ids[0], endMeasureID: ids[5]))
+            let layout = pageLayout(chart)
+            for system in layout.systems {
+                let ending = try XCTUnwrap(system.endingLayouts.first { $0.roadmapObjectID == endingID })
+                let measure = try XCTUnwrap(system.measures.first)
+                XCTAssertEqual(ending.frame.minY - system.frame.minY, 2, accuracy: 0.001)
+                XCTAssertEqual(ending.frame.height, 20, accuracy: 0.001)
+                XCTAssertEqual(measure.staffFrame.minY - system.frame.minY, 22, accuracy: 0.001)
+                XCTAssertEqual(ending.occupiedFrame.maxY, measure.staffFrame.minY, accuracy: 0.001)
+            }
+        }
+    }
+
     private func chart(style: ChartLayoutStyle, density: StaffSystemDensity, count: Int, perRow: Int = 2) -> Chart {
         var chart = Chart.blank(title: "Flexible endings", measureCount: count, layoutStyle: style)
         chart.engravingPreset = .balanced

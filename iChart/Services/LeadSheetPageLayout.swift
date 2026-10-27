@@ -1400,10 +1400,14 @@ enum LeadSheetPageLayoutEngine {
             measureLayouts: measures
         )
         if endingReserveOverride == nil,
-           endingLayouts.contains(where: { $0.labelLineCount > 1 || $0.laneIndex > 0 || $0.frame.height > chart.notationReadability.endingHeight + 0.001 }),
-           let endingBottom = endingLayouts.map(\.occupiedFrame.maxY).max() {
-            // Label width depends only on source measure geometry. A second
-            // pass adds vertical room without changing measure anchors or ink.
+           let endingBottom = endingLayouts.map(\.occupiedFrame.maxY).max(),
+           let contentTop = measures.filter({ $0.sourceMeasureID != nil }).map({
+               isSimpleChordSheet ? $0.staffFrame.minY : $0.chordBandFrame.minY
+           }).min(),
+           endingBottom > contentTop + 0.001 {
+            // A label-free continuation can also need room when a section
+            // label moves its bracket down. Reserve from actual bounds while
+            // leaving compact, unshifted legacy endings in their original band.
             return systemLayout(
                 for: plan,
                 chart: chart,
