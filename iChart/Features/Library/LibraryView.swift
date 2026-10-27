@@ -349,11 +349,13 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-corridor-lane",
             title: "Write & Render",
             systemImageName: "pencil",
-            body: "Use Write & Render to turn handwritten chords and barlines into chart notation.",
+            body: "Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
                 "The small text under your writing is the preview.",
                 "Draw a barline in the same lane when you want it placed with the chords.",
+                "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
+                "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
                 "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."
             ]
         ),
@@ -361,7 +363,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-render-chords",
             title: "Render Chords",
             systemImageName: "checkmark.circle",
-            body: "Use Render Chords or Review & Render to finish your chord and barline writing.",
+            body: "Use Render Chords or Review & Render to finish your chord, barline, and repeat-sign writing.",
             bullets: [
                 "Tap Render Chords when the previews are ready. If review is needed, the button says Review & Render and opens Confirm Chords.",
                 "Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion.",

@@ -4,6 +4,135 @@ import PencilKit
 import SwiftUI
 import UIKit
 
+enum ChordDraftBarlinePresentationPolicy {
+    struct DetectionSignature: Hashable {
+        let identity: ChordDraftBarlineIdentitySignature
+        let measureIndex: Int
+        let fraction: Double
+        let laneLocation: ChordInkDraftLaneLocation?
+        let layoutPageSize: CGSize?
+        let metrics: DraftBarlineGestureMetrics
+        let ambiguity: DraftBarlineAmbiguity
+
+        init(_ barline: DraftBarline) {
+            identity = barline.identitySignature
+            measureIndex = barline.measureIndex
+            fraction = barline.fraction
+            laneLocation = barline.laneLocation
+            layoutPageSize = barline.layoutPageSize
+            metrics = barline.metrics
+            ambiguity = barline.ambiguity
+        }
+    }
+
+    static func detectedContentMatches(_ current: [DraftBarline], _ incoming: [DraftBarline]) -> Bool {
+        current.count == incoming.count
+            && Set(current.map(DetectionSignature.init)) == Set(incoming.map(DetectionSignature.init))
+    }
+
+    static func accessibilitySummary(for barlines: [DraftBarline]) -> String {
+        barlines.isEmpty ? "no draft barlines" : "draft signs: " + barlines.map { $0.kind.displayName }.joined(separator: ", ")
+    }
+
+    static func previewText(for kind: DraftBarlineKind) -> String {
+        switch kind {
+        case .single: return "|"
+        case .repeatStart: return "||:"
+        case .repeatEnd: return ":||"
+        case .repeatBoth: return ":||:"
+        }
+    }
+}
+
+enum ChordDraftBarlinePreviewDrawing {
+    struct Geometry {
+        let boundaryX: CGFloat
+        let barXs: [CGFloat]
+        let dotFrames: [CGRect]
+        let lineWidth: CGFloat
+    }
+
+    static func geometry(for barline: DraftBarline, in frame: CGRect, chart: Chart, selected: Bool) -> Geometry {
+        let x = frame.minX + frame.width * CGFloat(barline.laneFraction)
+        let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: frame.height)
+        let lineXs = barline.kind.isRepeat ? [x - metrics.separation / 2, x + metrics.separation / 2] : [x]
+        let lineWidth = selected ? max(3, metrics.lineWidth) : max(2, metrics.lineWidth)
+        guard barline.kind.isRepeat else { return Geometry(boundaryX: x, barXs: lineXs, dotFrames: [], lineWidth: lineWidth) }
+        let staffSpace = max(1, (frame.height - 4) / 4)
+        let radius = max(1.8, metrics.dotRadius)
+        let dotOffset = max(metrics.dotOffset, lineWidth / 2 + radius + 0.8)
+        var dotXs = [CGFloat]()
+        if barline.kind.endsRepeat { dotXs.append(x - metrics.separation / 2 - dotOffset) }
+        if barline.kind.startsRepeat { dotXs.append(x + metrics.separation / 2 + dotOffset) }
+        let dotFrames = dotXs.flatMap { dotX in
+            [frame.midY - staffSpace / 2, frame.midY + staffSpace / 2].map { dotY in
+                CGRect(x: dotX - radius, y: dotY - radius, width: radius * 2, height: radius * 2)
+            }
+        }
+        return Geometry(boundaryX: x, barXs: lineXs, dotFrames: dotFrames, lineWidth: lineWidth)
+    }
+
+    static func draw(_ barline: DraftBarline, in frame: CGRect, chart: Chart, color: UIColor, selected: Bool) {
+        let geometry = geometry(for: barline, in: frame, chart: chart, selected: selected)
+        let path = UIBezierPath()
+        for lineX in geometry.barXs {
+            path.move(to: CGPoint(x: lineX, y: frame.minY))
+            path.addLine(to: CGPoint(x: lineX, y: frame.maxY))
+        }
+        color.setStroke()
+        path.lineWidth = geometry.lineWidth
+        path.lineCapStyle = .round
+        if !selected { path.setLineDash([6, 3], count: 2, phase: 0) }
+        path.stroke()
+        color.setFill()
+        for dotFrame in geometry.dotFrames { UIBezierPath(ovalIn: dotFrame).fill() }
+    }
+}
+
+enum ChordDraftBarlineDeletionPolicy {
+    static func validatedSourceIndices(
+        for barline: DraftBarline,
+        state: ChordPreviewState,
+        chart: Chart,
+        currentDrawing: PKDrawing,
+        pageLayout: LeadSheetPageLayout
+    ) -> Set<Int>? {
+        let indices = barline.ownedSourceStrokeIndices
+        guard !indices.isEmpty,
+              state.draftBarlines.contains(barline),
+              state.draftBarlines.filter({ $0.id == barline.id }).count == 1,
+              barline.layoutPageSize == state.layoutPageSize,
+              state.layoutPageSize == pageLayout.pageBounds.size,
+              state.draftBarlines.filter({ $0.id != barline.id }).allSatisfy({ $0.ownedSourceStrokeIndices.isDisjoint(with: indices) }),
+              indices.allSatisfy({ currentDrawing.strokes.indices.contains($0)
+                && PencilKitInkAdapter.visibleStrokeFragments(from: currentDrawing.strokes[$0]).count == 1 }) else { return nil }
+
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout)
+        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+            from: currentDrawing, chordFrame: chordFrame, pageLayout: pageLayout)
+        let detected = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
+            strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing), chordFrame: chordFrame, pageLayout: pageLayout)
+        let safe = context.barlineRecognitionWithUnambiguousSourceStrokes(detected)
+        let current = context.remappedBarlineRecognition(safe).barlines.filter { $0.identitySignature == barline.identitySignature }
+        guard current.count == 1,
+              let verified = current.first,
+              verified.isRenderable,
+              ChordDraftBarlinePresentationPolicy.DetectionSignature(verified) == ChordDraftBarlinePresentationPolicy.DetectionSignature(barline) else { return nil }
+        return indices
+    }
+
+    static func remappingSourceIndices(_ barlines: [DraftBarline], afterRemoving removed: Set<Int>) -> [DraftBarline] {
+        barlines.compactMap { original in
+            guard original.ownedSourceStrokeIndices.isDisjoint(with: removed) else { return nil }
+            func remapped(_ index: Int) -> Int { index - removed.filter { $0 < index }.count }
+            var result = original
+            result.sourceStrokeIndex = original.sourceStrokeIndex.map(remapped)
+            result.sourceStrokeIndices = Set(original.ownedSourceStrokeIndices.map(remapped))
+            return result
+        }
+    }
+}
+
 private enum ChordLaneLocalBreadcrumbs {
     #if DEBUG
     private static let isEnabled = UserDefaults.standard.bool(forKey: "iChartChordLaneBreadcrumbsEnabled")
@@ -2822,30 +2951,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawDraftBarline(_ barline: DraftBarline, in laneFrame: CGRect) {
         let laneFrame = laneFrame.insetBy(dx: 1, dy: 2)
-        let x = laneFrame.minX + laneFrame.width * CGFloat(barline.laneFraction)
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: x, y: laneFrame.minY))
-        path.addLine(to: CGPoint(x: x, y: laneFrame.maxY))
         let color = barline.isRenderable
             ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.72)
             : UIColor(red: 0.9, green: 0.46, blue: 0.12, alpha: 0.64)
-        color.setStroke()
-        path.lineWidth = 2
-        path.lineCapStyle = .round
-        path.setLineDash([6, 3], count: 2, phase: 0)
-        path.stroke()
+        let selected = selectedDraftBarlineID == barline.id
+        ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
 
-        guard selectedDraftBarlineID == barline.id else {
-            return
-        }
-
-        let selectedPath = UIBezierPath()
-        selectedPath.move(to: CGPoint(x: x, y: laneFrame.minY))
-        selectedPath.addLine(to: CGPoint(x: x, y: laneFrame.maxY))
-        UIColor(red: 0.06, green: 0.24, blue: 0.64, alpha: 0.92).setStroke()
-        selectedPath.lineWidth = 3
-        selectedPath.lineCapStyle = .round
-        selectedPath.stroke()
+        guard selected else { return }
 
         let controlFrames = ChordDraftBarlineOverlayGeometry.controlFrames(for: barline, in: laneFrame)
         let deletePath = UIBezierPath(ovalIn: controlFrames.delete)
@@ -4532,31 +4644,35 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func deleteDraftBarline(_ barlineID: UUID) {
-        var updatedPreviewState = chordPreviewState
-        guard let removedBarline = updatedPreviewState.removeDraftBarline(id: barlineID) else {
+        guard !isUsingInkTool,
+              let scope = activeInkScope(), case .chords = scope,
+              activeCanvasScope?.identity == scope.identity,
+              let pageLayout,
+              let barline = chordPreviewState.draftBarlines.first(where: { $0.id == barlineID }),
+              let indices = ChordDraftBarlineDeletionPolicy.validatedSourceIndices(
+                for: barline, state: chordPreviewState, chart: chart,
+                currentDrawing: pageInkCanvasView.drawing, pageLayout: pageLayout
+              ) else {
             selectedDraftBarlineID = nil
             setNeedsDisplay()
             return
         }
 
+        var updatedPreviewState = chordPreviewState
+        _ = updatedPreviewState.removeDraftBarline(id: barlineID)
+        updatedPreviewState.draftBarlines = ChordDraftBarlineDeletionPolicy.remappingSourceIndices(
+            updatedPreviewState.draftBarlines, afterRemoving: indices)
         selectedDraftBarlineID = nil
         chordPreviewState = updatedPreviewState
-        removeDraftBarlineSourceStrokeIfNeeded(removedBarline)
+        removeDraftBarlineSourceStrokes(at: indices)
         onChordInkDraftBarlinesChanged?(updatedPreviewState.draftBarlines)
         setNeedsDisplay()
     }
 
-    private func removeDraftBarlineSourceStrokeIfNeeded(_ barline: DraftBarline) {
-        guard let sourceStrokeIndex = barline.sourceStrokeIndex,
-              (0..<activeCanvasStrokeCount).contains(sourceStrokeIndex) else {
-            return
-        }
-
+    private func removeDraftBarlineSourceStrokes(at indices: Set<Int>) {
         chordInkRecognitionRequestState.cancelPendingRequest()
         chordInkPreparationSession.cancelPendingWork()
-        let removal = pageInkCanvasView.drawing.removingStrokesAndSummarizing(
-            at: [sourceStrokeIndex]
-        )
+        let removal = pageInkCanvasView.drawing.removingStrokesAndSummarizing(at: indices)
         isSyncingInkCanvasFromModel = true
         updateActiveCanvasStrokeCount(removal.strokeCount)
         pageInkCanvasView.drawing = removal.drawing
@@ -6695,9 +6811,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func publishChordDraftBarlinesIfChanged(_ barlines: [DraftBarline]) {
-        let currentSignatures = Set(chordPreviewState.draftBarlines.map(\.identitySignature))
-        let incomingSignatures = Set(barlines.map(\.identitySignature))
-        guard currentSignatures != incomingSignatures else {
+        guard !ChordDraftBarlinePresentationPolicy.detectedContentMatches(chordPreviewState.draftBarlines, barlines) else {
             return
         }
         onChordInkDraftBarlinesChanged?(barlines)

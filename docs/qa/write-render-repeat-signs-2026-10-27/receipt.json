@@ -1,0 +1,126 @@
+{
+  "feature": "Automatic repeat signs in Write & Render",
+  "date": "2026-10-27",
+  "branch": "codex/write-render-repeat-signs",
+  "baseCommit": "d655b50bcb1af46eaad21de22d4b6d315f1f939a",
+  "scope": [
+    "Native main-app repeat-sign grouping before chord targeting",
+    "Start, end, and combined repeat drafts",
+    "Explicit repeat-from-beginning confirmation",
+    "Atomic mapped repeat-span commit with retained original sign ink",
+    "Fresh, complete grouped-ink deletion",
+    "In-app help"
+  ],
+  "behaviorLimits": [
+    "Unmatched or nested starts retain ink until corrected",
+    "Duplicate existing repeat intervals reject without changing the chart or clearing ink",
+    "Lead Sheet repeats attach to existing measure boundaries; interior fixed-meter splits reject",
+    "Automatic repeat-ending recognition is deferred"
+  ],
+  "evidence": {
+    "source": "Synthetic InkStroke and PencilKit fixtures; native rendering and chart persistence tests",
+    "freshPhysicalPencilAcceptance": "Pending; no physical-device installation or data operations in this change",
+    "swiftPM": {
+      "totalTestCount": 1849,
+      "passedTests": 1760,
+      "failedTests": 0,
+      "skippedTests": 89,
+      "scope": "Shared non-UIKit model and persistence regression suite"
+    },
+    "nativeRegression": {
+      "totalTestCount": 441,
+      "passedTests": 441,
+      "failedTests": 0,
+      "skippedTests": 0
+    },
+    "helpConfigurationAfterHelpCopyUpdate": {
+      "totalTestCount": 33,
+      "passedTests": 33,
+      "failedTests": 0,
+      "skippedTests": 0
+    },
+    "newRepeatTests": 47,
+    "privatePreservationTests": {
+      "passed": 3,
+      "scope": "Chart snapshot fields and ink; local PDF/setlist identity and original document bytes"
+    },
+    "independentReview": "Confirmed duplicate-interval source-provenance finding fixed by atomic rejection; final source review found no remaining actionable issue"
+  },
+  "boundaries": {
+    "GraphMyScriptRecognitionImplementationsChanged": false,
+    "recognitionLabAppsOrDataChanged": false,
+    "backendChanged": false,
+    "physicalDeviceTouched": false
+  },
+  "visual": {
+    "file": "draft-preview.png",
+    "source": "Synthetic native draft-preview raster",
+    "sha256": "391d74412d7fe038332e740d778d55385df5ec6ea76c9ed983d6cb7f5d365661"
+  },
+  "sourceFiles": [
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkDraftPreview.swift",
+      "sha256": "b8af22f932ebb3e6a1d3397322d881f839f4f569e42ae62a00827f58a1f96476"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkDraftSourceCoveragePolicy.swift",
+      "sha256": "0a95eded0ad0f4ce420fc2dd3e2ba731d6376d5cd922562b68be6e3406570777"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkRecognitionSession.swift",
+      "sha256": "b2589461faa85b10f594e85dc005d89a048bff64a1af73cece53f17ec2de7d71"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift",
+      "sha256": "e6931d3e3ad8adcc18e9a5ab80feab929442531f1cf3a26a04f03041d4b6e474"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/ChordDraftRepeatReviewPolicy.swift",
+      "sha256": "b1fe4eb8ddbbe93fb56b7a707c977d21a85f9618768c9f5b47ca1fb4cf805fb1"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkRepeatSignCommitPolicy.swift",
+      "sha256": "87f4e161c0a12059ff7f0d30e593281be6ab4b9494ab16fe72b064bfe5e02c45"
+    },
+    {
+      "file": "iChart/Features/Editor/Components/ChordInkRepeatSignRecognizer.swift",
+      "sha256": "003293aeea25c8db2be27d89a828abab030d1f9a7c50d50569d304384e0edd57"
+    },
+    {
+      "file": "iChart/Features/Editor/EditorView.swift",
+      "sha256": "2d313ab221a30da81bc351ec9320187b3bc59fe507914db52c5fd48b2d36605f"
+    },
+    {
+      "file": "iChart/Features/Library/LibraryView.swift",
+      "sha256": "63434197cb84e3285519d1c5dbaed0d2cc73b13fa809b009fb711bf74a3e4695"
+    },
+    {
+      "file": "iChart/Models/ChartAnnotations.swift",
+      "sha256": "72ef563c7d5cfee696832491d6c6c742bc213c64357969d0fccc85c4ecad906c"
+    },
+    {
+      "file": "iChartTests/Editor/ChordDraftRepeatDeletionTests.swift",
+      "sha256": "1bec66db7e9617e236f0429c31d293ce8550fb0db5c0ae8ba5c2db3155c6502c"
+    },
+    {
+      "file": "iChartTests/Editor/ChordDraftRepeatReviewUITests.swift",
+      "sha256": "88cef87cdee265486bc805fc3beaec5ecd135e26d993455ac0aec55b9087e1a2"
+    },
+    {
+      "file": "iChartTests/Editor/ChordInkRepeatSignCommitTests.swift",
+      "sha256": "527b788c12eb4a0ea18edb02cf96075764c9c453a5909ccef970b45f73753a72"
+    },
+    {
+      "file": "iChartTests/Editor/ChordInkRepeatSignRecognizerTests.swift",
+      "sha256": "a65c986a50ee02dd82d7a78f71d0dd6f4b91b2b6599e9a501a805dd78bc773c2"
+    },
+    {
+      "file": "iChartTests/Editor/ChordInkRepeatSignWorkflowTests.swift",
+      "sha256": "bc49c9fca478c0fa2bf0a47be347383d8db8c64bc451418eda1de8b76ed64c46"
+    },
+    {
+      "file": "iChartTests/ProjectConfigurationTests.swift",
+      "sha256": "4fce9702617d98a23119bdc918edb29487e30f5fe4e00af1ae5dfd0bdf461404"
+    }
+  ]
+}

@@ -210,9 +210,10 @@ enum ChordInkRecognitionPreparation {
         }
         let sourceStrokeCount = sourceDrawing.strokes.count
 
-        let visibleSourceContext = ChordInkDraftVisibleStrokePolicy.visibleDrawingContext(
-            from: sourceDrawing
-        )
+        let visibleSourceContext = request.flow == .draftPreview
+            ? ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+                from: sourceDrawing, chordFrame: request.chordFrame, pageLayout: request.pageLayout)
+            : ChordInkDraftVisibleStrokePolicy.visibleDrawingContext(from: sourceDrawing)
         guard shouldContinue() else {
             return result(
                 requestID: request.requestID,
@@ -259,7 +260,7 @@ enum ChordInkRecognitionPreparation {
 
         let visibleBarlineRecognition: ChordDraftBarlineRecognition
         if request.flow == .draftPreview {
-            let rawVisibleBarlineRecognition = ChordDraftBarlineRecognizer.recognize(
+            let rawVisibleBarlineRecognition = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
                 strokes: sourceStrokes,
                 chordFrame: request.chordFrame,
                 pageLayout: request.pageLayout

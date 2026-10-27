@@ -148,6 +148,9 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
     var horizontalOffsetWithinMeasure: Double? = nil
     var scale: Double? = nil
     var endingEndStyle: EndingEndStyle? = nil
+    /// Original repeat-sign ink retained for correction/replay after rendering.
+    /// Older charts omit this field and preserve their existing representation.
+    var sourceInkData: Data? = nil
 
     var resolvedEndingEndStyle: EndingEndStyle {
         endingEndStyle ?? .closed

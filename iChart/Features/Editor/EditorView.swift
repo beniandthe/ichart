@@ -347,6 +347,7 @@ struct EditorView: View {
     @State private var chordInkErrorMessage = ""
     @State private var showingChordInkError = false
     @State private var pendingChordDraftClearChartID: UUID?
+    @State private var pendingChordDraftRepeatConfirmation: PendingChordDraftRepeatConfirmation?
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
@@ -416,8 +417,24 @@ struct EditorView: View {
             } message: { _ in
                 Text("This removes all unrendered chord and barline writing. Rendered notation and Free Ink stay unchanged.")
             }
+            .confirmationDialog(
+                "Repeat from beginning?",
+                isPresented: isChordDraftRepeatConfirmationPresented,
+                titleVisibility: .visible,
+                presenting: pendingChordDraftRepeatConfirmation
+            ) { request in
+                Button("Repeat from Beginning") {
+                    confirmChordDraftRepeatFromBeginning(request)
+                }
+                Button("Keep Editing", role: .cancel) {
+                    pendingChordDraftRepeatConfirmation = nil
+                }
+            } message: { _ in
+                Text("This end repeat has no matching start repeat. Repeat from the beginning of the chart?")
+            }
             .onChange(of: chart.id) { _, _ in
                 pendingChordDraftClearChartID = nil
+                pendingChordDraftRepeatConfirmation = nil
             }
     }
 
@@ -2338,6 +2355,7 @@ struct EditorView: View {
             || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
+            || pendingChordDraftRepeatConfirmation != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
     }
 
@@ -2484,7 +2502,7 @@ struct EditorView: View {
             ChordDiagnosticPreviewItem(
                 id: "barline-\(barline.id.uuidString)",
                 visualOrder: barline.visualOrder,
-                kind: .barline
+                kind: .barline(barline.kind)
             )
         }
         let implicitBarlineItems = ChordDraftPreviewImplicitBarlinePolicy
@@ -2493,7 +2511,7 @@ struct EditorView: View {
                 ChordDiagnosticPreviewItem(
                     id: "implicit-barline-\(barline.id)",
                     visualOrder: barline.visualOrder,
-                    kind: .barline
+                    kind: .barline(.single)
                 )
             }
 
@@ -2512,7 +2530,8 @@ struct EditorView: View {
         }
 
         if canRenderChordDrafts {
-            return chordPreviewState.requiresChordConfirmation
+            let repeatReview = ChordInkRepeatSignPairingPolicy.review(state: chordPreviewState)
+            return chordPreviewState.requiresChordConfirmation || !repeatReview.canRender
                 ? "Review before render"
                 : "Ready to render"
         }
@@ -2528,9 +2547,7 @@ struct EditorView: View {
         let chordText = chordPreviewState.draftChords
             .map(\.previewDisplayText)
             .joined(separator: ", ")
-        let barlineText = chordPreviewState.draftBarlines.isEmpty
-            ? "no draft barlines"
-            : "\(chordPreviewState.draftBarlines.count) draft barlines"
+        let barlineText = ChordDraftBarlinePresentationPolicy.accessibilitySummary(for: chordPreviewState.draftBarlines)
         return "Chord preview, \(chordText), \(barlineText), \(chordPreviewStatusText)"
     }
 
@@ -4505,6 +4522,16 @@ struct EditorView: View {
             return
         }
 
+        if let message = ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState) {
+            chordInkErrorMessage = message
+            showingChordInkError = true
+            return
+        }
+        if let request = ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: chordPreviewState) {
+            pendingChordDraftRepeatConfirmation = request
+            return
+        }
+
         if chordPreviewState.requiresChordConfirmation {
             guard let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) else {
                 chordInkErrorMessage = "One or more draft chords could not be prepared for review. Keep the ink and try again."
@@ -4538,6 +4565,12 @@ struct EditorView: View {
         reviewResult: String,
         workflowProperties: IChartTelemetryProperties = [:]
     ) -> Bool {
+        guard ChordInkRepeatSignPairingPolicy.review(state: state).canRender else {
+            chordInkErrorMessage = ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
+                ?? "An end repeat still needs confirmation. Keep the ink and tap Render again to review it. Nothing was rendered or erased."
+            showingChordInkError = true
+            return false
+        }
 
         var committedState = state
         committedState.markRenderableDraftsCommitted()
@@ -4556,13 +4589,17 @@ struct EditorView: View {
             showingChordInkError = true
             return false
         }
-        guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
-            chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
+        guard renderResult.unresolvedDraftIDs.isEmpty else {
+            let repeatIDs = Set(state.draftBarlines.filter { $0.kind.isRepeat }.map(\.id))
+            let hasUnresolvedRepeat = !repeatIDs.isDisjoint(with: renderResult.unresolvedDraftIDs)
+            chordInkErrorMessage = hasUnresolvedRepeat
+                ? "These repeat signs could not be placed. Check their measure boundaries and whether that repeat is already on the chart. Nothing was rendered or erased."
+                : "One or more reviewed chords could not be rendered. The draft ink is still available."
             showingChordInkError = true
             return false
         }
-        guard renderResult.unresolvedDraftIDs.isEmpty else {
-            chordInkErrorMessage = "One or more reviewed chords could not be rendered. The draft ink is still available."
+        guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 else {
+            chordInkErrorMessage = "No draft chords or barlines were ready to render yet."
             showingChordInkError = true
             return false
         }
@@ -4596,6 +4633,26 @@ struct EditorView: View {
         chordReviewEntriesByInk.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         return true
+    }
+
+    private var isChordDraftRepeatConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingChordDraftRepeatConfirmation?.chartID == chart.id },
+            set: { if !$0 { pendingChordDraftRepeatConfirmation = nil } }
+        )
+    }
+
+    private func confirmChordDraftRepeatFromBeginning(_ request: PendingChordDraftRepeatConfirmation) {
+        pendingChordDraftRepeatConfirmation = nil
+        guard let confirmed = ChordDraftRepeatReviewPolicy.confirmedState(
+            for: request, chart: chart, currentState: chordPreviewState
+        ) else {
+            chordInkErrorMessage = "The repeat preview or source ink changed during review. Tap Render again to review the current signs. Your ink has not been erased."
+            showingChordInkError = true
+            return
+        }
+        chordPreviewState = confirmed
+        handleRenderChordDrafts()
     }
 
     private var isChordDraftClearPresented: Binding<Bool> {
@@ -5935,10 +5992,11 @@ private struct ChordDiagnosticPreviewStripContent: View {
                             .frame(minWidth: ChordDiagnosticPreviewMetrics.chordMinWidth, minHeight: 28)
                             .background(Color.primary.opacity(0.055))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    case .barline:
-                        Text("|")
-                            .font(.title3.weight(.semibold))
-                            .frame(width: ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
+                    case .barline(let kind):
+                        Text(ChordDraftBarlinePresentationPolicy.previewText(for: kind))
+                            .font(.title3.weight(.semibold).monospaced())
+                            .frame(width: kind.isRepeat ? (kind == .repeatBoth ? 48 : 36) : ChordDiagnosticPreviewMetrics.barlineWidth, height: 28)
+                            .accessibilityLabel(kind.displayName)
                     }
                 }
             }
@@ -6032,7 +6090,7 @@ private struct ChordDiagnosticPreviewUIKitScrollView<Content: View>: UIViewRepre
 private struct ChordDiagnosticPreviewItem: Identifiable {
     enum Kind {
         case chord(String)
-        case barline
+        case barline(DraftBarlineKind)
     }
 
     let id: String
