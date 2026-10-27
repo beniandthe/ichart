@@ -33,11 +33,13 @@ enum ChordInkRepeatSignPairingPolicy {
     }
 
     static func orderedSigns(_ signs: [DraftBarline]) -> [DraftBarline] {
-        signs.filter { $0.kind.isRepeat }.sorted {
-            if $0.visualOrder != $1.visualOrder { return $0.visualOrder < $1.visualOrder }
-            if $0.measureIndex != $1.measureIndex { return $0.measureIndex < $1.measureIndex }
-            return $0.id.uuidString < $1.id.uuidString
-        }
+        signs.filter { $0.kind.isRepeat }.sorted(by: precedesInSourceOrder)
+    }
+
+    static func precedesInSourceOrder(_ lhs: DraftBarline, _ rhs: DraftBarline) -> Bool {
+        if lhs.visualOrder != rhs.visualOrder { return lhs.visualOrder < rhs.visualOrder }
+        if lhs.measureIndex != rhs.measureIndex { return lhs.measureIndex < rhs.measureIndex }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     static func analyze(signs: [DraftBarline]) -> Analysis {
@@ -133,7 +135,10 @@ enum ChordInkRepeatSignCommitPolicy {
             let lhs = boundaryPosition($0) ?? -1
             let rhs = boundaryPosition($1) ?? -1
             if lhs != rhs { return lhs < rhs }
-            return $0.draft.id.uuidString < $1.draft.id.uuidString
+            // The end of one source row and the start of the next can map
+            // to one musical boundary. Retain the order already reviewed in
+            // the preview so a random UUID cannot turn them into nesting.
+            return ChordInkRepeatSignPairingPolicy.precedesInSourceOrder($0.draft, $1.draft)
         }
         let byID = Dictionary(grouping: ordered, by: { $0.draft.id })
         for (id, matches) in byID where matches.count != 1 { invalidIDs.insert(id) }

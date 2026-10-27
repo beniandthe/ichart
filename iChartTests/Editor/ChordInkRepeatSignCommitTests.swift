@@ -48,6 +48,76 @@ final class ChordInkRepeatSignCommitTests: XCTestCase {
         XCTAssertEqual(plan.spans[1].sourceStrokeIndices, Set(3...10))
     }
 
+    func testSeparateRowEndAndNextRowStartShareBoundaryRegardlessOfUUIDOrder() throws {
+        let ids = (0..<4).map { _ in UUID() }
+        let lowID = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let highID = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
+        for (endID, nextStartID) in [(highID, lowID), (lowID, highID)] {
+            var start = sign(.repeatStart, measureID: ids[0], fraction: 0, indices: [0, 1, 2])
+            start.laneLocation = ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0)
+            var end = sign(.repeatEnd, measureID: ids[1], fraction: 0.9999, indices: [3, 4, 5])
+            end.id = endID
+            end.laneLocation = ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.9999)
+            var nextStart = sign(.repeatStart, measureID: ids[2], fraction: 0, indices: [6, 7, 8])
+            nextStart.id = nextStartID
+            nextStart.laneLocation = ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0)
+            var nextEnd = sign(.repeatEnd, measureID: ids[3], fraction: 0.9999, indices: [9, 10, 11])
+            nextEnd.laneLocation = ChordInkDraftLaneLocation(systemIndex: 1, fraction: 0.9999)
+            let drafts = [nextStart, nextEnd, end, start]
+            XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: preview(drafts)).canRender,
+                "The visual row order forms two complete consecutive repeats")
+            let plan = ChordInkRepeatSignCommitPolicy.plan(boundaries: [
+                .init(draft: nextStart, leftMeasureID: ids[1], rightMeasureID: ids[2]),
+                .init(draft: nextEnd, leftMeasureID: ids[3], rightMeasureID: nil),
+                .init(draft: end, leftMeasureID: ids[1], rightMeasureID: ids[2]),
+                .init(draft: start, leftMeasureID: nil, rightMeasureID: ids[0])
+            ], orderedMeasureIDs: ids)
+            XCTAssertTrue(plan.unresolvedDraftIDs.isEmpty,
+                "Coincident musical boundaries must not reorder an end after the next row's start based on UUID")
+            XCTAssertEqual(plan.spans.map(\.startMeasureID), [ids[0], ids[2]])
+            XCTAssertEqual(plan.spans.map(\.endMeasureID), [ids[1], ids[3]])
+            XCTAssertEqual(plan.spans.map(\.sourceDraftIDs), [[start.id, end.id], [nextStart.id, nextEnd.id]])
+            XCTAssertEqual(plan.spans.map(\.sourceStrokeIndices), [Set(0...5), Set(6...11)],
+                "Separate signs retain only their own start/end source pair")
+        }
+    }
+
+    func testCoincidentSameKindSignsRemainUnresolvedInsteadOfBecomingExtraRepeats() {
+        let ids = (0..<2).map { _ in UUID() }
+        let start = sign(.repeatStart, measureID: ids[0], fraction: 0)
+        let end = sign(.repeatEnd, measureID: ids[1], fraction: 0.9999)
+        for duplicatedKind in [DraftBarlineKind.repeatStart, .repeatEnd] {
+            var duplicate = duplicatedKind == .repeatStart ? start : end
+            duplicate.id = UUID()
+            let duplicateBoundary = ChordInkRepeatSignCommitPolicy.Boundary(draft: duplicate,
+                leftMeasureID: duplicatedKind == .repeatStart ? nil : ids[1],
+                rightMeasureID: duplicatedKind == .repeatStart ? ids[0] : nil)
+            let plan = ChordInkRepeatSignCommitPolicy.plan(boundaries: [
+                .init(draft: start, leftMeasureID: nil, rightMeasureID: ids[0]),
+                duplicateBoundary,
+                .init(draft: end, leftMeasureID: ids[1], rightMeasureID: nil)
+            ], orderedMeasureIDs: ids)
+            XCTAssertTrue(plan.spans.isEmpty)
+            XCTAssertFalse(plan.unresolvedDraftIDs.isEmpty)
+        }
+    }
+
+    func testCombinedSignStillClosesPreviousSpanAndStartsNextAtSharedBoundary() {
+        let ids = (0..<4).map { _ in UUID() }
+        let start = sign(.repeatStart, measureID: ids[0], fraction: 0, indices: [0])
+        let both = sign(.repeatBoth, measureID: ids[1], fraction: 0.9999, indices: [1, 2])
+        let end = sign(.repeatEnd, measureID: ids[3], fraction: 0.9999, indices: [3])
+        let plan = ChordInkRepeatSignCommitPolicy.plan(boundaries: [
+            .init(draft: end, leftMeasureID: ids[3], rightMeasureID: nil),
+            .init(draft: both, leftMeasureID: ids[1], rightMeasureID: ids[2]),
+            .init(draft: start, leftMeasureID: nil, rightMeasureID: ids[0])
+        ], orderedMeasureIDs: ids)
+        XCTAssertTrue(plan.unresolvedDraftIDs.isEmpty)
+        XCTAssertEqual(plan.spans.map(\.startMeasureID), [ids[0], ids[2]])
+        XCTAssertEqual(plan.spans.map(\.endMeasureID), [ids[1], ids[3]])
+        XCTAssertEqual(plan.spans.map(\.sourceStrokeIndices), [[0, 1, 2], [1, 2, 3]])
+    }
+
     func testEmptyAndNonadjacentMappedBoundariesRejectEverySpan() {
         let ids = (0..<3).map { _ in UUID() }
         let start = sign(.repeatStart, measureID: ids[0], fraction: 0.2)
