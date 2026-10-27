@@ -75,7 +75,7 @@
     "backendChanged": false,
     "existingChartDataModified": false
   },
-  "freshPencilAcceptance": "Pending user retest on installed build 82",
+  "freshPencilAcceptance": "User confirmed build 82 looks good on the iPad on 2026-10-27 and authorized push, PR and merge after checks.",
   "sourceFiles": [
     {
       "file": "iChart/Features/Editor/Components/ChordInkDraftPreview.swift",
