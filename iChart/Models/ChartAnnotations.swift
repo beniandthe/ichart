@@ -120,6 +120,20 @@ enum CueEmphasis: String, Codable, CaseIterable, Hashable {
     case strong
 }
 
+enum EndingEndStyle: String, Codable, CaseIterable, Hashable, Identifiable {
+    case open
+    case closed
+
+    var id: String { rawValue }
+
+    var displayText: String {
+        switch self {
+        case .open: return "Open"
+        case .closed: return "Closed"
+        }
+    }
+}
+
 struct RoadmapObject: Identifiable, Codable, Hashable {
     var id: UUID
     var type: RoadmapType
@@ -133,6 +147,23 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
     var rawInput: String?
     var horizontalOffsetWithinMeasure: Double? = nil
     var scale: Double? = nil
+    var endingEndStyle: EndingEndStyle? = nil
+
+    var resolvedEndingEndStyle: EndingEndStyle {
+        endingEndStyle ?? .closed
+    }
+
+    var resolvedEndingDisplayText: String {
+        Self.normalizedEndingDisplayText(displayText)
+            ?? type.compactEndingDisplayText
+            ?? type.defaultDisplayText
+    }
+
+    static func normalizedEndingDisplayText(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let normalized = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        return normalized.isEmpty ? nil : normalized
+    }
 
     var resolvedDisplayText: String {
         displayText ?? type.defaultDisplayText

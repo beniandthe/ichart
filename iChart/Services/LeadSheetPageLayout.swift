@@ -187,7 +187,7 @@ extension LeadSheetSystemLayout {
             }
             return frames
         }
-        frames.append(contentsOf: endingLayouts.map(\.frame))
+        frames.append(contentsOf: endingLayouts.map(\.occupiedFrame))
         frames.append(contentsOf: roadmapMarkerLayouts.map(LeadSheetRoadmapMarkerLabelGeometry.labelFrame))
         frames.append(contentsOf: [sectionTextFrame, roadmapTextFrame, timeSignatureFrame].compactMap { $0 })
         if let clefFrame {
@@ -422,6 +422,14 @@ struct LeadSheetEndingLayout: Identifiable, Hashable {
     var showsText: Bool
     var showsLeadingHook: Bool
     var showsTrailingHook: Bool
+    var labelFrame: CGRect = .zero
+    var labelFontSize: CGFloat = 0
+    var labelLineCount: Int = 1
+    var laneIndex: Int = 0
+
+    var occupiedFrame: CGRect {
+        labelFrame.isEmpty ? frame : frame.union(labelFrame)
+    }
 
     var id: String {
         "\(roadmapObjectID.uuidString)-\(systemIndex)"
@@ -1036,7 +1044,10 @@ enum LeadSheetPageLayoutEngine {
             )
             : packedSystemPlans(for: chart, maxSystemWidth: paperFrame.width - 68)
         let readabilityActive = chart.notationReadability != .standard || chart.repeatWings
-        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive else {
+        let flexibleEndings = endingSpanDescriptors(in: chart).contains {
+            $0.laneIndex > 0 || $0.object.resolvedEndingDisplayText != $0.object.type.compactEndingDisplayText
+        }
+        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive || flexibleEndings else {
             return plans
         }
 
@@ -1058,7 +1069,7 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy
             )
             let contentBounds: CGRect
-            if chart.staffSystemDensity == .standard && !readabilityActive {
+            if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings {
                 // Standard rows keep their original engraving. Only cue
                 // overhang needs additional space when its text wraps or moves.
                 let cueFrames = measuredSystem.measures.flatMap(\.cueTextLayouts).map(\.frame)
@@ -1216,22 +1227,46 @@ enum LeadSheetPageLayoutEngine {
         chart: Chart,
         index: Int,
         frame: CGRect,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        endingReserveOverride: CGFloat? = nil
     ) -> LeadSheetSystemLayout {
         let metrics = visualPolicy.metrics
         let lineSpacing = metrics.staffLineSpacing
-        let chordBandHeight = metrics.chordBandHeight
         let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
         let isRhythmSectionSheet = chart.layoutStyle == .rhythmSectionSheet
         let measureIDs = plan.measures.compactMap(\.measure?.id)
         let readabilityActive = chart.notationReadability != .standard || chart.repeatWings
         let annotationSpacing = readabilityAnnotationSpacing(for: chart, measureIDs: measureIDs)
+        let sectionText = chart.sectionLabels.first(where: { measureIDs.contains($0.anchorMeasureID) })?.text
+        let hasEndingLayouts = chart.roadmapObjects.contains {
+            roadmapObject($0, intersects: measureIDs, in: chart)
+        }
+        let hasPointMarkerLayouts = chart.roadmapObjects.contains {
+            $0.type.isPointMarker && measureIDs.contains($0.startMeasureID)
+        }
+        let structuredRoadmapReserveHeight: CGFloat
+        if hasPointMarkerLayouts && hasEndingLayouts {
+            structuredRoadmapReserveHeight = 38
+        } else if hasPointMarkerLayouts || hasEndingLayouts {
+            structuredRoadmapReserveHeight = 24
+        } else {
+            structuredRoadmapReserveHeight = 0
+        }
+        let rhythmSectionLabelReserveHeight: CGFloat = isRhythmSectionSheet && sectionText != nil ? 22 : 0
+        let baseRoadmapReserveHeight: CGFloat = isSimpleChordSheet ? 0 : max(
+            readabilityActive ? annotationSpacing.contentTop : structuredRoadmapReserveHeight,
+            rhythmSectionLabelReserveHeight
+        )
+        let additionalEndingReserve = isSimpleChordSheet ? 0 : max(0, (endingReserveOverride ?? 0) - baseRoadmapReserveHeight)
+        let roadmapTopReserveHeight = baseRoadmapReserveHeight + additionalEndingReserve
+        let chordBandHeight = metrics.chordBandHeight + additionalEndingReserve
         let staffTop: CGFloat
         if isSimpleChordSheet {
             let annotationInset = readabilityActive
                 ? max(24, annotationSpacing.contentTop + annotationSpacing.wingClearance + 2)
                 : 24
-            staffTop = frame.minY + annotationInset
+            let flexibleInset = endingReserveOverride.map { $0 + annotationSpacing.wingClearance + 2 } ?? 0
+            staffTop = frame.minY + max(annotationInset, flexibleInset)
         } else if isRhythmSectionSheet {
             staffTop = frame.minY + chordBandHeight + 6 + (readabilityActive ? annotationSpacing.wingClearance : 0)
         } else {
@@ -1292,37 +1327,12 @@ enum LeadSheetPageLayoutEngine {
         } else {
             timeSignatureFrame = nil
         }
-        let sectionText = chart.sectionLabels.first(where: { measureIDs.contains($0.anchorMeasureID) })?.text
         let sectionTextFrame = sectionText.map { _ in
             CGRect(
                 x: frame.minX,
                 y: frame.minY + (isRhythmSectionSheet ? 1 : 2),
                 width: isRhythmSectionSheet ? 96 : 140,
                 height: isRhythmSectionSheet ? 20 : 18
-            )
-        }
-        let hasEndingLayouts = chart.roadmapObjects.contains {
-            roadmapObject($0, intersects: measureIDs, in: chart)
-        }
-        let hasPointMarkerLayouts = chart.roadmapObjects.contains {
-            $0.type.isPointMarker && measureIDs.contains($0.startMeasureID)
-        }
-        let roadmapTopReserveHeight: CGFloat
-        if isSimpleChordSheet {
-            roadmapTopReserveHeight = 0
-        } else {
-            let structuredRoadmapReserveHeight: CGFloat
-            if hasPointMarkerLayouts && hasEndingLayouts {
-                structuredRoadmapReserveHeight = 38
-            } else if hasPointMarkerLayouts || hasEndingLayouts {
-                structuredRoadmapReserveHeight = 24
-            } else {
-                structuredRoadmapReserveHeight = 0
-            }
-            let rhythmSectionLabelReserveHeight: CGFloat = isRhythmSectionSheet && sectionText != nil ? 22 : 0
-            roadmapTopReserveHeight = max(
-                readabilityActive ? annotationSpacing.contentTop : structuredRoadmapReserveHeight,
-                rhythmSectionLabelReserveHeight
             )
         }
         let roadmapText = chart.roadmapObjects.first(where: {
@@ -1374,13 +1384,35 @@ enum LeadSheetPageLayoutEngine {
             systemFrame: frame,
             measureLayouts: measures
         )
+        let flexibleEndingOnSystem = endingSpanDescriptors(in: chart).contains {
+            ($0.laneIndex > 0 || $0.object.resolvedEndingDisplayText != $0.object.type.compactEndingDisplayText)
+                && roadmapObject($0.object, intersects: measureIDs, in: chart)
+        }
+        var endingTopOffset = readabilityActive ? annotationSpacing.endingTopOffset : (hasPointMarkerLayouts ? 14 : 0)
+        if flexibleEndingOnSystem, let sectionTextFrame {
+            endingTopOffset = max(endingTopOffset, sectionTextFrame.maxY - frame.minY + 2)
+        }
         let endingLayouts = endingLayouts(
             for: chart,
             systemIndex: index,
             systemFrame: frame,
-            topOffset: readabilityActive ? annotationSpacing.endingTopOffset : (hasPointMarkerLayouts ? 14 : 0),
+            topOffset: endingTopOffset,
             measureLayouts: measures
         )
+        if endingReserveOverride == nil,
+           endingLayouts.contains(where: { $0.labelLineCount > 1 || $0.laneIndex > 0 || $0.frame.height > chart.notationReadability.endingHeight + 0.001 }),
+           let endingBottom = endingLayouts.map(\.occupiedFrame.maxY).max() {
+            // Label width depends only on source measure geometry. A second
+            // pass adds vertical room without changing measure anchors or ink.
+            return systemLayout(
+                for: plan,
+                chart: chart,
+                index: index,
+                frame: frame,
+                visualPolicy: visualPolicy,
+                endingReserveOverride: endingBottom - frame.minY + 6
+            )
+        }
 
         return LeadSheetSystemLayout(
             id: plan.id,
@@ -1429,6 +1461,42 @@ enum LeadSheetPageLayoutEngine {
         }
     }
 
+    private struct EndingSpanDescriptor {
+        var object: RoadmapObject
+        var startIndex: Int
+        var endIndex: Int
+        var laneIndex: Int
+        var sourceOrder: Int
+    }
+
+    private static func endingSpanDescriptors(in chart: Chart) -> [EndingSpanDescriptor] {
+        let measureIndexes = Dictionary(uniqueKeysWithValues: chart.measures.enumerated().map { ($0.element.id, $0.offset) })
+        let spans = chart.roadmapObjects.enumerated().compactMap { sourceOrder, object -> EndingSpanDescriptor? in
+            guard object.type.isEnding,
+                  let endID = object.endMeasureID,
+                  let startIndex = measureIndexes[object.startMeasureID],
+                  let endIndex = measureIndexes[endID],
+                  startIndex <= endIndex else { return nil }
+            return EndingSpanDescriptor(object: object, startIndex: startIndex, endIndex: endIndex, laneIndex: 0, sourceOrder: sourceOrder)
+        }.sorted {
+            if $0.startIndex != $1.startIndex { return $0.startIndex < $1.startIndex }
+            if $0.endIndex != $1.endIndex { return $0.endIndex < $1.endIndex }
+            return $0.sourceOrder < $1.sourceOrder
+        }
+        var laneEnds: [Int] = []
+        return spans.map { span in
+            var resolved = span
+            if let lane = laneEnds.firstIndex(where: { $0 < span.startIndex }) {
+                resolved.laneIndex = lane
+                laneEnds[lane] = span.endIndex
+            } else {
+                resolved.laneIndex = laneEnds.count
+                laneEnds.append(span.endIndex)
+            }
+            return resolved
+        }
+    }
+
     private static func endingLayouts(
         for chart: Chart,
         systemIndex: Int,
@@ -1436,60 +1504,58 @@ enum LeadSheetPageLayoutEngine {
         topOffset: CGFloat,
         measureLayouts: [LeadSheetMeasureLayout]
     ) -> [LeadSheetEndingLayout] {
-        let orderedMeasureIDs = chart.measures.map(\.id)
-        let indexedMeasureLayouts = measureLayouts.compactMap { measureLayout -> (layout: LeadSheetMeasureLayout, index: Int)? in
-            guard let sourceMeasureID = measureLayout.sourceMeasureID,
-                  let measureIndex = orderedMeasureIDs.firstIndex(of: sourceMeasureID) else {
-                return nil
-            }
-
-            return (measureLayout, measureIndex)
+        let measureIndexes = Dictionary(uniqueKeysWithValues: chart.measures.enumerated().map { ($0.element.id, $0.offset) })
+        let indexedMeasures = measureLayouts.compactMap { measure -> (layout: LeadSheetMeasureLayout, index: Int)? in
+            guard let sourceID = measure.sourceMeasureID, let index = measureIndexes[sourceID] else { return nil }
+            return (measure, index)
         }
-        guard !indexedMeasureLayouts.isEmpty else {
-            return []
+        guard !indexedMeasures.isEmpty else { return [] }
+
+        var layouts = endingSpanDescriptors(in: chart).compactMap { span -> LeadSheetEndingLayout? in
+            let segment = indexedMeasures.filter { $0.index >= span.startIndex && $0.index <= span.endIndex }
+            guard let first = segment.first, let last = segment.last else { return nil }
+            let startX = first.layout.staffFrame.minX + 4
+            let endX = last.layout.staffFrame.maxX - 4
+            let width = max(1, endX - startX)
+            let showsText = first.index == span.startIndex
+            let labelWidth = max(1, width - 12)
+            let text = span.object.resolvedEndingDisplayText
+            let labelMetrics = LeadSheetEndingTextLayout.metrics(text: text, width: labelWidth, chart: chart)
+            let lineCount = showsText ? labelMetrics.lineCount : 1
+            let height = showsText ? labelMetrics.bandHeight : chart.notationReadability.endingHeight
+            let frame = CGRect(x: startX, y: systemFrame.minY + 2 + topOffset, width: width, height: height)
+            return LeadSheetEndingLayout(
+                roadmapObjectID: span.object.id,
+                systemIndex: systemIndex,
+                type: span.object.type,
+                text: text,
+                frame: frame,
+                showsText: showsText,
+                showsLeadingHook: first.index == span.startIndex,
+                showsTrailingHook: last.index == span.endIndex && span.object.resolvedEndingEndStyle == .closed,
+                labelFrame: showsText ? CGRect(x: startX + 6, y: frame.minY + 4, width: labelWidth, height: max(1, frame.height - 4)) : .zero,
+                labelFontSize: labelMetrics.fontSize,
+                labelLineCount: lineCount,
+                laneIndex: span.laneIndex
+            )
         }
-
-        return chart.roadmapObjects
-            .filter { $0.type.isEnding }
-            .compactMap { roadmapObject in
-                guard let endMeasureID = roadmapObject.endMeasureID,
-                      let startIndex = orderedMeasureIDs.firstIndex(of: roadmapObject.startMeasureID),
-                      let endIndex = orderedMeasureIDs.firstIndex(of: endMeasureID),
-                      startIndex <= endIndex else {
-                    return nil
-                }
-
-                let segmentMeasures = indexedMeasureLayouts.filter {
-                    $0.index >= startIndex && $0.index <= endIndex
-                }
-                guard let firstSegmentMeasure = segmentMeasures.first,
-                      let lastSegmentMeasure = segmentMeasures.last else {
-                    return nil
-                }
-
-                let startX = firstSegmentMeasure.layout.staffFrame.minX + 4
-                let endX = lastSegmentMeasure.layout.staffFrame.maxX - 4
-                let frame = CGRect(
-                    x: startX,
-                    y: systemFrame.minY + 2 + topOffset,
-                    width: max(1, endX - startX),
-                    height: chart.notationReadability.endingHeight
-                )
-                let text = roadmapObject.displayText
-                    ?? roadmapObject.type.compactEndingDisplayText
-                    ?? roadmapObject.resolvedDisplayText
-
-                return LeadSheetEndingLayout(
-                    roadmapObjectID: roadmapObject.id,
-                    systemIndex: systemIndex,
-                    type: roadmapObject.type,
-                    text: text,
-                    frame: frame,
-                    showsText: firstSegmentMeasure.index == startIndex,
-                    showsLeadingHook: firstSegmentMeasure.index == startIndex,
-                    showsTrailingHook: lastSegmentMeasure.index == endIndex
-                )
+        guard let maximumLane = layouts.map(\.laneIndex).max() else { return [] }
+        var laneOffsets = [CGFloat](repeating: 0, count: maximumLane + 1)
+        if maximumLane > 0 {
+            for lane in 1...maximumLane {
+                let previousHeight = layouts.filter { $0.laneIndex == lane - 1 }.map(\.frame.height).max()
+                    ?? chart.notationReadability.endingHeight
+                laneOffsets[lane] = laneOffsets[lane - 1] + previousHeight + 6
             }
+        }
+        for index in layouts.indices {
+            let offset = laneOffsets[layouts[index].laneIndex]
+            layouts[index].frame = layouts[index].frame.offsetBy(dx: 0, dy: offset)
+            if layouts[index].showsText {
+                layouts[index].labelFrame = layouts[index].labelFrame.offsetBy(dx: 0, dy: offset)
+            }
+        }
+        return layouts
     }
 
     private static func roadmapMarkerLayouts(

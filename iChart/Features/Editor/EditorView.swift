@@ -310,6 +310,7 @@ struct EditorView: View {
     @State private var showingHeaderSheet = false
     @State private var showingTypographySheet = false
     @State private var showingNotationReadabilitySheet = false
+    @State private var endingEditorRequest: EndingEditorRequest?
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
@@ -508,6 +509,18 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showingNotationReadabilitySheet) {
             ChartAppearanceSheetView(chart: $chart, panel: .engraving)
+        }
+        .sheet(item: $endingEditorRequest, onDismiss: handleEndingEditorDismissed) { request in
+            EndingEditorSheet(
+                chart: $chart,
+                request: request,
+                onApplied: { endingID in
+                    selectedMeasureID = chart.roadmapObject(id: endingID)?.startMeasureID
+                },
+                onDeleted: {
+                    selectedMeasureID = chart.measure(id: request.startMeasureID)?.id
+                }
+            )
         }
         .sheet(isPresented: $showingPersonalHandwriting) {
             if HandwritingPersonalizationProductPolicy.isAvailable {
@@ -1970,6 +1983,13 @@ struct EditorView: View {
                     handleRepeatActiveEndingTapped(.ending2)
                 }
 
+                activeToolButton(
+                    title: "Ending…",
+                    systemImage: "text.badge.plus",
+                    isTourHighlighted: false,
+                    action: handleCustomEndingTapped
+                )
+
                 Menu {
                     Button(role: .destructive) {
                         handleRemoveRepeatAtSelectedMeasure()
@@ -1978,17 +1998,30 @@ struct EditorView: View {
                     }
                     .disabled(!canRemoveRepeatAtSelectedMeasure)
 
-                    Button(role: .destructive) {
-                        handleRemoveEndingAtSelectedMeasure()
-                    } label: {
-                        Label("Remove Ending", systemImage: "trash")
+                    if endingSpansAtSelectedMeasure.count > 1 {
+                        Menu {
+                            ForEach(endingSpansAtSelectedMeasure) { ending in
+                                Button {
+                                    presentEndingEditor(endingID: ending.id)
+                                } label: {
+                                    Text(endingActionTitle(for: ending))
+                                }
+                            }
+                        } label: {
+                            Label("Edit or Remove Ending…", systemImage: "pencil")
+                        }
+                    } else {
+                        Button {
+                            handleRemoveEndingAtSelectedMeasure()
+                        } label: {
+                            Label("Edit or Remove Ending…", systemImage: "pencil")
+                        }
+                        .disabled(!canRemoveEndingAtSelectedMeasure)
                     }
-                    .disabled(!canRemoveEndingAtSelectedMeasure)
                 } label: {
                     activeToolMenuLabel(
-                        title: "Remove",
-                        systemImage: "trash",
-                        isDestructive: true,
+                        title: "Manage",
+                        systemImage: "ellipsis.circle",
                         isTourHighlighted: false
                     )
                 }
@@ -2302,6 +2335,7 @@ struct EditorView: View {
     private var isPresentingEditorPanel: Bool {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
             || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
+            || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
@@ -2827,6 +2861,22 @@ struct EditorView: View {
         }
 
         return !chart.endingSpanIDs(attachedTo: targetMeasureID).isEmpty
+    }
+
+    private var endingSpansAtSelectedMeasure: [RoadmapObject] {
+        guard let measureID = resolvedMeasureActionTargetID() else { return [] }
+        let endingIDs = Set(chart.endingSpanIDs(attachedTo: measureID))
+        return chart.roadmapObjects.filter { endingIDs.contains($0.id) }
+    }
+
+    private func endingActionTitle(for ending: RoadmapObject) -> String {
+        let measureIDs = chart.measures.map(\.id)
+        guard let start = measureIDs.firstIndex(of: ending.startMeasureID),
+              let end = ending.endMeasureID.flatMap({ measureIDs.firstIndex(of: $0) }) else {
+            return ending.resolvedEndingDisplayText
+        }
+        let range = start == end ? "Measure \(start + 1)" : "Measures \(start + 1)–\(end + 1)"
+        return "\(ending.resolvedEndingDisplayText) · \(range)"
     }
 
     private var canInsertSystemBreakBeforeSelectedMeasure: Bool {
@@ -3448,8 +3498,7 @@ struct EditorView: View {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard type.isEnding,
               enterRepeatEditMode(),
-              let targetMeasureID,
-              chart.addEndingSpan(type, startMeasureID: targetMeasureID, endMeasureID: targetMeasureID) != nil else {
+              let targetMeasureID else {
             return
         }
 
@@ -3458,6 +3507,7 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
+        presentNewEndingEditor(type: type, startMeasureID: targetMeasureID, endMeasureID: targetMeasureID)
     }
 
     private func handleStartEndingHere(_ type: RoadmapType) {
@@ -3484,12 +3534,7 @@ struct EditorView: View {
               let orderedBoundaryIDs = orderedRepeatBoundaryIDs(
                 startMeasureID: endingStartMeasureID,
                 endMeasureID: targetMeasureID
-              ),
-              chart.addEndingSpan(
-                pendingEndingType,
-                startMeasureID: orderedBoundaryIDs.start,
-                endMeasureID: orderedBoundaryIDs.end
-              ) != nil else {
+              ) else {
             return
         }
 
@@ -3498,21 +3543,52 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         self.pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-
+        presentNewEndingEditor(
+            type: pendingEndingType,
+            startMeasureID: orderedBoundaryIDs.start,
+            endMeasureID: orderedBoundaryIDs.end
+        )
     }
 
     private func handleRemoveEndingAtSelectedMeasure() {
+        guard let ending = endingSpansAtSelectedMeasure.first else { return }
+        presentEndingEditor(endingID: ending.id)
+    }
+
+    private func handleCustomEndingTapped() {
         let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterRepeatEditMode(),
-              let targetMeasureID,
-              chart.deleteEndingSpans(attachedTo: targetMeasureID) > 0 else {
+        guard chart.hasCompletedInitialSetup, let targetMeasureID else {
+            if !chart.hasCompletedInitialSetup { showingSetupSheet = true }
             return
         }
-
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
+        activateSelectTool()
         selectedMeasureID = targetMeasureID
+        endingEditorRequest = EndingEditorRequest(startMeasureID: targetMeasureID)
+    }
+
+    private func presentEndingEditor(endingID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              let ending = chart.roadmapObject(id: endingID), ending.type.isEnding else {
+            return
+        }
+        activateSelectTool()
+        selectedMeasureID = ending.startMeasureID
+        endingEditorRequest = EndingEditorRequest(ending: ending)
+    }
+
+    private func presentNewEndingEditor(type: RoadmapType, startMeasureID: UUID, endMeasureID: UUID) {
+        guard chart.hasCompletedInitialSetup,
+              type.isEnding,
+              chart.measure(id: startMeasureID) != nil,
+              chart.measure(id: endMeasureID) != nil else { return }
+        activateSelectTool()
+        selectedMeasureID = startMeasureID
+        endingEditorRequest = EndingEditorRequest(preset: type, startMeasureID: startMeasureID, endMeasureID: endMeasureID)
+    }
+
+    private func handleEndingEditorDismissed() {
+        endingEditorRequest = nil
+        activateSelectTool()
     }
 
     private func handleAddPointRoadmapMarker(_ type: RoadmapType) {
@@ -4030,15 +4106,7 @@ struct EditorView: View {
             return
         }
 
-        selectedMeasureID = endingSpan.startMeasureID
-        clearSelectedCanvasObjectIDs()
-        selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
-        pendingTimeSignaturePlacement = nil
-        pendingDeleteStartMeasureID = nil
-        pendingMeasureStackInsertion = nil
-        clearPendingRepeatState()
-        _ = enterRepeatEditMode()
+        presentEndingEditor(endingID: endingSpan.id)
     }
 
     private func handleTimeSignatureSelectedFromCanvas(_ measureID: UUID) {

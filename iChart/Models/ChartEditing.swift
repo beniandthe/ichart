@@ -2494,7 +2494,9 @@ extension Chart {
     mutating func addEndingSpan(
         _ type: RoadmapType,
         startMeasureID: UUID,
-        endMeasureID: UUID
+        endMeasureID: UUID,
+        displayText: String? = nil,
+        endStyle: EndingEndStyle? = nil
     ) -> UUID? {
         guard type.isEnding,
               let startLocation = measureLocation(id: startMeasureID),
@@ -2503,10 +2505,15 @@ extension Chart {
             return nil
         }
 
+        let normalizedText = RoadmapObject.normalizedEndingDisplayText(displayText)
+        let effectiveText = normalizedText ?? type.compactEndingDisplayText ?? type.defaultDisplayText
+        let effectiveEndStyle = endStyle ?? .closed
         if let existingEndingSpan = roadmapObjects.first(where: {
-            $0.type == type
+            $0.type.isEnding
                 && $0.startMeasureID == startMeasureID
                 && $0.endMeasureID == endMeasureID
+                && $0.resolvedEndingDisplayText == effectiveText
+                && $0.resolvedEndingEndStyle == effectiveEndStyle
         }) {
             return existingEndingSpan.id
         }
@@ -2518,10 +2525,11 @@ extension Chart {
             endMeasureID: endMeasureID,
             anchorSystemID: systems[startLocation.systemIndex].id,
             placement: .snappedTop,
-            displayText: nil,
+            displayText: normalizedText,
             count: nil,
             linkedTargetID: nil,
-            rawInput: type.defaultDisplayText
+            rawInput: normalizedText ?? type.defaultDisplayText,
+            endingEndStyle: endStyle
         )
 
         roadmapObjects.append(endingSpan)
@@ -2591,6 +2599,56 @@ extension Chart {
         removeRoadmapObjectIDFromMeasures(roadmapObjectID)
         attachRoadmapObject(roadmapObjectID, to: startMeasureID)
         attachRoadmapObject(roadmapObjectID, to: endMeasureID)
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func updateEndingDetails(
+        _ roadmapObjectID: UUID,
+        startMeasureID: UUID,
+        endMeasureID: UUID,
+        displayText: String?,
+        endStyle: EndingEndStyle
+    ) -> Bool {
+        guard let roadmapObjectIndex = roadmapObjects.firstIndex(where: { $0.id == roadmapObjectID }),
+              roadmapObjects[roadmapObjectIndex].type.isEnding,
+              let startLocation = measureLocation(id: startMeasureID),
+              let endLocation = measureLocation(id: endMeasureID),
+              flattenedMeasureIndex(for: startLocation) <= flattenedMeasureIndex(for: endLocation) else {
+            return false
+        }
+
+        let original = roadmapObjects[roadmapObjectIndex]
+        var endingSpan = original
+        endingSpan.startMeasureID = startMeasureID
+        endingSpan.endMeasureID = endMeasureID
+        endingSpan.anchorSystemID = systems[startLocation.systemIndex].id
+        endingSpan.displayText = RoadmapObject.normalizedEndingDisplayText(displayText)
+        endingSpan.endingEndStyle = endStyle
+        let boundariesChanged = original.startMeasureID != startMeasureID || original.endMeasureID != endMeasureID
+        let labelChanged = original.resolvedEndingDisplayText != endingSpan.resolvedEndingDisplayText
+        let styleChanged = original.resolvedEndingEndStyle != endingSpan.resolvedEndingEndStyle
+        guard boundariesChanged
+            || original.anchorSystemID != endingSpan.anchorSystemID
+            || labelChanged || styleChanged else {
+            return false
+        }
+
+        if labelChanged {
+            endingSpan.rawInput = endingSpan.displayText ?? endingSpan.type.defaultDisplayText
+        } else {
+            endingSpan.displayText = original.displayText
+        }
+        if !styleChanged {
+            endingSpan.endingEndStyle = original.endingEndStyle
+        }
+        roadmapObjects[roadmapObjectIndex] = endingSpan
+        if boundariesChanged {
+            removeRoadmapObjectIDFromMeasures(roadmapObjectID)
+            attachRoadmapObject(roadmapObjectID, to: startMeasureID)
+            attachRoadmapObject(roadmapObjectID, to: endMeasureID)
+        }
         updatedAt = .now
         return true
     }
