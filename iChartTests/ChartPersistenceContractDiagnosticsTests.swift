@@ -130,6 +130,114 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
         XCTAssertNil(events.last?.contentMatches)
     }
 
+    func testRealFileReadbackIgnoresNonpersistedRuntimeAccessPolicy() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library.json"))
+        var expected = snapshot()
+        expected.entitlements = AppEntitlements(activePlan: .free, accessPolicy: .betaBasic)
+        try repository.saveSnapshot(expected)
+        let loaded = try XCTUnwrap(repository.loadSnapshot())
+        XCTAssertNotEqual(loaded.entitlements.accessPolicy, expected.entitlements.accessPolicy)
+        XCTAssertEqual(loaded.entitlements.accessPolicy, .current)
+        XCTAssertNotEqual(loaded, expected, "Runtime equality includes an intentionally nonpersisted field")
+        XCTAssertEqual(try ChartPersistenceCoders.encoder.encode(loaded.entitlements),
+                       try ChartPersistenceCoders.encoder.encode(expected.entitlements))
+        XCTAssertEqual(loaded.charts, expected.charts)
+        var events: [ChartPersistenceContractCheck] = []
+        let diagnostics = ChartPersistenceContractDiagnostics(
+            fileURL: repository.url, identity: "installation", isEnabled: { true }, record: { events.append($0) }
+        )
+
+        diagnostics.didSave(expected, repository: repository, error: nil, durationMilliseconds: 3)
+
+        XCTAssertEqual(events.last?.reason, "readback_matches")
+        XCTAssertEqual(events.last?.outcome, "passed")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ChartPersistenceContractDiagnostics.checkpointURL(for: repository.url).path
+        ))
+    }
+
+    func testRealFileRepositoryDoesNotReorderTombstoneArrayDuringRoundtrip() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library.json"))
+        var expected = snapshot()
+        let date = Date(timeIntervalSinceReferenceDate: 1234)
+        expected.deletionTombstones = [
+            .init(chartID: UUID(), deletedAt: date, shouldSyncToCloud: false),
+            .init(chartID: UUID(), deletedAt: date, shouldSyncToCloud: true)
+        ]
+
+        try repository.saveSnapshot(expected)
+        let loaded = try XCTUnwrap(repository.loadSnapshot())
+
+        XCTAssertEqual(loaded.deletionTombstones, expected.deletionTombstones,
+                       "Store normalization can reorder ties before a save; the file repository preserves the saved array")
+        XCTAssertEqual(loaded, expected)
+    }
+
+    func testReadbackTombstoneReorderingRemainsAnObservedMismatch() {
+        var expected = snapshot()
+        let date = Date(timeIntervalSinceReferenceDate: 1234)
+        let first = ChartDeletionTombstone(chartID: UUID(), deletedAt: date)
+        let second = ChartDeletionTombstone(chartID: UUID(), deletedAt: date, shouldSyncToCloud: false)
+        expected.deletionTombstones = [first, second, first]
+        var reordered = expected
+        reordered.deletionTombstones = [first, first, second]
+        let repository = Repository()
+        repository.loaded = reordered
+        var events: [ChartPersistenceContractCheck] = []
+        let diagnostics = ChartPersistenceContractDiagnostics(
+            identity: "installation", isEnabled: { true }, record: { events.append($0) }
+        )
+
+        diagnostics.didSave(expected, repository: repository, error: nil, durationMilliseconds: 3)
+
+        XCTAssertEqual(events.last?.reason, "readback_mismatch")
+        XCTAssertEqual(events.last?.outcome, "violated")
+    }
+
+    func testPersistedReadbackDifferencesRemainViolations() {
+        var expected = snapshot()
+        expected.charts.append(Chart.blank(title: "Second private chart"))
+        expected.projects = [ChartProject(title: "Private project", chartIDs: expected.charts.map(\.id))]
+        let date = Date(timeIntervalSinceReferenceDate: 1234)
+        let first = ChartDeletionTombstone(chartID: UUID(), deletedAt: date)
+        expected.deletionTombstones = [first, first]
+        let mutations: [(String, (inout ChartLibrarySnapshot) -> Void)] = [
+            ("chart order", { $0.charts.reverse() }),
+            ("selection", { $0.selectedChartID = nil }),
+            ("billing", { $0.entitlements = AppEntitlements(activePlan: .proLifetime) }),
+            ("subscription metadata with same plan", {
+                var subscription = $0.entitlements.subscription
+                subscription.lastVerifiedAt = date
+                $0.entitlements.applySubscription(subscription)
+            }),
+            ("projects", { $0.projects[0].chartIDs.reverse() }),
+            ("cloud metadata", { $0.cloudMetadata.lastSyncAt = date }),
+            ("source bytes", { $0.charts[0].pageHandwrittenNotationData = Data([9, 8, 7]) }),
+            ("missing tombstone duplicate", { $0.deletionTombstones.removeLast() }),
+            ("changed tombstone", { $0.deletionTombstones[0].shouldSyncToCloud = false })
+        ]
+        for (name, mutate) in mutations {
+            var actual = expected
+            mutate(&actual)
+            let repository = Repository()
+            repository.loaded = actual
+            var events: [ChartPersistenceContractCheck] = []
+            let diagnostics = ChartPersistenceContractDiagnostics(
+                identity: "installation", isEnabled: { true }, record: { events.append($0) }
+            )
+
+            diagnostics.didSave(expected, repository: repository, error: nil, durationMilliseconds: 3)
+
+            XCTAssertEqual(events.last?.reason, "readback_mismatch", name)
+            XCTAssertEqual(events.last?.outcome, "violated", name)
+            XCTAssertEqual(events.last?.contentMatches, false, name)
+        }
+    }
+
     func testOlderDurableReadbackAfterSuccessfulSaveIsViolation() {
         let value = snapshot()
         var older = value

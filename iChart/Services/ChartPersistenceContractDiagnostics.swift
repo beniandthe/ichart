@@ -221,7 +221,7 @@ final class ChartPersistenceContractDiagnostics {
         do {
             let loaded = try repository.loadSnapshot()
             guard isEnabled(), currentAuthorization() == authorization else { return }
-            let matches = loaded == snapshot
+            let matches = try Self.persistedSnapshotMatches(expected: snapshot, actual: loaded)
             // Exempt only positively newer concurrent revisions of the same
             // chart set. Older/missing/mixed readbacks after a successful save
             // are evidence that the expected durable snapshot was not retained.
@@ -290,5 +290,28 @@ final class ChartPersistenceContractDiagnostics {
 
     private static func digest(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func persistedSnapshotMatches(
+        expected: ChartLibrarySnapshot, actual: ChartLibrarySnapshot?
+    ) throws -> Bool {
+        guard let actual else { return false }
+        // AppEntitlements intentionally persists billing evidence but excludes
+        // its runtime accessPolicy. A temporary Basic/Pro policy during account
+        // bootstrap therefore cannot establish a disk-write mismatch. Compare
+        // the exact encoded billing fields before removing only that runtime
+        // difference from the otherwise strict full-snapshot comparison.
+        let billingEncoder = JSONEncoder()
+        billingEncoder.outputFormatting = [.sortedKeys]
+        guard try billingEncoder.encode(expected.entitlements) == billingEncoder.encode(actual.entitlements) else {
+            return false
+        }
+        var persistedExpected = expected
+        persistedExpected.entitlements = actual.entitlements
+        // Keep chart/project/selection order, all source bytes, cloud metadata,
+        // and every tombstone record/order strict. In particular, do not round
+        // trip the whole expected snapshot through decoders that normalize or
+        // discard persisted fields, or compare JSON arrays produced from Sets.
+        return persistedExpected == actual
     }
 }

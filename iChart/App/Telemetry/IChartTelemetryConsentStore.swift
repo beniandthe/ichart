@@ -18,6 +18,11 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     private static let diagnosticCleanupRequiredPreferenceKey = "iChart.telemetry.checkpoint-reset-required.v1"
 
     private let lock = NSLock()
+    // Scheduling must never wait for the authoritative lock, which also orders
+    // queue/checkpoint disk writes with consent withdrawal. This lock protects
+    // only a two-field copy; code holding it never acquires `lock` or does I/O.
+    private let schedulingLock = NSLock()
+    private var schedulingSnapshot: IChartTelemetryConsentSnapshot
     private let defaults: UserDefaults
     private var observedVersion: String?
     private var generation: UInt64 = 0
@@ -40,7 +45,11 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         self.diagnosticFileURLs = Set(diagnosticFileURLs.map(\.standardizedFileURL))
         self.removeDiagnosticFile = removeDiagnosticFile
         self.writeDiagnosticFile = writeDiagnosticFile
-        observedVersion = defaults.string(forKey: Self.preferenceKey)
+        let version = defaults.string(forKey: Self.preferenceKey)
+        observedVersion = version
+        schedulingSnapshot = IChartTelemetryConsentSnapshot(
+            isGranted: version == Self.currentVersion, generation: 0
+        )
         if observedVersion != Self.currentVersion {
             defaults.removeObject(forKey: Self.installationIDPreferenceKey)
             defaults.set(true, forKey: Self.diagnosticCleanupRequiredPreferenceKey)
@@ -54,6 +63,15 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return snapshotLocked()
+    }
+
+    /// Advisory capture for caller-side scheduling, never authorization to
+    /// persist or send. The service revalidates this exact generation against
+    /// `snapshot` before handling a scheduled event or request.
+    var cachedSnapshotForScheduling: IChartTelemetryConsentSnapshot {
+        schedulingLock.lock()
+        defer { schedulingLock.unlock() }
+        return schedulingSnapshot
     }
 
     var requiresQueueReset: Bool {
@@ -137,6 +155,7 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
             generation &+= 1
         }
         observedVersion = version
+        updateSchedulingSnapshotLocked(isGranted: isGranted)
         if let version {
             defaults.set(version, forKey: Self.preferenceKey)
         } else {
@@ -184,6 +203,7 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         if version != observedVersion {
             observedVersion = version
             generation &+= 1
+            updateSchedulingSnapshotLocked(isGranted: version == Self.currentVersion)
             if version != Self.currentVersion {
                 defaults.set(true, forKey: Self.queueResetRequiredPreferenceKey)
                 defaults.set(true, forKey: Self.diagnosticCleanupRequiredPreferenceKey)
@@ -197,6 +217,13 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
             isGranted: version == Self.currentVersion,
             generation: generation
         )
+    }
+
+    /// Call only while holding `lock`; the scheduling reader never takes it.
+    private func updateSchedulingSnapshotLocked(isGranted: Bool) {
+        schedulingLock.lock()
+        schedulingSnapshot = IChartTelemetryConsentSnapshot(isGranted: isGranted, generation: generation)
+        schedulingLock.unlock()
     }
 
     private func installationIDLocked() -> UUID {

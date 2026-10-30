@@ -6687,6 +6687,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         strokeCount: Int,
         normalizationNeeded: Bool
     ) {
+        // Do not decode or inspect source ink for diagnostics while sharing is
+        // disabled. This admission check never waits for diagnostic disk work;
+        // the telemetry worker still validates consent before storing/sending.
+        guard IChartTelemetry.isRecordingEnabled else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
             strokeCount: strokeCount,

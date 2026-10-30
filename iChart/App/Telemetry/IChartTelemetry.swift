@@ -136,7 +136,7 @@ enum IChartTelemetry {
     /// Lets diagnostic callers skip expensive read-only capture while opted out.
     static var isRecordingEnabled: Bool {
         guard let configured = service else { return false }
-        return configured.consentStore.snapshot.isGranted
+        return configured.consentStore.cachedSnapshotForScheduling.isGranted
     }
 
     static func record(
@@ -148,7 +148,7 @@ enum IChartTelemetry {
             return
         }
 
-        let consent = service.consentStore.snapshot
+        let consent = service.consentStore.cachedSnapshotForScheduling
         guard consent.isGranted else {
             Task.detached(priority: .utility) { await service.consentDidChange() }
             return
@@ -163,7 +163,7 @@ enum IChartTelemetry {
             return
         }
 
-        let consent = service.consentStore.snapshot
+        let consent = service.consentStore.cachedSnapshotForScheduling
         Task.detached(priority: .utility) {
             await service.flush(expectedConsent: consent)
         }
@@ -171,7 +171,7 @@ enum IChartTelemetry {
 
     static func flushPendingEventsIfNeeded() async {
         guard let service = service else { return }
-        let consent = service.consentStore.snapshot
+        let consent = service.consentStore.cachedSnapshotForScheduling
         await service.flushIfNeeded(expectedConsent: consent)
     }
 

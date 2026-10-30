@@ -1735,7 +1735,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"91\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"92\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(

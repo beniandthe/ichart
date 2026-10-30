@@ -107,7 +107,7 @@ The input has `generated_at`, `health`, `incidents`, and optional `active_incide
 
 An anonymized local replay adds exactly `replay_context: {"mode":"local_replay","anonymized":true}`. The consumer then labels incident/evidence UUIDs as local replay identities and states that the report does not demonstrate a live production pipeline. A replay can evaluate a minimal production event export with identifiers replaced, while the inserted database row IDs belong only to its isolated database. The runner's `replay_evidence` identity map stays in the raw replay output and is discarded from the reviewed report. Arbitrary free-text replay notes are not accepted.
 
-Always read the health block before interpreting an empty queue. Dead letters, schema rejects, a missing worker run, the latest run's failures, or pending/worker activity over fifteen minutes old produce visible review warnings. The fifteen-minute threshold allows three nominal worker intervals; it is an initial operating guardrail, not a measured service-level target. This local report exposes health only when it is run; separate notification scheduling must be configured explicitly if required.
+Always read the health block before interpreting an empty queue. Dead letters, schema rejects, a missing worker run, the latest run's failures, or pending/worker activity over fifteen minutes old produce visible review warnings. The fifteen-minute threshold allows three nominal worker intervals; it is an initial operating guardrail, not a measured service-level target. This local report exposes health only when it is run. The active read-only monitor below supplies separate scheduled triage.
 
 Delivery-health coverage is tracked separately from incidents. `delivery_reporting_installation_count` and `last_delivery_reported_at` show whether compatible clients supplied any transport accounting. Queue overflow, ingest rejection, quarantine overflow and unacknowledged-batch totals are the latest cumulative counters per reporting installation, summed across those installations. They are not event counts, incident counts or failure rates. A null counter means no usable reporting coverage; it must not be converted into zero delivery loss. The consumer warns explicitly when no installation has reported these counters.
 
@@ -158,6 +158,18 @@ where raw_event_id = '00000000-0000-4000-8000-000000000001'
   and dead_letter_at is not null;
 select private.process_telemetry_evaluations(250);
 ```
+
+## Scheduled operator monitor
+
+The Codex heartbeat `monitor-ichart-telemetry-health` is active every fifteen minutes and targets this telemetry chat (`01a18d3a-4ef7-70f1-865b-2968d97b4810`). Its saved prompt reads production aggregate health and open work-queue records through connected read-only queries. It does not change app source, backend state or incident status, and it does not train recognition models, upload handwriting, deploy, release, send external messages or close issues.
+
+The ignored durable comparison state is `/Users/benirossman/Documents/Smart Chart/.build/telemetry-monitor/state.json`. It was initialized from a fresh production read at **2026-10-30 09:28:20 America/Los_Angeles** (`16:28:20 UTC`), with the ten existing historical medium/low investigation/friction groups as the quiet baseline. The observed worker's latest run was `16:25:00 UTC`; pending, dead-letter, rejected and last-run-failed counts were all zero. No compatible delivery-reporting installations were present, so delivery counters remain unknown. Initialization emitted no notification and changed no task or backend state.
+
+The monitor stays quiet for unchanged or non-actionable observations. It surfaces a concise actionable update for a new/reopened critical or high contract violation, a newly actionable release-build operation failure, dead letters, rejected detector inputs, worker failures, or no successful worker run for over fifteen minutes. It includes the category, build/cohort, distinct evidence counts, task ID and next diagnostic action. Already-reported unchanged conditions are suppressed; material escalation, recovery and required user action can be reported. Once per local weekday after 9 a.m., it also reviews noncritical queue changes and surfaces only useful new prioritization or required action.
+
+A failed source read preserves the previous successful baseline. Sustained access failure must be reported as an access problem, never as healthy pipeline data. The state records incident IDs, recurrence counts, severity and last evidence, plus health and previously reported conditions, so a fresh run can compare against the last successful check.
+
+The existing `continue-graph-and-myscript-mvps` heartbeat was verified **PAUSED** from its saved automation configuration at baseline initialization. Its separate recognition work remains paused; raw handwriting contributions remain plan-only. The new monitor does not resume either activity. Monitor configuration and a successful baseline read do not independently prove that a later scheduled invocation ran; verify actual later execution when needed.
 
 ## Acceptance gates
 

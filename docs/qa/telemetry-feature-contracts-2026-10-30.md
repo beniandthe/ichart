@@ -50,24 +50,33 @@ UUIDs belong to the local replay. `production-work-queue-v2.json` retains the
 mapping to synthetic input event IDs. Legacy operation/chart linkage and transport
 loss accounting remain unknown; the report preserves this missing coverage.
 
-## Activation and acceptance boundaries
+## Initial activation boundaries and subsequent deployment
 
-No production migration, Edge Function deployment, Cron job, external task,
-push, PR, physical-device installation or App Store release was performed.
-The production project still has its original raw-event/aggregate-view schema.
-Backend activation must precede new-client shipment so supported contract events
-do not enter the client's rejected-event quarantine.
+At the time of the initial local validation recorded above, no production
+migration, Edge Function deployment, Cron job, external task, push, PR,
+physical-device installation or App Store release had been performed. Production
+then still had its original raw-event/aggregate-view schema. Those statements
+describe the initial checkpoint and are not the current backend state.
 
-The proposed migration adds private incident/evidence/outbox tables, the bounded
+The subsequently authorized backend activation completed on October 30, 2026.
+Migration `20261030151740_telemetry_feature_contract_pipeline` and ingest version
+43 are live; actual scheduled runs and synthetic end-to-end controls passed.
+See the [production deployment receipt](telemetry-backend-deployment-2026-10-30.md)
+for its timestamps, live evidence, access model and rollback source. Backend
+activation preceded new-client shipment so supported contract events do not
+enter the client's rejected-event quarantine.
+
+The deployed migration adds private incident/evidence/outbox tables, the bounded
 five-minute worker and a last-30-day backfill capped at 25,000 existing events.
 It does not modify chart data, source ink, recognition decisions or app backup
 contents. Actual new-device probes require an app containing this implementation.
 
-After authorized backend activation, verify a marked synthetic contract violation
-through ingest, outbox and task evidence; verify a safe passed/unknown/protected
-check creates no defect task; inspect real Cron run results. Then take an existing
-investigation through reproduction, fix and fresh verification. The pipeline is
-not evidence that those product problems have already been resolved.
+The marked synthetic contract/control and real Cron checks were completed in
+the later backend receipt. An existing genuine investigation still needs to be
+taken through reproduction, fix and fresh verification; the pipeline is not
+evidence that those product problems have already been resolved. New client
+readiness is tracked separately in the
+[1.2.4 (91) candidate receipt](telemetry-release-candidate-1.2.4-91-2026-10-30.md).
 
 The separately authorized handwriting-contribution handoff is plan-only. See
 `docs/telemetry-implementation-plan-2026-10-30.md`. Graph/MyScript remain paused.
