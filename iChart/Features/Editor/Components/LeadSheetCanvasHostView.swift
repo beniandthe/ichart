@@ -6206,6 +6206,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             targetCoordinateSpace: targetCoordinateSpace
         )
         isSyncingInkCanvasFromModel = false
+        if activeInkScope.persistsDrawingData, IChartTelemetry.isRecordingEnabled {
+            LeadSheetInkFeatureContract.record(
+                LeadSheetInkFeatureContract.rotationAssessment(
+                    source: projectionDrawing, projected: pageInkCanvasView.drawing
+                ),
+                contractID: "ink.rotation_preservation",
+                chart: chart,
+                scope: activeInkScope.telemetryValue
+            )
+        }
         invalidatePendingInkWorkAfterProgrammaticCanvasChange(
             strokeCount: strokeCount,
             preservesPageInkReprojectionSource: activeInkScope.identity == .page
@@ -7595,13 +7605,30 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         // Do not use the serialization cache or sampled drawing snapshot as
         // clearing authority: a PencilKit delegate/revision can lag the ink.
+        let sourceDrawing = pageInkCanvasView.drawing
         let outcome = ChordInkDraftRenderCoordinator.prepare(
             chart: incomingChart,
             state: state,
-            currentDrawing: pageInkCanvasView.drawing,
+            currentDrawing: sourceDrawing,
             coordinateSpace: persistedCoordinateSpace(for: scope)
         )
-        guard outcome.canConsumeSource else { return outcome }
+        guard outcome.canConsumeSource else {
+            if IChartTelemetry.isRecordingEnabled {
+                LeadSheetInkFeatureContract.record(
+                    LeadSheetInkFeatureContract.renderAssessment(
+                        originalChart: incomingChart,
+                        state: state,
+                        sourceDrawing: sourceDrawing,
+                        outcome: outcome,
+                        remainingCanvasDrawing: pageInkCanvasView.drawing
+                    ),
+                    contractID: "ink.render_preservation",
+                    chart: incomingChart,
+                    scope: "chords"
+                )
+            }
+            return outcome
+        }
 
         // Validation, commit preparation and live consumption occur in one
         // main-actor call with no binding callback or deferred invalidation.
@@ -7613,6 +7640,20 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
         updateActiveCanvasStrokeCount(pageInkCanvasView.drawing.strokes.count)
         clearChordDraftInkCanvas()
+        if IChartTelemetry.isRecordingEnabled {
+            LeadSheetInkFeatureContract.record(
+                LeadSheetInkFeatureContract.renderAssessment(
+                    originalChart: incomingChart,
+                    state: state,
+                    sourceDrawing: sourceDrawing,
+                    outcome: outcome,
+                    remainingCanvasDrawing: pageInkCanvasView.drawing
+                ),
+                contractID: "ink.render_preservation",
+                chart: incomingChart,
+                scope: "chords"
+            )
+        }
         return outcome
     }
 

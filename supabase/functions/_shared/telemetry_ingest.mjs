@@ -2,6 +2,7 @@ import {
   authenticatedUserIDFromBearer,
   supabaseAuthorityStoreConfigurationFromEnv,
 } from "./supabase_subscription_authority_store.mjs";
+import { sanitizedFeatureContractProperties } from "./feature_contract_schema.mjs";
 
 const maxBodyBytes = 128_000;
 const maxEventsPerBatch = 50;
@@ -9,6 +10,7 @@ const maxPropertiesPerEvent = 64;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedEventNames = new Set([
+  "feature.contract_checked",
   "app.launched",
   "app.bootstrap_completed",
   "app.open_chart",
@@ -84,6 +86,24 @@ const allowedEventNames = new Set([
 ]);
 
 const allowedPropertyKeys = new Set([
+  "actual_bytes",
+  "actual_count",
+  "actual_point_count",
+  "build_source",
+  "chart_reference",
+  "content_matches",
+  "contract_id",
+  "contract_version",
+  "expected_bytes",
+  "expected_count",
+  "expected_point_count",
+  "operation",
+  "operation_id",
+  "outcome",
+  "queue_overflow_count",
+  "queue_rejected_count",
+  "queue_quarantine_overflow_count",
+  "queue_unacknowledged_batch_count",
   "app_phase",
   "auth_state",
   "alteration_issue_count",
@@ -275,9 +295,17 @@ export async function handleTelemetryIngestRequest(request, dependencies = {}) {
   const ownerID = dependencies.authenticatedUserID === undefined
     ? null
     : await dependencies.authenticatedUserID(request);
-  const normalizedEvents = incomingEvents
-    .map((event) => telemetryRowFromEvent(event, context, ownerID))
-    .filter((event) => event !== null);
+  const normalizedEvents = [];
+  const rejectedEventIDs = [];
+  for (const incomingEvent of incomingEvents) {
+    const row = telemetryRowFromEvent(incomingEvent, context, ownerID);
+    if (row !== null) {
+      normalizedEvents.push(row);
+    } else {
+      const id = normalizedUUID(incomingEvent?.client_event_id);
+      if (id !== null) rejectedEventIDs.push(id);
+    }
+  }
 
   if (normalizedEvents.length > 0) {
     await dependencies.insertTelemetryEvents(normalizedEvents);
@@ -287,6 +315,10 @@ export async function handleTelemetryIngestRequest(request, dependencies = {}) {
     accepted: true,
     stored_count: normalizedEvents.length,
     rejected_count: incomingEvents.length - normalizedEvents.length,
+    accepted_event_ids: [...new Set(normalizedEvents.map((row) => row.client_event_id))],
+    rejected_event_ids: [...new Set(rejectedEventIDs)].filter(
+      (id) => !normalizedEvents.some((row) => row.client_event_id === id)
+    ),
   });
 }
 
@@ -308,6 +340,11 @@ export function telemetryRowFromEvent(event, context, ownerID = null) {
     return null;
   }
 
+  const properties = eventName === "feature.contract_checked"
+    ? sanitizedFeatureContractProperties(event.properties)
+    : sanitizedProperties(event.properties);
+  if (properties === null) return null;
+
   return {
     client_event_id: clientEventID,
     owner_id: normalizedUUID(ownerID),
@@ -328,7 +365,7 @@ export function telemetryRowFromEvent(event, context, ownerID = null) {
       840,
       0
     ),
-    properties: sanitizedProperties(event.properties),
+    properties,
   };
 }
 
@@ -370,6 +407,29 @@ export function sanitizedProperties(value) {
 
 function sanitizedWorkflowPropertyValue(key, value) {
   switch (key) {
+    case "build_source":
+      return ["debug_build", "release_build"].includes(value) ? value : undefined;
+    case "contract_id":
+    case "contract_version":
+    case "operation":
+    case "outcome":
+    case "operation_id":
+    case "chart_reference":
+    case "content_matches":
+    case "expected_count":
+    case "actual_count":
+    case "expected_bytes":
+    case "actual_bytes":
+    case "expected_point_count":
+    case "actual_point_count":
+      // These fields are valid only inside the strictly typed contract event.
+      return undefined;
+    case "queue_overflow_count":
+    case "queue_rejected_count":
+    case "queue_quarantine_overflow_count":
+    case "queue_unacknowledged_batch_count":
+      return Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000_000
+        ? value : undefined;
     case "writing_batch_id":
       return typeof value === "string" && uuidPattern.test(value)
         ? value.toLowerCase()

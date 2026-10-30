@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import CoreFoundation
 
 #if canImport(UIKit)
 import UIKit
@@ -131,7 +133,17 @@ enum IChartTelemetry {
         }
     }
 
-    static func record(_ eventName: String, properties: IChartTelemetryProperties = [:]) {
+    /// Lets diagnostic callers skip expensive read-only capture while opted out.
+    static var isRecordingEnabled: Bool {
+        guard let configured = service else { return false }
+        return configured.consentStore.snapshot.isGranted
+    }
+
+    static func record(
+        _ eventName: String,
+        properties: IChartTelemetryProperties = [:],
+        chartID: UUID? = nil
+    ) {
         guard let service = service else {
             return
         }
@@ -142,7 +154,7 @@ enum IChartTelemetry {
             return
         }
         Task.detached(priority: .utility) {
-            await service.record(eventName, properties: properties, expectedConsent: consent)
+            await service.record(eventName, properties: properties, chartID: chartID, expectedConsent: consent)
         }
     }
 
@@ -277,12 +289,50 @@ actor IChartTelemetryService {
     func record(
         _ eventName: String,
         properties: IChartTelemetryProperties = [:],
+        chartID: UUID? = nil,
         expectedConsent: IChartTelemetryConsentSnapshot? = nil
     ) async {
         guard let consent = preparedConsent(),
               expectedConsent == nil || expectedConsent == consent,
               IChartTelemetryPrivacy.allowedEventNames.contains(eventName),
               let context = currentContext(for: consent) else {
+            return
+        }
+
+        var enrichedProperties = properties
+        enrichedProperties["build_source"] = .string(IChartTelemetryBuildSource.value)
+        if eventName == "app.launched", let health = try? queueStore.healthSnapshot() {
+            // Report cumulative prior-run collection gaps once on launch. These
+            // are health totals, not a fresh incident for each positive value.
+            let maximumCount = 1_000_000_000_000
+            enrichedProperties["queue_overflow_count"] = .int(min(maximumCount, health.overflowDroppedEventCount))
+            enrichedProperties["queue_rejected_count"] = .int(min(
+                maximumCount,
+                min(maximumCount, health.serverRejectedEventCount) + min(maximumCount, health.locallyRejectedEventCount)
+            ))
+            enrichedProperties["queue_quarantine_overflow_count"] = .int(min(maximumCount, health.quarantineOverflowDroppedEventCount))
+            enrichedProperties["queue_unacknowledged_batch_count"] = .int(min(maximumCount, health.unacknowledgedBatchCount))
+        }
+        // References identify one chart only inside this consented installation.
+        // Neither raw chart IDs nor content fingerprints leave the device.
+        enrichedProperties.removeValue(forKey: "chart_reference")
+        if let chartID {
+            let key = SymmetricKey(data: Data(context.installationID.uuidString.lowercased().utf8))
+            let authentication = HMAC<SHA256>.authenticationCode(
+                for: Data(("ichart-chart-reference-v1:" + chartID.uuidString.lowercased()).utf8),
+                using: key
+            )
+            enrichedProperties["chart_reference"] = .string(authentication.map { String(format: "%02x", $0) }.joined())
+        }
+        let sanitizedProperties = IChartTelemetryPrivacy.sanitizedProperties(
+            enrichedProperties,
+            forEventName: eventName
+        )
+        if eventName == "feature.contract_checked",
+           !IChartTelemetryPrivacy.hasRequiredContractFields(sanitizedProperties) {
+            try? consentStore.performIfGranted(matching: consent) {
+                try queueStore.recordLocalRejection()
+            }
             return
         }
 
@@ -299,7 +349,7 @@ actor IChartTelemetryService {
             deviceModel: context.deviceModel,
             localeLanguage: context.localeLanguage,
             timeZoneOffsetMinutes: context.timeZoneOffsetMinutes,
-            properties: IChartTelemetryPrivacy.sanitizedProperties(properties)
+            properties: sanitizedProperties
         )
 
         do {
@@ -348,13 +398,28 @@ actor IChartTelemetryService {
                 guard let batch = try nextBatch(for: consent) else {
                     return
                 }
-                try await send(body: batch.body, consent: consent)
+                let responseData = try await send(body: batch.body, consent: consent)
+                let acknowledgment = IChartTelemetryAcknowledgment.parse(
+                    responseData,
+                    sentIDs: Set(batch.events.map(\.clientEventID))
+                )
                 // Reload before removal: recording can append while send awaits.
                 guard try consentStore.performIfGranted(matching: consent, {
-                    try queueStore.removeEvents(withIDs: Set(batch.events.map(\.clientEventID)))
+                    if let acknowledgment {
+                        try queueStore.acknowledge(
+                            acceptedIDs: acknowledgment.acceptedIDs,
+                            rejectedIDs: acknowledgment.rejectedIDs
+                        )
+                    } else {
+                        try queueStore.recordUnacknowledgedBatch()
+                    }
                     return true
                 }) == true else {
                     _ = preparedConsent()
+                    return
+                }
+                guard let acknowledgment,
+                      !acknowledgment.acceptedIDs.isEmpty || !acknowledgment.rejectedIDs.isEmpty else {
                     return
                 }
             } catch {
@@ -398,7 +463,7 @@ actor IChartTelemetryService {
         return (events, body)
     }
 
-    private func send(body: Data, consent: IChartTelemetryConsentSnapshot) async throws {
+    private func send(body: Data, consent: IChartTelemetryConsentSnapshot) async throws -> Data {
         guard consentStore.snapshot == consent, !Task.isCancelled else { throw CancellationError() }
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
@@ -418,14 +483,14 @@ actor IChartTelemetryService {
         defer {
             if inFlightRequest === pendingRequest { inFlightRequest = nil }
         }
-        let response: URLResponse = try await withTaskCancellationHandler {
+        let delivery: (Data, URLResponse) = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let started = consentStore.performIfGranted(matching: consent) {
-                    let task = urlSession.dataTask(with: request) { _, response, error in
+                    let task = urlSession.dataTask(with: request) { data, response, error in
                         if let error {
                             continuation.resume(throwing: error)
                         } else if let response {
-                            continuation.resume(returning: response)
+                            continuation.resume(returning: (data ?? Data(), response))
                         } else {
                             continuation.resume(throwing: URLError(.badServerResponse))
                         }
@@ -438,10 +503,11 @@ actor IChartTelemetryService {
         } onCancel: {
             pendingRequest.cancel()
         }
-        guard let httpResponse = response as? HTTPURLResponse,
+        guard let httpResponse = delivery.1 as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
         }
+        return delivery.0
     }
 
     private func shouldFlushOpportunistically() -> Bool {
@@ -560,6 +626,73 @@ private final class IChartTelemetryRequest: @unchecked Sendable {
     }
 }
 
+/// The HTTP status alone does not acknowledge individual telemetry records.
+/// Older ingest versions are compatible only when their full-success counts
+/// account for the entire batch; partial counts cannot identify safe removals.
+struct IChartTelemetryAcknowledgment {
+    let acceptedIDs: Set<UUID>
+    let rejectedIDs: Set<UUID>
+
+    static func parse(_ data: Data, sentIDs: Set<UUID>) -> Self? {
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let acceptedFlag = body["accepted"] as? NSNumber,
+              CFGetTypeID(acceptedFlag) == CFBooleanGetTypeID(),
+              acceptedFlag.boolValue else { return nil }
+        if body["accepted_event_ids"] != nil {
+            guard let accepted = parsedIDs(body["accepted_event_ids"]),
+                  let rejected = parsedIDs(body["rejected_event_ids"] ?? [String]()),
+                  accepted.isSubset(of: sentIDs), rejected.isSubset(of: sentIDs),
+                  accepted.isDisjoint(with: rejected) else { return nil }
+            if let storedCount = body["stored_count"], exactCount(storedCount) != accepted.count { return nil }
+            if let rejectedCount = body["rejected_count"], exactCount(rejectedCount) != rejected.count { return nil }
+            return Self(acceptedIDs: accepted, rejectedIDs: rejected)
+        }
+        guard exactCount(body["stored_count"]) == sentIDs.count,
+              exactCount(body["rejected_count"]) == 0 else { return nil }
+        return Self(acceptedIDs: sentIDs, rejectedIDs: [])
+    }
+
+    private static func parsedIDs(_ value: Any?) -> Set<UUID>? {
+        guard let values = value as? [String] else { return nil }
+        var ids = Set<UUID>()
+        for value in values {
+            guard let id = UUID(uuidString: value), ids.insert(id).inserted else { return nil }
+        }
+        return ids
+    }
+
+    private static func exactCount(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite,
+              number.doubleValue >= 0,
+              number.doubleValue.rounded(.down) == number.doubleValue,
+              number.doubleValue <= Double(Int.max) else { return nil }
+        return number.intValue
+    }
+}
+
+struct IChartTelemetryQueueHealth: Equatable {
+    let pendingEventCount: Int
+    let quarantinedEventCount: Int
+    let overflowDroppedEventCount: Int
+    let quarantineOverflowDroppedEventCount: Int
+    let serverRejectedEventCount: Int
+    let locallyRejectedEventCount: Int
+    let unacknowledgedBatchCount: Int
+}
+
+private struct IChartTelemetryQueueState: Codable {
+    var schemaVersion = 1
+    var events: [IChartTelemetryEvent] = []
+    var quarantinedEvents: [IChartTelemetryEvent] = []
+    var overflowDroppedEventCount = 0
+    var quarantineOverflowDroppedEventCount = 0
+    var serverRejectedEventCount = 0
+    var locallyRejectedEventCount = 0
+    var unacknowledgedBatchCount = 0
+}
+
 final class IChartTelemetryQueueStore {
     private let url: URL
     private let fileManager: FileManager
@@ -568,7 +701,7 @@ final class IChartTelemetryQueueStore {
     init(url: URL, fileManager: FileManager = .default, maxEventCount: Int = 1_000) {
         self.url = url
         self.fileManager = fileManager
-        self.maxEventCount = maxEventCount
+        self.maxEventCount = max(1, maxEventCount)
     }
 
     static func live(fileManager: FileManager = .default) -> IChartTelemetryQueueStore {
@@ -587,30 +720,87 @@ final class IChartTelemetryQueueStore {
     }
 
     func append(_ event: IChartTelemetryEvent) throws {
-        var events = try loadEvents()
-        events.append(event)
-        if events.count > maxEventCount {
-            events = Array(events.suffix(maxEventCount))
+        var state = try loadState()
+        state.events.append(event)
+        if state.events.count > maxEventCount {
+            state.overflowDroppedEventCount += state.events.count - maxEventCount
+            state.events = Array(state.events.suffix(maxEventCount))
         }
-        try save(events)
+        try save(state)
     }
 
     func loadEvents() throws -> [IChartTelemetryEvent] {
+        try loadState().events
+    }
+
+    func loadQuarantinedEvents() throws -> [IChartTelemetryEvent] {
+        try loadState().quarantinedEvents
+    }
+
+    func healthSnapshot() throws -> IChartTelemetryQueueHealth {
+        let state = try loadState()
+        return IChartTelemetryQueueHealth(
+            pendingEventCount: state.events.count,
+            quarantinedEventCount: state.quarantinedEvents.count,
+            overflowDroppedEventCount: state.overflowDroppedEventCount,
+            quarantineOverflowDroppedEventCount: state.quarantineOverflowDroppedEventCount,
+            serverRejectedEventCount: state.serverRejectedEventCount,
+            locallyRejectedEventCount: state.locallyRejectedEventCount,
+            unacknowledgedBatchCount: state.unacknowledgedBatchCount
+        )
+    }
+
+    func acknowledge(acceptedIDs: Set<UUID>, rejectedIDs: Set<UUID>) throws {
+        var state = try loadState()
+        let rejectedEvents = state.events.filter { rejectedIDs.contains($0.clientEventID) }
+        state.serverRejectedEventCount += rejectedEvents.count
+        state.quarantinedEvents.append(contentsOf: rejectedEvents)
+        let quarantineLimit = min(maxEventCount, 100)
+        if state.quarantinedEvents.count > quarantineLimit {
+            state.quarantineOverflowDroppedEventCount += state.quarantinedEvents.count - quarantineLimit
+            state.quarantinedEvents = Array(state.quarantinedEvents.suffix(quarantineLimit))
+        }
+        state.events.removeAll { acceptedIDs.contains($0.clientEventID) || rejectedIDs.contains($0.clientEventID) }
+        try save(state)
+    }
+
+    func recordLocalRejection() throws {
+        var state = try loadState()
+        state.locallyRejectedEventCount += 1
+        try save(state)
+    }
+
+    func recordUnacknowledgedBatch() throws {
+        var state = try loadState()
+        state.unacknowledgedBatchCount += 1
+        try save(state)
+    }
+
+    private func loadState() throws -> IChartTelemetryQueueState {
         guard fileManager.fileExists(atPath: url.path) else {
-            return []
+            return IChartTelemetryQueueState()
         }
 
         let data = try Data(contentsOf: url)
         guard !data.isEmpty else {
-            return []
+            return IChartTelemetryQueueState()
         }
-
-        return try Self.decoder.decode([IChartTelemetryEvent].self, from: data)
+        // Existing installs persist a plain array. It is migrated atomically
+        // on the next mutation, retaining every original event identifier.
+        if data.first(where: { ![9, 10, 13, 32].contains($0) }) == 91 {
+            return IChartTelemetryQueueState(events: try Self.decoder.decode([IChartTelemetryEvent].self, from: data))
+        }
+        let state = try Self.decoder.decode(IChartTelemetryQueueState.self, from: data)
+        guard state.schemaVersion == 1 else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return state
     }
 
     func removeEvents(withIDs ids: Set<UUID>) throws {
-        let remainingEvents = try loadEvents().filter { !ids.contains($0.clientEventID) }
-        try save(remainingEvents)
+        var state = try loadState()
+        state.events.removeAll { ids.contains($0.clientEventID) }
+        try save(state)
     }
 
     func clear() throws {
@@ -619,18 +809,21 @@ final class IChartTelemetryQueueStore {
         }
     }
 
-    private func save(_ events: [IChartTelemetryEvent]) throws {
+    private func save(_ state: IChartTelemetryQueueState) throws {
         let directory = url.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        if events.isEmpty {
+        if state.events.isEmpty && state.quarantinedEvents.isEmpty
+            && state.overflowDroppedEventCount == 0 && state.quarantineOverflowDroppedEventCount == 0
+            && state.serverRejectedEventCount == 0 && state.locallyRejectedEventCount == 0
+            && state.unacknowledgedBatchCount == 0 {
             if fileManager.fileExists(atPath: url.path) {
                 try fileManager.removeItem(at: url)
             }
             return
         }
 
-        let data = try Self.encoder.encode(events)
+        let data = try Self.encoder.encode(state)
         try data.write(to: url, options: .atomic)
     }
 
@@ -652,6 +845,7 @@ enum IChartTelemetryPrivacy {
     private static let maximumPropertyCount = 64
 
     static let allowedEventNames: Set<String> = [
+        "feature.contract_checked",
         "app.launched",
         "app.bootstrap_completed",
         "app.open_chart",
@@ -727,6 +921,24 @@ enum IChartTelemetryPrivacy {
     ]
 
     private static let allowedPropertyKeys: Set<String> = [
+        "actual_bytes",
+        "actual_count",
+        "actual_point_count",
+        "build_source",
+        "chart_reference",
+        "content_matches",
+        "contract_id",
+        "contract_version",
+        "expected_bytes",
+        "expected_count",
+        "expected_point_count",
+        "operation",
+        "operation_id",
+        "outcome",
+        "queue_overflow_count",
+        "queue_rejected_count",
+        "queue_quarantine_overflow_count",
+        "queue_unacknowledged_batch_count",
         "app_phase",
         "auth_state",
         "alteration_issue_count",
@@ -846,14 +1058,42 @@ enum IChartTelemetryPrivacy {
         "writing_batch_id",
     ]
 
-    static func sanitizedProperties(_ properties: IChartTelemetryProperties) -> IChartTelemetryProperties {
-        Dictionary(
+    private static let contractPropertyKeys: Set<String> = [
+        "contract_id", "contract_version", "operation_id", "operation", "outcome", "reason",
+        "build_source", "chart_reference", "expected_count", "actual_count", "expected_bytes",
+        "actual_bytes", "expected_point_count", "actual_point_count", "content_matches", "duration_ms",
+        "scope", "layout_style"
+    ]
+
+    private static let contractReasons: Set<String> = [
+        "save_completed", "save_failed", "load_completed", "load_failed", "first_launch",
+        "readback_matches", "readback_mismatch", "readback_failed", "baseline_missing", "baseline_changed",
+        "reopen_matches", "reopen_mismatch", "render_complete", "render_source_missing",
+        "render_incomplete_coverage", "render_unresolved", "render_empty", "render_canvas_unavailable",
+        "render_repeat_review_required", "render_rejected_mutated", "render_canvas_not_cleared",
+        "rotation_complete", "rotation_stroke_count_changed", "rotation_point_count_changed",
+        "rotation_nonfinite_geometry", "export_completed", "export_failed"
+    ]
+
+    static func hasRequiredContractFields(_ properties: IChartTelemetryProperties) -> Bool {
+        ["contract_id", "contract_version", "operation_id", "operation", "outcome", "reason", "build_source"].allSatisfy {
+            properties[$0] != nil
+        }
+    }
+
+    static func sanitizedProperties(
+        _ properties: IChartTelemetryProperties,
+        forEventName eventName: String? = nil
+    ) -> IChartTelemetryProperties {
+        let isContract = eventName == "feature.contract_checked"
+        return Dictionary(
             uniqueKeysWithValues: properties
                 .filter { allowedPropertyKeys.contains($0.key) }
+                .filter { !isContract || contractPropertyKeys.contains($0.key) }
                 .sorted { $0.key < $1.key }
                 .prefix(maximumPropertyCount)
                 .compactMap { key, value -> (String, IChartTelemetryValue)? in
-                    guard let sanitized = sanitizedWorkflowValue(value, forKey: key) else {
+                    guard let sanitized = sanitizedWorkflowValue(value, forKey: key, isContract: isContract) else {
                         return nil
                     }
                     return (String(key.prefix(64)), sanitized)
@@ -865,10 +1105,69 @@ enum IChartTelemetryPrivacy {
     // text cannot be smuggled through a count, duration or correlation field.
     private static func sanitizedWorkflowValue(
         _ value: IChartTelemetryValue,
-        forKey key: String
+        forKey key: String,
+        isContract: Bool
     ) -> IChartTelemetryValue? {
+        if isContract {
+            switch key {
+            case "reason":
+                guard case .string(let string) = value, contractReasons.contains(string) else { return nil }
+                return value
+            case "scope":
+                guard case .string(let string) = value,
+                      ["library", "chart", "page", "header", "chords", "rhythm", "chord_sources", "note_sources", "roadmap_sources"].contains(string) else { return nil }
+                return value
+            case "layout_style":
+                guard case .string(let string) = value,
+                      ["leadSheet", "simpleChordSheet", "rhythmSectionSheet"].contains(string) else { return nil }
+                return value
+            case "duration_ms":
+                let milliseconds: Double
+                switch value {
+                case .double(let number): milliseconds = number
+                case .int(let number): milliseconds = Double(number)
+                default: return nil
+                }
+                guard milliseconds.isFinite, (0...86_400_000).contains(milliseconds) else { return nil }
+                return sanitizedValue(value)
+            default: break
+            }
+        }
         switch key {
-        case "writing_batch_id":
+        case "contract_id":
+            guard case .string(let string) = value,
+                  ["chart.save", "chart.load", "chart.save_readback", "ink.reopen_preservation",
+                   "ink.render_preservation", "ink.rotation_preservation", "chart.export"].contains(string) else { return nil }
+            return value
+        case "contract_version":
+            guard value == .int(1) else { return nil }
+            return value
+        case "build_source":
+            guard case .string(let string) = value,
+                  ["debug_build", "release_build"].contains(string) else { return nil }
+            return value
+        case "outcome":
+            guard case .string(let string) = value,
+                  ["passed", "violated", "unknown", "protected_rejection"].contains(string) else { return nil }
+            return value
+        case "operation":
+            if isContract {
+                guard case .string(let string) = value,
+                      ["save", "load", "save_readback", "reopen", "render", "rotate", "export"].contains(string) else { return nil }
+            }
+            return sanitizedValue(value)
+        case "chart_reference":
+            guard case .string(let string) = value,
+                  string.range(of: #"\A[0-9a-f]{64}\z"#, options: .regularExpression) != nil else { return nil }
+            return value
+        case "expected_count", "actual_count", "expected_bytes", "actual_bytes", "expected_point_count", "actual_point_count",
+             "queue_overflow_count", "queue_rejected_count", "queue_quarantine_overflow_count", "queue_unacknowledged_batch_count":
+            guard case .int(let count) = value, (0...1_000_000_000_000).contains(count) else { return nil }
+            return value
+        case "content_matches":
+            guard case .bool = value else { return nil }
+            return value
+        case "writing_batch_id", "operation_id":
             guard case .string(let string) = value,
                   string.range(
                     of: #"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\z"#,
