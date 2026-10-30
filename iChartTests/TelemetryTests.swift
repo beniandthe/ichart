@@ -237,6 +237,107 @@ final class TelemetryTests: XCTestCase {
         XCTAssertNil(sanitized["accepted_chord_text"])
     }
 
+    func testFeatureContractPropertiesHaveNarrowTypesWithoutChangingLegacyReasons() {
+        let operationID = UUID().uuidString
+        let valid = IChartTelemetryPrivacy.sanitizedProperties([
+            "contract_id": .string("ink.render_preservation"),
+            "contract_version": .int(1),
+            "operation_id": .string(operationID),
+            "operation": .string("render"),
+            "outcome": .string("violated"),
+            "reason": .string("render_source_missing"),
+            "scope": .string("chords"),
+            "expected_count": .int(4),
+            "actual_count": .int(3),
+            "expected_bytes": .int(10_000),
+            "actual_bytes": .int(9_000),
+            "content_matches": .bool(false),
+            "build_source": .string("release_build"),
+            "chart_reference": .string(String(repeating: "a", count: 64)),
+            "error_code": .string("must not ride along"),
+            "drawing_data": .string("must not upload")
+        ], forEventName: "feature.contract_checked")
+        XCTAssertTrue(IChartTelemetryPrivacy.hasRequiredContractFields(valid))
+        XCTAssertEqual(valid["operation_id"], .string(operationID.lowercased()))
+        XCTAssertEqual(valid["expected_count"], .int(4))
+        XCTAssertEqual(valid["content_matches"], .bool(false))
+        XCTAssertNil(valid["error_code"])
+        XCTAssertNil(valid["drawing_data"])
+
+        let invalid = IChartTelemetryPrivacy.sanitizedProperties([
+            "contract_id": .string("arbitrary chart text"),
+            "contract_version": .int(2),
+            "operation_id": .string("arbitrary chart text"),
+            "outcome": .string("arbitrary chart text"),
+            "reason": .string("arbitrary chart text"),
+            "scope": .string("arbitrary chart text"),
+            "expected_count": .string("arbitrary chart text"),
+            "actual_count": .int(-1),
+            "expected_bytes": .int(1_000_000_000_001),
+            "content_matches": .string("false"),
+            "chart_reference": .string(UUID().uuidString),
+            "duration_ms": .double(.infinity)
+        ], forEventName: "feature.contract_checked")
+        XCTAssertTrue(invalid.isEmpty)
+        XCTAssertFalse(IChartTelemetryPrivacy.hasRequiredContractFields(invalid))
+        XCTAssertEqual(IChartTelemetryPrivacy.sanitizedProperties([
+            "reason": .string("existing reason value"), "scope": .string("existing scope value")
+        ])["reason"], .string("existing reason value"))
+    }
+
+    func testTelemetryQueueMigratesLegacyArrayAndAccountsForOverflowAtomically() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let queueURL = directory.appendingPathComponent("queue.json")
+        let inputs = (0..<3).map { _ in event(named: "app.launched") }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(Array(inputs.prefix(2))).write(to: queueURL, options: .atomic)
+        let queue = IChartTelemetryQueueStore(url: queueURL, maxEventCount: 2)
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), Array(inputs.prefix(2)).map(\.clientEventID))
+        try queue.append(inputs[2])
+        let recreated = IChartTelemetryQueueStore(url: queueURL, maxEventCount: 2)
+        XCTAssertEqual(try recreated.loadEvents().map(\.clientEventID), Array(inputs.suffix(2)).map(\.clientEventID))
+        XCTAssertEqual(try recreated.healthSnapshot().overflowDroppedEventCount, 1)
+        try recreated.acknowledge(acceptedIDs: [inputs[1].clientEventID], rejectedIDs: [inputs[2].clientEventID])
+        XCTAssertTrue(try recreated.loadEvents().isEmpty)
+        XCTAssertEqual(try recreated.loadQuarantinedEvents().map(\.clientEventID), [inputs[2].clientEventID])
+        XCTAssertEqual(try recreated.healthSnapshot().serverRejectedEventCount, 1)
+        try recreated.acknowledge(acceptedIDs: [], rejectedIDs: [inputs[2].clientEventID])
+        XCTAssertEqual(try recreated.healthSnapshot().serverRejectedEventCount, 1)
+        try recreated.clear()
+        XCTAssertTrue(try recreated.loadQuarantinedEvents().isEmpty)
+        XCTAssertEqual(try recreated.healthSnapshot().overflowDroppedEventCount, 0)
+        XCTAssertEqual(try recreated.healthSnapshot().serverRejectedEventCount, 0)
+    }
+
+    func testTelemetryAcknowledgmentDoesNotTreatBooleanOrMissingCountsAsFullSuccess() throws {
+        let id = UUID()
+        for payload in [
+            "{\"accepted\":true}",
+            "{\"accepted\":1,\"stored_count\":1,\"rejected_count\":0}",
+            "{\"accepted\":true,\"stored_count\":true,\"rejected_count\":0}",
+            "{\"accepted\":true,\"stored_count\":1,\"rejected_count\":1}"
+        ] {
+            XCTAssertNil(IChartTelemetryAcknowledgment.parse(Data(payload.utf8), sentIDs: [id]))
+        }
+        let complete = IChartTelemetryAcknowledgment.parse(
+            Data("{\"accepted\":true,\"stored_count\":1,\"rejected_count\":0}".utf8),
+            sentIDs: [id]
+        )
+        XCTAssertEqual(complete?.acceptedIDs, [id])
+    }
+
+    func testQueueHealthMetadataAcceptsOnlyBoundedIntegerTotals() {
+        let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
+            "queue_overflow_count": .int(12),
+            "queue_rejected_count": .string("do not upload"),
+            "queue_quarantine_overflow_count": .int(-1),
+            "queue_unacknowledged_batch_count": .int(1_000_000_000_001)
+        ])
+        XCTAssertEqual(sanitized, ["queue_overflow_count": .int(12)])
+    }
+
     private func event(named name: String) -> IChartTelemetryEvent {
         IChartTelemetryEvent(
             clientEventID: UUID(),

@@ -11,11 +11,7 @@
   <main class="page shell">
     <p class="eyebrow">iChart</p>
     <h1>Privacy Policy</h1>
-    <!-- Release hold: coordinate publication with the consent-enabled app and
-         reconciled App Store privacy labels. Telemetry retention configuration
-         is deployed; actual Cron execution and disclosure publication remain gates.
-         The version-specific consent boundaries below must be preserved. -->
-    <p class="updated">Last updated: October 9, 2026</p>
+    <p class="updated">Last updated: October 30, 2026</p>
 
     <section>
       <h2>Overview</h2>
@@ -24,20 +20,24 @@
 
     <section>
       <h2>Information iChart Uses</h2>
-      <p>iChart may use account information such as your name and email address for sign-in, email verification, password recovery, subscription identity, support, and community credit.</p>
+      <p>iChart may use account information such as your name and email address for sign-in, email verification, password recovery, Pro access, purchase history, support, and community credit.</p>
+      <p>When you choose Basic or rejoin Pro, iChart stores that choice with your account. If you acknowledge an in-app pricing notice, that acknowledgement is also stored with your account.</p>
       <p>Chart content remains local on your device unless you choose a feature that sends it to the service, such as Pro cloud backup or forum publishing.</p>
     </section>
 
     <section>
       <h2>Charts, Cloud Backup, And Forums</h2>
-      <p>Basic accounts include local chart writing and PDF export. Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums.</p>
+      <p>Basic includes local chart writing and PDF export, with a three-chart limit for new chart creation. Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums. Choosing Basic by itself does not delete your existing charts, downloads, or cloud backups; existing charts remain editable.</p>
       <p>Cloud backup stores chart documents and snapshots so your Pro account can restore supported chart data. Forums publish reviewed fixed PDF snapshots, not editable source chart files, source ink, or private local authoring state.</p>
       <p>Forum posts, comments, votes, reports, contributor blocks, downloads, moderation events, public visibility, and creator credit are handled by the community service.</p>
     </section>
 
     <section>
-      <h2>Purchases And Subscriptions</h2>
-      <p>Pro is an auto-renewing subscription managed through Apple purchase and restore flows. Apple processes payment information. iChart receives subscription status and StoreKit transaction identifiers needed to verify Pro access with the iChart service.</p>
+      <h2>Current Pro Access And Existing Apple Subscriptions</h2>
+      <p>Verified iChart accounts currently receive Pro access at no charge. No new Apple subscription or checkout is required for this free access, and it does not automatically become a paid subscription. You can choose Basic or rejoin free Pro in Settings.</p>
+      <p>We will give advance notice in the app before pricing changes; any new paid subscription will require your explicit confirmation with Apple.</p>
+      <p>Changing your app-access choice does not cancel an existing Apple subscription or issue a refund. Apple manages existing subscription billing and cancellation, and decides whether to approve App Store refund requests. Use Manage My Subscription in the app to manage or cancel Apple billing.</p>
+      <p>Apple processes payment information. iChart receives subscription status and StoreKit transaction identifiers needed to verify purchase history and support existing Apple subscriptions.</p>
     </section>
 
     <section>
@@ -48,14 +48,18 @@
 
     <section>
       <h2>Diagnostics And Product Telemetry</h2>
-      <p>Product telemetry is optional and off by default. You can choose whether to share it using Settings &gt; Privacy &gt; Share app diagnostics. Your app features and subscription do not depend on this choice.</p>
+      <p>Product telemetry is optional and off by default. You can choose whether to share it using Settings &gt; Privacy &gt; Share app diagnostics. Your app features and Pro access do not depend on this choice.</p>
       <p>Earlier app versions did not include this switch and could send the limited product telemetry described here without a separate opt-in. Update to a version with the Privacy controls to manage sharing, or contact support@useichart.com with a diagnostic-data request.</p>
       <p>If you opt in, iChart collects limited diagnostic and product telemetry to understand reliability, feature usage, and support issues. This can include event names, app version and build, device model, iPadOS version, language/region setting, time-zone offset, coarse workflow results, counts, timings, error categories, and aggregate Apple Pencil ink appearance statistics such as stroke count, opacity range, width range, and whether ink normalization was needed.</p>
-      <p>Diagnostics include random installation and diagnostic-session identifiers and temporary workflow identifiers that connect events in a writing batch. Diagnostic sessions are created when collection begins and can reset after a change in your sharing choice. When you are signed in, diagnostic records can be linked to your iChart account identifier for reliability and support. These identifiers are used for iChart's own analytics and app functionality, not advertising or tracking across other companies' apps or websites.</p>
+      <p>Diagnostics include random installation and diagnostic-session identifiers and temporary workflow identifiers that connect events in a writing batch. App versions with technical integrity diagnostics also use an opaque chart reference to connect technical checks for the same chart within an installation, without sending its title, contents, or original chart identifier. The reference is derived within that installation's diagnostic identity and changes when that identity is reset. Diagnostic sessions are created when collection begins and can reset after a change in your sharing choice. When you are signed in, diagnostic records can be linked to your iChart account identifier for reliability and support.</p>
+      <p>These identifiers are used for iChart's own analytics and app functionality, not advertising or tracking across other companies' apps or websites.</p>
       <p>Chord recognition diagnostics include the recognition pipeline version, counts of reads needing review or receiving no read, correction categories, rendering outcomes, and recognition timings. These are technical and workflow measurements, not a recording of what you wrote.</p>
-      <p>iChart telemetry does not collect chart titles, song titles, artist names, emails, account names, raw chord text, handwritten drawing data, PDF files, screenshots, or editable chart documents.</p>
-      <p>You can withdraw consent by turning Share app diagnostics off. This stops new collection and sending and starts cleanup of unsent diagnostic events on this iPad. Previously queued events cannot be sent by a later opt-in. A request already sent may finish. Turning the switch off does not delete records already received by iChart; contact support@useichart.com for a diagnostic-data deletion request.</p>
+      <p>Technical integrity diagnostics can include the outcome of save, reopen, render, or coordinate-conversion checks; ink-source attachment, stroke, or point counts; data sizes; and whether a comparison performed on the device matched. Some checks are sampled. A failed or uncertain check does not by itself establish that a chart was lost or that a recognized chord was wrong.</p>
+      <p>App versions with technical integrity diagnostics can keep a local diagnostic checkpoint containing local chart identifiers, counts, data sizes, and source-content fingerprints to compare a saved revision with a later read. That checkpoint stays on the iPad. Only permitted counts and comparison outcomes are sent; the fingerprints and original chart identifiers are not uploaded.</p>
+      <p>iChart telemetry does not collect chart titles, song titles, artist names, emails, account names, raw chord text, handwritten drawing data, source-content hashes, PDF files, screenshots, or editable chart documents. Ordinary diagnostics and cloud backup do not grant permission to use saved handwriting for recognition research or model training.</p>
+      <p>You can withdraw consent by turning Share app diagnostics off. This stops new collection and sending and starts cleanup of unsent diagnostic events and local diagnostic checkpoints on this iPad. Previously queued events cannot be sent by a later opt-in. A request already sent may finish. Turning the switch off does not delete records already received by iChart; contact support@useichart.com for a diagnostic-data deletion request.</p>
       <p>Automatic telemetry received by the service is subject to daily cleanup of events received more than 180 days ago, using the server receipt time rather than a timestamp supplied by the device. Records can remain beyond 180 days until the next successful cleanup. Account deletion removes telemetry still linked to that account. Signed-out records and records previously unlinked from a deleted account cannot automatically be attributed to that account and remain subject to age-based cleanup.</p>
+      <p>The service can group technical findings into engineering tasks with a category, status, and fix-verification summary. These automatic task records do not copy account, installation, or chart identifiers or chart contents. Links to underlying events and counts derived from those events follow event deletion; the technical task history can remain after its event evidence is removed.</p>
       <p>Performance reports are separate from automatic product telemetry. They stay on your iPad unless you explicitly share a report from Help &gt; Contact Us. Shared reports contain event timestamps, elapsed timings and diagnostic context, which may include identifiers and error details. Raw device uptime is removed from exported reports. Information you choose to share with support is handled as support data, not as automatic telemetry.</p>
     </section>
 

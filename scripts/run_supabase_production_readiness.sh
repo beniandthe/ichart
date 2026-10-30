@@ -102,7 +102,8 @@ run node --test \
   supabase/functions/_shared/recognition_study_consent_store.test.mjs \
   supabase/functions/_shared/supabase_subscription_authority_store.test.mjs \
   supabase/functions/_shared/subscription_retention_jobs.test.mjs \
-  supabase/functions/_shared/telemetry_ingest.test.mjs
+  supabase/functions/_shared/telemetry_ingest.test.mjs \
+  supabase/functions/_shared/feature_contract_schema.test.mjs
 
 run swift test \
   --scratch-path /tmp/iChartSwiftBuild-supabase-readiness-focused \

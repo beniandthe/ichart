@@ -4601,6 +4601,7 @@ struct EditorView: View {
         workflowProperties: IChartTelemetryProperties = [:]
     ) -> Bool {
         guard ChordInkRepeatSignPairingPolicy.review(state: state).canRender else {
+            LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
             chordInkErrorMessage = ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
                 ?? "An end repeat still needs confirmation. Keep the ink and tap Render again to review it. Nothing was rendered or erased."
             showingChordInkError = true
@@ -4613,6 +4614,9 @@ struct EditorView: View {
         // actual PKDrawing and consumes it synchronously on the main actor;
         // a delayed SwiftUI update must never clear ink added after review.
         guard let outcome = chordDraftRenderCoordinator.render(chart: chart, state: committedState) else {
+            LeadSheetInkFeatureContract.recordRenderGuard(
+                chart: chart, reason: "render_canvas_unavailable", unavailable: true
+            )
             chordInkErrorMessage = "The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased."
             showingChordInkError = true
             return false
@@ -4682,6 +4686,7 @@ struct EditorView: View {
         guard let confirmed = ChordDraftRepeatReviewPolicy.confirmedState(
             for: request, chart: chart, currentState: chordPreviewState
         ) else {
+            LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
             chordInkErrorMessage = "The repeat preview or source ink changed during review. Tap Render again to review the current signs. Your ink has not been erased."
             showingChordInkError = true
             return
