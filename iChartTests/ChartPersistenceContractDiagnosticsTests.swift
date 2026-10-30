@@ -220,6 +220,59 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
         XCTAssertEqual(events.map(\.reason), ["save_completed"])
     }
 
+    func testConsentGenerationChangeWithSameIdentityRejectsOldBackgroundOperation() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library.json"))
+        let value = snapshot()
+        try repository.saveSnapshot(value)
+        let libraryBytes = try Data(contentsOf: repository.url)
+        var authorization = ChartPersistenceDiagnosticAuthorization(identity: "same-installation", generation: 1)
+        var events: [ChartPersistenceContractCheck] = []
+        let diagnostics = ChartPersistenceContractDiagnostics(
+            fileURL: repository.url, identity: "unused", currentAuthorization: { authorization },
+            isEnabled: { true }, record: {
+                events.append($0)
+                if $0.reason == "readback_matches" { authorization.generation = 2 }
+            }
+        )
+
+        diagnostics.didSave(value, repository: repository, error: nil, durationMilliseconds: 3)
+
+        XCTAssertEqual(events.map(\.reason), ["save_completed", "readback_matches"])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ChartPersistenceContractDiagnostics.checkpointURL(for: repository.url).path
+        ))
+        XCTAssertEqual(try Data(contentsOf: repository.url), libraryBytes)
+    }
+
+    func testAppCheckpointPublisherReceivesCapturedAuthorizationAndEncodedPayload() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library.json"))
+        let value = snapshot()
+        try repository.saveSnapshot(value)
+        let authorization = ChartPersistenceDiagnosticAuthorization(identity: "installation", generation: 7)
+        var published: ChartPersistenceContractDiagnostics.Checkpoint?
+        let diagnostics = ChartPersistenceContractDiagnostics(
+            fileURL: repository.url, identity: "unused", currentAuthorization: { authorization },
+            publishCheckpoint: { data, url, suppliedAuthorization in
+                XCTAssertEqual(suppliedAuthorization, authorization)
+                XCTAssertEqual(url, ChartPersistenceContractDiagnostics.checkpointURL(for: repository.url))
+                published = try JSONDecoder().decode(ChartPersistenceContractDiagnostics.Checkpoint.self, from: data)
+                return false
+            }, isEnabled: { true }, record: { _ in }
+        )
+
+        diagnostics.didSave(value, repository: repository, error: nil, durationMilliseconds: 3)
+
+        XCTAssertEqual(published?.identity, authorization.identity)
+        XCTAssertEqual(published?.chartCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ChartPersistenceContractDiagnostics.checkpointURL(for: repository.url).path
+        ), "The portable helper must not bypass a rejecting app publisher")
+    }
+
     func testCheckpointDetectsSameRevisionLossAfterDiskFileChanges() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

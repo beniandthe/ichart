@@ -256,8 +256,35 @@ final class ProjectConfigurationTests: XCTestCase {
         // The editor delegates the synchronous live-drawing transaction to
         // the canvas, rather than authorizing erasure from cached chart ink.
         XCTAssertTrue(editorText.contains("chordDraftRenderCoordinator.render(chart: chart, state: committedState)"))
-        XCTAssertTrue(hostText.contains("currentDrawing: pageInkCanvasView.drawing"))
-        XCTAssertTrue(hostText.contains("guard outcome.canConsumeSource else { return outcome }"))
+        let atomicRenderText = try XCTUnwrap(
+            hostText.components(separatedBy: "func renderChordDraftAtomically(").last?
+                .components(separatedBy: "func rewriteChordDraftAtomically(").first
+        )
+        XCTAssertTrue(atomicRenderText.contains("let sourceDrawing = pageInkCanvasView.drawing"))
+        XCTAssertTrue(atomicRenderText.contains("currentDrawing: sourceDrawing"))
+        let consumptionGuard = try XCTUnwrap(atomicRenderText.range(of: "guard outcome.canConsumeSource else {"))
+        let guardOpen = atomicRenderText.index(before: consumptionGuard.upperBound)
+        var braceDepth = 0
+        var guardClose: String.Index?
+        for index in atomicRenderText[guardOpen...].indices {
+            if atomicRenderText[index] == "{" { braceDepth += 1 }
+            if atomicRenderText[index] == "}" {
+                braceDepth -= 1
+                if braceDepth == 0 {
+                    guardClose = index
+                    break
+                }
+            }
+        }
+        let rejectionEnd = try XCTUnwrap(guardClose)
+        let rejectedBranch = String(atomicRenderText[guardOpen...rejectionEnd])
+        // Read-only diagnostics may observe a rejection. They must not allow
+        // that branch to consume the live canvas before returning the outcome.
+        XCTAssertTrue(rejectedBranch.contains("return outcome"))
+        XCTAssertFalse(rejectedBranch.contains("clearChordDraftInkCanvas()"))
+        XCTAssertFalse(rejectedBranch.contains("recordPendingPersistedInk("))
+        let canvasConsumption = try XCTUnwrap(atomicRenderText.range(of: "clearChordDraftInkCanvas()"))
+        XCTAssertLessThan(rejectionEnd, canvasConsumption.lowerBound)
         XCTAssertTrue(coordinatorText.contains("preparedChart.commitChordInkDraftBatch(state)"))
         XCTAssertTrue(draftText.contains("barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn"))
         XCTAssertTrue(draftText.contains("ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state)"))
@@ -1707,8 +1734,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.3\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"90\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"91\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(

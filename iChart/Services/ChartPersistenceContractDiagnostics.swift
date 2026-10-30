@@ -30,6 +30,13 @@ struct ChartExperienceInkSummary: Codable, Equatable {
     var contentDigest: String
 }
 
+/// The identity survives app launches; the generation distinguishes withdrawal
+/// and another opt-in while an older background observation is still running.
+struct ChartPersistenceDiagnosticAuthorization: Equatable, Sendable {
+    var identity: String
+    var generation: UInt64
+}
+
 enum ChartExperienceContractSummary {
     /// Call only on a diagnostic/persistence queue: source digests never run
     /// on the PencilKit or main-thread authoring path.
@@ -103,34 +110,46 @@ final class ChartPersistenceContractDiagnostics {
 
     private let fileURL: URL?
     private let checkpointURL: URL?
-    private let currentIdentity: () -> String?
+    private let currentAuthorization: () -> ChartPersistenceDiagnosticAuthorization?
+    private let publishCheckpoint: ((Data, URL, ChartPersistenceDiagnosticAuthorization) throws -> Bool)?
     private let isEnabled: () -> Bool
     private let record: (ChartPersistenceContractCheck) -> Void
     private let clock: () -> TimeInterval
     private let minimumReadbackInterval: TimeInterval
     private var lastReadbackAt: TimeInterval?
-    private var lastIdentity: String?
+    private var lastAuthorization: ChartPersistenceDiagnosticAuthorization?
 
     init(
         fileURL: URL? = nil,
         identity: String,
         currentIdentity: (() -> String?)? = nil,
+        currentAuthorization: (() -> ChartPersistenceDiagnosticAuthorization?)? = nil,
+        publishCheckpoint: ((Data, URL, ChartPersistenceDiagnosticAuthorization) throws -> Bool)? = nil,
         minimumReadbackInterval: TimeInterval = 30,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isEnabled: @escaping () -> Bool,
         record: @escaping (ChartPersistenceContractCheck) -> Void
     ) {
         self.fileURL = fileURL
-        self.checkpointURL = fileURL?.appendingPathExtension("experience-checkpoint.json")
-        self.currentIdentity = currentIdentity ?? { identity }
+        self.checkpointURL = fileURL.map(Self.checkpointURL(for:))
+        let identityProvider = currentIdentity ?? { identity }
+        self.currentAuthorization = currentAuthorization ?? {
+            identityProvider().map { ChartPersistenceDiagnosticAuthorization(identity: $0, generation: 0) }
+        }
+        self.publishCheckpoint = publishCheckpoint
         self.minimumReadbackInterval = minimumReadbackInterval
         self.clock = clock
         self.isEnabled = isEnabled
         self.record = record
     }
 
+    static func checkpointURL(for fileURL: URL) -> URL {
+        fileURL.appendingPathExtension("experience-checkpoint.json")
+    }
+
     func didLoad(_ snapshot: ChartLibrarySnapshot?, error: Error?, durationMilliseconds: Double) {
-        guard isEnabled(), let identity = currentIdentity() else { return }
+        guard isEnabled(), let authorization = currentAuthorization() else { return }
+        let identity = authorization.identity
         let operationID = UUID()
         let checkpoint: Checkpoint? = checkpointURL.flatMap { url in
             guard let data = try? Data(contentsOf: url),
@@ -148,12 +167,12 @@ final class ChartPersistenceContractDiagnostics {
             expectedCount: checkpoint?.chartCount ?? 0, actualCount: snapshot?.charts.count ?? 0,
             contentMatches: missingKnownLibrary ? false : nil,
             durationMilliseconds: durationMilliseconds
-        ), identity: identity)
+        ), authorization: authorization)
         guard error == nil, let snapshot, checkpointURL != nil, let fileURL else { return }
         // An unmatched file binding is unknown, never proof of source loss: a
         // crash can occur after atomic library write but before checkpoint write.
         guard let checkpoint else {
-            recordUnknownReopen(operationID: operationID, reason: "baseline_missing", identity: identity)
+            recordUnknownReopen(operationID: operationID, reason: "baseline_missing", authorization: authorization)
             return
         }
         let exactFileMatches = (try? Data(contentsOf: fileURL)).map(Self.digest) == checkpoint.fileDigest
@@ -164,25 +183,26 @@ final class ChartPersistenceContractDiagnostics {
                 reason: checkpoint.chartCount == snapshot.charts.count ? "reopen_matches" : "reopen_mismatch",
                 expectedCount: checkpoint.chartCount, actualCount: snapshot.charts.count,
                 contentMatches: checkpoint.chartCount == snapshot.charts.count
-            ), identity: identity)
+            ), authorization: authorization)
         } else {
-            recordUnknownReopen(operationID: operationID, reason: "baseline_changed", identity: identity)
+            recordUnknownReopen(operationID: operationID, reason: "baseline_changed", authorization: authorization)
         }
         let checks = ChartExperienceContractSummary.checks(
             expected: checkpoint.summaries,
             actual: ChartExperienceContractSummary.capture(snapshot), operationID: operationID
         )
-        for check in checks { emit(check, identity: identity) }
+        for check in checks { emit(check, authorization: authorization) }
     }
 
     func didSave(
         _ snapshot: ChartLibrarySnapshot, repository: ChartRepository,
         error: Error?, durationMilliseconds: Double
     ) {
-        guard isEnabled(), let identity = currentIdentity() else { return }
-        if lastIdentity != identity {
+        guard isEnabled(), let authorization = currentAuthorization() else { return }
+        let identity = authorization.identity
+        if lastAuthorization != authorization {
             lastReadbackAt = nil
-            lastIdentity = identity
+            lastAuthorization = authorization
         }
         let now = clock()
         let shouldReadback = lastReadbackAt.map { now - $0 >= minimumReadbackInterval } ?? true
@@ -195,12 +215,12 @@ final class ChartPersistenceContractDiagnostics {
             expectedCount: snapshot.charts.count,
             actualCount: error == nil ? snapshot.charts.count : 0,
             durationMilliseconds: durationMilliseconds
-        ), identity: identity)
+        ), authorization: authorization)
         guard error == nil else { return }
         lastReadbackAt = now
         do {
             let loaded = try repository.loadSnapshot()
-            guard isEnabled(), currentIdentity() == identity else { return }
+            guard isEnabled(), currentAuthorization() == authorization else { return }
             let matches = loaded == snapshot
             // Exempt only positively newer concurrent revisions of the same
             // chart set. Older/missing/mixed readbacks after a successful save
@@ -225,34 +245,46 @@ final class ChartPersistenceContractDiagnostics {
                 reason: hasPositivelyNewerRevision ? "baseline_changed" : (matches ? "readback_matches" : "readback_mismatch"),
                 expectedCount: snapshot.charts.count, actualCount: loaded?.charts.count ?? 0,
                 contentMatches: hasPositivelyNewerRevision ? nil : matches
-            ), identity: identity)
+            ), authorization: authorization)
             guard matches, let fileURL, let checkpointURL,
                   let fileData = try? Data(contentsOf: fileURL) else { return }
             let checkpoint = Checkpoint(
                 identity: identity, fileDigest: Self.digest(fileData), chartCount: snapshot.charts.count,
                 summaries: ChartExperienceContractSummary.capture(snapshot)
             )
-            guard isEnabled(), currentIdentity() == identity else { return }
+            // Hash and encode outside the consent lock. The app's publisher
+            // revalidates this exact generation and atomically publishes under
+            // the same lock that withdraws consent and removes the checkpoint.
+            let checkpointData = try JSONEncoder().encode(checkpoint)
+            guard isEnabled(), currentAuthorization() == authorization else { return }
             // A diagnostic checkpoint failure must never fail the user's save.
-            try? JSONEncoder().encode(checkpoint).write(to: checkpointURL, options: .atomic)
+            if let publishCheckpoint {
+                _ = try? publishCheckpoint(checkpointData, checkpointURL, authorization)
+            } else {
+                // Injected portable callers provide their own consent policy;
+                // the production app always supplies the atomic publisher.
+                try? checkpointData.write(to: checkpointURL, options: .atomic)
+            }
         } catch {
-            guard isEnabled(), currentIdentity() == identity else { return }
+            guard isEnabled(), currentAuthorization() == authorization else { return }
             emit(ChartPersistenceContractCheck(
                 contractID: "chart.save_readback", operationID: operationID, operation: "save_readback",
                 outcome: "unknown", reason: "readback_failed", expectedCount: snapshot.charts.count
-            ), identity: identity)
+            ), authorization: authorization)
         }
     }
 
-    private func recordUnknownReopen(operationID: UUID, reason: String, identity: String) {
+    private func recordUnknownReopen(
+        operationID: UUID, reason: String, authorization: ChartPersistenceDiagnosticAuthorization
+    ) {
         emit(ChartPersistenceContractCheck(
             contractID: "ink.reopen_preservation", operationID: operationID, operation: "reopen",
             outcome: "unknown", reason: reason
-        ), identity: identity)
+        ), authorization: authorization)
     }
 
-    private func emit(_ check: ChartPersistenceContractCheck, identity: String) {
-        guard isEnabled(), currentIdentity() == identity else { return }
+    private func emit(_ check: ChartPersistenceContractCheck, authorization: ChartPersistenceDiagnosticAuthorization) {
+        guard isEnabled(), currentAuthorization() == authorization else { return }
         record(check)
     }
 
