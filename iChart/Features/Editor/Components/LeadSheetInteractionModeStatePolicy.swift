@@ -36,10 +36,11 @@ enum LeadSheetPersistentInkColorPolicy {
             return drawingData == PKDrawing().dataRepresentation() ? nil : drawingData
         }
 
-        let normalizedDrawing = strokes.contains(where: needsNormalization)
-            ? PKDrawing(strokes: strokes.map(normalizedStroke))
-            : drawing
-        return normalizedDrawing.dataRepresentation()
+        // PencilKit can rewrite an otherwise identical archive across OS
+        // versions. Keep the original source bytes when its ink already has
+        // the persistent color/type; decoding alone must not rewrite it.
+        guard strokes.contains(where: needsNormalization) else { return drawingData }
+        return PKDrawing(strokes: strokes.map(normalizedStroke)).dataRepresentation()
     }
 
     static func persistentDrawingData(for drawing: PKDrawing) -> Data? {
@@ -144,27 +145,9 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         _ coordinateSpace: PersistentInkCoordinateSpace?,
         chart: Chart
     ) -> PersistentInkCoordinateSpace? {
-        guard var coordinateSpace else {
-            return nil
-        }
-
-        if coordinateSpace.chordAnchors?.isEmpty == false {
-            return coordinateSpace
-        }
-
-        guard let sourceLayout = inferredPageLayout(
-            for: chart,
-            pageWritingSize: coordinateSpace.size
-        ) else {
-            return coordinateSpace
-        }
-
-        let sourceFrame = LeadSheetActiveInkScope.pageWritingFrame(for: sourceLayout)
-        coordinateSpace.chordAnchors = chordAnchors(in: sourceLayout, relativeTo: sourceFrame)
-        if coordinateSpace.measureAnchors?.isEmpty != false {
-            coordinateSpace.measureAnchors = measureAnchors(in: sourceLayout, relativeTo: sourceFrame)
-        }
-        return coordinateSpace
+        // Free Ink belongs to the paper, not inferred musical objects. Keep
+        // legacy source metadata intact when opening or rotating a chart.
+        coordinateSpace
     }
 
     static func sourceCoordinateSpace(
@@ -234,50 +217,6 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             }
     }
 
-    private static func inferredPageLayout(
-        for chart: Chart,
-        pageWritingSize: CGSize
-    ) -> LeadSheetPageLayout? {
-        guard pageWritingSize.width > 0,
-              pageWritingSize.height > 0,
-              pageWritingSize.width.isFinite,
-              pageWritingSize.height.isFinite else {
-            return nil
-        }
-
-        let pageWidthCandidates = [
-            pageWritingSize.width + 68,
-            pageWritingSize.width + 56,
-            pageWritingSize.width + 160,
-            pageWritingSize.width
-        ]
-        let pageHeightCandidates = [
-            pageWritingSize.height + 80,
-            pageWritingSize.height + 60,
-            pageWritingSize.height
-        ]
-
-        var bestLayout: LeadSheetPageLayout?
-        var bestDistance = CGFloat.greatestFiniteMagnitude
-        for pageWidth in pageWidthCandidates {
-            for pageHeight in pageHeightCandidates {
-                let layout = LeadSheetPageLayoutEngine.pageLayout(
-                    for: chart,
-                    pageSize: CGSize(width: pageWidth, height: pageHeight)
-                )
-                let inferredWritingSize = LeadSheetActiveInkScope.pageWritingFrame(for: layout).size
-                let distance = abs(inferredWritingSize.width - pageWritingSize.width)
-                    + abs(inferredWritingSize.height - pageWritingSize.height)
-                if distance < bestDistance {
-                    bestDistance = distance
-                    bestLayout = layout
-                }
-            }
-        }
-
-        return bestLayout
-    }
-
     static func drawing(
         from drawingData: Data?,
         sourceCoordinateSpace: PersistentInkCoordinateSpace?,
@@ -330,28 +269,27 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         guard sourceSize.width > 0,
               sourceSize.height > 0,
               targetSize.width > 0,
-              targetSize.height > 0 else {
+              targetSize.height > 0,
+              sourceSize.width.isFinite,
+              sourceSize.height.isFinite,
+              targetSize.width.isFinite,
+              targetSize.height.isFinite else {
             return drawing
         }
 
-        let pageTransform = CGAffineTransform(
+        // Page spaces carry musical anchors as layout metadata, but Free Ink
+        // must retain its exact paper coordinates. The editor and PDF exporter
+        // preserve that paper's logical width; rotation only changes the view.
+        if isPageCoordinateSpace(sourceCoordinateSpace)
+            || isPageCoordinateSpace(targetCoordinateSpace) {
+            return drawing
+        }
+
+        // Header, chord and rhythmic canvases retain their existing mapping.
+        return drawing.transformed(using: CGAffineTransform(
             scaleX: targetSize.width / sourceSize.width,
             y: targetSize.height / sourceSize.height
-        )
-        // Page ink coordinate spaces carry musical anchors. When the chart loses
-        // systems or pages, their total height changes without changing the
-        // scale of the remaining paper. Strokes associated with surviving
-        // anchors should follow those anchors; unmatched annotations (including
-        // ink near a removed measure) must keep page-local geometry instead of
-        // being compressed into the shorter document. Use the horizontal paper
-        // scale uniformly as the anchored fallback. Coordinate spaces without
-        // anchors retain the legacy full-frame reprojection below.
-        let anchoredDrawing = anchoredDrawing(
-            drawing,
-            sourceCoordinateSpace: sourceCoordinateSpace,
-            targetCoordinateSpace: targetCoordinateSpace
-        )
-        return anchoredDrawing ?? drawing.transformed(using: pageTransform)
+        ))
     }
 
     static func persistentDrawingData(
@@ -386,244 +324,8 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         return LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing)
     }
 
-    private static func anchoredDrawing(
-        _ drawing: PKDrawing,
-        sourceCoordinateSpace: PersistentInkCoordinateSpace,
-        targetCoordinateSpace: PersistentInkCoordinateSpace
-    ) -> PKDrawing? {
-        let sourceMeasureAnchors = sourceCoordinateSpace.measureAnchors ?? []
-        let targetMeasureAnchors = targetCoordinateSpace.measureAnchors ?? []
-        let sourceChordAnchors = sourceCoordinateSpace.chordAnchors ?? []
-        let targetChordAnchors = targetCoordinateSpace.chordAnchors ?? []
-        let canUseMeasureAnchors = !sourceMeasureAnchors.isEmpty && !targetMeasureAnchors.isEmpty
-        let canUseChordAnchors = !sourceChordAnchors.isEmpty && !targetChordAnchors.isEmpty
-
-        guard canUseMeasureAnchors || canUseChordAnchors else {
-            return nil
-        }
-
-        let targetMeasureAnchorsByMeasureID = Dictionary(
-            uniqueKeysWithValues: targetMeasureAnchors.map { ($0.measureID, $0) }
-        )
-        let targetChordAnchorsByChordID = Dictionary(
-            uniqueKeysWithValues: targetChordAnchors.map { ($0.chordID, $0) }
-        )
-        let indexedSourceMeasureAnchors = sourceMeasureAnchors.map { anchor in
-            IndexedMeasureAnchor(
-                anchor: anchor,
-                hitFrame: measureAnchorHitFrame(anchor.frame.rect)
-            )
-        }
-        let indexedSourceChordAnchors = sourceChordAnchors.map { anchor in
-            IndexedChordAnchor(
-                anchor: anchor,
-                hitFrame: chordAnchorHitFrame(anchor.frame.rect)
-            )
-        }
-        let transformedStrokes = drawing.strokes.map { stroke -> PKStroke in
-            let strokeBounds = stroke.renderBounds
-            let transform = chordAnchorTransform(
-                for: strokeBounds,
-                sourceAnchors: indexedSourceChordAnchors,
-                targetAnchorsByChordID: targetChordAnchorsByChordID
-            ) ?? measureAnchorTransform(
-                for: strokeBounds,
-                sourceAnchors: indexedSourceMeasureAnchors,
-                targetAnchorsByMeasureID: targetMeasureAnchorsByMeasureID
-            ) ?? unanchoredStrokeTransform(
-                for: strokeBounds,
-                sourceSize: sourceCoordinateSpace.size,
-                targetSize: targetCoordinateSpace.size
-            )
-            return PKDrawing(strokes: [stroke]).transformed(using: transform).strokes.first ?? stroke
-        }
-
-        return PKDrawing(strokes: transformedStrokes)
-    }
-
-    private struct IndexedMeasureAnchor {
-        var anchor: PersistentInkMeasureAnchor
-        var hitFrame: CGRect
-    }
-
-    private struct IndexedChordAnchor {
-        var anchor: PersistentInkChordAnchor
-        var hitFrame: CGRect
-    }
-
-    private static func chordAnchorTransform(
-        for strokeBounds: CGRect,
-        sourceAnchors: [IndexedChordAnchor],
-        targetAnchorsByChordID: [UUID: PersistentInkChordAnchor]
-    ) -> CGAffineTransform? {
-        guard !strokeBounds.isNull,
-              !strokeBounds.isEmpty,
-              let sourceAnchor = sourceChordAnchor(for: strokeBounds, in: sourceAnchors),
-              let targetAnchor = targetAnchorsByChordID[sourceAnchor.chordID] else {
-            return nil
-        }
-
-        let sourceFrame = sourceAnchor.frame.rect
-        let targetFrame = targetAnchor.frame.rect
-        guard sourceFrame.width > 0,
-              sourceFrame.height > 0,
-              targetFrame.width > 0,
-              targetFrame.height > 0 else {
-            return nil
-        }
-
-        let sourceRegistrationPoint = sourceAnchor.registrationPoint?.point ?? sourceFrame.origin
-        let targetRegistrationPoint = targetAnchor.registrationPoint?.point ?? targetFrame.origin
-        return CGAffineTransform(
-            translationX: targetRegistrationPoint.x - sourceRegistrationPoint.x,
-            y: targetRegistrationPoint.y - sourceRegistrationPoint.y
-        )
-    }
-
-    private static func measureAnchorTransform(
-        for strokeBounds: CGRect,
-        sourceAnchors: [IndexedMeasureAnchor],
-        targetAnchorsByMeasureID: [UUID: PersistentInkMeasureAnchor]
-    ) -> CGAffineTransform? {
-        guard !strokeBounds.isNull,
-              !strokeBounds.isEmpty else {
-            return nil
-        }
-
-        guard let sourceAnchor = sourceAnchor(
-            for: strokeBounds,
-            in: sourceAnchors
-        ),
-              let targetAnchor = targetAnchorsByMeasureID[sourceAnchor.measureID] else {
-            return nil
-        }
-
-        let sourceFrame = sourceAnchor.frame.rect
-        let targetFrame = targetAnchor.frame.rect
-        guard sourceFrame.width > 0,
-              sourceFrame.height > 0,
-              targetFrame.width > 0,
-              targetFrame.height > 0 else {
-            return nil
-        }
-
-        let strokeCenter = CGPoint(x: strokeBounds.midX, y: strokeBounds.midY)
-        let relativeX = (strokeCenter.x - sourceFrame.minX) / sourceFrame.width
-        let relativeY = (strokeCenter.y - sourceFrame.minY) / sourceFrame.height
-        let targetCenter = CGPoint(
-            x: targetFrame.minX + relativeX * targetFrame.width,
-            y: targetFrame.minY + relativeY * targetFrame.height
-        )
-        return CGAffineTransform(
-            translationX: targetCenter.x - strokeCenter.x,
-            y: targetCenter.y - strokeCenter.y
-        )
-    }
-
-    private static func unanchoredStrokeTransform(
-        for strokeBounds: CGRect,
-        sourceSize: CGSize,
-        targetSize: CGSize
-    ) -> CGAffineTransform {
-        guard !strokeBounds.isNull,
-              !strokeBounds.isEmpty else {
-            return .identity
-        }
-
-        // Free annotations outside a musical anchor should not inflate or
-        // compress when the iPad rotates. Preserve the handwritten mark's
-        // shape and map only its horizontal center across the resized paper;
-        // its page-local vertical position stays stable.
-        let sourceCenterX = strokeBounds.midX
-        let targetCenterX = sourceCenterX / sourceSize.width * targetSize.width
-        return CGAffineTransform(
-            translationX: targetCenterX - sourceCenterX,
-            y: 0
-        )
-    }
-
-    private static func sourceAnchor(
-        for strokeBounds: CGRect,
-        in sourceAnchors: [IndexedMeasureAnchor]
-    ) -> PersistentInkMeasureAnchor? {
-        guard !strokeBounds.isNull,
-              !strokeBounds.isEmpty else {
-            return nil
-        }
-
-        let strokeCenter = CGPoint(x: strokeBounds.midX, y: strokeBounds.midY)
-        var bestAnchor: PersistentInkMeasureAnchor?
-        var bestDistance = CGFloat.greatestFiniteMagnitude
-        for indexedAnchor in sourceAnchors where indexedAnchor.hitFrame.contains(strokeCenter) {
-            let distance = distanceSquared(
-                from: strokeCenter,
-                to: indexedAnchor.anchor.frame.rect
-            )
-            if bestAnchor == nil || distance < bestDistance {
-                bestAnchor = indexedAnchor.anchor
-                bestDistance = distance
-            }
-        }
-        return bestAnchor
-    }
-
-    private static func sourceChordAnchor(
-        for strokeBounds: CGRect,
-        in sourceAnchors: [IndexedChordAnchor]
-    ) -> PersistentInkChordAnchor? {
-        guard !strokeBounds.isNull,
-              !strokeBounds.isEmpty else {
-            return nil
-        }
-
-        let strokeCenter = CGPoint(x: strokeBounds.midX, y: strokeBounds.midY)
-        var bestAnchor: PersistentInkChordAnchor?
-        var bestDistance = CGFloat.greatestFiniteMagnitude
-        for indexedAnchor in sourceAnchors where indexedAnchor.hitFrame.contains(strokeCenter) {
-            let distance = distanceSquared(
-                from: strokeCenter,
-                to: indexedAnchor.anchor.frame.rect
-            )
-            if bestAnchor == nil || distance < bestDistance {
-                bestAnchor = indexedAnchor.anchor
-                bestDistance = distance
-            }
-        }
-        return bestAnchor
-    }
-
-    private static func measureAnchorHitFrame(_ frame: CGRect) -> CGRect {
-        let horizontalPadding = CGFloat(10)
-        let verticalPadding = max(CGFloat(72), frame.height * 0.75)
-        return frame.insetBy(dx: -horizontalPadding, dy: -verticalPadding)
-    }
-
-    private static func chordAnchorHitFrame(_ frame: CGRect) -> CGRect {
-        let horizontalPadding = max(CGFloat(18), frame.width * 0.45)
-        let verticalPadding = max(CGFloat(48), frame.height * 0.95)
-        return frame.insetBy(dx: -horizontalPadding, dy: -verticalPadding)
-    }
-
-    private static func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
-        let dx: CGFloat
-        if point.x < rect.minX {
-            dx = rect.minX - point.x
-        } else if point.x > rect.maxX {
-            dx = point.x - rect.maxX
-        } else {
-            dx = 0
-        }
-
-        let dy: CGFloat
-        if point.y < rect.minY {
-            dy = rect.minY - point.y
-        } else if point.y > rect.maxY {
-            dy = point.y - rect.maxY
-        } else {
-            dy = 0
-        }
-
-        return dx * dx + dy * dy
+    private static func isPageCoordinateSpace(_ space: PersistentInkCoordinateSpace) -> Bool {
+        space.measureAnchors?.isEmpty == false || space.chordAnchors?.isEmpty == false
     }
 }
 

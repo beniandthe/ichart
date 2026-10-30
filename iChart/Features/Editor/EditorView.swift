@@ -364,6 +364,7 @@ struct EditorView: View {
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var latestEditorContentSize = CGSize(width: 900, height: 1400)
+    @State private var freeInkDocumentCanvasWidth: CGFloat?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
@@ -393,6 +394,9 @@ struct EditorView: View {
         self.chordInkUserCorrectionMemoryStore = chordInkUserCorrectionMemoryStore
         self.onExit = onExit
         _canvasMode = State(initialValue: Self.releaseSafeInitialCanvasMode(initialCanvasMode))
+        _freeInkDocumentCanvasWidth = State(initialValue:
+            LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart.wrappedValue)
+                ?? LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth)
         _chordInkUserCorrectionMemory = State(initialValue:
             HandwritingPersonalizationProductPolicy.isAvailable
                 ? ((try? chordInkUserCorrectionMemoryStore.load()) ?? ChordInkUserCorrectionMemory())
@@ -433,6 +437,8 @@ struct EditorView: View {
                 Text("This end repeat has no matching start repeat. Repeat from the beginning of the chart?")
             }
             .onChange(of: chart.id) { _, _ in
+                freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart)
+                    ?? LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth
                 pendingChordDraftClearChartID = nil
                 pendingChordDraftRepeatConfirmation = nil
             }
@@ -702,6 +708,9 @@ struct EditorView: View {
             }
         }
         .onChange(of: canvasMode) { previousMode, mode in
+            if mode == .freeHand {
+                retainFreeInkDocumentWidth()
+            }
             guard mode != .rhythmicNotationEdit || isDedicatedRhythmToolAvailable else {
                 latestRhythmPreview = nil
                 rhythmPreviewConfirmationRequestID = nil
@@ -732,6 +741,9 @@ struct EditorView: View {
             }
         }
         .onChange(of: chart) { previousChart, updatedChart in
+            if freeInkDocumentCanvasWidth == nil {
+                freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: updatedChart)
+            }
             if !previousChart.hasCompletedInitialSetup,
                updatedChart.hasCompletedInitialSetup {
                 IChartTelemetry.record(
@@ -971,6 +983,16 @@ struct EditorView: View {
             width: max(1, availableSize.width - horizontalPadding * 2),
             height: max(1, availableSize.height - verticalPadding * 2)
         )
+        let logicalContentSize = CGSize(
+            width: LeadSheetFreeInkDocumentLayoutPolicy.resolvedCanvasWidth(
+                retainedWidth: freeInkDocumentCanvasWidth,
+                chart: chart,
+                viewportWidth: contentSize.width
+            ),
+            height: LeadSheetFreeInkDocumentLayoutPolicy.portraitPageHeight
+        )
+        let documentSize = CGSize(width: logicalContentSize.width,
+            height: canvasHeight(for: logicalContentSize))
 
         VStack(spacing: 0) {
             editorToolChrome(minWidth: contentSize.width)
@@ -978,21 +1000,28 @@ struct EditorView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            ScrollView {
-                canvasView
-                    .frame(width: contentSize.width, alignment: .topLeading)
-                    .frame(minHeight: canvasHeight(for: contentSize), alignment: .topLeading)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.bottom, verticalPadding)
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            canvasView(documentSize: documentSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, verticalPadding)
         }
         .onAppear {
-            latestEditorContentSize = contentSize
+            latestEditorContentSize = documentSize
+            if canvasMode == .freeHand {
+                retainFreeInkDocumentWidth(logicalContentSize.width)
+            }
         }
-        .onChange(of: contentSize) { _, newContentSize in
+        .onChange(of: documentSize) { _, newContentSize in
             latestEditorContentSize = newContentSize
         }
+    }
+
+    private func retainFreeInkDocumentWidth(_ width: CGFloat? = nil) {
+        guard freeInkDocumentCanvasWidth == nil else { return }
+        freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.canvasWidthToRetain(
+            for: chart,
+            viewportWidth: width ?? latestEditorContentSize.width
+        )
     }
 
     private func editorToolChrome(minWidth: CGFloat) -> some View {
@@ -1629,6 +1658,9 @@ struct EditorView: View {
     }
 
     private var activeToolInstructionText: String? {
+        if canvasMode == .freeHand {
+            return LeadSheetFreeInkNavigationPolicy.hintText
+        }
         if canvasMode == .repeatEdit {
             if pendingRepeatStartMeasureID != nil {
                 return "Tap the last measure, then end the repeat."
@@ -2293,7 +2325,7 @@ struct EditorView: View {
     }
 
     @ViewBuilder
-    private var canvasView: some View {
+    private func canvasView(documentSize: CGSize) -> some View {
         LeadSheetCanvasHostView(
             chart: $chart,
             selectedMeasureID: $selectedMeasureID,
@@ -2304,6 +2336,7 @@ struct EditorView: View {
             selectedRoadmapMarkerID: $selectedRoadmapMarkerID,
             interactionMode: canvasMode,
             inkToolMode: inkToolMode,
+            documentSize: documentSize,
             isInteractionSuspended: isPresentingEditorPanel,
             recognizesChordInk: true,
             chordPreviewState: chordPreviewState,
@@ -3990,6 +4023,7 @@ struct EditorView: View {
         rhythmPreviewConfirmationRequestID = nil
         clearPendingRepeatState()
         inkToolMode = .write
+        retainFreeInkDocumentWidth()
         canvasMode = .freeHand
     }
 
@@ -4224,6 +4258,7 @@ struct EditorView: View {
         clearPendingRepeatState()
         selectedNoteSelection = nil
         inkToolMode = .write
+        retainFreeInkDocumentWidth()
         canvasMode = .freeHand
     }
 

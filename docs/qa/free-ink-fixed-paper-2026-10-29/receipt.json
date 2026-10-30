@@ -1,0 +1,129 @@
+{
+  "date": "2026-10-29",
+  "branch": "codex/free-ink-rotation",
+  "parentCommit": "8e99b9b1",
+  "app": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "88",
+    "signatureVerified": true,
+    "installed": true,
+    "runningVerified": true,
+    "executableSHA256": "28afcdf16724a5063f498f1fe8591841c898e0a6ec771c4a638c9f64a3cdba82"
+  },
+  "tests": {
+    "editor": {
+      "result": "Passed",
+      "totalTestCount": 930,
+      "passedTests": 920,
+      "failedTests": 0,
+      "skippedTests": 10,
+      "bundle": "/private/tmp/ichart-free-ink-88-editor-verified.xcresult"
+    },
+    "appearance": {
+      "result": "Passed",
+      "totalTestCount": 7,
+      "passedTests": 7,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "bundle": "/private/tmp/ichart-free-ink-88-appearance.xcresult"
+    },
+    "currentLibrary": {
+      "result": "Passed",
+      "totalTestCount": 4,
+      "passedTests": 4,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "bundle": "/private/tmp/ichart-free-ink-88-current-library.xcresult"
+    },
+    "combinedFailed1": {
+      "result": "Failed",
+      "totalTestCount": 937,
+      "passedTests": 926,
+      "failedTests": 1,
+      "skippedTests": 10,
+      "bundle": "/private/tmp/ichart-free-ink-88-regression.xcresult"
+    },
+    "combinedFailed2": {
+      "result": "Failed",
+      "totalTestCount": 937,
+      "passedTests": 926,
+      "failedTests": 1,
+      "skippedTests": 10,
+      "bundle": "/private/tmp/ichart-free-ink-88-verified.xcresult"
+    }
+  },
+  "partitionCoverage": {
+    "coverageExact": true,
+    "originalIDCount": 937,
+    "partitionUnionIDCount": 937,
+    "missingIDs": [],
+    "unexpectedIDs": [],
+    "overlappingPartitionIDs": [],
+    "sameDeviceOSArchitectureAndPlan": true,
+    "partitionTotals": {
+      "totalTestCount": 937,
+      "passedTests": 927,
+      "failedTests": 0,
+      "skippedTests": 10
+    },
+    "originalCombinedRunRemainsFailed": true,
+    "fullIgnoredAuditPath": ".build/free-ink-88-test-partition-coverage.json",
+    "fullAuditSHA256": "d57c9601cfa2a2d897c902a82136c5a86c227f19f4dce9d6339378f07f5089b3",
+    "sourceHashParity": "Verified separately in sourceSHA256 and signed package check."
+  },
+  "sourceSHA256": {
+    "iChart/Features/Editor/Components/LeadSheetFreeInkNavigationPolicy.swift": "0c9a5c3504bfa828ae8c2cebd6153cd956b0154f888719dc51c8720867a6d0cb",
+    "iChart/Services/LeadSheetFreeInkDocumentLayoutPolicy.swift": "0b0954881f04e19a3095029132e9674a1f73e029a49653897170abcd8b922a4f",
+    "iChart/Features/Editor/Components/LeadSheetActiveInkScope.swift": "5d4ec2d3f6c81e3e6e80f1a9f62f5291aa817d5d71deeedc5737282b7ccde54f",
+    "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift": "8f6f92138c8356fc07d6b5f81943351d55cecdf33b2ea4958727b5e3147f88dc",
+    "iChart/Features/Editor/Components/LeadSheetInteractionModeStatePolicy.swift": "455995d9905f74f6152e2971239c31d9fc07e16077d19168b8379a7a57e513e4",
+    "iChart/Features/Editor/EditorView.swift": "5dd87cf010efa14973835a89efae9318b189919ff7305b7d90e6e8a54e094bee",
+    "iChart/Services/ChartExporting.swift": "60edf5bbcb715be744e2956c93d90da80e7f40f0a701820e26ef9fab03bd39ab",
+    "iChart/Services/LeadSheetPageLayout.swift": "b529ed038620f047a76771c6a1c5f9f6e078aa806b5dcf53e1ebbb58c3addc0d",
+    "project.yml": "b8198ad9524c6b126be55ce636616f3c972b74a1c3b3d729f3555a4d6dbe8e52"
+  },
+  "testSourceSHA256": {
+    "iChartTests/Editor/FreeInkDocumentLayoutPolicyTests.swift": "af3ede11c3a8b1b14a35e66a4aa6cd6b0fb40214d284a460c0e3ec0f76fd185a",
+    "iChartTests/Editor/FreeInkFixedPaperEditorIntegrationTests.swift": "183041c92111de3726217eedecda5b1df0fc297f54e9ff2a533051a6a85a7299",
+    "iChartTests/Editor/FreeInkFixedPaperExportTests.swift": "023c89e734ffd9feb4de106aa17fddc95338b2ceeda10232d58d83fc2f5a6407",
+    "iChartTests/Editor/FreeInkNavigationTests.swift": "4a16f3b420f34c85bfd7cea3305407a83c3d4741c485c4d918487e81e2fed2e0",
+    "iChartTests/Editor/FreeInkAnnotationRotationTests.swift": "f4ddd5c783c5396169f2c4d7ecfd02fe6ca98be6c61d5c9d429de4dd793f9f78",
+    "iChartTests/Editor/LeadSheetInteractionModeStatePolicyTests.swift": "307923e3f9cd8ee735f3d587ba52c34067f7e805b5bfd7c33f34e7f553c9efc1",
+    "iChartTests/ProjectConfigurationTests.swift": "132151b6648de1962ff0399bd440b98407faeb0965506ee10df92417719b86a8"
+  },
+  "preservation": {
+    "backupFiles": 62,
+    "backupBytes": 60108365,
+    "baselineImmutable": true,
+    "chartCount": 17,
+    "chartObjectsOrderInkExact": true,
+    "pdfCount": 19,
+    "PDFManifestAndBytesExact": true,
+    "setlistCount": 1,
+    "setlistEntries": 15,
+    "setlistExact": true,
+    "profileCorrectionEvaluationFiles": 3,
+    "profileCorrectionEvaluationFilesExact": true,
+    "otherAppRecords": 53,
+    "otherAppRecordsExact": true,
+    "supportFilesExactBeforeLaunch": 27,
+    "strictContainerExactAfterLaunch": false,
+    "strictSupportExactAfterLaunch": false,
+    "tombstoneOrderExact": false,
+    "tombstoneRecordMultisetExact": true,
+    "allOtherLibraryFieldsExact": true,
+    "traceOrTelemetryDifferences": [
+      {
+        "path": "Library/Application Support/iChart/performance-trace.jsonl",
+        "change": "changed"
+      }
+    ],
+    "firstPostLaunchCopy": "failed socket transfer; partial not used",
+    "verifiedPostLaunchCopy": "after-launch-complete",
+    "finalLiveLibraryMatchesCheckpoint": true
+  },
+  "physicalRotationAndPanAcceptance": "pending user test",
+  "PDFKitCombinedProcessCrash": "unresolved; appearance isolated; all937 IDs retained",
+  "pushPRMergePublication": false
+}

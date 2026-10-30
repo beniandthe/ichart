@@ -1,0 +1,127 @@
+{
+  "build": 89,
+  "marketingVersion": "1.2.3",
+  "branch": "codex/free-ink-rotation",
+  "baseCommit": "68fb7fc77e0ed71cc676aea7723ae83a8359bac8",
+  "installedAndRunning": true,
+  "physicalAcceptancePending": true,
+  "productionSourceSHA256": {
+    "iChart/Features/Editor/Components/LeadSheetDocumentViewport.swift": "750dc642846ed9673495d56f342f5f140066e67d78b44f83dc8635c0d760806a",
+    "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift": "a49b43696d9adb1504ddd17a04802b1b16178aa1bcb2d670afa804737785295b",
+    "iChart/Features/Editor/Components/LeadSheetFreeInkNavigationPolicy.swift": "898a13ef572d329079400c4a5c951e5922a837ff521c20d4a6081c1076fd4ee1",
+    "iChart/Features/Editor/EditorView.swift": "d65f40921ebe6eab077cdfb6ea420bb38988ae2fabf8b1d1e721fc9987910c96",
+    "iChart/Services/ChartExporting.swift": "e033e2067f71865076c11be25272e7eb68222f81c9ccfddf51d137e784cd000a",
+    "iChart/Services/LeadSheetFreeInkDocumentLayoutPolicy.swift": "ac99d5edd35a531a7512dce506b37674b5fd4f1a7be3b0e2c47ed43d38b1d261",
+    "project.yml": "cdee40e8cfb5bbc14284dadcbdf2f2fdb0472672072033ab636676cd8edae03f"
+  },
+  "testSourceSHA256": {
+    "iChartTests/Editor/FreeInkDocumentLayoutPolicyTests.swift": "1baea9db32b311436d59f987d23ad4c178e1a59018c707f00eb149f04404dee7",
+    "iChartTests/Editor/FreeInkFixedPaperEditorIntegrationTests.swift": "e3693b05b8f536e9ecbd546786762ed27e3514a24b4d49383d71d15a4d027c0e",
+    "iChartTests/Editor/FreeInkRasterScaleTests.swift": "ed2aa407024face9b5d59678ed548c166fe7aa7d4b2fdc483489517a6f0c33c7",
+    "iChartTests/Editor/LeadSheetDocumentViewportTests.swift": "4c18cc9b1523c7b99964fbcbaa23f397be5b38af9b160e5e06c8a2499ca81971",
+    "iChartTests/ProjectConfigurationTests.swift": "95eab7fa0a57866fc99b82f53353a02fa0e243ade9aad1cd5a95d7097bf6f76a"
+  },
+  "signedExecutableSHA256": "d7b246f4a2fa9d999318918fa0736d6bd7e0d2a36355b1954e45e057e53345d9",
+  "tests": {
+    "editor": {
+      "totalTestCount": 945,
+      "passedTests": 935,
+      "failedTests": 0,
+      "skippedTests": 10,
+      "result": "Passed"
+    },
+    "appearance": {
+      "totalTestCount": 7,
+      "passedTests": 7,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "result": "Passed"
+    },
+    "currentLibrary": {
+      "totalTestCount": 4,
+      "passedTests": 4,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "result": "Passed"
+    }
+  },
+  "validationLimits": {
+    "editorAndAppearanceSeparateProcesses": true,
+    "previousBuild88CombinedPDFKitTeardownCrashUnresolved": true,
+    "cameraTolerance": "One physical pixel; logical ink/layout tolerance unchanged",
+    "physicalGestureAcceptancePending": true
+  },
+  "backup": {
+    "files": 62,
+    "bytes": 62374559,
+    "immutable": true,
+    "applicationSupportExactBeforeFirstLaunch": true,
+    "preLaunchSplashBoardRenamesContentExact": true
+  },
+  "finalPostLaunch": {
+    "strictContainer": {
+      "exact": false,
+      "before": {
+        "files": 62,
+        "bytes": 62374559
+      },
+      "after": {
+        "files": 62,
+        "bytes": 60665501
+      },
+      "matchedBeforeFiles": 49,
+      "changedCount": 9,
+      "addedCount": 4,
+      "removedCount": 4
+    },
+    "strictApplicationSupport": {
+      "exact": false,
+      "before": {
+        "files": 27,
+        "bytes": 16297552
+      },
+      "after": {
+        "files": 27,
+        "bytes": 16299854
+      },
+      "matchedBeforeFiles": 25,
+      "changedCount": 2,
+      "addedCount": 0,
+      "removedCount": 0
+    },
+    "strictLibraryExact": false,
+    "strictChartObjectsExact": false,
+    "strictMaterialDataExact": false,
+    "charts": 17,
+    "chartIdentityOrderExact": true,
+    "allOtherLibraryAndChartFieldsExact": true,
+    "advancingCloudBackupSyncTimestamps": 19,
+    "inkExact": true,
+    "inkSummary": {
+      "fields": 20,
+      "nonemptyBinaryFields": 10,
+      "binaryBytes": 300984
+    },
+    "pdfs": 19,
+    "allPDFsAndMetadataExact": true,
+    "setlists": 1,
+    "setlistEntries": 15,
+    "setlistExact": true,
+    "profilesCorrectionsEvaluationsExact": true,
+    "profilesCorrectionsEvaluationsFiles": 3,
+    "otherAppMetadataRecordsExact": 53,
+    "preferenceDifferenceKeysOnly": [
+      "SKTransactionUpdatesLastChecked"
+    ]
+  },
+  "finalLiveVerification": {
+    "mainBuild": "89",
+    "exactMainExecutableRunning": true,
+    "sameProcessAcrossAllThreeReadbacks": true,
+    "finalLiveLibraryBytesMatchFinalCompleteSnapshot": true,
+    "testedProductionSourcesUnchanged": true,
+    "finalLibrarySHA256": "7a9fdc267f62b88da10b24cc60b357366867528cf0de1657649553348a8d7f1b"
+  },
+  "recognitionBoundaryUnchanged": true,
+  "pushPRMergePublicationPerformed": false
+}

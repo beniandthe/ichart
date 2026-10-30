@@ -164,7 +164,10 @@ private struct ChartPDFRenderer {
     let chart: Chart
     let exportContext: ChartPDFExportContext
 
-    private let layoutCanvasWidth: CGFloat = 932
+    private var layoutCanvasWidth: CGFloat {
+        LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart)
+            ?? LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth
+    }
     private let minimumLayoutCanvasHeight: CGFloat = 1_100
 
     func render() -> Data {
