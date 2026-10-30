@@ -1,6 +1,26 @@
 import XCTest
 
 final class ProjectConfigurationTests: XCTestCase {
+    func testTelemetryIsConfiguredBeforeStartupLibraryLoadCanScheduleReopenChecks() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let appText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/IChartApp.swift"))
+        let start = try XCTUnwrap(appText.range(of: "    init() {"))
+        let end = try XCTUnwrap(appText.range(of: "    var body: some Scene", range: start.upperBound..<appText.endIndex))
+        let initialization = String(appText[start.upperBound..<end.lowerBound])
+        let clients = try XCTUnwrap(initialization.range(of: "let supabaseClients = IChartSupabaseClientFactory.liveClients()"))
+        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))"))
+        let library = try XCTUnwrap(initialization.range(of: "let libraryStore = ChartLibraryStore.live()"))
+        let pdfLibrary = try XCTUnwrap(initialization.range(of: "let pdfLibraryStore = IChartPDFLibraryStore.live()"))
+        let launched = try XCTUnwrap(initialization.range(of: "\"app.launched\""))
+
+        XCTAssertLessThan(clients.lowerBound, telemetry.lowerBound)
+        XCTAssertLessThan(telemetry.lowerBound, library.lowerBound,
+                          "The real library loader schedules chart.load/ink.reopen immediately; its destination must already exist")
+        XCTAssertLessThan(telemetry.lowerBound, pdfLibrary.lowerBound)
+        XCTAssertLessThan(library.lowerBound, launched.lowerBound, "Launch counts still come from the loaded library")
+    }
+
     func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1735,7 +1755,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"92\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"93\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(
