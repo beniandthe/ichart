@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-23",
+  "app_bundle_identifier": "com.ichart.app.pdfimportproof",
+  "user_report": {
+    "message": "The internet connection appears to be offline",
+    "location_confirmed": "Inside iChart, on the account or sign-in screen"
+  },
+  "cause": "A nonexpired cached session restores as signedIn, but the separate profile fetch fails offline before the restored auth state is assigned. Cold-start state remains signedOut and presents the mandatory account cover.",
+  "repair": "During restoration only, a recovered verified session plus a typed profile connectivity error selects temporarilyOffline. Saved auth and local documents are preserved. Missing profiles, authorization errors, malformed sessions, unverified users, and interactive sign-in/signup do not use the fallback.",
+  "validation": {
+    "native": {
+      "passed": 95,
+      "failed": 0,
+      "skipped": 0,
+      "new_offline_auth_tests_executed": 10,
+      "result_bundle": "/private/tmp/ichart-pdf-import-20261023/OfflineAuthRegression01.xcresult"
+    },
+    "swift_package": {
+      "passed": 42,
+      "failed": 0,
+      "log": "/private/tmp/ichart-pdf-import-20261023/offline-fix-swiftpm.log"
+    },
+    "device_build_succeeded": true,
+    "strict_signature_verified": true,
+    "installed_over_same_proof_bundle": true,
+    "executable_sha256": "e5f15a54858dfede1183904638dd7bbc10e9888fbc32806b0468ab7c058aecff"
+  },
+  "retained_device_data": {
+    "pdf_items": 1,
+    "source": "personalImport",
+    "stored_pages": 2,
+    "owned_pdf_bytes": 3528,
+    "owned_pdf_sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
+    "setlists": 1,
+    "setlist_entries": 1,
+    "entry_references_owned_pdf": true,
+    "pdf_manifest_unchanged_after_update": true,
+    "setlist_manifest_unchanged_after_update": true,
+    "disposable_original_still_present": false,
+    "disposable_original_in_trash_only": true
+  },
+  "physical_retest": {
+    "status": "passed extended offline entry and both PDF pages after source deletion by user report; source absence and retained bytes independently confirmed",
+    "new_build_launch": "iPadOS denied launch for signature/entitlement/profile-trust reasons; app code did not execute in this attempt",
+    "normal_launch_receipt": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/offline-fix-launch.json",
+    "offline_ui_runner": "Test did not execute: developer certificate trust blocked runner launch",
+    "network_state_changed_by_agent": false,
+    "user_report": {
+      "date": "2026-10-23",
+      "message": "It opens offline and the saved setlist/PDF is readable",
+      "evidence_kind": "user report after requested reconnect-once, disconnect, force-close, and reopen sequence",
+      "all_pages_explicitly_confirmed": false,
+      "physical_source_deletion_confirmed": false
+    },
+    "developer_build_verification": "User completed retry sequence and confirmed offline app entry/readability",
+    "extended_user_report": {
+      "date": "2026-10-23",
+      "message": "Both pages work offline after deleting the original",
+      "evidence_kind": "User report after specified delete/disconnect/force-close/reopen sequence, with independent storage readback",
+      "all_pages_explicitly_confirmed": true,
+      "physical_source_deletion_confirmed": true,
+      "original_active_documents_path_absent": true,
+      "original_copy_only_in_trash": true,
+      "owned_pdf_bytes_after_deletion": 3528,
+      "owned_pdf_sha256_after_deletion": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c"
+    }
+  },
+  "boundaries": {
+    "public_app_replaced": false,
+    "graph_myscript_modified": false,
+    "account_reset": false,
+    "backend_changes": false,
+    "openai_requests": false
+  }
+}

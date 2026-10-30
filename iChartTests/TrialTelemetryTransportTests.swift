@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 @testable import iChart
 
+@MainActor
 final class TrialTelemetryTransportTests: XCTestCase {
     override func tearDown() {
         TrialTelemetryHTTPStub.configure([])

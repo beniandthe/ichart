@@ -6,6 +6,7 @@ struct PDFExportPreviewView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     let exportedPDF: ExportedPDF
+    var source: IChartPDFLibrarySource? = nil
     @State private var showingShareSheet = false
 
     private var appearance: IChartAppAppearance {
@@ -32,6 +33,7 @@ struct PDFExportPreviewView: View {
                         Button("Done") {
                             dismiss()
                         }
+                        .accessibilityIdentifier("pdf.preview.done")
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
@@ -62,12 +64,20 @@ struct PDFExportPreviewView: View {
                 alignment: .leading,
                 spacing: 8
             ) {
-                metadataPill(exportedPDF.layoutStyle.displayText)
-                metadataPill(exportedPDF.transpositionText)
+                if source == .personalImport {
+                    metadataPill("Original PDF")
+                }
+                if let layoutStyle = exportedPDF.layoutStyle {
+                    metadataPill(layoutStyle.displayText)
+                }
+                if let transpositionText = exportedPDF.transpositionText {
+                    metadataPill(transpositionText)
+                }
                 metadataPill(exportedPDF.pageCountText)
                 metadataPill(exportedPDF.fileSizeText)
             }
             .font(.caption.weight(.semibold))
+            .accessibilityIdentifier("pdf.preview.metadata")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)

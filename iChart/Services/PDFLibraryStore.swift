@@ -4,6 +4,7 @@ import Foundation
 enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
     case chartExport
     case forumDownload
+    case personalImport
 
     var id: String { rawValue }
 
@@ -13,6 +14,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "Exports"
         case .forumDownload:
             return "Forum Downloads"
+        case .personalImport:
+            return "Imports"
         }
     }
 
@@ -22,6 +25,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "Chart Export"
         case .forumDownload:
             return "Forum Download"
+        case .personalImport:
+            return "Imported PDF"
         }
     }
 
@@ -31,6 +36,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "No Exports Yet"
         case .forumDownload:
             return "No Forum Downloads Yet"
+        case .personalImport:
+            return "No Imported PDFs Yet"
         }
     }
 
@@ -40,6 +47,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "Export a chart as a PDF and it will land here."
         case .forumDownload:
             return "Download a forum chart PDF and it will land here."
+        case .personalImport:
+            return "Import a PDF from Files to read it offline and use it in setlists."
         }
     }
 
@@ -49,6 +58,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "square.and.arrow.up"
         case .forumDownload:
             return "arrow.down.doc"
+        case .personalImport:
+            return "square.and.arrow.down"
         }
     }
 
@@ -58,6 +69,8 @@ enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
             return "Exports"
         case .forumDownload:
             return "Forum Downloads"
+        case .personalImport:
+            return "Imports"
         }
     }
 }
@@ -67,9 +80,9 @@ struct IChartPDFLibraryItem: Identifiable, Codable, Equatable {
     let source: IChartPDFLibrarySource
     let fileName: String
     let displayTitle: String
-    let layoutStyle: ChartLayoutStyle
-    let transpositionView: TranspositionView
-    let chordTranspositionSemitones: Int
+    let layoutStyle: ChartLayoutStyle?
+    let transpositionView: TranspositionView?
+    let chordTranspositionSemitones: Int?
     let pageCount: Int
     let fileSizeBytes: Int
     let createdAt: Date
@@ -86,7 +99,8 @@ struct IChartPDFLibraryItem: Identifiable, Codable, Equatable {
         pageCount == 1 ? "1 page" : "\(pageCount) pages"
     }
 
-    var transpositionText: String {
+    var transpositionText: String? {
+        guard let transpositionView, let chordTranspositionSemitones else { return nil }
         guard chordTranspositionSemitones != 0 else {
             return transpositionView.displayText
         }
@@ -183,6 +197,68 @@ final class IChartPDFLibraryStore: ObservableObject {
         }
 
         return item.exportedPDF(relativeTo: baseDirectory)
+    }
+
+    /// Copies and validates Files content off the main thread, then commits a
+    /// durable manifest before publishing the new library item. No AI is used.
+    @MainActor
+    @discardableResult
+    func importPDF(
+        from sourceURL: URL,
+        title: String? = nil,
+        limits: IChartPDFImportLimits = .standard
+    ) async throws -> IChartPDFLibraryItem {
+        if let recoveryErrorMessage {
+            throw IChartPDFLibraryDeletionError.recoveryUnavailable(recoveryErrorMessage)
+        }
+        let prepared = try await IChartPDFImportService.prepare(
+            from: sourceURL, title: title, limits: limits, fileManager: fileManager
+        )
+        defer { try? fileManager.removeItem(at: prepared.stagingDirectory) }
+        try Task.checkCancellation()
+        if let recoveryErrorMessage {
+            throw IChartPDFLibraryDeletionError.recoveryUnavailable(recoveryErrorMessage)
+        }
+
+        // Preparation suspends this store. Merge against the current durable
+        // library so intervening imports, exports and deletions are preserved.
+        guard fileManager.fileExists(atPath: manifestURL.path) || items.isEmpty else {
+            throw IChartPDFLibraryDeletionError.manifestUnavailable
+        }
+        let currentItems = try Self.loadItems(from: manifestURL, fileManager: fileManager)
+        let directory = baseDirectory.appendingPathComponent(IChartPDFLibrarySource.personalImport.directoryName, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let rootPath = baseDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+        guard directory.standardizedFileURL.resolvingSymlinksInPath().path == rootPath + "/" + IChartPDFLibrarySource.personalImport.directoryName else {
+            throw IChartPDFImportError.notRegularFile
+        }
+        let fileName = try uniqueFileName(
+            preferredFileName: prepared.originalFileName, fallbackTitle: prepared.displayTitle, in: directory
+        )
+        let destinationURL = directory.appendingPathComponent(fileName)
+        let item = IChartPDFLibraryItem(
+            id: UUID(), source: .personalImport, fileName: fileName, displayTitle: prepared.displayTitle,
+            layoutStyle: nil, transpositionView: nil, chordTranspositionSemitones: nil,
+            pageCount: prepared.pageCount, fileSizeBytes: prepared.fileSizeBytes, createdAt: Date(),
+            relativePath: IChartPDFLibrarySource.personalImport.directoryName + "/" + fileName
+        )
+        let updatedItems = ([item] + currentItems).sorted(by: Self.itemSortOrder)
+        try Task.checkCancellation()
+        // A move from our temporary directory avoids a second large copy on
+        // the main thread. FileManager never replaces an existing destination.
+        try fileManager.moveItem(at: prepared.url, to: destinationURL)
+        do {
+            try persist(updatedItems)
+        } catch {
+            do {
+                try fileManager.removeItem(at: destinationURL)
+            } catch let cleanupError {
+                throw IChartPDFImportError.rollbackFailed(cleanupError.localizedDescription)
+            }
+            throw error
+        }
+        items = updatedItems
+        return item
     }
 
     @discardableResult
@@ -555,13 +631,12 @@ final class IChartPDFLibraryStore: ObservableObject {
     }
 
     private func sortItems() {
-        items.sort { lhs, rhs in
-            if lhs.createdAt == rhs.createdAt {
-                return lhs.fileName < rhs.fileName
-            }
+        items.sort(by: Self.itemSortOrder)
+    }
 
-            return lhs.createdAt > rhs.createdAt
-        }
+    private static func itemSortOrder(_ lhs: IChartPDFLibraryItem, _ rhs: IChartPDFLibraryItem) -> Bool {
+        if lhs.createdAt == rhs.createdAt { return lhs.fileName < rhs.fileName }
+        return lhs.createdAt > rhs.createdAt
     }
 
     private func persist() throws {

@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-23",
+  "base_commit": "5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43",
+  "branch": "codex/pdf-import-setlists",
+  "native_tests": {
+    "passed": 106,
+    "failed": 0,
+    "skipped": 0,
+    "device": {
+      "architecture": "arm64",
+      "deviceId": "90A50B5D-884A-4CCD-B6F0-1E7EFD03A693",
+      "deviceName": "iChart PDF Import QA 2026-10-23",
+      "modelName": "iPad (A16)",
+      "osBuildNumber": "23F77",
+      "osVersion": "26.5",
+      "platform": "iOS Simulator"
+    },
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/PDFImportFocused02.xcresult"
+  },
+  "swift_package_tests": {
+    "passed": 79,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/private/tmp/ichart-pdf-import-20261023/focused-swiftpm.log"
+  },
+  "proof_app": {
+    "CFBundleIdentifier": "com.ichart.app.pdfimportproof",
+    "CFBundleDisplayName": "iChart PDF Import",
+    "CFBundleShortVersionString": "1.2.3",
+    "CFBundleVersion": "78",
+    "UIFileSharingEnabled": true,
+    "LSSupportsOpeningDocumentsInPlace": true,
+    "executable_sha256": "e5f15a54858dfede1183904638dd7bbc10e9888fbc32806b0468ab7c058aecff",
+    "strict_signature_verified": true,
+    "installation_readback_verified": true,
+    "launched_by_agent": false,
+    "latest_launch_status": "User confirmed offline reopening with saved setlist/PDF readable"
+  },
+  "fixture": {
+    "path": "output/pdf/ichart-pdf-import-offline-proof.pdf",
+    "pages": 2,
+    "bytes": 3528,
+    "sha256": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c",
+    "device_documents_readback_matches": true
+  },
+  "physical_files_import_and_offline_acceptance": "Extended physical proof passed: both pages readable in saved setlist after source deletion and offline cold reopening, per user; active source absence and owned PDF bytes independently verified",
+  "physical_import_user_report": {
+    "date": "2026-10-23",
+    "message": "ok imported successfully",
+    "exact_file_confirmed": false,
+    "both_pages_confirmed": false,
+    "setlist_use_confirmed": false,
+    "offline_reopen_confirmed": false
+  },
+  "source_sha256": {
+    "Package.swift": "e3e1828e0945453e264f9642e15aeaf8e5810a831542106d2ec05fd2b70c2b8c",
+    "iChart/Services/PDFImportService.swift": "060848cc90e241cccae7d99e7103cccdb7bc4715a85bb234e3ef0edbe59fe8be",
+    "iChart/Services/PDFLibraryStore.swift": "59d169e589f7c6bbd07d6215fb46a91112bc28fca0fa5759a5f40cbdf0c782b4",
+    "iChart/Services/ChartExporting.swift": "676ba5c568b02772ac9ea974db0a139ae291891cc79db26cdb64df5be7139f2f",
+    "iChart/Features/Library/PDFImportView.swift": "ef1f3272b9a83a5dfb8ae84a1285047c3edb7b63b24b60143ca52f5d10fe283b",
+    "iChart/Features/Library/LibraryView.swift": "6a6475228f22e8cd930884e82581b0440497bcab5af4a466877d41f9e849358e",
+    "iChart/Features/Library/SetlistsView.swift": "a1c55f646cf22524d67f4ae8ffe161d94b0c3f8d2ab8132b0874950d59e1644d",
+    "iChart/Features/Editor/Components/PDFExportPreviewView.swift": "43762e1dba0ccbffdb2dfd8dcd18dc2fbdd4cfe336a97f1b08fc25a790c0c61f",
+    "iChartTests/PDFImportTests.swift": "8fc410d5ad594e25cdd26353e766c17f1361ecc294e83fcfcc89710d88912e62",
+    "iChartTests/SetlistReaderTests.swift": "f46a76051ddb6b84f06b7303a8a0fb7972a50782f4f6cd1f7decdc582f20f21f",
+    "iChart/App/Telemetry/IChartTelemetry.swift": "57bc2e307aba7f2aedb3767e32c7c5294c8f2e8417a718118e77a9995fae0ab4",
+    "iChart/App/Telemetry/IChartTelemetryConsentStore.swift": "bfdc853f1c98437b2295ddc7f9b10f5ba58cf9b0a56758d952c6f23adde70583",
+    "iChartTests/TelemetryTests.swift": "58f69a9db991d16bf3b23f6cb7582c9fc182e4a5ccb1738ca87e5bb32de68416",
+    "iChartTests/TrialTelemetryTransportTests.swift": "9db86374e613e041b597223ab1a78a695c9d0713f093ed8bb370e2fd85f5df1e",
+    "iChart/App/Auth/IChartAuthStore.swift": "53a3dbf976cfe9dd38b2d1cc64c7b3ba24ae6d2706ac3147a587b9f5681e383c",
+    "iChartTests/AuthStoreOfflineRestoreTests.swift": "212a123777345cb4a516cea4a6475216ec0d04b618b842a25a3bf2b75ebcf384"
+  },
+  "boundaries": {
+    "graph_myscript_edits": false,
+    "backend_changes": false,
+    "openai_requests": false,
+    "production_app_replaced": false,
+    "testflight_upload": false,
+    "public_release": false
+  },
+  "startup_repair": {
+    "passed_native_tests": 53,
+    "failed_native_tests": 0,
+    "skipped_native_tests": 0,
+    "passed_physical_ui_tests": 1,
+    "failed_physical_ui_tests": 0,
+    "observed_screen": "Signed-in library with optional Quick Start banner",
+    "diagnostic_receipt": "startup-diagnostic.json"
+  },
+  "offline_entry_repair": {
+    "native_passed": 95,
+    "native_failed": 0,
+    "native_skipped": 0,
+    "swift_package_passed": 42,
+    "swift_package_failed": 0,
+    "new_auth_restore_tests": 10,
+    "result_bundle": "/private/tmp/ichart-pdf-import-20261023/OfflineAuthRegression01.xcresult",
+    "receipt": "offline-entry-diagnostic.json",
+    "physical_offline_user_report": {
+      "date": "2026-10-23",
+      "message": "It opens offline and the saved setlist/PDF is readable",
+      "evidence_kind": "user report after requested reconnect-once, disconnect, force-close, and reopen sequence",
+      "all_pages_explicitly_confirmed": false,
+      "physical_source_deletion_confirmed": false
+    },
+    "physical_extended_user_report": {
+      "date": "2026-10-23",
+      "message": "Both pages work offline after deleting the original",
+      "evidence_kind": "User report after specified delete/disconnect/force-close/reopen sequence, with independent storage readback",
+      "all_pages_explicitly_confirmed": true,
+      "physical_source_deletion_confirmed": true,
+      "original_active_documents_path_absent": true,
+      "original_copy_only_in_trash": true,
+      "owned_pdf_bytes_after_deletion": 3528,
+      "owned_pdf_sha256_after_deletion": "43613ab545459532f19f0cd8186085ed638879da95f899317dbbd071eb40139c"
+    }
+  },
+  "production_review_receipt": "production-review-receipt.json"
+}

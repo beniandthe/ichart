@@ -3,6 +3,7 @@ import XCTest
 #if canImport(UIKit)
 @testable import iChart
 
+@MainActor
 final class TelemetryTests: XCTestCase {
     func testTelemetryConsentDefaultsOffAndRejectsLegacyOrUnknownValues() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-consent-\(UUID().uuidString)"))
@@ -12,8 +13,9 @@ final class TelemetryTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
         for value in ["true", "telemetry-consent-v0", "telemetry-consent-v2"] {
             defaults.set(value, forKey: IChartTelemetryConsentStore.preferenceKey)
-            XCTAssertFalse(consent.snapshot.isGranted)
-            XCTAssertNil(consent.installationID(for: consent.snapshot))
+            let persistedVariant = IChartTelemetryConsentStore(defaults: defaults)
+            XCTAssertFalse(persistedVariant.snapshot.isGranted)
+            XCTAssertNil(persistedVariant.installationID(for: persistedVariant.snapshot))
         }
         consent.setConsentGranted(true)
         XCTAssertTrue(consent.snapshot.isGranted)
@@ -55,6 +57,105 @@ final class TelemetryTests: XCTestCase {
         XCTAssertTrue(consent.requiresQueueReset)
         XCTAssertTrue(consent.clearQueuedEvents(matching: currentConsent) {})
         XCTAssertFalse(consent.requiresQueueReset)
+    }
+
+    func testConsentPersistenceCallbacksCanSynchronouslyReenterSnapshot() throws {
+        let defaults = try XCTUnwrap(ReentrantTelemetryDefaults(suiteName: "iChart-telemetry-reentry-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        var callbackCount = 0
+        defaults.onMutation = { _ in
+            XCTAssertTrue(Thread.isMainThread)
+            _ = consent.snapshot
+            _ = consent.requiresQueueReset
+            callbackCount += 1
+        }
+        consent.setConsentGranted(true)
+        consent.setConsentGranted(false)
+        XCTAssertGreaterThanOrEqual(callbackCount, 4)
+        XCTAssertFalse(consent.snapshot.isGranted)
+        XCTAssertTrue(consent.requiresQueueReset)
+        defaults.onMutation = nil
+    }
+
+    func testInstallationIDPersistenceCallbackCanReenterSnapshot() async throws {
+        let defaults = try XCTUnwrap(ReentrantTelemetryDefaults(suiteName: "iChart-telemetry-id-reentry-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let expectedConsent = consent.snapshot
+        var callbackCount = 0
+        defaults.onMutation = { key in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(consent.snapshot, expectedConsent)
+            if key == IChartTelemetryConsentStore.installationIDPreferenceKey { callbackCount += 1 }
+        }
+        let generatedID = await Task.detached { consent.installationID(for: expectedConsent) }.value
+        let id = try XCTUnwrap(generatedID)
+        await consent.waitForPendingPersistence()
+        XCTAssertEqual(callbackCount, 1)
+        XCTAssertEqual(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey), id.uuidString)
+        defaults.onMutation = nil
+    }
+
+    func testQueueResetPersistenceCallbackCanReenterSnapshotAfterBackgroundCleanup() async throws {
+        let defaults = try XCTUnwrap(ReentrantTelemetryDefaults(suiteName: "iChart-telemetry-reset-reentry-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        let expectedConsent = consent.snapshot
+        var callbackCount = 0
+        defaults.onMutation = { _ in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(consent.snapshot, expectedConsent)
+            XCTAssertFalse(consent.requiresQueueReset)
+            callbackCount += 1
+        }
+        let cleared = await Task.detached {
+            consent.clearQueuedEvents(matching: expectedConsent) {}
+        }.value
+        XCTAssertTrue(cleared)
+        await consent.waitForPendingPersistence()
+        XCTAssertEqual(callbackCount, 1)
+        XCTAssertFalse(IChartTelemetryConsentStore(defaults: defaults).requiresQueueReset)
+        defaults.onMutation = nil
+    }
+
+    func testDelayedInstallationIDWriteCannotRestoreWithdrawnIdentity() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-stale-id-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let oldConsent = consent.snapshot
+        let oldID = try XCTUnwrap(consent.installationID(for: oldConsent))
+        // Do not yield the main actor before withdrawing and opting in again.
+        // The old identity persistence task must fail its generation check.
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        await consent.waitForPendingPersistence()
+        XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
+        XCTAssertNil(consent.installationID(for: oldConsent))
+        let newID = try XCTUnwrap(consent.installationID(for: consent.snapshot))
+        XCTAssertNotEqual(newID, oldID)
+        await consent.waitForPendingPersistence()
+        XCTAssertEqual(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey), newID.uuidString)
+    }
+
+    func testDelayedCleanupWriteCannotEraseNewerWithdrawalResetMarker() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-stale-reset-\(UUID().uuidString)"))
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        let oldConsent = consent.snapshot
+        XCTAssertTrue(consent.clearQueuedEvents(matching: oldConsent) {})
+        XCTAssertFalse(consent.requiresQueueReset)
+        // Leave the old removal queued until a newer withdrawal has persisted.
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        await consent.waitForPendingPersistence()
+        XCTAssertTrue(consent.requiresQueueReset)
+        let relaunched = IChartTelemetryConsentStore(defaults: defaults)
+        XCTAssertTrue(relaunched.snapshot.isGranted)
+        XCTAssertTrue(relaunched.requiresQueueReset)
     }
 
     func testTelemetryPrivacyDropsUnknownContentLikeProperties() {
@@ -253,6 +354,27 @@ final class TelemetryTests: XCTestCase {
             timeZoneOffsetMinutes: -420,
             properties: ["result": .string("ok")]
         )
+    }
+}
+
+/// Models UserDefaults' synchronous observers deterministically. Reentering the
+/// store here would deadlock if any preference mutation held its state lock.
+private final class ReentrantTelemetryDefaults: UserDefaults, @unchecked Sendable {
+    var onMutation: ((String) -> Void)?
+    private var mutationDepth = 0
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        mutationDepth += 1
+        defer { mutationDepth -= 1 }
+        super.set(value, forKey: defaultName)
+        if mutationDepth == 1 { onMutation?(defaultName) }
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        mutationDepth += 1
+        defer { mutationDepth -= 1 }
+        super.removeObject(forKey: defaultName)
+        if mutationDepth == 1 { onMutation?(defaultName) }
     }
 }
 #endif

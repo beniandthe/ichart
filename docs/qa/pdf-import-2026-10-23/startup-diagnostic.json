@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-23",
+  "app_bundle_identifier": "com.ichart.app.pdfimportproof",
+  "reported_symptom": "Remains on loading or launch screen after sign-in",
+  "before_fix": {
+    "feature_commit": "a03df58551ab098f2366e21240a9b737985539fe",
+    "physical_device_os": "iPadOS 26.6.2 (23G90)",
+    "crash_report": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/iChart-2026-10-23-101034.ips",
+    "capture_time": "2026-10-23 10:10:32.7705 -0700",
+    "termination_namespace": "FRONTBOARD",
+    "termination_code": "0x8BADF00D",
+    "termination_explanation": "scene-update watchdog transgression; process stuck (deadlock)",
+    "main_thread": [
+      "SwiftUICore Update.dispatchActions",
+      "IChartApp body auth-state onChange",
+      "IChartTelemetry.record",
+      "IChartTelemetryConsentStore.snapshot",
+      "NSLock mutex wait"
+    ],
+    "utility_thread": [
+      "IChartTelemetryService.preparedConsent",
+      "IChartTelemetryConsentStore.clearQueuedEvents (holds consent lock)",
+      "UserDefaults reset-marker removal",
+      "synchronous UserDefaultObserver.userDefaultsDidChange",
+      "SwiftUICore Update.begin mutex wait"
+    ],
+    "conclusion": "Lock inversion between the consent store and SwiftUI defaults observation. The PDF feature had not changed these source paths."
+  },
+  "after_fix": {
+    "status": "installed and physical startup verified; subsequent offline account repair and extended PDF/setlist acceptance completed (see offline-entry and production-review receipts)",
+    "native_regressions": {
+      "passed": 53,
+      "failed": 0,
+      "skipped": 0,
+      "result_bundle": "/private/tmp/ichart-pdf-import-20261023/StartupRegression01.xcresult"
+    },
+    "physical_ui_check": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "device": "iPad Air (4th generation)",
+      "os": "iPadOS 26.6.2 (23G90)",
+      "observed_screen": "Signed-in library with optional Quick Start banner and PDFs/Setlists navigation",
+      "captures": 2,
+      "app_launched_normally_before_runner": true,
+      "app_launch_environment": {
+        "TERM": "dumb"
+      },
+      "result_bundle": "/private/tmp/ichart-pdf-import-20261023/startup-diagnostic/StartupAfterFix02.xcresult"
+    },
+    "executable_sha256": "af889677be491787e859169dc0ab436a0f5e599439740c2c48aea3a0ec7bdaab",
+    "strict_signature_verified": true,
+    "existing_sign_in_retained": true,
+    "tests_added": 5,
+    "known_tradeoff": "Termination before first asynchronous installation-ID persistence can split analytics continuity; event IDs remain independently deliverable."
+  },
+  "boundaries": {
+    "public_app_replaced": false,
+    "graph_myscript_modified": false,
+    "account_reset": false,
+    "backend_changes": false
+  }
+}
