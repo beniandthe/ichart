@@ -717,11 +717,44 @@ enum LeadSheetPageLayoutEngine {
         }
     }
 
+    static let pageInkWritingInset: CGFloat = 10
+
+    static func resolvedCanvasWidth(forViewportWidth viewportWidth: CGFloat) -> CGFloat {
+        guard viewportWidth.isFinite else { return minimumResponsivePageWidth }
+        return max(minimumResponsivePageWidth, viewportWidth)
+    }
+
+    /// Recover the logical paper width used when Free Ink was authored. The
+    /// viewport may change width; the document and its handwriting must not.
+    static func canvasWidth(
+        forPageWritingWidth writingWidth: CGFloat,
+        layoutStyle: ChartLayoutStyle
+    ) -> CGFloat? {
+        guard writingWidth > 0, writingWidth.isFinite else { return nil }
+        let paperWidth = writingWidth + pageInkWritingInset * 2
+        let canvasWidth = layoutStyle == .leadSheet
+            ? paperWidth + 140
+            : paperWidth + paperHorizontalInset(for: paperWidth) * 2
+        guard canvasWidth.isFinite else { return nil }
+        return max(minimumResponsivePageWidth, canvasWidth)
+    }
+
     private static func paperHorizontalInset(for _: CGFloat) -> CGFloat {
         24
     }
 
     private static func paperWidth(for chart: Chart, resolvedPageWidth: CGFloat) -> CGFloat {
+        // Old archives can describe paper outside today's responsive minimum
+        // or lead-sheet cap. At their canonical document width, retain that
+        // original paper rather than clipping or silently enlarging its ink.
+        if chart.pageHandwrittenNotationData?.isEmpty == false,
+           let source = chart.pageHandwrittenNotationCoordinateSpace,
+           source.height.isFinite, source.height > 0,
+           let canonicalWidth = canvasWidth(
+               forPageWritingWidth: CGFloat(source.width), layoutStyle: chart.layoutStyle),
+           abs(canonicalWidth - resolvedPageWidth) < 0.001 {
+            return CGFloat(source.width) + pageInkWritingInset * 2
+        }
         guard chart.layoutStyle != .leadSheet else {
             return min(860, max(minimumPaperWidth, resolvedPageWidth - 140))
         }

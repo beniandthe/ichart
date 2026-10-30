@@ -249,6 +249,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     @Binding var selectedRoadmapMarkerID: UUID?
     let interactionMode: EditorCanvasMode
     let inkToolMode: EditorInkToolMode
+    var documentSize = CGSize(width: 932, height: 1_200)
     var isInteractionSuspended = false
     var recognizesChordInk: Bool = true
     var chordPreviewState: ChordPreviewState = ChordPreviewState()
@@ -286,7 +287,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         )
     }
 
-    func makeUIView(context: Context) -> LeadSheetCanvasUIKitView {
+    func makeUIView(context: Context) -> LeadSheetDocumentViewport {
         ChordLaneLocalBreadcrumbs.reset()
         ChordDraftPreviewDeviceDiagnostics.beginSession()
         ChordLaneLocalBreadcrumbs.record(
@@ -298,13 +299,27 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
                 "chordCount": chart.measures.reduce(0) { $0 + $1.chordEvents.count }
             ]
         )
-        let view = LeadSheetCanvasUIKitView()
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: documentSize))
+        // Attach the canvas to its navigation owner before configuring tools,
+        // so the legacy parent gesture gate never claims this scroll view.
+        let viewport = LeadSheetDocumentViewport(documentView: view)
+        viewport.onZoomChanged = { [weak view] zoomScale in
+            view?.updateDocumentDisplayScale(for: zoomScale)
+        }
         configure(view, context: context)
-        return view
+        viewport.update(documentID: chart.id, documentSize: documentSize, interactionMode: interactionMode)
+        viewport.requestDocumentDisplayRefresh()
+        return viewport
     }
 
-    func updateUIView(_ uiView: LeadSheetCanvasUIKitView, context: Context) {
-        configure(uiView, context: context)
+    func updateUIView(_ uiView: LeadSheetDocumentViewport, context: Context) {
+        guard let view = uiView.documentView as? LeadSheetCanvasUIKitView else {
+            assertionFailure("The document viewport must retain its original notation canvas")
+            return
+        }
+        configure(view, context: context)
+        uiView.update(documentID: chart.id, documentSize: documentSize, interactionMode: interactionMode)
+        uiView.requestDocumentDisplayRefresh()
     }
 
     private func configure(_ view: LeadSheetCanvasUIKitView, context: Context) {
@@ -1430,6 +1445,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != chart else {
                 return
             }
+            // The resident dirty page canvas outranks a delayed model echo.
+            // Preserve its canonical source under the same condition as the
+            // canvas sync policy, rather than adopting stale saved geometry.
+            let hasDirtyResidentPageInk = activeCanvasScopeIdentity == .page
+                && inkAuthoringSessionState.isDirty(.passive)
+            if oldValue.id != chart.id
+                || (!hasDirtyResidentPageInk
+                    && (oldValue.pageHandwrittenNotationData != chart.pageHandwrittenNotationData
+                        || oldValue.pageHandwrittenNotationCoordinateSpace != chart.pageHandwrittenNotationCoordinateSpace)) {
+                pageInkReprojectionSource = nil
+            }
             if oldValue.id != chart.id {
                 chordInkEditedTargetState.reset()
             }
@@ -1824,6 +1850,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var activeCanvasScopeIdentity: LeadSheetActiveInkScope.Identity?
     private var activeCanvasScope: LeadSheetActiveInkScope?
     private var activeCanvasCoordinateSpace: PersistentInkCoordinateSpace?
+    private struct PageInkReprojectionSource {
+        let drawing: PKDrawing
+        let coordinateSpace: PersistentInkCoordinateSpace
+        // Preserve a saved archive verbatim when rotation has not edited ink.
+        let originalDrawingData: Data?
+    }
+    // Reproject Free Ink from one source through geometry-only changes. Fitting
+    // a wide phrase or changing nearby anchors must not progressively regroup
+    // or shrink the already projected result on subsequent rotations.
+    private var pageInkReprojectionSource: PageInkReprojectionSource?
     private var hasDeferredActiveInkGeometrySync = false
     private var savedHeaderInkCanvasState: LeadSheetSavedInkCanvasState?
     private var savedPageInkCanvasState: LeadSheetSavedInkCanvasState?
@@ -1885,6 +1921,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var isApplyingTapSelection = false
     private var performanceLayoutTraceCount = 0
     private var performanceDrawTraceCount = 0
+    private var lastDocumentDisplayZoomScale: CGFloat?
+    private var lastDocumentRasterScale: CGFloat?
     private var activePerformanceTraceDrawIndex: Int?
     private var editorPerformanceMetrics = LeadSheetEditorPerformanceMetrics()
     private var lastLayoutBoundsSize: CGSize?
@@ -1904,6 +1942,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        updateParentScrollGestureGate()
     }
 
     override func didMoveToWindow() {
@@ -1932,6 +1975,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             restoreParentViewport(viewportState)
         }
         updateParentScrollGestureGate()
+    }
+
+    func updateDocumentDisplayScale(for zoomScale: CGFloat) {
+        guard zoomScale.isFinite, zoomScale > 0 else { return }
+        let screenScale = window?.screen.scale ?? UIScreen.main.scale
+        let displayScale = Self.boundedDocumentRasterScale(
+            logicalSize: bounds.size, screenScale: screenScale, zoomScale: zoomScale)
+        let displayViews: [UIView] = [self, chordInkConfirmOverlayView, renderedEditHitOverlayView]
+        let rasterTargetChanged = lastDocumentRasterScale != displayScale
+        let requiresScaleCorrection = displayViews.contains {
+            abs($0.contentScaleFactor - displayScale) > 0.001
+        }
+        guard lastDocumentDisplayZoomScale != zoomScale
+                || rasterTargetChanged || requiresScaleCorrection else { return }
+        lastDocumentDisplayZoomScale = zoomScale
+        lastDocumentRasterScale = displayScale
+        // Native viewport zoom changes display magnification only. Refresh the
+        // raster resolution and screen-sized controls without touching bounds,
+        // notation layout, PencilKit drawing geometry or persistence metadata.
+        for view in displayViews {
+            if view.contentScaleFactor != displayScale,
+               rasterTargetChanged || view.contentScaleFactor > displayScale
+                || abs(view.contentScaleFactor - displayScale) > 0.001 {
+                view.contentScaleFactor = displayScale
+            }
+            view.setNeedsDisplay()
+        }
+    }
+
+    static func boundedDocumentRasterScale(
+        logicalSize: CGSize,
+        screenScale: CGFloat,
+        zoomScale: CGFloat
+    ) -> CGFloat {
+        let resolvedScreenScale = screenScale.isFinite && screenScale > 0 ? screenScale : 1
+        let resolvedZoomScale = zoomScale.isFinite && zoomScale > 0 ? zoomScale : 1
+        let requestedScale = min(8, resolvedScreenScale * resolvedZoomScale)
+        guard logicalSize.width.isFinite, logicalSize.height.isFinite,
+              logicalSize.width > 0, logicalSize.height > 0 else {
+            return max(CGFloat.leastNormalMagnitude, requestedScale)
+        }
+
+        // Limit the full canvas backing store to 16 megapixels (about 64 MiB
+        // for RGBA), independently of how many logical paper pages it holds.
+        // Separate square roots avoid overflowing width * height for a very
+        // large finite document. Long documents may rasterize below 1x; their
+        // logical geometry and vector PencilKit ink remain unchanged.
+        let pixelBudget: CGFloat = 16 * 1_024 * 1_024
+        let memoryLimitedScale = sqrt(pixelBudget) / sqrt(logicalSize.width) / sqrt(logicalSize.height)
+        return max(CGFloat.leastNormalMagnitude, min(requestedScale, memoryLimitedScale))
     }
 
     override func draw(_ rect: CGRect) {
@@ -2135,11 +2228,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func updateParentScrollGestureGate() {
-        guard let scrollView = enclosingParentScrollView() else {
+        guard window != nil, let scrollView = enclosingParentScrollView() else {
             parentScrollGestureGate.uninstall()
             return
         }
 
+        guard !(scrollView is LeadSheetDocumentViewport) else {
+            // The native document viewport owns both pan and pinch. Its touch
+            // configuration must not be changed by the legacy margin gate.
+            parentScrollGestureGate.uninstall()
+            return
+        }
         parentScrollGestureGate.install(in: scrollView, canvasView: self)
     }
 
@@ -2160,6 +2259,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard lastLayoutBoundsSize != nil,
               let pageLayout,
               let scrollView = enclosingParentScrollView(),
+              !(scrollView is LeadSheetDocumentViewport),
               !scrollView.isTracking,
               !scrollView.isDragging else {
             return nil
@@ -2194,6 +2294,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard let self,
                   let scrollView,
                   self.window != nil,
+                  self.enclosingParentScrollView() === scrollView,
+                  !(scrollView is LeadSheetDocumentViewport),
                   !scrollView.isTracking,
                   !scrollView.isDragging else {
                 return
@@ -4033,6 +4135,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if activeCanvasScopeIdentity == .page {
+            // A PencilKit edit or manual erase establishes new source geometry.
+            // Programmatic layout projections bypass this drawing-change path.
+            pageInkReprojectionSource = nil
+        }
         advanceInkDrawingRevision(
             invalidatesEraseSpatialIndex: !preservesActiveEraseSpatialIndex
         )
@@ -5376,6 +5483,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 activeCanvasScopeIdentity = nil
                 activeCanvasScope = nil
                 activeCanvasCoordinateSpace = nil
+                pageInkReprojectionSource = nil
                 updateChordInkConfirmOverlayVisibility()
                 return
             }
@@ -5390,6 +5498,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCanvasScopeIdentity = nil
             activeCanvasScope = nil
             activeCanvasCoordinateSpace = nil
+            pageInkReprojectionSource = nil
             updateChordInkConfirmOverlayVisibility()
             return
         }
@@ -5434,6 +5543,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 persistActiveInkIfNeeded(activeInkScope: outgoingCanvasScope)
             }
             activeCanvasCoordinateSpace = nil
+            pageInkReprojectionSource = nil
         } else if LeadSheetInkCanvasSyncPolicy.shouldReprojectActiveCanvas(
             currentScopeIdentity: activeCanvasScopeIdentity,
             targetScopeIdentity: targetScopeIdentity,
@@ -5449,7 +5559,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             // An origin-only frame change still invalidates captured targeting
             // geometry even though the drawing's local coordinates are equal.
             invalidatePendingInkWorkAfterProgrammaticCanvasChange(
-                strokeCount: pageInkCanvasView.drawing.strokes.count
+                strokeCount: pageInkCanvasView.drawing.strokes.count,
+                preservesPageInkReprojectionSource: true
             )
         }
         pageInkCanvasView.isHidden = false
@@ -5488,7 +5599,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             for: activeInkScope,
             chart: chart
         )
-        if transferResidentSavedInkIfPossible(
+        if !(activeInkScope.identity == .page && pageInkReprojectionSource != nil),
+           transferResidentSavedInkIfPossible(
             activeInkScope: activeInkScope,
             drawingData: desiredData,
             sourceCoordinateSpace: sourceCoordinateSpace,
@@ -5497,11 +5609,20 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        let desiredDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
-            from: desiredData,
-            sourceCoordinateSpace: sourceCoordinateSpace,
-            targetCoordinateSpace: targetCoordinateSpace
-        )
+        let desiredDrawing: PKDrawing?
+        if activeInkScope.identity == .page, let source = pageInkReprojectionSource {
+            desiredDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                source.drawing,
+                sourceCoordinateSpace: source.coordinateSpace,
+                targetCoordinateSpace: targetCoordinateSpace
+            )
+        } else {
+            desiredDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                from: desiredData,
+                sourceCoordinateSpace: sourceCoordinateSpace,
+                targetCoordinateSpace: targetCoordinateSpace
+            )
+        }
         if LeadSheetInkCanvasSyncPolicy.shouldLoadIncomingCanvasDirectly(
             currentScopeIdentity: activeCanvasScopeIdentity,
             targetScopeIdentity: targetScopeIdentity
@@ -5513,6 +5634,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentDrawingData: nil,
                 desiredDrawingData: nil,
                 sourceDrawingData: desiredData,
+                sourceCoordinateSpace: sourceCoordinateSpace,
                 source: "fresh_or_switched_scope"
             )
             return
@@ -5594,6 +5716,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             currentDrawingData: currentData,
             desiredDrawingData: desiredCanvasData,
             sourceDrawingData: desiredData,
+            sourceCoordinateSpace: sourceCoordinateSpace,
             source: "model_changed_for_resident_scope"
         )
     }
@@ -5605,6 +5728,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         currentDrawingData: Data?,
         desiredDrawingData: Data?,
         sourceDrawingData: Data?,
+        sourceCoordinateSpace: PersistentInkCoordinateSpace?,
         source: String
     ) {
         let incomingDrawing = drawing ?? PKDrawing()
@@ -5638,6 +5762,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeCanvasScopeIdentity = activeInkScope.identity
         activeCanvasScope = activeInkScope
         activeCanvasCoordinateSpace = targetCoordinateSpace
+        replacePageInkReprojectionSource(
+            drawingData: sourceDrawingData,
+            coordinateSpace: sourceCoordinateSpace,
+            activeInkScope: activeInkScope
+        )
         updateChordInkConfirmOverlayVisibility()
         requestActiveInkFocusIfNeeded()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
@@ -5705,6 +5834,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeCanvasScopeIdentity = activeInkScope.identity
         activeCanvasScope = activeInkScope
         activeCanvasCoordinateSpace = targetCoordinateSpace
+        replacePageInkReprojectionSource(
+            drawingData: drawingData,
+            coordinateSpace: sourceCoordinateSpace,
+            activeInkScope: activeInkScope
+        )
         updateChordInkConfirmOverlayVisibility()
         requestActiveInkFocusIfNeeded()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
@@ -6029,6 +6163,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     ) -> Bool {
         guard let targetCoordinateSpace else {
             activeCanvasCoordinateSpace = nil
+            pageInkReprojectionSource = nil
             return false
         }
 
@@ -6048,15 +6183,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return true
         }
 
+        let projectionDrawing: PKDrawing
+        let projectionCoordinateSpace: PersistentInkCoordinateSpace
+        if activeInkScope.identity == .page {
+            let source = pageInkReprojectionSource ?? PageInkReprojectionSource(
+                drawing: currentDrawing,
+                coordinateSpace: sourceCoordinateSpace,
+                originalDrawingData: nil
+            )
+            pageInkReprojectionSource = source
+            projectionDrawing = source.drawing
+            projectionCoordinateSpace = source.coordinateSpace
+        } else {
+            projectionDrawing = currentDrawing
+            projectionCoordinateSpace = sourceCoordinateSpace
+        }
         isSyncingInkCanvasFromModel = true
         updateActiveCanvasStrokeCount(strokeCount)
         pageInkCanvasView.drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
-            currentDrawing,
-            sourceCoordinateSpace: sourceCoordinateSpace,
+            projectionDrawing,
+            sourceCoordinateSpace: projectionCoordinateSpace,
             targetCoordinateSpace: targetCoordinateSpace
         )
         isSyncingInkCanvasFromModel = false
-        invalidatePendingInkWorkAfterProgrammaticCanvasChange(strokeCount: strokeCount)
+        invalidatePendingInkWorkAfterProgrammaticCanvasChange(
+            strokeCount: strokeCount,
+            preservesPageInkReprojectionSource: activeInkScope.identity == .page
+        )
         activeCanvasCoordinateSpace = targetCoordinateSpace
         recordInkCoordinateSpaceReprojection(
             activeInkScope: activeInkScope,
@@ -6244,7 +6397,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let scheduledInkRevision = inkDrawingRevision
         let scheduledScopeIdentity = activeInkScope.identity
-        let drawing = pageInkCanvasView.drawing
+        let drawing = activeInkScope.identity == .page
+            ? pageInkReprojectionSource?.drawing ?? pageInkCanvasView.drawing
+            : pageInkCanvasView.drawing
         inkSerializationSession.start(
             request: LeadSheetInkSerializationRequest(
                 drawing: drawing,
@@ -6274,11 +6429,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        inkSerializationCache.record(
-            result.serialization,
-            drawingRevision: scheduledInkRevision,
-            scopeIdentity: scheduledScopeIdentity
-        )
+        // The ordinary cache describes visible canvas geometry. A canonical
+        // page source may be wider than its fitted on-screen projection.
+        if scheduledScopeIdentity != .page || pageInkReprojectionSource == nil {
+            inkSerializationCache.record(
+                result.serialization,
+                drawingRevision: scheduledInkRevision,
+                scopeIdentity: scheduledScopeIdentity
+            )
+        }
 
         recordInkSerializationPerformance(result, role: .passive)
 
@@ -6417,8 +6576,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let activeInkRole = LeadSheetInkAuthoringSessionRole.resolve(activeInkScope: activeInkScope)
         let strokeCount = activeCanvasStrokeCount
         let persistenceStartedAt = ProcessInfo.processInfo.systemUptime
-        let serialization = knownSerialization
-            ?? currentCanvasDrawingSerialization(activeInkScope: activeInkScope)
+        let serialization: LeadSheetPersistentInkSerialization
+        if activeInkScope.identity == .page, let source = pageInkReprojectionSource {
+            if let originalDrawingData = source.originalDrawingData {
+                serialization = LeadSheetPersistentInkSerialization(
+                    drawingData: originalDrawingData,
+                    normalizationNeeded: false
+                )
+            } else {
+                serialization = knownSerialization
+                    ?? LeadSheetPersistentInkColorPolicy.serialization(for: source.drawing)
+            }
+        } else {
+            serialization = knownSerialization
+                ?? currentCanvasDrawingSerialization(activeInkScope: activeInkScope)
+        }
         let drawingData = serialization.drawingData
         let coordinateSpace = persistedCoordinateSpace(for: activeInkScope)
         let isDirtyAuthoringRole = activeInkRole.map { inkAuthoringSessionState.isDirty($0) } ?? false
@@ -6454,7 +6626,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 if activeInkRole == .passive {
                     inkPersistenceCoordinator.recordPersistedSnapshot(
                         activeInkScope: activeInkScope,
-                        inkSnapshot: knownInkSnapshot ?? currentCanvasInkSnapshot(),
+                        inkSnapshot: knownInkSnapshot ?? currentPersistentInkSnapshot(for: activeInkScope),
                         coordinateSpace: nil
                     )
                 }
@@ -6473,7 +6645,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if activeInkRole == .passive {
             inkPersistenceCoordinator.recordPersistedSnapshot(
                 activeInkScope: activeInkScope,
-                inkSnapshot: knownInkSnapshot ?? currentCanvasInkSnapshot(),
+                inkSnapshot: knownInkSnapshot ?? currentPersistentInkSnapshot(for: activeInkScope),
                 coordinateSpace: coordinateSpace
             )
         }
@@ -7862,11 +8034,46 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return nil
         }
 
+        if activeInkScope.identity == .page, let source = pageInkReprojectionSource {
+            return source.coordinateSpace
+        }
         return activeCanvasCoordinateSpace
             ?? LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(
                 for: activeInkScope,
                 pageLayout: pageLayout
             )
+    }
+
+    private func replacePageInkReprojectionSource(
+        drawingData: Data?,
+        coordinateSpace: PersistentInkCoordinateSpace?,
+        activeInkScope: LeadSheetActiveInkScope
+    ) {
+        pageInkReprojectionSource = nil
+        guard activeInkScope.identity == .page,
+              let drawingData,
+              let coordinateSpace,
+              let drawing = try? PKDrawing(data: drawingData),
+              !drawing.strokes.isEmpty else {
+            return
+        }
+
+        let needsNormalization = LeadSheetPersistentInkColorPolicy.needsNormalization(drawing)
+        pageInkReprojectionSource = PageInkReprojectionSource(
+            drawing: needsNormalization
+                ? LeadSheetPersistentInkColorPolicy.normalizedDrawing(drawing) : drawing,
+            coordinateSpace: coordinateSpace,
+            originalDrawingData: needsNormalization ? nil : drawingData
+        )
+    }
+
+    private func currentPersistentInkSnapshot(
+        for activeInkScope: LeadSheetActiveInkScope
+    ) -> LeadSheetInkDrawingSnapshot? {
+        if activeInkScope.identity == .page, let source = pageInkReprojectionSource {
+            return LeadSheetInkDrawingSnapshot(drawing: source.drawing)
+        }
+        return currentCanvasInkSnapshot()
     }
 
     private func currentCanvasInkSnapshot() -> LeadSheetInkDrawingSnapshot? {
@@ -7947,6 +8154,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             pageInkCanvasView.resignFirstResponder()
         }
 
+        parentScrollGestureGate.updateCanvasView(self)
         updateChordInkConfirmOverlayVisibility()
     }
 
@@ -7963,7 +8171,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeCanvasCoordinateSpace = nil
     }
 
-    private func invalidatePendingInkWorkAfterProgrammaticCanvasChange(strokeCount: Int) {
+    private func invalidatePendingInkWorkAfterProgrammaticCanvasChange(
+        strokeCount: Int,
+        preservesPageInkReprojectionSource: Bool = false
+    ) {
+        if !preservesPageInkReprojectionSource {
+            pageInkReprojectionSource = nil
+        }
         // Background serialization and recognition results are valid only for
         // the exact drawing coordinate space they captured. A model sync,
         // rotation reprojection, normalization, or clear must invalidate them
@@ -8108,6 +8322,7 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
     private var panBlocker: UIPanGestureRecognizer?
     private var pinchBlocker: UIPinchGestureRecognizer?
     private var blocksCurrentParentScrollGesture = false
+    private var originalParentPanConfiguration: LeadSheetFreeInkNavigationPolicy.ParentPanConfiguration?
 
     func install(in scrollView: UIScrollView, canvasView: LeadSheetCanvasUIKitView) {
         if self.scrollView !== scrollView {
@@ -8115,6 +8330,7 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
             self.scrollView = scrollView
 
             let panBlocker = UIPanGestureRecognizer(target: self, action: #selector(handleBlockerGesture(_:)))
+            panBlocker.name = "LeadSheetParentScrollPanBlocker"
             configureBlocker(panBlocker)
             self.panBlocker = panBlocker
             scrollView.addGestureRecognizer(panBlocker)
@@ -8130,14 +8346,17 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
         }
 
         self.canvasView = canvasView
+        updateParentPanConfiguration()
     }
 
     func updateCanvasView(_ canvasView: LeadSheetCanvasUIKitView) {
         self.canvasView = canvasView
+        updateParentPanConfiguration()
     }
 
     func uninstall() {
         if let scrollView {
+            originalParentPanConfiguration?.restore(to: scrollView.panGestureRecognizer)
             if let panBlocker {
                 scrollView.removeGestureRecognizer(panBlocker)
             }
@@ -8150,12 +8369,43 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
         canvasView = nil
         panBlocker = nil
         pinchBlocker = nil
+        originalParentPanConfiguration = nil
+        blocksCurrentParentScrollGesture = false
+    }
+
+    private var usesFreeInkNavigation: Bool {
+        canvasView.map { LeadSheetFreeInkNavigationPolicy.usesTwoFingerPan(in: $0.interactionMode) } ?? false
+    }
+
+    private func updateParentPanConfiguration() {
+        guard let scrollView else { return }
+        let navigationEnabled = usesFreeInkNavigation
+        let shouldEnablePanBlocker = !navigationEnabled
+        if let panBlocker, panBlocker.isEnabled != shouldEnablePanBlocker {
+            // Resolve the native pan's failure dependency explicitly. An
+            // enabled blocker that receives no touches must not keep it waiting.
+            panBlocker.isEnabled = shouldEnablePanBlocker
+        }
+        if navigationEnabled {
+            if originalParentPanConfiguration == nil {
+                originalParentPanConfiguration = .init(scrollView.panGestureRecognizer)
+            }
+            LeadSheetFreeInkNavigationPolicy.configureParentPan(scrollView.panGestureRecognizer)
+        } else if let originalParentPanConfiguration {
+            originalParentPanConfiguration.restore(to: scrollView.panGestureRecognizer)
+            self.originalParentPanConfiguration = nil
+        }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard isBlockerGesture(gestureRecognizer),
               let canvasView else {
             return true
+        }
+
+        if gestureRecognizer === panBlocker, usesFreeInkNavigation {
+            // Defensive fallback; Free Ink normally disables this recognizer.
+            return false
         }
 
         if blocksCurrentParentScrollGesture {
@@ -8179,6 +8429,10 @@ private final class LeadSheetParentScrollGestureGate: NSObject, UIGestureRecogni
         guard isBlockerGesture(gestureRecognizer),
               let canvasView else {
             return true
+        }
+
+        if gestureRecognizer === panBlocker, usesFreeInkNavigation {
+            return false
         }
 
         let blocksTouch = canvasView.shouldBlockParentScrollTouch(touch)

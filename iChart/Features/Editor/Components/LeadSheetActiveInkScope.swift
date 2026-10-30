@@ -179,7 +179,8 @@ enum LeadSheetActiveInkScope {
     }
 
     static func pageWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {
-        pageLayout.paperEnvelope.insetBy(dx: 10, dy: 10)
+        let inset = LeadSheetPageLayoutEngine.pageInkWritingInset
+        return pageLayout.paperEnvelope.insetBy(dx: inset, dy: inset)
     }
 
     static func chordWritingFrame(for pageLayout: LeadSheetPageLayout) -> CGRect {

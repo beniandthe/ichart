@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-29",
+  "baselineCommit": "45b8e4b2c3ab0fd00da18873de17761491ed02ea",
+  "branch": "codex/free-ink-rotation",
+  "baselineRegression": {
+    "total": 6,
+    "passed": 1,
+    "failed": 5,
+    "skipped": 0
+  },
+  "finalGate": {
+    "result": "Passed",
+    "totalTestCount": 726,
+    "passedTests": 713,
+    "failedTests": 0,
+    "skippedTests": 13
+  },
+  "newFreeInkRegressionMethods": 11,
+  "newFreeInkRegressionMethodsPassed": 11,
+  "testBundle": "/private/tmp/ichart-free-ink-87-final.xcresult",
+  "app": {
+    "bundleIdentifier": "com.ichart.app",
+    "version": "1.2.3",
+    "build": "87",
+    "signatureVerified": true,
+    "installed": true,
+    "executableSHA256": "a5a5f247e5be600129516acf38ca6394b771add99c86ff3783fed93289cc8064",
+    "package": ".build/installed-main-app-1.2.3-87/iChart.app",
+    "runningVerified": true
+  },
+  "sourceSHA256": {
+    "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift": "77b8f29ed1a51df6a37ad5fcd88e4a9d9940f546ecd3d49daef3200c0afdae75",
+    "iChart/Features/Editor/Components/LeadSheetInteractionModeStatePolicy.swift": "aaf8cf2f1a3267f0be9a58108ddc1b3fc7836123fad2bd3b685ff3e5dcded21b",
+    "iChart/Features/Editor/Components/LeadSheetFreeInkAnnotationGrouping.swift": "ca9b475e449c8e4fa5b2176561b3d6b528e10059cde8f0b3afef2ea8d49f5ee6",
+    "iChartTests/Editor/FreeInkAnnotationRotationTests.swift": "1bb572353c40e74db67e681de63ea9804bfeb8c7989284846cba91aace138e7f",
+    "iChartTests/ProjectConfigurationTests.swift": "bbae4856c3b21452e7697d7cbb86f0092e0c3a4e3e2d52ff72842b5b499fcfb6",
+    "project.yml": "0b1f321e8361c544d51dc4019052388dadd862d0b66f9215ce2e26e637e68163"
+  },
+  "physicalDeviceAcceptance": "Installed and launched; manual rotation acceptance pending",
+  "currentLibraryReplay": {
+    "result": "Passed",
+    "totalTestCount": 4,
+    "passedTests": 4,
+    "failedTests": 0,
+    "skippedTests": 0,
+    "testBundle": "/private/tmp/ichart-free-ink-87-current-library.xcresult"
+  },
+  "pushPRMergePublication": false,
+  "editorGateTestSourceSHA256": "15ecb60a2a5ea0257104c05349ea30b04d16471f4f4735712ca1402b489dea52",
+  "preservation": {
+    "backupFiles": 62,
+    "backupBytes": 62772492,
+    "backupImmutable": true,
+    "chartCount": 17,
+    "chartObjectsAndOrderExact": true,
+    "inkArchivesAndCoordinatesExact": true,
+    "PDFCount": 19,
+    "PDFManifestAndDocumentBytesExact": true,
+    "setlistCount": 1,
+    "setlistEntries": 15,
+    "setlistExact": true,
+    "profileCorrectionEvaluationFiles": 3,
+    "profileCorrectionEvaluationFilesExact": true,
+    "otherAppRecords": 53,
+    "otherAppRecordsExact": true,
+    "supportFilesExactBeforeLaunch": true,
+    "supportExistingFilesBeforeLaunch": 27,
+    "strictContainerExactAfterLaunch": false,
+    "strictApplicationSupportExactAfterLaunch": false,
+    "savedContentChanged": false,
+    "startupBookkeepingChanged": true,
+    "libraryBookkeepingFieldPaths": [
+      "$.entitlements.subscription.lastVerifiedAt",
+      "$.selectedChartID"
+    ],
+    "evidenceDirectory": ".build/device-backups/2026-10-29-free-ink-87/",
+    "allOtherLibraryFieldsExactApartFromListedMetadata": true,
+    "selectedChartPointerMatchesExistingStartupFallback": true,
+    "subscriptionPlanStatusAccessUnchanged": true,
+    "subscriptionVerificationTimestampMovedEarlierDays": 9.4,
+    "performanceTraceOriginalPrefixExact": true,
+    "performanceTraceAppendedBytes": 788,
+    "startupTelemetryEventCount": 6,
+    "startupCloudPushFailureEvents": 2,
+    "cloudSyncCauseInvestigated": false
+  }
+}

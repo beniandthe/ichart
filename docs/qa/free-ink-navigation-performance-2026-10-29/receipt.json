@@ -1,0 +1,124 @@
+{
+  "build": 90,
+  "marketingVersion": "1.2.3",
+  "branch": "codex/free-ink-rotation",
+  "baseCommit": "abf3ce4fd23d9a3a0d5dac88c6ce33e27c27cff2",
+  "installedAndRunning": true,
+  "build89CorrectnessAcceptedByUser": true,
+  "build90PhysicalSmoothnessUnconfirmed": true,
+  "productionSourceSHA256": {
+    "iChart/Features/Editor/Components/LeadSheetDocumentViewport.swift": "56a21ad5bf1ad254a6b0d79d107f8499e5858dd1900615343cb2697559a0b138",
+    "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift": "3a120f9a4c32e26b8babc464c2d14890918151382b7bc7b578f77b72db3c541c",
+    "project.yml": "ce011b53dd93b5050aa089cbcba064e472ad6891fed0888e00e5d56c6499b639"
+  },
+  "testSourceSHA256": {
+    "iChartTests/Editor/FreeInkRasterScaleTests.swift": "c9e6424c25c243b0ec235bdb07decc2c5628c214111d5bdfdf1853ab9b307b9a",
+    "iChartTests/Editor/LeadSheetDocumentViewportTests.swift": "c05adc57ea03b5382a05a2edaf17e3c34d62e951899e22c9a3caa444285fcaca",
+    "iChartTests/ProjectConfigurationTests.swift": "13b0337b49354dec9d3b141091328bcfcb83b647e8bdd632a2e0628f2ba0f461"
+  },
+  "signedExecutableSHA256": "5080e07b0358d3f2ddd4ee70658f6f7645d04087431e015a69f5618ab4739e76",
+  "tests": {
+    "editor": {
+      "result": "Passed",
+      "passedTests": 944,
+      "failedTests": 0,
+      "skippedTests": 10,
+      "totalTestCount": 954
+    },
+    "appearance": {
+      "result": "Passed",
+      "passedTests": 7,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "totalTestCount": 7
+    },
+    "currentLibrary": {
+      "result": "Passed",
+      "passedTests": 4,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "totalTestCount": 4
+    }
+  },
+  "deterministicRenderingEvidence": {
+    "simulatedPinchZoomUpdates": 60,
+    "rasterRefreshesDuringPinch": 0,
+    "rasterRefreshesAtEnd": 1,
+    "repeatedIdenticalScaleRequests": 30,
+    "repeatedIdenticalScaleRequestsLeaveLayerClean": true,
+    "scope": "Delegate lifecycle and CALayer state; not physical touch or frame-rate measurements"
+  },
+  "prePatchDeviceTrace": {
+    "source": "Existing build-89 iPad trace read before patch",
+    "sampledDraws": 16,
+    "sampledDrawMilliseconds": {
+      "min": 1.4609098434448242,
+      "median": 1.6245245933532715,
+      "max": 3.740072250366211
+    },
+    "slowDrawRecords": 0,
+    "limits": "Trace samples only early canvas draws; no gesture/compositor frame pacing. This does not establish end-to-end latency or a separate pan bottleneck."
+  },
+  "validationLimits": {
+    "priorCombinedPDFKitTeardownFailureUnresolved": true,
+    "editorAppearanceSeparateProcesses": true,
+    "physicalFrameRateNotMeasured": true
+  },
+  "backup": {
+    "files": 62,
+    "bytes": 62533862,
+    "immutable": true,
+    "all27ApplicationSupportFilesExactBeforeFirstLaunch": true,
+    "fourSplashBoardRenamesContentHashMultisetsExact": true
+  },
+  "postLaunch": {
+    "strictContainerExact": false,
+    "strictApplicationSupport": {
+      "exact": false,
+      "before": {
+        "files": 27,
+        "bytes": 16371895
+      },
+      "after": {
+        "files": 28,
+        "bytes": 16376704
+      },
+      "matchedBeforeFiles": 26,
+      "changed": [
+        "iChart/performance-trace.jsonl"
+      ],
+      "added": [
+        "iChart/telemetry-queue.json"
+      ],
+      "removed": []
+    },
+    "materialDataExact": true,
+    "completeLibraryExact": true,
+    "charts": 17,
+    "completeChartObjectsAndOrderExact": true,
+    "inkExact": true,
+    "inkSummary": {
+      "fields": 20,
+      "nonemptyBinaryFields": 10,
+      "binaryBytes": 300984
+    },
+    "pdfs": 19,
+    "allPDFsAndMetadataExact": true,
+    "setlists": 1,
+    "setlistEntries": 15,
+    "setlistExact": true,
+    "profileCorrectionEvaluationFiles": 3,
+    "profileCorrectionEvaluationFilesExact": true,
+    "otherAppMetadataRecordsExact": 53
+  },
+  "finalLiveVerification": {
+    "mainBuild": "90",
+    "exactMainExecutableRunning": true,
+    "sameProcessAcrossReadbacks": true,
+    "beforePostLaunchAndFinalLiveLibraryBytesExact": true,
+    "productionSourceMatchesTestedBuild": true,
+    "librarySHA256": "7a9fdc267f62b88da10b24cc60b357366867528cf0de1657649553348a8d7f1b"
+  },
+  "cameraMathInkGeometryRecognitionAndSchemaUnchanged": true,
+  "pushPRMergePublicationPerformed": false
+}

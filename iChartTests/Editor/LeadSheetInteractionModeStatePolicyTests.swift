@@ -251,7 +251,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(transformedBounds.height, sourceBounds.height * 2, accuracy: 3)
     }
 
-    func testPersistentInkCoordinateSpaceAnchorsStrokesToMatchingMeasureAcrossLayouts() throws {
+    func testPageInkKeepsAbsoluteGeometryWhenMeasureFramesChange() throws {
         let measureID = UUID()
         let sourceMeasureFrame = CGRect(x: 100, y: 40, width: 120, height: 80)
         let targetMeasureFrame = CGRect(x: 210, y: 52, width: 180, height: 96)
@@ -287,16 +287,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
         let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
-        let expectedMidX = targetMeasureFrame.minX
-            + (sourceBounds.midX - sourceMeasureFrame.minX)
-                * targetMeasureFrame.width / sourceMeasureFrame.width
-        let expectedMidY = targetMeasureFrame.minY
-            + (sourceBounds.midY - sourceMeasureFrame.minY)
-                * targetMeasureFrame.height / sourceMeasureFrame.height
         let pageScaledMidX = sourceBounds.midX * targetCoordinateSpace.size.width / sourceCoordinateSpace.size.width
 
-        XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
-        XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: transformedDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX, accuracy: 0.001)
+        XCTAssertEqual(transformedBounds.midY, sourceBounds.midY, accuracy: 0.001)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midX - pageScaledMidX), 20)
@@ -363,7 +359,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertGreaterThan(abs(transformedBounds.midY - wholeDocumentScaledMidY), 800)
     }
 
-    func testPersistentInkCoordinateSpaceAnchorsSimpleChordInkAboveMeasureFrame() throws {
+    func testPageInkAboveAMeasureKeepsAbsolutePositionAcrossRotation() throws {
         let measureID = UUID()
         let sourceMeasureFrame = CGRect(x: 250, y: 148, width: 186, height: 120)
         let targetMeasureFrame = CGRect(x: 310, y: 132, width: 240, height: 126)
@@ -399,23 +395,19 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
         let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
-        let expectedMidX = targetMeasureFrame.minX
-            + (sourceBounds.midX - sourceMeasureFrame.minX)
-                * targetMeasureFrame.width / sourceMeasureFrame.width
-        let expectedMidY = targetMeasureFrame.minY
-            + (sourceBounds.midY - sourceMeasureFrame.minY)
-                * targetMeasureFrame.height / sourceMeasureFrame.height
         let pageScaledMidY = sourceBounds.midY * targetCoordinateSpace.size.height / sourceCoordinateSpace.size.height
 
         XCTAssertLessThan(sourceBounds.midY, sourceMeasureFrame.minY)
-        XCTAssertEqual(transformedBounds.midX, expectedMidX, accuracy: 3)
-        XCTAssertEqual(transformedBounds.midY, expectedMidY, accuracy: 3)
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: transformedDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX, accuracy: 0.001)
+        XCTAssertEqual(transformedBounds.midY, sourceBounds.midY, accuracy: 0.001)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midY - pageScaledMidY), 20)
     }
 
-    func testUnanchoredPageInkKeepsStrokeShapeAcrossRotation() throws {
+    func testUnanchoredPageInkKeepsAbsolutePositionAndShapeAcrossRotation() throws {
         let measureID = UUID()
         let sourceCoordinateSpace = PersistentInkCoordinateSpace(
             width: 700,
@@ -459,9 +451,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             transformedBounds.midX,
-            sourceBounds.midX / sourceCoordinateSpace.size.width * targetCoordinateSpace.size.width,
-            accuracy: 1
+            sourceBounds.midX,
+            accuracy: 0.001
         )
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: transformedDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
         XCTAssertEqual(transformedBounds.midY, sourceBounds.midY, accuracy: 1)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertEqual(transformedBounds.height, sourceBounds.height, accuracy: 1)
@@ -514,7 +508,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testChordAnchoredPageInkPreservesStrokeSizeWhenChordFrameWidens() throws {
+    func testPageInkKeepsAbsolutePositionAndSizeWhenChordFrameWidens() throws {
         let measureID = UUID()
         let chordID = UUID()
         let sourceCoordinateSpace = try XCTUnwrap(
@@ -569,7 +563,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
         let scaledMidX = 160 + (sourceBounds.midX - 100) * (88 / 40)
 
-        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX + 60, accuracy: 1)
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: transformedDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX, accuracy: 0.001)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midX - scaledMidX), 20)
     }
@@ -926,7 +922,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
     }
 
-    func testLegacySimpleChordPageInkUsesInferredChordAnchorsAcrossRotation() throws {
+    func testLegacyPageInkRetainsStoredCoordinateMetadataAndGeometryAcrossRotation() throws {
         let chart = try simpleChordFreeWriteRotationReproChart()
         let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
@@ -945,9 +941,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let sourceMeasure = sourceMeasures[1]
         let targetMeasure = targetMeasures[1]
         let sourceDMinor = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.text == "D-11" })
-        let targetDMinor = try XCTUnwrap(targetMeasure.chordLayouts.first { $0.id == sourceDMinor.id })
         let sourceDMinorAnchorFrame = relativeFrame(sourceDMinor.frame, to: sourcePageFrame)
-        let targetDMinorAnchorFrame = relativeFrame(targetDMinor.frame, to: targetPageFrame)
         let sourceMeasureAnchorFrame = relativeFrame(sourceMeasure.chordWritingFrame, to: sourcePageFrame)
         let targetMeasureAnchorFrame = relativeFrame(targetMeasure.chordWritingFrame, to: targetPageFrame)
         let legacySourceCoordinateSpace = try XCTUnwrap(
@@ -971,16 +965,6 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 relativeTo: targetPageFrame
             )
         )
-        let sourceDMinorAnchor = try XCTUnwrap(
-            sourceCoordinateSpace.chordAnchors?.first { $0.chordID == sourceDMinor.id }
-        )
-        let targetDMinorAnchor = try XCTUnwrap(
-            targetCoordinateSpace.chordAnchors?.first { $0.chordID == sourceDMinor.id }
-        )
-        let sourceRegistrationPoint = sourceDMinorAnchor.registrationPoint?.point
-            ?? sourceDMinorAnchorFrame.origin
-        let targetRegistrationPoint = targetDMinorAnchor.registrationPoint?.point
-            ?? targetDMinorAnchorFrame.origin
         let sourceDrawing = PKDrawing(strokes: [
             stroke(
                 points: [
@@ -1005,16 +989,17 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         let sourceBounds = sourceDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
         let transformedBounds = transformedDrawing.strokes.reduce(CGRect.null) { $0.union($1.renderBounds) }
-        let expectedChordAnchoredMidX = targetRegistrationPoint.x
-            + sourceBounds.midX - sourceRegistrationPoint.x
         let measureScaledMidX = targetMeasureAnchorFrame.minX
             + (sourceBounds.midX - sourceMeasureAnchorFrame.minX)
                 * targetMeasureAnchorFrame.width / sourceMeasureAnchorFrame.width
 
         XCTAssertNil(legacySourceCoordinateSpace.chordAnchors)
-        XCTAssertEqual(sourceCoordinateSpace.chordAnchors?.count, 2)
+        XCTAssertEqual(sourceCoordinateSpace, legacySourceCoordinateSpace)
+        XCTAssertNil(sourceCoordinateSpace.chordAnchors)
         XCTAssertLessThan(sourceBounds.midY, sourceDMinorAnchorFrame.minY)
-        XCTAssertEqual(transformedBounds.midX, expectedChordAnchoredMidX, accuracy: 4)
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: transformedDrawing),
+            LeadSheetInkDrawingSnapshot(drawing: sourceDrawing))
+        XCTAssertEqual(transformedBounds.midX, sourceBounds.midX, accuracy: 0.001)
         XCTAssertEqual(transformedBounds.width, sourceBounds.width, accuracy: 1)
         XCTAssertGreaterThan(abs(transformedBounds.midX - measureScaledMidX), 6)
     }
@@ -1578,6 +1563,25 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
             LeadSheetPersistentInkColorPolicy.normalizedDrawingData(sourceData),
             sourceData
         )
+    }
+
+    func testAlreadyPersistentInkKeepsItsOriginalArchiveOnNormalization() throws {
+        let points = [CGPoint(x: 12, y: 24), CGPoint(x: 45, y: 31), CGPoint(x: 72, y: 27)]
+        let path = PKStrokePath(controlPoints: points.enumerated().map { index, point in
+            PKStrokePoint(location: point, timeOffset: Double(index) * 0.07,
+                size: CGSize(width: 2.5, height: 2.5), opacity: 1, force: 0.7,
+                azimuth: 0.2, altitude: .pi / 3)
+        }, creationDate: Date(timeIntervalSinceReferenceDate: 800_000_001))
+        let stroke = PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+            path: path, transform: CGAffineTransform(translationX: 3, y: 5), randomSeed: 0xE0D84)
+        let drawing = PKDrawing(strokes: [stroke])
+        let original = drawing.dataRepresentation()
+        XCTAssertFalse(LeadSheetPersistentInkColorPolicy.needsNormalization(drawing))
+        XCTAssertEqual(LeadSheetPersistentInkColorPolicy.normalizedDrawingData(original), original)
+        XCTAssertEqual(normalizedPersistentInkDrawingData(original), original)
+        let reopened = try PKDrawing(data: XCTUnwrap(LeadSheetPersistentInkColorPolicy.normalizedDrawingData(original)))
+        XCTAssertEqual(LeadSheetInkDrawingSnapshot(drawing: reopened), LeadSheetInkDrawingSnapshot(drawing: drawing))
+        XCTAssertEqual(reopened.strokes.first?.randomSeed, 0xE0D84)
     }
 
     func testInkToolPolicyUsesEraserForFreeWriteEraseMode() {
