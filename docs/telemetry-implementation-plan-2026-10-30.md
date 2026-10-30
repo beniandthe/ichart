@@ -4,7 +4,7 @@ Date: October 30, 2026. Working branch: `codex/telemetry-feature-contracts`, bas
 
 The required outcome is a completed engineering loop: a feature promises a behavior, a local check records evidence when that promise is contradicted, the service retains and categorizes the finding, and an engineer reproduces, fixes and verifies it. Event volume and a populated queue alone do not demonstrate that the loop improved the product.
 
-This plan includes the user-authorized handwriting-contribution handoff from “Rank three recognition architectures.” That contribution phase is separately scoped and must not delay the first diagnostics/incident-pipeline deliverable. Graph/MyScript remain paused. This plan does not authorize recognition experiments, model or SDK runs, training, recognition builds or installs, raw-contribution activation, vendor uploads, repurposing backups, or production deployment.
+This plan includes the user-authorized handwriting-contribution handoff from “Rank three recognition architectures.” That contribution phase is separately scoped and must not delay the first diagnostics/incident-pipeline deliverable. Graph/MyScript remain paused. The contribution plan does not authorize recognition experiments, model or SDK runs, training, recognition builds or installs, raw-contribution activation or deployment, vendor uploads, or repurposing backups. The ordinary aggregate diagnostics backend was separately authorized and activated on October 30, as recorded below.
 
 ## Current implementation and evidence
 
@@ -16,12 +16,22 @@ The queue reports distinct operations and affected charts only where valid opera
 
 The local replay does not activate collection, apply a production migration, run a production worker or create external issues. Historical data cannot prove invariants that older clients did not measure.
 
+The subsequent authorized production activation is recorded in the
+[backend deployment receipt](qa/telemetry-backend-deployment-2026-10-30.md).
+Migration `20261030151740` and ingest version 43 are live. Scheduled runs at
+8:20 and 8:25 a.m. Pacific processed 436 historical events and five synthetic
+contract checks. The live queue contains ten open investigation/friction groups
+supported by 308 retained historical evidence events. Two marked synthetic tasks
+were verified and resolved without closing any historical task. Device probes,
+raw handwriting contributions and the first actual product fix remain separate
+delivery phases.
+
 ## Delivery phases and acceptance
 
 | Phase | Work | Acceptance and dependencies |
 | --- | --- | --- |
 | 1. Validate the diagnostics pipeline | Complete app, ingest, database and consumer checks; inspect emitted envelopes as well as pure detector helpers; retain the anonymized historical replay. | Executed nonzero tests pass. Duplicate/late events and concurrent workers do not inflate evidence; failed evaluation retries visibly; safe rejection, intentional consumption, cancellation and offline behavior are not mislabeled as data loss. Missing delivery or contract coverage remains unknown. |
-| 2. Activate the backend | After deployment authorization, apply the reviewed migration and deploy the compatible ingest allowlist/acknowledgments before new clients. Verify private permissions, bounded backfill and the real worker schedule. | One authorized synthetic failure travels through ingest, outbox, rule and categorized task; a passed/protected/unknown control creates no defect task. Observe an actual scheduled run and health result. Preserve synthetic/debug/release/unknown separation. Do not infer customer use from release-build status. |
+| 2. Activate the backend — completed October 30 | Applied the reviewed migration and deployed ingest version 43 after explicit authorization, before new clients. Verified private permissions, bounded backfill and real scheduled runs. | Six synthetic raw events were accepted once despite retry, the malformed event was rejected, two failure tasks were created, and passed/protected/ordinary unknown controls created none. Real Cron runs succeeded and drained pending work. Synthetic evidence is marked internal/debug; no historical task was closed. Release-build status still does not establish customer use. |
 | 3. Release and verify device diagnostics | Deliver the client containing the new checks through the separately authorized release process. Check consent, opaque chart linkage, source counts, readback/reopen and delivery accounting with fresh device evidence. | Opt-out sends no new diagnostics; withdrawal invalidates queued records and identity; new fields survive ingest. Source ink and existing charts remain intact. The queue shows which contract versions/scopes are actually arriving and which remain unsampled or unknown. App diagnostics continue to exclude raw handwriting and chord text. |
 | 4. Close the first product issue | Triage an evidence-backed task, retain a fresh reproduction, implement the bounded fix, and verify the affected behavior on the fixed build. | Record reproduction, cause, change, relevant automated/device evidence and fixed build. Resolve only with verification. A qualifying recurrence reopens the task. A lower event count, empty queue or absence of opted-in activity is insufficient. |
 | 5. Design voluntary handwriting contributions | Complete the separate consent, disclosure, evidence, access, retention and deletion design below. | A reviewed implementation specification and disclosure matrix pass the contribution acceptance criteria. No collection is activated by completing this design. This phase does not block phases 1–4. |

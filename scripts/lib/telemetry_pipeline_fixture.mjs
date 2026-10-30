@@ -55,15 +55,22 @@ export async function setup(db){
     create function cron.schedule(text,text,text) returns bigint language plpgsql as $$begin
       insert into cron.job values($1,$2,$3) on conflict(jobname) do update set schedule=$2,command=$3;return 1;end;$$;`);
   for(const name of ['20260813192919_telemetry_foundation.sql','20261009230003_telemetry_privacy_retention_closeout.sql',
-    '20261030144955_telemetry_feature_contract_pipeline.sql']){
+    '20261030151740_telemetry_feature_contract_pipeline.sql']){
+    if(name==='20261030151740_telemetry_feature_contract_pipeline.sql'){
+      // The recognition consent ledger intentionally removed this namespace
+      // permission in production. Reproduce that boundary without importing or
+      // changing any research data/schema into this synthetic telemetry fixture.
+      await db.sql('revoke usage on schema private from service_role;');
+    }
     await db.sql(await readFile(new URL(`../../supabase/migrations/${name}`,import.meta.url),'utf8'));
   }
 }
 export async function event(db,{name='feature.contract_checked',properties={},clientID=randomUUID(),
-  install=installation,sessionID=session,ownerID=null,build='100',appVersion='test',platform='iPadOS',occurredSQL='now()',receivedSQL='now()'}={}){
-  return db.sql(`insert into public.telemetry_events(client_event_id,owner_id,installation_id,session_id,event_name,
+  install=installation,sessionID=session,ownerID=null,build='100',appVersion='test',platform='iPadOS',occurredSQL='now()',receivedSQL='now()',asServiceRole=false}={}){
+  const insert=`insert into public.telemetry_events(client_event_id,owner_id,installation_id,session_id,event_name,
     occurred_at,received_at,app_version,build_number,platform,os_version,device_model,locale_language,time_zone_offset_minutes,properties)
     values(${lit(clientID)},${ownerID?lit(ownerID):'null'},${lit(install)},${lit(sessionID)},${lit(name)},
     ${occurredSQL},${receivedSQL},${lit(appVersion)},${lit(build)},${lit(platform)},'test','synthetic','en',0,${lit(JSON.stringify(properties))}::jsonb)
-    on conflict(client_event_id) do nothing returning id;`);
+    on conflict(client_event_id) do nothing returning id;`;
+  return db.sql(asServiceRole?`set role service_role;${insert}reset role;`:insert);
 }

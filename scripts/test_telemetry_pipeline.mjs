@@ -147,12 +147,23 @@ test('feature-contract pipeline executes real PostgreSQL rules, storage and life
       assert.equal((await db.rows(`select count(*)::int as n from private.telemetry_incident_events where raw_event_id='${expired}'`))[0].n,0);
       assert.equal((await db.rows("select count(*)::int as n from information_schema.columns where table_schema='private' and table_name='telemetry_incidents' and column_name in ('owner_id','installation_id','session_id','properties')"))[0].n,0);
     });
-    await t.test('client roles cannot read queue or execute privileged worker; schedule and health are visible privately',async()=>{
+    await t.test('private operator access stays isolated while service-role intake enqueues safely',async()=>{
       const [privileges]=await db.rows(`select has_schema_privilege('anon','private','usage') as anon_schema,
+        has_schema_privilege('service_role','private','usage') as service_schema,
         has_table_privilege('authenticated','private.telemetry_work_queue','select') as client_read,
         has_function_privilege('anon','private.process_telemetry_evaluations(integer)','execute') as client_run,
         has_table_privilege('service_role','private.telemetry_work_queue','select') as server_read`);
-      assert.deepEqual(privileges,{anon_schema:false,client_read:false,client_run:false,server_read:true});
+      // Object ACLs do not override the intentionally denied schema namespace.
+      assert.deepEqual(privileges,{anon_schema:false,service_schema:false,client_read:false,client_run:false,server_read:true});
+      await assert.rejects(db.sql('set role service_role;select * from private.telemetry_work_queue;'),/permission denied for schema private/);
+      await assert.rejects(db.sql('set role service_role;select private.process_telemetry_evaluations(250);'),/permission denied for schema private/);
+      const raw=await event(db,{asServiceRole:true,properties:violation({contract_id:'chart.load',reason:'load_failed',build_source:'debug_build'})});
+      assert.equal((await db.rows(`select count(*)::int as n from private.telemetry_evaluation_outbox where raw_event_id='${raw}'`))[0].n,1);
+      // The trusted trigger and operator/Cron owner can use private objects;
+      // signed service intake itself never gains namespace access.
+      await worker(db);
+      assert.equal((await db.rows(`select count(*)::int as n from private.telemetry_incident_events where raw_event_id='${raw}'`))[0].n,1);
+      assert.ok((await queue(db)).length>0);
       const [job]=await db.rows("select * from cron.job where jobname='ichart-telemetry-feature-contracts'");
       assert.equal(job.schedule,'*/5 * * * *');assert.equal(job.command,'select private.process_telemetry_evaluations(250);');
       await assert.rejects(db.sql('select private.process_telemetry_evaluations(0);'),/batch_limit/);

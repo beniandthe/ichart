@@ -7,7 +7,13 @@ This pipeline turns a measured feature failure into retained evidence and a cate
 
 `feature promise → local contract check → consented event → durable evaluation outbox → deterministic detector → deduplicated incident → fix → verification → recurrence check`
 
-The code in this branch is an implementation to review and validate. It is not a statement that the migration, ingest function or client changes have reached production. Backend activation requires the reviewed migration and ingest deployment; the new device checks require a client containing the instrumentation.
+The backend was deployed on October 30, 2026 as migration
+`20261030151740_telemetry_feature_contract_pipeline`, with `app-telemetry-ingest`
+version 43. Actual scheduled runs at 8:20 and 8:25 a.m. Pacific completed the
+historical backfill and synthetic end-to-end verification. See the
+[deployment receipt](qa/telemetry-backend-deployment-2026-10-30.md). The new
+on-device checks still require a client containing this instrumentation; this
+backend activation did not release or install an app.
 
 ## What earns a task
 
@@ -55,7 +61,7 @@ Counts have explicit meanings:
 
 ## Automatic storage and classification
 
-The migration `supabase/migrations/20261030144955_telemetry_feature_contract_pipeline.sql` adds private tables and views:
+The migration `supabase/migrations/20261030151740_telemetry_feature_contract_pipeline.sql` adds private tables and views:
 
 | Object | Purpose |
 | --- | --- |
@@ -73,11 +79,13 @@ The worker runs every five minutes through pg_cron and processes a bounded batch
 
 The migration also enqueues a bounded last-30-day backfill of existing cloud failures and rendered corrections, capped at 25,000 raw events. These become investigation/friction evidence only. It cannot reconstruct past ink-loss invariants that were never measured.
 
-Outbox and evidence records reference raw telemetry with deletion cascades. Derived counts are computed from those retained links so account erasure or age-based retention does not leave stale distinct-installation counts. The engineering task survives evidence expiry/erasure, with `evidence_available=false`, zero surviving counts, empty build lists and unavailable first/last/evidence references. That state needs fresh permitted evidence; it is not a healthy outcome or a verified fix. Incident task metadata does not copy owner IDs, installation IDs, chart contents or raw properties into a separate permanent store. Private-schema grants control access; there is no public task-creation RPC.
+Outbox and evidence records reference raw telemetry with deletion cascades. Derived counts are computed from those retained links so account erasure or age-based retention does not leave stale distinct-installation counts. The engineering task survives evidence expiry/erasure, with `evidence_available=false`, zero surviving counts, empty build lists and unavailable first/last/evidence references. That state needs fresh permitted evidence; it is not a healthy outcome or a verified fix. Incident task metadata does not copy owner IDs, installation IDs, chart contents or raw properties into a separate permanent store. There is no public task-creation RPC.
+
+The existing production boundary intentionally denies `service_role` usage of the `private` schema. This pipeline preserves that boundary: table/function grants alone do not make private objects accessible without schema usage. The ingest service inserts permitted raw events in `public.telemetry_events`; its narrowly scoped `SECURITY DEFINER` trigger enqueues evaluation. The scheduled worker runs as its trusted PostgreSQL scheduling owner. Private queue inspection and task-state changes use an authorized operator database connection, not a client or service API key. Do not restore broad private-schema usage to make an operator query work: that would also make previously granted private objects outside telemetry usable.
 
 ## Review the work queue
 
-Use the database URL from the existing local secret-management flow. Do not paste credentials into a script, issue, report or command argument. The consumer reads `ICHART_TELEMETRY_DATABASE_URL` and passes it to libpq through the child environment, never through the process command line.
+Use an authorized operator database URL with the necessary private-schema access from the existing local secret-management flow. A Supabase service API key is not that connection; a connection running as `service_role` cannot query this schema directly. Do not paste credentials into a script, issue, report or command argument. The consumer reads `ICHART_TELEMETRY_DATABASE_URL` and passes it to libpq through the child environment, never through the process command line.
 
 ```sh
 python3 scripts/telemetry_work_queue.py --output-dir /private/tmp/ichart-telemetry-review
