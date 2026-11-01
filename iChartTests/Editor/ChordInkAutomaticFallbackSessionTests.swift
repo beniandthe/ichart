@@ -312,6 +312,232 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
         XCTAssertEqual(fallback.calls, 1)
     }
 
+    func testTransientTechnicalFailureRetriesSameOwnedSourceAndPublishesOnlyTheActualRecoveredCandidate() async throws {
+        let fallbackQueue = DispatchQueue(label: "ichart.tests.transient-fallback.\(UUID())")
+        let workerReleased = expectation(description: "retry yields the fallback worker")
+        let workerProbeRan = DispatchSemaphore(value: 0)
+        let provider = FallbackProviderDouble(identifier: "transient", attemptBody: { call, _, _ in
+            if call == 1 {
+                fallbackQueue.async {
+                    workerProbeRan.signal()
+                    workerReleased.fulfill()
+                }
+                return .technicalFailure
+            }
+            XCTAssertEqual(workerProbeRan.wait(timeout: .now()), .success,
+                "A delayed retry must release the serial worker before trying again")
+            return .completed(self.supported("D/F#"))
+        })
+        let primary = FallbackPrimaryDouble { _ in self.unread() }
+        let session = makeSession(primary, fallback: [provider], fallbackQueue: fallbackQueue)
+        let source = request(x: 106)
+        let done = expectation(description: "transient recovery publishes once")
+        var publications = 0
+        session.startIncremental(requests: [source]) { payload in
+            publications += 1
+            XCTAssertEqual(payload.requestID, source.requestID)
+            XCTAssertEqual(payload.targetLifecycle?.generationID, source.requestID)
+            XCTAssertEqual(payload.target.measureID, source.target.measureID)
+            XCTAssertEqual(payload.strokes, source.strokes)
+            XCTAssertEqual(payload.drawingData, source.drawingData)
+            XCTAssertNil(payload.result.match, "An editable fallback does not replace primary trust")
+            XCTAssertEqual(payload.result.reviewCandidateScores.compactMap(\.displayText), ["D/F#"])
+            XCTAssertEqual(payload.result.fallbackEvidence.count, 1)
+            XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .completed)
+            XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 2)
+            done.fulfill()
+        }
+        await fulfillment(of: [workerReleased, done], timeout: 2)
+        XCTAssertEqual(publications, 1)
+        XCTAssertEqual(primary.calls, 1)
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testRepeatedTechnicalFailureBudgetSurvivesAutomaticCancellationAndIdenticalSourceReentry() async throws {
+        let fallback = FallbackProviderDouble(identifier: "bounded-identical-source", attemptBody: { call, _, _ in
+            call <= 2 ? .technicalFailure : .completed(self.supported("Bb"))
+        })
+        let primary = FallbackPrimaryDouble { _ in self.unread() }
+        let session = makeSession(primary, fallback: [fallback])
+        let source = request(x: 106)
+        for replay in 0..<2 {
+            let done = expectation(description: "bounded failed work replay \(replay)")
+            session.startIncremental(requests: [source]) { payload in
+                XCTAssertNil(payload.result.match)
+                XCTAssertTrue(payload.result.reviewCandidateScores.isEmpty)
+                XCTAssertEqual(payload.result.fallbackEvidence.count, 1)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .technicalFailure)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 2)
+                XCTAssertEqual(payload.strokes, source.strokes)
+                XCTAssertEqual(payload.drawingData, source.drawingData)
+                done.fulfill()
+            }
+            await fulfillment(of: [done], timeout: 2)
+            XCTAssertEqual(fallback.calls, 2, "Unchanged current work must not start another retry budget")
+        }
+        for cancelAll in [false, true] {
+            if cancelAll { session.cancelPendingWork() } else { session.cancelIncrementalWork() }
+            var current = source
+            current.requestID = UUID()
+            let replayed = expectation(description: "identical source retains exhausted technical budget \(cancelAll)")
+            session.startIncremental(requests: [current]) { payload in
+                XCTAssertEqual(payload.requestID, current.requestID)
+                XCTAssertEqual(payload.strokes, source.strokes)
+                XCTAssertEqual(payload.drawingData, source.drawingData)
+                XCTAssertNil(payload.result.match)
+                XCTAssertTrue(payload.result.reviewCandidateScores.isEmpty)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .technicalFailure)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 2)
+                replayed.fulfill()
+            }
+            await fulfillment(of: [replayed], timeout: 2)
+            XCTAssertEqual(fallback.calls, 2, "A new work ID must not replenish an unchanged source's retry budget")
+        }
+        XCTAssertEqual(primary.calls, 1, "Identical-source reentry still reuses the deterministic primary read")
+    }
+
+    func testChangedSourceOrOptionsReceivesItsOwnTechnicalRetryBudgetAndCanRecover() async throws {
+        for changeOptions in [false, true] {
+            let fallback = FallbackProviderDouble(identifier: "changed-input-budget", attemptBody: { call, _, _ in
+                call <= 2 ? .technicalFailure : .completed(self.supported("Bb"))
+            })
+            let primary = FallbackPrimaryDouble { _ in self.unread() }
+            let session = makeSession(primary, fallback: [fallback])
+            let source = request(x: 106)
+            let failed = expectation(description: "original input exhausts its budget \(changeOptions)")
+            session.startIncremental(requests: [source]) { payload in
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .technicalFailure)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 2)
+                failed.fulfill()
+            }
+            await fulfillment(of: [failed], timeout: 2)
+            XCTAssertEqual(fallback.calls, 2)
+            var current = changeOptions ? source : request(x: 107, measureID: source.target.measureID)
+            current.requestID = UUID()
+            if changeOptions { current.options = .includingSymbolLedgerDiagnostics }
+            let recovered = expectation(description: "changed input has a fresh bounded attempt \(changeOptions)")
+            session.startIncremental(requests: [current]) { payload in
+                XCTAssertEqual(payload.requestID, current.requestID)
+                XCTAssertEqual(payload.strokes, current.strokes)
+                XCTAssertEqual(payload.drawingData, current.drawingData)
+                XCTAssertEqual(payload.result.reviewCandidateScores.compactMap(\.displayText), ["Bb"])
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .completed)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 1)
+                recovered.fulfill()
+            }
+            await fulfillment(of: [recovered], timeout: 2)
+            XCTAssertEqual(fallback.calls, 3)
+            XCTAssertEqual(primary.calls, 2, "The primary cache is also keyed by exact source and options")
+        }
+    }
+
+    func testIdenticalSourceReentryWhileRetryIsQueuedCanUseOnlyTheRemainingAttempt() async throws {
+        for cancelAll in [false, true] {
+            let fallbackQueue = DispatchQueue(label: "ichart.tests.reentry-budget.\(UUID())")
+            let retryQueued = expectation(description: "gate queued technical retry \(cancelAll)")
+            let releaseWorker = DispatchSemaphore(value: 0)
+            defer { releaseWorker.signal() }
+            let fallback = FallbackProviderDouble(identifier: "reentry-budget", attemptBody: { call, _, _ in
+                if call == 1 {
+                    fallbackQueue.async {
+                        retryQueued.fulfill()
+                        _ = releaseWorker.wait(timeout: .now() + 10)
+                    }
+                }
+                return call <= 2 ? .technicalFailure : .completed(self.supported("G"))
+            })
+            let session = makeSession(FallbackPrimaryDouble { _ in self.unread() },
+                fallback: [fallback], fallbackQueue: fallbackQueue)
+            let original = request(x: 106)
+            let obsolete = expectation(description: "old work does not publish during reentry \(cancelAll)")
+            obsolete.isInverted = true
+            session.startIncremental(requests: [original]) { _ in obsolete.fulfill() }
+            await fulfillment(of: [retryQueued], timeout: 2)
+            if cancelAll { session.cancelPendingWork() } else { session.cancelIncrementalWork() }
+            var current = original
+            current.requestID = UUID()
+            let bounded = expectation(description: "new work shares remaining source budget \(cancelAll)")
+            session.startIncremental(requests: [current]) { payload in
+                XCTAssertEqual(payload.requestID, current.requestID)
+                XCTAssertEqual(payload.strokes, original.strokes)
+                XCTAssertEqual(payload.drawingData, original.drawingData)
+                XCTAssertTrue(payload.result.reviewCandidateScores.isEmpty)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.outcome, .technicalFailure)
+                XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 2)
+                bounded.fulfill()
+            }
+            releaseWorker.signal()
+            await fulfillment(of: [bounded], timeout: 2)
+            await fulfillment(of: [obsolete], timeout: 0.3)
+            XCTAssertEqual(fallback.calls, 2, "Cancellation must not give identical source a third engine attempt")
+        }
+    }
+
+    func testExplicitlyCancelledProviderDoesNotRetryAdvanceTheChainOrPublishNoRead() async throws {
+        let attempted = expectation(description: "provider explicitly cancelled")
+        let fallback = FallbackProviderDouble(identifier: "cancelled", attemptBody: { _, _, _ in
+            attempted.fulfill()
+            return .cancelled
+        })
+        let unused = FallbackProviderDouble(identifier: "must-not-follow-cancellation") { _, _, _ in self.supported("G") }
+        let session = makeSession(FallbackPrimaryDouble { _ in self.unread() }, fallback: [fallback, unused])
+        let publication = expectation(description: "cancelled attempt has no publication")
+        publication.isInverted = true
+        session.startIncremental(requests: [request(x: 106)]) { _ in publication.fulfill() }
+        await fulfillment(of: [attempted], timeout: 2)
+        await fulfillment(of: [publication], timeout: 0.3)
+        XCTAssertEqual(fallback.calls, 1)
+        XCTAssertEqual(unused.calls, 0)
+    }
+
+    func testChangingOrCancellingSourceWhileRetryIsQueuedPreventsObsoleteRetryAndPublication() async throws {
+        for changeSource in [false, true] {
+            let fallbackQueue = DispatchQueue(label: "ichart.tests.queued-retry.\(UUID())")
+            let retryQueued = expectation(description: "worker gated after initial failure \(changeSource)")
+            let releaseWorker = DispatchSemaphore(value: 0)
+            defer { releaseWorker.signal() }
+            let fallback = FallbackProviderDouble(identifier: "source-bound-retry", attemptBody: { call, _, _ in
+                if call == 1 {
+                    // This job runs after the failing attempt has returned. It
+                    // holds the serial worker so cancellation never races a
+                    // wall-clock assumption about the retry delay.
+                    fallbackQueue.async {
+                        retryQueued.fulfill()
+                        _ = releaseWorker.wait(timeout: .now() + 10)
+                    }
+                    return .technicalFailure
+                }
+                return .completed(self.supported("G"))
+            })
+            let session = makeSession(FallbackPrimaryDouble { _ in self.unread() },
+                fallback: [fallback], fallbackQueue: fallbackQueue)
+            let original = request(x: 106)
+            let obsoletePublication = expectation(description: "obsolete queued retry never publishes \(changeSource)")
+            obsoletePublication.isInverted = true
+            session.startIncremental(requests: [original]) { _ in obsoletePublication.fulfill() }
+            await fulfillment(of: [retryQueued], timeout: 2)
+            let currentPublication = changeSource
+                ? expectation(description: "current changed source publishes") : nil
+            if changeSource {
+                let current = request(x: 107, measureID: original.target.measureID)
+                session.startIncremental(requests: [current]) { payload in
+                    XCTAssertEqual(payload.requestID, current.requestID)
+                    XCTAssertEqual(payload.strokes, current.strokes)
+                    XCTAssertEqual(payload.drawingData, current.drawingData)
+                    XCTAssertEqual(payload.result.fallbackEvidence.first?.attemptCount, 1)
+                    currentPublication?.fulfill()
+                }
+            } else {
+                session.cancelIncrementalWork()
+            }
+            releaseWorker.signal()
+            if let currentPublication { await fulfillment(of: [currentPublication], timeout: 2) }
+            await fulfillment(of: [obsoletePublication], timeout: 0.3)
+            XCTAssertEqual(fallback.calls, changeSource ? 2 : 1,
+                "Obsolete work must not invoke the provider's queued retry")
+        }
+    }
+
     func testExhaustedBoundedChainCachesNoReadWithoutInventingAChordAndLeavesManualBatchUnchanged() async throws {
         let providers = (0..<5).map { index in
             FallbackProviderDouble(identifier: "unread-\(index)") { _, _, _ in self.unread() }
@@ -326,6 +552,7 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
                 XCTAssertTrue(payload.result.reviewCandidateScores.isEmpty)
                 XCTAssertEqual(payload.result.fallbackEvidence.count, 4)
                 XCTAssertTrue(payload.result.fallbackEvidence.allSatisfy { $0.candidateTexts.isEmpty })
+                XCTAssertTrue(payload.result.fallbackEvidence.allSatisfy { $0.outcome == .completed && $0.attemptCount == 1 })
                 XCTAssertEqual(payload.drawingData, source.drawingData)
                 XCTAssertEqual(payload.strokes, source.strokes)
                 if replay == 1 { XCTAssertTrue(payload.timing.cacheHit) }
@@ -347,9 +574,11 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
     }
 
     private func makeSession(_ primary: FallbackPrimaryDouble,
-        fallback: [any ChordInkAutomaticFallbackRecognizing]) -> ChordInkRecognitionSession {
+        fallback: [any ChordInkAutomaticFallbackRecognizing],
+        fallbackQueue: DispatchQueue? = nil) -> ChordInkRecognitionSession {
         ChordInkRecognitionSession(queue: DispatchQueue(label: "ichart.tests.primary.\(UUID())"),
-            recognizer: primary, allowsPersonalInk: false, automaticFallbackRecognizers: fallback)
+            recognizer: primary, allowsPersonalInk: false, automaticFallbackRecognizers: fallback,
+            automaticFallbackQueue: fallbackQueue)
     }
 
     private func makeChart() -> Chart {
@@ -414,18 +643,39 @@ private final class FallbackProviderDouble: ChordInkAutomaticFallbackRecognizing
     let version: String
     private let lock = NSLock()
     private var count = 0
-    private let body: (Int, [InkStroke], @escaping () -> Bool) -> ChordInkRecognitionResult?
+    private let body: ((Int, [InkStroke], @escaping () -> Bool) -> ChordInkRecognitionResult?)?
+    private let attemptBody: ((Int, [InkStroke], @escaping () -> Bool) -> ChordInkAutomaticFallbackAttempt)?
     var calls: Int { lock.withLock { count } }
     init(identifier: String, version: String = "test-v1",
         body: @escaping (Int, [InkStroke], @escaping () -> Bool) -> ChordInkRecognitionResult?) {
         self.identifier = identifier
         self.version = version
         self.body = body
+        self.attemptBody = nil
+    }
+    init(identifier: String, version: String = "test-v1",
+        attemptBody: @escaping (Int, [InkStroke], @escaping () -> Bool) -> ChordInkAutomaticFallbackAttempt) {
+        self.identifier = identifier
+        self.version = version
+        self.body = nil
+        self.attemptBody = attemptBody
     }
     func recognize(strokes: [InkStroke], options: ChordInkRecognitionOptions,
         isCurrent: @escaping () -> Bool) -> ChordInkRecognitionResult? {
         let call = lock.withLock { count += 1; return count }
-        return body(call, strokes, isCurrent)
+        return body?(call, strokes, isCurrent)
+    }
+    func recognizeAttempt(strokes: [InkStroke], options: ChordInkRecognitionOptions,
+        isCurrent: @escaping () -> Bool) -> ChordInkAutomaticFallbackAttempt {
+        guard isCurrent() else { return .cancelled }
+        let result: ChordInkAutomaticFallbackAttempt
+        if let attemptBody {
+            let call = lock.withLock { count += 1; return count }
+            result = attemptBody(call, strokes, isCurrent)
+        } else {
+            result = .completed(recognize(strokes: strokes, options: options, isCurrent: isCurrent))
+        }
+        return isCurrent() ? result : .cancelled
     }
 }
 #endif

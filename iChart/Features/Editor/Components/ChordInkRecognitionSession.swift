@@ -781,7 +781,26 @@ final class ChordInkRecognitionSession {
     private struct FallbackRead {
         var scores: [ChordInkCandidateScore]
         var evidence: [ChordInkRecognitionFallbackEvidence]
+        var computedMilliseconds: Double
     }
+
+    private struct FallbackProgress {
+        var providerIndex = 0
+        var completedAttempts = 0
+        var providerMilliseconds: Double = 0
+        var computedMilliseconds: Double = 0
+        var evidence: [ChordInkRecognitionFallbackEvidence] = []
+    }
+
+    private struct FallbackTechnicalState {
+        var attemptCount: Int
+        var durationMilliseconds: Double
+        /// nil is an unresolved technical failure; an empty array is a
+        /// successful retry which actually found no supported candidate.
+        var completedScores: [ChordInkCandidateScore]?
+    }
+
+    private static let automaticFallbackRetryDelay: TimeInterval = 0.1
 
     private static let maximumCachedResultCount = 192
 
@@ -803,6 +822,10 @@ final class ChordInkRecognitionSession {
     // values nor fallback suggestions enter the primary/manual cache.
     private var fallbackResults: [FallbackCacheKey: FallbackRead] = [:]
     private var fallbackInsertionOrder: [FallbackCacheKey] = []
+    // Separate from semantic recognition exhaustion. Cancelling/recreating a
+    // work envelope for identical ink must not replenish an engine's budget.
+    private var fallbackTechnicalStates: [FallbackCacheKey: [Int: FallbackTechnicalState]] = [:]
+    private var fallbackTechnicalInsertionOrder: [FallbackCacheKey] = []
 
     init(
         queue: DispatchQueue,
@@ -1014,52 +1037,179 @@ final class ChordInkRecognitionSession {
     ) {
         automaticFallbackQueue.async { [weak self] in
             guard let self else { return }
-            let isCurrent = { [weak self] in self?.incrementalRequest(key: key, workID: workID) != nil }
-            guard isCurrent() else { return }
+            guard self.incrementalRequest(key: key, workID: workID) != nil else { return }
             let cacheKey = FallbackCacheKey(source: CacheKey(strokes: request.strokes, options: request.options),
                 providerVersion: self.automaticFallbackVersion)
-            let recovered: FallbackRead
-            let cacheHit: Bool
             if let cached = self.fallbackResults[cacheKey] {
-                recovered = cached
-                cacheHit = true
+                self.finishAutomaticFallback(cached, primaryRead: primaryRead, key: key,
+                    workID: workID, cacheHit: true)
             } else {
-                var scores: [ChordInkCandidateScore] = []
-                var evidence: [ChordInkRecognitionFallbackEvidence] = []
-                for provider in self.automaticFallbackRecognizers.prefix(4) {
-                    guard isCurrent() else { return }
-                    let startedAt = ProcessInfo.processInfo.systemUptime
-                    let result = provider.recognize(strokes: request.strokes, options: request.options,
-                        isCurrent: isCurrent)
-                    guard isCurrent() else { return }
-                    let candidates = result.map(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for:)) ?? []
-                    evidence.append(ChordInkRecognitionFallbackEvidence(engineIdentifier: provider.identifier,
-                        engineVersion: provider.version, candidateTexts: candidates.compactMap(\.displayText),
-                        durationMilliseconds: max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)))
-                    if !candidates.isEmpty { scores = candidates; break }
-                }
-                recovered = FallbackRead(scores: scores, evidence: evidence)
-                cacheHit = false
-                guard isCurrent() else { return }
-                self.fallbackResults[cacheKey] = recovered
-                self.fallbackInsertionOrder.append(cacheKey)
-                if self.fallbackInsertionOrder.count > Self.maximumCachedResultCount {
-                    self.fallbackResults[self.fallbackInsertionOrder.removeFirst()] = nil
-                }
+                self.continueAutomaticFallback(primaryRead, request: request, key: key,
+                    workID: workID, cacheKey: cacheKey, progress: FallbackProgress())
             }
-            guard isCurrent() else { return }
-            var read = primaryRead
-            // The primary answer and its trust remain unchanged, including an
-            // empty answer. Only actual supported fallback suggestions append.
-            read.result.reviewCandidateScores.append(contentsOf: recovered.scores)
-            read.result.fallbackEvidence = recovered.evidence
-            if !cacheHit {
-                read.result.metrics.totalMilliseconds += recovered.evidence.reduce(0) { $0 + $1.durationMilliseconds }
-            }
-            read.timing.recognitionFinishedAt = Date()
-            read.timing.cacheHit = primaryRead.timing.cacheHit && cacheHit
-            self.finishIncrementalRead(read, key: key, workID: workID)
         }
+    }
+
+    /// Confined to the fallback worker. A delayed retry releases that worker
+    /// so other current targets can finish while one engine is unavailable.
+    private func continueAutomaticFallback(
+        _ primaryRead: IncrementalRead, request: ChordInkRecognitionSessionRequest,
+        key: IncrementalKey, workID: UUID, cacheKey: FallbackCacheKey,
+        progress: FallbackProgress
+    ) {
+        let isCurrent = { [weak self] in self?.incrementalRequest(key: key, workID: workID) != nil }
+        guard isCurrent() else { return }
+        if let cached = fallbackResults[cacheKey] {
+            finishAutomaticFallback(cached, primaryRead: primaryRead, key: key,
+                workID: workID, cacheHit: true)
+            return
+        }
+        let providers = Array(automaticFallbackRecognizers.prefix(4))
+        guard providers.indices.contains(progress.providerIndex) else {
+            cacheAndFinishAutomaticFallback(FallbackRead(scores: [], evidence: progress.evidence,
+                computedMilliseconds: progress.computedMilliseconds),
+                primaryRead: primaryRead, key: key, workID: workID, cacheKey: cacheKey)
+            return
+        }
+        let provider = providers[progress.providerIndex]
+        var next = progress
+        if let technical = fallbackTechnicalStates[cacheKey]?[progress.providerIndex] {
+            next.completedAttempts = technical.attemptCount
+            next.providerMilliseconds = technical.durationMilliseconds
+            if let completedScores = technical.completedScores {
+                finishAutomaticFallbackProvider(completedScores, outcome: .completed,
+                    primaryRead: primaryRead, request: request, key: key, workID: workID,
+                    cacheKey: cacheKey, progress: next, provider: provider)
+                return
+            }
+            if technical.attemptCount >= 2 {
+                finishAutomaticFallbackProvider([], outcome: .technicalFailure,
+                    primaryRead: primaryRead, request: request, key: key, workID: workID,
+                    cacheKey: cacheKey, progress: next, provider: provider)
+                return
+            }
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let attempt = provider.recognizeAttempt(strokes: request.strokes, options: request.options,
+            isCurrent: isCurrent)
+        guard isCurrent() else { return }
+        next.completedAttempts += 1
+        let elapsedMilliseconds = max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        next.providerMilliseconds += elapsedMilliseconds
+        next.computedMilliseconds += elapsedMilliseconds
+        let candidates: [ChordInkCandidateScore]
+        let outcome: ChordInkRecognitionFallbackEvidence.Outcome
+        switch attempt {
+        case .cancelled:
+            return
+        case .technicalFailure where next.completedAttempts == 1:
+            // One retry belongs to the exact prepared source/options/provider
+            // version. A cancelled envelope cannot replenish that budget.
+            // Obsolete or cancelled calls never enter this technical state.
+            setFallbackTechnicalState(.init(attemptCount: next.completedAttempts,
+                durationMilliseconds: next.providerMilliseconds, completedScores: nil),
+                cacheKey: cacheKey, providerIndex: next.providerIndex)
+            let retryProgress = next
+            automaticFallbackQueue.asyncAfter(deadline: .now() + Self.automaticFallbackRetryDelay) { [weak self] in
+                self?.continueAutomaticFallback(primaryRead, request: request, key: key,
+                    workID: workID, cacheKey: cacheKey, progress: retryProgress)
+            }
+            return
+        case .technicalFailure:
+            candidates = []
+            outcome = .technicalFailure
+            setFallbackTechnicalState(.init(attemptCount: next.completedAttempts,
+                durationMilliseconds: next.providerMilliseconds, completedScores: nil),
+                cacheKey: cacheKey, providerIndex: next.providerIndex)
+        case .completed(let result):
+            candidates = result.map(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for:)) ?? []
+            outcome = .completed
+            if fallbackTechnicalStates[cacheKey]?[next.providerIndex] != nil {
+                setFallbackTechnicalState(.init(attemptCount: next.completedAttempts,
+                    durationMilliseconds: next.providerMilliseconds, completedScores: candidates),
+                    cacheKey: cacheKey, providerIndex: next.providerIndex)
+            }
+        }
+        finishAutomaticFallbackProvider(candidates, outcome: outcome, primaryRead: primaryRead,
+            request: request, key: key, workID: workID, cacheKey: cacheKey,
+            progress: next, provider: provider)
+    }
+
+    private func setFallbackTechnicalState(
+        _ state: FallbackTechnicalState, cacheKey: FallbackCacheKey, providerIndex: Int
+    ) {
+        if fallbackTechnicalStates[cacheKey] == nil {
+            fallbackTechnicalInsertionOrder.append(cacheKey)
+            if fallbackTechnicalInsertionOrder.count > Self.maximumCachedResultCount {
+                fallbackTechnicalStates[fallbackTechnicalInsertionOrder.removeFirst()] = nil
+            }
+        }
+        fallbackTechnicalStates[cacheKey, default: [:]][providerIndex] = state
+    }
+
+    private func finishAutomaticFallbackProvider(
+        _ candidates: [ChordInkCandidateScore], outcome: ChordInkRecognitionFallbackEvidence.Outcome,
+        primaryRead: IncrementalRead, request: ChordInkRecognitionSessionRequest,
+        key: IncrementalKey, workID: UUID, cacheKey: FallbackCacheKey,
+        progress: FallbackProgress, provider: any ChordInkAutomaticFallbackRecognizing
+    ) {
+        var next = progress
+        next.evidence.append(ChordInkRecognitionFallbackEvidence(engineIdentifier: provider.identifier,
+            engineVersion: provider.version, candidateTexts: candidates.compactMap(\.displayText),
+            durationMilliseconds: next.providerMilliseconds, outcome: outcome,
+            attemptCount: next.completedAttempts))
+        if !candidates.isEmpty {
+            cacheAndFinishAutomaticFallback(FallbackRead(scores: candidates, evidence: next.evidence,
+                computedMilliseconds: next.computedMilliseconds),
+                primaryRead: primaryRead, key: key, workID: workID, cacheKey: cacheKey)
+            return
+        }
+        next.providerIndex += 1
+        next.completedAttempts = 0
+        next.providerMilliseconds = 0
+        continueAutomaticFallback(primaryRead, request: request, key: key,
+            workID: workID, cacheKey: cacheKey, progress: next)
+    }
+
+    private func cacheAndFinishAutomaticFallback(
+        _ recovered: FallbackRead, primaryRead: IncrementalRead,
+        key: IncrementalKey, workID: UUID, cacheKey: FallbackCacheKey
+    ) {
+        guard incrementalRequest(key: key, workID: workID) != nil else { return }
+        // A real candidate can be reused; successful exhaustion can too. A
+        // terminal engine failure is local diagnostic evidence, never a
+        // negative recognition cache entry for a later source operation.
+        if !recovered.scores.isEmpty || recovered.evidence.allSatisfy({ $0.outcome == .completed }) {
+            fallbackResults[cacheKey] = recovered
+            fallbackInsertionOrder.append(cacheKey)
+            if fallbackInsertionOrder.count > Self.maximumCachedResultCount {
+                fallbackResults[fallbackInsertionOrder.removeFirst()] = nil
+            }
+        }
+        finishAutomaticFallback(recovered, primaryRead: primaryRead, key: key,
+            workID: workID, cacheHit: false)
+    }
+
+    private func finishAutomaticFallback(
+        _ recovered: FallbackRead, primaryRead: IncrementalRead,
+        key: IncrementalKey, workID: UUID, cacheHit: Bool
+    ) {
+        guard incrementalRequest(key: key, workID: workID) != nil else { return }
+        var read = primaryRead
+        // The primary answer and its trust remain unchanged, including an
+        // empty answer. Only actual supported fallback suggestions append.
+        read.result.reviewCandidateScores.append(contentsOf: recovered.scores)
+        read.result.fallbackEvidence = recovered.evidence
+        if !cacheHit {
+            // Replayed technical status retains its original evidence timing;
+            // it must not pretend that those earlier engine calls ran again.
+            read.result.metrics.totalMilliseconds += recovered.computedMilliseconds
+        }
+        read.timing.recognitionFinishedAt = Date()
+        read.timing.cacheHit = primaryRead.timing.cacheHit && cacheHit
+        // Retain the terminal status for this work identity so unchanged
+        // censuses cannot replenish its bounded retry budget indefinitely.
+        finishIncrementalRead(read, key: key, workID: workID)
     }
 
     private func finishIncrementalRead(_ read: IncrementalRead, key: IncrementalKey, workID: UUID) {

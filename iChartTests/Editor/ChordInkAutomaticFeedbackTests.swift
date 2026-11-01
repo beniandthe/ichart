@@ -42,6 +42,89 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         XCTAssertEqual(result.accessibilityLabel, "No supported read. Fix writing")
     }
 
+    func testSupportedScoreAndRawEvidenceUsesAutomaticCandidateFeedbackWithoutPromotingTrust() {
+        let chart = makeChart()
+        for scored in [true, false] {
+            var draft = makeDraft(chart, text: nil, trusted: false)
+            draft.recognitionResult = .init(rawCandidates: scored ? ["unreadable"] : ["unreadable", "D/F#"],
+                glyphCandidates: [], match: nil, confidence: 0,
+                candidateScores: scored ? [.init(text: "D/F#", displayText: "D/F#", confidence: 0.01)] : [])
+            let original = draft
+            XCTAssertFalse(draft.isRenderable)
+            XCTAssertEqual(ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft), "D/F#")
+            XCTAssertEqual(ChordInkAutomaticFeedbackPolicy.recognitionReason(for: draft), .recognitionReview)
+            XCTAssertEqual(draft, original)
+            XCTAssertFalse(ChordInkAutomaticRenderPolicy.isTrusted(draft))
+            XCTAssertNil(draft.selectedText)
+        }
+    }
+
+    func testStructuralReviewRetainsSupportedCandidateAndSourceWithoutReportingAutomaticNoRead() throws {
+        for scored in [true, false] {
+            for ending in [true, false] {
+                var chart = makeChart()
+                let chordSource = PKDrawing(strokes: [stroke(106, width: 22, top: 48, bottom: 80, seed: 1)])
+                let structuralSource = PKDrawing(strokes: [stroke(600, width: 0, top: 0, bottom: 90, seed: 2)])
+                let source = PKDrawing(strokes: chordSource.strokes + structuralSource.strokes)
+                _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation())
+                var draft = makeDraft(chart, text: nil, trusted: false, drawing: chordSource)
+                draft.recognitionResult = .init(rawCandidates: scored ? [] : ["D/F#"], glyphCandidates: [],
+                    match: nil, confidence: 0,
+                    candidateScores: scored ? [.init(text: "D/F#", displayText: "D/F#", confidence: 0.01)] : [])
+                XCTAssertFalse(draft.isRenderable)
+                var state = ChordPreviewState(draftChords: [draft], layoutPageSize: pageSize)
+                if ending {
+                    let start = DraftEndingEndpoint(measureID: chart.measures[0].id, measureIndex: 1,
+                        fraction: 0.1, laneLocation: .init(systemIndex: 0, fraction: 0.1))
+                    let end = DraftEndingEndpoint(measureID: chart.measures[0].id, measureIndex: 1,
+                        fraction: 0.9, laneLocation: .init(systemIndex: 0, fraction: 0.9))
+                    state.draftEndings = [DraftEnding(start: start, end: end, layoutPageSize: pageSize,
+                        sourceStrokeIndices: [1],
+                        sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: structuralSource),
+                        endStyle: .closed)]
+                } else {
+                    state.draftBarlines = [DraftBarline(measureID: chart.measures[0].id, measureIndex: 1,
+                        fraction: 0.9, sourceStrokeIndex: 1,
+                        metrics: .init(height: 90, width: 0, angleDegreesFromVertical: 0,
+                            straightness: 1, laneCoverage: 0.9), kind: .repeatEnd)]
+                }
+                let originalChart = chart
+                let originalState = state
+                let originalSource = source.dataRepresentation()
+                let sourceLayout = layout(chart)
+                let frame = LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
+                let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+                    currentDrawing: source, coordinateSpace: .init(size: frame.size), now: now,
+                    lastInputAt: now.addingTimeInterval(-4), isUsingTool: false,
+                    sourcePageLayout: sourceLayout, sourceChordFrame: frame)
+                XCTAssertNil(attempt.outcome)
+                XCTAssertEqual(attempt.feedback.reasonsByDraftID[draft.id], .recognitionReview)
+                XCTAssertEqual(attempt.feedback.globalReason, ending ? .endingReview : .repeatReview)
+                XCTAssertNil(completion(chart, feedback: attempt.feedback, strokeCount: source.strokes.count))
+                XCTAssertEqual(chart, originalChart)
+                XCTAssertEqual(state, originalState)
+                XCTAssertEqual(source.dataRepresentation(), originalSource)
+            }
+        }
+    }
+
+    func testBlockingStructuralReviewTakesPrecedenceOverAnUnrelatedExhaustedChordReason() {
+        let chart = makeChart()
+        let draft = makeDraft(chart, text: nil, trusted: false)
+        XCTAssertNil(ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft))
+        XCTAssertEqual(ChordInkAutomaticFeedbackPolicy.recognitionReason(for: draft), .noRead)
+        for reason: ChordInkAutomaticRenderReason in [.endingReview, .repeatReview] {
+            let feedback = ChordInkAutomaticRenderFeedback(reasonsByDraftID: [draft.id: .noRead],
+                globalReason: reason)
+            XCTAssertNil(completion(chart, feedback: feedback, strokeCount: 2))
+        }
+        let actualNoRead = completion(chart,
+            feedback: .init(reasonsByDraftID: [draft.id: .noRead]), strokeCount: 1)
+        XCTAssertEqual(actualNoRead?["reason"], .string("automatic_no_read"),
+            "A genuinely exhausted current input still reports friction when structural review does not block it")
+        XCTAssertEqual(actualNoRead?["retained_stroke_count"], .int(1))
+    }
+
     func testStaleOrSourceRefreshFeedbackNeverPresentsTheOldChordAsACurrentRead() throws {
         let chart = makeChart()
         var stale = makeDraft(chart, text: "Bb", trusted: false)
@@ -455,6 +538,15 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         pending: Int = 0, age: TimeInterval?) -> ChordInkAutomaticActivity {
         .init(chartID: chart.id, sourceRevision: 1, hasSourceInk: true, phase: phase,
             pendingTargetCount: pending, inputAt: age.map { now.addingTimeInterval(-$0) })
+    }
+
+    private func completion(_ chart: Chart, feedback: ChordInkAutomaticRenderFeedback,
+        strokeCount: Int) -> IChartTelemetryProperties? {
+        var current = activity(chart, phase: .settled, age: 4)
+        current.feedback = feedback
+        return ChordInkAutomaticRenderTelemetry.completionProperties(isEnabled: true,
+            chart: chart, mode: .automatic, activity: current, now: now, isForeground: true,
+            foregroundObservationDuration: 3.1, remainingStrokeCount: strokeCount, madeProgress: false)
     }
 
     private func makeChart() -> Chart {

@@ -65,7 +65,11 @@ enum ChordInkAutomaticFeedbackPolicy {
         if draft.isStale { return .needsSourceRefresh }
         if draft.targetLifecycle?.stage == .collecting { return .reading }
         if ChordInkAutomaticRenderPolicy.isTrusted(draft) { return .waiting }
-        return draft.isRenderable ? .recognitionReview : .noRead
+        // Automatic mode can recover supported score/raw evidence that the
+        // preview has not selected yet. Report the same eligibility used by
+        // the render attempt without changing confidence or reader trust.
+        return ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft) != nil
+            ? .recognitionReview : .noRead
     }
 
     static func isReadingOverdue(_ activity: ChordInkAutomaticActivity, now: Date) -> Bool {
